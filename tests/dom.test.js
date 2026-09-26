@@ -421,8 +421,8 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
 });
 
 // ---------------------------------------------------------------------------
-// F317 — the authenticated regional bird-list page already carries the current
-// account in the header's My Account accessibility label. The public web key
+// F317 — the authenticated eBird page carries the current account in the
+// header's My Account accessibility label. The public web key
 // is deliberately irrelevant: cookies establish the session, and the parser
 // returns the display name while discarding the username in parentheses.
 // ---------------------------------------------------------------------------
@@ -602,7 +602,7 @@ test('F527 eBird identity replaces stale display-field contents', async () => {
   app.window.close();
 });
 
-test('F317 Fetch my name uses the persistent bird-list WebView session', async () => {
+test('F317 Fetch my name uses the persistent eBird profile WebView session', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   const handlers = {};
@@ -651,12 +651,27 @@ test('F317 Fetch my name uses the persistent bird-list WebView session', async (
       + ' status=' + ((app.$('identityFetchStatus') || {}).textContent || '(banner closed)')
       + ' errors=' + JSON.stringify(app.state.errors));
 
-  assert.match(openOptions.url, /\/region\/US-WA\/bird-list\?yr=cur&rank=lrec/);
+  assert.equal(openOptions.url, 'https://ebird.org/profile',
+    'identity capture opens a regional public bird list instead of the signed-in profile');
   assert.equal(openOptions.persistWebViewData, true,
     'the identity capture explicitly uses the persistent WKWebView cookie jar');
   assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
   assert.equal(removals, 4,
     'direct plugin handles are retained and removed after identity capture');
+  app.window.close();
+});
+
+test('F567 identity capture reads the direct signed-in profile page', async () => {
+  const app = await boot();
+  const profile = '<html><body><main><h1>Sample Observer</h1>'
+    + '<p>Your eBird Profile</p></main></body></html>';
+  const identity = app.window.__app.parseEbirdProfileIdentity(profile);
+  assert.equal(identity.status, 'ok');
+  assert.equal(identity.displayName, 'Sample Observer');
+  assert.equal(identity.evidence, 'profile-heading');
+  const inject = app.window.__app.buildIdentityInject(0);
+  assert.match(inject, /parseEbirdProfileIdentity\(document\)/,
+    'the native WebView injection still depends on the collapsed account menu');
   app.window.close();
 });
 
@@ -3646,15 +3661,13 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
   const rows = [...app.document.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
   assert.ok(rows.length && rows.length <= 100,
     'the board renders and is capped at the Top 100 the report prints');
-  assert.equal(rows[0].querySelector('.rk').textContent.trim(), '1');
-  assert.match(rows[0].querySelector('.who').textContent, /sally frandsen/);
-  assert.deepEqual([...rows[0].querySelectorAll('.n')].map((e) => e.textContent.trim()),
-    ['337'],
-    'rank/birder/species only — checklists is effort, not standing, and cost a ' +
-    'quarter of the width on a phone');
-  assert.ok(app.document.querySelector('.rankhdr'),
-    'the column is headed, so the number is not ambiguous');
-  const named = rows[0].querySelector('.who a');
+  assert.equal(rows[0].querySelector('.hsnum').textContent.trim(), '1');
+  assert.match(rows[0].querySelector('.ntext').textContent, /sally frandsen/);
+  assert.equal(rows[0].querySelector('.hsdist').textContent.replace(/\s+/g, ''), '337sp',
+    'species standing is not in the shared card metric column');
+  assert.equal(rows[0].querySelectorAll('.hsdist').length, 1,
+    'checklists must not return as a second competing numeric column');
+  const named = rows[0].querySelector('.ntext a');
   assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
     'each birder deep-links to their own row on the board, as the report does');
   app.window.close();
@@ -3735,7 +3748,7 @@ test('rankings: your own row on the board is highlighted', async () => {
   const me = app.document.querySelectorAll('.ranktable .rankme');
   assert.equal(me.length, 1, 'the birder you are gets exactly one highlighted row');
   assert.match(me[0].textContent, /sally frandsen/);
-  assert.equal(me[0].querySelector('.rk').textContent.trim(), '1');
+  assert.equal(me[0].querySelector('.hsnum').textContent.trim(), '1');
   app.window.close();
 });
 
@@ -31605,8 +31618,8 @@ test('the top 100 board names the newest bird, not just its banding code', async
 
   // The code stays: it is what the rest of the app prints beside a name, and
   // it is what you quote to another birder.
-  const codes = last.map((n) => (n.querySelector('small') || {}).textContent || '');
-  assert.ok(codes.every((c) => /\(/.test(c)),
+  const codes = last.map((n) => (n.querySelector('.sub') || {}).textContent || '');
+  assert.ok(codes.every((c) => /^\([A-Z]{4}\)\s+·/.test(c)),
     `the banding code rides along in a small tail: ${codes.join(' | ')}`);
 
   assert.doesNotMatch(txt[0], /\+\s+Common/,
@@ -31614,17 +31627,132 @@ test('the top 100 board names the newest bird, not just its banding code', async
   // F549: the newest bird owns the full width beneath the numeric row rather
   // than wrapping inside the birder-name column.
   const st = app.window.getComputedStyle(last[0]);
-  assert.equal(st.whiteSpace, 'nowrap');
   assert.ok(last[0].parentElement.classList.contains('rankrow'),
     'the newest bird is still trapped inside the birder-name column');
   assert.match(HTML,
     /\.rankrow \.ranklast \{ grid-column: 1 \/ -1; grid-row: 2; display: flex;/,
     'the newest bird does not span the available row width');
+  assert.equal(st.whiteSpace, 'normal',
+    'the full species line still truncates instead of wrapping');
   const thumb = last[0].querySelector('.thumb');
   assert.ok(thumb, 'the newest-bird image is missing');
   assert.match(HTML,
     /\.rankrow \.ranklast \.thumb \{[\s\S]{0,180}width: calc\(36px \* var\(--s\)\)/,
     'the newest-bird image is still the old 30px-or-smaller badge');
+  app.window.close();
+});
+
+test('F563 Top 100 shares movement history and wraps NEW after the species name', async () => {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const day = (d) => [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+  const recent = `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+    'Sep', 'Oct', 'Nov', 'Dec'][now.getMonth()]}. ${now.getDate()}, ${now.getFullYear()}`;
+  const longBird = 'Black-and-white-casqued Hornbill with a deliberately long species name';
+  const oldBoard = [{
+    d: day(yesterday),
+    r: { 'Up Birder': 12, 'Down Birder': 2 },
+  }];
+  const app = await boot({
+    storage: {
+      'bcp:2:bc_board_v1:US-WA': JSON.stringify(oldBoard),
+    },
+  });
+  const A = app.window.__app, doc = app.window.document;
+  assert.equal(A.bcShared('bc_board_v1:US-WA'), true,
+    'public regional boards are still isolated by account profile');
+  assert.deepEqual(
+    JSON.parse(app.window.localStorage.getItem('bc_board_v1:US-WA')),
+    oldBoard,
+    'a profile-local board snapshot was not recovered into shared history',
+  );
+  app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
+    JSON.stringify({ t: Date.now(), rows: [{ name: longBird, code: 'blcaho1' }] }));
+  if (A.resetRankCodeIndex) A.resetRankCodeIndex();
+
+  A.renderRankings({
+    me: null,
+    rows: [
+      { rank: 7, name: 'Up Birder', species: 350,
+        recent: `${longBird} (${recent})` },
+      { rank: 5, name: 'Down Birder', species: 349,
+        recent: `Pectoral Sandpiper (${recent})` },
+    ],
+  }, 'US-WA', 'https://ebird.org/top100', 'Washington');
+
+  const rows = [...doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
+  assert.match(rows[0].querySelector('.mv').textContent, /▲5/,
+    'an improved position lost its up arrow');
+  assert.match(rows[1].querySelector('.mv').textContent, /▼3/,
+    'a lower position lost its down arrow');
+  const birdRow = rows[0].querySelector('.ranklast .name');
+  const bird = birdRow.querySelector('.ntext');
+  const link = bird.querySelector('a');
+  const mark = birdRow.querySelector('.ranknew');
+  assert.equal(bird.textContent.includes(longBird), true,
+    'the complete newest species name is absent');
+  assert.ok(link && mark && (link.compareDocumentPosition(mark)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
+  'NEW must follow the species name in DOM order: ' + birdRow.outerHTML);
+  assert.match(CARDS_SPECIES,
+    /\.obs\.card-sm \.ntext \{[^}]*overflow-wrap: anywhere;/,
+    'the shared newest-species card is still configured to truncate');
+  assert.doesNotMatch(HTML,
+    /\.rankrow \.ranklast[^}]*text-overflow: ellipsis;/,
+    'the species link still replaces its ending with an ellipsis');
+  app.window.close();
+});
+
+test('F564 Top 100 offers identity recovery instead of a removed Settings field', async () => {
+  const app = await boot({ sample: false });
+  app.window.__app.renderRankings({
+    me: null,
+    checkedToRank: 500,
+    rows: [{ rank: 1, name: 'Published Birder', species: 400 }],
+  }, 'US-WA', 'https://ebird.org/top100', '');
+  const card = app.document.querySelector('.rankcard');
+  assert.ok(card.querySelector('#rankFetchNameBtn'),
+    'the empty standing card does not offer the supported identity fetch');
+  assert.ok(card.querySelector('#rankImportDataBtn'),
+    'a private account has no import route from the standing card');
+  assert.doesNotMatch(card.textContent, /set your exact eBird display name in Settings/i,
+    'the card still points at the identity field removed by F556');
+  app.window.close();
+});
+
+test('F566 a private account gets an explicitly estimated unpublished rank', async () => {
+  const app = await boot({
+    sample: false,
+    storage: {
+      ebird_display_name: 'Private Birder',
+      ebird_seen_meta: JSON.stringify({
+        source: 'csv',
+        year: new Date().getFullYear(),
+        yearCount: 353,
+        yearCountable: 353,
+      }),
+    },
+  });
+  app.window.__app.renderRankings({
+    me: null,
+    checkedToRank: 500,
+    rows: [
+      { rank: 1, name: 'Published One', species: 360 },
+      { rank: 2, name: 'Published Two', species: 350 },
+      { rank: 3, name: 'Published Three', species: 340 },
+    ],
+  }, 'US-WA', 'https://ebird.org/top100', 'Private Birder');
+  const card = app.document.querySelector('.rankcard');
+  assert.match(card.querySelector('.rankbig').textContent, /~#2/,
+    '353 species should place between the 360- and 350-species published rows');
+  assert.match(card.textContent, /Estimated unpublished rank/i);
+  assert.match(card.textContent, /estimate, not an official eBird rank/i,
+    'an inferred private-account position is presented as official');
   app.window.close();
 });
 
@@ -34122,16 +34250,16 @@ test('F262: a birder name is sized like every other name in a list', () => {
   const n = /\.rankrow \.n \{([^}]*)\}/.exec(HTML);
   assert.match(n[1], /--rf/, 'the species count still scales with the row');
 
-  // F549 reverses F262's hanging indent by moving the bird out of the narrow
-  // name cell altogether. It must now own a second full-width, non-wrapping
-  // grid row; the birder-name sizing rule above remains unchanged.
+  // F549 moves the bird out of the narrow name cell altogether. It still owns
+  // the second full-width grid row, while F563 lets that row wrap rather than
+  // losing a long species name behind an ellipsis.
   const rl = /\.rankrow \.ranklast \{([\s\S]*?)\}/.exec(HTML);
   assert.ok(rl, '.rankrow .ranklast still exists');
   assert.match(rl[1], /grid-column: 1 \/ -1/,
     'the bird details are still constrained to the birder-name cell');
   assert.match(rl[1], /grid-row: 2/);
-  assert.match(rl[1], /white-space: nowrap/,
-    'the full-width bird details wrap despite owning a separate row');
+  assert.match(rl[1], /white-space: normal/,
+    'the full-width bird details still truncate instead of wrapping');
 });
 
 

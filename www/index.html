@@ -2252,14 +2252,15 @@
        image consumed the first line and the bird wrapped in the unused space
        beneath the movement/species columns. */
     .rankrow .ranklast { grid-column: 1 / -1; grid-row: 2; display: flex;
-                         align-items: center; gap: 7px; min-width: 0;
+                         align-items: flex-start; gap: 7px; min-width: 0;
                          margin-top: 4px; font-size: calc(13px * var(--s) * var(--rfc));
                          font-weight: 700; color: var(--muted);
-                         white-space: nowrap; }
-    .rankrow .rankbird { display: flex; align-items: baseline; gap: 6px;
-                         min-width: 0; flex: 1 1 auto; white-space: nowrap; }
-    .rankrow .rankbird > a { min-width: 0; overflow: hidden;
-                             text-overflow: ellipsis; white-space: nowrap; }
+                         white-space: normal; }
+    .rankrow .rankbird { display: block; min-width: 0; flex: 1 1 auto;
+                         white-space: normal; overflow-wrap: anywhere; }
+    .rankrow .rankbirdname, .rankrow .rankbirdname > a {
+      min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+    .rankrow .rankbird > small { margin-left: 6px; }
     .rankrow .ranklast small { font-weight: 600; opacity: .8;
                                white-space: nowrap; }
     .rankrow .ranklast a { color: var(--accent); text-decoration: none;
@@ -2303,6 +2304,24 @@
        prints the date in words and the mark carries an aria-label, so nothing
        here depends on seeing — or telling apart — an emoji. */
     .rankrow .ranknew { font-size: calc(13px * var(--s)); }
+    .rankrow.hscard-md {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 2px 14px; padding: 12px 0; border-radius: 0;
+    }
+    .rankrow.hscard-md > .name > .ntext {
+      font-size: calc(17px * var(--s)); line-height: 1.2;
+    }
+    .rankrow.hscard-md > .name > .hsdist { min-width: 3ch; }
+    .rankrow.hscard-md > .meta { min-height: 0; }
+    .rankrow.hscard-md > .meta:empty { display: none; }
+    .rankrow > .ranklast {
+      grid-column: 1 / -1; display: block; margin: 6px 0 0;
+      min-width: 0; white-space: normal;
+    }
+    .rankrow > .ranklast.obs.card-sm .thumb {
+      width: calc(56px * var(--s)); height: calc(56px * var(--s));
+    }
+    .rankrow > .ranklast .ranknew { margin-left: 5px; }
     .ranknewbtn { -webkit-appearance: none; appearance: none; cursor: pointer;
       font: inherit; font-size: calc(13px * var(--s)); font-weight: 700;
       padding: 8px 12px; min-height: 40px; border-radius: var(--btn-radius-pill);
@@ -3528,6 +3547,7 @@
         'bc_ref:',                  // eBird reference/taxonomy cache
         'ebird_birdinfo_v2',        // species blurbs and photos
         'bc_ckl2:',                 // checklist bodies: public documents
+        'bc_board_v1:',             // public regional Top 100 snapshots
         //   ⚠️ F259. This said `bc_ckl:` — the namespace F247 RETIRED. Prefix
         //   matching meant `bc_ckl2:…` did not start with `bc_ckl:`, so from
         //   F247 onward the checklist cache silently stopped being shared and
@@ -3542,6 +3562,43 @@
         'bc_theme'                  // a look, not a list - shared like text size
       ];
       var _rawLS = window.localStorage;
+      function migrateSharedBoardHistory() {
+        var merged = {};
+        try {
+          for (var i = 0; i < _rawLS.length; i++) {
+            var storageKey = _rawLS.key(i), appKey = '';
+            if (storageKey && storageKey.indexOf('bc_board_v1:') === 0) {
+              appKey = storageKey;
+            } else {
+              var match = /^bcp:[^:]+:(bc_board_v1:.+)$/.exec(storageKey || '');
+              if (match) appKey = match[1];
+            }
+            if (!appKey) continue;
+            var rows;
+            try { rows = JSON.parse(_rawLS.getItem(storageKey) || '[]'); }
+            catch (e) { rows = []; }
+            if (!Array.isArray(rows)) continue;
+            var byDate = merged[appKey] || (merged[appKey] = {});
+            rows.forEach(function (row) {
+              if (!row || !row.d || !row.r || typeof row.r !== 'object') return;
+              var score = Object.keys(row.r).length
+                + (storageKey === appKey ? 0.5 : 0);
+              if (!byDate[row.d] || score > byDate[row.d].score) {
+                byDate[row.d] = { score: score, row: row };
+              }
+            });
+          }
+          Object.keys(merged).forEach(function (appKey) {
+            var rows = Object.keys(merged[appKey]).sort().map(function (day) {
+              return merged[appKey][day].row;
+            });
+            if (rows.length) _rawLS.setItem(appKey, JSON.stringify(rows.slice(-40)));
+          });
+        } catch (e) {
+          try { console.warn('Could not merge shared Top 100 history', e); } catch (_) {}
+        }
+      }
+      migrateSharedBoardHistory();
       var WEB_SESSION_BLOCK_KEY = 'bc_ebird_web_session_untrusted';
       var _webSessionClearing = false;
       var _webSessionReady = _rawLS.getItem(WEB_SESSION_BLOCK_KEY) !== '1';
@@ -3694,7 +3751,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.1';
+      var APP_VERSION = '1.130.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4576,6 +4633,14 @@
       function getObsRegion() { var p = getReport(); return p.isRarityTracker ? 'US' : getRegion(); }
       function getSeen() { try { return JSON.parse(localStorage.getItem(K.seen) || '{}'); } catch (e) { return {}; } }
       function getSeenMeta() { try { return JSON.parse(localStorage.getItem(K.seenMeta) || 'null'); } catch (e) { return null; } }
+      function currentYearSpeciesCount() {
+        try {
+          var meta = getSeenMeta();
+          return meta && meta.source !== 'seed'
+            ? +(meta.yearCountable != null ? meta.yearCountable : meta.yearCount || 0)
+            : (reportYearList() || []).length;
+        } catch (e) { return 0; }
+      }
       function getField() { return localStorage.getItem(K.field) || 'sciName'; }
       function usesBundledSeed() {
         var meta = getSeenMeta();
@@ -22241,8 +22306,8 @@
           ? ' Current source: signed-in eBird bird-list account menu.'
           : '';
         hint.textContent = 'Used to find your row and your own checklists. '
-          + 'Bird Chaser reads it from the signed-in account menu on the same '
-          + 'eBird bird-list page it already uses. The API key and public web '
+          + 'Bird Chaser reads it from your signed-in eBird profile page. '
+          + 'The API key and public web '
           + 'key do not identify the account. This identity is read-only and refreshes from eBird.'
           + suffix;
       }
@@ -22774,8 +22839,8 @@
             el.hidden = false;
             el.innerHTML = '<div class="kbtitle">👤 Fetch your eBird display name</div>'
               + '<p>The API key and eBird web key do not identify an account. '
-              + 'Bird Chaser can read the name from the signed-in account menu '
-              + 'on the same eBird bird-list page it already uses.</p>'
+              + 'Bird Chaser can read the name directly from your signed-in '
+              + 'eBird profile page.</p>'
               + '<div class="keyrow"><button id="nameFetchBtn" type="button">'
               + 'Fetch my name</button></div>'
               + '<p id="identityFetchStatus" class="hint"></p>';
@@ -22918,15 +22983,14 @@
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:!!(onPage&&R&&R.valid),data:R}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
-      function buildIdentityInject(expectRegion, attempt) {
+      function buildIdentityInject(attempt) {
         return '(function(){try{if(!window.mobileApp)return;' +
-          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
-          'var want=' + JSON.stringify(String(expectRegion || '').toLowerCase()) + ';' +
           'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
           'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
-          'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
+          'var onPage=/(?:^|\\/)profile(?:\\/|$)/.test(path);' +
           parseEbirdAccountIdentity.toString() + ';' +
-          'var I=parseEbirdAccountIdentity(H);' +
+          parseEbirdProfileIdentity.toString() + ';' +
+          'var I=parseEbirdProfileIdentity(document);' +
           'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
           'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
@@ -22955,9 +23019,9 @@
         }
         return captureEbird({
           kind: 'identity',
-          url: firstYearUrl(region),
+          url: 'https://ebird.org/profile',
           alive: current,
-          buildInject: function (attempt) { return buildIdentityInject(region, attempt); },
+          buildInject: function (attempt) { return buildIdentityInject(attempt); },
           onStatus: onStatus
         }).then(function (identity) {
           if (!current()) return { applied: false, status: 'superseded' };
@@ -23720,13 +23784,15 @@
     var fresh = p.date && rankTickIsFresh(p.date);
     var mark = fresh
       ? '<span class="ranknew" role="img" aria-label="added in the last '
-        + RANK_FRESH_DAYS + ' days">\uD83C\uDD95</span> '
+        + RANK_FRESH_DAYS + ' days">\uD83C\uDD95</span>'
       : '';
-    return '<span class="ranklast' + (fresh ? ' isnew' : '')
-      + '" title="' + esc('newest: ' + p.species
-      + (p.date ? ' \u00b7 ' + p.date : '')) + '">' + mark + pic
-      + '<span class="rankbird">' + inner
-      + (tail ? '<small>' + esc(tail) + '</small>' : '') + '</span></span>';
+    return SpeciesCards.list('small', [SpeciesCards.small({
+      cls: 'rankrecentbird' + (fresh ? ' isnew' : ''),
+      icon: pic,
+      name: inner,
+      tags: mark,
+      sub: tail ? esc(tail) : ''
+    })], 'ranklast');
   }
   // F262. "the last week", one definition, used by the mark and the filter —
   // two copies of a threshold is how F259's namespaces drifted.
@@ -23736,8 +23802,9 @@
   // 100 rows tomorrow is the "feature looks broken" shape F211 documents.
   var _rankNewOnly = false;
   function rankTickIsFresh(day, nowMs) {
-    var t = Date.parse(String(day || '') + 'T00:00:00');
-    if (!isFinite(t)) return false;
+    var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
+    if (!parts) return false;
+    var t = Date.UTC(+parts[1], +parts[2] - 1, +parts[3]);
     var n = new Date(nowMs || Date.now());
     var today = Date.UTC(n.getFullYear(), n.getMonth(), n.getDate());
     var age = (today - t) / 86400000;
@@ -23872,6 +23939,22 @@
           '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="3" fill="currentColor"/></svg>';
       }
 
+      function unpublishedRankEstimate(rows, species, checkedToRank) {
+        species = Number(species);
+        var published = (rows || []).filter(function (row) {
+          return row && isFinite(Number(row.species));
+        });
+        if (!published.length || !isFinite(species) || species <= 0) return null;
+        var checked = Number(checkedToRank) || published.length;
+        if (species < Number(published[published.length - 1].species)) {
+          return { below: checked };
+        }
+        var ahead = published.filter(function (row) {
+          return Number(row.species) > species;
+        }).length;
+        return { rank: ahead + 1 };
+      }
+
       function loadRankings() {
         // F152: the SCOPE, not the report's primary board. Everything
         // downstream — the URL, the cache key, the region check, the rank
@@ -23938,14 +24021,43 @@
             '</div>' +
             (me.recent ? '<div class="rankrecent"><span>Most recent addition</span><b>' + esc(me.recent) + '</b></div>' : '');
         } else {
+          var ownSpecies = currentYearSpeciesCount();
+          var estimate = unpublishedRankEstimate(rows, ownSpecies, data.checkedToRank);
+          var rankText = estimate
+            ? (estimate.rank ? '~#' + rankNum(estimate.rank) : '>' + rankNum(estimate.below))
+            : '?';
+          var reason = estimate
+            ? '<b>Estimated unpublished rank</b><span>Based on your imported '
+              + esc(rankNum(ownSpecies)) + '-species current-year total against the published rows. '
+              + 'Private accounts are not listed by name, so this is an estimate, not an official eBird rank.</span>'
+            : '<b>Fetch your eBird identity</b><span>Top 100 needs your account name to match a published row. '
+              + 'Import eBird data if the account is private or you also need your current-year species total.</span>';
           card.innerHTML =
-            '<div class="rankyou"><div class="rankbig dim">—</div>' +
+            '<div class="rankyou"><div class="rankbig' + (estimate ? '' : ' dim') + '">' + rankText + '</div>' +
             '<div class="rankwho"><b>' + esc(label) + '</b><span>' + year + '</span></div></div>' +
-            '<div class="rankrecent"><b>' + esc(name || 'You') + '</b><span>not in the top ' +
-            esc(rankNum(data.checkedToRank || rows.length)) +
-            ' — set your exact eBird display name in Settings.</span></div>';
+            '<div class="rankrecent">' + reason
+            + '<div class="row"><button type="button" class="secondary" id="rankFetchNameBtn">Fetch my name</button>'
+            + '<button type="button" class="secondary" id="rankImportDataBtn">Import eBird data\u2026</button></div>'
+            + '<span class="hint" id="rankIdentityStatus"></span></div>';
         }
         (sum || out).appendChild(card);
+        var rankFetch = card.querySelector('#rankFetchNameBtn');
+        if (rankFetch) rankFetch.addEventListener('click', function () {
+          var status = card.querySelector('#rankIdentityStatus');
+          rankFetch.disabled = true;
+          if (status) status.textContent = ' Opening your signed-in eBird profile\u2026';
+          fetchIdentityFromBirdList(function (message) {
+            if (status) status.textContent = ' ' + message;
+          }).then(function (result) {
+            if (result && result.applied) loadRankings();
+            else if (status) status.textContent = ' eBird did not return a usable account name.';
+          }).catch(function (e) {
+            if (status) status.textContent = ' '
+              + ((e && e.message) || 'Could not read the signed-in eBird account.');
+          }).finally(function () { rankFetch.disabled = false; });
+        });
+        var rankImport = card.querySelector('#rankImportDataBtn');
+        if (rankImport) rankImport.addEventListener('click', openCsvSettings);
         if (me) {
           var slot = card.querySelector('#rankOf');
           ebirderCount(region).then(function (n) {
@@ -23980,7 +24092,7 @@
             + 'in the app is re-scored by picking a county here.';
           out.appendChild(scopeNote);
         }
-        var tbl = document.createElement('div'); tbl.className = 'ranktable';
+        var tbl = document.createElement('div');
         // F262. THE FILTER, above the table it filters.
         //
         // Owner: *"add a new icon button for any updates in the last week."*
@@ -24013,9 +24125,7 @@
           })
           : 'No new ticks on the board in the last ' + RANK_FRESH_DAYS + ' days.';
         out.appendChild(bar);
-        var h = '<div class="rankrow rankhdr"><span class="rk">#</span>' +
-            '<span class="who">Birder</span><span class="mv"></span>' +
-            '<span class="n">Species</span></div>';
+        var cards = [];
           // F125: record the board, then read the movement back out of it.
           var bhist = boardHistRecord(region, rows);
           var bnow = Date.now();
@@ -24029,15 +24139,19 @@
           // (their <h5> id is the display name), so the app does too.
           var who = board ? extA(board + '#' + encodeURIComponent(r.name), r.name) : esc(r.name);
           var mine = !!(me && r.name === me.name);
-          h += '<div class="rankrow' + (mine ? ' rankme' : '') + '">' +
-            '<span class="rk">' + esc(r.rank) + '</span>' +
-            '<span class="who"><span class="wholine">' + who
-              + (mine ? ' <span class="star">you</span>' : '') + '</span></span>' +
-              boardMoveHTML(boardDeltasFor(bhist, r.name, bnow)) +
-              '<span class="n">' + esc(rankNum(r.species)) + '</span>'
-              + rankLastNewHTML(r) + '</div>';
+          cards.push(HotspotCards.medium({
+            cls: 'rankrow' + (mine ? ' rankme' : ''),
+            num: esc(r.rank),
+            tone: '#0072B2',
+            name: '<span class="wholine">' + who
+              + (mine ? ' <span class="star">you</span>' : '') + '</span>',
+            distance: r.species,
+            distanceLabel: 'sp',
+            sub: boardMoveHTML(boardDeltasFor(bhist, r.name, bnow)),
+            below: rankLastNewHTML(r)
+          }));
         });
-        tbl.innerHTML = h;
+        tbl.innerHTML = HotspotCards.list('medium', cards, 'ranktable rankcards');
         out.appendChild(tbl);
         // F246. The icons are inert without this, and that failure mode is
         // already on the record: the trip planner shipped a whole section of
@@ -29192,8 +29306,8 @@
       // this parser enforces. All 376 ordinary rows had date, checklist,
       // observer, and location text; 116 were private locations with no locId.
       //
-      // F317, measured in the owner's authenticated browser 2026-09-04: this
-      // SAME page carries the signed-in account in the header's My Account
+      // F317, measured in the owner's authenticated browser 2026-09-04: the
+      // signed-in account can be carried in the header's My Account
       // accessibility label:
       //
       //     Birder <display name> (<username>)
@@ -29273,6 +29387,36 @@
         }
         out.status = sawBirder ? 'malformed' : 'missing';
         return out;
+      }
+
+      function parseEbirdProfileIdentity(input) {
+        var account = parseEbirdAccountIdentity(input);
+        if (account.status !== 'missing') return account;
+        var doc = input && typeof input.querySelectorAll === 'function' ? input : null;
+        if (!doc) {
+          try { doc = new DOMParser().parseFromString(String(input || ''), 'text/html'); }
+          catch (e) { return account; }
+        }
+        if (!doc) return account;
+        var selectors = [
+          '[data-testid="profile-displayName"]',
+          '[data-testid="profile-name"]',
+          '.ProfileHeader-name',
+          '.Profile-heading-name',
+          'main h1'
+        ];
+        for (var s = 0; s < selectors.length; s++) {
+          var nodes = doc.querySelectorAll(selectors[s]);
+          for (var i = 0; i < nodes.length; i++) {
+            var name = String(nodes[i].textContent || '').replace(/\s+/g, ' ').trim();
+            if (!name || /^(?:eBird|My eBird|Profile|Your eBird Profile|Sign in)$/i.test(name)) continue;
+            if (name.toLowerCase() === 'anonymous ebirder') {
+              return { status: 'anonymous', displayName: '', evidence: 'profile-heading' };
+            }
+            return { status: 'ok', displayName: name, evidence: 'profile-heading' };
+          }
+        }
+        return account;
       }
 
       function parseFirstYearBirdList(html) {
@@ -33664,13 +33808,7 @@
                     + (of ? ' of ' + rankNum(of) + ' eBirders' : '')
                     + ' in ' + rankRegionName(getRegion()));
         }
-        var year = 0;
-        try {
-          var meta = getSeenMeta();
-          year = meta && meta.source !== 'seed'
-            ? +(meta.yearCountable != null ? meta.yearCountable : meta.yearCount || 0)
-            : (reportYearList() || []).length;
-        } catch (e) { year = 0; }
+        var year = currentYearSpeciesCount();
         if (year) {
           bits.push(year + 'sp');
           said.push(year + ' species this year');
@@ -37302,6 +37440,7 @@
         buildIdentityInject: buildIdentityInject, ebirdSignOut: ebirdSignOut,
         rankCachePut: rankCachePut, RANK_CACHE_KEY: RANK_CACHE_KEY,
         parseEbirdAccountIdentity: parseEbirdAccountIdentity,
+        parseEbirdProfileIdentity: parseEbirdProfileIdentity,
         parseFirstYearBirdList: parseFirstYearBirdList,
         firstYearKey: firstYearKey, firstYearUrl: firstYearUrl,
         firstYearWrite: firstYearWrite, firstYearFetch: firstYearFetch,
