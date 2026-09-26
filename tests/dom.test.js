@@ -675,6 +675,38 @@ test('F567 identity capture reads the direct signed-in profile page', async () =
   app.window.close();
 });
 
+test('F569 identity injection reaches the native WKWebView bridge without window.mobileApp', async () => {
+  const app = await boot();
+  const profile = new JSDOM(
+    '<html><body><main><h1>Birder Wyatt</h1></main></body></html>',
+    { runScripts: 'outside-only', url: 'https://ebird.org/profile' }
+  );
+  let posted = null;
+  profile.window.webkit = {
+    messageHandlers: {
+      messageHandler: {
+        postMessage(message) { posted = message; },
+      },
+    },
+  };
+  profile.window.eval(app.window.__app.buildIdentityInject(0));
+  assert.deepEqual(JSON.parse(JSON.stringify(posted)), {
+    detail: {
+      __ebird: true,
+      kind: 'identity',
+      needsLogin: false,
+      ok: true,
+      data: {
+        status: 'ok',
+        displayName: 'Birder Wyatt',
+        evidence: 'profile-heading',
+      },
+    },
+  });
+  profile.window.close();
+  app.window.close();
+});
+
 test('F302 complete stale chase views retain TOP PATCH eligibility', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -2123,7 +2155,7 @@ test('a zero-baseline surge keeps "new here" accessible, never an infinite ratio
   assert.match(row.querySelector('.surgebadge').getAttribute('aria-label'), /new here/,
     'the compact category tag no longer exposes the retained reason');
   assert.doesNotMatch(txt, /Infinity|NaN/, 'and never invents a number');
-  assert.doesNotMatch(row.querySelector(':scope > .name').textContent, /🆕/,
+  assert.doesNotMatch(row.querySelector(':scope > .name').textContent, /\uD83C\uDD95/u,
     'the compact headline still carries a second state outside the category tag');
   assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(), 'CROWD',
     'the category badge did not move to the explanation row');
@@ -3047,7 +3079,8 @@ test('rankings: the board is scoped to the active report and includes the Top 10
   assert.ok(top100.length, 'opening the section loads a leaderboard');
   assert.ok(top100.every((u) => /US-WA/.test(u)),
     'a Washington report must load ONLY the Washington board');
-  assert.match(app.$('rankRegionLabel').textContent, /Washington/,
+  assert.match(app.$('rankBtn').closest('section').querySelector('h2').textContent,
+    /Leaderboard - Washington \d{4}/,
     'the heading names the region, not the raw region code');
   // F152 brings a scope control back — for COUNTY boards of this same report.
   // The invariant that removing it protected is what matters, and it is now
@@ -3061,8 +3094,8 @@ test('rankings: the board is scoped to the active report and includes the Top 10
     'and opens on the report\'s own board, not a county');
   const src = HTML.slice(HTML.indexOf('function renderRankings('),
     HTML.indexOf('function loadLastNew('));
-  assert.match(src, /Top ' \+ TOP_BOARD_N \+ ' eBirders/,
-    'the merged section labels its board from the shared board size');
+  assert.match(HTML, /return 'Leaderboard - ' \+ scope\.label \+ ' ' \+ new Date\(\)\.getFullYear\(\)/,
+    'the merged section heading is not derived from its current board scope');
   assert.match(src, /slice\(0, TOP_BOARD_N\)/,
     'the board is capped at TOP_BOARD_N, like rankings.TOP_BOARD_N in the report');
   assert.match(HTML, /var TOP_BOARD_N = 100;/, 'and that size is eBird\'s published top 100');
@@ -3077,7 +3110,8 @@ test('rankings follow the region: a Lower 48 report loads the Lower 48 board', a
   assert.ok(top100.length, 'the rarity tracker still has a leaderboard');
   assert.ok(top100.every((u) => /lower48/.test(u)),
     'switching the report re-scopes the board — no US-WA rows under a Lower 48 title');
-  assert.match(app.$('rankRegionLabel').textContent, /Lower 48/);
+  assert.match(app.$('rankBtn').closest('section').querySelector('h2').textContent,
+    /Leaderboard - Lower 48 \d{4}/);
   app.window.close();
 });
 
@@ -3635,11 +3669,10 @@ test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () 
 });
 
 
-test('rankings: your standing is painted ONCE, above an aligned board', async () => {
-  // Through v1.0.13 the section rendered the same four numbers twice - a
-  // summary list AND a big-number header - then a run-on "198 species / 337
-  // checklists / recent: ..." line per birder. That duplication is the
-  // readability bug, so the guard is structural rather than cosmetic.
+test('rankings: history is compact above the official Top 100 order', async () => {
+  // The summary carries the reader's current rank and history. The public
+  // board must stay in eBird's official order rather than prepending an
+  // outside-Top-100 YOU row that duplicates the summary.
   // The identity must be set explicitly now. getDisplayName() no longer defaults
   // to any name, because that default was the author's and it is what the
   // leaderboard lookup keys on — a fresh install used to show his rank as yours.
@@ -3651,18 +3684,23 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
   app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(app.document.querySelectorAll('.rankcard').length, 1,
-    'exactly one standing card - your rank is not printed twice');
-  const bigs = [...app.document.querySelectorAll('.rankbig, .bignum')]
-    .map((e) => e.textContent).filter((t) => /#/.test(t));
-  assert.deepEqual(bigs, ['#211'], 'your rank appears once, as one big number');
-  assert.equal(app.document.querySelectorAll('.rankcard .rankstats > div').length, 2,
-    'species and checklists are labelled stats, not a run-on sentence');
+    'exactly one compact history card is shown');
+  assert.equal(app.document.querySelector('.rankcard .rankyou'), null,
+    'the duplicate rank/name/year header above the divider is removed');
+  assert.equal(app.document.querySelector('.rankcard .rankstats'), null,
+    'the duplicate species/checklist totals above the divider are removed');
+  assert.equal(app.document.querySelector('.rankhistorycard > .rankbig').textContent, '#211',
+    'the current rank remains as the large left column');
+  assert.ok(app.document.querySelector('.rankcard > .ranktrend'),
+    'the useful standing history remains');
 
   const rows = [...app.document.querySelectorAll('.ranktable .rankrow:not(.rankhdr)')];
-  assert.ok(rows.length && rows.length <= 100,
-    'the board renders and is capped at the Top 100 the report prints');
+  assert.equal(rows.length, 3,
+    'the board renders exactly the fixture public rows, with no extra pinned user');
   assert.equal(rows[0].querySelector('.hsnum').textContent.trim(), '1');
   assert.match(rows[0].querySelector('.ntext').textContent, /sally frandsen/);
+  assert.equal(app.document.querySelector('.ranktable .rankme'), null,
+    'an outside-Top-100 YOU row is not prepended to the public board');
   assert.equal(rows[0].querySelector('.hsdist').textContent.replace(/\s+/g, ''), '337sp',
     'species standing is not in the shared card metric column');
   assert.equal(rows[0].querySelectorAll('.hsdist').length, 1,
@@ -3670,6 +3708,21 @@ test('rankings: your standing is painted ONCE, above an aligned board', async ()
   const named = rows[0].querySelector('.ntext a');
   assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
     'each birder deep-links to their own row on the board, as the report does');
+  const headingEl = app.$('rankBtn').closest('section').querySelector('h2');
+  const heading = [...headingEl.childNodes]
+    .filter((node) => node.nodeType === 3)
+    .map((node) => node.textContent).join(' ').trim();
+  assert.equal(heading, 'Leaderboard - Washington ' + new Date().getFullYear(),
+    'the heading names the selected leaderboard region and year once');
+  assert.equal(app.document.querySelector('.rankcap'), null,
+    'the duplicate Top 100 eBirders region/year caption is removed');
+  assert.match(HTML,
+    /id:\s*'rankNewOnly',\s*icon:\s*'NEW',\s*iconCls:\s*'newflag',\s*label:\s*'Recent'/,
+    'the filter uses the shared textual NEW tag with the concise Recent label');
+  assert.doesNotMatch(HTML, /id:\s*'rankNewOnly',\s*cls:\s*'ranknewbtn'/,
+    'the leaderboard filter does not retain its one-off button treatment');
+  assert.ok(app.$('rankBtn').closest('section').classList.contains('compacthead'),
+    'the hidden load row does not leave a blank line below the heading');
   app.window.close();
 });
 
@@ -4720,12 +4773,14 @@ test('F472 Nearby Patches says when no hotspot exists inside five miles', async 
   app.window.close();
 });
 
-test('rankings: the rank is shown out of the number of eBirders', async () => {  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+test('rankings: the duplicate standing header stays removed', async () => {  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
   const A = app.window.__app;
   A.renderRankings(A.parseRankingsHTML(FIX('top100-wa.html'), 'sally frandsen'),
     'US-WA', 'https://ebird.org/top100', 'sally frandsen');
-  assert.ok(app.document.querySelector('.rankcard #rankOf'),
-    'a rank with no field size is not a standing - the report prints "#210 of 13,303"');
+  assert.equal(app.document.querySelector('.rankcard #rankOf'), null,
+    'the removed rank/name/year header must not return above the history');
+  assert.equal(app.document.querySelector('.rankcard .rankstats'), null,
+    'the removed species/checklist totals must not return above the history');
   // The count endpoint rejects a normal API key, so the app lifts eBird's own
   // web token the way rankings.py does. Port check against a minimal page.
   const key = A.extractWebKey(
@@ -18158,7 +18213,7 @@ test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
       + 'lowering the bar globally makes the imbalance worse');
 });
 
-test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
+test('Top 100 rows keep the numeric hierarchy without bird thumbnails (F246/F570)', async () => {
   // Owner, 2026-08-29: "in the top 100, increase the font size by 50% and show
   // the bird icon for the recently added birds just for the rows, not
   // everythings."
@@ -18170,8 +18225,7 @@ test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
   // is correct behaviour, and would make this guard pass while asserting
   // nothing. Found by rendering the section: the first mockup showed no icons
   // for exactly this reason.
-  const key = A.speciesCacheKey ? A.speciesCacheKey(A.getObsRegion())
-    : 'bc_spidx:US-WA';
+  const key = 'ebird_species_v2:' + A.getObsRegion();
   app.window.localStorage.setItem(key, JSON.stringify({
     t: Date.now(),
     rows: [{ name: 'Common Ringed Plover', code: 'coripl' },
@@ -18187,20 +18241,15 @@ test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
   }, 'US-WA', 'https://ebird.org/top100', 'Birder Wyatt');
 
   const rows = [...doc.querySelectorAll('#rankResults .rankrow:not(.rankhdr)')];
-  assert.ok(rows.length >= 2, 'the board rendered');
+  assert.equal(rows.length, 1,
+    'only the official Top 100 row renders; rank 182 is not pinned into the board');
 
-  // 1. THE ICON WIRING. A photoSlot with no hydrator is not a slow image, it
-  //    is no image — the trip planner and "Break a record" both shipped a
-  //    screen of grey boxes exactly that way. Asserted against the SOURCE
-  //    because the slot only renders once a species NAME resolves to a CODE
-  //    via the cached region index, and a DOM assertion that silently goes
-  //    vacuous when the index is absent is the "check that cannot fail" this
-  //    project keeps recording. Both halves must be present: the slot, and the
-  //    hydrator that fills it.
-  assert.match(HTML, /var pic = code \? photoSlot\(p\.species, code\)/,
-    'the newest tick builds a bird icon slot from the resolved code');
-  assert.match(HTML, /out\.appendChild\(tbl\);\s*(?:\/\/[^\n]*\n\s*)*hydratePhotos\(tbl\);/,
-    'renderRankings hydrates the board — an unqueued slot renders grey forever');
+  assert.equal(rows[0].querySelector('.thumb'), null,
+    'the compact leaderboard still spends width and height on bird thumbnails');
+  const birdLink = rows[0].querySelector('.rankbirdline a.splink');
+  assert.ok(birdLink && birdLink.getAttribute('data-sp') === 'coripl'
+    && /Common Ringed Plover/.test(birdLink.textContent),
+  'removing the image also removed the linked bird identity');
 
   // 2. THE SCALE. ⚠️ NOT via getComputedStyle: jsdom has no layout engine and
   //    resolves `calc(15px * var(--s) * var(--rf))` to NaN, so a computed-style
@@ -18226,25 +18275,24 @@ test('Top 100 rows are scaled and carry a bird icon (F246)', async () => {
   //    What SURVIVES from F246 and is still asserted: the two rules must agree,
   //    so the global `.wholine` can never again override the scoped `.who`.
   //    That was the actual bug; the 1.5 was the remedy that overshot.
-  const wholine = /\.rankrow \.wholine \{[^}]*\}/.exec(HTML);
-  assert.ok(wholine, 'the row name has a scoped rule');
-  const whoRule = /\.rankrow \.who \{[^}]*\}/.exec(HTML);
-  assert.ok(whoRule, 'the row name cell has a scoped rule');
-  const px = (s) => (/font-size:[^;]*?(\d+)px/.exec(s) || [])[1];
-  assert.ok(px(wholine[0]) && px(wholine[0]) === px(whoRule[0]),
-    'the name and the cell around it must still declare ONE size — that '
-    + 'disagreement is what F246 actually fixed');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
+    'the center sentence does not use one compact font size');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
+    'the birder name is not the only bold part of the center sentence');
+  assert.match(HTML,
+    /\.rankrow \.rankbirdline,\s*\.rankrow \.rankbirdline a \{[^}]*font-weight:\s*400/,
+    'the bird name is still bold');
   // ⚠️ `.who` is deliberately NOT in this list any more (F262): the NAME left
   // the row-scale factor at the owner's request, while the NUMBERS keep it —
   // the digits were never what clipped, and enlarging the row was the actual
   // ask F246 was built for.
-  for (const cls of ['.rk', '.n', '.mv']) {
+  for (const cls of ['.rk', '.n']) {
     const rule = new RegExp('\\.rankrow \\' + cls + ' \\{[^}]*\\}').exec(HTML);
     assert.ok(rule && /var\(--rf\)/.test(rule[0]),
       cls + ' scales with the row');
   }
-  assert.ok(!/var\(--rf\)/.test(whoRule[0]),
-    'the NAME must not scale with the row — that is what clipped it');
   app.window.close();
 });
 
@@ -25800,11 +25848,11 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
     label: 'Invalid', options: [{ label: 'Only one' }],
   }), /exactly two options/);
   const pressed = ToggleControls.pressed({
-    id: 'unseen', icon: '\uD83D\uDD0D', label: 'Unseen', pressed: true,
+    id: 'unseen', icon: 'NEW', iconCls: 'newflag', label: 'Unseen', pressed: true,
   });
   assert.match(pressed, /class="pressbtn"/);
   assert.match(pressed, /aria-pressed="true"/);
-  assert.match(pressed, /class="pressicon"[^>]*aria-hidden="true">/);
+  assert.match(pressed, /class="pressicon newflag"[^>]*aria-hidden="true">NEW/);
   assert.match(pressed, /class="presslabel">Unseen<\/span>/);
   assert.match(HTML, /<script src="controls-toggle\.js"><\/script>/,
     'the app does not load the shared control template');
@@ -26730,7 +26778,8 @@ test('the board records itself so each birder can show movement', async () => {
   // honest, an invented zero is not.
   const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
   assert.match(html, /function boardHistRecord\(/, 'the board is never snapshotted');
-  assert.match(html, /boardMoveHTML\(boardDeltasFor\(/, 'rows carry no movement');
+  assert.match(html, /var movement = boardMoveHTML\(boardDeltasFor\(/,
+    'rows carry no movement');
   // It must reuse the ONE period helper, not grow a second one.
   assert.match(html, /BL\.rankDeltas\(mine, nowMs\)/,
     'board movement must share rankDeltas with the personal card');
@@ -31606,8 +31655,8 @@ test('the top 100 board names the newest bird, not just its banding code', async
     ],
   }, 'US-WA', 'https://ebird.org/top100', 'Washington');
 
-  const last = [].slice.call(doc.querySelectorAll('.rankrow .ranklast'));
-  assert.equal(last.length, 2, 'both rows carry a newest-tick line');
+  const last = [].slice.call(doc.querySelectorAll('.rankrow .rankbirdline'));
+  assert.equal(last.length, 2, 'both rows carry newest-bird details');
   const txt = last.map((n) => n.textContent.replace(/\s+/g, ' ').trim());
   assert.ok(/Common Ringed Plover/.test(txt[0]),
     `the bird is NAMED on the row, not only in a title attribute: ${txt[0]}`);
@@ -31618,31 +31667,27 @@ test('the top 100 board names the newest bird, not just its banding code', async
 
   // The code stays: it is what the rest of the app prints beside a name, and
   // it is what you quote to another birder.
-  const codes = last.map((n) => (n.querySelector('.sub') || {}).textContent || '');
+  const codes = last.map((n) => (n.querySelector('.rankdetail') || {}).textContent || '');
   assert.ok(codes.every((c) => /^\([A-Z]{4}\)\s+·/.test(c)),
     `the banding code rides along in a small tail: ${codes.join(' | ')}`);
 
   assert.doesNotMatch(txt[0], /\+\s+Common/,
     'the obsolete plus sign still precedes the named bird');
-  // F549: the newest bird owns the full width beneath the numeric row rather
-  // than wrapping inside the birder-name column.
-  const st = app.window.getComputedStyle(last[0]);
-  assert.ok(last[0].parentElement.classList.contains('rankrow'),
-    'the newest bird is still trapped inside the birder-name column');
+  assert.doesNotMatch(HTML,
+    /\.rankrow \.rankbirdline \{[^}]*white-space:\s*nowrap/,
+    'the full species line still refuses natural wrapping');
+  assert.equal(doc.querySelector('.rankrow .thumb'), null,
+    'the one-row leaderboard still renders a bird thumbnail');
   assert.match(HTML,
-    /\.rankrow \.ranklast \{ grid-column: 1 \/ -1; grid-row: 2; display: flex;/,
-    'the newest bird does not span the available row width');
-  assert.equal(st.whiteSpace, 'normal',
-    'the full species line still truncates instead of wrapping');
-  const thumb = last[0].querySelector('.thumb');
-  assert.ok(thumb, 'the newest-bird image is missing');
+    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*calc\(38px \* var\(--s\)\) minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*4px 0[^}]*border-top:\s*0/,
+    'Top 100 entries are not using the compact divider-free row rhythm');
   assert.match(HTML,
-    /\.rankrow \.ranklast \.thumb \{[\s\S]{0,180}width: calc\(36px \* var\(--s\)\)/,
-    'the newest-bird image is still the old 30px-or-smaller badge');
+    /\.rankrow \.rankbirdline,\s*\.rankrow \.rankbirdline a \{[^}]*font-size:\s*inherit/,
+    'the center prose does not keep one font size');
   app.window.close();
 });
 
-test('F563 Top 100 shares movement history and wraps NEW after the species name', async () => {
+test('F563/F570 Top 100 places tight movement below rank and NEW after the date', async () => {
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -31690,20 +31735,29 @@ test('F563 Top 100 shares movement history and wraps NEW after the species name'
     'an improved position lost its up arrow');
   assert.match(rows[1].querySelector('.mv').textContent, /▼3/,
     'a lower position lost its down arrow');
-  const birdRow = rows[0].querySelector('.ranklast .name');
-  const bird = birdRow.querySelector('.ntext');
+  const birdRow = rows[0].querySelector('.ntext');
+  const bird = birdRow.querySelector('.rankbirdline');
   const link = bird.querySelector('a');
+  const details = bird.querySelector('.rankdetail');
   const mark = birdRow.querySelector('.ranknew');
+  const movement = rows[0].querySelector(':scope > .meta > .mv');
+  const birderLink = birdRow.querySelector('.wholine a.extlink');
   assert.equal(bird.textContent.includes(longBird), true,
     'the complete newest species name is absent');
-  assert.ok(link && mark && (link.compareDocumentPosition(mark)
+  assert.ok(birderLink && /top100/.test(birderLink.getAttribute('data-href') || ''),
+    'the birder name lost its eBird leaderboard link');
+  assert.ok(link && link.classList.contains('splink')
+    && link.getAttribute('data-sp') === 'blcaho1',
+  'the recent bird name lost its species action link');
+  assert.ok(mark && mark.classList.contains('newflag') && mark.textContent.trim() === 'NEW',
+    'the recent tick does not use the shared textual NEW tag');
+  assert.ok(movement && movement.parentElement.classList.contains('meta'),
+    'movement must render below the rank in column 1');
+  assert.ok(details && mark && (details.compareDocumentPosition(mark)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
-  'NEW must follow the species name in DOM order: ' + birdRow.outerHTML);
-  assert.match(CARDS_SPECIES,
-    /\.obs\.card-sm \.ntext \{[^}]*overflow-wrap: anywhere;/,
-    'the shared newest-species card is still configured to truncate');
+  'NEW must follow the date in DOM order: ' + birdRow.outerHTML);
   assert.doesNotMatch(HTML,
-    /\.rankrow \.ranklast[^}]*text-overflow: ellipsis;/,
+    /\.rankrow \.rankbirdline[^}]*text-overflow: ellipsis;/,
     'the species link still replaces its ending with an ellipsis');
   app.window.close();
 });
@@ -31715,13 +31769,15 @@ test('F564 Top 100 offers identity recovery instead of a removed Settings field'
     checkedToRank: 500,
     rows: [{ rank: 1, name: 'Published Birder', species: 400 }],
   }, 'US-WA', 'https://ebird.org/top100', '');
-  const card = app.document.querySelector('.rankcard');
-  assert.ok(card.querySelector('#rankFetchNameBtn'),
-    'the empty standing card does not offer the supported identity fetch');
-  assert.ok(card.querySelector('#rankImportDataBtn'),
-    'a private account has no import route from the standing card');
-  assert.doesNotMatch(card.textContent, /set your exact eBird display name in Settings/i,
-    'the card still points at the identity field removed by F556');
+  const prompt = app.document.querySelector('.rankidentityprompt');
+  assert.equal(app.document.querySelector('.rankcard'), null,
+    'a missing identity still renders the partially completed standing card');
+  assert.ok(prompt.querySelector('#rankFetchNameBtn'),
+    'the compact recovery prompt does not offer the supported identity fetch');
+  assert.ok(prompt.querySelector('#rankImportDataBtn'),
+    'a private account has no import route from the recovery prompt');
+  assert.doesNotMatch(prompt.textContent, /set your exact eBird display name in Settings/i,
+    'the prompt still points at the identity field removed by F556');
   app.window.close();
 });
 
@@ -31791,8 +31847,8 @@ test('F549 Top 100 Recent filters by addition date and visibly changes state', a
     ['Fresh Birder'], 'Recent did not filter out the older addition');
   const pressed = doc.getElementById('rankNewOnly');
   assert.equal(pressed.getAttribute('aria-pressed'), 'true');
-  assert.match(pressed.textContent, /Show all/,
-    'the pressed filter gives no textual indication that the board changed');
+  assert.match(pressed.textContent, /Recent/,
+    'the pressed filter lost its concise shared-control label');
   app.click(pressed);
   assert.equal(doc.querySelectorAll('.ranktable .rankrow:not(.rankhdr)').length, 2,
     'Show all did not restore the full board');
@@ -31814,7 +31870,7 @@ test('a board painted before the species index arrives still gets its codes', as
 
   // Paint once with NOTHING cached: the name is the answer, and that is fine.
   A.renderRankings(board, 'US-WA', 'https://ebird.org/top100', 'Washington');
-  const first = doc.querySelector('.rankrow .ranklast').textContent;
+  const first = doc.querySelector('.rankrow .rankbirdline').textContent;
   assert.ok(/Pectoral Sandpiper/.test(first), `the name still renders: ${first}`);
   assert.ok(!/PESA/.test(first), 'and no code, because none is cached yet');
 
@@ -31823,7 +31879,7 @@ test('a board painted before the species index arrives still gets its codes', as
     JSON.stringify({ t: Date.now(), rows: [
       { name: 'Pectoral Sandpiper', code: 'pecsan', alpha: 'PESA' }] }));
   A.renderRankings(board, 'US-WA', 'https://ebird.org/top100', 'Washington');
-  const second = doc.querySelector('.rankrow .ranklast').textContent;
+  const second = doc.querySelector('.rankrow .rankbirdline').textContent;
   assert.ok(/PESA/.test(second),
     `the code must appear on the next paint, not wait for a restart: ${second}`);
   app.window.close();
@@ -32820,7 +32876,8 @@ test('F152: a county board is a different board, not a different region', async 
   // THE INVARIANT REMOVING THE OLD SELECTOR PROTECTED. The heading must name
   // the board the rows came from; Lower-48 numbers under a "Washington" title
   // is the bug that produced this control being deleted in v1.0.12.
-  assert.match(app.$('rankRegionLabel').textContent, /King/,
+  assert.match(app.$('rankBtn').closest('section').querySelector('h2').textContent,
+    /Leaderboard - King \d{4}/,
     'the heading follows the board');
 
   // AND THE HARD CONSTRAINT: this is a board, not a region. Nothing about the
@@ -34221,45 +34278,63 @@ test('F261: the layout is re-measured on resume, boot and section change', async
 // (--rf: 1.5), which put the birder's name at 22.5px against 17px for a
 // species name in a compact list. The mitigation then was to shrink the
 // COLUMNS, which treats the symptom: the type had outgrown its own row.
-test('F262: a birder name is sized like every other name in a list', () => {
+test('F570: Top 100 uses a compact top-aligned three-column sentence row', () => {
   const css = HTML.slice(HTML.indexOf('.ranktable { --rf'),
                          HTML.indexOf('.rankrow .n {'));
   assert.ok(css.length, 'the leaderboard rules still bound this window');
 
-  // ⚠️ Pinned to the ABSENCE of --rf on the name, not to the literal 17px
-  // alone: a later +50% would otherwise sail past by scaling a number that
-  // still reads as 17.
-  const who = /\.rankrow \.who \{([^}]*)\}/.exec(css);
-  assert.ok(who, '.rankrow .who still exists');
-  assert.ok(!/--rf\b/.test(who[1]),
-    'the NAME must not ride the row-scale factor — that is what clipped it');
-  assert.match(who[1], /17px/, 'and it matches .obs.card-sm .name');
-
-  const wl = /\.rankrow \.wholine \{([^}]*)\}/.exec(css);
-  assert.ok(wl, '.rankrow .wholine still exists');
-  assert.ok(!/--rf\b/.test(wl[1]),
-    'the name line and the name must not disagree — F246 already hit that');
-  assert.match(wl[1], /17px/);
-
-  // The two must be the SAME number, or the <a> inside re-opens F246's bug.
-  const n1 = /(\d+)px/.exec(who[1])[1], n2 = /(\d+)px/.exec(wl[1])[1];
-  assert.equal(n1, n2, 'the cell and the line inside it must agree');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*calc\(38px \* var\(--s\)\) minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px/,
+    'the compact three-column layout or its 10px gutter is missing');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > :where\(\.hsnum\) \{[^}]*grid-column:\s*1[^}]*grid-row:\s*1[^}]*align-self:\s*start[^}]*font-size:\s*calc\(28px \* var\(--s\)\)/,
+    'the large rank is not top-aligned in the first column');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
+    'the center sentence is not one compact, top-level grid cell');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
+    'the birder name is not bold and inline with the remaining sentence');
+  assert.match(HTML,
+    /\.rankrow \.rankbirdline,\s*\.rankrow \.rankbirdline a \{[^}]*font-weight:\s*400/,
+    'the bird name is bold instead of normal weight');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.hsdist \{[^}]*grid-column:\s*3[^}]*grid-row:\s*1[^}]*align-self:\s*start[^}]*flex-direction:\s*column/,
+    'the species metric is not top-aligned in the right column');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.hsdist small \{[^}]*display:\s*block/,
+    'the sp unit is not on a line below the species count');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.meta \{[^}]*grid-column:\s*1[^}]*grid-row:\s*2[^}]*margin-top:\s*-5px/,
+    'position movement is not tightly placed below the rank');
+  assert.match(HTML, /\.rankbig \{[^}]*24px/,
+    'the personal standing rank has returned to the oversized 34px treatment');
+  assert.match(HTML, /\.rankstats b \{[^}]*16px/,
+    'the personal standing totals have returned to the oversized 20px treatment');
+  assert.match(HTML, /\.spark \{[^}]*height:\s*24px/,
+    'the personal standing trend chart has returned to its oversized height');
+  assert.match(HTML,
+    /\.rankhistorycard \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/,
+    'the large rank is not positioned beside the compact history');
+  assert.match(HTML,
+    /\.rankhistorycard > \.rankbig \{[^}]*34px/,
+    'the left-column rank is no longer large enough to scan');
+  assert.match(HTML,
+    /\.rankhistorycard > \.ranktrend \{[^}]*margin-top:\s*0[^}]*padding-top:\s*0[^}]*border-top:\s*0/,
+    'the compact history still has the old internal divider');
 
   // ⚠️ ...and the numbers KEEP the scale. F246 was about the row being
   // readable; the digits were never what clipped.
   const n = /\.rankrow \.n \{([^}]*)\}/.exec(HTML);
   assert.match(n[1], /--rf/, 'the species count still scales with the row');
 
-  // F549 moves the bird out of the narrow name cell altogether. It still owns
-  // the second full-width grid row, while F563 lets that row wrap rather than
-  // losing a long species name behind an ellipsis.
-  const rl = /\.rankrow \.ranklast \{([\s\S]*?)\}/.exec(HTML);
-  assert.ok(rl, '.rankrow .ranklast still exists');
-  assert.match(rl[1], /grid-column: 1 \/ -1/,
-    'the bird details are still constrained to the birder-name cell');
-  assert.match(rl[1], /grid-row: 2/);
-  assert.match(rl[1], /white-space: normal/,
-    'the full-width bird details still truncate instead of wrapping');
+  assert.match(HTML,
+    /name: '<span class="wholine">'[\s\S]{0,250}\+ rankInlineDetailsHTML\(r\)/,
+    'the birder and recent-bird details are not emitted as one sentence');
+  assert.match(HTML, /sub:\s*movement/,
+    'the movement arrow is not emitted beneath the rank');
+  assert.doesNotMatch(HTML, /icon:\s*pic/,
+    'the compact sentence layout still renders a bird thumbnail');
 });
 
 

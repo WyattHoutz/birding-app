@@ -1570,6 +1570,19 @@ const BOOTSTRAP = `
         { d: '2026-08-28', rank: 170, species: 208 },
         { d: '2026-09-02', rank: 178, species: 209 }
       ]));
+      var prior = new Date(Date.now() - 86400000);
+      var priorDay = prior.getFullYear() + '-'
+        + String(prior.getMonth() + 1).padStart(2, '0') + '-'
+        + String(prior.getDate()).padStart(2, '0');
+      localStorage.setItem('bc_board_v1:US-WA', JSON.stringify([{
+        d: priorDay,
+        r: {
+          'ada lovelace': 3,
+          'Wilhelmina Featherstonehaugh': 1,
+          'Grace Hopper': 4,
+          'Alan Turing': 2
+        }
+      }]));
       A.renderRankings(window.FIX.rankings, 'US-WA',
         'https://ebird.org/top100', 'Sample Birder');
       var seasonBest = document.querySelector('#rankSummary .rankbest');
@@ -1580,6 +1593,92 @@ const BOOTSTRAP = `
           + (seasonBest
             ? seasonBest.textContent.replace(/\\s+/g, ' ').trim()
             : 'missing'));
+      }
+      var firstRankRow = Array.from(document.querySelectorAll(
+        '#rankResults .rankrow.hscard-md'
+      )).find(function (row) {
+        var marker = row.querySelector(':scope > .name > .hsnum');
+        return marker && marker.textContent.trim() === '1';
+      });
+      var rankMarker = firstRankRow && firstRankRow.querySelector(':scope > .name > .hsnum');
+      var rankName = firstRankRow && firstRankRow.querySelector(':scope > .name > .ntext');
+      var rankSpecies = firstRankRow && firstRankRow.querySelector(':scope > .name > .hsdist');
+      if (!rankMarker || !rankName || !rankSpecies) {
+        throw new Error('Top 100 alignment probe could not find the first row cells');
+      }
+      function textRect(el) {
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        var node;
+        while ((node = walker.nextNode())) {
+          if (!node.nodeValue.trim()) continue;
+          var range = document.createRange();
+          range.selectNodeContents(node);
+          return range.getBoundingClientRect();
+        }
+        return el.getBoundingClientRect();
+      }
+      var markerRect = rankMarker.getBoundingClientRect();
+      var nameBox = rankName.getBoundingClientRect();
+      var nameRect = textRect(rankName);
+      var speciesRect = textRect(rankSpecies);
+      var speciesBox = rankSpecies.getBoundingClientRect();
+      var markerCenter = markerRect.top + markerRect.height / 2;
+      if (markerRect.right >= nameRect.left) {
+        throw new Error('Top 100 rank is not in its own left column');
+      }
+      if (parseFloat(getComputedStyle(rankMarker).fontSize) < 28) {
+        throw new Error('Top 100 rank is not visually prominent');
+      }
+      var speciesUnit = rankSpecies.querySelector('small');
+      var speciesUnitRect = speciesUnit && speciesUnit.getBoundingClientRect();
+      var recentThumb = firstRankRow.querySelector('.thumb');
+      var firstRowRect = firstRankRow.getBoundingClientRect();
+      if (recentThumb) {
+        throw new Error('Top 100 recent-bird image still consumes list space');
+      }
+      if (firstRowRect.height > 72) {
+        throw new Error('Top 100 sentence row is too tall: '
+          + firstRowRect.height + 'px');
+      }
+      var topSpread = Math.max(markerRect.top, nameBox.top, speciesBox.top)
+        - Math.min(markerRect.top, nameBox.top, speciesBox.top);
+      if (topSpread > 2) {
+        throw new Error('Top 100 columns are not top-aligned: spread='
+          + topSpread + 'px');
+      }
+      if (!speciesUnitRect
+          || speciesUnitRect.top <= speciesRect.top + speciesRect.height / 2) {
+        throw new Error('Top 100 sp unit is not below the species number: number='
+          + JSON.stringify({ top: speciesRect.top, bottom: speciesRect.bottom })
+          + ' unit=' + JSON.stringify(speciesUnitRect
+            ? { top: speciesUnitRect.top, bottom: speciesUnitRect.bottom }
+            : null)
+          + ' flex=' + getComputedStyle(rankSpecies).flexDirection
+          + ' display=' + (speciesUnit ? getComputedStyle(speciesUnit).display : 'missing'));
+      }
+      var rankContentGap = nameRect.left - markerRect.right;
+      if (rankContentGap < 9 || rankContentGap > 11) {
+        throw new Error('Top 100 rank-to-content gutter is not 10px: '
+          + rankContentGap + 'px');
+      }
+      var movements = Array.from(document.querySelectorAll(
+        '#rankResults .rankrow.hscard-md .mv'
+      )).map(function (el) { return el.textContent.trim(); });
+      if (!movements.some(function (text) { return text.indexOf('▲') >= 0; })
+          || !movements.some(function (text) { return text.indexOf('▼') >= 0; })) {
+        throw new Error('Top 100 mockup does not show both movement directions: '
+          + movements.join(' | '));
+      }
+      var firstMovement = firstRankRow.querySelector(':scope > .meta > .mv');
+      var movementRect = firstMovement && firstMovement.getBoundingClientRect();
+      if (!movementRect || movementRect.left >= nameRect.left
+          || movementRect.top < markerRect.bottom - 3
+          || movementRect.top - markerRect.bottom > 2) {
+        throw new Error('Top 100 movement is not tightly below the rank in column 1: rank='
+          + JSON.stringify({ top: markerRect.top, bottom: markerRect.bottom })
+          + ' movement=' + JSON.stringify(movementRect
+            ? { top: movementRect.top, bottom: movementRect.bottom, left: movementRect.left }
+            : null));
       }
       markHost(host, label);
     } else if (spec.kind === 'patches') {

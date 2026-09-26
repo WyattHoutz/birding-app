@@ -65,7 +65,8 @@
     out += dataAttrs(spec.data)
       + ' aria-pressed="' + (spec.pressed ? 'true' : 'false') + '"'
       + ' aria-label="' + attrEsc(spec.ariaLabel || spec.label || 'Toggle') + '">'
-      + '<span class="pressicon" aria-hidden="true">' + attrEsc(spec.icon || '') + '</span>'
+      + '<span class="' + attrEsc(classNames('pressicon', spec.iconCls))
+      + '" aria-hidden="true">' + attrEsc(spec.icon || '') + '</span>'
       + '<span class="presslabel">' + attrEsc(spec.label || '') + '</span>'
       + '</button>';
     return out;
@@ -77,7 +78,8 @@
     button.classList.add('pressbtn');
     button.setAttribute('aria-pressed', spec.pressed ? 'true' : 'false');
     button.setAttribute('aria-label', spec.ariaLabel || spec.label || 'Toggle');
-    button.innerHTML = '<span class="pressicon" aria-hidden="true">'
+    button.innerHTML = '<span class="' + attrEsc(classNames('pressicon', spec.iconCls))
+      + '" aria-hidden="true">'
       + attrEsc(spec.icon || '') + '</span><span class="presslabel">'
       + attrEsc(spec.label || '') + '</span>';
   }

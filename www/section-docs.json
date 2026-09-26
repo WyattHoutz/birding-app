@@ -127,7 +127,7 @@
       ]
     },
     "rankBtn": {
-      "report": "## 🏆 Top 100 — Your eBird standing",
+      "report": "## 🏆 Top 100 — Leaderboard",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",
       "inputs": [
         "ebird.org/top100 for the region (public HTML, no API key)"

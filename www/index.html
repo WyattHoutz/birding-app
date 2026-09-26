@@ -774,6 +774,8 @@
     .pressbtn[aria-pressed="true"] .presslabel {
       text-decoration: underline; text-decoration-thickness: 2px;
       text-underline-offset: 3px; }
+    .pressbtn[aria-pressed="true"] .newflag {
+      background: var(--accent-ink); color: var(--accent); }
     html[data-a11y="on"] .twopill,
     html[data-a11y="on"] .twopill > .sortbtn,
     html[data-a11y="on"] .pressbtn {
@@ -887,6 +889,8 @@
     .panel { overflow-x: clip; }
     .panel h2 { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px;
                 font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
+    .panel.compacthead > h2 { margin-bottom: 0; }
+    .panel.compacthead > .status { padding-top: 0; }
     .panel h2 .dim { display: none; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); border-bottom: 1px solid var(--line);
       /* ⚠️ F270. THE 80% WIDTH BUG, FOUND AT LAST — AND IT WAS THE NAVBAR.
@@ -2080,7 +2084,7 @@
        yet another hue nobody has a reference for. The hue is Okabe-Ito
        `--safe-blue` (#0072B2), measured at 5.2:1 in the Q29 audit and readable
        with no red-green perception at all — and it is the THIRD channel here,
-       behind the 🆕 glyph and the words "found today", either of which carries
+       behind the NEW tag and the words "found today", either of which carries
        the whole meaning on its own. */
     .megafresh { font-size: calc(12px * var(--s)); font-weight: 800;
                  color: #fff; background: var(--safe-blue);
@@ -2147,34 +2151,43 @@
     .rankhead .bignum small { display: inline; }
     .rankof { font-size: calc(14px * var(--s)); font-weight: 600; color: var(--muted); margin-left: 6px; }
     /* Rankings: one standing card, then a real aligned board. */
-    .rankcard { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 8px 0 4px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
-    .rankyou { display: flex; align-items: baseline; gap: 10px; }
-    .rankbig { font-size: calc(34px * var(--s)); font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+    .rankcard { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 6px 0 4px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+    .rankyou { display: flex; align-items: baseline; gap: 8px; }
+    .rankbig { font-size: calc(24px * var(--s)); font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
     .rankwho { display: flex; flex-direction: column; min-width: 0; }
-    .rankwho b { font-size: calc(15px * var(--s)); }
-    .rankwho span { font-size: calc(12px * var(--s)); color: var(--muted); }
-    .rankstats { display: flex; gap: 26px; margin-top: 12px; }
-    .rankstats b { display: block; font-size: calc(20px * var(--s)); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .rankstats span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .rankwho b { font-size: calc(13px * var(--s)); }
+    .rankwho span { font-size: calc(11px * var(--s)); color: var(--muted); }
+    .rankstats { display: flex; gap: 20px; margin-top: 8px; }
+    .rankstats b { display: block; font-size: calc(16px * var(--s)); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+    .rankstats span { font-size: calc(9px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .rankidentityprompt { margin: 8px 0 14px; }
+    .rankidentityprompt > b, .rankidentityprompt > span { display: block; }
+    .rankidentityprompt > .row { margin-top: 8px; }
     .rankrecent { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
     .rankrecent span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .rankrecent b { font-size: calc(14px * var(--s)); }
-    .ranktrend { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
-    .ranktrend span { font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .ranktrend b { font-size: calc(14px * var(--s)); font-weight: 800; }
+    .ranktrend { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+    .ranktrend:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+    .ranktrend span { font-size: calc(9px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .ranktrend b { font-size: calc(12px * var(--s)); font-weight: 800; }
     /* NOT red/green. The arrow already carries the direction, so colour is
        redundant here by design — and red-vs-green is the one pairing this
        app's reader cannot separate. Okabe-Ito blue and vermillion instead,
        which stay distinct to everyone. */
     .ranktrend b.up { color: var(--safe-blue); }
     .ranktrend b.down { color: #D55E00; }
-    .ranktrend b.rankwin { font-size: calc(12px * var(--s)); letter-spacing: .2px;
+    .ranktrend b.rankwin { font-size: calc(10px * var(--s)); letter-spacing: .2px;
                            white-space: nowrap; }
-    .ranktrend b.rankbest { margin-top: 3px; font-size: calc(13px * var(--s));
+    .ranktrend b.rankbest { margin-top: 2px; font-size: calc(11px * var(--s));
                             color: var(--ink); }
-    .ranktrend b.dim { font-weight: 600; font-size: calc(12px * var(--s)); color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.35; }
-    .spark { width: 100%; height: 34px; margin-top: 6px; color: var(--accent); display: block; }
-    .rankcap { font-size: calc(13px * var(--s)); font-weight: 700; margin: 18px 0 2px; }
+    .ranktrend b.dim { font-weight: 600; font-size: calc(10px * var(--s)); color: var(--muted); text-transform: none; letter-spacing: 0; line-height: 1.25; }
+    .spark { width: 100%; height: 24px; margin-top: 4px; color: var(--accent); display: block; }
+    .rankhistorycard { display: grid; grid-template-columns: auto minmax(0, 1fr);
+                       align-items: start; gap: 10px; }
+    .rankhistorycard > .rankbig { font-size: calc(34px * var(--s)); }
+    .rankhistorycard > .ranktrend { min-width: 0; margin-top: 0; padding-top: 0;
+                                    border-top: 0; }
+    .rankhistorycard .rankwin { white-space: normal; }
     .ranktable { font-variant-numeric: tabular-nums; }
     /* F246, owner 2026-08-29: "in the top 100, increase the font size by 50%
        ... just for the rows, not everythings". ONE multiplier drives the row,
@@ -2197,9 +2210,9 @@
                gap: 8px; align-items: baseline; padding: 9px 6px; border-top: 1px solid var(--line); border-radius: 8px; }
     .rankrow .rk { color: var(--muted); font-size: calc(12px * var(--s) * var(--rf)); font-weight: 700; text-align: right; }
     .rankrow .who { font-size: calc(17px * var(--s)); min-width: 0; }
-    /* The NAME keeps the single clipped line it always had; the newest-bird
-       badge gets its own line beneath it. Putting the badge inside the same
-       nowrap/ellipsis cell simply hid it behind the "…".
+    /* The NAME wraps normally; the newest-bird card gets its own line beneath
+       it. A leaderboard should not hide the end of a person's name behind an
+       ellipsis, especially when the second line has unused horizontal space.
        ⚠️ F246: the font-size is re-declared HERE and must be. `.wholine` is a
        GLOBAL class (line ~585, `calc(14px * var(--s))`) shared with the "Who
        added it" rows in two other sections, so it overrode the scaled `.who`
@@ -2219,18 +2232,20 @@
        COLUMNS (`--rfc: 1.15`) so the name had room — treating the symptom,
        because the type was the thing that had outgrown its row.
 
-       17px, and taken from the same number `.obs.card-sm .name` uses, because
-       a leaderboard row IS a compact list row. The numbers keep `--rf`: they
-       are what F246 was actually about, and they are not what clipped.
+       F570 keeps the final value at 17px, natural word wrapping, and vertical
+       centering with the rank and species total. The numbers keep `--rf`:
+       they are what F246 was actually about.
 
        ⚠️ Part of the reported clipping is NOT this rule. The same screenshot
        shows F261's wrong-width layout, which shrinks the name column by a
        further ~25%. Fixing the type is right on its own terms; do not read
        the remaining clipping as evidence this number is still wrong until it
        has been seen on a correctly laid-out page. */
-    .rankrow .wholine { display: block; overflow: hidden; text-overflow: ellipsis;
+    .rankrow .wholine { display: block; min-width: 0;
                         font-size: calc(17px * var(--s));
-                        white-space: nowrap; }
+                        line-height: 1.2; margin: 0;
+                        white-space: normal; overflow-wrap: break-word;
+                        word-break: normal; hyphens: none; }
     /* ⚠️ F246. THE NAME IS AN `<a class="extlink">`, AND `.extlink` SETS ITS
        OWN font-size (line ~1040, `calc(13px * var(--s))`) — so scaling
        `.wholine` alone left the birder's name at 13px while the row around it
@@ -2272,8 +2287,8 @@
        scaling with --s so it cannot clip at a large text setting (the fixed-
        box rule the CSS-wide guard enforces). */
     .rankrow .ranklast .thumb { float: none; display: block; flex: 0 0 auto;
-                                margin: 0; width: calc(36px * var(--s));
-                                height: calc(36px * var(--s)); border-radius: 7px; }
+                                margin: 0; width: calc(32px * var(--s));
+                                height: calc(32px * var(--s)); border-radius: 6px; }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
@@ -2299,38 +2314,57 @@
                          font-size: calc(10px * var(--s)); }
     .rankhdr { border-top: 0; font-size: calc(11px * var(--s)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 2px; }
     .rankhdr .who, .rankhdr .n { font-size: calc(11px * var(--s)); }
-    /* F262. The 🆕 mark on a tick added in the last week, and the filter that
-       shows only those rows. ⚠️ The glyph is a REDUNDANT channel: the row still
-       prints the date in words and the mark carries an aria-label, so nothing
-       here depends on seeing — or telling apart — an emoji. */
-    .rankrow .ranknew { font-size: calc(13px * var(--s)); }
+    /* F262. The shared NEW tag marks a tick added in the last week, and the
+       filter shows only those rows. The printed word carries the meaning
+       independently of colour. */
     .rankrow.hscard-md {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 2px 14px; padding: 12px 0; border-radius: 0;
+      grid-template-columns: calc(38px * var(--s)) minmax(0, 1fr) auto;
+      gap: 0 10px; padding: 4px 0; border-top: 0; border-radius: 0;
+    }
+    .rankrow.hscard-md > .name > :where(.hsnum) {
+      grid-column: 1; grid-row: 1; align-self: start;
+      width: auto; min-width: 0; height: auto; border: 0; border-radius: 0;
+      background: transparent; box-shadow: none; color: var(--ink);
+      justify-content: flex-start; align-items: baseline;
+      font-size: calc(28px * var(--s)); letter-spacing: -.04em;
+    }
+    .rankrow.hscard-md > .name > :where(.hsnum)::before {
+      content: "#"; margin-right: 1px; color: var(--muted);
+      font-size: .55em; letter-spacing: 0;
     }
     .rankrow.hscard-md > .name > .ntext {
-      font-size: calc(17px * var(--s)); line-height: 1.2;
+      grid-column: 2; grid-row: 1 / 3; align-self: start;
+      font-size: calc(15px * var(--s)); line-height: 1.25;
     }
-    .rankrow.hscard-md > .name > .hsdist { min-width: 3ch; }
-    .rankrow.hscard-md > .meta { min-height: 0; }
+    .rankrow.hscard-md > .name > .hsdist {
+      grid-column: 3; grid-row: 1; align-self: start;
+      display: inline-flex; flex-direction: column; align-items: flex-end;
+      gap: 0; min-width: 3ch; line-height: 1;
+      font-size: calc(22px * var(--s));
+    }
+    .rankrow.hscard-md > .name > .hsdist small {
+      display: block; margin: 2px 0 0; line-height: 1;
+    }
+    .rankrow.hscard-md > .meta {
+      grid-column: 1; grid-row: 2; align-self: start; justify-self: start;
+      min-height: 0; margin-top: -5px; line-height: 1;
+    }
     .rankrow.hscard-md > .meta:empty { display: none; }
-    .rankrow > .ranklast {
-      grid-column: 1 / -1; display: block; margin: 6px 0 0;
-      min-width: 0; white-space: normal;
+    .rankrow.hscard-md .wholine {
+      display: inline; font-size: inherit; font-weight: 700;
     }
-    .rankrow > .ranklast.obs.card-sm .thumb {
-      width: calc(56px * var(--s)); height: calc(56px * var(--s));
+    .rankrow .rankdash { color: var(--muted); }
+    .rankrow .rankbirdline,
+    .rankrow .rankbirdline a {
+      font-size: inherit;
     }
-    .rankrow > .ranklast .ranknew { margin-left: 5px; }
-    .ranknewbtn { -webkit-appearance: none; appearance: none; cursor: pointer;
-      font: inherit; font-size: calc(13px * var(--s)); font-weight: 700;
-      padding: 8px 12px; min-height: 40px; border-radius: var(--btn-radius-pill);
-      border: 1px solid var(--line); background: var(--card); color: var(--ink); }
-    /* ⚠️ The pressed state is NOT colour alone — the border thickens AND the
-       label text changes. On a green accent a colour shift is the one signal
-       this reader cannot use. */
-    .ranknewbtn[aria-pressed="true"] { border-color: var(--accent); border-width: 2px;
-      background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .rankrow .rankbirdline,
+    .rankrow .rankbirdline a { font-weight: 400; }
+    .rankrow .rankbirdline { color: var(--muted); }
+    .rankrow .rankbirdline a { color: var(--accent); }
+    .rankrow.hscard-md > .meta .mv {
+      font-size: calc(12px * var(--s)); font-weight: 700;
+    }
     .rankme { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 700; }
     .rankme .rk, .rankme .n { color: var(--ink); }
     .rankme .star { font-size: calc(10px * var(--s)); font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -3751,7 +3785,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.2';
+      var APP_VERSION = '1.130.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -22984,7 +23018,14 @@
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
       function buildIdentityInject(attempt) {
-        return '(function(){try{if(!window.mobileApp)return;' +
+        return '(function(){' +
+          'function send(message){' +
+          'try{if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){' +
+          'window.mobileApp.postMessage(message);return true;}}catch(_){}' +
+          'try{var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
+          'if(h&&typeof h.postMessage==="function"){h.postMessage(message);return true;}}catch(_){}' +
+          'return false;}' +
+          'try{' +
           'var finalAttempt=' + (Number(attempt) >= 19 ? 'true' : 'false') + ';' +
           'var path=decodeURIComponent(location.pathname||"").toLowerCase();' +
           'var onPage=/(?:^|\\/)profile(?:\\/|$)/.test(path);' +
@@ -22993,8 +23034,8 @@
           'var I=parseEbirdProfileIdentity(document);' +
           'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
           'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
-          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
-          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+          'send({detail:{__ebird:true,kind:"identity",needsLogin:needsLogin,ok:!!(onPage&&(ready||(finalAttempt&&I.status==="missing"))),data:I}});' +
+          '}catch(e){send({detail:{__ebird:true,kind:"identity",ok:false,error:String(e&&e.message||e)}});}})();';
       }
 
       function fetchIdentityFromBirdList(onStatus) {
@@ -23318,7 +23359,11 @@
       function syncRankRegionUI() {
         var sc = getRankScope();
         if ($('rankRegionLabel')) {
-          $('rankRegionLabel').textContent = '· ' + sc.label;
+          $('rankRegionLabel').textContent = '';
+        }
+        var rankSection = $('rankBtn') && $('rankBtn').closest('section');
+        if (rankSection) {
+          _setH2(rankSection, rankMenuHeading());
         }
         var sel = $('rankScope');
         if (!sel) return;
@@ -23739,7 +23784,7 @@
     if (Object.keys(out).length) _rankCodeIdx = out;
     return out;
   }
-  function rankLastNewHTML(r) {
+  function rankInlineDetailsHTML(r) {
     var p = lastNewParse(r && r.recent);
     if (!p || !p.species) return '';
     var code = rankCodeIndex()[p.species.toLowerCase()] || '';
@@ -23755,44 +23800,31 @@
     // "which bird" and "how long ago" are one question on a chase board.
     // fmtDate, not a third date format - see F165 on one fact kept twice.
     var alpha = code ? (alphaFor(code) || code) : '';
-    // F246, owner 2026-08-29: "show the bird icon for the recently added birds
-    // just for the rows". `photoSlot` is the same three-tier resolver every
-    // other species row uses — bundled seed first, so a board of 100 birders
-    // costs NO network for any species already in the seed. It needs the CODE,
-    // which is exactly what this line already resolved to build its link, so
-    // the icon appears only where the name is linkable and never as a grey box
-    // beside a bird the app could not identify.
-    var pic = code ? photoSlot(p.species, code) : '';
     var inner = code
       ? '<a class="splink" data-sp="' + esc(code) + '" data-spname="' + esc(p.species)
         + '">' + esc(p.species) + '</a>'
       : esc(p.species);
     var tail = [alpha ? '(' + alpha + ')' : '', p.date ? fmtDate(p.date) : '']
       .filter(Boolean).join(' \u00b7 ');
-    // F262. 🆕 WHEN THE TICK IS FROM THIS WEEK.
+    var details = tail ? esc(tail) : '';
+    // F262. NEW WHEN THE TICK IS FROM THIS WEEK.
     //
     // Owner: *"add a new icon button for any updates in the last week."* The
     // date was already printed and already parsed — what it was missing was a
     // mark you can SCAN for, because "Aug 30" and "Aug 11" only differ if you
     // are reading every row and know today's date.
     //
-    // ⚠️ The glyph is never the only carrier: the row keeps the date in words,
-    // and the mark has an aria-label. A reader who cannot see the emoji and a
-    // reader who cannot tell it apart from the icon beside it both still have
-    // the fact (F142, and the owner's colour-blindness rule — never one
-    // channel).
+    // The shared printed tag is the same scan target used elsewhere in the app,
+    // and the row keeps the date in words as a second channel.
     var fresh = p.date && rankTickIsFresh(p.date);
     var mark = fresh
-      ? '<span class="ranknew" role="img" aria-label="added in the last '
-        + RANK_FRESH_DAYS + ' days">\uD83C\uDD95</span>'
+      ? '<span class="newflag ranknew" aria-label="added in the last '
+        + RANK_FRESH_DAYS + ' days">NEW</span>'
       : '';
-    return SpeciesCards.list('small', [SpeciesCards.small({
-      cls: 'rankrecentbird' + (fresh ? ' isnew' : ''),
-      icon: pic,
-      name: inner,
-      tags: mark,
-      sub: tail ? esc(tail) : ''
-    })], 'ranklast');
+    return '<span class="rankdash"> — </span><span class="rankbirdline">'
+      + inner + (details ? ' <span class="rankdetail">' + details + '</span>' : '')
+      + mark
+      + '</span>';
   }
   // F262. "the last week", one definition, used by the mark and the filter —
   // two copies of a threshold is how F259's namespaces drifted.
@@ -24005,22 +24037,23 @@
         var label = rankRegionName(region), year = new Date().getFullYear();
         var board = data.url || url;
 
-        // Your standing, ONCE. Before this release it was painted twice — a
-        // summary list and a big-number header carrying the same four numbers —
-        // which is what made the section hard to read.
+        // Keep the current rank and its history above the public board. The
+        // board itself stays in eBird's official order; when the reader is in
+        // the Top 100, their normal row below carries the remaining details.
         var card = document.createElement('div');
-        card.className = 'rankcard';
         if (me) {
+          card.className = 'rankcard rankhistorycard';
+          card.innerHTML = '<div class="rankbig">#' + esc(rankNum(me.rank)) + '</div>';
+        } else if (!name) {
+          card.className = 'rankidentityprompt hint';
           card.innerHTML =
-            '<div class="rankyou"><div class="rankbig">#' + esc(rankNum(me.rank)) +
-            '<small class="rankof" id="rankOf"></small></div>' +
-            '<div class="rankwho"><b>' + esc(label) + '</b><span>' + esc(name || 'You') + ' · ' + year + '</span></div></div>' +
-            '<div class="rankstats">' +
-            '<div><b>' + esc(rankNum(me.species)) + '</b><span>species</span></div>' +
-            '<div><b>' + esc(rankNum(me.checklists)) + '</b><span>checklists</span></div>' +
-            '</div>' +
-            (me.recent ? '<div class="rankrecent"><span>Most recent addition</span><b>' + esc(me.recent) + '</b></div>' : '');
+            '<b>Your eBird standing is unavailable.</b>'
+            + '<span>Fetch your signed-in eBird name to match your published row.</span>'
+            + '<div class="row"><button type="button" class="secondary" id="rankFetchNameBtn">Fetch my name</button>'
+            + '<button type="button" class="secondary" id="rankImportDataBtn">Import eBird data\u2026</button></div>'
+            + '<span class="hint" id="rankIdentityStatus"></span>';
         } else {
+          card.className = 'rankcard';
           var ownSpecies = currentYearSpeciesCount();
           var estimate = unpublishedRankEstimate(rows, ownSpecies, data.checkedToRank);
           var rankText = estimate
@@ -24059,10 +24092,6 @@
         var rankImport = card.querySelector('#rankImportDataBtn');
         if (rankImport) rankImport.addEventListener('click', openCsvSettings);
         if (me) {
-          var slot = card.querySelector('#rankOf');
-          ebirderCount(region).then(function (n) {
-            if (slot && n) slot.textContent = ' of ' + rankNum(n) + ' eBirders';
-          });
           var trend = document.createElement('div');
           trend.innerHTML = rankTrendHTML(rankHistRecord(region, me));
           card.appendChild(trend.firstChild);
@@ -24074,10 +24103,6 @@
         // Three columns, not four: rank/birder/species answer "who is ahead of
         // me and by how much". Checklists is effort, not standing, and it cost a
         // quarter of the width on a phone. Same three columns the report shows.
-        var cap = document.createElement('div');
-        cap.className = 'rankcap';
-        cap.textContent = '🥇 Top ' + TOP_BOARD_N + ' eBirders — ' + label + ' (' + year + ')';
-        out.appendChild(cap);
         // F152's hard constraint, said out loud rather than assumed: a county
         // board is a different BOARD, not a different list. Nothing in the app
         // starts calling a Snohomish bird unseen because you are looking at the
@@ -24104,8 +24129,13 @@
         // shape elsewhere (the mega lane says what it held back rather than
         // silently shrinking). If nothing is fresh, the control says so and is
         // disabled rather than inviting a tap that empties the screen.
+        var boardRows = rows.filter(function (r) {
+          var rank = Number(r && r.rank);
+          return isFinite(rank) && rank >= 1 && rank <= TOP_BOARD_N;
+        }).slice(0, TOP_BOARD_N);
+        var displayRows = boardRows.slice();
         var freshN = 0;
-        rows.slice(0, TOP_BOARD_N).forEach(function (r) {
+        boardRows.forEach(function (r) {
           var p = lastNewParse(r && r.recent);
           if (p && p.date && rankTickIsFresh(p.date)) freshN++;
         });
@@ -24115,8 +24145,7 @@
         bar.style.margin = '0 0 8px';
         bar.innerHTML = freshN
           ? ToggleControls.pressed({
-            id: 'rankNewOnly', cls: 'ranknewbtn', icon: '\uD83C\uDD95',
-            label: _rankNewOnly ? 'Show all' : 'Recent only (' + freshN + ')',
+            id: 'rankNewOnly', icon: 'NEW', iconCls: 'newflag', label: 'Recent',
             ariaLabel: _rankNewOnly
               ? 'Show all Top 100 rows'
               : 'Show ' + freshN + ' additions from the last '
@@ -24129,7 +24158,8 @@
           // F125: record the board, then read the movement back out of it.
           var bhist = boardHistRecord(region, rows);
           var bnow = Date.now();
-        rows.slice(0, TOP_BOARD_N).forEach(function (r) {
+        displayRows.forEach(function (r) {
+          var mine = !!(me && r.name === me.name);
           // F262: when the filter is on, a row with no fresh tick is not drawn.
           if (_rankNewOnly) {
             var pf = lastNewParse(r && r.recent);
@@ -24138,17 +24168,18 @@
           // The report deep-links each birder to their own row on the board
           // (their <h5> id is the display name), so the app does too.
           var who = board ? extA(board + '#' + encodeURIComponent(r.name), r.name) : esc(r.name);
-          var mine = !!(me && r.name === me.name);
+          var movement = boardMoveHTML(boardDeltasFor(bhist, r.name, bnow));
           cards.push(HotspotCards.medium({
             cls: 'rankrow' + (mine ? ' rankme' : ''),
             num: esc(r.rank),
             tone: '#0072B2',
             name: '<span class="wholine">' + who
-              + (mine ? ' <span class="star">you</span>' : '') + '</span>',
+              + (mine ? ' <span class="star">you</span>' : '') + '</span>'
+              + rankInlineDetailsHTML(r),
             distance: r.species,
             distanceLabel: 'sp',
-            sub: boardMoveHTML(boardDeltasFor(bhist, r.name, bnow)),
-            below: rankLastNewHTML(r)
+            sub: movement,
+            below: ''
           }));
         });
         tbl.innerHTML = HotspotCards.list('medium', cards, 'ranktable rankcards');
@@ -32613,7 +32644,7 @@
         surgeBtn:      'Talk and news',
         wxBtn:         'Is today worth chasing',
         dueBackBtn:    'Migrants due back soon',
-        rankBtn:       'Your eBird standing',
+        rankBtn:       'Leaderboard',
         patchBtn:      'Where the top 100 actually bird',
         destBtn:       'Top hotspots to visit',
         excBtn:        'Top half-day hotspots',
@@ -32643,6 +32674,13 @@
         settingsPanel: 'Region, text size, data',
         helpBody:      'What every button does'
       };
+      function rankMenuHeading() {
+        var scope = getRankScope();
+        return 'Leaderboard - ' + scope.label + ' ' + new Date().getFullYear();
+      }
+      function menuSubText(at) {
+        return at === 'rankBtn' ? rankMenuHeading() : (MENU_SUB[at] || '');
+      }
 
       // F201. THE ORDER AND THE GROUPS ARE AUTHORED, not inherited.
       //
@@ -33513,6 +33551,7 @@
         });
         h2.appendChild(btn);
         loadRows.forEach(function (candidate) { candidate.hidden = true; });
+        sec.classList.add('compacthead');
       }
 
       // ---- pull down to reload ----------------------------------------------
@@ -33655,7 +33694,7 @@
         // menu entry off while leaving the section reachable by anchor.
         sec._enabled = m.enabled !== false;
         sec._group = m.group || '';
-          _setH2(sec, MENU_SUB[m.at] || splitLabel(m.label).text);
+          _setH2(sec, menuSubText(m.at) || splitLabel(m.label).text);
           addSectionDoc(sec);
         addSectionRefresh(sec);
           _sections.push(sec);
@@ -34165,7 +34204,7 @@
           // sub-line is the part a reader would actually type.
           a.setAttribute('data-find',
             String(sec._label || '').toLowerCase() + ' '
-            + String(MENU_SUB[sec._at] || '').toLowerCase());
+            + String(menuSubText(sec._at)).toLowerCase());
           var parts = splitLabel(sec._label);
           if (parts.icon) {
             var ic = document.createElement('span');
@@ -34195,7 +34234,7 @@
           // Settings had a sub-line, because `settingsPanel` happens to be
           // both its authored id and its MENU `at`. `sec._at` is set three
           // lines above from the MENU row and is the only reliable key.
-          var subTxt = MENU_SUB[sec._at] || MENU_SUB[String(sec.id).replace(/^sec-/, '')];
+          var subTxt = menuSubText(sec._at || String(sec.id).replace(/^sec-/, ''));
           if (subTxt) {
             var sb = document.createElement('span');
             sb.className = 'tilesub';

@@ -143,7 +143,7 @@ function currentHtml() {
   h += '<ul class="obs big xl lanes">'
     + SC.medium({ sci: BIRDS.nazca.sci, icon: BIRDS.nazca.ic, name: BIRDS.nazca.name,
         code: BIRDS.nazca.code, alpha: BIRDS.nazca.alpha,
-        tags: '<span class="megafresh">\uD83C\uDD95 found today</span>',
+        tags: '<span class="newflag">NEW</span> found today',
         sub: 'ABA Code 3+ \u00b7 11 reports', distMi: 50.1,
         below: megaBelow('First state record \u00b7 found today',
           '<a href="#">Ocean Shores Jetty</a>',
@@ -169,7 +169,7 @@ function currentHtml() {
 
   h += '<h3 class="lanehead">\uD83D\uDC26 2 species drawing a crowd <button class="lanehelp" type="button">\u24D8</button></h3>';
   h += '<div class="status">Distinct observers at one spot in the last 6 hours, against what that '
-    + 'species normally draws there. \uD83C\uDD95 = nothing reported in the trailing two weeks.</div>';
+    + 'species normally draws there. NEW = nothing reported in the trailing two weeks.</div>';
   h += '<ul class="obs big xl lanes">'
     + crowdLi(BIRDS.baisan, '7 birders \u00b7 9 lists \u00b7 5\u00d7 normal \u00b7 12.4 mi',
         'Cedar River Mouth', 'Sep 1, 1:32 PM \u00b7 S387245442', true)
@@ -199,7 +199,7 @@ function currentHtml() {
 
 function crowdLi(b, meta, where, latest, novel) {
   return '<li><div class="name">' + b.ic + '<span class="ntext"><a href="#">' + b.name + '</a>'
-    + ' \uD83D\uDD0D' + (novel ? ' \uD83C\uDD95' : '') + '</span></div>'
+    + ' \uD83D\uDD0D' + (novel ? ' <span class="newflag">NEW</span>' : '') + '</span></div>'
     + '<div class="meta">' + meta + '</div>'
     + '<ul class="cklrows"><li><span class="when">Where</span><span class="howmany"></span>'
     + '<span class="where"><a href="#">' + where + '</a></span></li>'
@@ -281,7 +281,7 @@ function proposedHtml() {
 
   h += '<ul class="obs big xl lanes">'
     + alertRow({ kind: 'mega', b: BIRDS.nazca, sub: 'ABA Code 3+ \u00b7 11 reports', mi: 50.1,
-        tag: '<span class="megafresh">\uD83C\uDD95 found today</span>',
+        tag: '<span class="newflag">NEW</span> found today',
         why: 'ABA Code 3+ \u00b7 <b>first state record</b> \u00b7 found today',
         where: 'Ocean Shores Jetty',
         found: 'Sep 1 \u2014 nothing reported here since we began watching on Aug 3',
@@ -294,7 +294,7 @@ function proposedHtml() {
         why: '<b>You have not seen it this year</b> and it is 6 mi away \u2014 4 sightings at one spot',
         where: 'Marymoor Park', latest: 'Sep 1, 11:05 AM \u00b7 3 h ago' })
     + alertRow({ kind: 'crowd', b: BIRDS.baisan, sub: '7 birders \u00b7 9 lists', mi: 12.4,
-        tag: '<span class="megafresh">\uD83C\uDD95 new here</span>',
+        tag: '<span class="newflag">NEW</span> new here',
         why: '7 birders converged \u2014 <b>5\u00d7 what this species normally draws here</b>',
         where: 'Cedar River Mouth', latest: 'Sep 1, 1:32 PM \u00b7 56 min ago' })
     + alertRow({ kind: 'crowd', b: BIRDS.ruff, sub: '5 birders', mi: 31.0,
@@ -372,7 +372,7 @@ function compactHtml() {
     + '</div>';
   h += '<ul class="obs big xl lanes cfeed">'
     + compactRow({ kind: 'mega', b: BIRDS.nazca, sub: '11 reports', mi: 50.1,
-        tag: '<span class="megafresh">\uD83C\uDD95 found today</span>',
+        tag: '<span class="newflag">NEW</span> found today',
         why: '<b>First state record</b> \u00b7 found today',
         where: 'Ocean Shores Jetty', age: '14 min ago',
         more: 'Nothing reported here since Aug 3 \u2014 show evidence' })
@@ -383,7 +383,7 @@ function compactHtml() {
         why: '<b>You still need it</b> \u00b7 4 sightings at one spot',
         where: 'Marymoor Park', age: 'Sep 1, 11:05 AM \u00b7 3 h ago' })
     + compactRow({ kind: 'crowd', b: BIRDS.baisan, sub: '7 birders \u00b7 9 lists', mi: 12.4,
-        tag: '<span class="megafresh">\uD83C\uDD95 new here</span>',
+        tag: '<span class="newflag">NEW</span> new here',
         why: '7 birders \u00b7 <b>5\u00d7 normal here</b>',
         where: 'Cedar River Mouth', age: 'Sep 1, 1:32 PM \u00b7 56 min ago', extra: '<a href="#">S387245442</a>' })
     + compactRow({ kind: 'crowd', b: BIRDS.ruff, sub: '5 birders', mi: 31.0,
@@ -544,7 +544,7 @@ const ALERTS = [
   { kind: 'need', b: BIRDS.vesspa, sub: '12 sightings', mi: 14.3,
     why: 'You still need it.', where: 'Jefferson Park, Seattle', date: '9/1 4:12p' },
   { kind: 'mega', b: BIRDS.ruff, sub: '21 reports', mi: 98.2,
-    tag: '<span class="megafresh">\uD83C\uDD95 new locality</span>',
+    tag: '<span class="newflag">NEW</span> new locality',
     why: 'First reports at Hoquiam STP.', where: 'Hoquiam STP', date: '8/28 3:50p' },
 ].map((alert) => ({
   ...alert,

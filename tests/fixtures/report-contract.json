@@ -50,10 +50,10 @@
     {
       "at": "rankBtn",
       "label": "🏆 Top 100",
-      "report": "## 🏆 Top 100 — Your eBird standing",
+      "report": "## 🏆 Top 100 — Leaderboard",
       "map": null,
       "why": "your standing plus the full Top 100 board you're ranked on — one section, one region; the board is collapsed in the report because each committed day is a dated snapshot eBird cannot re-serve",
-      "sub": "Your eBird standing"
+      "sub": "Leaderboard"
     },
     {
       "at": "patchBtn",

@@ -272,7 +272,7 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
   exact submitted time (eBird's shared-checklist signature) to surface birding
   **groups** — 2+ people who hit 2+ hotspots together in a day. Each route is a
   field-tested itinerary, ranked by stops → group size → recency. A lazy per-route
-  expander pools every stop's `checklist/view` species and flags 🆕 birds not on
+  expander pools every stop's `checklist/view` species and flags NEW birds not on
   your list via one batched `ref/taxonomy` call. Ports `section_birder_convoys` /
   `_convoy_species_cell`. This completes **full report parity**. ✅
 
