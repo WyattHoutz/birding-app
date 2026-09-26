@@ -788,6 +788,7 @@
        shape rather than introducing a third kind of control. */
     .raritycontrols { display: flex; flex-direction: row; flex-wrap: wrap;
       gap: 6px; align-items: center; margin-top: 9px; }
+    .reportnotescontrol { display: flex; justify-content: flex-end; margin: 0 0 8px; }
     .raritycontrolrow { display: flex; gap: 6px; align-items: center;
       flex-wrap: wrap; }
     /* "all three toggle pairs on one line, no wrapping."
@@ -3788,7 +3789,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.5';
+      var APP_VERSION = '1.130.6';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13609,8 +13610,51 @@
       function syncReportNotesVisibility(root) {
         if (!root) return;
         var show = rarityNotes();
-        var notes = root.querySelectorAll('.cknote, .evnotes');
+        var notes = root.querySelectorAll('.evnoterow, .evnotes');
         for (var i = 0; i < notes.length; i++) notes[i].hidden = !show;
+      }
+      function ensureReportNotesControl(root) {
+        if (!root || !root.parentNode) return null;
+        var id = (root.id || 'report') + 'NotesControl';
+        var host = document.getElementById(id);
+        if (!host) {
+          host = document.createElement('div');
+          host.id = id;
+          host.className = 'reportnotescontrol';
+          root.parentNode.insertBefore(host, root);
+        }
+        function paint() {
+          host.innerHTML = ToggleControls.pressed({
+            id: id + 'Button',
+            cls: 'reportnotesbtn',
+            icon: '\uD83D\uDCAC',
+            label: 'Notes',
+            ariaLabel: 'Show all checklist notes',
+            data: { notes: rarityNotes() ? 'off' : 'on' },
+            pressed: rarityNotes()
+          });
+        }
+        paint();
+        if (!host.getAttribute('data-wired')) {
+          host.setAttribute('data-wired', '1');
+          host.addEventListener('click', function (event) {
+            var button = event.target.closest
+              ? event.target.closest('.reportnotesbtn') : null;
+            if (!button) return;
+            var want = button.getAttribute('data-notes') === 'on';
+            setRarityNotes(want);
+            paint();
+            syncReportNotesVisibility(root);
+            if (!want) return;
+            [].slice.call(root.querySelectorAll('details.ckall')).forEach(function (det) {
+              det.open = true;
+            });
+            hydrateChecklistEvidence(root).catch(function (e) {
+              dbg('warn', 'report notes: ' + ((e && e.message) || e));
+            });
+          });
+        }
+        return host;
       }
       var TWITCH_VIEW_KEY = 'ebird_twitch_view_v1';
       function twitchView() {
@@ -18221,15 +18265,17 @@
             if (!lid) return;
             (by[lid] || (by[lid] = [])).push(chk);
           });
-          return by;
-        }).catch(function () { return {}; });
+          return { by: by, failed: !!lists._feedFailed };
+        }).catch(function () { return { by: {}, failed: true }; });
       }
       function hydrateHotspotChecklists(root) {
         if (!root || !getKey()) return Promise.resolve();
         var cards = [].slice.call(root.querySelectorAll('[data-hsloc]'))
           .filter(function (el) { return el.getAttribute('data-hsloc'); });
         if (!cards.length) return Promise.resolve();
-        return hotspotChecklistIndex().then(function (by) {
+        ensureReportNotesControl(root);
+        function paint(index, provisional) {
+          var by = index.by || {};
           var mkCkl = function (chk, targets) {
             var sub = chk.subId || chk.subID || '';
             var targetItems = (targets || []).map(function (target) {
@@ -18264,8 +18310,41 @@
             });
           };
           cards.forEach(function (el) {
-            var got = by[el.getAttribute('data-hsloc')];
-            if (!got || !got.length) return;
+            var got = (by[el.getAttribute('data-hsloc')] || []).slice();
+            var want = (el.getAttribute('data-unseen-subs') || '')
+              .split(',').filter(Boolean);
+            var targetCodes = {};
+            try {
+              targetCodes = JSON.parse(el.getAttribute('data-unseen-codes') || '{}');
+            } catch (e) {}
+            var indexedSubs = {};
+            got.forEach(function (chk) {
+              indexedSubs[chk.subId || chk.subID || ''] = 1;
+            });
+            want.forEach(function (sub) {
+              var targets = targetCodes[sub] || [];
+              if (!sub || indexedSubs[sub] || !targets.length) return;
+              var newest = targets.reduce(function (best, target) {
+                return String(target.dateStr || '') > best
+                  ? String(target.dateStr || '') : best;
+              }, '');
+              got.push({ subId: sub, isoObsDate: newest });
+              indexedSubs[sub] = 1;
+            });
+            var slot = el.querySelector('.hsckl');
+            if (slot && !provisional && slot.getAttribute('data-provisional') === '1') {
+              slot.removeAttribute('data-done');
+              slot.removeAttribute('data-provisional');
+              slot.innerHTML = '';
+            }
+            if (!got.length) {
+              if (!provisional && index.failed && slot && !slot.getAttribute('data-done')) {
+                slot.setAttribute('data-done', '1');
+                slot.innerHTML = '<div class="meta dim">Checklist evidence could not load. '
+                  + 'Retry this section to try again.</div>';
+              }
+              return;
+            }
             // ONLY THE CHECKLISTS THAT HOLD A BIRD YOU STILL NEED.
             //
             // "dont show checklists without unseen birds." A hotspot card
@@ -18282,12 +18361,6 @@
             // birds shows none; and a card with unseen birds whose feed named
             // no checklist for them keeps the full list, because it cannot
             // rule any of them out.
-            var want = (el.getAttribute('data-unseen-subs') || '')
-              .split(',').filter(Boolean);
-            var targetCodes = {};
-            try {
-              targetCodes = JSON.parse(el.getAttribute('data-unseen-codes') || '{}');
-            } catch (e) {}
             var nUnseen = el.getAttribute('data-unseen-n');
             if (nUnseen === '0') return;
             var kept = false, rest = [];
@@ -18304,21 +18377,6 @@
               // all coverage newest-first, and hydration can fill the observer,
               // duration and species total when the checklist endpoint catches
               // up.
-              var indexedSubs = {};
-              got = got.slice();
-              got.forEach(function (chk) {
-                indexedSubs[chk.subId || chk.subID || ''] = 1;
-              });
-              want.forEach(function (sub) {
-                var targets = targetCodes[sub] || [];
-                if (!sub || indexedSubs[sub] || !targets.length) return;
-                var newest = targets.reduce(function (best, target) {
-                  return String(target.dateStr || '') > best
-                    ? String(target.dateStr || '') : best;
-                }, '');
-                got.push({ subId: sub, isoObsDate: newest });
-                indexedSubs[sub] = 1;
-              });
               var hit = got.filter(function (chk) {
                 return want.indexOf(chk.subId || chk.subID || '') >= 0;
               });
@@ -18354,9 +18412,9 @@
             }
             // The slot is created empty at build time so this never has to
             // guess where in the card the list belongs.
-            var slot = el.querySelector('.hsckl');
             if (!slot || slot.getAttribute('data-done')) return;
             slot.setAttribute('data-done', '1');
+            if (provisional) slot.setAttribute('data-provisional', '1');
             // SLACK: a remainder small enough to absorb never earns a control
             // of its own. Splitting 26 into 25-plus-1 is the same defect as
             // splitting 6 into 5-plus-1, just further along the list.
@@ -18432,6 +18490,13 @@
               }
             }
           });
+        }
+        // The location feeds have already named the unseen birds and their
+        // checklist ids. Paint that evidence now instead of waiting for the
+        // much larger county list, which can take 20-30 seconds or time out.
+        paint({ by: {}, failed: false }, true);
+        return hotspotChecklistIndex().then(function (index) {
+          paint(index, false);
         });
       }
 
@@ -19120,13 +19185,26 @@
         var feeds = BL.planConvoyFeeds(getReport());
         _listsProgress = {
           rows: feeds.map(function () { return []; }),
+          failed: feeds.map(function () { return false; }),
           settled: 0, total: feeds.length, listeners: []
         };
+        function markFailure(rows) {
+          try {
+            Object.defineProperty(rows, '_feedFailed', {
+              configurable: true,
+              value: _listsProgress.failed.some(Boolean)
+            });
+          } catch (e) {
+            rows._feedFailed = _listsProgress.failed.some(Boolean);
+          }
+          return rows;
+        }
         function publish() {
           var merged = [];
           _listsProgress.rows.forEach(function (rows) {
             if (Array.isArray(rows)) merged.push.apply(merged, rows);
           });
+          markFailure(merged);
           _listsProgress.listeners.slice().forEach(function (fn) {
             fn(merged.slice(), _listsProgress.settled, _listsProgress.total);
           });
@@ -19135,6 +19213,7 @@
           return ebird(BL.requestUrl(f), false, false, false, work)
             .catch(function (e) {
               if (strict) throw e;
+              _listsProgress.failed[i] = true;
               return [];
             }).then(function (rows) {
               _listsProgress.rows[i] = Array.isArray(rows) ? rows : [];
@@ -19148,7 +19227,7 @@
           // Your own checklists ride in on a feed already paid for. Fire and
           // forget: nothing here waits on it, and a failure must never break
           // the section that asked for the lists.
-          return lists;
+          return markFailure(lists);
         }).catch(function (e) { _listsCache = null; throw e; });
         if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
         return _listsCache;

@@ -17086,11 +17086,14 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
     'Group click did not replace the visible list with grouped checklist content');
 
   const note = doc.querySelector('#lastNewResults .cknote');
-  assert.ok(note && note.hidden, 'Notes content does not start visibly hidden');
+  assert.ok(note && !note.hidden,
+    'Notes off hides inline prose, not the on-demand checklist action');
+  assert.equal(doc.querySelector('#lastNewResults .evnoterow'), null,
+    'inline Notes prose is visible before Notes is enabled');
   doc.getElementById('lastNewNotes').click();
   assert.equal(doc.getElementById('lastNewNotes').getAttribute('aria-pressed'), 'true');
   assert.equal(doc.querySelector('#lastNewResults .cknote').hidden, false,
-    'Notes click did not visibly reveal checklist-note actions');
+    'Notes click hid the checklist-note action');
   app.window.close();
 });
 
@@ -17341,6 +17344,151 @@ test('F553 Today’s patches keeps newest checklist coverage when product lists 
     'the unindexed checklist does not cover its three unseen birds');
   assert.match(rows[2].textContent, /(?:MERL|MERLIN) ×1/,
     'the older checklist needed for Merlin coverage is missing');
+  app.window.close();
+});
+
+test('F579 every hotspot report that paints all notes exposes a working Notes control', async () => {
+  let checklistViews = 0;
+  const app = await boot({
+    storage: { ebird_rarity_notes_v1: 'on' },
+    fetch(url) {
+      if (/product\/lists\//.test(url)) {
+        return [{
+          subId: 'S-NOTE', numSpecies: 22, isoObsDate: '2026-09-26 09:30',
+          userDisplayName: 'Observer',
+          loc: { locId: 'L-NOTE', locName: 'Notes Patch',
+                 latitude: 47.8, longitude: -122.4 },
+        }];
+      }
+      if (/data\/obs\/L-NOTE\/recent/.test(url)) {
+        return [{ speciesCode: 'sabgul', comName: "Sabine's Gull",
+                  obsDt: '2026-09-26 09:30', subId: 'S-NOTE', howMany: 1 }];
+      }
+      if (/product\/checklist\/view\/S-NOTE/.test(url)) {
+        checklistViews++;
+        return {
+          comments: 'Windy morning.',
+          obs: [{ speciesCode: 'sabgul', comments: 'Flying south past the pier.' }],
+        };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app, doc = app.document;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  A.renderDestinations([{
+    locId: 'L-NOTE', locName: 'Notes Patch', lat: 47.8, lng: -122.4,
+    dist: 11, score: 4, rare: 1,
+    species: [{
+      code: 'sabgul', name: "Sabine's Gull", dateStr: '2026-09-26 09:30',
+      subId: 'S-NOTE', count: 1,
+    }],
+  }], app.$('destMap'), app.$('destResults'));
+  await waitFor(() => doc.querySelector('#destResults .evnoterow blockquote'),
+    'Today’s patches inline notes');
+
+  const host = doc.getElementById('destResultsNotesControl');
+  assert.ok(host, 'a hotspot report can paint all notes without a Notes control');
+  const off = host.querySelector('.reportnotesbtn[data-notes="off"]');
+  assert.ok(off, 'the control does not reflect that all notes are currently on');
+  app.click(off);
+  assert.equal(A.rarityNotes(), false, 'the report control did not turn notes off');
+  assert.equal(doc.querySelector('#destResults .evnoterow').hidden, true,
+    'turning Notes off left inline prose visible');
+  assert.ok(doc.querySelector('#destResults .cknote .evidbtn'),
+    'turning Notes off hid the per-checklist on-demand note action');
+
+  const on = host.querySelector('.reportnotesbtn[data-notes="on"]');
+  assert.ok(on, 'the repainted control cannot turn notes back on');
+  app.click(on);
+  await waitFor(() => !doc.querySelector('#destResults .evnoterow').hidden,
+    'Today’s patches notes restored');
+  assert.equal(checklistViews, 1, 'toggling reused hydrated checklist detail');
+  app.window.close();
+});
+
+test('F580 Today’s patches keeps target checklist evidence when a county index fails', async () => {
+  const app = await boot({
+    fetch(url) {
+      // Never settles, matching the device's 30-second King County request.
+      if (/product\/lists\//.test(url)) return null;
+      if (/data\/obs\/L-KING\/recent/.test(url)) {
+        return [
+          { speciesCode: 'sabgul', comName: "Sabine's Gull",
+            obsDt: '2026-09-26 06:45', subId: 'S-KING', howMany: 1 },
+          { speciesCode: 'blksco2', comName: 'Black Scoter',
+            obsDt: '2026-09-26 06:45', subId: 'S-KING', howMany: 3 },
+        ];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+
+  const started = Date.now();
+  A.renderDestinations([{
+    locId: 'L-KING', locName: 'Discovery Park', lat: 47.66, lng: -122.43,
+    dist: 14, score: 5, rare: 1,
+    species: [
+      { code: 'sabgul', name: "Sabine's Gull", dateStr: '2026-09-26 06:45',
+        subId: 'S-KING', count: 1 },
+      { code: 'blksco2', name: 'Black Scoter', dateStr: '2026-09-26 06:45',
+        subId: 'S-KING', count: 3 },
+    ],
+  }], app.$('destMap'), app.$('destResults'));
+  await waitFor(() => app.document.querySelector(
+    '#destResults .hotspotChecklistProgress .cklcard-sm'),
+  'synthesized target checklist evidence');
+  assert.ok(Date.now() - started < 1500,
+    'known checklist evidence waited for the still-pending county index');
+
+  const row = app.document.querySelector(
+    '#destResults .hotspotChecklistProgress .cklcard-sm');
+  assert.equal(row.getAttribute('data-ev-sub'), 'S-KING',
+    'the fast location feed’s checklist id was discarded with the failed county index');
+  assert.match(row.textContent, /SABGUL ×1/,
+    'the synthesized row does not cover the Sabine’s Gull shown above it');
+  assert.match(row.textContent, /BLKSCO2 ×3/,
+    'the synthesized row does not cover the Black Scoter shown above it');
+  assert.doesNotMatch(app.$('destResults').textContent,
+    /Checklist evidence could not load/,
+    'known checklist evidence was mislabeled as unavailable');
+  app.window.close();
+});
+
+test('F580 a failed county index is explicit when the location feed names no checklist', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\//.test(url)) {
+        return { __status: 400, __body: { message: 'simulated county failure' } };
+      }
+      if (/data\/obs\/L-NOSUB\/recent/.test(url)) {
+        return [{ speciesCode: 'sabgul', comName: "Sabine's Gull",
+                  obsDt: '2026-09-26 06:45', subId: '', howMany: 1 }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  rep.codes = []; rep.watchHeld = []; rep.names = [];
+  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  A.renderDestinations([{
+    locId: 'L-NOSUB', locName: 'Unindexed Patch', lat: 47.66, lng: -122.43,
+    dist: 14, score: 5, rare: 1,
+    species: [{ code: 'sabgul', name: "Sabine's Gull",
+      dateStr: '2026-09-26 06:45', subId: '', count: 1 }],
+  }], app.$('destMap'), app.$('destResults'));
+  await waitFor(() => /Checklist evidence could not load/.test(
+    app.$('destResults').textContent), 'hotspot-local checklist failure');
+  assert.match(app.$('destResults').textContent, /Retry this section/,
+    'the blank evidence area gives no recovery action');
   app.window.close();
 });
 
@@ -18182,11 +18330,14 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
     'Group must visibly replace checklist rows with grouped place content');
 
   const note = doc.querySelector('#easyResults .cknote');
-  assert.ok(note && note.hidden, 'notes start visibly hidden');
+  assert.ok(note && !note.hidden,
+    'Notes off hides inline prose, not the on-demand checklist action');
+  assert.equal(doc.querySelector('#easyResults .evnoterow'), null,
+    'inline Notes prose is visible before Notes is enabled');
   doc.getElementById('easyNotes').click();
   assert.equal(doc.getElementById('easyNotes').getAttribute('aria-pressed'), 'true');
   assert.equal(doc.querySelector('#easyResults .cknote').hidden, false,
-    'Notes must visibly reveal checklist-note content');
+    'Notes must preserve the checklist-note action');
   assert.equal(calls, before,
     'view and notes clicks must use the already loaded Common Birds data');
   app.window.close();
@@ -23726,8 +23877,9 @@ test('the media pass is wired inside the card loop, where slot exists', () => {
   // ...and before the callback that declared it closes. Counting braces is
   // crude; what matters is that the toggle hook sits inside the forEach body,
   // so it is checked by position against the loop's own terminator.
-  const loopEnd = fn.lastIndexOf('});\n        });');
-  assert.ok(usesSlot < loopEnd,
+  const loopStart = fn.lastIndexOf('cards.forEach(function (el)', slotDecl);
+  const mediaHook = fn.indexOf("det.addEventListener('toggle'", usesSlot);
+  assert.ok(loopStart > -1 && loopStart < slotDecl && mediaHook > usesSlot,
     'and inside the per-card loop, not after it — reading a per-card variable '
     + 'once the loop has finished is how this broke on device while every test '
     + 'stayed green');
@@ -30387,8 +30539,11 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       ],
     }],
   });
-  await waitFor(() => app.document.querySelector('.hotspotChecklistProgress'),
-    'Today’s patches checklist progressive list');
+  await waitFor(() => {
+    const slot = app.document.querySelector('#hotResults .hsckl');
+    return slot && !slot.hasAttribute('data-provisional')
+      && slot.querySelector('.hotspotChecklistProgress');
+  }, 'Today’s patches final checklist progressive list');
   const progress = app.document.querySelector('.hotspotChecklistProgress');
   const list = progress.querySelector('ul');
   assert.ok(list, 'Today’s patches did not mount the shared progressive list');
