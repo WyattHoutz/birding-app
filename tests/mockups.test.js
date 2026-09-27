@@ -270,8 +270,7 @@ test('F551 Mega rarity mockups exercise the current direct photo slot and contro
 test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   assert.equal(mockups.STUB_SPEC.destBtn.report, 'hi');
   assert.equal(mockups.STUB_SPEC.excBtn.report, 'hi');
-  assert.equal(mockups.STUB_SPEC.fullDayBtn.report, 'hi');
-  for (const at of ['destBtn', 'excBtn', 'fullDayBtn']) {
+  for (const at of ['destBtn', 'excBtn']) {
     const shot = mockups.SECTION_SHOTS.find((item) => item.at === at);
     assert.ok(shot, `${at} release shot is missing`);
     assert.match(shot.prep,
@@ -282,15 +281,15 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
     source.indexOf('excBtn: [', source.indexOf('destBtn: [')));
   assert.equal((rows.match(/^        \{ name:/gm) || []).length, 5,
     'Today’s patches review still shows fewer than the five useful Hawaii choices');
-  const halfRows = source.slice(source.indexOf('excBtn: ['),
-    source.indexOf('fullDayBtn: [', source.indexOf('excBtn: [')));
-  assert.equal((halfRows.match(/\{ name:/g) || []).length, 3,
-    'Half-day review does not show the two measured land localities plus the routed offshore trip');
-  assert.match(halfRows, /North Pacific Ocean/);
-  assert.match(halfRows, /half day · special trip · boat required · fresh today/);
-  assert.match(halfRows, /Pu'u O'o Trail/);
-  assert.match(halfRows, /Laupahoehoe Point County Park/);
-  assert.match(halfRows, /Older evidence · last report 8 days ago/);
+  const dayRows = source.slice(source.indexOf('excBtn: ['),
+    source.indexOf('    }[at]', source.indexOf('excBtn: [')));
+  assert.equal((dayRows.match(/\{ name:/g) || []).length, 3,
+    'Day trip review does not show the two measured land localities plus the routed offshore trip');
+  assert.match(dayRows, /North Pacific Ocean/);
+  assert.match(dayRows, /round trip · special trip · boat required · fresh today/);
+  assert.match(dayRows, /Pu'u O'o Trail/);
+  assert.match(dayRows, /Laupahoehoe Point County Park/);
+  assert.match(dayRows, /Older evidence · last report 8 days ago/);
   assert.doesNotMatch(rows, /North Pacific Ocean/,
     'the F389 named-ocean control leaked back into Today’s patches');
   const f389Review = mockups.REVIEW_SHOTS.filter((shot) =>
@@ -318,8 +317,8 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the My Ticks shot can still look like a silently stale first paint');
 
   assert.match(source,
-    /2 full-day options · 18 counties · all 36 recent\/notable feeds checked/,
-    'the Full-day release shot does not identify the measured completed cold plan');
+    /3 under 3h options · 1 county · all recent\/notable feeds checked/,
+    'the unified Day trip release shot does not identify its selected range and completed plan');
 });
 
 test('F384/F385 release mockups expose row actions and regional watch scope', () => {

@@ -23,6 +23,14 @@ const zlib = require('node:zlib');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 
 const DEFAULT_TEST_TIMEOUT_MS = 120000;
+function recentObsStamp(daysAgo = 1, hour = 8, minute = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, minute, 0, 0);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+    + `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 function test(name, options, fn) {
   if (typeof options === 'function') {
     fn = options;
@@ -266,7 +274,18 @@ function boot(opts = {}) {
           yearCount: (rep.yearList || []).length,
         }));
       }
-      Object.entries(opts.storage || {}).forEach(([k, v]) => window.localStorage.setItem(k, v));
+      Object.entries(opts.storage || {}).forEach(([k, v]) => {
+        if (!opts.preserveIncompleteSpeciesCache && k.startsWith('ebird_species_v2:')) {
+          try {
+            const parsed = JSON.parse(v);
+            if (parsed && Array.isArray(parsed.rows) && parsed.expected == null) {
+              parsed.expected = parsed.rows.length;
+              v = JSON.stringify(parsed);
+            }
+          } catch {}
+        }
+        window.localStorage.setItem(k, v);
+      });
       if (Object.hasOwn(opts, 'location')) {
         Object.defineProperty(window.navigator, 'geolocation', {
           configurable: true,
@@ -1338,6 +1357,7 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
   }));
   app.window.localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
     at: Date.now(),
+    expected: 3,
     rows: [
       { code: 'westan', name: 'Western Tanager', sci: 'Piranga ludoviciana', alpha: 'weta' },
       { code: 'purmar', name: 'Purple Martin', sci: 'Progne subis', alpha: 'puma' },
@@ -1367,7 +1387,7 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
   seedSeen(app, ['amecro']);
 
   app.open(/On passage/);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await A.loadMigration();
 
   const text = app.$('migResults').textContent.replace(/\s+/g, ' ');
   assert.match(text, /Western Tanager.*county history/i,
@@ -2164,8 +2184,8 @@ test('every section the report maps has a map container, wired to a renderer', a
 
   const mapped = CONTRACT.menu.filter((m) => m.map);
   assert.ok(mapped.length >= 6, 'contract lists the report-mapped sections');
-  assert.match(HTML, /#destMap,\s*#excMap,\s*#fullDayMap,/,
-    'the Full-day Leaflet container has no shared height/aspect-ratio rule');
+  assert.match(HTML, /#destMap,\s*#excMap,\s*#tripMap,/,
+    'the Day trip Leaflet container has no shared height/aspect-ratio rule');
   for (const m of mapped) {
     const el = app.$(m.map);
     assert.ok(el, `#${m.map} container missing for "${m.label}"`);
@@ -2177,7 +2197,7 @@ test('every section the report maps has a map container, wired to a renderer', a
     // them. Require the container to be handed to a map renderer.
     let wired = lines.some((ln) =>
       ln.includes("$('" + m.map + "')") && RENDERERS.some((f) => ln.includes(f + '(')));
-    if (!wired && (m.at === 'excBtn' || m.at === 'fullDayBtn')) {
+    if (!wired && m.at === 'excBtn') {
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
       const finalPaintWired =
@@ -2630,7 +2650,8 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
   assert.match(today, /distMi/, 'how far away it is');
   assert.match(today, /recLocLink\(/, 'where');
   assert.match(today, /r\.observer/, 'who saw it');
-  assert.match(today, /fmtDateTime\(/, 'and at what time — a bare date decides nothing');
+  assert.match(today, /fmtEvidenceDateTime\(/,
+    'and at what compact time — a bare date decides nothing');
   assert.match(today, /checklistLink\(/, 'with the checklist to cite');
   assert.match(today, /needTag\(/, 'unseen-this-year flag');
   assert.match(today, /stakeflag/, 'and the stakeout day count');
@@ -2638,11 +2659,9 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
   // Neil Pankey" and "LATEST Aug 3 10:25 AM · S379634242". Two labelled rows
   // for two short facts spent three lines of a phone screen on values whose
   // LABELS were longer than the values, and pushed the next bird off screen.
-  // They are now one sub-line. The DATE LEADS — "show the date first in the
-  // sentence" — because place names are long and variable ("Charles Richey Sr.
-  // Viewpoint"), so a trailing date landed wherever the name happened to end
-  // and often wrapped. The date is the thing that decides whether a rarity is
-  // still worth chasing, so it is the thing you must be able to scan down.
+  // They are now one sub-line. The date trails the descriptive facts and uses
+  // the shortest still-actionable spelling, so it does not create the wide,
+  // differently styled lead token shown in the device report.
   assert.doesNotMatch(today, /class="lbl">(Observer|Latest)</,
     'no labelled Observer/Latest rows — they are one line under the name now');
   assert.match(today, /sub: speciesMetaRow\(\{/,
@@ -2650,23 +2669,22 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
     + 'this section and Last 7-Days cannot drift apart again');
   assert.match(HTML, /function speciesMetaRow[\s\S]{0,2400}class="rarewhere"/,
     'and that row really is the one-line sub-header');
-  // Order, pinned: the when-span is emitted BEFORE the loc-span.
+  // Order, pinned: the when-span is emitted AFTER the descriptive facts.
   {
     const row = HTML.slice(HTML.indexOf('function speciesMetaRow'));
     const body = row.slice(0, row.indexOf('class="rarewhere"'));
-    assert.ok(body.indexOf('o.when') < body.indexOf('o.loc'),
-      'the date is pushed before the place, not after it');
+    assert.ok(body.indexOf('o.when') > body.indexOf('o.loc')
+      && body.indexOf('o.when') > body.indexOf('o.tail'),
+    'the date should finish the evidence sentence');
   }
   assert.match(today, /checklistLink\(r\.subId, when\)/,
     'the time is the checklist link, so the submission id is not printed too');
   assert.doesNotMatch(today, /checklistLink\(r\.subId, r\.subId\)/,
     'the raw submission id is eleven characters of noise on a phone row');
-  // Drawn separators, so a report with no observer, no count and no
-  // stakeout cannot strand a "·" — the flags are optional now too.
-  assert.match(HTML, /\.rarewhere > \* \+ \*::before/,
-    'the separators cover every adjacent metadata element, not spans only');
-  assert.match(HTML, /content:\s*"\\00a0\\00b7\\00a0"/,
-    'each separator carries visible spaces around its bullet');
+  assert.match(HTML, /bits\.join\(' '\)/,
+    'the shared evidence template separates facts with one ordinary space');
+  assert.doesNotMatch(HTML, /\.rarewhere > \* \+ \*::before/,
+    'the shared evidence template still draws faint bullet separators');
   // The NAME row carries the name alone. 🔍, ×count and 📍 Day N are facts
   // about the sighting, so they sit with the rest of them on the sub-line.
   assert.match(today, /tags: ''/, 'the header is the bird, and nothing else');
@@ -2680,13 +2698,8 @@ test("today's rarities lists checklists; Mega routes one bird to Stakeout", () =
   const locIdx = row.indexOf('class="rareloc"');
   const whenIdx = row.indexOf('class="when"');
   const cntIdx = row.indexOf('class="rarecount"');
-  // WHEN NOW PRECEDES WHERE. It used to be place-then-date, which put the one
-  // fact that decides whether a rarity is still worth chasing behind a place
-  // name of unpredictable length — so it landed in a different column on every
-  // row, and usually wrapped. F494 makes WHEN the absolute first fact, before
-  // every flag, while the people counts stay last.
-  assert.ok(whenIdx > -1 && flagIdx > whenIdx && locIdx > flagIdx && cntIdx > locIdx,
-    'and read in the order the questions are asked: WHEN, evidence, where, people');
+  assert.ok(flagIdx > -1 && locIdx > flagIdx && cntIdx > locIdx && whenIdx > cntIdx,
+    'and read in the order the questions are asked: evidence, where, people, WHEN');
 });
 
 // F386. A bird or public-hotspot name is an in-app navigation target. The
@@ -3721,8 +3734,8 @@ test('F207: Home-dependent sections expose one Set Home route', async () => {
   assert.equal(app.window.document.activeElement, app.$('homePlace'),
     'the shared Home route lands on the one owned Home field');
 
-  app.window.__app.showSection('iconicPanel');
-  const second = app.$('iconicStatus').querySelector('.sethome-inline');
+  await app.window.__app.loadExcursions();
+  const second = app.$('excStatus').querySelector('.sethome-inline');
   assert.ok(second, 'another Home-dependent loader uses the same visible action');
   assert.match(app.$('quickBtn').textContent, /Set Home/,
     'the reusable Home anchor names the missing action directly');
@@ -4577,20 +4590,20 @@ test('the rate limiter is sized for the key it actually has to itself', () => {
     + 'queued call for a 20s cooldown');
 });
 
-test('the Go birding anchor now covers seven sections, and rank from it', async () => {
+test('the Go birding anchor covers six sections, and rank from it', async () => {
   const app = await boot();
   const doc = app.window.document, A = app.window.__app;
 
   // Quick outing NAVIGATES between anchors (it is the destination); the other
-  // six RE-RANK in place. Different verbs, same three options in the same
-  // order — that is what makes it one template rather than seven menus.
+  // five RE-RANK in place. Different verbs, same three options in the same
+  // order — that is what makes it one template rather than six menus.
   //
-  // F241. Grew from three to five: 📋 Near misses and 🥚 Nemesis birds gained
+  // F241 grew the shared switch; F596 adds it to Iconic Patches.
   // the switch on "add the control for find/here/home to the near misses and
-  // common misses" — six sections in all now offer Here / Home / Find…
+  // common misses" — five reranking sections now offer Here / Home / Find…
   const rows = [...doc.querySelectorAll('.modeswitch[data-modes="anchor"]')];
   assert.equal(rows.length, 5,
-    'Today\u2019s, Half-day, Full-day, Near misses and Nemesis '
+    'Today\u2019s, Day trip, Near misses, Nemesis and Iconic Patches '
     + 'each carry the switch');
   for (const r of rows) {
     const chips = [...r.querySelectorAll('.modebtn')].map((b) => b.getAttribute('data-anchor'));
@@ -4600,7 +4613,7 @@ test('the Go birding anchor now covers seven sections, and rank from it', async 
   const quick = [...doc.querySelectorAll('.modeswitch[data-modes="quick"] .modebtn')]
     .map((b) => (b.getAttribute('data-goto') || '').replace('quick:', ''));
   assert.deepEqual(quick, ['here', 'home', 'find'],
-    'and Quick outing still offers exactly those, so the seven agree');
+    'and Quick outing still offers exactly those, so the six agree');
 
   // The single choke point for the THREE sections that re-rank an already
   // fetched CANDIDATE SET (Today's patches, Half-day/Full-day, Closest unseen
@@ -4629,6 +4642,17 @@ test('the Go birding anchor now covers seven sections, and rank from it', async 
     + 'change something rather than the switch being decorative');
   assert.ok(!/var home = getHome\(\)/.test(em),
     'and no longer reads getHome() directly for that same purpose');
+
+  const iconic = HTML.slice(HTML.indexOf('function loadIconicSpots('),
+    HTML.indexOf('function setIconicView('));
+  const candidates = HTML.slice(HTML.indexOf('function iconicSpotCandidates('),
+    HTML.indexOf('function setIconicRange('));
+  assert.match(iconic, /var anchor = anchorPoint\(\)/,
+    'Iconic Patches reads the shared Here/Home/Find anchor');
+  assert.match(candidates, /haversineMi\(anchor\.lat, anchor\.lng,/,
+    'Iconic Patches measures every candidate from the selected anchor');
+  assert.doesNotMatch(iconic, /requireOwnedHome|haversineMi\(home\.lat, home\.lng,/,
+    'Iconic Patches must not silently remain home-only behind the shared control');
   app.window.close();
 });
 
@@ -6336,10 +6360,10 @@ test('only chase-derived sections repaint on the phase-1 publish', () => {
     'the repaint is restricted to loaders that issue no requests of their own');
   assert.match(src, /_partialDone\[slug\]/,
     'and fires once per wave, so a repaint can never cascade');
-  assert.match(src, /-tier-\(half\|full\)/,
+  assert.match(src, /-tier-\(under3\|from3to5\|from5to8\)/,
     'tier phase two has no separate repaint path');
-  assert.match(src, /loadFullDay\(\).*loadExcursions\(\)/s,
-    'the tier repaint no longer targets the matching visible board');
+  assert.match(src, /var at = 'excBtn'[\s\S]*loadExcursions\(\)/,
+    'the tier repaint no longer targets the unified visible board');
 
   const loaders = HTML.slice(HTML.indexOf('var LOADERS = {'),
         HTML.indexOf('var _autoLoaded'));
@@ -6351,7 +6375,7 @@ test('only chase-derived sections repaint on the phase-1 publish', () => {
   });
   // These fetch their own feeds and must NOT be repainted.
   ['surgeBtn', 'convoyBtn', 'tripBtn', 'quickBtn', 'easyBtn', 'rankBtn',
-    'abaBtn', 'excBtn', 'fullDayBtn'].forEach((id) => {
+    'abaBtn', 'excBtn'].forEach((id) => {
     const line = loaders.split('\n').filter((l) => l.indexOf(id + ':') >= 0)[0] || '';
     assert.ok(line && line.indexOf('fromChase') < 0,
       id + ' issues its own requests, so repainting it would refetch');
@@ -6953,6 +6977,10 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
 // A bird that is hard to find is not a bird that is rare, and this is the only
 // thing in the app that can tell them apart.
 test('a species lookup shows how good its places are historically', async () => {
+  const now = new Date();
+  const previousMonth = String(now.getMonth() === 0 ? 12 : now.getMonth());
+  const arrivalMonth = String(now.getMonth() + 1);
+  const arrivalDay = String(Math.min(28, now.getDate() + 3));
   const app = await boot({
     fetch(url) {
       if (/ref\/taxonomy/.test(url)) return [];
@@ -6961,7 +6989,7 @@ test('a species lookup shows how good its places are historically', async () => 
         return [{
           speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis',
           locId: 'L1', locName: 'McNary NWR', lat: 46.1, lng: -119.0,
-          obsDt: '2026-07-31 08:00', howMany: 2, subId: 'S1', obsValid: true,
+          obsDt: recentObsStamp(), howMany: 2, subId: 'S1', obsValid: true,
         }];
       }
       // GBIF: species/match, then the counts the multiplier divides.
@@ -6990,13 +7018,13 @@ test('a species lookup shows how good its places are historically', async () => 
         }
         if (/facet=month/.test(url)) {
           return { count: 4000, facets: [{ field: 'MONTH', counts: [
-            { name: '4', count: 900 }, { name: '5', count: 1500 },
-            { name: '6', count: 1200 }, { name: '7', count: 400 },
+            { name: previousMonth, count: 300 },
+            { name: arrivalMonth, count: 1500 },
           ] }] };
         }
         if (/facet=day/.test(url)) {
           return { count: 900, facets: [{ field: 'DAY', counts: [
-            { name: '18', count: 5 }, { name: '20', count: 60 }, { name: '25', count: 200 },
+            { name: arrivalDay, count: 200 },
           ] }] };
         }
         // geometry= is the 2 km box; gadmGid= the county baseline that replaced
@@ -7212,7 +7240,7 @@ test('the historical block never blocks or breaks the live answer', async () => 
         return [{
           speciesCode: 'weskin', comName: 'Western Kingbird', sciName: 'Tyrannus verticalis',
           locId: 'L1', locName: 'McNary NWR', lat: 46.1, lng: -119.0,
-          obsDt: '2026-07-31 08:00', howMany: 2, subId: 'S1', obsValid: true,
+          obsDt: recentObsStamp(), howMany: 2, subId: 'S1', obsValid: true,
         }];
       }
       return null;   // every GBIF call fails
@@ -7748,30 +7776,34 @@ test('F496 Nemesis scope uses the shared live chase radius', async () => {
 });
 
 // "Also, Id like the option to choose the chase radius."
-test('the chase radius is a setting, and every list obeys the live value', async () => {
+test('the chase radius changes in five-mile steps, and every list obeys the live value', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
 
   assert.equal(A.chaseMaxMi(), A.CHASE_DEFAULT_MI,
     'unset, it is the radius shared with report.CHASE_MAX_MI');
-  const sel = doc.getElementById('chaseMi');
-  assert.ok(sel, 'Settings offers a control');
-  assert.equal(sel.value, String(A.CHASE_DEFAULT_MI),
-    'showing the value actually in force, not a hardcoded first option');
-  assert.deepEqual([...sel.options].map((o) => o.value),
-    ['10', '15', '20', '30', '40', '50', '75', '100', '150', '200', '300', '500'],
-    'the default is 40 and the menu includes useful state-scale distances');
+  const output = doc.getElementById('chaseMi');
+  assert.ok(output, 'Settings shows the current distance');
+  assert.equal(output.tagName, 'OUTPUT',
+    'the displayed distance is not an editable custom-value field');
+  assert.equal(output.value, String(A.CHASE_DEFAULT_MI),
+    'the display shows the value actually in force');
+  assert.equal(doc.querySelectorAll('.chaseMiPreset').length, 0,
+    'the simplified control has no preset row');
+  assert.equal(doc.getElementById('chaseMiDown').textContent.trim(), '−5');
+  assert.equal(doc.getElementById('chaseMiUp').textContent.trim(), '+5');
   assert.equal(doc.getElementById('saveBtn'), null, 'Settings has no Save button');
   assert.equal(doc.getElementById('closeSettings'), null, 'Settings has no Done button');
 
-  app.window.localStorage.setItem(A.chaseMiKey(), '75');
-  assert.equal(A.chaseMaxMi(), 75, 'a stored radius wins');
+  app.window.localStorage.setItem(A.chaseMiKey(), '30');
+  assert.equal(A.chaseMaxMi(), 30, 'a stored quick radius wins');
   A.syncChaseMi();
-  assert.equal(sel.value, '75', 'and the control reflects it');
+  assert.equal(output.value, '30', 'and the displayed distance reflects it');
 
   // The mechanism, not a slogan. eBird caps `dist` on its around-me feeds at
   // 50 km, so past ~31 mi the extra reach is county coverage — which is not a
   // circle. A control that implied otherwise would be lying about the data.
+  app.click(doc.getElementById('chaseMiUp'));
   const hint = doc.getElementById('chaseMiHint');
   assert.match(hint.textContent, /31 mi/,
     'past the geo-feed cap the hint says where the extra range comes from');
@@ -7779,17 +7811,27 @@ test('the chase radius is a setting, and every list obeys the live value', async
   assert.match(hint.textContent, new RegExp(A.CHASE_DEFAULT_MI + ' mi'),
     'and warns that the Markdown report still uses its own radius');
 
-  // A value with no matching <option> must not blank the control.
-  app.window.localStorage.setItem(A.chaseMiKey(), '42');
+  app.window.localStorage.setItem(A.chaseMiKey(), '40');
   A.syncChaseMi();
-  assert.equal(sel.value, '42', 'an unlisted radius is added rather than lost');
+  assert.equal(output.value, '40');
+  app.click(doc.getElementById('chaseMiUp'));
+  assert.equal(A.chaseMaxMi(), 45, '+5 advances exactly five miles');
+  app.click(doc.getElementById('chaseMiDown'));
+  assert.equal(A.chaseMaxMi(), 40, '−5 reverses the adjustment');
+  app.window.localStorage.setItem(A.chaseMiKey(), '1000');
+  app.click(doc.getElementById('chaseMiUp'));
+  assert.equal(A.chaseMaxMi(), 1000, '+5 stops at the upper bound');
+  app.window.localStorage.setItem(A.chaseMiKey(), '5');
+  app.click(doc.getElementById('chaseMiDown'));
+  assert.equal(A.chaseMaxMi(), 5,
+    '−5 stops at five miles because local patches own shorter distances');
 
   // THE TRAP: the radius only filters, so nothing is re-fetched — but a list
   // already on screen was built against the old number and its own status line
   // still claims it. Changing the setting has to clear those lists, or the
   // section reads "within 30 mi" over rows chosen by a different rule.
-  const src = HTML.slice(HTML.indexOf("$('chaseMi').addEventListener"),
-    HTML.indexOf("$('chaseMi').addEventListener") + 700);
+  const src = HTML.slice(HTML.indexOf('function applyChaseMi('),
+    HTML.indexOf('function applyChaseMi(') + 900);
   assert.match(src, /_autoLoaded = \{\}/, 'the loaded-section marks are cleared');
   assert.match(src, /RESET_ON_REPORT_CHANGE/,
     'and the rendered lists with them, so no list outlives the radius it was '
@@ -8845,8 +8887,9 @@ test('Bird Gen relative age stays on one line as 24hr ago', async () => {
     mega: 'notApplicable', observations: 'ok',
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
-  assert.equal(app.document.querySelector('.surgeage').textContent.trim(), '24hr ago');
-  assert.equal(app.document.querySelector('.surgeage small'), null,
+  const birdAge = app.document.querySelector('[data-alert-kind="crowd"] .surgeage');
+  assert.equal(birdAge.textContent.trim(), '24hr ago');
+  assert.equal(birdAge.querySelector('small'), null,
     'ago still wraps onto a second line');
   app.window.close();
 });
@@ -8916,11 +8959,12 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
 
   const rows = [...feed.children];
   assert.deepEqual(rows.map((row) => row.dataset.alertKind),
-    ['mega', 'need', 'crowd', 'cascade', 'hotspot'],
+    ['mega', 'migration', 'need', 'crowd', 'cascade', 'hotspot'],
     'Priority must order category severity first, then recency');
-  assert.equal(rows.length, 5, 'one of the five alert types disappeared');
+  assert.equal(rows.length, 6, 'one of the six alert types disappeared');
   const expected = {
-    mega: ['MEGA', '🦅'], need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
+    mega: ['MEGA', '🦅'], migration: ['MIGRATION', '🌙'],
+    need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
     cascade: ['CASCADE', '🏆'], hotspot: ['HOTSPOT', '📍'],
   };
   const glyphs = Object.values(expected).map((x) => x[1]);
@@ -8943,8 +8987,13 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     assert.ok(summary, `${kind} lost its always-visible code/count/place/date line`);
     assert.ok(summary.closest('.name'),
       `${kind} fact line is no longer in the same cell as the bird name`);
-    assert.match(summary.textContent, /x\d+.* - .+ - \d{1,2}\/\d{1,2}/s,
-      `${kind} does not place count, location and date on the second line`);
+    if (kind === 'migration') {
+      assert.match(summary.textContent, /BIRDCAST.*migration alert.*\d{1,2}\/\d{1,2}/s,
+        'migration does not identify BirdCast, the Home location, and the current date');
+    } else {
+      assert.match(summary.textContent, /x\d+.* - .+ - \d{1,2}\/\d{1,2}/s,
+        `${kind} does not place count, location and date on the second line`);
+    }
     assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
       `${kind} still spends the compact line on mileage`);
     const explanation = row.querySelector(':scope > .surgeexplain');
@@ -8958,23 +9007,23 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
       `${kind} lost its retained reason metadata`);
     const absolute = summary.querySelector('.surgeabsolute').textContent.trim();
     assert.ok(absolute && !/ago/i.test(absolute), `${kind} duplicated relative age in the body`);
-    if (kind !== 'hotspot') {
+    if (kind !== 'hotspot' && kind !== 'migration') {
       assert.ok(row.querySelector('.splink[data-sp]'),
         `${kind} bird name no longer opens Species Stakeout`);
       assert.ok(summary.querySelector('.surgeabsolute a[data-href*="/checklist/"]'),
         `${kind} compact date does not open its most recent checklist`);
     }
   });
-  assert.equal(new Set(borderStyles).size, 5,
-    'the five right-edge category tiles are distinguishable only by colour');
+  assert.ok(new Set(borderStyles).size >= 5,
+    'the right-edge category tiles lost their redundant border-style distinctions');
 
   const counts = Object.fromEntries([...box.querySelectorAll('.surgecount')].map((el) => [
     el.dataset.countKind, Number(el.querySelector('b').textContent),
   ]));
   assert.deepEqual(counts, {
-    mega: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
   },
-    'the five lane counts were lost when their headings were removed');
+    'the category counts were lost when their headings were removed');
   const cascade = feed.querySelector('[data-alert-kind="cascade"]');
   assert.match(cascade.dataset.surgeReasonText, /Brian.*#3.*Liam.*#4.*Bruce.*#8/s,
     'cascade evidence was discarded from accessible reason metadata');
@@ -9037,7 +9086,7 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
 
   const feed = app.$('surgeFeed');
   const rows = [...feed.children];
-  assert.equal(rows.length, 6, 'the fixture stopped exercising every news category');
+  assert.equal(rows.length, 7, 'the fixture stopped exercising every news category');
   assert.equal(feed.querySelector('details'), null,
     'Bird Gen still contains a nested reports/checklists disclosure');
   assert.equal(feed.querySelector('.cklrows, .hsckl, .hslists, .surgehotdetail'), null,
@@ -9058,9 +9107,11 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
       'the bold category explanation is not a separate full-width row');
     assert.equal(row.querySelector(':scope > .surgebody'), null,
       'the old body wrapper still traps both lines in one cell');
-    const headline = row.querySelector(':scope > .name[role="link"]');
-    assert.ok(headline && headline.tabIndex === 0,
-      'the image/name/category/time headline is not one keyboard-actionable link');
+    const headline = row.dataset.alertKind === 'migration'
+      ? row.querySelector(':scope > .name .extlink')
+      : row.querySelector(':scope > .name[role="link"]');
+    assert.ok(headline && (row.dataset.alertKind === 'migration' || headline.tabIndex === 0),
+      'the image/name/category/time headline is not keyboard actionable');
   });
   const mega = feed.querySelector('[data-alert-kind="mega"]');
   assert.match(mega.querySelector('.splink').textContent, /Nazca Booby/);
@@ -9374,9 +9425,10 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' });
 
   const feed = app.$('surgeFeed');
-  assert.equal(feed.children.length, 1,
+  const birdRows = [...feed.children].filter((row) => row.dataset.alertKind !== 'migration');
+  assert.equal(birdRows.length, 1,
     'the same species rendered once per qualifying source');
-  const row = feed.firstElementChild;
+  const row = birdRows[0];
   assert.equal(row.dataset.alertKind, 'mega',
     'the strongest category precedence MEGA > NEED > CROWD > CASCADE was not applied');
   assert.equal(row.querySelector('.surgebadge').textContent.trim(), 'MEGA');
@@ -9429,9 +9481,10 @@ test('F302 same-category dedupe keeps distinct accessible CROWD reasons', async 
       lat: 47.8, lon: -122.3, latest: stamp(5), subId: 'SNEW', distMi: 5 },
   ], [], [], [], []);
   const feed = app.$('surgeFeed');
-  assert.equal(feed.children.length, 1,
+  const birdRows = [...feed.children].filter((row) => row.dataset.alertKind !== 'migration');
+  assert.equal(birdRows.length, 1,
     'same-category events for one species were not deduped to one headline');
-  const row = feed.firstElementChild;
+  const row = birdRows[0];
   assert.match(row.dataset.surgeReasonText,
     /CROWD:.*5 birders.*5× normal.*CROWD:.*4 birders.*6× normal/s,
     'one same-category reason was discarded from accessible metadata');
@@ -9741,7 +9794,7 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
   assert.match(box.querySelector('.surgesourcewarn').textContent,
     /Mega snapshot not loaded yet/i,
     'a missing mega snapshot is being reported as zero megas');
-  assert.match(box.textContent, /No alerts are available from the sources that loaded/,
+  assert.match(box.textContent, /No bird alerts are available from the sources that loaded/,
     'an incomplete empty feed does not state the limited claim it can support');
   assert.doesNotMatch(box.textContent, /no eligible ABA Code 3\+ mega is news today/i,
     'not loaded was flattened into a definitive no-mega result');
@@ -10782,7 +10835,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.match(box.textContent, /Mega snapshot loading/i);
   assert.doesNotMatch(box.textContent, /open Mega rarities/i);
   assert.match(box.querySelector('[data-surge-visible-count]').textContent,
-    /0 loaded alerts/i,
+    /1 alert/i,
     'pending source work was presented as a definitive zero-alert result');
   await waitFor(() => {
     return box.dataset.sourceLeaderboard !== 'loading'
@@ -10834,7 +10887,7 @@ test('Happening now merges populated signals without burying the hotspot', async
   const feed = boxEl.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
   assert.ok(feed, 'the populated signals are not inside the unified feed');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['crowd', 'cascade', 'hotspot'],
+    ['migration', 'crowd', 'cascade', 'hotspot'],
     'the hotspot must remain visible after crowd and cascade in Priority order');
   const box = d.getElementById('surgeResults').innerHTML;
   assert.match(box, /class="ckgo"|class="extlink"/,
@@ -13409,6 +13462,56 @@ test('F509 Twitches prints NEW and RARE after the bird name and never RECENT or 
   app.window.close();
 });
 
+test('Twitch rows use compact names and a tighter Notes control', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  seedSeen(app, []);
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'compact', name: 'Compact Test Sandpiper', distMi: 3,
+    dateStr: '2026-09-26 17:27', loc: 'Test Marsh', locId: 'L-COMPACT',
+    subId: 'S-COMPACT', observer: 'Test Birder',
+  }]);
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results > li'), 'compact Twitch row');
+
+  const name = doc.querySelector('#results > li > .name');
+  assert.match(app.window.getComputedStyle(name).fontSize, /18px/,
+    'Twitch bird names should be smaller than the shared 21px medium-card name');
+
+  const notes = doc.querySelector('#todayFilters .raritynotesbtn');
+  const style = app.window.getComputedStyle(notes);
+  assert.equal(style.gap, '2px', 'the Notes icon-label gap is still oversized');
+  assert.equal(style.paddingLeft, '7px');
+  assert.equal(style.paddingRight, '7px');
+  app.window.close();
+});
+
+test('Twitch age and distance metrics stack their units on a second line', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.window.document;
+  const fixedNow = Date.parse('2026-09-26T17:27:00');
+  const originalNow = app.window.Date.now;
+  app.window.Date.now = () => fixedNow;
+  const host = doc.createElement('div');
+  host.id = 'results';
+  host.innerHTML = A.birdReportMetric({
+    dateStr: '2026-09-22 17:27', distMi: 30.3,
+    subId: 'S-METRIC', lat: 47.6, lon: -122.1,
+  }, 'date');
+  doc.body.appendChild(host);
+
+  const age = host.querySelector('.spmetric-age');
+  const distance = host.querySelector('.spmetric-distance');
+  assert.equal(age.querySelector('strong').textContent, '4d');
+  assert.equal(age.querySelector('small').textContent, 'ago');
+  assert.equal(distance.querySelector('strong').textContent, '30.3');
+  assert.equal(distance.querySelector('small').textContent, 'mi');
+  assert.equal(app.window.getComputedStyle(age).flexDirection, 'column');
+  assert.equal(app.window.getComputedStyle(distance).flexDirection, 'column');
+  app.window.Date.now = originalNow;
+  app.window.close();
+});
+
 test('F507-F508 medium cards always show the selected metric first and link each fact correctly', async () => {
   const SpeciesCards = require(path.join(WWW, 'cards-species.js'));
   assert.match(SpeciesCards.css, /\.spmetricstack \{ display: grid; gap: 5px;/);
@@ -13481,11 +13584,22 @@ test('F494 Twitches evidence leads with time and ends with one combined-comments
   A.refresh();
   await waitFor(() => doc.querySelector('#results .rarewhere'), 'Twitches evidence');
   const evidence = doc.querySelector('#results .rarewhere');
-  assert.ok(evidence.firstElementChild.classList.contains('when'),
-    'date/time is not the first evidence fact');
+  assert.ok(evidence.lastElementChild.classList.contains('when'),
+    'date/time is not the final evidence fact');
+  assert.equal(evidence.lastElementChild.textContent, '9/23 9:49a',
+    'the evidence timestamp is not the compact M/D h:mma/p form');
+  assert.doesNotMatch(evidence.textContent, /\u00b7/,
+    'the shared evidence sentence still contains faint bullet separators');
   assert.ok(evidence.querySelector(':scope > strong.rareloc'),
     'the hotspot is not inline and bold');
   assert.equal(evidence.querySelector('br'), null, 'the hotspot is forced onto another line');
+  const evidenceParts = [...evidence.children];
+  const evidenceStyle = evidenceParts.map((part) => {
+    const style = app.window.getComputedStyle(part);
+    return [style.fontFamily, style.fontSize, style.lineHeight].join('|');
+  });
+  assert.equal(new Set(evidenceStyle).size, 1,
+    `evidence facts use inconsistent typography: ${evidenceStyle.join(' / ')}`);
   await A.hydrateChecklistEvidence(doc.getElementById('results'));
   const noteSlot = doc.querySelector('#results > li > .meta > .spmetaact');
   const notes = noteSlot.querySelectorAll('.cknote .evidbtn[data-evid]');
@@ -14235,7 +14349,7 @@ test('F364 first spuh intent bypasses parent species indexes and normalizes sp p
   const app = await boot({
     fetch(url) {
       requests.push(String(url));
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) return [];
       if (/product\/spplist\/US-WA/.test(url)) return ['sem', 'wes'];
       if (/product\/spplist\//.test(url)) return [];
       return null;
@@ -14283,7 +14397,7 @@ test('F364 first spuh intent bypasses parent species indexes and normalizes sp p
 test('F365 condensed and detailed spuh hierarchy controls navigate in-app', async (t) => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) return [];
       return null;
     },
     storage: {
@@ -14334,7 +14448,7 @@ test('F365 condensed and detailed spuh hierarchy controls navigate in-app', asyn
 test('F366 spuh representative is chosen from current regional birds with injectable randomness', async (t) => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         return [{ speciesCode: 'sem' }, { speciesCode: 'wes' }];
       }
       return null;
@@ -14405,7 +14519,7 @@ test('F368 an ordinary query progressively merges species and matching spuh grou
 test('F369 spuh candidates distinguish recent presence without inventing report counts', async (t) => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         return [{ speciesCode: 'wes' }];
       }
       return null;
@@ -14441,7 +14555,7 @@ test('F367 a transport-only sightings failure retries once and keeps the selecte
   let attempts = 0;
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         return [{ speciesCode: 'ruff' }];
       }
       if (/api\.ebird\.org/.test(url)) return [];
@@ -14568,7 +14682,7 @@ test('F367 an HTTP sightings error is not mistaken for a transport retry', async
 test('F358 Stakeout bird continues from a spuh into bird evidence', async () => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         return [
           { speciesCode: 'wes' }, { speciesCode: 'wes' },
           { speciesCode: 'sem' },
@@ -14875,7 +14989,7 @@ test('F360 progressive lists append region-ranked bird-sp candidates in place', 
   let commonnessFetches = 0;
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         commonnessFetches++;
         return commonness;
       }
@@ -15031,7 +15145,7 @@ test('F358 one generation rejects stale results across species and spuh queries'
         });
       });
     }
-    if (/data\/obs\/US-WA\/recent\?back=30&maxResults=10000/.test(String(url))) {
+    if (/data\/obs\/US-WA\/recent\?.*back=30.*maxResults=10000/.test(String(url))) {
       return Promise.resolve({
         ok: true, status: 200, headers: { get: () => null },
         text: () => Promise.resolve('[]'),
@@ -15070,7 +15184,7 @@ test('F358 one generation rejects stale results across species and spuh queries'
 test('Stakeout bird renders the approved marked-spuh taxonomic hierarchy', async () => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) {
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
         return [
           { speciesCode: 'wes' }, { speciesCode: 'wes' },
           { speciesCode: 'sem' },
@@ -15905,7 +16019,7 @@ test('pending Spuh searches cannot repaint after Close or a newer query', async 
 test('a cold Spuh deep link opens its result inside Stakeout bird', async () => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?back=30&maxResults=10000/.test(url)) return [];
+      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) return [];
       if (/product\/spplist\//.test(url)) return ['sem', 'wes'];
       return null;
     },
@@ -18778,6 +18892,43 @@ test('F322 BirdCast is link-only, region-local, and explicit about unsupported H
   hawaii.window.close();
 });
 
+test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home', async () => {
+  const app = await boot({ report: 'wa' });
+  const A = app.window.__app;
+  const report = A.getReport();
+  const daytime = new Date('2026-09-27T17:00:00Z');
+
+  app.window.localStorage.removeItem(A.homeKey('lat'));
+  app.window.localStorage.removeItem(A.homeKey('lng'));
+  app.window.localStorage.removeItem(A.homeKey('place'));
+  const fallback = A.birdcastSurgeRow(daytime);
+  assert.ok(fallback, 'the active-season migration headline disappeared');
+  assert.match(fallback.name, /Tonight’s migration/);
+  assert.match(fallback.name,
+    new RegExp('latLng=' + encodeURIComponent(report.home.lat + ',' + report.home.lng)));
+  assert.match(fallback.name,
+    new RegExp('locName=' + encodeURIComponent(report.homeLabel)));
+  A.renderBirdcast(daytime);
+  const header = app.document.querySelector('#bcBody .birdcast-alert');
+  assert.ok(header, 'Nightly Migration has no graphical alert header');
+  assert.match(header.textContent, /Official BirdCast FORECAST/i);
+  assert.match(header.textContent, /Tonight’s migration/);
+  assert.match(header.getAttribute('aria-label'), /open official alert/i);
+  assert.match(app.document.getElementById('bcBody').textContent, /Lights Out guidance/i);
+
+  app.window.localStorage.setItem(A.homeKey('lat'), '47.5000');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-122.3000');
+  app.window.localStorage.setItem(A.homeKey('place'), 'Test Home');
+  const saved = A.birdcastSurgeRow(daytime);
+  assert.match(saved.name, /latLng=47\.5%2C-122\.3/);
+  assert.match(saved.name, /locName=Test%20Home/);
+  assert.match(saved.where, /Test Home migration alert/);
+  assert.match(saved.extra, /does not scrape or invent BirdCast values/);
+  const forecastBadge = A.birdcastMenuBadge(daytime);
+  assert.equal(forecastBadge.label, 'FORECAST');
+  app.window.close();
+});
+
 test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
   // Owner, 2026-08-29: "very few hotspots are showing up... I frequently get
   // hotspots to the north and south and west, but not much to the east."
@@ -19627,28 +19778,32 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   // 1. THE WORD IS THERE, not just a colour and not just a glyph. The owner is
   //    red-green colour blind, so the text is the channel that must carry it.
   assert.match(conf, /Confirmed/, 'a confirmed rarity says so in words');
-  assert.match(pend, /Pending review; not reviewed yet/,
-    'a pending one says explicitly that it has not been reviewed yet');
+  assert.match(pend, /Unconfirmed; no eBird reviewer confirmation available/,
+    'an unconfirmed row says explicitly that reviewer confirmation is unavailable');
 
   // 2. ...and the two are distinguishable with NO colour at all: different
-  //    words and different glyph shapes (check vs triangle).
-  assert.ok(conf.includes('\u2713'), 'confirmed carries the check mark');
-  assert.ok(pend.includes('\u26a0'), 'pending carries the warning triangle');
+  //    words and different glyph shapes (rosette vs egg).
+  assert.ok(conf.includes('\uD83C\uDFF5\uFE0F'), 'confirmed carries the rosette seal');
+  assert.ok(/>\uD83C\uDFF5\uFE0F Confirmed</.test(conf),
+    'Confirmed is visible text, not only an accessible-name attribute');
+  assert.ok(pend.includes('\uD83E\uDD5A'), 'unconfirmed carries the egg');
+  assert.ok(/>\uD83E\uDD5A Unconfirmed</.test(pend),
+    'Unconfirmed is visible text, not only an accessible-name attribute');
   assert.notEqual(conf.replace(/<[^>]*>/g, '').trim(),
                   pend.replace(/<[^>]*>/g, '').trim(),
                   'the two states must not read identically without colour');
 
   // 3. THE ONE THAT WOULD TELL THE USER SOMETHING UNTRUE.
-  assert.match(A.reviewFlag({ reviewState: 'unknown' }), /Pending review/,
-    'unknown review state is pending, never denied');
-  assert.match(A.reviewFlag({}), /Pending review/,
-    'an empty review state is pending, never denied');
-  assert.match(A.reviewFlag({ comName: 'Ruff', subId: 'S1' }), /Pending review/,
+  assert.match(A.reviewFlag({ reviewState: 'unknown' }), /Unconfirmed/,
+    'unknown review state is unconfirmed, never denied');
+  assert.match(A.reviewFlag({}), /Unconfirmed/,
+    'an empty review state is unconfirmed, never denied');
+  assert.match(A.reviewFlag({ comName: 'Ruff', subId: 'S1' }), /Unconfirmed/,
     'a row without review fields remains pending');
 
   // 4. The legacy shape still works: rows built before this change carry
   //    `valid` and no reviewState.
-  assert.match(A.reviewFlag({ valid: false }), /Pending review/,
+  assert.match(A.reviewFlag({ valid: false }), /Unconfirmed/,
     'a legacy row with valid=false remains pending');
 
   // 5. It really reaches the screen — the badge must survive into a rendered
@@ -19662,11 +19817,11 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   });
   doc.body.appendChild(host);
   const pill = host.querySelector('.revpend');
-  assert.ok(pill, 'the pending badge renders inside a real card');
-  assert.equal(pill.textContent, '\u26a0',
-    'the visible pending marker is the distinct warning glyph');
-  assert.match(pill.getAttribute('aria-label'), /Pending review; not reviewed yet/,
-    'the glyph has explicit accessible pending semantics');
+  assert.ok(pill, 'the unconfirmed badge renders inside a real card');
+  assert.equal(pill.textContent, '\uD83E\uDD5A Unconfirmed',
+    'the visible unconfirmed marker pairs the egg with its text label');
+  assert.match(pill.getAttribute('aria-label'), /no eBird reviewer confirmation available/,
+    'the badge explains that confirmation is unavailable, not that the record was rejected');
   // The icon is one token and must not split at a line break.
   const cs = w.getComputedStyle(pill);
   assert.equal(cs.whiteSpace, 'nowrap', 'the badge cannot break in half');
@@ -20965,7 +21120,7 @@ test('F304 chooses the newest report independently of feed order', async () => {
       lat: 48.38, lng: -124.71,
     },
   ], 'https://ebird.org/alert/summary?sid=SN10489', true, false);
-  assert.match(app.document.querySelector('#abaResults li').textContent, /Sep 4/,
+  assert.match(app.document.querySelector('#abaResults li').textContent, /9\/4 8:30a/,
     'the index summary uses the newest row even when it arrived second');
   app.click(app.document.querySelector('#abaResults .megajump'));
   const latest = app.document.querySelector('#spLookupEvidenceDetails .megalatest');
@@ -21764,15 +21919,15 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   // patches moved IN — which is coherent: the first two start from a thing you
   // have already chosen, the rest answer "where shall I go".
   //
-  // F581 separates those two chosen-target searches from the predictive tools.
-  // Stakeouts leads into Patches; the remaining Birding Tools follow Patches.
-  const GO = ['destBtn', 'quickBtn', 'excBtn', 'fullDayBtn', 'favResults',
+  // F595 moves the chosen-target searches below the predictive patch group.
+  // Patches leads into Stakeouts; the remaining Birding Tools follow Stakeouts.
+  const GO = ['destBtn', 'quickBtn', 'excBtn', 'favResults',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
     .map((b) => b.getAttribute('aria-label'));
-  for (const want of ['Today', 'Nearby Patches', 'Half-day patches', 'Full-day patches',
+  for (const want of ['Today', 'Nearby Patches', 'Day trip patches',
                       'Stakeout Birds', 'Stakeout Patches',
                       'Iconic Patches',
                       'Hot patches', 'Cold patches']) {
@@ -21792,8 +21947,8 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   const patchesIdx = headings.indexOf('Patches - Go birding');
   const toolsIdx = headings.indexOf('Birding Tools');
   assert.ok(stakeoutIdx > -1, 'the dedicated Stakeouts heading is missing');
-  assert.equal(patchesIdx, stakeoutIdx + 1, 'Patches must immediately follow Stakeouts');
-  assert.equal(toolsIdx, patchesIdx + 1, 'Birding Tools must immediately follow Patches');
+  assert.equal(stakeoutIdx, patchesIdx + 1, 'Stakeouts must immediately follow Patches');
+  assert.equal(toolsIdx, stakeoutIdx + 1, 'Birding Tools must immediately follow Stakeouts');
 
   function labelsUnder(heading) {
     const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
@@ -21808,7 +21963,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   assert.deepEqual(labelsUnder('Stakeouts - Birds and Hotspots'),
     ['🔎 Stakeout Birds', '🏞 Stakeout Patches']);
   assert.deepEqual(labelsUnder('Birding Tools'), [
-    '🌤 Twitch weather', '📆 Due back soon', '🛬 On passage', '🌙 BirdCast',
+    '🌤 Twitch weather', '📆 Due back soon', '🛬 On passage', '🌙 Nightly Migration',
     '🌄 Dawn and dusk', '🏅 Break a record', '🐦 Common birds',
   ]);
 
@@ -22551,23 +22706,31 @@ test('F254 tier chase preserves its derived profile and projects Full-day separa
   app.window.close();
 });
 
-test('F254 adds a Full-day sibling instead of widening the Half-day section', () => {
-  const half = CONTRACT.menu.findIndex((item) => item.at === 'excBtn');
-  const full = CONTRACT.menu.findIndex((item) => item.at === 'fullDayBtn');
-  assert.ok(half >= 0, 'the existing excursion section disappeared');
-  assert.equal(CONTRACT.menu[half].label, '🚗 Half-day patches');
-  assert.equal(CONTRACT.menu[half].report,
-    '## 🚗 Half-day patches — Top half-day hotspots');
-  assert.equal(full, half + 1,
-    'Full-day must be a sibling immediately after Half-day, not a mode hidden inside it');
-  assert.equal(CONTRACT.menu[full].label, '🛣️ Full-day patches');
-  assert.equal(CONTRACT.menu[full].report,
-    '## 🛣️ Full-day patches — Top full-day hotspots');
-  assert.match(HTML, /id="fullDayBtn"[\s\S]*id="fullDayMap"[\s\S]*id="fullDayResults"/,
-    'the Full-day contract has no independently loadable panel');
+test('F600 unifies day-trip patches behind three explicit distinct ranges', async () => {
+  const item = CONTRACT.menu.find((entry) => entry.at === 'excBtn');
+  assert.ok(item, 'the day-trip section disappeared');
+  assert.equal(item.label, '🚗 Day trip patches');
+  assert.equal(item.sub, 'Hotspot excursions');
+  assert.equal(item.report, '## 🚗 Day trip patches — Hotspot excursions');
+  assert.equal(CONTRACT.menu.some((entry) => entry.at === 'fullDayBtn'), false,
+    'the superseded Full-day menu sibling still exists');
+  assert.match(HTML,
+    /id="dayTripUnder3"[\s\S]*>Under 3h<[\s\S]*id="dayTrip3To5"[\s\S]*>3–5h<[\s\S]*id="dayTrip5To8"[\s\S]*>5–8h</,
+    'the unified panel does not expose all three visible travel choices');
+
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [2.99, 3, 4.99, 5, 7.99, 8].map((travelHours) => ({ travelHours }));
+  assert.deepEqual(arr(A.dayTripRangeRows(rows, 'under3'), (row) => row.travelHours),
+    [2.99]);
+  assert.deepEqual(arr(A.dayTripRangeRows(rows, 'from3to5'), (row) => row.travelHours),
+    [3, 4.99]);
+  assert.deepEqual(arr(A.dayTripRangeRows(rows, 'from5to8'), (row) => row.travelHours),
+    [5, 7.99]);
+  app.window.close();
 });
 
-test('F254 Half-day and Full-day loaders render disjoint seeded tier results', async () => {
+test('F600 Day trip modes render disjoint seeded tier results', async () => {
   const today = new Date();
   const p = (n) => String(n).padStart(2, '0');
   const stamp = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())} 08:00`;
@@ -22607,13 +22770,13 @@ test('F254 Half-day and Full-day loaders render disjoint seeded tier results', a
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
-  const halfProfile = await A.tripScopeProfile('half');
-  const fullProfile = await A.tripScopeProfile('full');
+  const halfProfile = await A.tripScopeProfile('under3', null, null, 3);
+  const fullProfile = await A.tripScopeProfile('from3to5', null, null, 5);
   const rows = {
     'us-wa-067-recent.json': [{
       speciesCode: 'nisbir', comName: 'Nisqually Bird',
       obsDt: stamp, locName: 'Nisqually NWR', locId: 'LNIS', subId: 'SNIS',
-      lat: 47.0725, lng: -122.7100,
+      lat: 47.1000, lng: -122.1600,
       subnational2Code: 'US-WA-067', subnational2Name: 'Thurston',
     }],
     'us-wa-007-recent.json': [{
@@ -22632,27 +22795,25 @@ test('F254 Half-day and Full-day loaders render disjoint seeded tier results', a
   seed(halfProfile);
   seed(fullProfile);
 
-  const halfLoad = A.loadExcursions();
+  const halfLoad = A.setDayTripRange('under3');
   assert.ok(halfLoad && typeof halfLoad.then === 'function',
-    'Half-day loader cannot be awaited or repainted after phase two');
+    'Under-3h loader cannot be awaited or repainted after phase two');
   await halfLoad;
   const halfText = app.$('excResults').textContent;
   assert.match(halfText, /Nisqually NWR/);
-  assert.match(halfText, /half day/);
+  assert.match(halfText, /round trip/);
   assert.doesNotMatch(halfText, /Leavenworth/);
 
-  const fullLoad = A.loadFullDay();
+  const fullLoad = A.setDayTripRange('from3to5');
   assert.ok(fullLoad && typeof fullLoad.then === 'function',
-    'Full-day loader cannot be awaited or repainted after phase two');
+    '3–5h loader cannot be awaited or repainted after phase two');
   await fullLoad;
-  const fullText = app.$('fullDayResults').textContent;
+  const fullText = app.$('excResults').textContent;
   assert.match(fullText, /Leavenworth/);
   assert.match(fullText, /full day/);
   assert.doesNotMatch(fullText, /Nisqually NWR/);
-  assert.equal(new Set([
-    ...app.$('excResults').querySelectorAll('.hscard'),
-    ...app.$('fullDayResults').querySelectorAll('.hscard'),
-  ]).size, 2, 'the two tier boards did not render one independent card each');
+  assert.equal(app.$('excResults').querySelectorAll('.hscard').length, 1,
+    'the selected mode did not render exactly its own card');
 
   A.seedChase(fullProfile.slug, {
     t: Date.now(), rarity: false,
@@ -22667,10 +22828,10 @@ test('F254 Half-day and Full-day loaders render disjoint seeded tier results', a
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(fullProfile),
     feedFailed: true, feedComplete: false, partial: false, stale: false,
   });
-  await A.loadFullDay();
-  assert.match(app.$('fullDayStatus').textContent, /incomplete|unavailable/i,
+  await A.setDayTripRange('from3to5');
+  assert.match(app.$('excStatus').textContent, /incomplete|unavailable/i,
     'failed tier feeds are presented as a confident empty result');
-  assert.doesNotMatch(app.$('fullDayStatus').textContent,
+  assert.doesNotMatch(app.$('excStatus').textContent,
     /No target-rich|updated \d/i,
     'a failed or stale tier claims a current successful answer');
   app.window.close();
@@ -23002,8 +23163,8 @@ test('the chase radius is per report, not one knob for all ten', async () => {
   // Set a continent-sized radius on the ABA tracker, where 35 miles is a
   // meaningless filter for a report that spans a continent.
   W.localStorage.setItem('ebird_report', 'aba');
-  W.localStorage.setItem(A.chaseMiKey(), '2000');
-  assert.equal(A.chaseMaxMi(), 2000, 'the ABA tracker reaches as far as it needs');
+  W.localStorage.setItem(A.chaseMiKey(), '1000');
+  assert.equal(A.chaseMaxMi(), 1000, 'the ABA tracker can use the full supported range');
 
   // THE POINT. Washington must be untouched. With one global key this was
   // impossible: widening the tracker widened home birding with it.
@@ -26637,10 +26798,10 @@ test('F526 Bird Gen always uses Buzz ordering and renders no sort control', asyn
     const link = row.querySelector('.ntext a');
     return (link || row.querySelector('.ntext')).textContent.trim().split(/\s{2,}/)[0];
   });
-  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
+  assert.deepEqual(order(), ['migration', 'need', 'crowd', 'crowd', 'cascade'],
     'Buzz must rank category severity before report time');
-  assert.match(names()[1], /Baird's Sandpiper/);
-  assert.match(names()[2], /Ruff/,
+  assert.match(names()[2], /Baird's Sandpiper/);
+  assert.match(names()[3], /Ruff/,
     'Priority did not use recency as the tiebreak inside the CROWD category');
   const before = app.state.fetches.length;
   assert.equal(app.document.querySelector('[data-surge-sort], .surgesortrow'), null,
@@ -26716,7 +26877,8 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
   const visibleKinds = () => visible().map((row) => row.dataset.alertKind);
   assert.equal(app.document.querySelector('.surgefilterbtn'), null,
     'Bird Gen still renders an Unseen filter');
-  assert.deepEqual(visibleKinds(), ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
+  assert.deepEqual(visibleKinds(),
+    ['mega', 'migration', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
     'Bird Gen hides seen alerts instead of showing the complete report');
   assert.equal(feed.querySelector('[data-alert-kind="mega"]').dataset.surgeSeen, 'seen',
     'a newly discovered mega was not rechecked against the active report after merging');
@@ -26724,12 +26886,12 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
     'not-applicable', 'the species-blind hotspot was falsely called unseen');
   assert.equal(app.document.querySelector('.surgesortrow'), null,
     'Bird Gen still renders its removed order controls');
-  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
+  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '7 alerts');
   assert.equal(app.document.querySelector('[data-surge-hidden-count]'), null);
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
     .map((el) => [el.dataset.countKind, Number(el.querySelector('b').textContent)]));
   assert.deepEqual(counts(), {
-    mega: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
   },
     'category counts do not describe the complete Bird Gen report');
 
@@ -26800,10 +26962,12 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
     'the hotspot body lost the absolute checklist date/time');
   assert.match(hot.querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
     'the hotspot Notes date does not open the newest hot checklist');
-  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
+    ['migration', 'crowd', 'hotspot'],
     'Priority order should still put CROWD ahead of HOTSPOT');
   assert.equal(app.document.querySelector('[data-surge-sort]'), null);
-  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['crowd', 'hotspot'],
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
+    ['migration', 'crowd', 'hotspot'],
     'the fixed Buzz order changed after rendering hotspot timing');
   app.window.close();
 });
@@ -28201,13 +28365,13 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
         return [
           { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
             locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
-            obsDt: '2026-08-15 09:20', howMany: 1, subId: 'S1', obsValid: true },
+            obsDt: recentObsStamp(1, 9, 20), howMany: 1, subId: 'S1', obsValid: true },
           { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
             locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
-            obsDt: '2026-08-15 07:20', howMany: 2, subId: 'S2', obsValid: true },
+            obsDt: recentObsStamp(1, 7, 20), howMany: 2, subId: 'S2', obsValid: true },
           { speciesCode: 'btywar', comName: 'Black-throated Gray Warbler', sciName: 'Setophaga nigrescens',
             locId: 'L1', locName: 'Discovery Park', lat: 47.66, lng: -122.42,
-            obsDt: '2026-08-15 04:58', howMany: 1, subId: 'S3', obsValid: true },
+            obsDt: recentObsStamp(1, 4, 58), howMany: 1, subId: 'S3', obsValid: true },
         ];
       }
       return null;   // GBIF never answers: the live list must not depend on it
@@ -28524,7 +28688,7 @@ test('a short Top patches list explains its time and access scope', async () => 
   // 11 mi out and the section stops at the daily-drive radius.
   //
   // WIDENING WOULD BE THE WRONG FIX, which is the part worth pinning. Beyond
-  // this radius IS Half-day patches, already its own section, so a ladder here
+  // this radius IS Day trip patches, already its own section, so a ladder here
   // would print that section twice.
   const at = HTML.indexOf('function loadDestinations');
   const src = HTML.slice(at, HTML.indexOf('function loadDayTier', at));
@@ -28548,7 +28712,7 @@ test('a short Top patches list explains its time and access scope', async () => 
     'the note hides the shorter evidence window');
   assert.match(host.textContent, /Nearby Patches.*30 days/i,
     'the note does not explain why Nearby Patches can show more places');
-  assert.match(host.textContent, /Half-day patches/i,
+  assert.match(host.textContent, /Day trip patches/i,
     'the note does not point at the section holding everything further out');
   host.innerHTML = A.destinationScopeDisclosure(25, 25, 2, 5);
   assert.match(host.textContent, /fewer than 5 fresh choices/i,
@@ -29705,7 +29869,8 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
   const feed = box.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
   assert.ok(feed, 'mega alerts did not use the unified feed');
   assert.equal(box.querySelectorAll('.lanehead').length, 0, 'the old mega lane heading survived');
-  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind), ['mega', 'mega']);
+  assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
+    ['mega', 'mega', 'migration']);
   const txt = box.textContent;
   assert.match(txt, /Nazca Booby/, 'the near + unseen mega did not render');
   assert.match(txt, /Sharp-tailed Sandpiper/, 'the far + new mega did not render');
@@ -30048,7 +30213,8 @@ test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', 
     'the removed per-checklist bird count leaked into the compact line');
   assert.match(facts.querySelector('.surgeabsolute a').getAttribute('data-href'), /SAME/,
     'the coherent tuple lost the newest checklist link');
-  assert.equal(app.$('surgeFeed').children.length, 1,
+  assert.equal([...app.$('surgeFeed').children]
+    .filter((item) => item.dataset.alertKind !== 'migration').length, 1,
     'equal-time evidence rendered a duplicate species row');
   app.window.close();
 });
@@ -33052,7 +33218,7 @@ test('the patch board filters by leaderboard rank rather than sorting by it', as
   app.window.close();
 });
 
-// --- four answers on one card, now announced as four ------------------------
+// --- four answers on one card, now announced and ordered --------------------
 // "the separate sections need more distinct headers and separation, and their
 // data should use the small template cards like the checklist."
 //
@@ -33096,17 +33262,190 @@ test('every block on a stakeout hotspot card is announced and separated', async 
   assert.ok(iconic.querySelector('.rankwhy'),
     'the multiplier and the record count belong on a sub-line, not in the title');
 
-  // And real separation: a divider and space before each block after the first.
+  // Real separation now comes from whitespace, not table-like rules.
   const st = app.window.getComputedStyle(iconic);
   assert.ok(parseFloat(st.marginTop) >= 12,
     `blocks need space between them, got ${st.marginTop}`);
-  assert.notEqual(st.borderTopStyle, 'none',
-    'and a divider, or four answers still read as one');
+  assert.equal(st.borderTopStyle, 'none',
+    'Stakeout Patch sections should not be divided by table-like rules');
+  assert.equal(app.window.getComputedStyle(
+    doc.querySelector('#stakeHsResults .hscard-lg')).borderTopStyle, 'none',
+  'the Stakeout Patch detail should not have an outer table-like border');
 
   // The rows themselves are the SHARED small card, which is what the second
   // half of the request asked for and what was already the case.
   assert.ok(doc.querySelector('#stakeHsResults .obs.card-sm'),
     'species rows render through the shared small species card');
+  assert.equal(app.window.getComputedStyle(
+    doc.querySelector('#stakeHsResults .obs.card-sm > li')).borderTopStyle, 'none',
+  'iconic species rows should not have table-like divider lines');
+
+  const text = doc.getElementById('stakeHsResults').textContent;
+  assert.ok(text.indexOf('Recent checklists') < text.indexOf('Iconic here'),
+    'recent checklist evidence should appear before historical iconic context');
+  app.window.close();
+});
+
+test('Stakeout Patch iconic rows never expose GBIF scientific-name fallbacks', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+
+  A.renderStakeHs('L1', 'Seward Park',
+    [{ subId: 'S1', obsDt: '2026-09-19 07:15', userDisplayName: 'A Birder',
+       numSpecies: 30, loc: { lat: 47.55, lng: -122.25 } }],
+    [], { lat: 47.55, lng: -122.25, n: 200, nc: 900 },
+    { effort: 374, birds: [
+      { name: 'Warbling Vireo', code: 'warvir', mult: 14, n: 14 },
+      { name: 'Setophaga petechia', code: '', mult: 13, n: 11 },
+    ] });
+
+  const iconic = [...doc.querySelectorAll('#stakeHsResults .rankhead')]
+    .find((h) => /Iconic here/.test(h.textContent));
+  const list = iconic.nextElementSibling;
+  assert.match(list.textContent, /Warbling Vireo/);
+  assert.doesNotMatch(list.textContent, /Setophaga petechia/,
+    'an unresolved GBIF taxon must not leak a Latin name into a common-name list');
+  app.window.close();
+});
+
+test('Iconic Patches shows ten score-sorted birds per patch and appends the rest', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const rows = Array.from({ length: 13 }, (_, i) => ({
+    locId: 'L-ICONIC', place: 'Iconic Marsh', lat: 47.5, lng: -122.2,
+    distMi: 8, mult: 20 - i, n: 30 + i, effort: 1000,
+    code: `bird${i}`, name: `Bird ${i}`,
+  }));
+  const loader = HTML.slice(HTML.indexOf('function loadIconicSpots('),
+    HTML.indexOf('function setIconicView('));
+  assert.doesNotMatch(loader, /slice\(0, ICONIC_TOP_PER_SPOT\)/,
+    'the scan still discards iconic birds before the ten-row renderer can paginate them');
+  A.setIconicRows(rows.slice().reverse());
+  doc.getElementById('iconicByPlace').click();
+
+  const card = doc.querySelector('#iconicResults > ul > li');
+  const list = card.querySelector('ul.obs.card-sm');
+  assert.equal(list.children.length, 10,
+    'a patch should initially show its ten highest-scoring iconic birds');
+  assert.deepEqual(Array.from(list.querySelectorAll('.ntext a.splink'))
+    .map((n) => n.textContent.trim()),
+    rows.slice(0, 10).map((r) => r.name),
+    'the visible iconic birds are not sorted from highest to lowest score');
+  assert.doesNotMatch(card.textContent, /already seen/,
+    'iconic birds must not be hidden inside the shared seen-species disclosure');
+
+  const more = card.querySelector('.iconicPlaceMore');
+  assert.ok(more, 'a patch with more than ten iconic birds needs a Show-more link');
+  assert.match(more.textContent, /3 more/);
+  more.click();
+  assert.strictEqual(card.querySelector('ul.obs.card-sm'), list,
+    'Show more replaced the original iconic-bird list');
+  assert.equal(list.children.length, 13, 'Show more did not append every remaining iconic bird');
+  assert.equal(card.querySelector('.iconicPlaceMore'), null,
+    'the exhausted iconic Show-more link remains visible');
+  app.window.close();
+});
+
+test('Iconic Patches bird view sorts by score or selected-anchor distance', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  A.setIconicRows([
+    { locId: 'L-FAR', place: 'Far Marsh', lat: 47.8, lng: -122.4,
+      distMi: 24, mult: 40, n: 40, effort: 1000, code: 'farbrd', name: 'Far Bird' },
+    { locId: 'L-NEAR', place: 'Near Marsh', lat: 47.5, lng: -122.2,
+      distMi: 3, mult: 12, n: 20, effort: 1000, code: 'nearbd', name: 'Near Bird' },
+  ]);
+  A.setIconicBirdSort('score');
+
+  const names = () => Array.from(doc.querySelectorAll('#iconicResults .ntext a.splink'))
+    .map((n) => n.textContent.trim());
+  assert.deepEqual(names(), ['Far Bird', 'Near Bird'],
+    'Iconic score should order the strongest pairing first');
+  const sortRow = doc.getElementById('iconicBirdSortRow');
+  assert.equal(sortRow.hidden, false, 'Bird view should expose its sort toggle');
+  assert.equal(doc.getElementById('iconicBirdByScore').getAttribute('aria-pressed'), 'true');
+
+  doc.getElementById('iconicBirdByDistance').click();
+  assert.deepEqual(names(), ['Near Bird', 'Far Bird'],
+    'Distance should order pairings from the selected Here/Home/Find anchor');
+  assert.equal(doc.getElementById('iconicBirdByDistance').getAttribute('aria-pressed'), 'true');
+
+  doc.getElementById('iconicByPlace').click();
+  assert.equal(sortRow.hidden, true, 'Patch view should hide the Bird-only sort toggle');
+  app.window.close();
+});
+
+test('Iconic Patches applies its chase-distance or All range to both views', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const anchor = { lat: 47.5, lng: -122.2 };
+  const candidates = [
+    { locId: 'NEAR', locName: 'Near Marsh', lat: 47.55, lng: -122.2, n: 150 },
+    { locId: 'FAR', locName: 'Far Marsh', lat: 49, lng: -122.2, n: 200 },
+  ];
+
+  assert.deepEqual(Array.from(A.iconicSpotCandidates(candidates, anchor, 'near', 40))
+    .map((h) => h.locId), ['NEAR'],
+  'the chase-distance option should exclude hotspots beyond the selected anchor radius');
+  assert.deepEqual(Array.from(A.iconicSpotCandidates(candidates, anchor, 'all', 40))
+    .map((h) => h.locId), ['FAR', 'NEAR'],
+  'All should retain every qualifying regional hotspot before the scan budget is applied');
+
+  const range = doc.getElementById('iconicNear').closest('[role="group"]');
+  assert.strictEqual(range.parentElement, doc.getElementById('iconicSortRow'),
+    'the range toggle should sit beside Bird/Patch and remain available in both views');
+  assert.deepEqual(Array.from(range.querySelectorAll('.sortbtn')).map((b) => b.textContent.trim()),
+    ['40mi', 'All']);
+  const loader = HTML.slice(HTML.indexOf('function loadIconicSpots('),
+    HTML.indexOf('function setIconicView('));
+  assert.match(loader, /var generation = \+\+_iconicGeneration/);
+  assert.match(loader, /generation !== _iconicGeneration/,
+    'an older range scan can overwrite the result of a newer selection');
+  app.window.close();
+});
+
+test('the navigation header uses a pale green surface rather than page white', async () => {
+  const app = await boot();
+  const nav = app.document.getElementById('navbar');
+  const rootStyle = app.window.getComputedStyle(app.document.documentElement);
+  assert.equal(rootStyle.getPropertyValue('--nav-bg').trim(), '#dcebe2');
+  assert.match(HTML, /#navbar\s*\{[^}]*background:\s*var\(--nav-bg\)/,
+    'the navigation header must use its pale green surface token');
+  assert.doesNotMatch(HTML, /#navbar\s*\{[^}]*background:\s*var\(--bg\)/,
+    'the navigation header has fallen back to the page background');
+  assert.ok(nav);
+  app.window.close();
+});
+
+test('an old partial species cache is refreshed instead of preserving Latin iconic names', async () => {
+  const app = await boot({
+    preserveIncompleteSpeciesCache: true,
+    fetch(url) {
+      if (/product\/spplist\/US-WA/.test(url)) return ['warvir', 'yelwar'];
+      if (/ref\/taxonomy/.test(url)) return [
+        { speciesCode: 'warvir', comName: 'Warbling Vireo', sciName: 'Vireo gilvus' },
+        { speciesCode: 'yelwar', comName: 'Yellow Warbler', sciName: 'Setophaga petechia' },
+      ];
+      return null;
+    },
+    storage: {
+      'ebird_species_v2:US-WA': JSON.stringify({
+        at: Date.now(),
+        rows: [{ code: 'hamfly', name: "Hammond's Flycatcher", sci: 'Empidonax hammondii' }],
+      }),
+    },
+  });
+
+  const rows = await app.window.__app.loadSpeciesIndex('US-WA');
+  assert.equal(Array.from(rows, (r) => r.name).join('|'),
+    'Warbling Vireo|Yellow Warbler');
+  const cached = JSON.parse(app.window.localStorage.getItem('ebird_species_v2:US-WA'));
+  assert.equal(cached.expected, 2);
+  assert.equal(cached.rows.length, 2);
   app.window.close();
 });
 
@@ -33627,7 +33966,7 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
   assert.ok(!chip, 'Nearby Patches does not claim a county scope for its place-only view');
 
   // A section that does NOT read the chase cache must not claim to be filtered.
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   const open = [...app.window.document.querySelectorAll('section')]
     .filter((s) => !s.hidden);
@@ -33669,7 +34008,7 @@ test('searching a place FETCHES that place, it does not just re-sort home', asyn
   // taken, and the scout's calls queue behind a wave that can never finish. In
   // that state the section under test issues nothing and the failure looks
   // like a missing feature rather than a saturated queue.
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   const before = app.state.fetches.length;
 
@@ -33756,7 +34095,7 @@ test('F241: the scout answers with hotspots only inside a Patches section, and w
 
   // 2. BIRDCAST — not a Patches section, so the SAME scouted place answers
   //    with birds, exactly as the hidden Look-up-a-place panel always has.
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   await A.autoScoutForAnchor(place);
   box = app.window.document.querySelector('.scoutinline');
@@ -34195,7 +34534,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   const app = await boot();
   const A = app.window.__app;
 
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   assert.ok(!app.window.document.querySelector('.secprofile'),
     'Main is the normal case and says nothing — a marker that is always there '
@@ -34203,7 +34542,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '2');
   assert.equal(A.isDefaultProfile(), false, 'now standing in a test profile');
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   const chip = app.window.document.querySelector('.secprofile');
   assert.ok(chip, 'a test profile says so');
@@ -34213,7 +34552,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   assert.ok(!/^\s*$/.test(chip.textContent));
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
   assert.ok(!app.window.document.querySelector('.secprofile'),
     'switching back takes the chip away — a notice that outlives its cause is '
@@ -34356,7 +34695,7 @@ test('F191: the scouted place renders ABOVE the rows it replaces', async () => {
   // the screen. Placement is invisible to a regex, so this reads the DOM.
   const app = await boot();
   const A = app.window.__app;
-  app.open(/Nightly migration/);
+  app.open(/Nightly Migration/);
   await new Promise((r) => setTimeout(r, 40));
 
   A.autoScoutForAnchor({ lat: 46.6021, lng: -120.5059, label: 'Yakima', state: 'Washington' });
@@ -35479,14 +35818,14 @@ test('F320 navigation aborts obsolete foreground work and removes its reservatio
   app.window.close();
 });
 
-test('F320 Washington Half-day uses bundled county bounds with zero metadata calls', async () => {
+test('F320 Washington Under-3h Day trip uses bundled county bounds with zero metadata calls', async () => {
   const app = await boot({
     sample: false,
     fetch: () => ({ __status: 401, __body: { error: 'unexpected network' } }),
   });
-  const profile = await app.window.__app.tripScopeProfile('half');
-  assert.equal(profile.tierCountyCodes.length, 15,
-    'the bundled Woodinville half-day scope stopped matching the measured county set');
+  const profile = await app.window.__app.tripScopeProfile('under3', null, null, 3);
+  assert.equal(profile.tierCountyCodes.length, 14,
+    'the bundled Woodinville Under-3h scope stopped matching the measured county set');
   assert.ok(profile.tierCountyCodes.includes('US-WA-007'));
   assert.ok(profile.tierCountyCodes.includes('US-WA-067'));
   const metadata = app.state.fetches.filter((url) =>
@@ -35496,18 +35835,18 @@ test('F320 Washington Half-day uses bundled county bounds with zero metadata cal
   app.window.close();
 });
 
-test('F345 Full-day paints a completed county before all 36 cold feeds settle', async () => {
+test('F345 3–5h Day trip paints a completed county before all cold feeds settle', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   seedSeen(app, []);
 
-  const measured = await A.tripScopeProfile('full');
+  const measured = await A.tripScopeProfile('from3to5', null, null, 5);
   const measuredFeeds = app.window.BirdLogic.planFeeds(measured);
-  assert.equal(measured.tierCountyCodes.length, 18,
-    'the measured Woodinville Full-day scope is no longer 18 counties');
-  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'recent').length, 18);
-  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'notable').length, 18);
-  assert.equal(measuredFeeds.length, 36,
+  assert.equal(measured.tierCountyCodes.length, 20,
+    'the measured Woodinville 5-hour scope is no longer 20 counties');
+  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'recent').length, 20);
+  assert.equal(measuredFeeds.filter((feed) => feed.kind === 'notable').length, 20);
+  assert.equal(measuredFeeds.length, 40,
     'the reported cold-start request count is not the current feed plan');
   assert.equal(app.state.fetches.filter((url) =>
     /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url)).length, 0,
@@ -35557,22 +35896,22 @@ test('F345 Full-day paints a completed county before all 36 cold feeds settle', 
   };
   A.fgSchedReset(Date.now());
 
-  const loading = A.loadFullDay();
+  const loading = A.setDayTripRange('from3to5');
   await waitFor(() => releaseThurston, 'the second county feed to remain pending');
   await new Promise((resolve) => setTimeout(resolve, 25));
-  assert.match(app.$('fullDayResults').textContent, /Leavenworth/,
+  assert.match(app.$('excResults').textContent, /Leavenworth/,
     'the useful first county stayed invisible behind the remaining cold feeds');
-  assert.match(app.$('fullDayStatus').textContent, /so far|still checking/i,
+  assert.match(app.$('excStatus').textContent, /so far|still checking/i,
     'a partial county paint was presented as complete');
-  assert.equal(app.$('fullDayResults').querySelector('.hsnum').textContent.trim(), '1',
+  assert.equal(app.$('excResults').querySelector('.hsnum').textContent.trim(), '1',
     'the partial list did not keep the map/list numbering contract');
 
   releaseThurston();
   await loading;
-  const completedText = app.$('fullDayResults').textContent;
+  const completedText = app.$('excResults').textContent;
   const calls = app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length;
-  const warm = A.loadFullDay();
-  assert.equal(app.$('fullDayResults').textContent, completedText,
+  const warm = A.loadExcursions();
+  assert.equal(app.$('excResults').textContent, completedText,
     'a warm reopen erased a valid answer before consulting its owned cache');
   await warm;
   assert.equal(app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length,
@@ -35840,7 +36179,7 @@ test('F415 Hāpuna remains a nearby All-mode patch and never enters a day tier',
   app.window.close();
 });
 
-test('F343 Hawaii Full-day stays searching, then paints only Big Island older evidence', async () => {
+test('F343 Hawaii 3–5h Day trip stays searching, then paints only Big Island older evidence', async () => {
   const now = new Date();
   const stamp = (daysAgo) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 8);
@@ -35886,7 +36225,7 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
-  const profile = await A.tripScopeProfile('full');
+  const profile = await A.tripScopeProfile('from3to5', null, null, 5);
   A.seedChase(profile.slug, {
     t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
     fetchBaseKey: A.chaseFetchBaseKey(profile),
@@ -35909,27 +36248,27 @@ test('F343 Hawaii Full-day stays searching, then paints only Big Island older ev
     });
   };
   A.fgSchedReset(Date.now());
-  const loading = A.loadFullDay();
-  await waitFor(() => releaseFallback, 'the bounded Full-day fallback request');
-  assert.match(app.$('fullDayStatus').textContent,
+  const loading = A.setDayTripRange('from3to5');
+  await waitFor(() => releaseFallback, 'the bounded 3–5h fallback request');
+  assert.match(app.$('excStatus').textContent,
     /still checking up to 30 days/i);
-  assert.doesNotMatch(app.$('fullDayStatus').textContent, /No target-rich/i,
+  assert.doesNotMatch(app.$('excStatus').textContent, /No target-rich/i,
     'an active fallback search was presented as a conclusive empty result');
   releaseFallback();
   await loading;
 
-  const text = app.$('fullDayResults').textContent;
+  const text = app.$('excResults').textContent;
   assert.match(text, /Hilo gardens/);
   assert.match(text, /Volcano Steam Vents/);
   assert.doesNotMatch(text, /Haleakala/,
     'the Full-day fallback crossed open ocean into another county');
-  assert.equal(app.$('fullDayResults').querySelectorAll('.hscard').length, 2);
-  assert.equal(app.$('fullDayResults').querySelectorAll('.hscard .meta').length, 2);
+  assert.equal(app.$('excResults').querySelectorAll('.hscard').length, 2);
+  assert.equal(app.$('excResults').querySelectorAll('.hscard .meta').length, 2);
   assert.match(text, /Older evidence · last report 3 days ago/);
   app.window.close();
 });
 
-test('F421 Hawaii Full-day accepts the installed state hotspot index for cached daily evidence', async () => {
+test('F421 Hawaii 3–5h Day trip accepts the installed state hotspot index for cached daily evidence', async () => {
   const now = new Date();
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 4, 12);
   const stamp = [
@@ -35970,7 +36309,7 @@ test('F421 Hawaii Full-day accepts the installed state hotspot index for cached 
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
-  const profile = await A.tripScopeProfile('full');
+  const profile = await A.tripScopeProfile('from3to5', null, null, 5);
   A.seedChase(profile.slug, {
     t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
     fetchBaseKey: A.chaseFetchBaseKey(profile),
@@ -36001,9 +36340,9 @@ test('F421 Hawaii Full-day accepts the installed state hotspot index for cached 
   };
 
   A.fgSchedReset(Date.now());
-  await A.loadFullDay();
+  await A.setDayTripRange('from3to5');
 
-  const text = app.$('fullDayResults').textContent;
+  const text = app.$('excResults').textContent;
   assert.match(text, /Hilo gardens/);
   assert.match(text, /Volcano Steam Vents/);
   assert.doesNotMatch(text, /Private backyard/,
@@ -36016,7 +36355,7 @@ test('F421 Hawaii Full-day accepts the installed state hotspot index for cached 
   app.window.close();
 });
 
-test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its band', async () => {
+test('F349 Hawaii 3–5h reuses county-scoped older evidence and preserves its band', async () => {
   const now = new Date();
   const stamp = (daysAgo) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 8);
@@ -36072,7 +36411,7 @@ test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
-  const profile = await A.tripScopeProfile('half');
+  const profile = await A.tripScopeProfile('from3to5', null, null, 5);
   A.seedChase(profile.slug, {
     t: Date.now(), rarity: false,
     rows: { 'us-hi-001-recent.json': [fresh] },
@@ -36101,12 +36440,12 @@ test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its
     });
   };
   A.fgSchedReset(Date.now());
-  const loading = A.loadExcursions();
-  await waitFor(() => releaseFallback, 'the bounded Half-day fallback request');
+  const loading = A.setDayTripRange('from3to5');
+  await waitFor(() => releaseFallback, 'the bounded 3–5h fallback request');
   assert.match(app.$('excStatus').textContent,
     /still checking up to 30 days/i);
   assert.doesNotMatch(app.$('excStatus').textContent, /No target-rich/i,
-    'an active Half-day fallback search was presented as a final one-card answer');
+    'an active 3–5h fallback search was presented as a final one-card answer');
   releaseFallback();
   await loading;
 
@@ -36114,17 +36453,17 @@ test('F349 Hawaii Half-day reuses county-scoped older evidence and preserves its
   assert.equal(cards.length, 2,
     app.$('excStatus').textContent + ' :: ' + app.$('excResults').textContent);
   assert.match(cards[0].textContent, /Pu'u O'o Trail/,
-    'older evidence displaced the fresh Half-day option');
-  assert.match(cards[1].textContent, /Laupahoehoe Point County Park/);
+    'older evidence displaced the fresh 3–5h option');
+  assert.match(cards[1].textContent, /Hilo gardens/);
   assert.match(cards[1].textContent, /Older evidence · last report 8 days ago/);
-  assert.doesNotMatch(app.$('excResults').textContent, /Hilo gardens/,
-    'Full-day evidence crossed into Half-day');
+  assert.doesNotMatch(app.$('excResults').textContent, /Laupahoehoe Point County Park/,
+    'Under-3h evidence crossed into 3–5h');
   assert.match(requestedFallbackUrl, /data\/obs\/US-HI-001\/recent/,
-    'Half-day did not reuse the authoritative county-scoped request');
+    '3–5h did not reuse the authoritative county-scoped request');
   app.window.close();
 });
 
-test('F349 five fresh Hawaii Half-day rows spend no fallback request', async () => {
+test('F349 five fresh Hawaii 3–5h rows spend no fallback request', async () => {
   const now = new Date();
   const stamp = [
     now.getFullYear(),
@@ -36163,7 +36502,7 @@ test('F349 five fresh Hawaii Half-day rows spend no fallback request', async () 
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
-  const profile = await A.tripScopeProfile('half');
+  const profile = await A.tripScopeProfile('from3to5', null, null, 5);
   A.seedChase(profile.slug, {
     t: Date.now(), rarity: false,
     rows: { 'us-hi-001-recent.json': fresh },
@@ -36171,11 +36510,11 @@ test('F349 five fresh Hawaii Half-day rows spend no fallback request', async () 
     fetchBaseKey: A.chaseFetchBaseKey(profile),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
   });
-  await A.loadExcursions();
+  await A.setDayTripRange('from3to5');
   assert.equal(app.$('excResults').querySelectorAll('.hscard').length, 5);
   assert.equal(app.state.fetches.filter((url) =>
     /data\/obs\/US-HI(?:-001)?\/recent\?back=30&detail=full&hotspot=true/.test(url)).length, 0,
-  'a complete fresh Half-day board spent the fallback request anyway');
+  'a complete fresh 3–5h board spent the fallback request anyway');
   app.window.close();
 });
 

@@ -300,19 +300,20 @@
       ]
     },
     "excBtn": {
-      "report": "## 🚗 Half-day patches — Top half-day hotspots",
+      "report": "## 🚗 Day trip patches — Hotspot excursions",
       "reportNote": "The Bird Chaser app lazily derives county scope from the current Home. The archived Markdown report classifies only the county rows already present in its snapshot.",
-      "summary": "Outings beyond Today’s patches that still fit a half day.",
+      "summary": "Target-rich excursions split into distinct round-trip travel bands.",
       "inputs": [
         "the same clustered unseen reports as Today’s patches",
         "eBird’s county list and county bounding boxes for the active state",
-        "the shared travel-zone day bands",
-        "in Hawaii only, the same bounded 30-day public-hotspot feed used by the other patch boards when fresh Half-day evidence is sparse"
+        "the shared travel-zone route-friction model",
+        "in Hawaii only, the same bounded 30-day public-hotspot feed used by the other patch boards when fresh evidence is sparse"
       ],
       "how": [
         "The first open loads county names and bounds from eBird and caches each valid result permanently. A failed or malformed county is not cached and is retried on refresh.",
-        "County acquisition is derived from Home: include counties whose nearest bounding-box edge is inside the half-day band’s straight-line ceiling. Moving Home recomputes the selection from the same cached metadata.",
-        "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction; quick and half-day bands stay here.",
+        "Under 3h, 3–5h, and 5–8h are distinct estimated round-trip bands. A hotspot appears in only one choice.",
+        "County acquisition is derived from Home and the selected band’s upper bound. Moving Home recomputes the selection from the same cached metadata.",
+        "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction.",
         "An explicitly offshore, pelagic, moving-ferry, open-water, or strait location is a special trip even when its straight-line distance falls inside Today’s boundary, so it routes here instead of being presented as drivable.",
         "The board starts beyond the exact adaptive boundary Today’s patches used, so one hotspot cannot appear in both.",
         "Fresh rows remain first. In Hawaii, a sparse board reuses the county-scoped 30-day cache, deduplicates the same place, and visibly age-labels each older-evidence card.",
@@ -321,38 +322,8 @@
       "limits": [
         "A county box can include inaccessible terrain near Home, so scope deliberately overfetches. It never assigns a travel band to the whole county.",
         "The county scope is selected from Home. Here and Find may rerank loaded cards, but they do not silently acquire a different state-sized data set.",
-        "The first cold catalog is expensive, but it is paid only when Half-day or Full-day is opened and never again for valid county bounds.",
-        "The 30-day eBird endpoint is species-collapsed rather than a complete hotspot history. On September 7 it supported two Big Island Half-day localities, so the app must not invent a five-place result.",
-        "A forced refresh keeps the matching tier snapshot and visible cards until live county feeds provide a replacement; unavailable feeds are labelled as cached rather than rendered as empty."
-      ]
-    },
-    "fullDayBtn": {
-      "report": "## 🛣️ Full-day patches — Top full-day hotspots",
-      "reportNote": "The Bird Chaser app lazily derives county scope from the current Home. The archived Markdown report classifies only the county rows already present in its snapshot.",
-      "summary": "Farther hotspots worth planning a full birding day around.",
-      "inputs": [
-        "the same API-derived county catalog as Half-day patches",
-        "recent and notable observations from counties inside the full-day acquisition envelope",
-        "the shared travel-zone day bands",
-        "in Hawaii only, one bounded 30-day public-hotspot feed plus already-cached daily history when fresh Full-day evidence is sparse"
-      ],
-      "how": [
-        "The county envelope comes from the full-day band’s straight-line ceiling, not a Washington county list or a hand-picked destination list.",
-        "Each hotspot must classify as full day from its own coordinates. Half-day options remain in Half-day; anything in the trip band is not offered as a day outing.",
-        "On Hawaii Island, a measured 30-minute west/east road cost keeps Laupahoehoe in Half-day, puts Hilo and Volcano in Full-day, and leaves Chain of Craters in the trip band.",
-        "Fresh rows remain first; older fallback cards are explicitly age-labelled, and the list keeps searching rather than claiming it is empty while that bounded request is active.",
-        "The county-wide 30-day endpoint collapses each species to its latest report and can therefore erase useful hotspots. Full-day additively reuses daily-history entries already cached by Common birds, but only when a cached public-hotspot directory confirms the location ID. The zero-call directory reader accepts both the county chase cache and the ordinary state hotspot-search cache, so whichever section warmed the directory can prove membership without admitting personal locations.",
-        "From the Woodinville Home, the measured Washington Full-day envelope is 18 counties: 18 recent feeds plus 18 notable feeds, 36 calls total and no county-metadata calls because the bounds are bundled.",
-        "A useful county paints as soon as its feed lands. The status keeps saying so far and still checking until all selected feeds settle, and reopening the same report and Home leaves the valid cached cards visible while the owned cache is checked.",
-        "This board ranks independently, so dense nearby parks cannot bury the long-drive options the section exists to compare.",
-        "Every card states full day in words and keeps route friction such as a ferry or seasonal pass as an additional non-colour signal."
-      ],
-      "limits": [
-        "County edge distance is a fetch envelope, not a driving-time promise.",
-        "Completing a first cold load may take several minutes because every selected county contributes recent and notable feeds, but the screen no longer waits for the last feed before showing an eligible result. Cached bounds and in-session eBird responses make later opens cheaper.",
-        "The model uses measured fixed route friction rather than a live routing API.",
-        "Hawaii road tiers stay within the county containing Home, so another island is never presented as a drivable destination.",
-        "Cached daily history is additive rather than guaranteed: if Common birds has not sampled those days, or the public-hotspot directory is not cached, Full-day falls back to the bounded live feed alone.",
+        "The first cold catalog is expensive, but it is paid only when Day trip patches is opened and never again for valid county bounds.",
+        "The 30-day eBird endpoint is species-collapsed rather than a complete hotspot history, so the app must not invent a fuller result than the evidence supports.",
         "A forced refresh keeps the matching tier snapshot and visible cards until live county feeds provide a replacement; unavailable feeds are labelled as cached rather than rendered as empty."
       ]
     },
@@ -620,12 +591,14 @@
       ]
     },
     "bcBody": {
-      "report": "## 🌙 BirdCast — Nightly migration",
+      "report": "## 🌙 Nightly Migration — BirdCast reports",
       "summary": "Official BirdCast forecast, live-map, alert and local-dashboard links without invented in-app values.",
       "inputs": [
         "The active report's local date and supported county codes; Bird Chaser fetches no BirdCast data."
       ],
       "how": [
+        "Leads with a graphical, text-labelled alert header: Tonight's migration before dark and Current migration after dark.",
+        "The forecast header links to the saved Home, or the selected region's default Home when none is saved. The live header links to BirdCast's live migration map.",
         "Keeps forecast maps and live migration maps visibly separate: forecasts help plan before sunset; live radar shows what is moving after dark.",
         "Links to BirdCast's official forecast maps, live migration maps, migration alerts and each supported county dashboard.",
         "Uses the report region's local date for season boundaries rather than the device's time zone."

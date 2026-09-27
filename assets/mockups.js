@@ -101,8 +101,6 @@ const STUB_SPEC = {
     report: 'hi' },
   excBtn:         { kind: 'hotspot',       host: 'excResults', map: 'excMap',
     report: 'hi' },
-  fullDayBtn:     { kind: 'hotspot',       host: 'fullDayResults', map: 'fullDayMap',
-    report: 'hi' },
   quickBtn:       { kind: 'hotspot',       host: 'quickResults', map: 'quickMap' },
   spLookupBtn:    { kind: 'stakeout-merged', host: 'sec-spLookupBtn',
     preserveHost: true, map: 'spLookupMap',
@@ -787,7 +785,7 @@ const BOOTSTRAP = `
       return '<span class="newflag">NEW</span>'
         + (isRare ? '<span class="rareflag">RARE</span>' : '')
         + (confirmed
-          ? '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer">✓</span>'
+          ? '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer">🏵️ Confirmed</span>'
           : '<span class="revpend" role="img" aria-label="Pending review; not reviewed yet">⚠</span>');
     }
     function stubBird(code) {
@@ -912,17 +910,11 @@ const BOOTSTRAP = `
       ],
       excBtn: [
         { name: "Pu'u O'o Trail / Kipuka Ainahou", distance: 36.8,
-          sub: 'half day · fresh today · 10 targets' },
+          sub: '2.7 h round trip · fresh today · 10 targets' },
         { name: 'Laupahoehoe Point County Park', distance: 42.0,
-          sub: 'half day · Older evidence · last report 8 days ago · 7 targets' },
+          sub: '2.9 h round trip · Older evidence · last report 8 days ago · 7 targets' },
         { name: 'North Pacific Ocean', distance: 35.0,
-          sub: 'half day · special trip · boat required · fresh today · 1 target' }
-      ],
-      fullDayBtn: [
-        { name: 'Hilo gardens', distance: 49.4,
-          sub: 'full day · Older evidence · last report 3 days ago' },
-        { name: 'Volcano Steam Vents', distance: 49.4,
-          sub: 'full day · Older evidence · last report 4 days ago' }
+          sub: '2.8 h round trip · special trip · boat required · fresh today · 1 target' }
       ]
     }[at];
     var facts = {
@@ -1816,9 +1808,9 @@ const BOOTSTRAP = `
     } else {
       throw new Error('unsupported fixture kind ' + spec.kind + ' for ' + at);
     }
-    if (at === 'fullDayBtn') {
+    if (at === 'excBtn') {
       sec.querySelector('.status').textContent =
-        '2 full-day options · 18 counties · all 36 recent/notable feeds checked';
+        '3 under 3h options · 1 county · all recent/notable feeds checked';
     } else if (at === 'myYearBody') {
       sec.querySelector('.status').textContent =
         'Recent checklist check complete · newly harvested birds included';

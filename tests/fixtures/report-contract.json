@@ -72,17 +72,10 @@
     },
     {
       "at": "excBtn",
-      "label": "🚗 Half-day patches",
-      "report": "## 🚗 Half-day patches — Top half-day hotspots",
+      "label": "🚗 Day trip patches",
+      "report": "## 🚗 Day trip patches — Hotspot excursions",
       "map": "excMap",
-      "sub": "Top half-day hotspots"
-    },
-    {
-      "at": "fullDayBtn",
-      "label": "🛣️ Full-day patches",
-      "report": "## 🛣️ Full-day patches — Top full-day hotspots",
-      "map": "fullDayMap",
-      "sub": "Top full-day hotspots"
+      "sub": "Hotspot excursions"
     },
     {
       "at": "quickBtn",
@@ -216,10 +209,10 @@
     },
     {
       "at": "bcBody",
-      "label": "🌙 BirdCast",
-      "report": "## 🌙 BirdCast — Nightly migration",
+      "label": "🌙 Nightly Migration",
+      "report": "## 🌙 Nightly Migration — BirdCast reports",
       "map": null,
-      "sub": "Nightly migration"
+      "sub": "BirdCast reports"
     },
     {
       "at": "todBtn",

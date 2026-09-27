@@ -984,6 +984,8 @@
     var top = opts.top == null ? CONST.TOP_EXC : opts.top;
     var decay = CONST.EXCURSION_DECAY_MI;
     var bandSet = null;
+    var minHours = Number(opts.minRoundTripH);
+    var maxHours = Number(opts.maxRoundTripH);
     if (Array.isArray(opts.bandIds)) {
       bandSet = {};
       opts.bandIds.forEach(function (id) { bandSet[String(id)] = 1; });
@@ -1001,12 +1003,16 @@
         var band = destinationTravelBand(opts.travelCfg, opts.home, c);
         c.travelBand = band.id;
         c.travelLabel = band.label;
+        c.travelHours = travelRoundTripH(opts.travelCfg, band.effectiveMi);
         c.travelNote = travelNote(opts.travelCfg, c.distMi,
           opts.home.lat, opts.home.lng, c.lat, c.lon);
       }
       return c;
     }).filter(function (c) {
-      return !bandSet || !!bandSet[c.travelBand];
+      if (bandSet && !bandSet[c.travelBand]) return false;
+      if (isFinite(minHours) && !(c.travelHours >= minHours)) return false;
+      if (isFinite(maxHours) && !(c.travelHours < maxHours)) return false;
+      return true;
     }).map(function (c) {
       var extra = Math.max(0, c.distMi - threshold);
       c.effective = c.score / (1 + extra / decay);
@@ -2685,6 +2691,13 @@
       ? excursions(excursionRecentGo, Object.assign({}, excursionOpts,
           { bandIds: ['full'], top: FULL_DAY_TOP }))
       : [];
+    var dayTrip = opts.travelCfg
+      ? excursions(excursionRecentGo, Object.assign({}, excursionOpts, {
+          bandIds: ['quick', 'half', 'full', 'trip'],
+          maxRoundTripH: 8,
+          top: 30
+        }))
+      : [];
     var fallbackExcursionGo = [];
     if (opts.travelCfg && fallbackRecs.length &&
         (exc.length < fallbackTarget || full.length < FULL_DAY_MIN_ROWS)) {
@@ -2711,12 +2724,22 @@
         }));
       full = fillFreshFirst(full, fallbackFull, FULL_DAY_MIN_ROWS);
     }
+    if (opts.travelCfg && fallbackExcursionGo.length) {
+      var fallbackDayTrip = excursions(fallbackExcursionGo,
+        Object.assign({}, excursionOpts, {
+          bandIds: ['quick', 'half', 'full', 'trip'],
+          maxRoundTripH: 8,
+          top: 30
+        }));
+      dayTrip = fillFreshFirst(dayTrip, fallbackDayTrip, 30);
+    }
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
     return {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
       near: near, destinations: dest, excursions: exc, fullDay: full,
+      dayTrip: dayTrip,
       destRadiusMi: dest.radiusMi,
       destinationMinRows: destOpts.minRows,
       notableToday: notable
@@ -2738,6 +2761,7 @@
       travelBand: cluster.travelBand || '',
       travelLabel: cluster.travelLabel || '',
       travelNote: cluster.travelNote || '',
+      travelHours: Number.isFinite(cluster.travelHours) ? cluster.travelHours : null,
       species: (cluster.species || []).map(function (s) {
         // EVERYTHING THE ROW CAN RENDER, not just its name. This projection
         // kept only code/comName/rare and dropped six fields the small species
@@ -3464,6 +3488,12 @@
       return hours * travelMph(cfg) / 2;
     }
     return 0;
+  }
+
+  function travelHoursMaxStraightMi(cfg, hours) {
+    var h = Number(hours);
+    if (!(h > 0) || !isFinite(h)) return 0;
+    return h * travelMph(cfg) / 2;
   }
 
   function destinationTravelBand(cfg, home, cluster) {
@@ -4906,6 +4936,7 @@
     travelRoundTripH: travelRoundTripH,
     travelDayBand: travelDayBand,
     travelBandMaxStraightMi: travelBandMaxStraightMi,
+    travelHoursMaxStraightMi: travelHoursMaxStraightMi,
     destinationTravelBand: destinationTravelBand,
     travelHalfHours: travelHalfHours,
     travelNote: travelNote,
