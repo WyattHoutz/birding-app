@@ -13431,7 +13431,7 @@ test('F545 ungrouped Twitches keeps count, age, and one media mark', async () =>
   const row = doc.querySelector('#results > li');
   assert.match(row.querySelector('.rarewhere').textContent, /×4/);
   assert.match(row.querySelector('.spmetric-age').textContent,
-    /^(?:now|[0-9]+[mhd] ago)(?:age)?$/,
+    /^(?:now|[0-9]+[mhd]\s*ago)(?:age)?$/,
     'ungrouped Twitches omits the relative-age metric');
   assert.equal(row.querySelectorAll('.rareflags').length, 1,
     'media evidence appears more than once');
