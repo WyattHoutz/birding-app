@@ -1708,6 +1708,7 @@ const BOOTSTRAP = `
       }));
       localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
         at: Date.now(),
+        expected: 2,
         rows: [
           { code: 'semsan', name: 'Semipalmated Sandpiper',
             sci: 'Calidris pusilla', alpha: 'sesa' },

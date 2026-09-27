@@ -687,6 +687,15 @@ test('F268/F269 On passage mockup exercises event, first-report, and forecast la
     'the release fixture waits for the next exact published event');
 });
 
+test('F604 On passage mockup seeds a complete species cache', () => {
+  const start = source.indexOf("spec.kind === 'migration'");
+  const end = source.indexOf("} else if (spec.kind === 'bird')", start);
+  const fixture = source.slice(start, end);
+  assert.match(fixture,
+    /ebird_species_v2:US-WA[\s\S]*expected:\s*2[\s\S]*rows:\s*\[[\s\S]*semsan[\s\S]*shtsan/,
+    'an incomplete taxonomy cache triggers an unstubbed refresh and times out both release galleries');
+});
+
 test('F340 mockups and artifact checks run after, never inside, the IPA release path', () => {
   assert.equal(pkg.scripts.mockups, 'node assets/mockups.js',
     'the explicit local mockup command was removed');
