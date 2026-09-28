@@ -1304,8 +1304,19 @@ const BOOTSTRAP = `
         birds: 3471500,
         label: 'Birds crossed King County last night (est.)'
       },
+      migrants: [
+        { name: 'Swainson’s Thrush', speciesCode: 'swathr' },
+        { name: 'Western Tanager', speciesCode: 'westan' },
+        { name: 'Yellow Warbler', speciesCode: 'yelwar' },
+        { name: 'Black-throated Gray Warbler', speciesCode: 'btywar' },
+        { name: 'Western Sandpiper', speciesCode: 'wessan' },
+        { name: 'Evening Grosbeak', speciesCode: 'evegro' },
+        { name: 'Orange-crowned Warbler', speciesCode: 'orcwar' },
+        { name: 'Wilson’s Warbler', speciesCode: 'wilwar' }
+      ],
       forecastError: '',
-      countError: ''
+      countError: '',
+      migrantsError: ''
     };
     A.setBirdcastSnapshot(snapshot);
     A.renderBirdcast(new Date('2026-09-09T19:00:00Z'), snapshot);

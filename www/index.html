@@ -212,6 +212,11 @@
           var url = (typeof input === 'string') ? input : (input && input.url) || '';
           var method = (init && init.method) || (input && input.method) || 'GET';
           var t0 = Date.now(), short = String(url).replace(/^https?:\/\//, '').slice(0, 140);
+          var performanceLoadId = null;
+          try {
+            performanceLoadId = window.__performanceLoadId
+              ? window.__performanceLoadId() : null;
+          } catch (e) {}
           return of.apply(this, arguments).then(function (r) {
             // A 404 from Wikipedia's summary endpoint just means that species
             // has no article — expected, not an error worth flagging.
@@ -239,6 +244,17 @@
                 }
               });
             } catch (auditError) {}
+            try {
+              if (window.__performanceNetwork
+                  && !/api\.ebird\.org/i.test(String(url))) {
+                window.__performanceNetwork(performanceLoadId, {
+                  host: (new URL(String(url), location.href)).hostname,
+                  network_ms: Date.now() - t0,
+                  status: r.status,
+                  error: !r.ok
+                });
+              }
+            } catch (performanceError) {}
             return r;
           }, function (err) {
             push('error', [method + ' FAILED (' + (Date.now() - t0) + 'ms) ' + short + ' — ' + str(err)]);
@@ -255,6 +271,16 @@
                 }
               });
             } catch (auditError) {}
+            try {
+              if (window.__performanceNetwork
+                  && !/api\.ebird\.org/i.test(String(url))) {
+                window.__performanceNetwork(performanceLoadId, {
+                  host: (new URL(String(url), location.href)).hostname,
+                  network_ms: Date.now() - t0,
+                  error: true
+                });
+              }
+            } catch (performanceError) {}
             throw err;
           });
         };
@@ -1324,26 +1350,102 @@
       display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px;
       align-items: center; margin: 4px 0 12px; padding: 13px;
       border: 2px solid var(--safe-blue); border-radius: 14px;
-      background: linear-gradient(135deg, color-mix(in srgb, var(--safe-blue) 16%, var(--card)),
-        color-mix(in srgb, var(--warn) 12%, var(--card)));
-      color: var(--ink); text-decoration: none;
+      background: color-mix(in srgb, var(--safe-blue) 8%, var(--card));
+      color: var(--ink);
     }
     .birdcast-alert-icon {
       display: grid; place-items: center; width: 68px; min-height: 68px;
-      padding: 5px; box-sizing: border-box;
+      padding: 0; box-sizing: border-box; overflow: hidden;
       border: 2px solid currentColor; border-radius: 14px;
       font-size: calc(14px * var(--s)); font-weight: 900; line-height: 1;
       letter-spacing: .04em; text-align: center;
     }
-    .birdcast-alert-copy { display: grid; gap: 2px; min-width: 0; }
-    .birdcast-alert-kicker {
-      font-size: calc(11px * var(--s)); font-weight: 800; letter-spacing: .08em;
-      text-transform: uppercase;
+    .birdcast-flight {
+      --migration-art: none;
+      position: relative; display: grid; place-items: end center;
+      width: 100%; height: 100%; min-height: 64px; overflow: hidden;
+      color: #fff; isolation: isolate;
+      background:
+        radial-gradient(circle at 15% 18%, #fff 0 1px, transparent 1.5px),
+        radial-gradient(circle at 78% 24%, #fff 0 1px, transparent 1.5px),
+        radial-gradient(circle at 32% 49%, #9CC9EA 0 1px, transparent 1.5px),
+        radial-gradient(circle at 88% 57%, #fff 0 1px, transparent 1.5px),
+        linear-gradient(155deg, #06152F, #0B2A50);
     }
-    .birdcast-alert-title { font-size: calc(19px * var(--s)); line-height: 1.12; }
-    .birdcast-alert-count { font-size: calc(22px * var(--s)); font-weight: 800;
+    .birdcast-flight::before {
+      content: ''; position: absolute; z-index: -1; inset: 1px 0 18px;
+      background: var(--migration-art) center / contain no-repeat;
+    }
+    .birdcast-flight-moon {
+      position: absolute; z-index: 1; right: 5px; top: 4px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #F0E442; box-shadow: 0 0 5px rgba(240, 228, 66, .6);
+    }
+    .birdcast-flight-moon::after {
+      content: ''; position: absolute; left: 5px; top: -2px;
+      width: 14px; height: 14px; border-radius: 50%; background: #071A36;
+    }
+    .birdcast-flight-low { --migration-art: url("assets/migration-low.png"); }
+    .birdcast-flight-medium { --migration-art: url("assets/migration-medium.png"); }
+    .birdcast-flight-high { --migration-art: url("assets/migration-high.png"); }
+    .birdcast-flight-label {
+      display: block; width: 100%; padding: 4px 2px; box-sizing: border-box;
+      background: rgba(2, 12, 30, .84); color: #fff;
+      font-size: calc(16px * var(--s)); font-weight: 900;
+      letter-spacing: .06em; line-height: 1; text-align: center;
+    }
+    .birdcast-flight-low .birdcast-flight-label {
+      font-size: calc(19px * var(--s)); letter-spacing: .12em;
+    }
+    .birdcast-flight-medium .birdcast-flight-label {
+      font-size: calc(12px * var(--s)); letter-spacing: .025em;
+    }
+    .birdcast-flight-high .birdcast-flight-label {
+      font-size: calc(17px * var(--s)); letter-spacing: .08em;
+    }
+    .birdcast-flight-spinner {
+      position: absolute; left: 50%; top: 38%;
+      color: var(--safe-blue); font-size: calc(30px * var(--s));
+      font-weight: 900; letter-spacing: .12em; line-height: 1;
+      text-shadow: 0 1px 0 #fff;
+      transform: translate(-50%, -50%);
+      animation: birdcast-ellipsis 1.2s ease-in-out infinite alternate;
+    }
+    .birdcast-flight-spinner::before {
+      content: '\2026';
+    }
+    @keyframes birdcast-ellipsis {
+      from { opacity: .45; }
+      to { opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .birdcast-flight-spinner { animation: none; }
+    }
+    .birdcast-alert-copy { display: grid; gap: 2px; min-width: 0; }
+    .birdcast-alert-code { max-width: 100%; overflow-wrap: anywhere;
+      font-size: calc(22px * var(--s)); font-weight: 900;
+      letter-spacing: .03em; line-height: 1; }
+    .birdcast-alert-size { font-size: calc(17px * var(--s)); font-weight: 800;
       line-height: 1.15; }
-    .birdcast-alert-place { font-size: calc(13px * var(--s)); color: var(--muted); }
+    .birdcast-alert-count { font-size: calc(13px * var(--s)); color: var(--muted);
+      line-height: 1.3; }
+    .birdcast-migrants { margin: 12px 0; }
+    .birdcast-migrants-title { margin: 0 0 7px; font-size: calc(16px * var(--s));
+      font-weight: 900; }
+    .birdcast-migrant-grid { display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .birdcast-migrant { display: flex; align-items: center; min-height: 36px;
+      padding: 6px 9px; box-sizing: border-box; border: 1px solid var(--line);
+      border-radius: 9px; background: var(--card); font-size: calc(13px * var(--s));
+      font-weight: 750; line-height: 1.2; }
+    .birdcast-migrants-loading, .birdcast-migrants-empty {
+      color: var(--muted); font-size: calc(13px * var(--s)); }
+    .birdcast-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px; margin: 10px 0; }
+    .birdcast-action { display: grid; place-items: center; min-height: 42px;
+      padding: 8px 10px; box-sizing: border-box; border: 2px solid var(--safe-blue);
+      border-radius: 10px; background: var(--card); color: var(--link);
+      font-weight: 800; line-height: 1.15; text-align: center; text-decoration: none; }
     .leaflet-div-icon { background: transparent; border: none; }
     .pinbubble { width: calc(24px * var(--s)); height: calc(24px * var(--s)); border-radius: 50%; background: var(--pin, #e5484d); color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: calc(24px * var(--s) - 4px); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
     .pinbubble.home { background: var(--accent); }
@@ -1978,9 +2080,9 @@
     .surgeplacethumb::after { content: ''; position: absolute; left: 58%; top: 45%;
       width: calc(9px * var(--s)); height: calc(9px * var(--s)); border-radius: 50%;
       border: 3px solid #111; background: #fff; transform: translate(-50%, -50%); }
-    .surgebirdcastthumb { display: grid; place-items: center; box-sizing: border-box;
-      padding: 4px; border: 3px solid var(--safe-blue); border-radius: 10px;
-      background: color-mix(in srgb, var(--safe-blue) 10%, var(--card));
+    .surgebirdcastthumb { display: grid; place-items: stretch; box-sizing: border-box;
+      padding: 0; overflow: hidden; border: 3px solid var(--safe-blue); border-radius: 10px;
+      background: #06152F;
       color: var(--ink); font-size: calc(11px * var(--s)); font-weight: 900;
       letter-spacing: .025em; line-height: 1; text-align: center; text-decoration: none; }
     .surgeheld { margin: 11px 0 0; padding-top: 10px; border-top: 2px solid var(--line);
@@ -2540,6 +2642,17 @@
     .betastatus { font-weight: 700; }
     .diagpreview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
     .diagpreview textarea { width: 100%; min-height: 84px; box-sizing: border-box; }
+    .perfcontrols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px; margin: 10px 0; }
+    .perfcontrols label { display: grid; gap: 3px; font-size: calc(12px * var(--s));
+      font-weight: 700; }
+    .perfcontrols select, .perfcontrols input { min-width: 0; width: 100%;
+      box-sizing: border-box; }
+    .perfreportbtn { border: 0; padding: 0; background: transparent;
+      color: var(--link); font: inherit; font-weight: 800; text-align: left;
+      text-decoration: underline; cursor: pointer; }
+    .perfdetail { margin-top: 12px; padding-top: 10px; border-top: 2px solid var(--line); }
+    .perfwaterfall { margin-top: 8px; }
     .betaexpired { position: fixed; inset: 0; z-index: 10000; overflow-y: auto;
                   padding: 24px; box-sizing: border-box; background: var(--bg);
                   color: var(--ink); }
@@ -3675,6 +3788,7 @@
   <script src="build-info.js"></script>
   <script src="audit-log.js"></script>
   <script src="diagnostic-package.js"></script>
+  <script src="performance-report.js"></script>
   <!-- The two card families. Pure layout: they receive already-escaped HTML
        and own the markup + CSS for every bird row and every hotspot row. -->
   <script src="cards-species.js"></script>
@@ -3934,7 +4048,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.0';
+      var APP_VERSION = '1.131.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6191,18 +6305,22 @@
       var _fgStall = null;
 
       function navWork(label, sectionId) {
+        sectionId = sectionId || visibleSectionId();
         return {
           navGeneration: _navGeneration,
           cancelGeneration: _workCancelGeneration,
           label: label || 'section work',
-          sectionId: sectionId || visibleSectionId()
+          sectionId: sectionId,
+          loadId: performanceLoadIdFor(sectionId)
         };
       }
       function cancellableWork(label, sectionId) {
+        sectionId = sectionId || visibleSectionId();
         return {
           cancelGeneration: _workCancelGeneration,
           label: label || 'background work',
-          sectionId: sectionId || visibleSectionId()
+          sectionId: sectionId,
+          loadId: performanceLoadIdFor(sectionId)
         };
       }
       function workCurrent(work) {
@@ -7055,6 +7173,9 @@
           // saving, and it is invisible unless it is printed.
           dbg('net', 'CACHED ' + path);
           costNote(path, true, costOwner(work));
+          performanceNetworkFor(costOwner(work), work, {
+            cached: true, path_kind: String(path).split('/').slice(0, 2).join('/')
+          });
           return hit.p;
         }
         // A reference directory survives app restarts, so check the durable
@@ -7067,6 +7188,10 @@
         if (ref != null) {
           dbg('net', 'CACHED(ref, up to 7d) ' + path);
           costNote(path, true, costOwner(work));
+          performanceNetworkFor(costOwner(work), work, {
+            cached: true, durable_cache: true,
+            path_kind: String(path).split('/').slice(0, 2).join('/')
+          });
           var rp = Promise.resolve(ref);
           _ebCache[path] = { t: Date.now(), p: rp };
           return rp;
@@ -7114,6 +7239,14 @@
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
             var tm = fgTiming(stat, t0);
+            performanceNetworkFor(section, work, {
+              cached: false,
+              queued_ms: tm.queued,
+              network_ms: tm.net,
+              suspended_ms: tm.slept,
+              retry: (stat.attempt || 0) > 0,
+              path_kind: String(path).split('/').slice(0, 2).join('/')
+            });
             dbg('net', 'done ' + fgTimingStr(tm) + ' · ' + _fgDone + ' calls'
               + ' · queue ' + _fgWaiters.length + '+' + _fgBgWaiters.length + 'bg/' + _fgActive
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
@@ -7123,6 +7256,15 @@
           }, function (e) {
             release(); fgProgressSync();
             var tm = fgTiming(stat, t0);
+            performanceNetworkFor(section, work, {
+              cached: false,
+              queued_ms: tm.queued,
+              network_ms: tm.net,
+              suspended_ms: tm.slept,
+              timeout: /timeout/i.test(String(e && e.message || e)),
+              error: true,
+              path_kind: String(path).split('/').slice(0, 2).join('/')
+            });
             dbg('error', 'failed after ' + fgTimingStr(tm) + ' · ' + path
               + ' · ' + ((e && e.message) || e));
             if (!noMemoryCache && _ebCache[path] && _ebCache[path].p === p) {
@@ -7518,6 +7660,17 @@
         _gbifQueue.push(fn);
         gbifPump();
       }
+      function gbifRetryAfterMs(response) {
+        var value = null;
+        try {
+          value = response && response.headers && response.headers.get
+            && response.headers.get('Retry-After');
+        } catch (e) {}
+        var seconds = parseFloat(value);
+        return isFinite(seconds) && seconds > 0
+          ? Math.min(30000, seconds * 1000)
+          : GBIF_RETRY_MS;
+      }
       // A 429 is NOT an answer, and the difference matters more here than
       // anywhere else in the app: gbifJson resolves failures as `null`, and a
       // cached null used to disable a whole section for 30 days. So a refusal
@@ -7527,10 +7680,14 @@
         return fetch(url, { headers: { 'Accept': 'application/json' } })
           .then(function (r) {
             if (r.status === 429 && retriesLeft > 0) {
-              dbg('warn', 'GBIF 429 — backing off ' + GBIF_RETRY_MS + 'ms · ' + url);
+              var wait = gbifRetryAfterMs(r);
+              dbg('warn', 'GBIF 429 — backing off ' + wait + 'ms · ' + url);
               return new Promise(function (res) {
-                setTimeout(function () { res(gbifFetchOnce(url, retriesLeft - 1)); },
-                  GBIF_RETRY_MS);
+                setTimeout(function () {
+                  gbifSchedule(function () {
+                    res(gbifFetchOnce(url, retriesLeft - 1));
+                  });
+                }, wait);
               });
             }
             return r.ok ? r.json() : null;
@@ -10242,7 +10399,7 @@
           icons: BirdLogic.recordIcons(dataRow),
           iconsAtEnd: true,
           compactDistance: true,
-          review: reviewFlag(row),
+          review: reviewIcon(row),
           data: checklistData
         });
       }
@@ -13729,6 +13886,18 @@
         return '<span class="revpend" role="img" aria-label="Unconfirmed; no eBird reviewer confirmation available"'
              + ' title="Unconfirmed; no eBird reviewer confirmation available">'
              + '\uD83E\uDD5A Unconfirmed</span>';
+      }
+      function reviewIcon(r) {
+        var s = r && r.reviewState;
+        if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
+        if (s === 'confirmed' || s === 'accepted') {
+          return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
+               + ' title="Confirmed by an eBird reviewer">\uD83C\uDFF5\uFE0F</span>';
+        }
+        return '<span class="revpend" role="img" '
+             + 'aria-label="Unconfirmed; no eBird reviewer confirmation available"'
+             + ' title="Unconfirmed; no eBird reviewer confirmation available">'
+             + '\uD83E\uDD5A</span>';
       }
 
       var CHASE_NS = 'ebird_chase_v1:';
@@ -18305,6 +18474,19 @@
         if (isFinite(la)) el.setAttribute('data-lat', String(la));
         if (isFinite(ln)) el.setAttribute('data-lng', String(ln));
         if (o.locName) el.setAttribute('data-loc-name', o.locName);
+        if (o.yieldManaged) {
+          el.setAttribute('data-yield-managed', '1');
+          el.setAttribute('data-yield-initial-score', String(Number(o.yieldManaged.score) || 0));
+          el.setAttribute('data-yield-initial-rarities',
+            String(Number(o.yieldManaged.rarities) || 0));
+          el.setAttribute('data-yield-initial-targets',
+            String(Number(o.yieldManaged.targets) || 0));
+          el.setAttribute('data-yield-base-facts',
+            JSON.stringify(o.yieldManaged.baseFacts || []));
+          if (o.yieldManaged.seenFact) {
+            el.setAttribute('data-yield-seen-fact', String(o.yieldManaged.seenFact));
+          }
+        }
         // The hotspot's most recent report, when the caller knows it. Quick
         // outing does — ref/hotspot/geo returns latestObsDt on every row — and
         // it is what lets the correction pass skip a location feed that cannot
@@ -18445,7 +18627,9 @@
           HOTSPOT_CKL_SHOWN - targetCount)));
       }
       function hotspotChecklistIndex() {
-        return recentLists().then(function (lists) {
+        return recentLists(true,
+          cancellableWork('patch checklist evidence'), false, false, true)
+          .then(function (lists) {
           var by = {};
           sortRecentLists(lists).forEach(function (chk) {
             var loc = chk.loc || {};
@@ -18454,7 +18638,7 @@
             (by[lid] || (by[lid] = [])).push(chk);
           });
           return { by: by, failed: !!lists._feedFailed };
-        }).catch(function () { return { by: {}, failed: true }; });
+          }).catch(function () { return { by: {}, failed: true }; });
       }
       function hydrateHotspotChecklists(root) {
         if (!root || !getKey()) return Promise.resolve();
@@ -18835,6 +19019,13 @@
             // those want opposite answers. Only the first should empty the
             // list; the second must not throw away evidence it cannot rule on.
             el.setAttribute('data-unseen-n', String(unseen.length));
+            var hydratedScore = unseen.reduce(function (sum, row) {
+              return sum + (row.rare ? 3 : 1) * BL.speciesWeight(row.code, watchCodes());
+            }, 0);
+            el.setAttribute('data-hydrated-score', String(hydratedScore));
+            el.setAttribute('data-hydrated-rarities', String(unseen.filter(function (row) {
+              return !!row.rare;
+            }).length));
             var slot = el.querySelector('.hslists');
             if (!slot) return;
             var windowLabel = days > LOC_SPECIES_DAYS
@@ -18857,8 +19048,41 @@
               meta.innerHTML = meta.innerHTML.replace(
                 /\d+ species(?! all-time)/, rows.length + ' species in ' + days + 'd');
             }
+            updateHydratedYieldFacts(root);
             hydratePhotos(slot);
           }).catch(function () {});
+        });
+      }
+      function updateHydratedYieldFacts(root) {
+        var cards = [].slice.call(root.querySelectorAll('[data-yield-managed="1"]'));
+        if (!cards.length) return;
+        var scores = cards.map(function (card) {
+          var hydrated = Number(card.getAttribute('data-hydrated-score'));
+          var initial = Number(card.getAttribute('data-yield-initial-score'));
+          return isFinite(hydrated) ? hydrated : initial;
+        });
+        cards.forEach(function (card, index) {
+          var meta = card.querySelector('.meta');
+          if (!meta) return;
+          var base = [], seenFact = '';
+          try { base = JSON.parse(card.getAttribute('data-yield-base-facts') || '[]'); }
+          catch (e) {}
+          seenFact = card.getAttribute('data-yield-seen-fact') || '';
+          var targetCount = Number(card.getAttribute('data-unseen-n'));
+          var rarityCount = Number(card.getAttribute('data-hydrated-rarities'));
+          if (!isFinite(targetCount)) {
+            targetCount = Number(card.getAttribute('data-yield-initial-targets')) || 0;
+          }
+          if (!isFinite(rarityCount)) {
+            rarityCount = Number(card.getAttribute('data-yield-initial-rarities')) || 0;
+          }
+          var facts = base.concat([
+            BL.yieldBand(scores[index], scores),
+            rarityCount + ' rarit' + (rarityCount === 1 ? 'y' : 'ies'),
+            targetCount + ' target' + (targetCount === 1 ? '' : 's'),
+            seenFact
+          ]).filter(Boolean);
+          meta.textContent = facts.join(' · ');
         });
       }
       function renderDestinations(list, mapEl, listEl, deferHydration) {
@@ -18884,30 +19108,45 @@
         // relative to what else is on offer today. See BL.yieldBand.
         var _scores = list.map(function (x) { return x.score; });
         list.forEach(function (d, i) {
+          var baseFacts = [
+            Number.isFinite(d.fallbackEvidenceDays)
+              ? 'Older evidence · last report ' + d.fallbackEvidenceDays
+                + ' day' + (d.fallbackEvidenceDays === 1 ? '' : 's') + ' ago'
+              : '',
+            d.travelNote || d.travelLabel || '',
+            Number.isFinite(d.travelHours)
+              ? d.travelHours.toFixed(1) + 'h round trip' : ''
+          ].filter(Boolean);
+          var seenFact = includeSeen && d.seenSpecies && d.seenSpecies.length
+            ? d.seenSpecies.length + ' already seen' : '';
           listEl.appendChild(hotspotCard({
             n: i + 1, locId: d.locId, locName: d.locName, lat: d.lat, lng: d.lng,
             distMi: d.dist,
-            facts: [
-              Number.isFinite(d.fallbackEvidenceDays)
-                ? 'Older evidence · last report ' + d.fallbackEvidenceDays
-                  + ' day' + (d.fallbackEvidenceDays === 1 ? '' : 's') + ' ago'
-                : '',
-              d.travelNote || d.travelLabel || '',
-              Number.isFinite(d.travelHours)
-                ? d.travelHours.toFixed(1) + 'h round trip' : '',
+            facts: baseFacts.concat([
               BL.yieldBand(d.score, _scores),
               d.rare != null ? d.rare + ' rarit' + (d.rare === 1 ? 'y' : 'ies') : '',
               d.species.length + ' target' + (d.species.length === 1 ? '' : 's'),
-              includeSeen && d.seenSpecies && d.seenSpecies.length
-                ? d.seenSpecies.length + ' already seen' : ''
-            ],
+              seenFact
+            ]),
+            yieldManaged: {
+              baseFacts: baseFacts,
+              seenFact: seenFact,
+              score: d.score,
+              rarities: d.rare || 0,
+              targets: d.species.length
+            },
             species: d.species,
             seenSpecies: includeSeen ? (d.seenSpecies || []) : null
           }));
         });
         hydratePhotos(listEl);
+        var section = listEl.closest && listEl.closest('section');
+        if (section) recordSectionCoverage(section, true);
         if (deferHydration) return;
         hydrateLocSpecies(listEl).then(function () { return hydrateHotspotChecklists(listEl); })
+          .then(function () {
+            if (section) recordSectionCoverage(section, true);
+          })
           .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
       }
 
@@ -19393,7 +19632,7 @@
       // product/lists reads Birdiest already pays for, so the two sections
       // share one cached promise.
       var _listsCache = null, _listsProgress = null;
-      function recentLists(skipOwnHarvest, work, urgent, strict) {
+      function recentLists(skipOwnHarvest, work, urgent, strict, background) {
         if (_listsCache) {
           if (!skipOwnHarvest) _listsCache.then(runOwnHarvest).catch(function () {});
           return _listsCache;
@@ -19426,7 +19665,10 @@
           });
         }
         _listsCache = Promise.all(feeds.map(function (f, i) {
-          return ebird(BL.requestUrl(f), false, false, false, work)
+          var request = background
+            ? ebirdBg(BL.requestUrl(f), work)
+            : ebird(BL.requestUrl(f), false, false, false, work);
+          return request
             .catch(function (e) {
               if (strict) throw e;
               _listsProgress.failed[i] = true;
@@ -27180,13 +27422,14 @@
           month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'
         });
       }
-      function birdcastToolLinks() {
+      function birdcastToolLinks(state) {
         return [
-          '<a class="extlink" data-href="https://birdcast.org/migration-tools/migration-forecast-maps/">Forecast maps →</a>',
-          '<a class="extlink" data-href="https://birdcast.org/migration-tools/live-migration-maps/">Live migration maps →</a>',
-          '<a class="extlink" data-href="https://birdcast.org/migration-tools/local-migration-alerts/">Migration alerts →</a>',
-          '<a class="extlink" data-href="https://birdcast.org/lights-out/">Lights Out guidance →</a>'
-        ].join(' · ');
+          '<a class="birdcast-action extlink" data-href="https://birdcast.org/migration-tools/migration-forecast-maps/">Forecast</a>',
+          '<a class="birdcast-action extlink" data-href="https://birdcast.org/migration-tools/live-migration-maps/">Live map</a>',
+          '<a class="birdcast-action extlink" data-href="' + esc(state && state.alertUrl
+            || 'https://alert.birdcast.org/') + '">Local alert</a>',
+          '<a class="birdcast-action extlink" data-href="https://birdcast.org/lights-out/">Lights Out</a>'
+        ].join('');
       }
       function birdcastAlertState(now, report) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
@@ -27215,6 +27458,7 @@
           live: afterDark,
           title: afterDark ? 'Current migration' : 'Tonight\u2019s migration',
           place: place,
+          alertUrl: alertUrl,
           url: afterDark
             ? 'https://birdcast.org/migration-tools/live-migration-maps/'
             : alertUrl,
@@ -27272,6 +27516,68 @@
           label: m[2].replace(/\s+/g, ' ').trim()
         };
       }
+      function birdcastNuxtArgs(source) {
+        var tokens = [], token = '', quote = '', escaped = false, depth = 0;
+        for (var i = 0; i < source.length; i++) {
+          var ch = source.charAt(i);
+          if (quote) {
+            token += ch;
+            if (escaped) escaped = false;
+            else if (ch === '\\') escaped = true;
+            else if (ch === quote) quote = '';
+          } else if (ch === '"' || ch === "'") {
+            quote = ch; token += ch;
+          } else if (ch === '(' || ch === '[' || ch === '{') {
+            depth++; token += ch;
+          } else if (ch === ')' || ch === ']' || ch === '}') {
+            depth--; token += ch;
+          } else if (ch === ',' && depth === 0) {
+            tokens.push(token.trim()); token = '';
+          } else {
+            token += ch;
+          }
+        }
+        tokens.push(token.trim());
+        return tokens;
+      }
+      function birdcastDashboardConfig(html) {
+        html = String(html || '');
+        var start = html.indexOf('window.__NUXT__=(function(');
+        if (start < 0) return null;
+        var namesStart = start + 'window.__NUXT__=(function('.length;
+        var namesEnd = html.indexOf('){', namesStart);
+        var scriptEnd = html.indexOf('<\/script>', namesEnd);
+        var callEnd = html.lastIndexOf('));', scriptEnd);
+        var bodyEnd = html.lastIndexOf('}(', callEnd);
+        if (namesEnd < 0 || scriptEnd < 0 || bodyEnd < 0 || callEnd < 0) return null;
+        var names = html.slice(namesStart, namesEnd).split(',')
+          .map(function (s) { return s.trim(); });
+        var body = html.slice(namesEnd + 2, bodyEnd);
+        var args = birdcastNuxtArgs(html.slice(bodyEnd + 2, callEnd));
+        function readRef(pattern) {
+          var m = pattern.exec(body);
+          var at = m ? names.indexOf(m[1]) : -1;
+          if (at < 0 || at >= args.length || args[at].charAt(0) !== '"') return '';
+          try { return JSON.parse(args[at]); } catch (e) { return ''; }
+        }
+        var baseUrl = readRef(/baseUrl:([A-Za-z_$][\w$]*)/);
+        var apiKey = readRef(/bcApiKey:([A-Za-z_$][\w$]*)/);
+        if (!/^https:\/\//i.test(baseUrl) || !apiKey || apiKey.length > 100) return null;
+        return { baseUrl: baseUrl.replace(/\/+$/, ''), apiKey: apiKey };
+      }
+      function birdcastMigrantsFromJson(doc) {
+        if (!doc || !Array.isArray(doc.dataRows)) {
+          throw new Error('BirdCast returned no expected-migrant list');
+        }
+        return doc.dataRows.slice(0, 14).map(function (row) {
+          var name = String(row && row.name || '').trim();
+          var speciesCode = String(row && row.speciesCode || '').trim();
+          if (!name || !/^[a-z0-9-]+$/i.test(speciesCode)) {
+            throw new Error('BirdCast returned a malformed expected migrant');
+          }
+          return { name: name, speciesCode: speciesCode };
+        });
+      }
       function birdcastMillions(n) {
         return (Number(n) / 1000000).toFixed(1) + ' million birds';
       }
@@ -27325,7 +27631,7 @@
           .catch(function (error) {
             return { value: null, error: (error && error.message) || 'Forecast unavailable' };
           });
-        var countP = choicePatchHomeCounty().then(function (counties) {
+        var dashboardP = choicePatchHomeCounty().then(function (counties) {
           var county = (counties || [])[0];
           if (!county || !county.code) throw new Error('Home county is unavailable');
           var url = 'https://dashboard.birdcast.org/region/'
@@ -27339,19 +27645,52 @@
               return response.text();
             })
             .then(function (html) {
-              return { value: birdcastCountFromHtml(html), error: '' };
+              return {
+                countyCode: county.code,
+                count: birdcastCountFromHtml(html),
+                config: birdcastDashboardConfig(html)
+              };
             });
+        });
+        var countP = dashboardP.then(function (dashboard) {
+          return { value: dashboard.count, error: '' };
         }).catch(function (error) {
           return { value: null, error: (error && error.message) || 'Migration count unavailable' };
         });
-        var promise = Promise.all([forecastP, countP]).then(function (parts) {
+        var migrantsP = dashboardP.then(function (dashboard) {
+          if (!dashboard.config) {
+            throw new Error('BirdCast dashboard configuration was unavailable');
+          }
+          var date = local.year + '-' + String(local.month).padStart(2, '0')
+            + '-' + String(local.day).padStart(2, '0');
+          var url = dashboard.config.baseUrl
+            + '/api/v1/is-birdcast-alert-api/barchart/'
+            + encodeURIComponent(dashboard.countyCode) + '/' + date
+            + '?key=' + encodeURIComponent(dashboard.config.apiKey)
+            + '&applyThreshold=' + encodeURIComponent(date);
+          return fetch(url, { headers: { Accept: 'application/json' } });
+        }).then(function (response) {
+          if (!response || !response.ok) {
+            throw new Error('BirdCast expected migrants returned HTTP '
+              + ((response && response.status) || 'error'));
+          }
+          return response.json();
+        }).then(function (doc) {
+          return { value: birdcastMigrantsFromJson(doc), error: '' };
+        }).catch(function (error) {
+          return { value: null, error: (error && error.message)
+            || 'Expected migrants unavailable' };
+        });
+        var promise = Promise.all([forecastP, countP, migrantsP]).then(function (parts) {
           var snapshot = {
             key: key,
             fetchedAt: Date.now(),
             forecast: parts[0].value,
             count: parts[1].value,
+            migrants: parts[2].value,
             forecastError: parts[0].error,
-            countError: parts[1].error
+            countError: parts[1].error,
+            migrantsError: parts[2].error
           };
           _birdcastSnapshot = snapshot;
           _birdcastSnapshotP = null;
@@ -27368,24 +27707,60 @@
         return birdcastMillions(snapshot.count.birds) + ' '
           + snapshot.count.label.replace(/^Birds\s+/i, '');
       }
+      function birdcastLevelDescription(level, live) {
+        var descriptions = {
+          None: live ? 'No migration detected now' : 'No migration expected tonight',
+          Low: live ? 'Light migration now' : 'Light migration expected tonight',
+          Medium: live ? 'Moderate migration now' : 'Moderate migration expected tonight',
+          High: live ? 'Heavy migration now' : 'Heavy migration expected tonight',
+          Loading: 'Checking migration size…'
+        };
+        return descriptions[level] || descriptions.Loading;
+      }
+      function birdcastLevelArt(snapshot) {
+        var level = birdcastLevel(snapshot).toUpperCase();
+        var key = /^(NONE|LOW|MEDIUM|HIGH|LOADING)$/.test(level)
+          ? level.toLowerCase() : 'loading';
+        return '<span class="birdcast-flight birdcast-flight-' + key
+          + '" aria-hidden="true">'
+          + '<span class="birdcast-flight-moon"></span>'
+          + (key === 'loading' ? '<span class="birdcast-flight-spinner"></span>' : '')
+          + '<span class="birdcast-flight-label">' + esc(level) + '</span></span>';
+      }
       function birdcastAlertHeader(state, snapshot) {
         if (!state) return '';
-        var kind = state.live ? 'LIVE MAP' : 'FORECAST';
         var level = birdcastLevel(snapshot);
-        var destination = state.live
-          ? 'Open BirdCast live radar'
-          : 'Open official alert for ' + state.place;
-        return '<a class="birdcast-alert extlink" data-href="' + esc(state.url)
-          + '" aria-label="' + esc(state.title + ' for ' + state.place
-            + '. ' + destination) + '">'
-          + '<span class="birdcast-alert-icon" aria-hidden="true">' + esc(level.toUpperCase()) + '</span>'
+        return '<div class="birdcast-alert" aria-label="' + esc(level
+            + '. ' + birdcastLevelDescription(level, state.live) + '. '
+            + birdcastCountLine(snapshot)) + '">'
+          + '<span class="birdcast-alert-icon">' + birdcastLevelArt(snapshot) + '</span>'
           + '<span class="birdcast-alert-copy">'
-          + '<span class="birdcast-alert-kicker">Official BirdCast ' + kind + '</span>'
-          + '<strong class="birdcast-alert-title">' + esc(state.title) + ': '
-          + esc(level) + '</strong>'
-          + '<span class="birdcast-alert-count">' + esc(birdcastCountLine(snapshot)) + '</span>'
-          + '<span class="birdcast-alert-place">' + esc(state.place)
-          + ' · ' + esc(destination) + ' \u2192</span></span></a>';
+          + '<strong class="birdcast-alert-code">' + esc(level.toUpperCase()) + '</strong>'
+          + '<span class="birdcast-alert-size">'
+          + esc(birdcastLevelDescription(level, state.live)) + '</span>'
+          + '<span class="birdcast-alert-count">' + esc(birdcastCountLine(snapshot))
+          + '</span></span></div>';
+      }
+      function birdcastMigrantsHtml(snapshot) {
+        var rows = snapshot && snapshot.migrants;
+        var body;
+        if (!snapshot) {
+          body = '<div class="birdcast-migrants-loading">Loading species…</div>';
+        } else if (!rows) {
+          body = '<div class="birdcast-migrants-empty">Species list unavailable.</div>';
+        } else if (!rows.length) {
+          body = '<div class="birdcast-migrants-empty">No expected migrants listed.</div>';
+        } else {
+          body = '<div class="birdcast-migrant-grid">'
+            + rows.map(function (row) {
+              return '<span class="birdcast-migrant" data-species-code="'
+                + esc(row.speciesCode) + '">' + esc(row.name) + '</span>';
+            }).join('') + '</div>';
+        }
+        return '<div class="birdcast-migrants" role="region" '
+          + 'aria-label="Expected nocturnal migrants">'
+          + '<h3 class="birdcast-migrants-title">Expected nocturnal migrants</h3>'
+          + body + '</div>';
       }
       function renderBirdcast(now, suppliedSnapshot) {
         var el = $('bcBody'); if (!el) return;
@@ -27406,28 +27781,26 @@
         }
         var linkHtml = getCounties().map(function (c) {
           var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(c.code);
-          return '<a class="extlink" data-href="' + esc(link) + '">' + esc(c.label) + ' →</a>';
-        }).join(' · ');
+          return '<a class="birdcast-action extlink" data-href="' + esc(link) + '">'
+            + esc(c.label) + ' dashboard</a>';
+        }).join('');
         var s = birdcastSeason(now, report);
         var alertState = birdcastAlertState(now, report);
         var localDate = birdcastDateLabel(s.local);
-        var tools = birdcastToolLinks();
+        var tools = birdcastToolLinks(alertState);
         function paint(snapshot) {
           var alertHeader = birdcastAlertHeader(alertState, snapshot);
           var errors = snapshot
-            ? [snapshot.forecastError, snapshot.countError].filter(Boolean) : [];
+            ? [snapshot.forecastError, snapshot.countError, snapshot.migrantsError]
+              .filter(Boolean) : [];
           var apiNote = '<div class="hint">Direct from BirdCast’s public alert and '
             + 'county dashboard pages.'
             + (errors.length ? ' ⚠️ ' + esc(errors.join('; ')) + '.' : '')
             + '</div>';
         if (s.active) {
-          el.innerHTML = alertHeader + '<div class="status"><b>Forecast maps</b> and '
-            + '<b>live migration maps</b> are separate BirdCast tools for '
-            + esc(s.season) + '. Use the '
-            + 'forecast to plan the night of <b>' + esc(localDate)
-            + '</b>, then check live radar after local sunset.</div>'
-            + '<div class="destfoot">' + tools + '</div>'
-            + '<div class="hint"><b>Local dashboards:</b> ' + linkHtml + '</div>'
+          el.innerHTML = alertHeader + birdcastMigrantsHtml(snapshot)
+            + '<div class="birdcast-actions">'
+            + tools + linkHtml + '</div>'
             + apiNote;
         } else {
           var nd = birdcastDateLabel(s.next, s.next.year);
@@ -27435,8 +27808,7 @@
             + 'tools are <b>between seasonal coverage</b> on the report\u2019s local '
             + 'date, <b>' + esc(localDate) + '</b>. Coverage resumes <b>'
             + esc(nd) + '</b>; local dashboards retain historical nights.</div>'
-            + '<div class="destfoot">' + tools + '</div>'
-            + '<div class="hint"><b>Local dashboards:</b> ' + linkHtml + '</div>'
+            + '<div class="birdcast-actions">' + tools + linkHtml + '</div>'
             + apiNote;
         }
         }
@@ -27452,7 +27824,9 @@
         var level = birdcastLevel(snapshot).toUpperCase();
         return '<a class="thumb surgebirdcastthumb seclink" data-sec="sec-bcBody"'
           + ' data-birdcast-level="' + esc(level) + '"'
-          + ' aria-label="Open Nightly Migration">' + esc(level) + '</a>';
+          + ' aria-label="' + esc(level.charAt(0) + level.slice(1).toLowerCase()
+            + ' migration. Open Nightly Migration') + '">'
+          + birdcastLevelArt(snapshot) + '</a>';
       }
       function birdcastSurgeRow(now, snapshot) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
@@ -27470,8 +27844,8 @@
         return {
           kind: 'migration',
           icon: birdcastLevelTile(snapshot),
-          name: '<a class="seclink" data-sec="sec-bcBody">' + esc(state.title)
-            + ': ' + esc(level) + '</a>',
+          name: '<a class="seclink" data-sec="sec-bcBody">' + esc(level)
+            + ' migration</a>',
           alpha: 'BIRDCAST',
           where: '<a class="seclink" data-sec="sec-bcBody">'
             + esc(state.place) + ' migration alert</a>',
@@ -33937,27 +34311,42 @@
         // live rather than cached, so this is the line that explains a cost
         // bucket appearing for a section the reader never chose.
         try { dbg('info', 'autoload ' + sec.id + ' \u00b7 on ' + visibleSectionId() + navWhy()); } catch (e) {}
+        var performanceLoadId = performanceStart(sec, 'autoload');
         var result;
         try { result = spec.fn(); }
         catch (e) {
           if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
           try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
+          if (_performance && performanceLoadId) {
+            _performance.fail(performanceLoadId, {
+              reason: 'exception',
+              error_type: e && e.name ? e.name : 'Error'
+            });
+          }
           return Promise.resolve(false);
         }
         if (result && typeof result.then === 'function') {
           return result.then(function (ok) {
             if (spec.retryOnFailure && ok === false) _autoLoaded[sec.id] = false;
             recordSectionCoverage(sec, ok);
+            performancePrimary(sec, performanceLoadId, ok);
             return ok;
           }, function (e) {
             if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
             try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
             recordSectionCoverage(sec, false);
+            if (_performance && performanceLoadId) {
+              _performance.fail(performanceLoadId, {
+                reason: 'rejected',
+                error_type: e && e.name ? e.name : 'Error'
+              });
+            }
             return false;
           });
         }
         if (spec.retryOnFailure && result === false) _autoLoaded[sec.id] = false;
         recordSectionCoverage(sec, result);
+        performancePrimary(sec, performanceLoadId, result);
         return result;
       }
       var _sections = [];
@@ -33980,6 +34369,116 @@
       }
       var _audit = null;
       var _auditSettings = null;
+      var _performance = null;
+      var _performanceLoads = {};
+      var _performanceObservers = {};
+      function performanceLoadIdFor(sectionId) {
+        return _performanceLoads[sectionId] || null;
+      }
+      function performanceVisibleLoadId() {
+        return performanceLoadIdFor(visibleSectionId());
+      }
+      function performanceNetworkFor(sectionId, work, attrs) {
+        if (!_performance) return null;
+        var loadId = (work && work.loadId) || performanceLoadIdFor(sectionId);
+        return loadId ? _performance.network(loadId, attrs || {}) : null;
+      }
+      function performanceHasContent(sec) {
+        return !!(sec && (pdRows(sec).length
+          || coverageSpeciesIn(sec, false).length
+          || coverageHotspotsIn(sec).length));
+      }
+      function performanceStart(sec, reason) {
+        if (!_performance || !sec) return null;
+        var old = _performanceLoads[sec.id];
+        if (old && _performance.active(old)) {
+          _performance.cancel(old, { reason: 'superseded' });
+        }
+        var loadId = _performance.start({
+          sectionId: sec.id,
+          sectionLabel: sec._label || sec.id,
+          report: getReportSlug(),
+          reason: reason || 'open',
+          cacheMode: performanceHasContent(sec) ? 'warm' : 'cold',
+          settingsRevision: _audit && _audit.settingsRevision
+            ? _audit.settingsRevision() : 0,
+          device: ((window.Capacitor && window.Capacitor.getPlatform
+            && window.Capacitor.getPlatform()) || 'web') + ' '
+            + Math.round(window.innerWidth || 0) + 'px'
+        });
+        _performanceLoads[sec.id] = loadId;
+        if (performanceHasContent(sec)) {
+          _performance.mark(loadId, 'report_first_content', {
+            row_count: pdRows(sec).length,
+            completeness: 'retained'
+          });
+        }
+        var observer = typeof MutationObserver === 'function'
+          ? new MutationObserver(function () {
+          if (typeof document === 'undefined' || !document.documentElement) return;
+          if (!_performance.active(loadId)) return;
+          if (performanceHasContent(sec)) {
+            _performance.mark(loadId, 'report_first_content', {
+              row_count: pdRows(sec).length,
+              completeness: 'partial'
+            });
+          }
+          performanceSettle(sec, loadId);
+        }) : null;
+        if (observer) {
+          observer.observe(sec, { childList: true, subtree: true, characterData: true });
+        }
+        _performanceObservers[sec.id] = { observer: observer, timer: null, loadId: loadId };
+        return loadId;
+      }
+      function performanceSettle(sec, loadId) {
+        var state = _performanceObservers[sec.id];
+        if (!state || state.loadId !== loadId) return;
+        if (state.timer) clearTimeout(state.timer);
+        state.timer = setTimeout(function () {
+          if (typeof document === 'undefined' || !document.documentElement
+              || !_performance || !_performance.active(loadId)) {
+            if (state.observer) state.observer.disconnect();
+            delete _performanceObservers[sec.id];
+            return;
+          }
+          var visible = coverageSpeciesIn(sec, false);
+          var hotspots = coverageHotspotsIn(sec);
+          _performance.finish(loadId, {
+            row_count: pdRows(sec).length,
+            species_count: visible.length,
+            hotspot_count: hotspots.length,
+            completeness: inferCoverageState(sec, true)
+          });
+          if (state.observer) state.observer.disconnect();
+          delete _performanceObservers[sec.id];
+        }, 750);
+      }
+      function performancePrimary(sec, loadId, ok) {
+        if (typeof document === 'undefined' || !document.documentElement
+            || !_performance || !loadId || !_performance.active(loadId)) return;
+        if (ok === false) {
+          _performance.fail(loadId, { reason: 'loader_returned_false' });
+          return;
+        }
+        _performance.mark(loadId, 'report_primary_ready', {
+          row_count: pdRows(sec).length,
+          completeness: inferCoverageState(sec, ok)
+        });
+        performanceSettle(sec, loadId);
+      }
+      function performanceCancelSection(sectionId, reason) {
+        var loadId = performanceLoadIdFor(sectionId);
+        if (_performance && loadId && _performance.active(loadId)) {
+          _performance.cancel(loadId, { reason: reason || 'navigation' });
+        }
+        var state = _performanceObservers[sectionId];
+        if (state) {
+          if (state.observer) state.observer.disconnect();
+          if (state.timer) clearTimeout(state.timer);
+          delete _performanceObservers[sectionId];
+        }
+      }
       function auditPageContext() {
         var id = visibleSectionId();
         if (id === '(menu)') return { id: 'main_menu', view: 'menu', overlay: null };
@@ -34031,6 +34530,16 @@
           page: auditPageContext
         });
         window.__audit = _audit;
+        if (window.BirdPerformance) {
+          _performance = window.BirdPerformance.create({
+            appVersion: APP_VERSION,
+            emit: auditEvent
+          });
+          window.__performanceLoadId = performanceVisibleLoadId;
+          window.__performanceNetwork = function (loadId, attrs) {
+            return _performance && loadId ? _performance.network(loadId, attrs) : null;
+          };
+        }
         auditSettingsChanged('startup');
         auditEvent('app.ready', {
           category: 'lifecycle', outcome: 'ok', tags: ['lifecycle']
@@ -34131,6 +34640,10 @@
           + 'Cancel">Cancel</button></div>'
           + '<div class="status" id="' + prefix + 'Status" aria-live="polite"></div>'
           + '</div>'
+          + '<details class="diagperformance"><summary>Performance</summary>'
+          + '<div id="' + prefix + 'Performance">No report loads recorded yet.</div>'
+          + '<button type="button" class="secondary" id="' + prefix
+          + 'PerformanceExport">Export performance report</button></details>'
           + (!expired ? '<button type="button" class="secondary" id="' + prefix
               + 'Clear">Clear diagnostic history</button>' : '')
           + (expired
@@ -34157,6 +34670,151 @@
         link.click();
         setTimeout(function () { URL.revokeObjectURL(url); }, 0);
         return Promise.resolve({ completed: true, bytes: bytes.length, fileName: name });
+      }
+      function performanceReport(options) {
+        if (!window.BirdPerformance || !_audit) return { rows: [], samples: [] };
+        return window.BirdPerformance.analyze(_audit.events(), options || {});
+      }
+      function renderPerformance(prefix) {
+        var host = $(prefix + 'Performance');
+        if (!host) return;
+        var all = performanceReport();
+        if (!all.rows.length) {
+          host.textContent = 'No report loads recorded yet.';
+          return;
+        }
+        function values(key) {
+          return all.samples.map(function (sample) { return sample[key] || ''; })
+            .filter(Boolean).filter(function (value, index, rows) {
+              return rows.indexOf(value) === index;
+            }).sort();
+        }
+        function options(rows, selected, allLabel) {
+          return '<option value="">' + esc(allLabel || 'All') + '</option>'
+            + rows.map(function (value) {
+              return '<option value="' + esc(value) + '"'
+                + (value === selected ? ' selected' : '') + '>' + esc(value)
+                + '</option>';
+            }).join('');
+        }
+        var previous = host._performanceFilters || {};
+        var current = previous.currentVersion || all.current_version;
+        var baseline = previous.baselineVersion || all.baseline_version;
+        var filters = {
+          currentVersion: current,
+          baselineVersion: baseline,
+          report: previous.report || '',
+          loadReason: previous.loadReason || '',
+          cacheMode: previous.cacheMode || '',
+          device: previous.device || '',
+          since: previous.since || '',
+          until: previous.until || ''
+        };
+        var report = performanceReport(filters);
+        host._performanceFilters = filters;
+        var rows = report.rows.filter(function (row) {
+          return row.app_version === report.current_version;
+        });
+        host.innerHTML = '<div class="perfcontrols">'
+          + '<label>Current version<select data-perf-filter="currentVersion">'
+          + options(all.versions, current, 'Newest') + '</select></label>'
+          + '<label>Baseline<select data-perf-filter="baselineVersion">'
+          + options(all.versions.filter(function (v) { return v !== current; }),
+            baseline, 'None') + '</select></label>'
+          + '<label>Report<select data-perf-filter="report">'
+          + options(values('report'), filters.report) + '</select></label>'
+          + '<label>Load reason<select data-perf-filter="loadReason">'
+          + options(values('load_reason'), filters.loadReason) + '</select></label>'
+          + '<label>Cache<select data-perf-filter="cacheMode">'
+          + options(values('cache_mode'), filters.cacheMode) + '</select></label>'
+          + '<label>Device<select data-perf-filter="device">'
+          + options(values('device'), filters.device) + '</select></label>'
+          + '<label>From<input type="date" data-perf-filter="since" value="'
+          + esc(filters.since) + '"></label>'
+          + '<label>Through<input type="date" data-perf-filter="until" value="'
+          + esc(filters.until) + '"></label></div>'
+          + '<div class="tablewrap"><table><thead><tr>'
+          + '<th>Report</th><th>Samples</th><th>Median primary</th>'
+          + '<th>p90 / p95 / max</th><th>Median / max full</th><th>Live calls</th>'
+          + '<th>Cache hit</th><th>Comparison</th></tr></thead><tbody>'
+          + rows.map(function (row) {
+              return '<tr><td><button type="button" class="perfreportbtn"'
+                + ' data-perf-section="' + esc(row.section_id) + '">'
+                + esc(row.section_label) + '</button></td><td>'
+                + row.sample_count + '</td><td>' + esc(row.median_primary_ms)
+                + ' ms</td><td>' + [row.p90_primary_ms, row.p95_primary_ms,
+                  row.max_primary_ms].map(function (value) {
+                    return esc(value) + ' ms';
+                  }).join(' / ') + '</td><td>'
+                + [row.median_enrichment_ms, row.max_enrichment_ms]
+                  .map(function (value) { return esc(value) + ' ms'; }).join(' / ')
+                + '</td><td>'
+                + row.live_requests + '</td><td>'
+                + (row.cache_hit_percent == null ? 'N/A'
+                  : row.cache_hit_percent + '%') + '</td><td><b>'
+                + esc(row.verdict) + '</b>'
+                + (row.delta_ms == null ? '' : '<br>' + (row.delta_ms > 0 ? '+' : '')
+                  + row.delta_ms + ' ms · ' + (row.delta_percent > 0 ? '+' : '')
+                  + row.delta_percent + '%') + '</td></tr>';
+            }).join('') + '</tbody></table></div>'
+          + '<div class="perfdetail" data-perf-detail></div>';
+        [].slice.call(host.querySelectorAll('[data-perf-filter]')).forEach(function (control) {
+          control.addEventListener('change', function () {
+            host._performanceFilters[control.getAttribute('data-perf-filter')] = control.value;
+            renderPerformance(prefix);
+          });
+        });
+        function renderDetail(sectionId) {
+          var detail = host.querySelector('[data-perf-detail]');
+          var samples = report.samples.filter(function (sample) {
+            return sample.app_version === report.current_version
+              && sample.section_id === sectionId;
+          }).sort(function (a, b) {
+            return (b.primary_ready_ms || 0) - (a.primary_ready_ms || 0);
+          });
+          if (!samples.length) { detail.textContent = 'No matching loads.'; return; }
+          detail.innerHTML = '<h4>' + esc(samples[0].section_label) + ' drill-down</h4>'
+            + '<p>Cold and warm loads remain separate in the report table. '
+            + 'Runs are ordered slowest first.</p><label>Load '
+            + '<select data-perf-run>' + samples.map(function (sample) {
+              return '<option value="' + esc(sample.load_id) + '">'
+                + esc(sample.load_id) + ' · ' + esc(sample.cache_mode) + ' · '
+                + esc(sample.primary_ready_ms) + ' ms</option>';
+            }).join('') + '</select></label><div data-perf-waterfall></div>';
+          function paintSample(sample) {
+            var primaryRender = Math.max(0, (sample.active_primary_ms || 0)
+              - sample.queued_ms - sample.network_ms);
+            var enrichment = Math.max(0, (sample.active_enrichment_ms || 0)
+              - (sample.active_primary_ms || 0));
+            detail.querySelector('[data-perf-waterfall]').innerHTML =
+              '<div class="tablewrap perfwaterfall"><table><thead><tr>'
+              + '<th>Stage</th><th>Elapsed</th></tr></thead><tbody>'
+              + [['Queue', sample.queued_ms], ['Network', sample.network_ms],
+                ['App suspended', sample.suspended_ms],
+                ['Primary render', primaryRender], ['Optional enrichment', enrichment]]
+                .map(function (stage) {
+                  return '<tr><td>' + stage[0] + '</td><td>' + stage[1]
+                    + ' ms</td></tr>';
+                }).join('')
+              + '</tbody></table></div><p>Slowest request: '
+              + esc(sample.slowest_request || 'none') + ' · '
+              + sample.slowest_request_ms + ' ms. Outcome: <b>'
+              + esc(sample.outcome) + '</b>.</p>';
+          }
+          var run = detail.querySelector('[data-perf-run]');
+          run.addEventListener('change', function () {
+            paintSample(samples.filter(function (sample) {
+              return sample.load_id === run.value;
+            })[0] || samples[0]);
+          });
+          paintSample(samples[0]);
+        }
+        [].slice.call(host.querySelectorAll('[data-perf-section]')).forEach(function (button) {
+          button.addEventListener('click', function () {
+            renderDetail(button.getAttribute('data-perf-section'));
+          });
+        });
+        if (rows[0]) renderDetail(rows[0].section_id);
       }
       function shareDiagnostic(prefix) {
         var status = $(prefix + 'Status');
@@ -34185,7 +34843,12 @@
           }
         }
         return screenshot.then(function (image) {
-          var packed = window.BirdDiagnostics.packageFiles(_audit.bundle(), {
+          var auditBundle = _audit.bundle();
+          if (window.BirdPerformance) {
+            Object.assign(auditBundle.files,
+              window.BirdPerformance.files(_audit.events()));
+          }
+          var packed = window.BirdDiagnostics.packageFiles(auditBundle, {
             buildInfo: _betaInfo,
             environment: diagnosticEnvironment(),
             storageInventory: diagnosticStorageInventory(),
@@ -34234,6 +34897,7 @@
         var share = $(prefix + 'Share');
         if (create) create.addEventListener('click', function () {
           if (preview) preview.hidden = false;
+          renderPerformance(prefix);
           auditEvent('diagnostic.preview', {
             category: 'privacy', outcome: 'ok',
             tags: ['diagnostic', 'privacy', 'user_action'],
@@ -34245,6 +34909,13 @@
           if ($(prefix + 'Status')) $(prefix + 'Status').textContent = '';
         });
         if (share) share.addEventListener('click', function () { shareDiagnostic(prefix); });
+        var performanceExport = $(prefix + 'PerformanceExport');
+        if (performanceExport) performanceExport.addEventListener('click', function () {
+          if (!window.BirdPerformance) return;
+          var html = window.BirdPerformance.html(performanceReport());
+          diagnosticDownload(new TextEncoder().encode(html),
+            'Bird-Chaser-performance-' + APP_VERSION + '-' + todayStr() + '.html');
+        });
         var clear = $(prefix + 'Clear');
         if (clear) clear.addEventListener('click', function () {
           if (!confirmAction('clear-diagnostics',
@@ -35889,6 +36560,7 @@
           if (_from !== id) dbg('info', 'nav ' + _from + ' \u2192 ' + id + navWhy());
         } catch (e) {}
         if (visibleSectionId() !== id) {
+          performanceCancelSection(visibleSectionId(), 'navigation');
           _navGeneration++;
           fgCancelObsolete();
         }
@@ -38838,7 +39510,7 @@
         IDENTITY_ALIASES_KEY: IDENTITY_ALIASES_KEY,
         buildActiveRarities: buildActiveRarities, CHASE_MAX_MI: CHASE_MAX_MI,
         needTag: needTag, watchCodes: watchCodes,
-        reviewFlag: reviewFlag,
+        reviewFlag: reviewFlag, reviewIcon: reviewIcon,
         // F175 follow-up: exposed so the two-sample fault can be reproduced
         // rather than regexed. The bug was not a threshold — it was a stored
         // state whose species history and checklist baseline came from
@@ -38983,11 +39655,15 @@
         birdcastPublicKey: birdcastPublicKey,
         birdcastForecastFromJson: birdcastForecastFromJson,
         birdcastCountFromHtml: birdcastCountFromHtml,
+        birdcastDashboardConfig: birdcastDashboardConfig,
+        birdcastMigrantsFromJson: birdcastMigrantsFromJson,
+        birdcastMigrantsHtml: birdcastMigrantsHtml,
         birdcastMillions: birdcastMillions,
         setBirdcastSnapshot: setBirdcastSnapshot,
         loadBirdcastSnapshot: loadBirdcastSnapshot,
         birdcastSurgeRow: birdcastSurgeRow, birdcastMenuBadge: birdcastMenuBadge,
         renderBirdcast: renderBirdcast,
+        performanceReport: performanceReport, renderPerformance: renderPerformance,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
         recScopes: recScopes, getRecScope: getRecScope,

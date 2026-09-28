@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Diagnostics = require('../www/diagnostic-package.js');
 const Audit = require('../www/audit-log.js');
+const Performance = require('../www/performance-report.js');
 
 test('F608 production builds have no expiry while sideload beta expires exactly', () => {
   const productionSource = fs.readFileSync(
@@ -30,13 +31,13 @@ test('F608 diagnostic ZIP contains bounded documented files and no secrets', () 
   const audit = Audit.create({ indexedDB: null, random: () => 0.1 });
   audit.snapshotSettings({
     api_key_configured: true, home_configured: true, theme: 'dark',
-    apiKey: 'SECRET-API-KEY', latitude: 47.75123, displayName: 'Private Birder',
+    apiKey: 'SECRET-API-KEY', latitude: 10.12345, displayName: 'Private Birder',
   }, 'test');
   audit.event('network.request_end', {
     category: 'network', tags: ['network'],
     attrs: {
       host: 'api.ebird.org', status: 200,
-      authorization: 'Bearer SECRET-TOKEN', longitude: -122.12345,
+      authorization: 'Bearer SECRET-TOKEN', longitude: 20.12345,
     },
   });
   const bundle = Diagnostics.packageFiles(audit.bundle(), {
@@ -65,6 +66,30 @@ test('F608 screenshot is packaged only after explicit inclusion', () => {
   assert.equal(without.files['screenshot.jpg'], undefined);
   const withShot = Diagnostics.packageFiles(audit.bundle(), {
     screenshotBase64: Buffer.from('jpeg bytes').toString('base64'),
+  });
+
+  test('F623 diagnostic package carries labelled HTML, CSV, and source load rows', () => {
+    const audit = Audit.create({ indexedDB: null, buildChannel: 'sideload' });
+    const tracker = Performance.create({
+      appVersion: '1.131.1',
+      emit: (name, values) => audit.event(name, values),
+    });
+    const id = tracker.start({
+      sectionId: 'sec-destBtn', sectionLabel: 'Today’s patches',
+      report: 'wa', reason: 'open', cacheMode: 'cold',
+    });
+    tracker.mark(id, 'report_first_content');
+    tracker.mark(id, 'report_primary_ready');
+    tracker.finish(id);
+    const auditBundle = audit.bundle();
+    Object.assign(auditBundle.files, Performance.files(audit.events()));
+    const packed = Diagnostics.packageFiles(auditBundle, {});
+    for (const name of ['performance-report.html', 'performance-report.csv',
+      'performance-loads.jsonl']) {
+      assert.ok(packed.files[name], `${name} is missing from the diagnostic package`);
+    }
+    assert.match(packed.files['performance-report.html'], /Comparison/);
+    assert.match(packed.files['performance-report.csv'], /verdict/);
   });
   assert.equal(Buffer.from(withShot.files['screenshot.jpg']).toString(), 'jpeg bytes');
 });

@@ -13663,8 +13663,8 @@ test('F510 Notes on renders separately labelled species and checklist blockquote
 test('F504-F505 grouped Twitches places review icons correctly and caps each hotspot at ten', () => {
   const appSource = HTML.slice(HTML.indexOf('function birdReportChecklistCard('),
     HTML.indexOf('function renderBirdReportProgress('));
-  assert.match(appSource, /review:\s*reviewFlag\(row\)/,
-    'each grouped checklist does not place review state after its age');
+  assert.match(appSource, /review:\s*reviewIcon\(row\)/,
+    'each grouped checklist does not place its icon-only review state after its age');
   assert.match(appSource, /slice\(0, 10\)/,
     'a grouped hotspot does not start with ten newest checklists');
   assert.match(appSource,
@@ -18881,15 +18881,16 @@ test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', as
   const text = doc.getElementById('bcBody').textContent.replace(/\s+/g, ' ').trim();
   const hrefs = [...doc.querySelectorAll('#bcBody [data-href]')]
     .map((node) => node.getAttribute('data-href'));
-  assert.match(text, /forecast maps/i);
-  assert.match(text, /live migration maps/i);
-  assert.match(text, /separate/i,
-    'forecast and live radar are still presented as one live forecast');
+  assert.deepEqual(
+    [...doc.querySelectorAll('#bcBody .birdcast-action')]
+      .slice(0, 4).map((node) => node.textContent.trim()),
+    ['Forecast', 'Live map', 'Local alert', 'Lights Out'],
+    'forecast, live radar, local alert, and Lights Out are not separate actions');
   assert.match(text, /migration count loading/i);
   assert.doesNotMatch(text, /forecast is live|radar forecast/i);
   assert.ok(hrefs.some((href) => /migration-forecast-maps\/$/.test(href)));
   assert.ok(hrefs.some((href) => /live-migration-maps\/$/.test(href)));
-  assert.ok(hrefs.some((href) => /local-migration-alerts\/$/.test(href)));
+  assert.ok(hrefs.some((href) => /^https:\/\/alert\.birdcast\.org\/\?/.test(href)));
   assert.ok(hrefs.some((href) => /dashboard\.birdcast\.org\/region\/US-WA-033/.test(href)));
   app.window.close();
 
@@ -18914,7 +18915,7 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   app.window.localStorage.removeItem(A.homeKey('place'));
   const fallback = A.birdcastSurgeRow(daytime);
   assert.ok(fallback, 'the active-season migration headline disappeared');
-  assert.match(fallback.name, /Tonight’s migration/);
+  assert.match(fallback.name, /Loading migration/);
   const fallbackState = A.birdcastAlertState(daytime);
   assert.match(fallbackState.url,
     new RegExp('latLng=' + encodeURIComponent(report.home.lat + ',' + report.home.lng)));
@@ -18923,10 +18924,11 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   A.renderBirdcast(daytime);
   const header = app.document.querySelector('#bcBody .birdcast-alert');
   assert.ok(header, 'Nightly Migration has no graphical alert header');
-  assert.match(header.textContent, /Official BirdCast FORECAST/i);
-  assert.match(header.textContent, /Tonight’s migration/);
-  assert.match(header.getAttribute('aria-label'), /open official alert/i);
-  assert.match(app.document.getElementById('bcBody').textContent, /Lights Out guidance/i);
+  assert.match(header.textContent, /LOADING/i);
+  assert.match(header.textContent, /Checking migration size/i);
+  assert.match(header.getAttribute('aria-label'), /loading/i);
+  assert.match(app.document.getElementById('bcBody').textContent, /Lights Out/i);
+  assert.match(app.document.getElementById('bcBody').textContent, /Local alert/i);
 
   app.window.localStorage.setItem(A.homeKey('lat'), '47.5000');
   app.window.localStorage.setItem(A.homeKey('lng'), '-122.3000');
@@ -18935,7 +18937,7 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   const savedState = A.birdcastAlertState(daytime);
   assert.match(savedState.url, /latLng=47\.5%2C-122\.3/);
   assert.match(savedState.url, /locName=Test%20Home/);
-  assert.match(saved.name, /Tonight’s migration/);
+  assert.match(saved.name, /Loading migration/);
   assert.match(saved.where, /Test Home migration alert/);
   assert.match(saved.extra, /Direct from BirdCast/i);
   const forecastBadge = A.birdcastMenuBadge(daytime);
@@ -18956,7 +18958,17 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
   };
   const dashboard = '<span id="total-passed">0</span>'
     + '<span class="is-visuallyHidden">3471500</span>'
-    + '<span>Birds crossed King County last night (est.)</span>';
+    + '<span>Birds crossed King County last night (est.)</span>'
+    + '<script>window.__NUXT__=(function(a,b,c,d){return {config:{baseUrl:a,'
+    + 'bcApiKey:b},nested:c}}("https:\\u002F\\u002Fdashboard.birdcast.org",'
+    + '"DASHBOARD_PUBLIC_KEY",["comma,inside",{x:"value"}],null));</script>';
+  const migrants = {
+    dataRows: [
+      { name: 'Swainson’s Thrush', speciesCode: 'swathr', taxon: 'Catharus ustulatus' },
+      { name: 'Western Tanager', speciesCode: 'westan', taxon: 'Piranga ludoviciana' },
+      { name: 'Yellow Warbler', speciesCode: 'yelwar', taxon: 'Setophaga petechia' },
+    ],
+  };
   const app = await boot({
     report: 'wa',
     fetch(url) {
@@ -18965,23 +18977,52 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
       if (String(url) === 'https://dashboard.birdcast.org/region/US-WA-033') {
         return dashboard;
       }
+      if (String(url).startsWith(
+        'https://dashboard.birdcast.org/api/v1/is-birdcast-alert-api/barchart/'
+      )) {
+        return migrants;
+      }
       return null;
     },
   });
   const A = app.window.__app;
   assert.equal(A.birdcastPublicKey(nuxt), 'PUBLIC_CLIENT_KEY');
+  const dashboardConfig = A.birdcastDashboardConfig(dashboard);
+  assert.equal(dashboardConfig.baseUrl, 'https://dashboard.birdcast.org');
+  assert.equal(dashboardConfig.apiKey, 'DASHBOARD_PUBLIC_KEY');
   assert.equal(A.birdcastMillions(3471517), '3.5 million birds');
   const snapshot = await A.renderBirdcast(daytime);
   const body = app.$('bcBody');
-  assert.match(body.textContent, /Tonight’s migration: High/);
+  assert.match(body.textContent, /HIGH/);
+  assert.match(body.textContent, /Heavy migration expected tonight/);
   assert.match(body.textContent,
     /3\.5 million birds crossed King County last night \(est\.\)/);
-  assert.equal(body.querySelector('.birdcast-alert-icon').textContent, 'HIGH',
-    'Nightly Migration still uses a moon instead of the text-labelled level');
+  assert.deepEqual(JSON.parse(JSON.stringify(snapshot.migrants)),
+    migrants.dataRows.map(({ name, speciesCode }) => ({ name, speciesCode })));
+  assert.match(body.textContent,
+    /Expected nocturnal migrants.*Swainson’s Thrush.*Western Tanager.*Yellow Warbler/s,
+    'Nightly Migration did not show BirdCast’s parsed expected-migrant list');
+  assert.deepEqual(
+    Array.from(body.querySelectorAll('.birdcast-action'), (link) =>
+      link.textContent.trim()).slice(0, 4),
+    ['Forecast', 'Live map', 'Local alert', 'Lights Out'],
+    'Nightly Migration does not put its external tools in a compact button row');
+  const alertArt = body.querySelector('.birdcast-alert-icon .birdcast-flight-high');
+  assert.equal(alertArt?.textContent, 'HIGH',
+    'Nightly Migration does not pair the cutout flock with its printed level');
+  assert.match(HTML,
+    /\.birdcast-flight-high\s*\{\s*--migration-art:\s*url\("assets\/migration-high\.png"\)/,
+    'Nightly Migration lost the shape-cut High migration flock');
 
   const row = A.birdcastSurgeRow(daytime, snapshot);
   assert.match(row.icon, /data-birdcast-level="HIGH"/,
     'Bird Gen still uses the generic place-map thumbnail');
+  assert.match(row.icon, /birdcast-flight-high/,
+    'Bird Gen migration icon does not use the High migration cutout flock');
+  assert.match(row.icon, /birdcast-flight-label">HIGH</,
+    'Bird Gen migration artwork does not print its level directly');
+  assert.match(row.name, />High migration</,
+    'Bird Gen still phrases the level as “Current migration: High”');
   assert.match(row.why,
     /High migration.*3\.5 million birds crossed King County last night/s);
   const holder = app.document.createElement('div');
@@ -18990,6 +19031,41 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
   holder.querySelector('.seclink').click();
   assert.equal(app.$('sec-bcBody').hidden, false,
     'Bird Gen BirdCast did not open Nightly Migration');
+  app.window.close();
+});
+
+test('F623 Settings performance table prints measured verdict labels', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const audit = app.window.__audit;
+  function sample(version, id, primary) {
+    const attrs = {
+      load_id: id, app_version: version,
+      section_id: 'sec-destBtn', section_label: 'Today’s patches',
+      report: 'wa', load_reason: 'open', cache_mode: 'cold',
+    };
+    [
+      ['report_load_start', 0],
+      ['report_first_content', 100],
+      ['report_primary_ready', primary],
+      ['report_enrichment_complete', primary + 400],
+      ['report_load_complete', primary + 400],
+    ].forEach(([event, elapsed]) => audit.event(event, {
+      category: 'render',
+      operationId: id,
+      attrs: { ...attrs, elapsed_ms: elapsed },
+    }));
+  }
+  for (let i = 0; i < 5; i++) sample('1.130.9', `old-${i}`, 1000 + i * 10);
+  for (let i = 0; i < 5; i++) sample('1.131.1', `new-${i}`, 1600 + i * 10);
+  const host = app.document.createElement('div');
+  host.id = 'fixturePerformance';
+  app.document.body.appendChild(host);
+  A.renderPerformance('fixture');
+  assert.match(host.textContent, /Today’s patches/);
+  assert.match(host.textContent, /Slower/,
+    'the Settings report relies on colour or omits the measured regression label');
+  assert.match(host.textContent, /5/);
   app.window.close();
 });
 
@@ -19898,6 +19974,27 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
     'Twitches today renders review status through the shared helper');
   assert.match(HTML, /var warn = reviewFlag\(r\.closest\);/,
     'and so does Twitches this week');
+  app.window.close();
+});
+
+test('F626 individual checklist rows show only the review icon', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const confirmed = A.reviewIcon({ reviewState: 'confirmed' });
+  const pending = A.reviewIcon({ reviewState: 'pending' });
+  assert.match(confirmed, />\uD83C\uDFF5\uFE0F<\/span>/,
+    'a confirmed checklist keeps its distinct rosette icon');
+  assert.match(pending, />\uD83E\uDD5A<\/span>/,
+    'an unconfirmed checklist keeps its distinct egg icon');
+  assert.doesNotMatch(confirmed + pending, />[^<]*(?:Confirmed|Unconfirmed)[^<]*</,
+    'individual checklist rows print review words beside their icons');
+  assert.match(confirmed, /aria-label="Confirmed by an eBird reviewer"/);
+  assert.match(pending,
+    /aria-label="Unconfirmed; no eBird reviewer confirmation available"/);
+  const at = HTML.indexOf('function birdReportChecklistCard');
+  const source = HTML.slice(at, HTML.indexOf('function birdReportPlaceCard', at));
+  assert.match(source, /review:\s*reviewIcon\(row\)/,
+    'individual checklist cards do not use the worded species-level badge');
   app.window.close();
 });
 
@@ -21421,7 +21518,7 @@ test('F304 no-memory Mega reads neither consume nor populate the shared memo', a
 
 test('F304 no-memory slot preserves navigation ownership on direct eBird reads', () => {
   assert.match(HTML,
-    /return ebird\(BL\.requestUrl\(f\), false, false, false, work\)/,
+    /:\s*ebird\(BL\.requestUrl\(f\), false, false, false, work\)/,
     'recent checklist lists pass work after the explicit no-memory slot');
   assert.match(HTML,
     /_cklView\[sub\] = ebird\('product\/checklist\/view\/'[\s\S]{0,120}!!bg, false, false, work\)/,
@@ -32369,6 +32466,94 @@ test('the scored set is carried across whole, not just enough to name the bird',
     'and the checklist that reported it, so the folded-back row can still link to its evidence');
 
   app.window.close();
+});
+
+test('F619 hydrated destination evidence recomputes yield, rarity, and target facts together', async () => {
+  const today = new Date();
+  const ymd = today.getFullYear() + '-'
+    + String(today.getMonth() + 1).padStart(2, '0') + '-'
+    + String(today.getDate()).padStart(2, '0');
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/L\d+\/recent/.test(String(url))) {
+        return [
+          { speciesCode: 'rare1', comName: 'Rare One', obsDt: ymd + ' 08:00',
+            howMany: 1, subId: 'S1' },
+          { speciesCode: 'target2', comName: 'Target Two', obsDt: ymd + ' 08:10',
+            howMany: 2, subId: 'S2' },
+          { speciesCode: 'target3', comName: 'Target Three', obsDt: ymd + ' 08:20',
+            howMany: 3, subId: 'S3' },
+        ];
+      }
+      if (/product\/lists\//.test(String(url))) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const map = doc.createElement('div');
+  const list = doc.createElement('ul');
+  doc.body.append(map, list);
+  A.renderDestinations([
+    { locId: 'L1', locName: 'One', lat: 47.1, lng: -122.1, dist: 1,
+      score: 9, rare: 2, species: [{ code: 'old1', comName: 'Old One' }] },
+    { locId: 'L2', locName: 'Two', lat: 47.2, lng: -122.2, dist: 2,
+      score: 4, rare: 1, species: [{ code: 'old2', comName: 'Old Two' }] },
+    { locId: 'L3', locName: 'Three', lat: 47.3, lng: -122.3, dist: 3,
+      score: 2, rare: 0, species: [{ code: 'old3', comName: 'Old Three' }] },
+    { locId: 'L4', locName: 'Four', lat: 47.4, lng: -122.4, dist: 4,
+      score: 1, rare: 0, species: [{ code: 'old4', comName: 'Old Four' }] },
+  ], map, list, false, false);
+  await waitFor(() => Array.from(list.querySelectorAll('[data-hsloc]')).every((card) =>
+    card.getAttribute('data-unseen-n') === '4'), 'all destination cards to hydrate');
+  const facts = Array.from(list.querySelectorAll('[data-hsloc] .meta'),
+    (node) => node.textContent.replace(/\s+/g, ' ').trim());
+  assert.equal(new Set(facts).size, 1,
+    'cards with the same visible evidence retained different verdicts: '
+      + JSON.stringify(facts));
+  assert.match(facts[0], /average/);
+  assert.match(facts[0], /0 rarities/);
+  assert.match(facts[0], /4 targets/);
+  app.window.close();
+});
+
+test('F621 opening and painting Today’s patches records a results coverage snapshot', async () => {
+  const app = await boot({ report: 'hi' });
+  const A = app.window.__app;
+  A.showSection('sec-destBtn');
+  A.renderDestinations([{
+    locId: 'L123', locName: 'Coverage Park', lat: 21.3, lng: -157.8,
+    dist: 4, score: 3, rare: 1,
+    species: [{ code: 'hawama1', comName: 'Hawaiʻi ʻAmakihi', rare: true }],
+  }], app.$('destMap'), app.$('destResults'), true, false);
+  const row = JSON.parse(A.coverageAuditExport()).sections
+    .find((section) => section.section === 'todays_patches');
+  assert.equal(row.state, 'results');
+  assert.ok(row.counts.listRows > 0, 'the rendered destination row was not counted');
+  assert.ok(row.counts.publicHotspots > 0, 'the rendered hotspot was not recorded');
+  assert.ok(row.counts.visibleSpecies > 0, 'the visible species evidence was not recorded');
+  app.window.close();
+});
+
+test('F620 GBIF retries re-enter the shared scheduler and honor Retry-After', () => {
+  const at = HTML.indexOf('function gbifFetchOnce');
+  const source = HTML.slice(at, HTML.indexOf('function gbifJson', at));
+  assert.match(source, /gbifRetryAfterMs\(r\)/,
+    'GBIF retry delay ignores the service Retry-After header');
+  assert.match(source, /setTimeout[\s\S]*gbifSchedule[\s\S]*gbifFetchOnce/,
+    'a GBIF retry bypasses the shared token bucket');
+});
+
+test('F622 optional patch checklist evidence uses the background eBird lane', () => {
+  const indexAt = HTML.indexOf('function hotspotChecklistIndex');
+  const indexSource = HTML.slice(indexAt, HTML.indexOf('function hydrateHotspotChecklists', indexAt));
+  assert.match(indexSource,
+    /recentLists\(true,[\s\S]*cancellableWork\('patch checklist evidence'\)[\s\S]*true\)/,
+    'patch checklist enrichment does not request background scheduling');
+  const listsAt = HTML.indexOf('function recentLists');
+  const listsSource = HTML.slice(listsAt, HTML.indexOf('function resetListsCache', listsAt));
+  assert.match(listsSource, /background[\s\S]*ebirdBg\(BL\.requestUrl\(f\), work\)/,
+    'recentLists accepts a background request but still occupies the foreground lane');
 });
 
 // --- the rate limiter, DRIVEN rather than argued about ---------------------

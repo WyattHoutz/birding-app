@@ -75,7 +75,7 @@ jobs:
             "${{ steps.ver.outputs.tag }}" \
             "${{ github.event.workflow_run.head_sha }}" \
             BirdChaser-unsigned.ipa \
-            BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
+            BirdChaser-unsigned.ipa,BirdChaser-beta-guide.txt,BirdChaser-mockups.zip \
             > digests.json
           EXPECTED="$(node -p "require('./digests.json')['BirdChaser-unsigned.ipa'].slice(7)")"
           ACTUAL="$(sha256sum published/BirdChaser-unsigned.ipa | cut -d' ' -f1)"
@@ -185,7 +185,7 @@ jobs:
             "${{ needs.verify.outputs.tag }}" \
             "${{ github.event.workflow_run.head_sha }}" \
             BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
-            BirdChaser-unsigned.ipa,BirdChaser-mockups.zip \
+            BirdChaser-unsigned.ipa,BirdChaser-beta-guide.txt,BirdChaser-mockups.zip \
             > digests.json
           EXPECTED_DIGEST="$(node -p "require('./digests.json')['BirdChaser-mockups.zip'].slice(7)")"
           ACTUAL_DIGEST="$(sha256sum published/BirdChaser-mockups.zip | cut -d' ' -f1)"

@@ -15,7 +15,8 @@
     recent_checklists: 1, navigation: 1, user_action: 1, setting: 1,
     network: 1, cache: 1, render: 1, photo: 1, progressive_render: 1,
     retry: 1, slow: 1, rate_limited: 1, offline: 1, stale: 1,
-    partial: 1, error: 1, lifecycle: 1, privacy: 1, diagnostic: 1
+    partial: 1, error: 1, lifecycle: 1, privacy: 1, diagnostic: 1,
+    performance: 1
   };
   var CATEGORIES = {
     navigation: 1, user_action: 1, data: 1, network: 1, cache: 1,
@@ -363,6 +364,7 @@
       changedSettings: changedSettings,
       events: function () { return events.slice(); },
       settings: function () { return settings.slice(); },
+      settingsRevision: function () { return settingsRev; },
       bundle: bundle,
       persistentEvents: persistentEvents,
       flush: persistNow,

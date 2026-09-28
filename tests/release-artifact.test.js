@@ -97,7 +97,11 @@ test('F340 release asset verification binds names, digest, tag, and commit', () 
     tag: 'v1.84.0',
     sha: 'abc123',
     required: ['BirdChaser-unsigned.ipa'],
-    allowed: ['BirdChaser-unsigned.ipa', 'BirdChaser-mockups.zip'],
+    allowed: [
+      'BirdChaser-unsigned.ipa',
+      'BirdChaser-beta-guide.txt',
+      'BirdChaser-mockups.zip',
+    ],
   };
   assert.deepEqual(verifyReleaseAssets(release, options), {
     'BirdChaser-unsigned.ipa': digest,
@@ -112,6 +116,14 @@ test('F340 release asset verification binds names, digest, tag, and commit', () 
     ...release,
     assets: release.assets.concat({ name: 'surprise.txt', size: 1, digest }),
   }, options), /unexpected asset/i);
+  assert.doesNotThrow(() => verifyReleaseAssets({
+    ...release,
+    assets: release.assets.concat({
+      name: 'BirdChaser-beta-guide.txt',
+      size: 12,
+      digest,
+    }),
+  }, options));
   assert.throws(() => verifyReleaseAssets({
     ...release,
     assets: [{ name: 'BirdChaser-unsigned.ipa', size: 42, digest: null }],

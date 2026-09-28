@@ -127,8 +127,11 @@ test('F607 BirdCast mockups seed the production level and county-count surfaces'
     'the mockup does not seed the representative county total');
   assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\), snapshot\)/,
     'the mockup does not render the production BirdCast surface with deterministic data');
-  assert.match(indexSource, /Forecast maps/);
-  assert.match(indexSource, /Live migration maps/);
+  assert.match(indexSource, />Forecast</);
+  assert.match(indexSource, />Live map</);
+  assert.match(source, /migrants:\s*\[/,
+    'the mockup does not seed representative expected migrants');
+  assert.match(indexSource, /Expected nocturnal migrants/);
   assert.match(source, /REPRESENTATIVE BIRDCAST DATA/);
   assert.match(indexSource, /class="birdcast-alert-icon"/);
   assert.match(indexSource, /class="birdcast-alert-count"/);
@@ -763,8 +766,8 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
     /SHOTS\.length[\s\S]*BirdChaser-mockups\.zip[\s\S]*gh release upload[\s\S]*--clobber/,
     'the gallery count, archive, and idempotent Release attachment are incomplete');
   assert.match(postWorkflow,
-    /verify-release-assets\.js[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-mockups\.zip[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-mockups\.zip/,
-    'the final Release inventory does not require exactly the IPA and mockup ZIP');
+    /verify-release-assets\.js[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-beta-guide\.txt,BirdChaser-mockups\.zip[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-mockups\.zip[\s\S]*BirdChaser-unsigned\.ipa,BirdChaser-beta-guide\.txt,BirdChaser-mockups\.zip/,
+    'the Release inventory does not allow the beta guide while requiring the IPA and mockup ZIP');
   assert.match(postWorkflow,
     /EXPECTED_DIGEST=.*BirdChaser-mockups\.zip[\s\S]*ACTUAL_DIGEST=.*sha256sum published\/BirdChaser-mockups\.zip[\s\S]*test "\$ACTUAL_DIGEST" = "\$EXPECTED_DIGEST"/,
     'the re-downloaded gallery bytes are not compared with GitHub\'s recorded digest');
