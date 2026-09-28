@@ -181,8 +181,10 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.reject("Unable to create the full report PDF: \(error.localizedDescription)")
                 }
             }
+        }
+    }
 
-            @objc public func captureDiagnosticScreenshot(_ call: CAPPluginCall) {
+    @objc public func captureDiagnosticScreenshot(_ call: CAPPluginCall) {
                 guard let webView else {
                     call.reject("The app web view is unavailable.")
                     return
@@ -213,7 +215,7 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
 
-            @objc public func shareDiagnosticPackage(_ call: CAPPluginCall) {
+    @objc public func shareDiagnosticPackage(_ call: CAPPluginCall) {
                 guard let encoded = call.getString("base64"),
                       let data = Data(base64Encoded: encoded) else {
                     call.reject("The diagnostic ZIP data is missing or invalid.")
@@ -260,6 +262,4 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                     presenter.present(sheet, animated: true)
                 }
             }
-        }
-    }
 }

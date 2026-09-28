@@ -49,6 +49,9 @@ test('F608 native bridge shares ZIPs and captures screenshots only on request', 
   assert.match(swift, /CAPPluginMethod\(name: "shareDiagnosticPackage"/);
   assert.match(swift, /Data\(base64Encoded: encoded\)/);
   assert.match(swift, /"completed": completed/);
+  assert.match(swift,
+    /call\.reject\("Unable to create the full report PDF:[\s\S]*?\r?\n        \}\r?\n    \}\r?\n\r?\n    @objc public func captureDiagnosticScreenshot/,
+    'diagnostic bridge methods must be class-level, not nested inside shareReport');
   assert.match(workflow,
     /stamp-build-info\.js www\/build-info\.js sideload "\$BUILD_ID" 30/);
   assert.match(workflow, /BirdChaser-beta-guide\.txt/);
