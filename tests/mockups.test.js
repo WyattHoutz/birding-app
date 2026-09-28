@@ -331,6 +331,19 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the unified Day trip release shot does not identify its selected range and completed plan');
 });
 
+test('F628 Top 100 compact-height guard allows deliberate Huge-text reflow', () => {
+  const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("} else if (spec.kind === 'patches')"));
+  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > 72\)/,
+    'the normal-size compact-row ceiling still rejects intentional Huge-text wrapping');
+  assert.match(source,
+    /async function fixturePrepare\(at, spec, A, document, sec, renderScale\)/,
+    'the fixture preparation seam does not accept the gallery text scale');
+  assert.match(source,
+    /FIX\.prepare\(\$\{at\}, spec, A, document, sec,[\s\S]*\$\{JSON\.stringify\(SCALE\)\}\)/,
+    'the browser-side fixture does not receive the requested gallery text scale');
+});
+
 test('F384/F385 release mockups expose row actions and regional watch scope', () => {
   const year = source.slice(source.indexOf("var isMyYear = at === 'myYearBody'"),
     source.indexOf('function fillSpeciesHost', source.indexOf("var isMyYear = at === 'myYearBody'")));

@@ -172,7 +172,8 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
            var sec = anchor && anchor.closest ? anchor.closest('section') : null;
            if (!sec) throw new Error('no section for ' + ${at});
            A.showSection(sec.id);
-           return FIX.prepare(${at}, spec, A, document, sec);`,
+           return FIX.prepare(${at}, spec, A, document, sec,
+             ${JSON.stringify(SCALE)});`,
   };
 });
 
@@ -1421,7 +1422,7 @@ const BOOTSTRAP = `
     }
     throw new Error('fixture timed out waiting for ' + label);
   }
-  async function fixturePrepare(at, spec, A, document, sec) {
+  async function fixturePrepare(at, spec, A, document, sec, renderScale) {
     ensureMockStyle(document);
     if (Date.now() !== MOCK_NOW) throw new Error('Release mock clock is not frozen');
     if (A.progressEnd) A.progressEnd();
@@ -1658,7 +1659,7 @@ const BOOTSTRAP = `
       if (recentThumb) {
         throw new Error('Top 100 recent-bird image still consumes list space');
       }
-      if (firstRowRect.height > 72) {
+      if (renderScale <= 1 && firstRowRect.height > 72) {
         throw new Error('Top 100 sentence row is too tall: '
           + firstRowRect.height + 'px');
       }
