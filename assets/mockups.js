@@ -1883,6 +1883,13 @@ const BOOTSTRAP = `
     markHost(document.getElementById('spLookupIdHelp'),
       'Stakeout bird comparison details');
     markHost(sec, 'Stakeout bird comparison');
+    if (A.fgCancelAll) A.fgCancelAll('Mock comparison complete');
+    if (A.fgProgressReset) A.fgProgressReset();
+    else if (A.progressEnd) A.progressEnd();
+    await waitFor(function () {
+      var bar = document.getElementById('loadBar');
+      return !bar || bar.hidden;
+    }, 'hidden global loading bar');
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;

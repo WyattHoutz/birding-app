@@ -619,6 +619,12 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     'the exact release-device renders do not guard Buzz-only ordering');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
+  const compareStart = source.indexOf('async function prepareCompare');
+  const compareEnd = source.indexOf('async function prepareStakeoutReports', compareStart);
+  const compareFixture = source.slice(compareStart, compareEnd);
+  assert.match(compareFixture,
+    /A\.fgCancelAll\('Mock comparison complete'\)[\s\S]*A\.fgProgressReset\(\)[\s\S]*bar\.hidden[\s\S]*mockReady = 'true'/,
+    'the comparison shot declares readiness before clearing its mock-only global loading state');
   const mergedStart = source.indexOf('async function prepareBirdFinderMerged');
   const mergedEnd = source.indexOf('async function prepareBirdSp', mergedStart);
   assert.ok(mergedStart > 0 && mergedEnd > mergedStart,
