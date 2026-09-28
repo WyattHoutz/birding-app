@@ -19,13 +19,11 @@
  * `Page.captureScreenshot` over CDP with an explicit clip. The width in the
  * file name is therefore the width the browser really laid out at.
  *
- * DEFAULT WIDTH IS 393, NOT 402. 402 is the iPhone 16 Pro; 393 is the
- * 14/15 Pro and is the NARROWER of the two the sweep walks, so it is the one
- * that binds (F245).
- *
  * Usage:
- *   node assets/mockups.js               # every shot, 393px, into mockups/
+ *   node assets/mockups.js               # every shot, 402px, into mockups/
+ *   node assets/mockups.js --width 414   # iPhone 11
  *   node assets/mockups.js --width 402
+ *   node assets/mockups.js --width 402 --scale 1.75
  *   node assets/mockups.js --only menu,top100
  *   node assets/mockups.js --out somewhere
  */
@@ -65,7 +63,7 @@ function arg(name, dflt) {
   const i = process.argv.indexOf('--' + name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
-const WIDTH = Number(arg('width', 393));
+const WIDTH = Number(arg('width', 402));
 const HEIGHT = Number(arg('height', 1400));
 const SCALE = Number(arg('scale', 1));
 const OUT = path.resolve(arg('out', path.join(ROOT, 'mockups')));
@@ -1299,11 +1297,21 @@ const BOOTSTRAP = `
     markHost(host, label);
   }
   function fillBirdcast(host, label, A) {
-    A.renderBirdcast(new Date('2026-09-09T19:00:00Z'));
+    var snapshot = {
+      fetchedAt: Date.now(),
+      forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
+      count: {
+        birds: 3471500,
+        label: 'Birds crossed King County last night (est.)'
+      },
+      forecastError: '',
+      countError: ''
+    };
+    A.setBirdcastSnapshot(snapshot);
+    A.renderBirdcast(new Date('2026-09-09T19:00:00Z'), snapshot);
     var note = host.ownerDocument.createElement('div');
     note.className = 'mocklabel';
-    note.textContent = 'REPRESENTATIVE LINK-ONLY VIEW · ' + label
-      + ' · no BirdCast data is fetched';
+    note.textContent = 'REPRESENTATIVE BIRDCAST DATA · ' + label;
     host.insertBefore(note, host.firstChild);
     markHost(host, label);
   }
@@ -1327,6 +1335,16 @@ const BOOTSTRAP = `
       if (A.setSpuhRandom) A.setSpuhRandom(function () { return 0; });
     }
     if (at === 'surgeBtn') {
+      A.setBirdcastSnapshot({
+        fetchedAt: Date.now(),
+        forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
+        count: {
+          birds: 3471500,
+          label: 'Birds crossed King County last night (est.)'
+        },
+        forecastError: '',
+        countError: ''
+      });
       var speciesSeed = localStorage.getItem('ebird_species_v2:US-WA');
       if (speciesSeed) {
         localStorage.setItem('ebird_species_v2:' + A.getObsRegion(), speciesSeed);
@@ -2801,7 +2819,7 @@ async function main() {
     + '`--window-size` does **not** set the layout viewport on Windows — it\n'
     + 'lays out at 500px and crops the PNG, which looks exactly like a real\n'
     + 'right-edge clip. Do not replace this with `--screenshot`.\n\n'
-    + '**393px is the binding width** (iPhone 14/15 Pro), not 402 (16 Pro).\n\n'
+    + '**Render profile:** ' + WIDTH + 'px at ' + SCALE + '× app text size.\n\n'
     + made.map((m) => '### ' + m.title + '\n\n![' + m.title + '](' + m.name + ')\n').join('\n')
     + '\n');
 

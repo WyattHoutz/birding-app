@@ -146,7 +146,7 @@
       ]
     },
     "patchBtn": {
-      "report": "## 🧭 Pro patches — Where the top 100 actually bird",
+      "report": "## 💪 Pro patches — Where the top 100 actually bird",
       "summary": "Where the hundred busiest local birders actually go, ranked by how disproportionately they choose a place rather than by how many checklists it holds.",
       "inputs": [
         "data/wa/choice-patches.json, built from 730 harvested county-days (product/lists/{region}/{y}/{m}/{d})",
@@ -157,7 +157,7 @@
         "A place's score is a LIFT: the share of that birder's checklists filed there, over the share of everyone's checklists filed there. 5x means they choose it five times as often as the counties as a whole do.",
         "Both shares are evidence-weighted — a 95% Wilson lower bound on the birder's share over a Wilson upper bound on the population's — so a place visited once cannot tie a place visited two hundred times.",
         "Personal pins are excluded and only eBird hotspots are ranked: pins are 92% of places but under half the effort, and a birder is usually their sole visitor, which is what made them dominate a raw ranking.",
-        "The population is the top 100 by LOCAL EFFORT in these counties, not the statewide species board — only about a fifth of them overlap."
+        "The population is the top 100 by LOCAL EFFORT in the report's counties, not the statewide species board. The default Leaderboard filter shows birders ranked on any of those county boards or the statewide board; All reveals the full local-effort population. Each row lists every available standing with its scope, such as Washington #89 · King #12 · Snohomish #24. The left marker uses the statewide rank when present, otherwise the best county rank; N/R explicitly means no listed rank. It is never the row's position in the lift-sorted list."
       ],
       "limits": [
         "Coverage is part of the answer: this sees only the checklists eBird publishes, so a birder who keeps their lists private looks like they have no patch. Those birders are NAMED rather than ranked low.",
@@ -225,7 +225,7 @@
       ]
     },
     "lastNewBtn": {
-      "report": "## 🔭 Fresh ticks — Newest on the board",
+      "report": "## ☑️ Leaderboard Ticks — Newest on the board",
       "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
       "inputs": [
         "the region's Top 100 board (each row prints that birder's most recent year tick)"
@@ -377,7 +377,7 @@
       ]
     },
     "recentBtn": {
-      "report": "## 🕒 Recent checklists — All recent county checklists",
+      "report": "## 📋 Recent checklists — All recent county checklists",
       "summary": "Recent checklists returned by the selected county feeds, with filters for unseen birds and chase distance.",
       "inputs": [
         "the same cached per-county product/lists feeds used by Big days and Convoys",
@@ -592,12 +592,15 @@
     },
     "bcBody": {
       "report": "## 🌙 Nightly Migration — BirdCast reports",
-      "summary": "Official BirdCast forecast, live-map, alert and local-dashboard links without invented in-app values.",
+      "summary": "Current BirdCast migration level and county count, with official forecast, live-map, alert and dashboard links.",
       "inputs": [
-        "The active report's local date and supported county codes; Bird Chaser fetches no BirdCast data."
+        "The active report's local date, saved Home coordinates, and Home county.",
+        "The current forecast level from BirdCast's public location-alert service.",
+        "The latest estimated county migration count from BirdCast's public county dashboard."
       ],
       "how": [
-        "Leads with a graphical, text-labelled alert header: Tonight's migration before dark and Current migration after dark.",
+        "Leads with a large text-labelled migration level and the county count expressed in millions: Tonight's migration before dark and Current migration after dark.",
+        "Bird Gen shows the same level and count; tapping that migration headline opens Nightly Migration in the app.",
         "The forecast header links to the saved Home, or the selected region's default Home when none is saved. The live header links to BirdCast's live migration map.",
         "Keeps forecast maps and live migration maps visibly separate: forecasts help plan before sunset; live radar shows what is moving after dark.",
         "Links to BirdCast's official forecast maps, live migration maps, migration alerts and each supported county dashboard.",
@@ -605,7 +608,8 @@
       ],
       "limits": [
         "BirdCast's radar products cover the contiguous United States; Hawaiʻi is explicitly unsupported.",
-        "BirdCast has no documented public data API for app ingestion, so Bird Chaser does not scrape or restate dashboard values."
+        "BirdCast does not publish a documented public API. Bird Chaser reads the same public first-party alert response and server-rendered county total used by BirdCast's own pages; either value is labelled unavailable when its current response is missing or malformed.",
+        "Before sunset the level is tonight's forecast while the county total is explicitly labelled as last night's estimate. After sunset the dashboard wording changes to the count so far tonight."
       ]
     },
     "todBtn": {

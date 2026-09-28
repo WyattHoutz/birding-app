@@ -53,7 +53,7 @@ Cornell logos or branding.
 | [NOAA](https://www.weather.gov/) — `api.weather.gov`, `api.tidesandcurrents.noaa.gov` | forecasts, tides | US Government work; public domain |
 | [GBIF](https://www.gbif.org/) | species arrival windows (eBird Observation Dataset) | cite GBIF; shown in-app |
 | [Wikipedia](https://en.wikipedia.org/) | species photos and summaries | CC BY-SA |
-| [BirdCast](https://birdcast.org/) | official forecast, live-map, alert and local-dashboard links | outbound links only; Bird Chaser fetches no BirdCast data |
+| [BirdCast](https://birdcast.org/) | current forecast level, latest estimated county total, and official links | public first-party alert response and server-rendered county dashboard; no persisted response |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) Nominatim | geocoding the address box | ODbL; used on explicit user action only, with an identifying User-Agent |
 | OpenStreetMap / CARTO tiles | maps | © OpenStreetMap contributors, © CARTO — rendered on every map |
 

@@ -156,7 +156,7 @@ const AUDIT = `<script>
     var panel = document.querySelector('section.panel:not([hidden])');
     if (!panel) return null;
     var host = document.createElement('div');
-    host.innerHTML = '<h2><span class="fixturetitle">Fresh ticks — Newest on board</span>'
+    host.innerHTML = '<h2><span class="fixturetitle">Leaderboard Ticks — Newest on board</span>'
       + '<button class="refreshbtn" type="button" aria-label="Reload">↻</button></h2>'
       + '<ul class="cklcards cklcards-sm"><li class="cklcard cklcard-sm">'
       + '<div class="cksummary"><div class="ckmain"><span class="cklead">2:00 PM</span>'
@@ -179,7 +179,7 @@ const AUDIT = `<script>
       if (rect.width || rect.height) ageLineTops[Math.round(rect.top)] = 1;
     });
     var result = {
-      reloadInline: Math.abs(reload.top - title.top) < Math.max(4, title.height * 0.35),
+      reloadInline: reload.top < title.bottom - 1,
       emptyMinHeight: parseFloat(getComputedStyle(summary).minHeight) || 0,
       ageLines: Object.keys(ageLineTops).length,
       ageHeight: age.getBoundingClientRect().height,

@@ -57,8 +57,8 @@
     },
     {
       "at": "patchBtn",
-      "label": "🧭 Pro patches",
-      "report": "## 🧭 Pro patches — Where the top 100 actually bird",
+      "label": "💪 Pro patches",
+      "report": "## 💪 Pro patches — Where the top 100 actually bird",
       "map": null,
       "why": "where the hundred busiest birders in these counties choose to spend their effort, ranked by LIFT rather than by checklist count — a raw count just reproduces a population map, so the famous parks win and the reader learns nothing they can act on",
       "sub": "Where the top 100 actually bird"
@@ -140,8 +140,8 @@
     },
     {
       "at": "lastNewBtn",
-      "label": "🔭 Fresh ticks",
-      "report": "## 🔭 Fresh ticks — Newest on the board",
+      "label": "☑️ Leaderboard Ticks",
+      "report": "## ☑️ Leaderboard Ticks — Newest on the board",
       "map": null,
       "why": "the only sections with an expiry date are the rarity ones; this is the biggest section in the report and sat above them",
       "sub": "Newest on the board"
@@ -155,8 +155,8 @@
     },
     {
       "at": "recentBtn",
-      "label": "🕒 Recent checklists",
-      "report": "## 🕒 Recent checklists — All recent county checklists",
+      "label": "📋 Recent checklists",
+      "report": "## 📋 Recent checklists — All recent county checklists",
       "map": "recentMap",
       "sub": "All recent county checklists"
     },

@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseReadme, buildGallery } = require('../assets/build-mockup-gallery.js');
+const {
+  VARIANTS, parseReadme, buildGallery,
+} = require('../assets/build-mockup-gallery.js');
 
 test('mockup gallery parser keeps authored titles and image order', () => {
   assert.deepEqual(parseReadme([
@@ -22,16 +24,17 @@ test('mockup gallery parser keeps authored titles and image order', () => {
   ]);
 });
 
-test('mockup gallery builds a labelled side-by-side versioned Pages site', () => {
+test('mockup gallery builds three explicitly labelled device variants', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-chaser-gallery-'));
   const input = path.join(root, 'input');
   const site = path.join(root, 'site');
-  for (const width of [393, 402]) {
-    const dir = path.join(input, String(width));
+  for (const variant of VARIANTS) {
+    const dir = path.join(input, variant.id);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'README.md'),
-      `# UI mockups\n\n### Twitches\n\n![Twitches](twitches-${width}px.png)\n`);
-    fs.writeFileSync(path.join(dir, `twitches-${width}px.png`), `png-${width}`);
+      `# UI mockups\n\n### Twitches\n\n![Twitches](twitches-${variant.width}px.png)\n`);
+    fs.writeFileSync(path.join(dir, `twitches-${variant.width}px.png`),
+      `png-${variant.id}`);
   }
 
   const result = buildGallery({
@@ -43,10 +46,15 @@ test('mockup gallery builds a labelled side-by-side versioned Pages site', () =>
   assert.equal(result.count, 1);
   const html = fs.readFileSync(path.join(site, 'mockups', 'v1.127.0', 'index.html'), 'utf8');
   assert.match(html, /Bird Chaser v1\.127\.0 mockups/);
-  assert.match(html, /<strong>393px<\/strong><span>iPhone 14\/15 Pro<\/span>/);
-  assert.match(html, /<strong>402px<\/strong><span>iPhone 16 Pro<\/span>/);
-  assert.match(html, /393\/twitches-393px\.png/);
-  assert.match(html, /402\/twitches-402px\.png/);
+  assert.match(html, /<strong>iPhone 11<\/strong><span>414px · Normal text<\/span>/);
+  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Normal text<\/span>/);
+  assert.match(html,
+    /<strong>iPhone 17 Pro<\/strong><span>402px · Huge text \(1\.75×\)<\/span>/);
+  assert.match(html, /iphone-11\/twitches-414px\.png/);
+  assert.match(html, /iphone-17-pro\/twitches-402px\.png/);
+  assert.match(html,
+    /iphone-17-pro-max-magnification\/twitches-402px\.png/);
+  assert.match(html, /3 variants each/);
   assert.match(html, /Filter screenshots/);
   assert.ok(fs.existsSync(path.join(site, '.nojekyll')));
   assert.match(fs.readFileSync(path.join(site, 'index.html'), 'utf8'),

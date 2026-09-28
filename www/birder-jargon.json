@@ -27,7 +27,7 @@
     },
     "tick": {
       "definition": "A species added to a list. A year tick counts for the year, not for life.",
-      "usedIn": "Fresh ticks and My Year List"
+      "usedIn": "Leaderboard Ticks and My Year List"
     },
     "lifer": {
       "definition": "A bird seen for the first time ever. Once only, and never again.",

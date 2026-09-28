@@ -2457,7 +2457,7 @@ test('a zero-baseline surge keeps "new here" accessible, never an infinite ratio
 
 test('Leader Board Ticks section is wired and auto-loads from the leaderboard', async () => {
   const app = await boot();
-  app.open(/Fresh ticks/);
+  app.open(/Leaderboard Ticks/);
   assert.equal(app.$('lastNewResults').closest('section').hidden, false,
     'the section is the one on screen');
   assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,
@@ -3941,7 +3941,7 @@ test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () 
   assert.match(src, /rankPrimaryRegion\(\)/,
     'it follows the same one-report-one-board rule as the rankings section');
 
-  app.open(/Fresh ticks/);
+  app.open(/Leaderboard Ticks/);
   await new Promise((r) => setTimeout(r, 120));
   const boards = app.state.fetches.filter((u) => /top100/.test(u));
   assert.equal(boards.length, 1, 'exactly one leaderboard is fetched');
@@ -7792,6 +7792,10 @@ test('the chase radius changes in five-mile steps, and every list obeys the live
     'the simplified control has no preset row');
   assert.equal(doc.getElementById('chaseMiDown').textContent.trim(), '−5');
   assert.equal(doc.getElementById('chaseMiUp').textContent.trim(), '+5');
+  const reset = doc.getElementById('chaseMiReset');
+  assert.ok(reset, 'Settings has a chase-distance reset');
+  assert.equal(reset.textContent.trim(), 'Reset to 35 mi');
+  assert.equal(reset.disabled, true, 'the reset is disabled while the default is active');
   assert.equal(doc.getElementById('saveBtn'), null, 'Settings has no Save button');
   assert.equal(doc.getElementById('closeSettings'), null, 'Settings has no Done button');
 
@@ -7799,10 +7803,19 @@ test('the chase radius changes in five-mile steps, and every list obeys the live
   assert.equal(A.chaseMaxMi(), 30, 'a stored quick radius wins');
   A.syncChaseMi();
   assert.equal(output.value, '30', 'and the displayed distance reflects it');
+  assert.equal(reset.disabled, false, 'a custom distance enables reset');
+  app.click(reset);
+  assert.equal(A.chaseMaxMi(), 35, 'reset restores the shared 35-mile default');
+  assert.equal(app.window.localStorage.getItem(A.chaseMiKey()), null,
+    'reset removes the report override instead of persisting another copy of the default');
+  assert.equal(output.value, '35', 'reset repaints the displayed distance');
+  assert.equal(reset.disabled, true, 'reset disables again after restoring the default');
 
   // The mechanism, not a slogan. eBird caps `dist` on its around-me feeds at
   // 50 km, so past ~31 mi the extra reach is county coverage — which is not a
   // circle. A control that implied otherwise would be lying about the data.
+  app.window.localStorage.setItem(A.chaseMiKey(), '35');
+  A.syncChaseMi();
   app.click(doc.getElementById('chaseMiUp'));
   const hint = doc.getElementById('chaseMiHint');
   assert.match(hint.textContent, /31 mi/,
@@ -7830,8 +7843,8 @@ test('the chase radius changes in five-mile steps, and every list obeys the live
   // already on screen was built against the old number and its own status line
   // still claims it. Changing the setting has to clear those lists, or the
   // section reads "within 30 mi" over rows chosen by a different rule.
-  const src = HTML.slice(HTML.indexOf('function applyChaseMi('),
-    HTML.indexOf('function applyChaseMi(') + 900);
+  const src = HTML.slice(HTML.indexOf('function refreshChaseMi('),
+    HTML.indexOf('function refreshChaseMi(') + 1100);
   assert.match(src, /_autoLoaded = \{\}/, 'the loaded-section marks are cleared');
   assert.match(src, /RESET_ON_REPORT_CHANGE/,
     'and the rendered lists with them, so no list outlives the radius it was '
@@ -9107,10 +9120,8 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
       'the bold category explanation is not a separate full-width row');
     assert.equal(row.querySelector(':scope > .surgebody'), null,
       'the old body wrapper still traps both lines in one cell');
-    const headline = row.dataset.alertKind === 'migration'
-      ? row.querySelector(':scope > .name .extlink')
-      : row.querySelector(':scope > .name[role="link"]');
-    assert.ok(headline && (row.dataset.alertKind === 'migration' || headline.tabIndex === 0),
+    const headline = row.querySelector(':scope > .name[role="link"]');
+    assert.ok(headline && headline.tabIndex === 0,
       'the image/name/category/time headline is not keyboard actionable');
   });
   const mega = feed.querySelector('[data-alert-kind="mega"]');
@@ -10387,8 +10398,8 @@ test('F274 mega refresh ownership is keyed by region, not one global attempt', a
   } });
   const A = app.window.__app;
   let calls = 0;
-  app.window.fetch = () => {
-    calls++;
+  app.window.fetch = (url) => {
+    if (/ebird\.org/.test(String(url))) calls++;
     return Promise.resolve({
       ok: true, status: 200,
       text: () => Promise.resolve('<div class="Observation"></div>'),
@@ -13230,7 +13241,7 @@ test('F180 never renders an unexplained empty twitch list', async () => {
   A.refresh();
   await waitFor(() => doc.getElementById('todayControls'), 'Today controls');
   assert.match(doc.getElementById('status').textContent,
-    /All 2 rarity reports within 40 mi are already on your year list/,
+    /All 2 rarity reports within 35 mi are already on your year list/,
     'Today explains why the filtered list is empty');
   assert.ok(doc.getElementById('todayControls'),
     'and keeps the controls available so the filter can be changed');
@@ -13239,7 +13250,7 @@ test('F180 never renders an unexplained empty twitch list', async () => {
   A.loadActiveRarities();
   await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
   assert.match(doc.getElementById('activeStatus').textContent,
-    /All 2 rare bird\/place entries within 40 mi are already on your year list/,
+    /All 2 rare bird\/place entries within 35 mi are already on your year list/,
     'This week explains the same empty state in species units');
   assert.ok(doc.getElementById('activeControls'),
     'and its controls remain available too');
@@ -16100,10 +16111,10 @@ test('the Spuh cache has one owner, survives routine refreshes, and erase-all aw
   const scrubEnd = HTML.indexOf("$('geocodeBtn').addEventListener", scrubAt);
   const scrub = HTML.slice(scrubAt, scrubEnd);
   assert.match(scrub,
-    /Promise\.all\(\[spuhCacheClear\(\), clearEbirdWebSession\(\)\]\)\.then/,
-    'Erase all my data waits for IndexedDB and the persistent eBird session');
-  assert.match(scrub, /if \(!cleared\[0\] \|\| !cleared\[1\]\)/,
-    'a failed IndexedDB or browser-session erase blocks the success reload');
+    /Promise\.all\(\[\s*spuhCacheClear\(\),\s*clearEbirdWebSession\(\),\s*_audit \? _audit\.clear\(\) : Promise\.resolve\(true\)\s*\]\)\.then/,
+    'Erase all my data waits for IndexedDB, the persistent eBird session, and diagnostics');
+  assert.match(scrub, /if \(!cleared\[0\] \|\| !cleared\[1\] \|\| !cleared\[2\]\)/,
+    'a failed IndexedDB, browser-session, or diagnostic erase blocks the success reload');
 
   const loadAt = HTML.indexOf('function loadSpuhModel()');
   const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
@@ -18858,7 +18869,7 @@ test('F266 a Home change cancels the old hotspot ownership context', async () =>
   app.window.close();
 });
 
-test('F322 BirdCast is link-only, region-local, and explicit about unsupported Hawaiʻi', async () => {
+test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', async () => {
   const instant = new Date('2026-11-16T07:30:00Z');
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
@@ -18874,8 +18885,8 @@ test('F322 BirdCast is link-only, region-local, and explicit about unsupported H
   assert.match(text, /live migration maps/i);
   assert.match(text, /separate/i,
     'forecast and live radar are still presented as one live forecast');
-  assert.match(text, /no documented public data API/i);
-  assert.doesNotMatch(text, /forecast is live|radar forecast|birds\/km/i);
+  assert.match(text, /migration count loading/i);
+  assert.doesNotMatch(text, /forecast is live|radar forecast/i);
   assert.ok(hrefs.some((href) => /migration-forecast-maps\/$/.test(href)));
   assert.ok(hrefs.some((href) => /live-migration-maps\/$/.test(href)));
   assert.ok(hrefs.some((href) => /local-migration-alerts\/$/.test(href)));
@@ -18904,9 +18915,10 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   const fallback = A.birdcastSurgeRow(daytime);
   assert.ok(fallback, 'the active-season migration headline disappeared');
   assert.match(fallback.name, /Tonight’s migration/);
-  assert.match(fallback.name,
+  const fallbackState = A.birdcastAlertState(daytime);
+  assert.match(fallbackState.url,
     new RegExp('latLng=' + encodeURIComponent(report.home.lat + ',' + report.home.lng)));
-  assert.match(fallback.name,
+  assert.match(fallbackState.url,
     new RegExp('locName=' + encodeURIComponent(report.homeLabel)));
   A.renderBirdcast(daytime);
   const header = app.document.querySelector('#bcBody .birdcast-alert');
@@ -18920,12 +18932,64 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   app.window.localStorage.setItem(A.homeKey('lng'), '-122.3000');
   app.window.localStorage.setItem(A.homeKey('place'), 'Test Home');
   const saved = A.birdcastSurgeRow(daytime);
-  assert.match(saved.name, /latLng=47\.5%2C-122\.3/);
-  assert.match(saved.name, /locName=Test%20Home/);
+  const savedState = A.birdcastAlertState(daytime);
+  assert.match(savedState.url, /latLng=47\.5%2C-122\.3/);
+  assert.match(savedState.url, /locName=Test%20Home/);
+  assert.match(saved.name, /Tonight’s migration/);
   assert.match(saved.where, /Test Home migration alert/);
-  assert.match(saved.extra, /does not scrape or invent BirdCast values/);
+  assert.match(saved.extra, /Direct from BirdCast/i);
   const forecastBadge = A.birdcastMenuBadge(daytime);
   assert.equal(forecastBadge.label, 'FORECAST');
+  app.window.close();
+});
+
+test('F607 BirdCast level and county count render in-app and open Nightly Migration', async () => {
+  const daytime = new Date('2026-09-27T17:00:00Z');
+  const nuxt = '<script>window.__NUXT__=(function(a,b,c){return {state:{env:{'
+    + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
+    + '"PUBLIC_CLIENT_KEY",null));</script>';
+  const forecast = {
+    forecastNights: [{
+      code: 3, raw: 25.56, total: 7787, totalMin: 7525,
+      totalMax: null, date: '2026-09-27T00:00:00',
+    }],
+  };
+  const dashboard = '<span id="total-passed">0</span>'
+    + '<span class="is-visuallyHidden">3471500</span>'
+    + '<span>Birds crossed King County last night (est.)</span>';
+  const app = await boot({
+    report: 'wa',
+    fetch(url) {
+      if (String(url).startsWith('https://alert.birdcast.org/?')) return nuxt;
+      if (String(url).includes('/api/is-birdcast-alert-api/')) return forecast;
+      if (String(url) === 'https://dashboard.birdcast.org/region/US-WA-033') {
+        return dashboard;
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(A.birdcastPublicKey(nuxt), 'PUBLIC_CLIENT_KEY');
+  assert.equal(A.birdcastMillions(3471517), '3.5 million birds');
+  const snapshot = await A.renderBirdcast(daytime);
+  const body = app.$('bcBody');
+  assert.match(body.textContent, /Tonight’s migration: High/);
+  assert.match(body.textContent,
+    /3\.5 million birds crossed King County last night \(est\.\)/);
+  assert.equal(body.querySelector('.birdcast-alert-icon').textContent, 'HIGH',
+    'Nightly Migration still uses a moon instead of the text-labelled level');
+
+  const row = A.birdcastSurgeRow(daytime, snapshot);
+  assert.match(row.icon, /data-birdcast-level="HIGH"/,
+    'Bird Gen still uses the generic place-map thumbnail');
+  assert.match(row.why,
+    /High migration.*3\.5 million birds crossed King County last night/s);
+  const holder = app.document.createElement('div');
+  holder.innerHTML = row.icon + row.name;
+  app.document.body.appendChild(holder);
+  holder.querySelector('.seclink').click();
+  assert.equal(app.$('sec-bcBody').hidden, false,
+    'Bird Gen BirdCast did not open Nightly Migration');
   app.window.close();
 });
 
@@ -22730,6 +22794,18 @@ test('F600 unifies day-trip patches behind three explicit distinct ranges', asyn
   app.window.close();
 });
 
+test('F606 Day trip range controls are full-width touch targets labelled round trip', async () => {
+  assert.match(HTML,
+    /class="row daytriprangewrap"[\s\S]*class="daytriprange-label">Estimated round trip<[\s\S]*class="sortpick daytripranges"/,
+    'the travel ranges do not visibly say they are round-trip estimates');
+  assert.match(HTML,
+    /\.daytripranges\s*\{[^}]*width:\s*100%[^}]*min-height:\s*44px/s,
+    'the Day trip range group is still the tiny content-width pill');
+  assert.match(HTML,
+    /\.daytripranges\s*>\s*\.sortbtn\s*\{[^}]*flex:\s*1 1 0[^}]*min-height:\s*44px[^}]*padding:\s*0 10px/s,
+    'the Day trip range buttons do not provide equal padded touch targets');
+});
+
 test('F600 Day trip modes render disjoint seeded tier results', async () => {
   const today = new Date();
   const p = (n) => String(n).padStart(2, '0');
@@ -23158,7 +23234,7 @@ test('the chase radius is per report, not one knob for all ten', async () => {
   // repos cannot pick different radii for the same report.
   W.localStorage.setItem('ebird_report', 'wa');
   assert.equal(A.chaseMaxMi(), A.chaseDefaultMi(), 'unset means the profile value');
-  assert.equal(A.chaseDefaultMi(), 40, 'which is regions.py Region.chase_max_mi');
+  assert.equal(A.chaseDefaultMi(), 35, 'which is regions.py Region.chase_max_mi');
 
   // Set a continent-sized radius on the ABA tracker, where 35 miles is a
   // meaningless filter for a report that spans a continent.
@@ -23169,7 +23245,7 @@ test('the chase radius is per report, not one knob for all ten', async () => {
   // THE POINT. Washington must be untouched. With one global key this was
   // impossible: widening the tracker widened home birding with it.
   W.localStorage.setItem('ebird_report', 'wa');
-  assert.equal(A.chaseMaxMi(), 40,
+  assert.equal(A.chaseMaxMi(), 35,
     'Washington keeps its own radius — the whole reason this became per report');
 
   // Keys are namespaced by slug, exactly as homeKey and tideKey are.
@@ -23195,7 +23271,7 @@ test('a radius chosen before this migrates into the report it was chosen in', as
   // It lands in the report that was open — NOT applied to all ten, which
   // would be inventing a decision the reader never made.
   W.localStorage.setItem('ebird_report', 'aba');
-  assert.equal(A.chaseMaxMi(), 40, 'other reports keep their own default');
+  assert.equal(A.chaseMaxMi(), 35, 'other reports keep their own default');
   app.window.close();
 });
 
@@ -24654,7 +24730,7 @@ test('the rarity feed is derived from the chase radius, not pinned to 50 km', ()
   // never against a literal 57, or raising the radius would silently outrun it.
   const need = (mi) => Math.ceil(mi * 1.60934);
   assert.equal(BL.geoNotableDistKm(p(50, 35)), need(35),
-    'at the default radius the rarity feed reaches the whole 40 mi');
+    'at the default radius the rarity feed reaches the whole 35 mi');
   assert.ok(BL.geoNotableDistKm(p(50, 35)) > 50,
     'which is strictly further than the 50 km it used to send — the bug itself');
   assert.equal(BL.geoNotableDistKm(p(50, 75)), need(75),
@@ -25472,6 +25548,10 @@ test('the menu names you, from cache, without spending a call', async () => {
   A.renderMenuIdentity();
   txt = D.getElementById('hdrId').textContent;
   assert.match(txt, /#42/, 'the cached rank is used');
+  assert.match(txt, /331sp/,
+    'the species count comes from the same Washington leaderboard row as the rank');
+  assert.doesNotMatch(txt, /209sp/,
+    'the Washington rank is still paired with the device-wide ABA species total');
 
   // A board for ANOTHER region must not be borrowed.
   W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
@@ -25611,15 +25691,55 @@ test('species lookup chase distance filters independently of Date and Distance',
 
   A.setSpeciesLookupWithinChase(true);
   A.setSpeciesLookupSort('date');
-  // With no nearby evidence, Stakeout keeps the regional answer visible rather
-  // than making a real search look empty.
+  // With no nearby evidence, the selected distance remains a real filter.
+  // The explicit All control is the route to regional evidence.
   const allFar = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
-  assert.match(allFar, /showing all regional evidence/);
+  assert.match(allFar, /No physically reachable reports are within.*Select.*All/s);
   const allFarHost = app.window.document.createElement('div');
   allFarHost.innerHTML = allFar;
   A.mountProgressiveLists(allFarHost);
-  assert.match(allFarHost.innerHTML, /OnlyFar/);
-  assert.match(allFarHost.innerHTML, /data-ev-place="OnlyFar"/);
+  assert.doesNotMatch(allFarHost.innerHTML, /OnlyFar|data-ev-place/);
+  A.setSpeciesLookupWithinChase(false);
+  const regional = A.spLookupPlacesHtml([mk('OnlyFar', 300)]);
+  const regionalHost = app.window.document.createElement('div');
+  regionalHost.innerHTML = regional;
+  A.mountProgressiveLists(regionalHost);
+  assert.match(regionalHost.innerHTML, /OnlyFar/);
+  assert.match(regionalHost.innerHTML, /data-ev-place="OnlyFar"/);
+  app.window.close();
+});
+
+test('F615 Stakeout mileage never substitutes distant regional evidence', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/.*\/recent\/sem/.test(url)) {
+        return [{
+          speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
+          locName: 'Far regional report', locId: 'L-FAR',
+          lat: 46.0, lng: -120.0,
+          obsDt: '2026-09-27 08:00', subId: 'S-FAR', obsValid: true,
+        }];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  app.window.localStorage.setItem(A.chaseMiKey(), '10');
+  installSpuhFixture(app);
+  await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
+
+  assert.equal(app.$('spLookupWithinChase').textContent, '10mi');
+  assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'), 'true');
+  assert.match(app.$('spLookupRecent').textContent,
+    /No physically reachable reports are within 10 mi.*Select All/s);
+  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Far regional report/);
+  assert.equal(app.$('spLookupResults').querySelector('.spdist'), null,
+    'the filtered card still displays an out-of-range nearest-report distance');
+
+  app.click(app.$('spLookupStatewide'));
+  assert.match(app.$('spLookupRecent').textContent, /Far regional report/);
+  assert.ok(app.$('spLookupResults').querySelector('.spdist'),
+    'All does not restore the regional nearest-report distance');
   app.window.close();
 });
 
@@ -31982,6 +32102,7 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
 test('tapping a birder opens their patch page', async () => {
   const app = await boot();
   const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_patch_board_v1', 'all');
   await A.loadChoicePatches();
 
   const res = app.$('patchResults');
@@ -33184,17 +33305,45 @@ test('the patch board filters by leaderboard rank rather than sorting by it', as
   app.window.localStorage.removeItem(A.PATCH_BOARD_KEY);
   const d = A.choicePatchData();
   if (!d) { app.window.close(); return; }   // no table bundled in this build
+  const beforeCountyRanks = A.patchLeaders(d);
+  const localTarget = beforeCountyRanks[0];
+  assert.ok(localTarget.best.county,
+    'the strongest patch does not identify its county');
+  A.applyPatchCountyBoards(d, {
+    [localTarget.best.county]: {
+      rows: [{ name: localTarget.n, rank: 7 }],
+    },
+  });
 
   A.loadChoicePatches();
   const ctl = doc.querySelector('#patchControls');
   assert.ok(ctl, 'the section carries the rank filter');
   const chips = [].slice.call(ctl.querySelectorAll('.patchboardbtn'))
     .map((b) => b.textContent.trim());
-  assert.deepEqual(chips.join('|'), 'All|On the board',
-    `two chips, defaulting to All: ${chips.join('|')}`);
+  assert.deepEqual(chips.join('|'), 'Leaderboard|All',
+    `two chips, defaulting to Leaderboard: ${chips.join('|')}`);
+  assert.equal(ctl.querySelector('.patchboardbtn[data-value="board"]')
+    .getAttribute('aria-pressed'), 'true',
+  'Leaderboard is not the default Pro patches scope');
 
-  const all = doc.querySelectorAll('#patchResults li.hscard-md').length;
-  assert.ok(all > 0, 'the unfiltered board lists birders');
+  const onBoard = doc.querySelectorAll('#patchResults li.hscard-md').length;
+  assert.ok(onBoard > 0, 'the default Leaderboard scope lists no birders');
+  const rankedMarkers = [...doc.querySelectorAll('#patchResults .patchrank')];
+  assert.ok(rankedMarkers.length, 'leaderboard ranks did not replace list ordinals');
+  assert.ok(rankedMarkers.every((marker) => /^#\d+$/.test(marker.textContent.trim())),
+    'a Leaderboard row still uses a list ordinal instead of an actual rank');
+  const localRow = [...doc.querySelectorAll('#patchResults li.hscard-md')]
+    .find((row) => row.querySelector('.patchwho')?.textContent.trim() === localTarget.n);
+  assert.ok(localRow, 'the county-ranked birder was excluded by the Leaderboard filter');
+  assert.equal(localRow.querySelector('.patchrank').textContent.trim(), '#7');
+  assert.match(localRow.querySelector('.patchrank').getAttribute('aria-label'),
+    new RegExp(`${A.rankRegionName(localTarget.best.county)} leaderboard rank 7`));
+  assert.match(localRow.querySelector('.patchboard').textContent,
+    new RegExp(A.rankRegionName(localTarget.best.county)),
+    'the visible label does not name the county whose rank is in the marker');
+  assert.match(doc.getElementById('patchResults').textContent,
+    /hidden .* do not sit on their patch county or statewide leaderboard/,
+    'and it says what the filter removed, because the gap IS the finding');
 
   // The ORDER must still be lift, not rank - that is the whole point.
   const leaders = A.patchLeaders(d);
@@ -33204,17 +33353,121 @@ test('the patch board filters by leaderboard rank rather than sorting by it', as
       `still ranked by lift, not by board rank: ${lifts.join(' ')}`);
   }
 
-  ctl.querySelector('.patchboardbtn[data-value="board"]').click();
-  const onBoard = doc.querySelectorAll('#patchResults li.hscard-md').length;
-  const ranked = leaders.filter((e) => e.r != null && e.r !== '').length;
+  ctl.querySelector('.patchboardbtn[data-value="all"]').click();
+  const all = doc.querySelectorAll('#patchResults li.hscard-md').length;
+  const unranked = doc.querySelector('#patchResults .patchrank-unranked');
+  assert.ok(unranked, 'All does not mark an unranked birder');
+  assert.equal(unranked.textContent.trim(), 'N/R');
+  assert.match(unranked.getAttribute('aria-label'),
+    /Not ranked on the local county or statewide leaderboard/);
+  const ranked = leaders.filter((e) =>
+    (e.cr != null && e.cr !== '') || (e.r != null && e.r !== '')).length;
   assert.ok(onBoard < all,
     `the filter must actually remove the unranked majority: ${onBoard} of ${all}`);
   assert.ok(ranked < leaders.length,
     `and the data really is mostly unranked - ${ranked} of ${leaders.length} carry `
     + 'a board rank, which is why this is a filter and not a sort');
-  assert.match(doc.getElementById('patchResults').textContent,
-    /hidden .* do not sit on the statewide board/,
-    'and it says what it removed, because the gap IS the finding');
+  app.window.close();
+});
+
+test('F609 app audit records visible-page navigation and safe settings only', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const audit = A.auditLog();
+  assert.ok(audit, 'the structured audit log did not start; BirdAudit='
+    + typeof app.window.BirdAudit + '; errors=' + app.state.errors.join(' | '));
+  const settings = A.auditSafeSettings();
+  assert.equal(typeof settings.api_key_configured, 'boolean');
+  assert.equal(typeof settings.home_configured, 'boolean');
+  assert.ok(!Object.keys(settings).some((key) =>
+    /latitude|longitude|display.?name|tide.?station.?id|aba.?sid/i.test(key)),
+  'the Settings snapshot exposes a forbidden identity or location field');
+
+  A.showSection('settingsPanel');
+  const nav = audit.events().filter((row) => row.event === 'navigation.open').at(-1);
+  assert.equal(nav.page.id, 'settingsPanel');
+  assert.equal(nav.attrs.to, 'settingsPanel');
+  assert.equal(nav.settings_rev, 1);
+  assert.match(audit.bundle().files['events.jsonl'], /"event":"navigation\.open"/);
+  app.window.close();
+});
+
+test('F608 beta controls are absent in production and require preview before sharing', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(app.$('betaTools'), null,
+    'production rendered beta-only diagnostic controls');
+
+  app.window.__BUILD_INFO__ = {
+    channel: 'sideload',
+    buildId: 'test.1',
+    builtAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  };
+  A.initBetaRuntime();
+  A.initBetaTools();
+  assert.ok(app.$('betaTools'), 'beta build did not render tester controls');
+  assert.equal(app.$('betaDiagPreview').hidden, true,
+    'diagnostic contents are exposed as if already approved');
+  app.$('betaDiagCreate').click();
+  assert.equal(app.$('betaDiagPreview').hidden, false,
+    'the explicit preview action did not reveal the package inventory');
+  assert.match(app.$('betaDiagPreview').textContent, /Excluded:.*API keys/s);
+  app.window.close();
+});
+
+test('F608 expired beta blocks network but preserves export, delete, and update actions', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.__BUILD_INFO__ = {
+    channel: 'sideload',
+    buildId: 'expired.1',
+    builtAt: '2026-01-01T00:00:00Z',
+    expiresAt: '2026-01-31T00:00:00Z',
+  };
+  A.initBetaRuntime();
+  A.initBetaTools();
+  A.showExpiredBeta();
+  assert.equal(A.betaState().expired, true);
+  assert.ok(app.$('expiredDiagCreate'), 'expired beta lost diagnostic export');
+  assert.ok(app.$('expiredDiagDelete'), 'expired beta lost local-data deletion');
+  assert.match(app.$('betaExpired').textContent, /Install a newer beta/);
+  await assert.rejects(app.window.fetch('https://api.ebird.org/v2/data/obs/US-WA/recent'),
+    /beta expired/i);
+  app.window.close();
+});
+
+test('F608 cancelled diagnostic share reports cancellation, not success', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.__BUILD_INFO__ = {
+    channel: 'sideload',
+    buildId: 'test.2',
+    builtAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  };
+  A.initBetaRuntime();
+  A.initBetaTools();
+  let captured = 0;
+  app.window.Capacitor = app.window.Capacitor || {};
+  app.window.Capacitor.Plugins = app.window.Capacitor.Plugins || {};
+  app.window.Capacitor.Plugins.FullReport = {
+    captureDiagnosticScreenshot() {
+      captured++;
+      return Promise.resolve({ base64: Buffer.from('image').toString('base64') });
+    },
+    shareDiagnosticPackage() {
+      return Promise.resolve({ completed: false, bytes: 100 });
+    },
+  };
+  const completed = await A.shareDiagnostic('betaDiag');
+  assert.equal(completed, false);
+  assert.equal(captured, 0, 'a screenshot was captured without checking the option');
+  assert.match(app.$('betaDiagStatus').textContent, /cancelled; nothing was sent/i);
+  app.$('betaDiagScreenshot').checked = true;
+  await A.shareDiagnostic('betaDiag');
+  assert.equal(captured, 1,
+    'the explicitly selected screenshot was not captured for the package');
   app.window.close();
 });
 
@@ -35905,6 +36158,8 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
     'a partial county paint was presented as complete');
   assert.equal(app.$('excResults').querySelector('.hsnum').textContent.trim(), '1',
     'the partial list did not keep the map/list numbering contract');
+  assert.ok(app.$('excResults').querySelector('.thumb[data-q="1"]'),
+    'partial Day trip rows left bird icons unqueued until every county feed settled');
 
   releaseThurston();
   await loading;

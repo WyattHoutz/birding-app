@@ -84,8 +84,9 @@ test('F506 release mockups require the full Stakeout card with Notes off and on'
     source.indexOf('function mockPhoto'));
   assert.doesNotMatch(mockStyle, /stakeoutSpeciesCard|bchero|stakeoutPlaceDetails/,
     'release fixtures must not restyle the production species/checklist cards');
-  assert.match(postWorkflow, /for WIDTH in 393 402/,
-    'post-release must capture both required Stakeout widths');
+  assert.match(postWorkflow,
+    /for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-max-magnification/,
+    'post-release must verify every required device variant');
   assert.doesNotMatch(indexSource, /stakeoutSpeciesCard-compact/,
     'the removed top-level Compact Stakeout card is still shipped');
   assert.match(indexSource, /#spLookupMap \{ aspect-ratio: 16 \/ 7; \}/);
@@ -115,16 +116,22 @@ test('every menu section declares representative fixture data or an intentional 
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
 });
 
-test('F322 BirdCast mockups disclose a link-only surface and invent no migration values', () => {
+test('F607 BirdCast mockups seed the production level and county-count surfaces', () => {
   assert.doesNotMatch(source, /18,400 birds\/km|HIGH migration|northwest winds 7 mph/,
-    'the release gallery still fabricates BirdCast values the app never fetched');
+    'the release gallery must not retain old fabricated BirdCast copy');
   assert.doesNotMatch(sectionsSource, /42,000 birds\/km|Peak 01:00|mostly NNE/,
-    'the section catalog still claims numeric BirdCast data that does not exist');
-  assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\)\)/,
-    'the mockup does not render the production link-only BirdCast surface');
+    'the section catalog still claims unsupported BirdCast detail');
+  assert.match(source, /forecast:\s*\{\s*level:\s*'High'/,
+    'the mockup does not seed the representative official forecast level');
+  assert.match(source, /birds:\s*3471500/,
+    'the mockup does not seed the representative county total');
+  assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\), snapshot\)/,
+    'the mockup does not render the production BirdCast surface with deterministic data');
   assert.match(indexSource, /Forecast maps/);
   assert.match(indexSource, /Live migration maps/);
-  assert.match(source, /no BirdCast data is fetched/i);
+  assert.match(source, /REPRESENTATIVE BIRDCAST DATA/);
+  assert.match(indexSource, /class="birdcast-alert-icon"/);
+  assert.match(indexSource, /class="birdcast-alert-count"/);
 });
 
 test('F207/F318 review mockups render the actual missing-region and missing-Home steps', () => {
@@ -606,7 +613,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
   assert.match(source, /ready\.missing\.length/,
     'the capture must fail if a section-specific production shape is absent');
   assert.match(source, /Bird Gen release fixture restored the removed order controls/,
-    'the exact 393px/402px release render does not guard Buzz-only ordering');
+    'the exact release-device renders do not guard Buzz-only ordering');
   assert.match(source, /A\.fgProgressReset\(\)/,
     'mock-only suppressed lazy calls cannot leave a fake global loading bar in the image');
   const mergedStart = source.indexOf('async function prepareBirdFinderMerged');
@@ -750,8 +757,8 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
     /^\s{2}mockups:[\s\S]*^\s{4}needs:\s*verify\s*$/m,
     'mockups do not wait for the fast post-release integrity check');
   assert.match(postWorkflow,
-    /mockups\.js --width 393[\s\S]*mockups\.js --width 402/,
-    'both exact release widths are not rendered');
+    /mockups\.js --width 414 --out mockups\/iphone-11[\s\S]*mockups\.js --width 402 --out mockups\/iphone-17-pro[\s\S]*mockups\.js --width 402 --scale 1\.75[\s\S]*mockups\/iphone-17-pro-max-magnification/,
+    'the iPhone 11, iPhone 17 Pro, and maximum-magnification galleries are not all rendered');
   assert.match(postWorkflow,
     /SHOTS\.length[\s\S]*BirdChaser-mockups\.zip[\s\S]*gh release upload[\s\S]*--clobber/,
     'the gallery count, archive, and idempotent Release attachment are incomplete');

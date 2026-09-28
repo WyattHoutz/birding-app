@@ -273,6 +273,11 @@
       surface: 'confirmation',
       name: 'Erase device data',
       reason: 'Destructive native confirmation.'
+    },
+    'clear-diagnostics': {
+      surface: 'confirmation',
+      name: 'Clear diagnostic history',
+      reason: 'Destructive confirmation before removing the bounded diagnostic store.'
     }
   };
 

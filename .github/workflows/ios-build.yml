@@ -70,6 +70,11 @@ jobs:
       - name: Generate app icon + splash
         run: npx capacitor-assets generate --ios
 
+      - name: Stamp the 30-day sideload beta
+        env:
+          BUILD_ID: ${{ github.run_id }}.${{ github.run_attempt }}
+        run: node assets/stamp-build-info.js www/build-info.js sideload "$BUILD_ID" 30
+
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 
@@ -88,6 +93,8 @@ jobs:
           grep -q 'height: contentSize.height' ios/App/App/ViewController.swift
           grep -q 'UTType.jpeg.identifier' ios/App/App/ViewController.swift
           grep -q 'UIActivityViewController' ios/App/App/ViewController.swift
+          grep -q 'captureDiagnosticScreenshot' ios/App/App/ViewController.swift
+          grep -q 'shareDiagnosticPackage' ios/App/App/ViewController.swift
 
       # Same reason: Info.plist is regenerated, so the location usage string
       # cannot be committed. Without it CoreLocation refuses the request WITHOUT
@@ -150,12 +157,18 @@ jobs:
           PUBLIC="$(find release-check/Payload -maxdepth 3 -type d -name public | head -n1)"
           test -n "$PUBLIC"
           node assets/verify-release-bundle.js "$PUBLIC" "$VERSION"
+          grep -q '"channel": "sideload"' "$PUBLIC/build-info.js"
+          grep -q '"expiresAt": "' "$PUBLIC/build-info.js"
+          node assets/write-beta-guide.js \
+            BirdChaser-unsigned.ipa "$PUBLIC/build-info.js" BirdChaser-beta-guide.txt
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: BirdChaser-unsigned-ipa
-          path: BirdChaser-unsigned.ipa
+          path: |
+            BirdChaser-unsigned.ipa
+            BirdChaser-beta-guide.txt
           if-no-files-found: error
 
   # Publish a Release when package.json's version changes.
@@ -213,6 +226,7 @@ jobs:
           set -euo pipefail
           gh release upload "${{ steps.ver.outputs.tag }}" \
             BirdChaser-unsigned.ipa \
+            BirdChaser-beta-guide.txt \
             --clobber
           echo "Refreshed required assets on ${{ steps.ver.outputs.tag }}"
 
@@ -243,6 +257,7 @@ jobs:
           set -euo pipefail
           gh release create "${{ steps.ver.outputs.tag }}" \
             BirdChaser-unsigned.ipa \
+            BirdChaser-beta-guide.txt \
             --target "$GITHUB_SHA" \
             --title "$(cat .release-title)" \
             --notes-file .release-notes

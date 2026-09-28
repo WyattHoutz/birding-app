@@ -89,7 +89,7 @@ jobs:
             "${{ steps.ver.outputs.version }}"
 
   mockups:
-    name: Render and attach 393px + 402px galleries
+    name: Render and attach three device galleries
     needs: verify
     permissions:
       contents: write
@@ -109,34 +109,43 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Generate both exact-width galleries
+      - name: Generate the three exact device galleries
         run: |
           set -euo pipefail
-          mkdir -p mockups/393 mockups/402
-          node assets/mockups.js --width 393 --out mockups/393 &
-          PID_393=$!
-          node assets/mockups.js --width 402 --out mockups/402 &
-          PID_402=$!
+          mkdir -p mockups/iphone-11 mockups/iphone-17-pro \
+            mockups/iphone-17-pro-max-magnification
+          node assets/mockups.js --width 414 --out mockups/iphone-11 &
+          PID_IPHONE_11=$!
+          node assets/mockups.js --width 402 --out mockups/iphone-17-pro &
+          PID_IPHONE_17_PRO=$!
+          node assets/mockups.js --width 402 --scale 1.75 \
+            --out mockups/iphone-17-pro-max-magnification &
+          PID_IPHONE_17_PRO_MAX=$!
 
-          STATUS_393=0
-          STATUS_402=0
-          wait "$PID_393" || STATUS_393=$?
-          wait "$PID_402" || STATUS_402=$?
-          echo "393px renderer exit code: $STATUS_393"
-          echo "402px renderer exit code: $STATUS_402"
-          if [ "$STATUS_393" -ne 0 ] || [ "$STATUS_402" -ne 0 ]; then
-            echo "::error::Mockup rendering failed (393px=$STATUS_393, 402px=$STATUS_402)"
+          STATUS_IPHONE_11=0
+          STATUS_IPHONE_17_PRO=0
+          STATUS_IPHONE_17_PRO_MAX=0
+          wait "$PID_IPHONE_11" || STATUS_IPHONE_11=$?
+          wait "$PID_IPHONE_17_PRO" || STATUS_IPHONE_17_PRO=$?
+          wait "$PID_IPHONE_17_PRO_MAX" || STATUS_IPHONE_17_PRO_MAX=$?
+          echo "iPhone 11 renderer exit code: $STATUS_IPHONE_11"
+          echo "iPhone 17 Pro renderer exit code: $STATUS_IPHONE_17_PRO"
+          echo "iPhone 17 Pro Huge renderer exit code: $STATUS_IPHONE_17_PRO_MAX"
+          if [ "$STATUS_IPHONE_11" -ne 0 ] \
+            || [ "$STATUS_IPHONE_17_PRO" -ne 0 ] \
+            || [ "$STATUS_IPHONE_17_PRO_MAX" -ne 0 ]; then
+            echo "::error::One or more device mockup renderers failed"
             exit 1
           fi
 
-      - name: Verify and package both galleries
+      - name: Verify and package all galleries
         run: |
           set -euo pipefail
           EXPECTED="$(node -p "require('./assets/mockups.js').SHOTS.length")"
-          for WIDTH in 393 402; do
-            test -f "mockups/$WIDTH/README.md"
-            ACTUAL="$(find "mockups/$WIDTH" -maxdepth 1 -type f -name '*.png' | wc -l)"
-            echo "${WIDTH}px gallery: $ACTUAL/$EXPECTED PNGs"
+          for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-max-magnification; do
+            test -f "mockups/$VARIANT/README.md"
+            ACTUAL="$(find "mockups/$VARIANT" -maxdepth 1 -type f -name '*.png' | wc -l)"
+            echo "$VARIANT gallery: $ACTUAL/$EXPECTED PNGs"
             test "$ACTUAL" -eq "$EXPECTED"
           done
           zip -r BirdChaser-mockups.zip mockups
@@ -184,11 +193,11 @@ jobs:
           test "$ACTUAL_DIGEST" = "$EXPECTED_DIGEST"
           unzip -q published/BirdChaser-mockups.zip -d published/mockups
           EXPECTED_COUNT="$(node -p "require('./assets/mockups.js').SHOTS.length")"
-          for WIDTH in 393 402; do
-            test -f "published/mockups/mockups/$WIDTH/README.md"
-            ACTUAL_COUNT="$(find "published/mockups/mockups/$WIDTH" \
+          for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-max-magnification; do
+            test -f "published/mockups/mockups/$VARIANT/README.md"
+            ACTUAL_COUNT="$(find "published/mockups/mockups/$VARIANT" \
               -maxdepth 1 -type f -name '*.png' | wc -l)"
-            echo "Published ${WIDTH}px gallery: $ACTUAL_COUNT/$EXPECTED_COUNT PNGs"
+            echo "Published $VARIANT gallery: $ACTUAL_COUNT/$EXPECTED_COUNT PNGs"
             test "$ACTUAL_COUNT" -eq "$EXPECTED_COUNT"
           done
 

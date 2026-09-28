@@ -93,7 +93,7 @@ nothing on anyone's phone. On `git push origin main`, `ios-build.yml` runs:
 | 1 | `test` | Ubuntu | `npm ci`, `npm test` (~670), `npm run test:layout` (real Chrome, 6 viewports) |
 | 2 | `build` | **macOS** | `npx cap add ios`, icons, `cap sync`, `xcodebuild`, zips `BirdChaser-unsigned.ipa`, then verifies its embedded version, required files, required markers and forbidden content |
 | 3 | `release` | Ubuntu | Reads `package.json` → if `vX.Y.Z` has no Release yet, **creates the tag and the Release**, attaching the `.ipa` this run built |
-| 4 | independent `post-release.yml` | Ubuntu | After the IPA workflow succeeds, checks out its exact SHA, re-downloads and verifies the published IPA, then renders 393px + 402px galleries and attaches `BirdChaser-mockups.zip` |
+| 4 | independent `post-release.yml` | Ubuntu | After the IPA workflow succeeds, checks out its exact SHA, re-downloads and verifies the published IPA, then renders iPhone 11, iPhone 17 Pro, and iPhone 17 Pro Huge-text galleries and attaches `BirdChaser-mockups.zip` |
 
 So the version in `package.json` decides the tag name, and bumping it *is*
 cutting the release. The job is idempotent — safe on every push, including ones
@@ -153,7 +153,7 @@ needs the cloud Mac.
 npm install
 npm test                 # unit + syntax + DOM suites (jsdom)
 npm run test:layout      # six viewport/text combos in real Chrome
-npm run mockups          # local static-UI preview; CI also attaches both release widths
+npm run mockups          # local static-UI preview; CI attaches all three release device variants
 npm run info-catalog     # rebuild docs/info-dialogs.html from the app's prose sources
 # open www/index.html in a browser to preview the UI
 ```
@@ -241,12 +241,14 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
   on device — no GitHub, no proxy), then injects HTML parsers ported 1:1 from
   the pipeline's `rankings.py` / `aba_rba.py` and posts back compact JSON.
   Display name + alert `sid` + *Sign out* live in Settings. ✅
-- **P12** — Nightly migration: a season-aware, link-only BirdCast panel that
-  keeps forecast maps and live migration maps distinct, links official alerts
-  and supported local dashboards, and uses the report region's date for the
-  spring (Mar 1–Jun 15) and fall (Aug 1–Nov 15) windows. BirdCast has no
-  documented public data API for app ingestion, so Bird Chaser fetches and
-  restates no BirdCast data. ✅
+- **P12** — Nightly migration: a season-aware BirdCast panel that shows the
+  current forecast level and latest estimated Home-county total, keeps forecast
+  maps and live migration maps distinct, links official alerts and supported
+  local dashboards, and uses the report region's date for the spring
+  (Mar 1–Jun 15) and fall (Aug 1–Nov 15) windows. BirdCast has no documented
+  public API; the app reads its public first-party alert response and
+  server-rendered county total directly on device and retains successful data
+  only in memory for 15 minutes. ✅
 - **P13** — Time-of-day specialists: samples recent checklist observation times
   (backfilled from `historic/{y}/{m}/{d}` daily snapshots, plus passive
   accumulation from the Notable/Targets fetches) into a per-region localStorage

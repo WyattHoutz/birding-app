@@ -136,7 +136,7 @@ test('the generated catalog has exact bidirectional section and sheet coverage',
   assert.equal(data.dialogs.length, 2, 'informational bottom-sheet families');
   assert.equal(data.sections.length + data.dialogs.length, 32,
     'total in-scope informational surfaces');
-  assert.equal(data.excluded.length, 7, 'classified out-of-scope popup types');
+  assert.equal(data.excluded.length, 8, 'classified out-of-scope popup types');
   assert.deepEqual(data.inactiveDocs, ['activeBtn', 'scoutBtn', 'tripBtn'],
     'only disabled/non-menu section docs stay outside the real-popup catalog');
 

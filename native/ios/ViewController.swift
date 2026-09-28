@@ -15,7 +15,9 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "FullReport"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "copyReportImage", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "shareReport", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "shareReport", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "captureDiagnosticScreenshot", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareDiagnosticPackage", returnType: CAPPluginReturnPromise)
     ]
     private let maxClipboardImageHeight: CGFloat = 30_000
 
@@ -28,6 +30,19 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
         )
         if !name.lowercased().hasSuffix(".pdf") {
             name += ".pdf"
+        }
+        return FileManager.default.temporaryDirectory.appendingPathComponent(name)
+    }
+
+    private func diagnosticURL(_ requestedName: String?) -> URL {
+        var name = requestedName ?? "Bird-Chaser-diagnostics.zip"
+        name = name.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]+",
+            with: "-",
+            options: .regularExpression
+        )
+        if !name.lowercased().hasSuffix(".zip") {
+            name += ".zip"
         }
         return FileManager.default.temporaryDirectory.appendingPathComponent(name)
     }
@@ -150,6 +165,7 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                         )
                     }
                     sheet.completionWithItemsHandler = { _, completed, _, error in
+                        try? FileManager.default.removeItem(at: url)
                         if let error {
                             call.reject("Unable to share the full report PDF: \(error.localizedDescription)")
                             return
@@ -163,6 +179,85 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                     presenter.present(sheet, animated: true)
                 case .failure(let error):
                     call.reject("Unable to create the full report PDF: \(error.localizedDescription)")
+                }
+            }
+
+            @objc public func captureDiagnosticScreenshot(_ call: CAPPluginCall) {
+                guard let webView else {
+                    call.reject("The app web view is unavailable.")
+                    return
+                }
+                DispatchQueue.main.async {
+                    let configuration = WKSnapshotConfiguration()
+                    configuration.rect = webView.bounds
+                    configuration.snapshotWidth = NSNumber(
+                        value: Double(min(webView.bounds.width * UIScreen.main.scale, 1_290))
+                    )
+                    webView.takeSnapshot(with: configuration) { image, error in
+                        guard let image else {
+                            call.reject(
+                                "Unable to capture the visible app page: "
+                                    + (error?.localizedDescription ?? "unknown error")
+                            )
+                            return
+                        }
+                        guard let data = image.jpegData(compressionQuality: 0.88) else {
+                            call.reject("Unable to encode the diagnostic screenshot.")
+                            return
+                        }
+                        call.resolve([
+                            "base64": data.base64EncodedString(),
+                            "bytes": data.count
+                        ])
+                    }
+                }
+            }
+
+            @objc public func shareDiagnosticPackage(_ call: CAPPluginCall) {
+                guard let encoded = call.getString("base64"),
+                      let data = Data(base64Encoded: encoded) else {
+                    call.reject("The diagnostic ZIP data is missing or invalid.")
+                    return
+                }
+                guard data.count <= 3 * 1_024 * 1_024 else {
+                    call.reject("The diagnostic ZIP is larger than the 3 MB share limit.")
+                    return
+                }
+                let url = diagnosticURL(call.getString("fileName"))
+                do {
+                    try data.write(to: url, options: .atomic)
+                } catch {
+                    call.reject("Unable to write the diagnostic ZIP: \(error.localizedDescription)")
+                    return
+                }
+                DispatchQueue.main.async {
+                    guard let presenter = self.bridge?.viewController else {
+                        call.reject("Unable to open the diagnostic share sheet.")
+                        return
+                    }
+                    let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                    if let popover = sheet.popoverPresentationController {
+                        popover.sourceView = presenter.view
+                        popover.sourceRect = CGRect(
+                            x: presenter.view.bounds.midX,
+                            y: presenter.view.bounds.maxY,
+                            width: 1,
+                            height: 1
+                        )
+                    }
+                    sheet.completionWithItemsHandler = { _, completed, _, error in
+                        try? FileManager.default.removeItem(at: url)
+                        if let error {
+                            call.reject("Unable to share diagnostics: \(error.localizedDescription)")
+                            return
+                        }
+                        call.resolve([
+                            "bytes": data.count,
+                            "fileName": url.lastPathComponent,
+                            "completed": completed
+                        ])
+                    }
+                    presenter.present(sheet, animated: true)
                 }
             }
         }

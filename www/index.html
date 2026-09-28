@@ -184,6 +184,12 @@
       window.addEventListener('error', function (e) {
         if (e && e.message) push('error', ['window.onerror: ' + e.message + (e.filename ? ' @ ' + e.filename + ':' + e.lineno + ':' + e.colno : '')]);
         if (e && e.error && e.error.stack) push('error', [e.error.stack]);
+        try {
+          if (window.__audit) window.__audit.event('app.error', {
+            category: 'error', outcome: 'error', tags: ['error'],
+            attrs: { error_type: e && e.error && e.error.name ? e.error.name : 'Error' }
+          });
+        } catch (auditError) {}
       });
       window.addEventListener('unhandledrejection', function (e) {
         var r = e ? e.reason : null;
@@ -193,6 +199,12 @@
           return;
         }
         push('error', ['unhandledrejection: ' + (r && r.stack ? r.stack : str(r))]);
+        try {
+          if (window.__audit) window.__audit.event('app.unhandled_rejection', {
+            category: 'error', outcome: 'error', tags: ['error'],
+            attrs: { error_type: r && r.name ? r.name : 'Error' }
+          });
+        } catch (auditError) {}
       });
       if (window.fetch) {
         var of = window.fetch;
@@ -213,9 +225,36 @@
             var expected = !r.ok && (
               (r.status === 404 && /wikipedia\.org\/api\/rest_v1\/page\/summary/.test(u))
               || (r.status === 403 && /\/ebirders\/count/.test(u)));
-            push(r.ok ? 'net' : (expected ? 'warn' : 'error'), [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);            return r;
+            push(r.ok ? 'net' : (expected ? 'warn' : 'error'), [method + ' ' + r.status + ' (' + (Date.now() - t0) + 'ms) ' + short]);
+            try {
+              if (window.__audit) window.__audit.event('network.request_end', {
+                category: 'network',
+                outcome: r.ok ? 'ok' : 'error',
+                tags: ['network'].concat(r.status === 429 ? ['rate_limited'] : []),
+                attrs: {
+                  host: (new URL(String(url), location.href)).hostname,
+                  method: method,
+                  status: r.status,
+                  duration_ms: Date.now() - t0
+                }
+              });
+            } catch (auditError) {}
+            return r;
           }, function (err) {
             push('error', [method + ' FAILED (' + (Date.now() - t0) + 'ms) ' + short + ' — ' + str(err)]);
+            try {
+              if (window.__audit) window.__audit.event('network.request_end', {
+                category: 'network',
+                outcome: 'error',
+                tags: ['network', navigator.onLine === false ? 'offline' : 'error'],
+                attrs: {
+                  host: (new URL(String(url), location.href)).hostname,
+                  method: method,
+                  duration_ms: Date.now() - t0,
+                  error_type: err && err.name ? String(err.name) : 'Error'
+                }
+              });
+            } catch (auditError) {}
             throw err;
           });
         };
@@ -759,6 +798,14 @@
       cursor: pointer; }
     .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink);
       text-decoration: underline; text-underline-offset: 3px; }
+    .daytriprangewrap { display: grid; gap: 6px; width: 100%; }
+    .daytriprange-label { color: var(--muted); font-size: calc(12px * var(--s));
+      font-weight: 700; }
+    .daytripranges { width: 100%; height: 44px; min-height: 44px; margin-left: 0;
+      gap: 0; border-radius: var(--btn-radius); }
+    .daytripranges > .sortbtn { flex: 1 1 0; min-width: 0; min-height: 44px;
+      padding: 0 10px; font-size: calc(14px * var(--s)); }
+    .daytripranges > .sortbtn + .sortbtn { border-left: 1px solid var(--line); }
     .twopill > .sortbtn[aria-pressed="true"]::after {
       content: " ✓"; font-weight: 900; text-decoration: none; }
     .twopill { width: max-content; max-width: 100%; flex: 0 0 auto;
@@ -1027,6 +1074,10 @@
        ordinary scale, where 38px is already below the cap. */
     .tileicon { font-size: min(calc(38px * var(--s)), 44px); line-height: 1;
                 grid-column: 1; grid-row: 1; }
+    .toclink[data-at="lastNewBtn"] .tileicon {
+      font-size: min(calc(24px * var(--s)), 28px);
+    }
+    .toclink[data-at="lastNewBtn"] .tilelabel { font-size: calc(16px * var(--s)); }
     /* "How is this calculated?" — an info affordance on every section heading.
        Sized as a real 34px touch target rather than a decorative glyph: a help
        control you cannot hit is not help. */
@@ -1270,7 +1321,7 @@
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .birdcast-alert {
-      display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 12px;
+      display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px;
       align-items: center; margin: 4px 0 12px; padding: 13px;
       border: 2px solid var(--safe-blue); border-radius: 14px;
       background: linear-gradient(135deg, color-mix(in srgb, var(--safe-blue) 16%, var(--card)),
@@ -1278,9 +1329,11 @@
       color: var(--ink); text-decoration: none;
     }
     .birdcast-alert-icon {
-      display: grid; place-items: center; width: 50px; height: 50px;
-      border: 2px solid currentColor; border-radius: 50%;
-      font-size: calc(28px * var(--s));
+      display: grid; place-items: center; width: 68px; min-height: 68px;
+      padding: 5px; box-sizing: border-box;
+      border: 2px solid currentColor; border-radius: 14px;
+      font-size: calc(14px * var(--s)); font-weight: 900; line-height: 1;
+      letter-spacing: .04em; text-align: center;
     }
     .birdcast-alert-copy { display: grid; gap: 2px; min-width: 0; }
     .birdcast-alert-kicker {
@@ -1288,6 +1341,8 @@
       text-transform: uppercase;
     }
     .birdcast-alert-title { font-size: calc(19px * var(--s)); line-height: 1.12; }
+    .birdcast-alert-count { font-size: calc(22px * var(--s)); font-weight: 800;
+      line-height: 1.15; }
     .birdcast-alert-place { font-size: calc(13px * var(--s)); color: var(--muted); }
     .leaflet-div-icon { background: transparent; border: none; }
     .pinbubble { width: calc(24px * var(--s)); height: calc(24px * var(--s)); border-radius: 50%; background: var(--pin, #e5484d); color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: calc(24px * var(--s) - 4px); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
@@ -1923,6 +1978,11 @@
     .surgeplacethumb::after { content: ''; position: absolute; left: 58%; top: 45%;
       width: calc(9px * var(--s)); height: calc(9px * var(--s)); border-radius: 50%;
       border: 3px solid #111; background: #fff; transform: translate(-50%, -50%); }
+    .surgebirdcastthumb { display: grid; place-items: center; box-sizing: border-box;
+      padding: 4px; border: 3px solid var(--safe-blue); border-radius: 10px;
+      background: color-mix(in srgb, var(--safe-blue) 10%, var(--card));
+      color: var(--ink); font-size: calc(11px * var(--s)); font-weight: 900;
+      letter-spacing: .025em; line-height: 1; text-align: center; text-decoration: none; }
     .surgeheld { margin: 11px 0 0; padding-top: 10px; border-top: 2px solid var(--line);
                  color: var(--muted); font-size: calc(12px * var(--s)); line-height: 1.45; }
     .surgeheld b { color: var(--ink); }
@@ -2459,15 +2519,36 @@
        magnitude carried by colour is exactly what a red-green reader cannot
        read — the digits are the encoding. */
     .patchlift { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--ink); }
-    /* Board rank, or its absence. Both are printed: an empty cell reads as a
-       lookup that failed rather than as "not on the board". Stepped down to
-       13px because it sits INSIDE the card's 17px/700 subject cell, where an
-       un-sized span would shout as loudly as the birder's own name — and this
-       is an annotation on the row, never the thing being ranked. */
-    .patchboard { display: inline-block; font-size: calc(13px * var(--s));
-                  font-weight: 600; color: var(--muted); white-space: nowrap; }
+    /* The left marker is the birder's ACTUAL statewide leaderboard rank, not
+       a second ordinal invented by this lift-sorted list. It is wider than a
+       map pin because "#100" and "N/R" must remain intact. Text carries the
+       meaning; blue versus outlined is only redundant styling. */
+    .hscard-md .hsnum.patchrank {
+      width: auto; min-width: calc(46px * var(--s)); padding: 0 calc(6px * var(--s));
+      border-radius: calc(9px * var(--s)); background: var(--safe-blue);
+      font-size: calc(13px * var(--s)); white-space: nowrap;
+    }
+    .hscard-md .hsnum.patchrank-unranked {
+      background: var(--card); color: var(--muted); border-color: var(--muted);
+      box-shadow: none;
+    }
     .patchsub { font-size: calc(13px * var(--s)); color: var(--muted);
                 margin: 10px 0 4px; }
+    .betatools { margin-top: 20px; padding: 16px; border: 2px solid var(--safe-blue);
+                border-radius: 14px; background: var(--card); }
+    .betatools h3 { margin-top: 0; }
+    .betastatus { font-weight: 700; }
+    .diagpreview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .diagpreview textarea { width: 100%; min-height: 84px; box-sizing: border-box; }
+    .betaexpired { position: fixed; inset: 0; z-index: 10000; overflow-y: auto;
+                  padding: 24px; box-sizing: border-box; background: var(--bg);
+                  color: var(--ink); }
+    .betaexpired > div { max-width: 620px; margin: 8vh auto; padding: 22px;
+                        border: 2px solid var(--safe-blue); border-radius: 16px;
+                        background: var(--card); }
+    .betabanner { margin: 10px auto; max-width: 720px; padding: 8px 12px;
+                 border: 2px solid var(--safe-blue); border-radius: 10px;
+                 background: var(--card); font-weight: 700; text-align: center; }
     .patchunplaced { margin-top: 18px; border-top: 1px solid var(--line);
                      padding-top: 12px; }
     .patchunplaced h3 { font-size: calc(16px * var(--s)); margin: 0 0 6px; }
@@ -2976,8 +3057,9 @@
     <section class="panel">
       <h2>🚗 Day trip patches <span class="dim" id="excRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
-      <div class="row">
-        <span class="sortpick" role="group" aria-label="Choose round-trip travel range">
+      <div class="row daytriprangewrap">
+        <div class="daytriprange-label">Estimated round trip</div>
+        <span class="sortpick daytripranges" role="group" aria-label="Choose round-trip travel range">
           <button id="dayTripUnder3" class="sortbtn" type="button"
             aria-pressed="true">Under 3h</button>
           <button id="dayTrip3To5" class="sortbtn" type="button"
@@ -3016,7 +3098,7 @@
     </section>
 
     <section class="panel">
-      <h2>🕒 Recent checklists <span class="dim" id="recentRegionLabel"></span></h2>
+      <h2>📋 Recent checklists <span class="dim" id="recentRegionLabel"></span></h2>
       <div id="recentSort"></div>
       <div id="recentFilters"></div>
       <div class="row">
@@ -3147,7 +3229,7 @@
          nearly different populations — only a fifth of this hundred sit on that
          board at all. That fact is printed, not implied. -->
     <section class="panel">
-      <h2>🧭 Pro patches</h2>
+      <h2>💪 Pro patches</h2>
       <div class="row">
         <button id="patchBtn">Load choice patches</button>
       </div>
@@ -3169,7 +3251,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔭 Fresh ticks</h2>
+      <h2>☑️ Leaderboard Ticks</h2>
       <div class="row">
         <button id="lastNewBtn">Load fresh ticks</button>
       </div>
@@ -3366,6 +3448,7 @@
         <span aria-hidden="true">mi</span>
         <button id="chaseMiUp" class="secondary" type="button"
                 aria-label="Increase chase distance by 5 miles">+5</button>
+        <button id="chaseMiReset" class="secondary" type="button">Reset to 35 mi</button>
       </div>
       <p class="hint" id="chaseMiHint"></p>
       <label for="apiKey">eBird API key</label>
@@ -3485,8 +3568,8 @@
           <dd>eBird Observation Dataset.</dd>
           <dt>Photos &amp; species text — Wikipedia</dt>
           <dd>CC BY-SA.</dd>
-          <dt>Bird migration links — <a href="https://birdcast.org/" target="_blank" rel="noopener">BirdCast</a></dt>
-          <dd>Cornell Lab of Ornithology / Colorado State University. Outbound links only; Bird Chaser fetches no BirdCast data.</dd>
+          <dt>Bird migration — <a href="https://birdcast.org/" target="_blank" rel="noopener">BirdCast</a></dt>
+          <dd>Cornell Lab of Ornithology / Colorado State University. Current forecast level and estimated county total are read directly from BirdCast's public first-party pages; official links remain available for detail.</dd>
           <dt>Maps — OpenStreetMap</dt>
           <dd>&#169; OpenStreetMap contributors. Geocoding via Photon (OpenStreetMap data).</dd>
         </dl>
@@ -3589,6 +3672,9 @@
   <script src="controls-progressive.js"></script>
   <script src="qr.js"></script>
   <script src="controls-toggle.js"></script>
+  <script src="build-info.js"></script>
+  <script src="audit-log.js"></script>
+  <script src="diagnostic-package.js"></script>
   <!-- The two card families. Pure layout: they receive already-escaped HTML
        and own the markup + CSS for every bird row and every hotspot row. -->
   <script src="cards-species.js"></script>
@@ -3848,7 +3934,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.130.9';
+      var APP_VERSION = '1.131.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4217,9 +4303,14 @@
       // limited this way any more; see chaseProfile / BirdLogic.geoNotableDistKm.
       var CHASE_GEO_MI = 31;
       function syncChaseMi() {
-        var input = $('chaseMi'), hint = $('chaseMiHint');
+        var input = $('chaseMi'), hint = $('chaseMiHint'), reset = $('chaseMiReset');
         var mi = chaseMaxMi();
         if (input) input.value = String(mi);
+        if (reset) {
+          reset.textContent = 'Reset to ' + chaseDefaultMi() + ' mi';
+          reset.disabled = mi === chaseDefaultMi()
+            && localStorage.getItem(chaseMiKey()) == null;
+        }
         if (hint) {
           var bits = ['Today\u2019s rarities, Last 7-Days rarities and the unseen '
             + 'lists hide anything further than this. Applies immediately.'];
@@ -4242,16 +4333,23 @@
           hint.textContent = bits.join(' ');
         }
       }
-      function applyChaseMi(value) {
-        var mi = normalizedChaseMi(value);
-        if (mi == null) return false;
-        localStorage.setItem(chaseMiKey(), String(mi));
+      function refreshChaseMi() {
         syncChaseMi();
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open) autoLoad(open);
         return true;
+      }
+      function applyChaseMi(value) {
+        var mi = normalizedChaseMi(value);
+        if (mi == null) return false;
+        localStorage.setItem(chaseMiKey(), String(mi));
+        return refreshChaseMi();
+      }
+      function resetChaseMi() {
+        localStorage.removeItem(chaseMiKey());
+        return refreshChaseMi();
       }
       // How many places show under an unseen bird before the rest fold away.
       // Five is what fits under one card without the next species being pushed
@@ -12731,7 +12829,7 @@
         var sightingsFailure = '';
         sortSpeciesPlaces(g, _spLookupSort);
         var nearbyPlaces = (g.places || []).filter(spLookupPlaceReachable);
-        var usingRegionalEvidence = _spLookupWithinChase
+        var noNearbyEvidence = _spLookupWithinChase
           && (g.places || []).length > 0 && !nearbyPlaces.length;
         var watched = isWatched(g.code);
         var seenIt = !!getReportSeen()[g.code];
@@ -12760,19 +12858,24 @@
             + ' in the last ' + SP_LOOKUP_BACK + ' days'
             + (g.distMi != null && isFinite(g.distMi) ? ' · nearest ' + g.distMi.toFixed(1) + ' mi' : '')
             + ' · ' + (_spLookupSort === 'dist' ? 'by distance' : 'by date')
-            + ' · ' + (_spLookupWithinChase && !usingRegionalEvidence
-              ? 'within ' + chaseMaxMi().toFixed(0) + ' mi chase distance'
-              : (usingRegionalEvidence
-                ? 'all regional evidence · none within ' + chaseMaxMi().toFixed(0) + ' mi'
-                : 'all regional evidence'))
+            + ' · ' + (_spLookupWithinChase
+              ? (noNearbyEvidence
+                ? 'none within ' + chaseMaxMi().toFixed(0)
+                  + ' mi · select All for regional evidence'
+                : 'within ' + chaseMaxMi().toFixed(0) + ' mi chase distance')
+              : 'all regional evidence')
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
         }
         var placesHtml = _spLookupLoading && !(g.places || []).length ? ''
-          : (_spLookupGrouped
-            ? spLookupPlacesHtml(g.places, g)
-            : spLookupFlatChecklistsHtml(g.places, g));
+          : (noNearbyEvidence
+            ? '<div class="status">No physically reachable reports are within <b>'
+              + chaseMaxMi().toFixed(0)
+              + ' mi</b>. Select <b>All</b> to show regional evidence.</div>'
+            : (_spLookupGrouped
+              ? spLookupPlacesHtml(g.places, g)
+              : spLookupFlatChecklistsHtml(g.places, g)));
         var identityTags = surgeBirdTag({ kind: evidence && evidence.rarityKind })
           + (seenIt ? '✅' : needTag(g.code, g.name))
           + (g.anyUnconfirmed && !watched ? ' ⚠️' : '');
@@ -12785,7 +12888,7 @@
             name: speciesLink(g.name, g.code),
             code: g.code,
             alpha: alphaFor(g.code),
-            distMi: g.distMi,
+            distMi: noNearbyEvidence ? null : g.distMi,
             tags: identityTags,
             sub: yearStatus,
             below: '<div class="stakeoutSpeciesActions">'
@@ -13009,12 +13112,7 @@
       function spLookupOrderedPlaces(places) {
         var all = (places || []).slice();
         if (!_spLookupWithinChase) return all;
-        var near = all.filter(spLookupPlaceReachable);
-        // A bird opened from a real report must not become a blank Stakeout
-        // page just because the current Home/chase radius moved. Keep the
-        // distance control meaningful when nearby evidence exists, but show
-        // the regional evidence as a labelled fallback when none is reachable.
-        return near.length ? near : all;
+        return all.filter(spLookupPlaceReachable);
       }
 
       function stakeoutChecklistRow(row, place, bird, num, flat) {
@@ -13265,19 +13363,16 @@
       function spLookupPlacesHtmlInner(places, bird) {
         var all = spLookupOrderedPlaces(places || []);
         if (!all.length && _spLookupWithinChase) {
+          if ((places || []).length) {
+            return '<div class="status">No physically reachable reports are within <b>'
+              + chaseMaxMi().toFixed(0)
+              + ' mi</b>. Select <b>All</b> to show regional evidence.</div>';
+          }
           return '<div class="status">No reports of this bird are available in the '
             + 'current regional evidence.</div>';
         }
-        var nearby = (places || []).filter(spLookupPlaceReachable);
-        var regionalFallback = _spLookupWithinChase && !nearby.length;
-        var intro = regionalFallback
-          ? '<div class="hint">No physically reachable reports are within <b>'
-            + chaseMaxMi().toFixed(0)
-            + ' mi</b>; showing all regional evidence so this Stakeout search '
-            + 'does not hide available checklists.</div>'
-          : '';
         var generation = _spLookupGeneration;
-        return intro + progressiveListHtml({
+        return progressiveListHtml({
           items: all,
           initialCount: SP_ROWS_MAX,
           batchSize: SP_ROWS_MAX,
@@ -18810,8 +18905,8 @@
             seenSpecies: includeSeen ? (d.seenSpecies || []) : null
           }));
         });
-        if (deferHydration) return;
         hydratePhotos(listEl);
+        if (deferHydration) return;
         hydrateLocSpecies(listEl).then(function () { return hydrateHotspotChecklists(listEl); })
           .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
       }
@@ -24675,12 +24770,15 @@
         var base = getCounties();
         return base.length ? base : baseCounties();
       }
+      function choicePatchScopeCounties() {
+        return Promise.resolve(choicePatchSelectedCounties());
+      }
       function choicePatchHomeCounty() {
         var selected = choicePatchSelectedCounties();
         if (selected.length === 1) return Promise.resolve(selected);
         var home = getHome(), parent = countyParentCode(getReport());
         if (!home || !parent) return Promise.resolve(selected);
-        return ensureCountyCatalog(parent, null, navWork('choice-patch county'))
+        return ensureCountyCatalog(parent, null, navWork('home county'))
           .then(function (catalog) {
             var scope = BL.deriveCountyScope(home, (catalog && catalog.rows) || [], 0);
             return scope.length ? [scope[0]] : selected;
@@ -24698,7 +24796,7 @@
         return isFinite(value) ? Math.round(value * 100) / 100 : null;
       }
       function liveChoicePatchData() {
-        return choicePatchHomeCounty().then(function (counties) {
+        return choicePatchScopeCounties().then(function (counties) {
           counties = (counties || []).filter(function (county) { return county && county.code; });
           if (!counties.length) throw new Error('No county is selected for Pro patches');
           return Promise.all(counties.map(function (county) {
@@ -24790,11 +24888,23 @@
       // lookup that failed rather than as "not on the board", and the em dash
       // alone says nothing through a screen reader — hence the visually-hidden
       // words beside it.
+      function patchRankMarker(rank, county) {
+        var n = Number(rank);
+        if (isFinite(n) && n > 0) {
+          n = Math.floor(n);
+          return '<span class="hsnum patchrank" aria-label="'
+            + esc(county ? rankRegionName(county) : 'Statewide')
+            + ' leaderboard rank ' + n + '">#' + n + '</span>';
+        }
+        return '<span class="hsnum patchrank patchrank-unranked"'
+          + ' aria-label="Not ranked on the local county or statewide leaderboard">'
+          + 'N/R</span>';
+      }
       function patchBoardLabel(rank) {
-        return rank
-          ? '<span class="patchboard">board #' + esc(rank) + '</span>'
-          : '<span class="patchboard">board <span aria-hidden="true">\u2014</span>'
-            + '<span class="vh">not ranked</span></span>';
+        var n = Number(rank);
+        return isFinite(n) && n > 0
+          ? 'statewide #' + Math.floor(n)
+          : 'not ranked statewide';
       }
 
       // Every place this birder filed a public list at, strongest first. A row
@@ -24809,6 +24919,7 @@
           out.push({
             locId: pr[0], name: meta[0], mine: pr[1], theirs: meta[1],
             lat: meta[2], lng: meta[3],
+            county: meta[4] || '',
             lift: BirdLogic.choiceLift(pr[1], b.t, meta[1], d.grand)
           });
         });
@@ -24821,7 +24932,25 @@
         d.birders.forEach(function (b) {
           var rows = patchRowsFor(b, d);
           if (!rows.length) return;
-          out.push({ n: b.n, r: b.r, t: b.t, best: rows[0], places: rows.length });
+          var county = rows[0].county || '';
+          var countyRanks = Object.keys(b.c || {}).map(function (code) {
+            return { county: code, rank: Number(b.c[code]) };
+          }).filter(function (row) {
+            return isFinite(row.rank) && row.rank > 0;
+          }).sort(function (a, z) {
+            return a.rank - z.rank || a.county.localeCompare(z.county);
+          });
+          var stateRank = Number(b.r);
+          var primary = isFinite(stateRank) && stateRank > 0
+            ? { county: '', rank: stateRank }
+            : (countyRanks[0] || null);
+          out.push({
+            n: b.n, r: b.r,
+            c: primary ? primary.county : '',
+            cr: primary ? primary.rank : null,
+            countyRanks: countyRanks,
+            t: b.t, best: rows[0], places: rows.length
+          });
         });
         out.sort(function (x, y) { return y.best.lift - x.best.lift; });
         return out;
@@ -24863,8 +24992,19 @@
       // means anything — and it is what answers "could I go and see why".
       function patchLeaderCard(e, num) {
         var row = e.best, dm = patchDistMi(row);
+        var rank = e.cr || e.r;
+        var rankCounty = e.cr ? e.c : '';
+        var standings = [];
+        if (e.r) standings.push(rankRegionName(rankPrimaryRegion().region)
+          + ' #' + Math.floor(e.r));
+        (e.countyRanks || []).forEach(function (item) {
+          standings.push(rankRegionName(item.county) + ' #' + Math.floor(item.rank));
+        });
+        var context = standings.length
+          ? standings.join(' \u00b7 ')
+          : 'not ranked on the state or in-scope county leaderboards';
         return HotspotCards.medium({
-          num: num,
+          icon: patchRankMarker(rank, rankCounty),
           // A BUTTON, not an href-less <a>. It shipped as an anchor and did
           // nothing on the device — "clicking a birder doesnt show their
           // details or anything else" — while working in jsdom, where 100
@@ -24879,7 +25019,7 @@
           // Same shape the evidence marks already use (.evidbtn).
           name: '<button type="button" class="patchwho" data-birder="' + esc(e.n)
             + '">' + esc(e.n) + '</button> '
-              + patchBoardLabel(e.r),
+            + '<span class="patchboard">' + esc(context) + '</span>',
           distance: (dm != null && isFinite(dm)) ? dm : null,
           distQ: distQ(row.lat, row.lng),
           sub: stakeHotspotLink(row.locId, row.name)
@@ -24905,8 +25045,8 @@
       // Same chip shape as the twitch filters rather than a third control.
       var PATCH_BOARD_KEY = 'ebird_patch_board_v1';
       function patchBoardFilter() {
-        try { return localStorage.getItem(PATCH_BOARD_KEY) === 'board' ? 'board' : 'all'; }
-        catch (e) { return 'all'; }
+        try { return localStorage.getItem(PATCH_BOARD_KEY) === 'all' ? 'all' : 'board'; }
+        catch (e) { return 'board'; }
       }
       function setPatchBoardFilter(v) {
         try { localStorage.setItem(PATCH_BOARD_KEY, v === 'board' ? 'board' : 'all'); }
@@ -24920,10 +25060,10 @@
             cls: 'raritypick',
             label: 'Filter by leaderboard rank',
             options: [
+              { label: 'Leaderboard', cls: 'patchboardbtn',
+                data: { value: 'board' }, pressed: sel === 'board' },
               { label: 'All', cls: 'patchboardbtn',
-                data: { value: 'all' }, pressed: sel === 'all' },
-              { label: 'On the board', cls: 'patchboardbtn',
-                data: { value: 'board' }, pressed: sel === 'board' }
+                data: { value: 'all' }, pressed: sel === 'all' }
             ]
           }) + '</div></div>';
       }
@@ -25069,6 +25209,7 @@
               return;
             }
             renderChoicePatchData(live);
+            loadPatchCountyBoards(live);
           }).catch(function (e) {
             lead.innerHTML = ''; un.innerHTML = '';
             out.innerHTML = '<p class="hint">The bundled choice-patch table covers '
@@ -25078,7 +25219,64 @@
             if (st) st.textContent = 'Pro patches unavailable for ' + countyLabelStr() + '.';
           });
         }
-        return renderChoicePatchData(d);
+        renderChoicePatchData(d);
+        loadPatchCountyBoards(d);
+      }
+
+      function patchNameKey(name) {
+        return String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      }
+      function applyPatchCountyBoards(d, boards) {
+        var indexes = {};
+        Object.keys(boards || {}).forEach(function (county) {
+          var rows = (boards[county] && boards[county].rows) || [];
+          var byName = {};
+          rows.forEach(function (row) {
+            var key = patchNameKey(row.name);
+            var rank = Number(row.rank);
+            if (key && isFinite(rank) && rank > 0) byName[key] = Math.floor(rank);
+          });
+          indexes[county] = byName;
+        });
+        (d.birders || []).forEach(function (birder) {
+          var key = patchNameKey(birder.n);
+          birder.c = {};
+          Object.keys(indexes).forEach(function (county) {
+            if (indexes[county][key]) birder.c[county] = indexes[county][key];
+          });
+        });
+        d.county_boards_loaded = true;
+        return d;
+      }
+      function loadPatchCountyBoards(d) {
+        if (!d || d.county_boards_loaded || d.county_boards_loading) {
+          return Promise.resolve(d);
+        }
+        var counties = (d.counties || []).filter(Boolean);
+        if (!counties.length) return Promise.resolve(d);
+        d.county_boards_loading = true;
+        var year = new Date().getFullYear();
+        return Promise.all(counties.map(function (county) {
+          return fetchRank({
+            key: 'patch-' + county, region: county, max: 500
+          }, year, '').then(function (data) {
+            return { county: county, data: data };
+          }).catch(function (error) {
+            dbg('warn', 'Pro patches county leaderboard ' + county
+              + ' unavailable: ' + ((error && error.message) || error));
+            return { county: county, error: error };
+          });
+        })).then(function (parts) {
+          var boards = {};
+          parts.forEach(function (part) {
+            if (part.data) boards[part.county] = part.data;
+          });
+          if (!Object.keys(boards).length) return d;
+          applyPatchCountyBoards(d, boards);
+          d.county_boards_loading = false;
+          if (_renderedChoicePatchData === d) renderChoicePatchData(d);
+          return d;
+        });
       }
 
       function renderChoicePatchData(d) {
@@ -25089,12 +25287,16 @@
         var leaders = patchLeaders(d);
         lead.innerHTML = patchLeadHtml(d);
         var hasBoard = !!(d.board > 0);
-        var onBoard = hasBoard && patchBoardFilter() === 'board';
+        var hasCountyBoard = !!d.county_boards_loaded;
+        var onBoard = (hasBoard || hasCountyBoard) && patchBoardFilter() === 'board';
         var shown = onBoard
-          ? leaders.filter(function (e) { return e.r != null && e.r !== ''; })
+          ? leaders.filter(function (e) {
+              return (e.countyRanks && e.countyRanks.length)
+                || (e.r != null && e.r !== '');
+            })
           : leaders;
         var hidden = leaders.length - shown.length;
-        out.innerHTML = (hasBoard ? patchBoardControl() : '') + (shown.length
+        out.innerHTML = ((hasBoard || hasCountyBoard) ? patchBoardControl() : '') + (shown.length
           ? patchCapped(shown.map(function (e, i) { return patchLeaderCard(e, i + 1); }),
                         'birder')
             // Naming what the filter removed matters more here than usual: it
@@ -25102,11 +25304,12 @@
             // on the statewide board, so the gap is the answer, not a gap.
             + (hidden ? '<p class="hint">' + hidden + ' birder'
                         + (hidden === 1 ? '' : 's') + ' hidden \u2014 they file the most '
-                        + 'checklists here but do not sit on the statewide board. That '
+                        + 'checklists here but do not sit on their patch county or '
+                        + 'statewide leaderboard. That '
                         + 'is the finding, not a gap.</p>' : '')
           : '<p class="hint">' + (onBoard
               ? 'None of the birders with a placeable hotspot here also sit on the '
-                + 'statewide board. Switch to All to see them.'
+                + 'patch county or statewide leaderboard. Switch to All to see them.'
               : 'The bundled table holds no birder with a placeable hotspot, so there '
                 + 'is nothing to rank.') + '</p>');
         mountProgressiveLists(out);
@@ -27018,25 +27221,175 @@
           mode: afterDark ? 'Live migration map' : place + ' migration alert'
         };
       }
-      function birdcastAlertHeader(state) {
+      var BIRDCAST_REFRESH_MS = 15 * 60 * 1000;
+      var _birdcastSnapshot = null, _birdcastSnapshotP = null;
+      function birdcastPublicKey(html) {
+        html = String(html || '');
+        var nuxt = /window\.__NUXT__=\(function\(([^)]*)\)\{([\s\S]*?)\}\(([\s\S]*?)\)\);<\/script>/i.exec(html);
+        if (!nuxt) return '';
+        var keyRef = /birdcastApiKey:([A-Za-z_$][\w$]*)/.exec(nuxt[2]);
+        if (!keyRef) return '';
+        var names = nuxt[1].split(',').map(function (s) { return s.trim(); });
+        var tokens = nuxt[3].match(/"(?:\\.|[^"\\])*"|true|false|null|void 0|-?\d+(?:\.\d+)?/g) || [];
+        var at = names.indexOf(keyRef[1]);
+        if (at < 0 || at >= tokens.length || tokens[at].charAt(0) !== '"') return '';
+        try {
+          var key = JSON.parse(tokens[at]);
+          return typeof key === 'string' && key.length >= 6 && key.length <= 100
+            ? key : '';
+        } catch (e) { return ''; }
+      }
+      function birdcastForecastFromJson(doc, local) {
+        var row = doc && Array.isArray(doc.forecastNights) && doc.forecastNights[0];
+        if (!row) throw new Error('BirdCast returned no current forecast');
+        var expected = local.year + '-' + String(local.month).padStart(2, '0')
+          + '-' + String(local.day).padStart(2, '0');
+        if (String(row.date || '').slice(0, 10) !== expected) {
+          throw new Error('BirdCast returned a forecast for another date');
+        }
+        var levels = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High' };
+        var level = levels[Number(row.code)];
+        if (!level || !isFinite(Number(row.total))) {
+          throw new Error('BirdCast returned a malformed forecast');
+        }
+        return {
+          level: level,
+          traffic: Number(row.total),
+          trafficMin: Number(row.totalMin),
+          trafficMax: row.totalMax == null ? null : Number(row.totalMax)
+        };
+      }
+      function birdcastCountFromHtml(html) {
+        html = String(html || '');
+        var m = /id="total-passed"[\s\S]{0,500}?class="is-visuallyHidden">([\d,]+)<\/span>\s*<span>(Birds (?:have )?crossed [^<]+)<\/span>/i.exec(html);
+        if (!m) throw new Error('BirdCast returned no current migration count');
+        var birds = Number(m[1].replace(/,/g, ''));
+        if (!isFinite(birds) || birds < 0) {
+          throw new Error('BirdCast returned a malformed migration count');
+        }
+        return {
+          birds: birds,
+          label: m[2].replace(/\s+/g, ' ').trim()
+        };
+      }
+      function birdcastMillions(n) {
+        return (Number(n) / 1000000).toFixed(1) + ' million birds';
+      }
+      function setBirdcastSnapshot(snapshot) {
+        _birdcastSnapshot = snapshot || null;
+      }
+      function loadBirdcastSnapshot(now, force) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        var state = birdcastAlertState(now);
+        if (!state) return Promise.resolve(null);
+        var home = getHome() || getReport().home;
+        var local = birdcastLocalParts(now, getReport());
+        var key = getReportSlug() + '|' + Number(home.lat).toFixed(4) + '|'
+          + Number(home.lng).toFixed(4) + '|' + local.year + '-' + local.month + '-' + local.day;
+        if (!force && _birdcastSnapshot && _birdcastSnapshot.key === key
+            && Date.now() - _birdcastSnapshot.fetchedAt < BIRDCAST_REFRESH_MS) {
+          return Promise.resolve(_birdcastSnapshot);
+        }
+        if (!force && _birdcastSnapshotP && _birdcastSnapshotP.key === key) {
+          return _birdcastSnapshotP.promise;
+        }
+        var alertUrl = 'https://alert.birdcast.org/?latLng='
+          + encodeURIComponent(Number(home.lat) + ',' + Number(home.lng))
+          + '&locName=' + encodeURIComponent(state.place);
+        var forecastP = fetch(alertUrl, { headers: { Accept: 'text/html' } })
+          .then(function (response) {
+            if (!response || !response.ok) {
+              throw new Error('BirdCast alert returned HTTP '
+                + ((response && response.status) || 'error'));
+            }
+            return response.text();
+          })
+          .then(function (html) {
+            var publicKey = birdcastPublicKey(html);
+            if (!publicKey) throw new Error('BirdCast alert configuration was unavailable');
+            var apiUrl = 'https://alert.birdcast.org/api/is-birdcast-alert-api/'
+              + Number(home.lat) + ',' + Number(home.lng)
+              + '/birdcast?key=' + encodeURIComponent(publicKey);
+            return fetch(apiUrl, { headers: { Accept: 'application/json' } });
+          })
+          .then(function (response) {
+            if (!response || !response.ok) {
+              throw new Error('BirdCast forecast returned HTTP '
+                + ((response && response.status) || 'error'));
+            }
+            return response.json();
+          })
+          .then(function (doc) {
+            return { value: birdcastForecastFromJson(doc, local), error: '' };
+          })
+          .catch(function (error) {
+            return { value: null, error: (error && error.message) || 'Forecast unavailable' };
+          });
+        var countP = choicePatchHomeCounty().then(function (counties) {
+          var county = (counties || [])[0];
+          if (!county || !county.code) throw new Error('Home county is unavailable');
+          var url = 'https://dashboard.birdcast.org/region/'
+            + encodeURIComponent(county.code);
+          return fetch(url, { headers: { Accept: 'text/html' } })
+            .then(function (response) {
+              if (!response || !response.ok) {
+                throw new Error('BirdCast dashboard returned HTTP '
+                  + ((response && response.status) || 'error'));
+              }
+              return response.text();
+            })
+            .then(function (html) {
+              return { value: birdcastCountFromHtml(html), error: '' };
+            });
+        }).catch(function (error) {
+          return { value: null, error: (error && error.message) || 'Migration count unavailable' };
+        });
+        var promise = Promise.all([forecastP, countP]).then(function (parts) {
+          var snapshot = {
+            key: key,
+            fetchedAt: Date.now(),
+            forecast: parts[0].value,
+            count: parts[1].value,
+            forecastError: parts[0].error,
+            countError: parts[1].error
+          };
+          _birdcastSnapshot = snapshot;
+          _birdcastSnapshotP = null;
+          return snapshot;
+        });
+        _birdcastSnapshotP = { key: key, promise: promise };
+        return promise;
+      }
+      function birdcastLevel(snapshot) {
+        return snapshot && snapshot.forecast && snapshot.forecast.level || 'Loading';
+      }
+      function birdcastCountLine(snapshot) {
+        if (!snapshot || !snapshot.count) return 'Migration count loading…';
+        return birdcastMillions(snapshot.count.birds) + ' '
+          + snapshot.count.label.replace(/^Birds\s+/i, '');
+      }
+      function birdcastAlertHeader(state, snapshot) {
         if (!state) return '';
         var kind = state.live ? 'LIVE MAP' : 'FORECAST';
-        var icon = state.live ? '\u25c9' : '\ud83c\udf19';
+        var level = birdcastLevel(snapshot);
         var destination = state.live
           ? 'Open BirdCast live radar'
           : 'Open official alert for ' + state.place;
         return '<a class="birdcast-alert extlink" data-href="' + esc(state.url)
           + '" aria-label="' + esc(state.title + ' for ' + state.place
             + '. ' + destination) + '">'
-          + '<span class="birdcast-alert-icon" aria-hidden="true">' + icon + '</span>'
+          + '<span class="birdcast-alert-icon" aria-hidden="true">' + esc(level.toUpperCase()) + '</span>'
           + '<span class="birdcast-alert-copy">'
           + '<span class="birdcast-alert-kicker">Official BirdCast ' + kind + '</span>'
-          + '<strong class="birdcast-alert-title">' + esc(state.title) + '</strong>'
+          + '<strong class="birdcast-alert-title">' + esc(state.title) + ': '
+          + esc(level) + '</strong>'
+          + '<span class="birdcast-alert-count">' + esc(birdcastCountLine(snapshot)) + '</span>'
           + '<span class="birdcast-alert-place">' + esc(state.place)
           + ' · ' + esc(destination) + ' \u2192</span></span></a>';
       }
-      function renderBirdcast(now) {
+      function renderBirdcast(now, suppliedSnapshot) {
         var el = $('bcBody'); if (!el) return;
+        now = now == null ? new Date() : now;
         var report = getReport();
         if ($('bcRegionLabel')) $('bcRegionLabel').textContent = '· ' + countyLabelStr();
         if (!hasCounties()) {
@@ -27048,25 +27401,29 @@
           el.innerHTML = '<div class="status"><b>Hawaiʻi is outside that coverage.</b> '
             + 'BirdCast\u2019s radar migration tools cover the contiguous United States, '
             + 'so Bird Chaser does not offer a forecast or pretend mainland radar applies.</div>'
-            + '<div class="hint">Link-only: no BirdCast data is fetched.</div>';
+            + '<div class="hint">No BirdCast migration data is requested outside its supported radar coverage.</div>';
           return;
         }
         var linkHtml = getCounties().map(function (c) {
           var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(c.code);
           return '<a class="extlink" data-href="' + esc(link) + '">' + esc(c.label) + ' →</a>';
         }).join(' · ');
-        var s = birdcastSeason(now == null ? new Date() : now, report);
-        var alertState = birdcastAlertState(now == null ? new Date() : now, report);
-        var alertHeader = birdcastAlertHeader(alertState);
+        var s = birdcastSeason(now, report);
+        var alertState = birdcastAlertState(now, report);
         var localDate = birdcastDateLabel(s.local);
         var tools = birdcastToolLinks();
-        var apiNote = '<div class="hint">Link-only: BirdCast has no documented public '
-          + 'data API for app ingestion, so Bird Chaser does not scrape or restate '
-          + 'dashboard values.</div>';
+        function paint(snapshot) {
+          var alertHeader = birdcastAlertHeader(alertState, snapshot);
+          var errors = snapshot
+            ? [snapshot.forecastError, snapshot.countError].filter(Boolean) : [];
+          var apiNote = '<div class="hint">Direct from BirdCast’s public alert and '
+            + 'county dashboard pages.'
+            + (errors.length ? ' ⚠️ ' + esc(errors.join('; ')) + '.' : '')
+            + '</div>';
         if (s.active) {
           el.innerHTML = alertHeader + '<div class="status"><b>Forecast maps</b> and '
             + '<b>live migration maps</b> are separate BirdCast tools for '
-            + esc(s.season) + '. Bird Chaser fetches neither feed: use the '
+            + esc(s.season) + '. Use the '
             + 'forecast to plan the night of <b>' + esc(localDate)
             + '</b>, then check live radar after local sunset.</div>'
             + '<div class="destfoot">' + tools + '</div>'
@@ -27082,8 +27439,22 @@
             + '<div class="hint"><b>Local dashboards:</b> ' + linkHtml + '</div>'
             + apiNote;
         }
+        }
+        paint(suppliedSnapshot || _birdcastSnapshot);
+        if (!s.active) return Promise.resolve(null);
+        if (suppliedSnapshot) return Promise.resolve(suppliedSnapshot);
+        return loadBirdcastSnapshot(now).then(function (snapshot) {
+          paint(snapshot);
+          return snapshot;
+        });
       }
-      function birdcastSurgeRow(now) {
+      function birdcastLevelTile(snapshot) {
+        var level = birdcastLevel(snapshot).toUpperCase();
+        return '<a class="thumb surgebirdcastthumb seclink" data-sec="sec-bcBody"'
+          + ' data-birdcast-level="' + esc(level) + '"'
+          + ' aria-label="Open Nightly Migration">' + esc(level) + '</a>';
+      }
+      function birdcastSurgeRow(now, snapshot) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var report = getReport();
         if (!report || !hasCounties() || report.stateCode === 'US-HI'
@@ -27092,22 +27463,26 @@
         }
         var state = birdcastAlertState(now, report);
         if (!state) return null;
+        var level = birdcastLevel(snapshot);
+        var countLine = birdcastCountLine(snapshot);
+        var errors = snapshot
+          ? [snapshot.forecastError, snapshot.countError].filter(Boolean) : [];
         return {
           kind: 'migration',
-          icon: '<span class="thumb surgeplacethumb" aria-hidden="true"></span>',
-          name: '<a class="extlink" data-href="' + esc(state.url) + '">' + esc(state.title) + '</a>',
+          icon: birdcastLevelTile(snapshot),
+          name: '<a class="seclink" data-sec="sec-bcBody">' + esc(state.title)
+            + ': ' + esc(level) + '</a>',
           alpha: 'BIRDCAST',
-          where: '<a class="extlink" data-href="' + esc(state.url) + '">' + esc(state.mode) + '</a>',
+          where: '<a class="seclink" data-sec="sec-bcBody">'
+            + esc(state.place) + ' migration alert</a>',
           when: now.toISOString(),
           time: now.getTime(),
           ageTime: now.getTime(),
-          noteHeader: 'MIGRATION: ' + (state.live
-            ? 'See what is moving now on BirdCast live radar'
-            : 'Plan tonight with the official BirdCast forecast'),
-          why: state.live
-            ? '<b>Live observation map</b> · current nocturnal migration'
-            : '<b>Forecast</b> · expected nocturnal migration tonight',
-          extra: '<span class="dim">Official link only; Bird Chaser does not scrape or invent BirdCast values.</span>'
+          noteHeader: 'MIGRATION: ' + level + ' · ' + countLine,
+          why: '<b>' + esc(level) + ' migration</b> · ' + esc(countLine),
+          extra: errors.length
+            ? '<span class="dim">⚠️ ' + esc(errors.join('; ')) + '.</span>'
+            : '<span class="dim">Direct from BirdCast · open Nightly Migration for details.</span>'
         };
       }
 
@@ -31640,21 +32015,25 @@
         [].forEach.call(feed.children, function (row) {
           var head = row.querySelector(':scope > .name');
           if (!head) return;
+          var migration = row.getAttribute('data-alert-kind') === 'migration';
           var locId = row.getAttribute('data-hsloc') || '';
           var locName = row.getAttribute('data-hslocname') || '';
           var code = row.getAttribute('data-species-code') || '';
           var speciesName = row.getAttribute('data-species-name') || code;
           var megaView = row.getAttribute('data-mega-view') || '';
           var place = !!locId;
-          if (!place && !code && !speciesName) return;
+          if (!migration && !place && !code && !speciesName) return;
           head.classList.add('surgeheadline');
           head.setAttribute('role', 'link');
           head.tabIndex = 0;
-          head.setAttribute('aria-label', place
+          head.setAttribute('aria-label', migration
+            ? 'Open Nightly Migration'
+            : place
             ? 'Open ' + locName + ' in Stakeout hotspot'
             : 'Open ' + speciesName + ' in Stakeout bird');
           function open() {
-            if (place) openStakeHotspot(locId, locName || locId);
+            if (migration) showSection('sec-bcBody');
+            else if (place) openStakeHotspot(locId, locName || locId);
             else if (code) openStakeSpecies(code, speciesName || code,
               megaView ? { viewKey: megaView, code: code } : null);
             else {
@@ -31802,7 +32181,7 @@
           }) : null;
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
-        var migrationRow = birdcastSurgeRow(new Date());
+        var migrationRow = birdcastSurgeRow(new Date(), _birdcastSnapshot);
         var sourceWarning = surgeSourceWarning(sourceStates);
         var sourceProgress = surgeSourceProgress(sourceStates);
         markSurgeSourceStates(box, sourceStates);
@@ -32175,6 +32554,9 @@
           beginMegaRefresh();
           return observed;
         }
+        loadBirdcastSnapshot(new Date(now)).then(function () {
+          paintSurgeModel();
+        });
         _surgeEarlyPaint = function (res) {
           if (generation !== _surgeLoadGeneration) return;
           try {
@@ -33397,11 +33779,11 @@
         // pending a redesign.
         //
         { at: 'easyBtn',      label: '🐦 Common birds', needs: 'county', group: 'Birding Tools' },
-        { at: 'lastNewBtn',    label: '🔭 Fresh ticks', needs: 'geo', group: 'Leader Board / Ranking' },
+        { at: 'lastNewBtn',    label: '☑️ Leaderboard Ticks', needs: 'geo', group: 'Leader Board / Ranking' },
         { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
-        { at: 'patchBtn',      label: '🧭 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'patchBtn',      label: '💪 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'recentBtn',     label: '🕒 Recent checklists', needs: 'county', group: 'Leader Board / Ranking' },
+        { at: 'recentBtn',     label: '📋 Recent checklists', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
         { at: 'myYearBody',    label: '📅 My Year List', group: 'My Bird List' },
         { at: 'nvResults',     label: '❓ Watch List', group: 'My Bird List' },
@@ -33595,6 +33977,334 @@
           var s = _sections.filter(function (x) { return !x.hidden; })[0];
           return (s && s.id) || '(menu)';
         } catch (e) { return '?'; }
+      }
+      var _audit = null;
+      var _auditSettings = null;
+      function auditPageContext() {
+        var id = visibleSectionId();
+        if (id === '(menu)') return { id: 'main_menu', view: 'menu', overlay: null };
+        var sec = $(id);
+        var stable = (sec && sec._at) || id.replace(/^sec-/, '');
+        var view = _patchOpen ? 'birder_detail' : 'section';
+        var overlay = null;
+        var sheet = $('infoSheet');
+        if (sheet && !sheet.hidden) overlay = 'info';
+        return { id: stable, view: view, overlay: overlay };
+      }
+      function auditSafeSettings() {
+        var home = getHome();
+        return {
+          report: getReportSlug(),
+          county_view: getCountyView() || 'all',
+          rank_scope: (getRankScope() || {}).region || '',
+          text_scale: getUiScale(),
+          theme: getTheme(),
+          easy_read: getA11y(),
+          scientific_names: getSciNames(),
+          map_provider: getMapProvider(),
+          chase_distance_miles: chaseMaxMi(),
+          patch_filter: patchBoardFilter(),
+          day_trip_range: _dayTripRange,
+          api_key_configured: !!getKey(),
+          home_configured: !!(home && isFinite(Number(home.lat)) && isFinite(Number(home.lng))),
+          tide_station_configured: !!String(localStorage.getItem(tideKey()) || '').trim(),
+          aba_alert_configured: !!getAbaSid(),
+          profile_kind: isDefaultProfile() ? 'default' : 'test'
+        };
+      }
+      function auditSettingsChanged(reason) {
+        if (!_audit) return;
+        var next = auditSafeSettings();
+        if (_auditSettings) _audit.changedSettings(_auditSettings, next, reason);
+        else _audit.snapshotSettings(next, reason || 'startup');
+        _auditSettings = next;
+      }
+      function auditEvent(name, values) {
+        if (!_audit) return null;
+        return _audit.event(name, values || {});
+      }
+      function initAuditLog() {
+        if (!window.BirdAudit || _audit) return _audit;
+        _audit = window.BirdAudit.create({
+          appVersion: APP_VERSION,
+          buildChannel: (_betaInfo && _betaInfo.channel) || 'production',
+          page: auditPageContext
+        });
+        window.__audit = _audit;
+        auditSettingsChanged('startup');
+        auditEvent('app.ready', {
+          category: 'lifecycle', outcome: 'ok', tags: ['lifecycle']
+        });
+        return _audit;
+      }
+      var _betaInfo = null;
+      var _betaState = null;
+      function initBetaRuntime() {
+        if (!window.BirdDiagnostics) {
+          _betaInfo = { channel: 'production', beta: false };
+          _betaState = { beta: false, expired: false };
+          return _betaState;
+        }
+        _betaInfo = window.BirdDiagnostics.normalizeBuildInfo(window.__BUILD_INFO__);
+        _betaState = window.BirdDiagnostics.expiryState(_betaInfo);
+        window.__BETA_EXPIRED__ = !!_betaState.expired;
+        if (_betaState.expired && !window.fetch.__birdBetaBlocked) {
+          var blockedFetch = function () {
+            auditEvent('network.request_blocked', {
+              category: 'network', outcome: 'blocked',
+              tags: ['network'],
+              attrs: { reason: 'beta_expired' }
+            });
+            return Promise.reject(new Error(
+              'This Bird Chaser beta expired. Install a newer beta to use network features.'));
+          };
+          blockedFetch.__birdBetaBlocked = true;
+          window.fetch = blockedFetch;
+        }
+        return _betaState;
+      }
+      function betaDateText(value) {
+        var date = new Date(value);
+        return isFinite(date.getTime())
+          ? date.toLocaleDateString(undefined, {
+              year: 'numeric', month: 'long', day: 'numeric'
+            })
+          : String(value || 'unknown');
+      }
+      function diagnosticStorageInventory() {
+        var out = {
+          total_entries: 0, approximate_bytes: 0,
+          settings_entries: 0, cache_entries: 0, history_entries: 0
+        };
+        try {
+          out.total_entries = localStorage.length;
+          for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i) || '';
+            var value = localStorage.getItem(key) || '';
+            out.approximate_bytes += (key.length + value.length) * 2;
+            if (/cache|snapshot|archive|history/i.test(key)) out.cache_entries++;
+            else if (/seen|favorite|watch|trip/i.test(key)) out.history_entries++;
+            else out.settings_entries++;
+          }
+        } catch (e) {}
+        return out;
+      }
+      function diagnosticEnvironment() {
+        var platform = 'web';
+        try {
+          if (window.Capacitor && window.Capacitor.getPlatform) {
+            platform = window.Capacitor.getPlatform();
+          }
+        } catch (e) {}
+        var timezone = '';
+        try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+        catch (e) {}
+        return {
+          platform: platform,
+          locale: navigator.language || '',
+          timezone: timezone,
+          display_css_pixels: {
+            width: Math.round((window.screen && window.screen.width) || innerWidth || 0),
+            height: Math.round((window.screen && window.screen.height) || innerHeight || 0)
+          },
+          active_page: auditPageContext()
+        };
+      }
+      function diagnosticMarkup(prefix, expired) {
+        return '<div class="betastatus" id="' + prefix + 'Expiry"></div>'
+          + '<p>This tester-only package is created on this device. Nothing is '
+          + 'uploaded automatically.</p>'
+          + '<button type="button" id="' + prefix + 'Create">Create diagnostic package</button>'
+          + '<div class="diagpreview" id="' + prefix + 'Preview" hidden>'
+          + '<h4>Review before sharing</h4>'
+          + '<p><b>Included:</b> structured events, safe Settings revisions, app/build '
+          + 'details, display/locale/time-zone context, and aggregate cache counts.</p>'
+          + '<p><b>Excluded:</b> API keys, cookies, account identity, exact coordinates '
+          + 'or addresses, personal lists, raw responses, third-party HTML, and photo caches.</p>'
+          + '<label for="' + prefix + 'Note">Optional description</label>'
+          + '<textarea id="' + prefix + 'Note" maxlength="4000"></textarea>'
+          + '<label class="checkrow"><input type="checkbox" id="' + prefix
+          + 'Screenshot"> Include current screenshot</label>'
+          + '<div class="row"><button type="button" id="' + prefix
+          + 'Share">Share diagnostic package</button>'
+          + '<button type="button" class="secondary" id="' + prefix
+          + 'Cancel">Cancel</button></div>'
+          + '<div class="status" id="' + prefix + 'Status" aria-live="polite"></div>'
+          + '</div>'
+          + (!expired ? '<button type="button" class="secondary" id="' + prefix
+              + 'Clear">Clear diagnostic history</button>' : '')
+          + (expired
+            ? '<div class="row"><button type="button" class="secondary" id="' + prefix
+              + 'Delete">Delete my data</button>'
+              + '<a class="button extlink" data-href="https://github.com/WyattHoutz/'
+              + 'birding-app/releases/latest" href="https://github.com/WyattHoutz/'
+              + 'birding-app/releases/latest">Install a newer beta</a></div>'
+            : '');
+      }
+      function diagnosticPlugin() {
+        return window.Capacitor && window.Capacitor.Plugins
+          && window.Capacitor.Plugins.FullReport;
+      }
+      function diagnosticFileName() {
+        return 'Bird-Chaser-diagnostics-' + APP_VERSION + '-' + todayStr() + '.zip';
+      }
+      function diagnosticDownload(bytes, name) {
+        var blob = new Blob([bytes], { type: 'application/zip' });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = name;
+        link.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+        return Promise.resolve({ completed: true, bytes: bytes.length, fileName: name });
+      }
+      function shareDiagnostic(prefix) {
+        var status = $(prefix + 'Status');
+        var share = $(prefix + 'Share');
+        var includeScreenshot = !!($(prefix + 'Screenshot')
+          && $(prefix + 'Screenshot').checked);
+        if (!_audit || !window.BirdDiagnostics) return Promise.resolve(false);
+        if (share) share.disabled = true;
+        if (status) status.textContent = includeScreenshot
+          ? 'Capturing the screenshot you selected…' : 'Creating the ZIP…';
+        auditEvent('diagnostic.share_start', {
+          category: 'user_action', outcome: 'start',
+          tags: ['diagnostic', 'privacy', 'user_action'],
+          attrs: { screenshot_requested: includeScreenshot }
+        });
+        var plugin = diagnosticPlugin();
+        var screenshot = Promise.resolve(null);
+        if (includeScreenshot) {
+          if (!plugin || typeof plugin.captureDiagnosticScreenshot !== 'function') {
+            screenshot = Promise.reject(new Error(
+              'Screenshot inclusion needs the installed iPhone beta.'));
+          } else {
+            screenshot = plugin.captureDiagnosticScreenshot({}).then(function (result) {
+              return result && result.base64;
+            });
+          }
+        }
+        return screenshot.then(function (image) {
+          var packed = window.BirdDiagnostics.packageFiles(_audit.bundle(), {
+            buildInfo: _betaInfo,
+            environment: diagnosticEnvironment(),
+            storageInventory: diagnosticStorageInventory(),
+            note: ($(prefix + 'Note') || {}).value || '',
+            screenshotBase64: image
+          });
+          var bytes = window.BirdDiagnostics.zip(packed.files);
+          if (bytes.length > 3 * 1024 * 1024) {
+            throw new Error('The diagnostic ZIP exceeded the 3 MB share limit.');
+          }
+          if (status) status.textContent = 'Opening the share sheet…';
+          if (plugin && typeof plugin.shareDiagnosticPackage === 'function') {
+            return plugin.shareDiagnosticPackage({
+              fileName: diagnosticFileName(),
+              base64: window.BirdDiagnostics.toBase64(bytes)
+            });
+          }
+          return diagnosticDownload(bytes, diagnosticFileName());
+        }).then(function (result) {
+          var completed = !!(result && result.completed);
+          if (status) status.textContent = completed
+            ? 'Diagnostic package shared.' : 'Share cancelled; nothing was sent.';
+          auditEvent('diagnostic.share_end', {
+            category: 'user_action', outcome: completed ? 'ok' : 'cancelled',
+            tags: ['diagnostic', 'privacy', 'user_action'],
+            attrs: { completed: completed, bytes: (result && result.bytes) || 0 }
+          });
+          return completed;
+        }).catch(function (error) {
+          if (status) status.textContent = 'Diagnostic package failed: '
+            + ((error && error.message) || error);
+          auditEvent('diagnostic.share_end', {
+            category: 'error', outcome: 'error',
+            tags: ['diagnostic', 'error'],
+            attrs: { error_type: error && error.name ? error.name : 'Error' }
+          });
+          return false;
+        }).finally(function () {
+          if (share) share.disabled = false;
+        });
+      }
+      function bindDiagnosticControls(prefix) {
+        var create = $(prefix + 'Create');
+        var preview = $(prefix + 'Preview');
+        var cancel = $(prefix + 'Cancel');
+        var share = $(prefix + 'Share');
+        if (create) create.addEventListener('click', function () {
+          if (preview) preview.hidden = false;
+          auditEvent('diagnostic.preview', {
+            category: 'privacy', outcome: 'ok',
+            tags: ['diagnostic', 'privacy', 'user_action'],
+            attrs: { event_count: _audit ? _audit.events().length : 0 }
+          });
+        });
+        if (cancel) cancel.addEventListener('click', function () {
+          if (preview) preview.hidden = true;
+          if ($(prefix + 'Status')) $(prefix + 'Status').textContent = '';
+        });
+        if (share) share.addEventListener('click', function () { shareDiagnostic(prefix); });
+        var clear = $(prefix + 'Clear');
+        if (clear) clear.addEventListener('click', function () {
+          if (!confirmAction('clear-diagnostics',
+            'Clear all Bird Chaser diagnostic history on this device?')) return;
+          _audit.clear().then(function (ok) {
+            if ($(prefix + 'Status')) $(prefix + 'Status').textContent = ok
+              ? 'Diagnostic history cleared.' : 'Diagnostic history could not be cleared.';
+          });
+        });
+        var del = $(prefix + 'Delete');
+        if (del) del.addEventListener('click', function () {
+          var scrub = $('scrubBtn');
+          if (scrub) scrub.click();
+        });
+      }
+      function initBetaTools() {
+        if (!_betaState || !_betaState.beta) return false;
+        var settings = $('settingsPanel');
+        if (settings && !$('betaTools')) {
+          var tools = document.createElement('section');
+          tools.id = 'betaTools';
+          tools.className = 'betatools';
+          tools.innerHTML = '<h3>Beta testing</h3>' + diagnosticMarkup('betaDiag', false);
+          settings.appendChild(tools);
+          $('betaDiagExpiry').textContent = 'This ' + _betaInfo.channel
+            + ' beta expires ' + betaDateText(_betaState.expiresAt) + ' ('
+            + _betaState.daysRemaining + ' day'
+            + (_betaState.daysRemaining === 1 ? '' : 's') + ' remaining).';
+          bindDiagnosticControls('betaDiag');
+        }
+        if (!_betaState.expired && !$('betaBanner')) {
+          var banner = document.createElement('div');
+          banner.id = 'betaBanner';
+          banner.className = 'betabanner';
+          banner.textContent = 'Beta build · expires ' + betaDateText(_betaState.expiresAt)
+            + ' · ' + _betaState.daysRemaining + ' day'
+            + (_betaState.daysRemaining === 1 ? '' : 's') + ' remaining';
+          var menu = $('menuPanel');
+          if (menu) menu.insertAdjacentElement('afterbegin', banner);
+        }
+        return true;
+      }
+      function showExpiredBeta() {
+        if (!_betaState || !_betaState.expired || $('betaExpired')) return false;
+        var page = document.createElement('section');
+        page.id = 'betaExpired';
+        page.className = 'betaexpired';
+        page.innerHTML = '<div><h1>Beta expired</h1><p>This Bird Chaser beta expired '
+          + betaDateText(_betaState.expiresAt) + '. Ordinary app use and network '
+          + 'requests are blocked, but your local data remains on this device.</p>'
+          + diagnosticMarkup('expiredDiag', true) + '</div>';
+        document.body.appendChild(page);
+        $('expiredDiagExpiry').textContent = 'Build ' + (_betaInfo.buildId || 'unknown')
+          + ' · expired ' + betaDateText(_betaState.expiresAt);
+        bindDiagnosticControls('expiredDiag');
+        auditEvent('beta.expired', {
+          category: 'lifecycle', outcome: 'blocked',
+          tags: ['lifecycle'], attrs: { expires_at: _betaState.expiresAt }
+        });
+        return true;
       }
       // The call stack, trimmed to frames that name a caller. A section change
       // is rare and always deliberate, so this costs one string on an event a
@@ -34529,7 +35239,12 @@
                     + (of ? ' of ' + rankNum(of) + ' eBirders' : '')
                     + ' in ' + rankRegionName(getRegion()));
         }
-        var year = currentYearSpeciesCount();
+        // The compact rank and species total are one leaderboard standing.
+        // A device-wide imported ABA total must not be printed beside a state
+        // rank, which would combine two individually valid numbers into one
+        // false statement.
+        var year = me && me.species != null && isFinite(Number(me.species))
+          ? Number(me.species) : (!me ? currentYearSpeciesCount() : 0);
         if (year) {
           bits.push(year + 'sp');
           said.push(year + ' species this year');
@@ -35277,6 +35992,11 @@
         autoLoad(target);
         refreshVisibleMaps();
         auditOverflow(id);
+        auditEvent('navigation.open', {
+          category: 'navigation', outcome: 'ok',
+          tags: ['navigation'],
+          attrs: { from: _from || 'main_menu', to: auditPageContext().id }
+        });
       }
 
       // The sideways-drag report survived two blind fixes because every probe
@@ -35338,6 +36058,7 @@
         });
       }
       function showMenu() {
+        var from = visibleSectionId();
         if (!menuVisible()) {
           _navGeneration++;
           fgCancelObsolete();
@@ -35354,6 +36075,11 @@
         renderKeyBanner();
         syncRegionNav();
         try { window.scrollTo(0, 0); } catch (e) {}
+        auditEvent('navigation.open', {
+          category: 'navigation', outcome: 'ok',
+          tags: ['navigation', 'main'],
+          attrs: { from: from, to: 'main_menu' }
+        });
       }
       // Settings is now just another section in the Contents menu.
       function showSettings(show) { if (show) showSection('settingsPanel'); else showMenu(); }
@@ -37282,6 +38008,7 @@
       if ($('chaseMiUp')) $('chaseMiUp').addEventListener('click', function () {
         applyChaseMi(Math.min(CHASE_MI_MAX, chaseMaxMi() + 5));
       });
+      if ($('chaseMiReset')) $('chaseMiReset').addEventListener('click', resetChaseMi);
       $('favSearchBtn').addEventListener('click', runFavSearch);
       $('favSearchClear').addEventListener('click', clearFavSearch);
       $('favSearch').addEventListener('keydown', function (ev) {
@@ -37862,11 +38589,16 @@
         $('scrubStatus').textContent = 'Erased ' + removed + ' local item'
           + (removed === 1 ? '' : 's')
           + '. Clearing the taxonomy model and eBird browser session\u2026';
-        Promise.all([spuhCacheClear(), clearEbirdWebSession()]).then(function (cleared) {
-          if (!cleared[0] || !cleared[1]) {
+        Promise.all([
+          spuhCacheClear(),
+          clearEbirdWebSession(),
+          _audit ? _audit.clear() : Promise.resolve(true)
+        ]).then(function (cleared) {
+          if (!cleared[0] || !cleared[1] || !cleared[2]) {
             var failed = [];
             if (!cleared[0]) failed.push('taxonomy cache');
             if (!cleared[1]) failed.push('eBird browser session');
+            if (!cleared[2]) failed.push('diagnostic log');
             $('scrubStatus').textContent = 'The local items were erased, but the '
               + failed.join(' and ') + ' could not be cleared. The app was not reloaded.';
             return;
@@ -37926,6 +38658,7 @@
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open && open.id !== 'settingsPanel') autoLoad(open);
+        auditSettingsChanged('settings-save');
       }
       function validateAndPersistSettings() {
         // A malformed key is stored just as happily as a good one, and the
@@ -37962,6 +38695,32 @@
           } else { el.textContent = 'Running in web preview'; }
         } catch (e) { el.textContent = 'Running in web preview'; }
       })();
+      document.addEventListener('click', function (ev) {
+        if (!_audit || !ev || !ev.target || !ev.target.closest) return;
+        var control = ev.target.closest('button, a, [role="button"]');
+        if (!control) return;
+        var key = control.id || String(control.className || '').trim().split(/\s+/)[0]
+          || control.tagName.toLowerCase();
+        auditEvent('control.activate', {
+          category: 'user_action', outcome: 'ok',
+          tags: ['user_action'].concat(auditPageContext().id === 'settingsPanel'
+            ? ['settings'] : []),
+          attrs: { control: key.slice(0, 80), kind: control.tagName.toLowerCase() }
+        });
+        setTimeout(function () { auditSettingsChanged('control-activate'); }, 0);
+      });
+      document.addEventListener('change', function (ev) {
+        if (!_audit || !ev || !ev.target) return;
+        var control = ev.target;
+        var key = control.id || control.name || control.tagName.toLowerCase();
+        auditEvent('control.change', {
+          category: 'user_action', outcome: 'ok',
+          tags: ['user_action'].concat(control.closest
+            && control.closest('#settingsPanel') ? ['settings', 'setting'] : []),
+          attrs: { control: String(key).slice(0, 80), kind: control.tagName.toLowerCase() }
+        });
+        auditSettingsChanged('control-change');
+      });
 
       // Test seam: the app is one big IIFE, so CI has no other way to drive the
       // per-region storage helpers directly (see tests/dom.test.js).
@@ -38221,6 +38980,12 @@
         facetCounts: facetCounts, iconicBoxFacet: iconicBoxFacet,
         renderHot: renderHot, renderCold: renderCold, splitHotspotBirds: splitHotspotBirds,
         birdcastSeason: birdcastSeason, birdcastAlertState: birdcastAlertState,
+        birdcastPublicKey: birdcastPublicKey,
+        birdcastForecastFromJson: birdcastForecastFromJson,
+        birdcastCountFromHtml: birdcastCountFromHtml,
+        birdcastMillions: birdcastMillions,
+        setBirdcastSnapshot: setBirdcastSnapshot,
+        loadBirdcastSnapshot: loadBirdcastSnapshot,
         birdcastSurgeRow: birdcastSurgeRow, birdcastMenuBadge: birdcastMenuBadge,
         renderBirdcast: renderBirdcast,
         firstReport: firstReport, coverageStart: coverageStart,
@@ -38334,6 +39099,7 @@
         navBack: navBack,
         loadChoicePatches: loadChoicePatches, choicePatchData: choicePatchData,
         patchRowsFor: patchRowsFor, patchLeaders: patchLeaders,
+        applyPatchCountyBoards: applyPatchCountyBoards,
         patchOpenBirder: patchOpenBirder, patchCloseBirder: patchCloseBirder,
         patchLift: patchLift, patchScopeMatches: patchScopeMatches,
         PATCH_ROWS: PATCH_ROWS,
@@ -38467,17 +39233,30 @@
         importCSV: importCSV, unzipEbirdCsv: unzipEbirdCsv,
         loadSeed: loadSeed, getSeenMeta: getSeenMeta,
         usesBundledSeed: usesBundledSeed,
-        migrationManualRuns: function () { return _migrationManualRuns; }
+        migrationManualRuns: function () { return _migrationManualRuns; },
+        auditPageContext: auditPageContext, auditSafeSettings: auditSafeSettings,
+        auditSettingsChanged: auditSettingsChanged,
+        auditLog: function () { return _audit; },
+        initBetaRuntime: initBetaRuntime, initBetaTools: initBetaTools,
+        showExpiredBeta: showExpiredBeta, shareDiagnostic: shareDiagnostic,
+        betaState: function () { return _betaState; }
       };
+      var bootBeta = initBetaRuntime();
       migrateHomeKeys();
       buildNav();
       bindKeyHelpers();
       initPullToRefresh();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
-      loadSettings();
-      updateCsvStatus();
-      updateMyYear();
-      renderFavs();
+      if (!bootBeta.expired) loadSettings();
+      initAuditLog();
+      initBetaTools();
+      if (bootBeta.expired) {
+        showExpiredBeta();
+      } else {
+        updateCsvStatus();
+        updateMyYear();
+        renderFavs();
+      }
       // A scouted place survives a relaunch: it cost three calls and it is one
       // slot, so re-fetching it because the app restarted would be spending
       // the budget to redraw something already on disk.
