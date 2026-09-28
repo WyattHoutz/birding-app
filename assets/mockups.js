@@ -600,6 +600,28 @@ const REVIEW_SHOTS = [
            await FIX.prepare('abaBtn', spec, A, document, sec);
            document.querySelector('#abaSortPick [data-abasort="distance"]').click();
            return true;` },
+  { id: 'f629-nightly', at: 'bcBody',
+    title: 'Nightly Migration — list migrants and explain BirdCast destinations',
+    host: 'bcBody', fullPage: true,
+    prep: `var anchor = document.getElementById('bcBody');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareF629Nightly(A, document, sec);` },
+  { id: 'f629-birdgen', at: 'surgeBtn',
+    title: 'Bird Gen — separate high migration tonight and last night',
+    host: 'surgeResults', fullPage: true,
+    prep: `var anchor = document.getElementById('surgeBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareF629BirdGen(A, document, sec);` },
+  { id: 'f630-birdgen-top', at: 'surgeBtn',
+    title: 'Bird Gen — responsive Display profile layout',
+    host: 'surgeResults', fullPage: true,
+    prep: `var anchor = document.getElementById('surgeBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           await FIX.prepareF629BirdGen(A, document, sec);
+           return true;` },
 ];
 
 const SHOTS = [
@@ -710,7 +732,9 @@ const BOOTSTRAP = `
     localStorage.setItem('ebird_home_lat', '47.75');
     localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_display_name', 'Sample Birder');
-    localStorage.setItem('ebird_ui_scale', '__SCALE__');
+    var displayScale = Number('__SCALE__');
+    localStorage.setItem('bc_display_profile', displayScale > 1.3
+      ? 'high-visibility' : displayScale > 1 ? 'large' : 'standard');
     // THE BIRD ICON NEEDS THE SPECIES INDEX. rankLastNewHTML resolves a
     // species NAME to a CODE through the cached region index, and renders no
     // photo slot when it cannot — correct behaviour that makes the icon
@@ -1302,18 +1326,19 @@ const BOOTSTRAP = `
       fetchedAt: Date.now(),
       forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
       count: {
-        birds: 3471500,
-        label: 'Birds crossed King County last night (est.)'
+        birds: 1825700,
+        label: 'Birds crossed King County last night (est.)',
+        high: true,
+        countyLabel: 'King County',
+        dateRange: '9/27-28'
       },
       migrants: [
         { name: 'Swainson’s Thrush', speciesCode: 'swathr' },
         { name: 'Western Tanager', speciesCode: 'westan' },
-        { name: 'Yellow Warbler', speciesCode: 'yelwar' },
+        { name: 'Orange-crowned Warbler', speciesCode: 'orcwar' },
         { name: 'Black-throated Gray Warbler', speciesCode: 'btywar' },
         { name: 'Western Sandpiper', speciesCode: 'wessan' },
-        { name: 'Evening Grosbeak', speciesCode: 'evegro' },
-        { name: 'Orange-crowned Warbler', speciesCode: 'orcwar' },
-        { name: 'Wilson’s Warbler', speciesCode: 'wilwar' }
+        { name: 'Evening Grosbeak', speciesCode: 'evegro' }
       ],
       forecastError: '',
       countError: '',
@@ -1326,6 +1351,52 @@ const BOOTSTRAP = `
     note.textContent = 'REPRESENTATIVE BIRDCAST DATA · ' + label;
     host.insertBefore(note, host.firstChild);
     markHost(host, label);
+  }
+  function prepareF629Nightly(A, document, sec) {
+    var host = document.getElementById('bcBody');
+    fillBirdcast(host, 'F629 REVIEW', A);
+    if (host.querySelectorAll('.birdcast-migrant-list > li .thumb').length !== 6) {
+      throw new Error('expected migrants did not use shared small species cards');
+    }
+    if (host.querySelectorAll('.birdcast-destination').length !== 6) {
+      throw new Error('BirdCast destinations did not render');
+    }
+    sec.dataset.mockAt = 'bcBody';
+    sec.dataset.mockReady = 'true';
+    markHost(host, 'F629 REVIEW');
+    return true;
+  }
+  async function prepareF629BirdGen(A, document, sec) {
+    localStorage.setItem(A.homeKey('place'), 'Test Home');
+    fixtureBefore('surgeBtn', A, document);
+    var spec = ${JSON.stringify(STUB_SPEC.surgeBtn)};
+    await fixturePrepare('surgeBtn', spec, A, document, sec);
+    var feed = document.getElementById('surgeFeed');
+    var migration = feed
+      ? Array.from(feed.querySelectorAll('[data-alert-kind="migration"]')) : [];
+    if (migration.length !== 2) {
+      throw new Error('Bird Gen did not render two qualifying migration alerts');
+    }
+    var titles = migration.map(function (row) {
+      return row.querySelector('.surgealerttitle a').textContent.trim();
+    });
+    if (titles[0] !== 'High migration tonight'
+        || titles[1] !== '1.8M migration last night') {
+      throw new Error('Bird Gen migration titles changed: ' + titles.join(' | '));
+    }
+    migration[0].querySelector('.ntext > .sub').textContent =
+      'King County Birdcast Alert · 9/28-29';
+    migration[1].querySelector('.ntext > .sub').textContent =
+      'King County Birdcast Alert · 9/27-28';
+    var review = document.createElement('div');
+    review.className = 'mocklabel';
+    review.textContent =
+      'REVIEW STATE · both alerts qualify; Low and Medium forecasts stay out of Bird Gen';
+    feed.parentNode.insertBefore(review, feed);
+    sec.dataset.mockAt = 'surgeBtn';
+    sec.dataset.mockReady = 'true';
+    markHost(document.getElementById('surgeResults'), 'F629 REVIEW');
+    return true;
   }
   function fillHelp(host, label) {
     host.innerHTML = '<div class="mockfixture">'
@@ -1351,8 +1422,11 @@ const BOOTSTRAP = `
         fetchedAt: Date.now(),
         forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
         count: {
-          birds: 3471500,
-          label: 'Birds crossed King County last night (est.)'
+          birds: 1825700,
+          label: 'Birds crossed King County last night (est.)',
+          high: true,
+          countyLabel: 'King County',
+          dateRange: '9/27-28'
         },
         forecastError: '',
         countError: ''
@@ -2406,6 +2480,8 @@ const BOOTSTRAP = `
   window.FIX = {
     before: fixtureBefore,
     prepare: fixturePrepare,
+    prepareF629Nightly: prepareF629Nightly,
+    prepareF629BirdGen: prepareF629BirdGen,
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,

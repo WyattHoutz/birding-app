@@ -234,7 +234,7 @@
       "report": null,
       "map": null,
       "why": "app-only: API key / home / report picker",
-      "sub": "Region, text size, data"
+      "sub": "Region, display, data"
     },
     {
       "at": "recordBody",

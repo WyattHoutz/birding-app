@@ -24,7 +24,7 @@ test('mockup gallery parser keeps authored titles and image order', () => {
   ]);
 });
 
-test('mockup gallery builds three explicitly labelled device variants', () => {
+test('F630 mockup gallery builds every Display profile for every report', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-chaser-gallery-'));
   const input = path.join(root, 'input');
   const site = path.join(root, 'site');
@@ -46,15 +46,20 @@ test('mockup gallery builds three explicitly labelled device variants', () => {
   assert.equal(result.count, 1);
   const html = fs.readFileSync(path.join(site, 'mockups', 'v1.127.0', 'index.html'), 'utf8');
   assert.match(html, /Bird Chaser v1\.127\.0 mockups/);
-  assert.match(html, /<strong>iPhone 11<\/strong><span>414px · Normal text<\/span>/);
-  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Normal text<\/span>/);
+  assert.match(html, /<strong>iPhone 11<\/strong><span>414px · Standard \(1\.0x\)<\/span>/);
+  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Standard \(1\.0x\)<\/span>/);
+  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Large \(1\.3x\)<\/span>/);
   assert.match(html,
-    /<strong>iPhone 17 Pro<\/strong><span>402px · Huge text \(1\.75×\)<\/span>/);
+    /<strong>iPhone 17 Pro<\/strong><span>402px · High visibility \(1\.75x\)<\/span>/);
   assert.match(html, /iphone-11\/twitches-414px\.png/);
   assert.match(html, /iphone-17-pro\/twitches-402px\.png/);
+  assert.match(html, /iphone-17-pro-large\/twitches-402px\.png/);
   assert.match(html,
     /iphone-17-pro-max-magnification\/twitches-402px\.png/);
-  assert.match(html, /3 variants each/);
+  assert.match(html, /4 variants each/);
+  assert.deepEqual([...new Set(VARIANTS.map((variant) => variant.profile))].sort(),
+    ['high-visibility', 'large', 'standard'],
+    'the gallery omits one of the three Display profiles');
   assert.match(html, /Filter screenshots/);
   assert.ok(fs.existsSync(path.join(site, '.nojekyll')));
   assert.match(fs.readFileSync(path.join(site, 'index.html'), 'utf8'),

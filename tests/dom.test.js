@@ -8110,31 +8110,57 @@ test('every px font size in the stylesheet is multiplied by the --s scale', () =
     'the list thumbnail scales too');
 });
 
-test('the text-size control persists and drives the document scale', async () => {
+test('F630 Display profiles persist and drive scale plus accessibility treatment', async () => {
   const app = await boot();
   const html = app.document.documentElement;
-  assert.equal(app.window.__app.getUiScale(), 1, 'defaults to normal');
+  assert.equal(app.window.__app.getDisplayProfile(), 'standard');
+  assert.equal(app.window.__app.getUiScale(), 1, 'Standard defaults to 1.0x');
+  assert.equal(html.getAttribute('data-display'), 'standard');
+  assert.equal(html.getAttribute('data-a11y'), null);
 
-  const sel = app.$('uiScale');
-  assert.ok(sel, 'Settings has a text-size control');
-  assert.equal(sel.value, '1', 'the control shows the stored value');
+  const sel = app.$('displayProfile');
+  assert.ok(sel, 'Settings has one Display control');
+  assert.deepEqual([...sel.options].map((option) => option.textContent), [
+    'Standard (1.0x)', 'Large (1.3x)', 'High visibility (1.75x)'
+  ]);
+  assert.equal(sel.value, 'standard', 'the control shows the stored profile');
 
-  sel.value = '1.5';
+  sel.value = 'high-visibility';
   sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
-  assert.equal(html.style.getPropertyValue('--s'), '1.5', 'changing it applies immediately');
-  assert.equal(app.window.localStorage.getItem('ebird_ui_scale'), '1.5', 'and is persisted');
+  assert.equal(html.style.getPropertyValue('--s'), '1.75', 'changing it applies immediately');
+  assert.equal(html.getAttribute('data-display'), 'high-visibility');
+  assert.equal(html.getAttribute('data-a11y'), 'on',
+    'High visibility derives the larger targets and contrast treatment');
+  assert.equal(app.window.localStorage.getItem('bc_display_profile'), 'high-visibility',
+    'the semantic profile is persisted');
 
-  // Out-of-range values are clamped, not trusted: a corrupt entry that renders
-  // the app at 40x is unrecoverable without clearing storage on the device.
-  assert.equal(app.window.__app.setUiScale('99'), 2, 'clamped to the maximum');
-  assert.equal(app.window.__app.setUiScale('nonsense'), 1, 'garbage falls back to normal');
+  assert.equal(app.window.__app.setDisplayProfile('unknown'), 'standard',
+    'a corrupt profile fails closed to Standard');
+  assert.equal(html.style.getPropertyValue('--s'), '1');
+  assert.equal(html.getAttribute('data-a11y'), null);
 });
 
-test('a stored text size is applied before anything renders', async () => {
+test('F630 migrates legacy display settings before anything renders', async () => {
   const app = await boot({ storage: { ebird_ui_scale: '1.3' } });
   assert.equal(app.document.documentElement.style.getPropertyValue('--s'), '1.3',
     'the scale is live on boot, not only after opening Settings');
-  assert.equal(app.$('uiScale').value, '1.3', 'and Settings reflects it');
+  assert.equal(app.document.documentElement.getAttribute('data-display'), 'large');
+  assert.equal(app.document.documentElement.getAttribute('data-a11y'), 'on');
+  assert.equal(app.$('displayProfile').value, 'large', 'Settings reflects the migration');
+  assert.equal(app.window.localStorage.getItem('ebird_ui_scale'), null,
+    'the legacy scale is removed after migration');
+  app.window.close();
+
+  const easy = await boot({ storage: { bc_easyread: 'on', ebird_ui_scale: '1' } });
+  assert.equal(easy.window.__app.getDisplayProfile(), 'large',
+    'an Easy Read user is not silently returned to Standard');
+  assert.equal(easy.window.localStorage.getItem('bc_easyread'), null);
+  easy.window.close();
+
+  const largest = await boot({ storage: { ebird_ui_scale: '1.5' } });
+  assert.equal(largest.window.__app.getDisplayProfile(), 'high-visibility',
+    'a Largest user is not downscaled during migration');
+  largest.window.close();
 });
 /*
  * Quick outing anchors.
@@ -8972,9 +8998,10 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
 
   const rows = [...feed.children];
   assert.deepEqual(rows.map((row) => row.dataset.alertKind),
-    ['mega', 'migration', 'need', 'crowd', 'cascade', 'hotspot'],
+    ['mega', 'need', 'crowd', 'cascade', 'hotspot'],
     'Priority must order category severity first, then recency');
-  assert.equal(rows.length, 6, 'one of the six alert types disappeared');
+  assert.equal(rows.length, 5,
+    'a non-qualifying migration placeholder returned or a loaded alert disappeared');
   const expected = {
     mega: ['MEGA', '🦅'], migration: ['MIGRATION', '🌙'],
     need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
@@ -9034,7 +9061,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     el.dataset.countKind, Number(el.querySelector('b').textContent),
   ]));
   assert.deepEqual(counts, {
-    mega: 1, migration: 1, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 0, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
   },
     'the category counts were lost when their headings were removed');
   const cascade = feed.querySelector('[data-alert-kind="cascade"]');
@@ -9099,7 +9126,8 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
 
   const feed = app.$('surgeFeed');
   const rows = [...feed.children];
-  assert.equal(rows.length, 7, 'the fixture stopped exercising every news category');
+  assert.equal(rows.length, 6,
+    'the fixture stopped exercising a loaded category or restored the unconditional migration row');
   assert.equal(feed.querySelector('details'), null,
     'Bird Gen still contains a nested reports/checklists disclosure');
   assert.equal(feed.querySelector('.cklrows, .hsckl, .hslists, .surgehotdetail'), null,
@@ -9805,7 +9833,7 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
   assert.match(box.querySelector('.surgesourcewarn').textContent,
     /Mega snapshot not loaded yet/i,
     'a missing mega snapshot is being reported as zero megas');
-  assert.match(box.textContent, /No bird alerts are available from the sources that loaded/,
+  assert.match(box.textContent, /No alerts are available from the sources that loaded/,
     'an incomplete empty feed does not state the limited claim it can support');
   assert.doesNotMatch(box.textContent, /no eligible ABA Code 3\+ mega is news today/i,
     'not loaded was flattened into a definitive no-mega result');
@@ -10846,8 +10874,8 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.match(box.textContent, /Mega snapshot loading/i);
   assert.doesNotMatch(box.textContent, /open Mega rarities/i);
   assert.match(box.querySelector('[data-surge-visible-count]').textContent,
-    /1 alert/i,
-    'pending source work was presented as a definitive zero-alert result');
+    /0 loaded alerts/i,
+    'pending source work fabricated an alert before any qualifying result loaded');
   await waitFor(() => {
     return box.dataset.sourceLeaderboard !== 'loading'
       && box.dataset.sourceHotspots !== 'loading';
@@ -10898,7 +10926,7 @@ test('Happening now merges populated signals without burying the hotspot', async
   const feed = boxEl.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
   assert.ok(feed, 'the populated signals are not inside the unified feed');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['migration', 'crowd', 'cascade', 'hotspot'],
+    ['crowd', 'cascade', 'hotspot'],
     'the hotspot must remain visible after crowd and cascade in Priority order');
   const box = d.getElementById('surgeResults').innerHTML;
   assert.match(box, /class="ckgo"|class="extlink"/,
@@ -18882,10 +18910,13 @@ test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', as
   const hrefs = [...doc.querySelectorAll('#bcBody [data-href]')]
     .map((node) => node.getAttribute('data-href'));
   assert.deepEqual(
-    [...doc.querySelectorAll('#bcBody .birdcast-action')]
+    [...doc.querySelectorAll('#bcBody .birdcast-destination')]
       .slice(0, 4).map((node) => node.textContent.trim()),
-    ['Forecast', 'Live map', 'Local alert', 'Lights Out'],
-    'forecast, live radar, local alert, and Lights Out are not separate actions');
+    ['🌙Tonight’s forecastPlan before sunset›',
+      '📡Live migration mapSee what radar detects now›',
+      '🔔Alert for your HomeBirdCast’s location forecast›',
+      '💡Lights Out guidanceReduce collision risk on busy nights›'],
+    'BirdCast destinations do not explain what each official link opens');
   assert.match(text, /migration count loading/i);
   assert.doesNotMatch(text, /forecast is live|radar forecast/i);
   assert.ok(hrefs.some((href) => /migration-forecast-maps\/$/.test(href)));
@@ -18913,9 +18944,8 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   app.window.localStorage.removeItem(A.homeKey('lat'));
   app.window.localStorage.removeItem(A.homeKey('lng'));
   app.window.localStorage.removeItem(A.homeKey('place'));
-  const fallback = A.birdcastSurgeRow(daytime);
-  assert.ok(fallback, 'the active-season migration headline disappeared');
-  assert.match(fallback.name, /Loading migration/);
+  assert.equal(A.birdcastSurgeRows(daytime).length, 0,
+    'Bird Gen advertised migration before a qualifying BirdCast result loaded');
   const fallbackState = A.birdcastAlertState(daytime);
   assert.match(fallbackState.url,
     new RegExp('latLng=' + encodeURIComponent(report.home.lat + ',' + report.home.lng)));
@@ -18928,37 +18958,37 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   assert.match(header.textContent, /Checking migration size/i);
   assert.match(header.getAttribute('aria-label'), /loading/i);
   assert.match(app.document.getElementById('bcBody').textContent, /Lights Out/i);
-  assert.match(app.document.getElementById('bcBody').textContent, /Local alert/i);
+  assert.match(app.document.getElementById('bcBody').textContent, /Alert for your Home/i);
 
   app.window.localStorage.setItem(A.homeKey('lat'), '47.5000');
   app.window.localStorage.setItem(A.homeKey('lng'), '-122.3000');
   app.window.localStorage.setItem(A.homeKey('place'), 'Test Home');
-  const saved = A.birdcastSurgeRow(daytime);
   const savedState = A.birdcastAlertState(daytime);
   assert.match(savedState.url, /latLng=47\.5%2C-122\.3/);
   assert.match(savedState.url, /locName=Test%20Home/);
-  assert.match(saved.name, /Loading migration/);
-  assert.match(saved.where, /Test Home migration alert/);
-  assert.match(saved.extra, /Direct from BirdCast/i);
+  assert.equal(A.birdcastSurgeRows(daytime).length, 0,
+    'Bird Gen advertised a saved-Home forecast before it qualified');
   const forecastBadge = A.birdcastMenuBadge(daytime);
   assert.equal(forecastBadge.label, 'FORECAST');
   app.window.close();
 });
 
-test('F607 BirdCast level and county count render in-app and open Nightly Migration', async () => {
-  const daytime = new Date('2026-09-27T17:00:00Z');
+test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen alerts', async () => {
+  const daytime = new Date('2026-09-28T17:00:00Z');
   const nuxt = '<script>window.__NUXT__=(function(a,b,c){return {state:{env:{'
     + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
     + '"PUBLIC_CLIENT_KEY",null));</script>';
   const forecast = {
     forecastNights: [{
       code: 3, raw: 25.56, total: 7787, totalMin: 7525,
-      totalMax: null, date: '2026-09-27T00:00:00',
+      totalMax: null, date: '2026-09-28T00:00:00',
     }],
   };
   const dashboard = '<span id="total-passed">0</span>'
-    + '<span class="is-visuallyHidden">3471500</span>'
+    + '<span class="is-visuallyHidden">1825700</span>'
     + '<span>Birds crossed King County last night (est.)</span>'
+    + '<div class="Badge Badge--small Badge--error">'
+    + '<span class="Badge-label">High</span></div>'
     + '<script>window.__NUXT__=(function(a,b,c,d){return {config:{baseUrl:a,'
     + 'bcApiKey:b},nested:c}}("https:\\u002F\\u002Fdashboard.birdcast.org",'
     + '"DASHBOARD_PUBLIC_KEY",["comma,inside",{x:"value"}],null));</script>';
@@ -18966,7 +18996,8 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
     dataRows: [
       { name: 'Swainson’s Thrush', speciesCode: 'swathr', taxon: 'Catharus ustulatus' },
       { name: 'Western Tanager', speciesCode: 'westan', taxon: 'Piranga ludoviciana' },
-      { name: 'Yellow Warbler', speciesCode: 'yelwar', taxon: 'Setophaga petechia' },
+      { name: 'Orange-crowned Warbler', speciesCode: 'orcwar',
+        taxon: 'Leiothlypis celata' },
     ],
   };
   const app = await boot({
@@ -18974,7 +19005,8 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
     fetch(url) {
       if (String(url).startsWith('https://alert.birdcast.org/?')) return nuxt;
       if (String(url).includes('/api/is-birdcast-alert-api/')) return forecast;
-      if (String(url) === 'https://dashboard.birdcast.org/region/US-WA-033') {
+      if (String(url)
+          === 'https://dashboard.birdcast.org/region/US-WA-033?night=2026-09-27') {
         return dashboard;
       }
       if (String(url).startsWith(
@@ -18986,27 +19018,41 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
     },
   });
   const A = app.window.__app;
+  app.window.localStorage.setItem(A.homeKey('place'), 'Test Home');
   assert.equal(A.birdcastPublicKey(nuxt), 'PUBLIC_CLIENT_KEY');
   const dashboardConfig = A.birdcastDashboardConfig(dashboard);
   assert.equal(dashboardConfig.baseUrl, 'https://dashboard.birdcast.org');
   assert.equal(dashboardConfig.apiKey, 'DASHBOARD_PUBLIC_KEY');
-  assert.equal(A.birdcastMillions(3471517), '3.5 million birds');
+  assert.equal(A.birdcastMillions(1825700), '1.8 million birds');
+  assert.equal(A.birdcastCountFromHtml(dashboard).high, true,
+    'BirdCast’s official county-specific High classification was discarded');
+  assert.equal(A.birdcastNightRange({ year: 2026, month: 9, day: 28 }), '9/27-28');
+  assert.equal(A.birdcastNightRange({ year: 2026, month: 10, day: 1 }), '9/30-10/1');
+  assert.equal(A.birdcastNightRange({ year: 2027, month: 1, day: 1 }), '12/31-1/1');
+  assert.equal(A.birdcastTonightRange({ year: 2026, month: 9, day: 28 }), '9/28-29');
+  assert.equal(A.birdcastTonightRange({ year: 2026, month: 9, day: 30 }), '9/30-10/1');
   const snapshot = await A.renderBirdcast(daytime);
   const body = app.$('bcBody');
   assert.match(body.textContent, /HIGH/);
   assert.match(body.textContent, /Heavy migration expected tonight/);
   assert.match(body.textContent,
-    /3\.5 million birds crossed King County last night \(est\.\)/);
+    /1\.8 million birds crossed King County last night \(est\.\)/);
   assert.deepEqual(JSON.parse(JSON.stringify(snapshot.migrants)),
     migrants.dataRows.map(({ name, speciesCode }) => ({ name, speciesCode })));
   assert.match(body.textContent,
-    /Expected nocturnal migrants.*Swainson’s Thrush.*Western Tanager.*Yellow Warbler/s,
+    /Expected nocturnal migrants.*Swainson’s Thrush.*Western Tanager.*Orange-crowned Warbler/s,
     'Nightly Migration did not show BirdCast’s parsed expected-migrant list');
+  assert.equal(body.querySelectorAll('.birdcast-migrant-list > li .thumb').length, 3,
+    'expected migrants did not use the shared small species card with photo slots');
+  await waitFor(() => [...body.querySelectorAll('.birdcast-migrant-list .thumb')]
+    .every((slot) => slot.querySelector('img')),
+  'bundled expected-migrant photos to settle', 5000);
   assert.deepEqual(
-    Array.from(body.querySelectorAll('.birdcast-action'), (link) =>
-      link.textContent.trim()).slice(0, 4),
-    ['Forecast', 'Live map', 'Local alert', 'Lights Out'],
-    'Nightly Migration does not put its external tools in a compact button row');
+    Array.from(body.querySelectorAll('.birdcast-destination strong'), (node) =>
+      node.textContent.trim()).slice(0, 4),
+    ['Tonight’s forecast', 'Live migration map', 'Alert for your Home',
+      'Lights Out guidance'],
+    'Nightly Migration does not label its BirdCast destinations clearly');
   const alertArt = body.querySelector('.birdcast-alert-icon .birdcast-flight-high');
   assert.equal(alertArt?.textContent, 'HIGH',
     'Nightly Migration does not pair the cutout flock with its printed level');
@@ -19014,24 +19060,45 @@ test('F607 BirdCast level and county count render in-app and open Nightly Migrat
     /\.birdcast-flight-high\s*\{\s*--migration-art:\s*url\("assets\/migration-high\.png"\)/,
     'Nightly Migration lost the shape-cut High migration flock');
 
-  const row = A.birdcastSurgeRow(daytime, snapshot);
-  assert.match(row.icon, /data-birdcast-level="HIGH"/,
+  const rows = A.birdcastSurgeRows(daytime, snapshot);
+  assert.equal(rows.length, 2,
+    'Bird Gen did not split tonight’s High forecast from last night’s High count');
+  assert.match(rows[0].icon, /data-birdcast-level="HIGH"/,
     'Bird Gen still uses the generic place-map thumbnail');
-  assert.match(row.icon, /birdcast-flight-high/,
+  assert.match(rows[0].icon, /birdcast-flight-high/,
     'Bird Gen migration icon does not use the High migration cutout flock');
-  assert.match(row.icon, /birdcast-flight-label">HIGH</,
+  assert.match(rows[0].icon, /birdcast-flight-label">HIGH</,
     'Bird Gen migration artwork does not print its level directly');
-  assert.match(row.name, />High migration</,
-    'Bird Gen still phrases the level as “Current migration: High”');
-  assert.match(row.why,
-    /High migration.*3\.5 million birds crossed King County last night/s);
+  assert.match(rows[0].name, />High migration tonight</);
+  assert.equal(rows[0].alpha, '',
+    'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
+  assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
+  assert.match(rows[0].noteHeader, /Heavy migration expected tonight/);
+  assert.match(rows[1].name, />1\.8M migration last night</);
+  assert.match(rows[1].where, /King County Birdcast Alert · 9\/27-28/);
+  assert.match(rows[1].noteHeader,
+    /1\.8 million birds crossed King County last night/);
+  assert.match(rows[1].icon, /birdcast-flight-label">1\.8M</,
+    'last night’s measured count is not printed inside its migration tile');
+  assert.equal(rows[1].ageLabel, 'Last night');
+
+  const low = JSON.parse(JSON.stringify(snapshot));
+  low.forecast.level = 'Low';
+  assert.equal(A.birdcastSurgeRows(daytime, low).map((row) => row.name).join(''),
+    rows[1].name,
+    'Bird Gen treated an ordinary Low forecast as news');
+  low.count.high = false;
+  assert.equal(A.birdcastSurgeRows(daytime, low).length, 0,
+    'Bird Gen showed last night without BirdCast’s official High classification');
+  assert.match(HTML,
+    /\.surgebirdcastthumb \.birdcast-flight-label\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s,
+    'Bird Gen migration labels can overflow and crop HIGH or the measured count');
   const holder = app.document.createElement('div');
-  holder.innerHTML = row.icon + row.name;
+  holder.innerHTML = rows[0].icon + rows[0].name;
   app.document.body.appendChild(holder);
   holder.querySelector('.seclink').click();
   assert.equal(app.$('sec-bcBody').hidden, false,
     'Bird Gen BirdCast did not open Nightly Migration');
-  app.window.close();
 });
 
 test('F623 Settings performance table prints measured verdict labels', async () => {
@@ -27015,10 +27082,10 @@ test('F526 Bird Gen always uses Buzz ordering and renders no sort control', asyn
     const link = row.querySelector('.ntext a');
     return (link || row.querySelector('.ntext')).textContent.trim().split(/\s{2,}/)[0];
   });
-  assert.deepEqual(order(), ['migration', 'need', 'crowd', 'crowd', 'cascade'],
+  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
     'Buzz must rank category severity before report time');
-  assert.match(names()[2], /Baird's Sandpiper/);
-  assert.match(names()[3], /Ruff/,
+  assert.match(names()[1], /Baird's Sandpiper/);
+  assert.match(names()[2], /Ruff/,
     'Priority did not use recency as the tiebreak inside the CROWD category');
   const before = app.state.fetches.length;
   assert.equal(app.document.querySelector('[data-surge-sort], .surgesortrow'), null,
@@ -27095,7 +27162,7 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
   assert.equal(app.document.querySelector('.surgefilterbtn'), null,
     'Bird Gen still renders an Unseen filter');
   assert.deepEqual(visibleKinds(),
-    ['mega', 'migration', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
+    ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
     'Bird Gen hides seen alerts instead of showing the complete report');
   assert.equal(feed.querySelector('[data-alert-kind="mega"]').dataset.surgeSeen, 'seen',
     'a newly discovered mega was not rechecked against the active report after merging');
@@ -27103,12 +27170,12 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
     'not-applicable', 'the species-blind hotspot was falsely called unseen');
   assert.equal(app.document.querySelector('.surgesortrow'), null,
     'Bird Gen still renders its removed order controls');
-  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '7 alerts');
+  assert.equal(app.document.querySelector('[data-surge-visible-count]').textContent, '6 alerts');
   assert.equal(app.document.querySelector('[data-surge-hidden-count]'), null);
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
     .map((el) => [el.dataset.countKind, Number(el.querySelector('b').textContent)]));
   assert.deepEqual(counts(), {
-    mega: 1, migration: 1, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 0, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
   },
     'category counts do not describe the complete Bird Gen report');
 
@@ -27180,11 +27247,11 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
   assert.match(hot.querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
     'the hotspot Notes date does not open the newest hot checklist');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['migration', 'crowd', 'hotspot'],
+    ['crowd', 'hotspot'],
     'Priority order should still put CROWD ahead of HOTSPOT');
   assert.equal(app.document.querySelector('[data-surge-sort]'), null);
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['migration', 'crowd', 'hotspot'],
+    ['crowd', 'hotspot'],
     'the fixed Buzz order changed after rendering hotspot timing');
   app.window.close();
 });
@@ -28300,7 +28367,7 @@ test('the F8 probe can tell a login page from a wrong URL', () => {
     'the result goes to the debug log, so it can be pasted rather than retyped');
 });
 
-// ---- F142 "Easy read" -------------------------------------------------------
+// ---- F630 combined Display profiles ----------------------------------------
 // The audience reason is the whole feature: a lot of birders are seniors with
 // poor reading vision, reading outdoors at dawn through varifocals. These guard
 // the parts most easily lost to a later restyle.
@@ -28314,20 +28381,17 @@ test('pinch-zoom is never disabled, because it is the reader\'s last resort', ()
   assert.ok(!/maximum-scale\s*=\s*1/i.test(vp), 'viewport pins maximum-scale, which also blocks zoom');
 });
 
-test('Easy read composes with text size instead of overriding it', () => {
-  // Two independent keys. If Easy read ever wrote the text-size key, turning it
-  // on would silently discard a choice the reader made deliberately.
-  assert.ok(/A11Y_KEY\s*=\s*'bc_easyread'/.test(HTML), 'Easy read has no key of its own');
-  const setA11y = (HTML.match(/function setA11y\([\s\S]{0,600}?\n      \}/) || [''])[0];
-  assert.ok(setA11y, 'setA11y not found');
-  assert.ok(!/UI_SCALE_KEY|applyUiScale|setUiScale/.test(setA11y),
-    'Easy read touches the text-size setting, so it can clobber it');
-  // ...and the reverse: text size must not clear Easy read.
-  const setScale = (HTML.match(/function setUiScale\([\s\S]{0,600}?\n      \}/) || [''])[0];
-  assert.ok(!/A11Y_KEY|applyA11y/.test(setScale), 'text size touches Easy read');
+test('F630 has one semantic Display profile instead of independent size and Easy Read', () => {
+  assert.ok(/DISPLAY_KEY\s*=\s*'bc_display_profile'/.test(HTML));
+  assert.ok(/standard:\s*\{\s*scale:\s*1,\s*easy:\s*false/.test(HTML));
+  assert.ok(/large:\s*\{\s*scale:\s*1\.3,\s*easy:\s*true/.test(HTML));
+  assert.ok(/'high-visibility':\s*\{\s*scale:\s*1\.75,\s*easy:\s*true/.test(HTML));
+  assert.ok(/id="displayProfile"/.test(HTML), 'the combined Display control is absent');
+  assert.ok(!/id="uiScale"|id="a11yMode"/.test(HTML),
+    'the superseded Text size or Easy Read control remains visible');
 });
 
-test('Easy read buys 44px tap targets, not just bigger text', () => {
+test('F630 larger Display profiles buy 44px tap targets, not just bigger text', () => {
   // Size alone would fail the people it is for: a control that is hard to see
   // is also hard to hit.
   const m = HTML.match(/html\[data-a11y="on"\][\s\S]{0,1400}?min-height:\s*44px/);
@@ -28338,10 +28402,19 @@ test('Easy read buys 44px tap targets, not just bigger text', () => {
   }
 });
 
-test('Easy read is reachable from Settings and remembers itself', () => {
-  assert.ok(/id="a11yMode"/.test(HTML), 'no Easy read control');
-  assert.ok(/\$\('a11yMode'\)\.value = getA11y\(\)/.test(HTML), 'control does not load its saved value');
-  assert.ok(/a11yMode'\)\.addEventListener\('change'/.test(HTML), 'control is not wired to anything');
+test('F630 High visibility owns the responsive header and Bird Gen card hierarchy', () => {
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] header \.brandtext\s*\{\s*display:\s*none/,
+    'the redundant visible Bird Chaser wordmark remains at High visibility');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] \.hdrid \.hdrstat\s*\{[^}]*var\(--s\)/,
+    'the upper-right values do not scale with the selected profile');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] \.surgefeed \.surgealerttitle\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
+    'the Huge alert title is not its own full-width row');
+  assert.match(HTML,
+    /\.surgefeed > li > \.name > \.ntext > \.sub\s*\{[^}]*font-size:\s*calc\(13px \* var\(--s\)\)/,
+    'the Huge source line does not match the explanation text size');
 });
 
 test('reduced motion is honoured app-wide, not on one spinner', () => {
@@ -30087,7 +30160,7 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
   assert.ok(feed, 'mega alerts did not use the unified feed');
   assert.equal(box.querySelectorAll('.lanehead').length, 0, 'the old mega lane heading survived');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['mega', 'mega', 'migration']);
+    ['mega', 'mega']);
   const txt = box.textContent;
   assert.match(txt, /Nazca Booby/, 'the near + unseen mega did not render');
   assert.match(txt, /Sharp-tailed Sandpiper/, 'the far + new mega did not render');

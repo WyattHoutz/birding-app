@@ -1,6 +1,6 @@
 {
   "name": "birding-app",
-  "version": "1.131.3",
+  "version": "1.131.4",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "mockups": "node assets/mockups.js",
     "mockup:alertfeed": "node assets/mockup-alertfeed.js",
     "audit:colour": "node assets/audit-colour.js",
-    "test:layout": "node assets/audit-overflow.js 320 1.75 easyread && node assets/audit-overflow.js 320 1.75 && node assets/audit-overflow.js 375 1.75 && node assets/audit-overflow.js 393 1 && node assets/audit-overflow.js 402 1 && node assets/audit-overflow.js 430 1"
+    "test:layout": "node assets/audit-overflow.js 320 1.75 && node assets/audit-overflow.js 375 1.75 && node assets/audit-overflow.js 402 1.75 && node assets/audit-overflow.js 320 1.3 && node assets/audit-overflow.js 393 1 && node assets/audit-overflow.js 430 1"
   },
   "keywords": [],
   "author": "",

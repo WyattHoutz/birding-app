@@ -425,16 +425,9 @@
       --warn-ink: var(--dark-warn-ink);
       --shadow: none;
     }
-    /* ---- F142 "Easy read" -------------------------------------------------
-       Turned on from Settings. It COMPOSES with the text-size setting above and
-       never overrides it - someone already on Huge stays on Huge, because
-       silently replacing a choice the reader made deliberately would be the
-       wrong move here twice over.
-
-       Size alone would not do it. Bigger type in the same box is WORSE than no
-       change, because crowding is what makes large text unreadable. So this
-       buys the things that have to come with size: tap targets, spacing,
-       contrast, and a focus ring you can actually find. */
+    /* Large and High visibility derive the former Easy Read treatment from
+       the one Display profile. Size alone would make crowded text worse, so
+       the larger profiles also buy tap targets, spacing, contrast and focus. */
     html[data-a11y="on"] {
       --muted: #33413a;   /* the ordinary muted grey is decorative, not legible */
       --line:  #8fa197;   /* borders you can actually locate */
@@ -714,6 +707,27 @@
              min-width: 44px; min-height: 44px; }
     @media (max-width: 359px) { .hdrid { display: none; } }
     html[data-a11y="on"] .hdrid { display: none; }
+    html[data-display="high-visibility"] header {
+      display: grid; grid-template-columns: auto minmax(0, 1fr);
+      grid-template-rows: auto auto; align-items: start; gap: 4px 10px;
+    }
+    html[data-display="high-visibility"] header > .brand {
+      grid-column: 1; grid-row: 1 / span 2;
+    }
+    html[data-display="high-visibility"] header .brandtext { display: none; }
+    html[data-display="high-visibility"] header > .hdrscope {
+      grid-column: 2; grid-row: 1; justify-self: end; margin-left: 0;
+    }
+    html[data-display="high-visibility"] header > .hdrid {
+      display: block; grid-column: 2; grid-row: 2; justify-self: end;
+      margin-left: 0;
+    }
+    html[data-display="high-visibility"] .hdrid .hdrname {
+      font-size: calc(15px * var(--s));
+    }
+    html[data-display="high-visibility"] .hdrid .hdrstat {
+      font-size: calc(13px * var(--s));
+    }
     /* F200. The scope CODE in the top bar — US-WA, or US-WA-033 when a county
        view is on. A real button, 44px, because it opens the pickers. The code
        is an abbreviation, so the sentence is on aria-label. */
@@ -1432,20 +1446,28 @@
     .birdcast-migrants { margin: 12px 0; }
     .birdcast-migrants-title { margin: 0 0 7px; font-size: calc(16px * var(--s));
       font-weight: 900; }
-    .birdcast-migrant-grid { display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .birdcast-migrant { display: flex; align-items: center; min-height: 36px;
-      padding: 6px 9px; box-sizing: border-box; border: 1px solid var(--line);
-      border-radius: 9px; background: var(--card); font-size: calc(13px * var(--s));
-      font-weight: 750; line-height: 1.2; }
+    .birdcast-migrant-list { margin: 0; }
+    .birdcast-migrant-list > li { padding: 7px 0; }
+    .birdcast-migrant-list .name { min-height: 46px; }
     .birdcast-migrants-loading, .birdcast-migrants-empty {
       color: var(--muted); font-size: calc(13px * var(--s)); }
-    .birdcast-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px; margin: 10px 0; }
-    .birdcast-action { display: grid; place-items: center; min-height: 42px;
-      padding: 8px 10px; box-sizing: border-box; border: 2px solid var(--safe-blue);
-      border-radius: 10px; background: var(--card); color: var(--link);
-      font-weight: 800; line-height: 1.15; text-align: center; text-decoration: none; }
+    .birdcast-destinations { display: grid; gap: 8px; margin: 11px 0; }
+    .birdcast-destinations > a.birdcast-destination { display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+      min-height: 58px; margin-top: 0; padding: 9px 11px; box-sizing: border-box;
+      border: 2px solid var(--safe-blue); border-radius: 12px;
+      background: var(--card); color: var(--ink); font-size: inherit;
+      font-weight: inherit; text-decoration: none; }
+    .birdcast-destination-icon { display: grid; place-items: center;
+      width: 38px; height: 38px; border-radius: 10px;
+      background: var(--bg); font-size: calc(23px * var(--s)); }
+    .birdcast-destination-copy { display: grid; gap: 2px; min-width: 0; }
+    .birdcast-destination-copy strong { color: var(--link);
+      font-size: calc(15px * var(--s)); line-height: 1.15; }
+    .birdcast-destination-copy small { color: var(--muted);
+      font-size: calc(12px * var(--s)); line-height: 1.25; }
+    .birdcast-destination-arrow { color: var(--safe-blue);
+      font-size: calc(23px * var(--s)); font-weight: 900; }
     .leaflet-div-icon { background: transparent; border: none; }
     .pinbubble { width: calc(24px * var(--s)); height: calc(24px * var(--s)); border-radius: 50%; background: var(--pin, #e5484d); color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: calc(24px * var(--s) - 4px); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
     .pinbubble.home { background: var(--accent); }
@@ -2033,7 +2055,7 @@
     .surgecount b { color: var(--ink); font-variant-numeric: tabular-nums; }
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
-    .surgefeed > li > .name { align-items: flex-start; gap: 10px; }
+    .surgefeed.obs.card-sm > li > .name { align-items: flex-start; gap: 10px; }
     .surgefeed > li > .name.surgeheadline { cursor: pointer; border-radius: 8px; }
     .surgefeed > li > .name.surgeheadline:focus-visible {
       outline: 3px solid var(--safe-blue); outline-offset: 3px;
@@ -2067,6 +2089,40 @@
     }
     .surgeexplain > .surgebadge { margin-right: 6px; vertical-align: 1px; }
     .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
+    .surgealerttitle { display: inline; }
+    html[data-display="high-visibility"] .surgefeed > li {
+      border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+      padding: 0 0 16px; margin: 0 0 18px; background: var(--card);
+    }
+    html[data-display="high-visibility"] .surgefeed.obs.card-sm > li > .name {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start; gap: 0 14px; min-height: 0;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .name > .thumb {
+      grid-column: 1 / -1; grid-row: 1; width: 100%; height: auto;
+      aspect-ratio: 3 / 2; margin: 0 0 14px; border-radius: 0;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .name > .thumb .birdpic {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .name > .ntext {
+      display: contents;
+    }
+    html[data-display="high-visibility"] .surgefeed .surgealerttitle {
+      display: block; grid-column: 1 / -1; grid-row: 2;
+      padding: 0 16px; margin-bottom: 12px; font-weight: 800;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .name > .ntext > .sub {
+      display: block; grid-column: 1; grid-row: 3; min-width: 0;
+      padding: 0 0 0 16px; margin-top: 0; color: var(--muted);
+      font-size: calc(13px * var(--s)); line-height: 1.35;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .name > .surgekindwrap {
+      grid-column: 2; grid-row: 3; margin: 0 16px 0 0;
+    }
+    html[data-display="high-visibility"] .surgefeed > li > .surgeexplain {
+      margin-top: 14px; padding: 0 16px;
+    }
     .surgebirdtag { display: inline-flex; align-items: center; margin-left: 6px;
                     padding: 2px 6px; border-radius: 6px; white-space: nowrap;
                     vertical-align: 2px; font-size: calc(10.5px * var(--s));
@@ -2085,6 +2141,14 @@
       background: #06152F;
       color: var(--ink); font-size: calc(11px * var(--s)); font-weight: 900;
       letter-spacing: .025em; line-height: 1; text-align: center; text-decoration: none; }
+    .surgebirdcastthumb .birdcast-flight { min-height: 0; height: 100%; }
+    .surgebirdcastthumb .birdcast-flight-label { position: absolute; z-index: 2;
+      left: 0; right: 0; bottom: 0; width: auto; padding: 4px 0;
+      font-size: calc(14px * var(--s)); letter-spacing: .025em; }
+    .surgebirdcastthumb .birdcast-flight-low .birdcast-flight-label {
+      font-size: calc(15px * var(--s)); letter-spacing: .04em; }
+    .surgebirdcastthumb.birdcast-count-tile .birdcast-flight-label {
+      font-size: calc(13px * var(--s)); letter-spacing: .02em; }
     .surgeheld { margin: 11px 0 0; padding-top: 10px; border-top: 2px solid var(--line);
                  color: var(--muted); font-size: calc(12px * var(--s)); line-height: 1.45; }
     .surgeheld b { color: var(--ink); }
@@ -3515,15 +3579,13 @@
 
     <section class="panel" id="settingsPanel" hidden>
       <h2>⚙️ Settings</h2>
-      <label for="uiScale">Text size</label>
-      <select id="uiScale">
-        <option value="1">Normal</option>
-        <option value="1.15">Large</option>
-        <option value="1.3">Larger</option>
-        <option value="1.5">Largest</option>
-        <option value="1.75">Huge</option>
+      <label for="displayProfile">Display</label>
+      <select id="displayProfile">
+        <option value="standard">Standard (1.0x)</option>
+        <option value="large">Large (1.3x)</option>
+        <option value="high-visibility">High visibility (1.75x)</option>
       </select>
-      <p class="hint">Scales every label, list and bird photo in the app. Applies immediately — no need to save.</p>
+      <p class="hint">Scales text, photos, tap targets, spacing and contrast together. High visibility also reflows crowded cards and controls. Applies immediately.</p>
       <label for="sciNames">Scientific names</label>
       <select id="sciNames">
         <option value="on">Show</option>
@@ -3537,14 +3599,7 @@
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>
-      <p class="hint">System follows your phone. An explicit choice wins until you set it back &mdash; picking Light keeps the app light even when the phone is dark. Easy read below is a separate switch and works with any of the three.</p>
-
-      <label for="a11yMode">Easy read</label>
-      <select id="a11yMode">
-        <option value="off">Off</option>
-        <option value="on">On</option>
-      </select>
-      <p class="hint">Bigger tap targets, more space between things, stronger contrast, underlined links and a focus ring you can see. Works <strong>with</strong> the text size above rather than replacing it — if you are on Huge, you stay on Huge.</p>
+      <p class="hint">System follows your phone. An explicit choice wins until you set it back &mdash; picking Light keeps the app light even when the phone is dark.</p>
       <label for="mapProvider">Maps app</label>
       <select id="mapProvider">
         <option value="google">Google Maps</option>
@@ -3830,8 +3885,8 @@
       // public ABA archive. Sharing them is not a shortcut, it is the point —
       // eBird runs at 0.37 calls/sec and the hotspot index alone is a measured
       // 9.3-second call, so duplicating them per profile would triple the API
-      // cost of the very thing being tested. `bc_easyread` is shared too: text
-      // scale is about the reader's eyes, not the account.
+      // cost of the very thing being tested. Display preferences are shared
+      // too: they are about the reader's eyes, not the account.
       //
       // The pointer itself is NEVER namespaced, or switching could not find its
       // way back. An empty profile means "no prefix", so every device that
@@ -3855,7 +3910,9 @@
         'ebird_aba_archive_v1',     // the ABA alert archive
         'bc_county_meta_v1:',       // static eBird county names + bounds
         'ebird_first_year_v1:',     // public regional bird-list facts
-        'bc_easyread',              // accessibility, not identity
+        'bc_display_profile',       // accessibility, not identity
+        'ebird_ui_scale',           // legacy display preference, for migration
+        'bc_easyread',              // legacy display preference, for migration
         'bc_theme'                  // a look, not a list - shared like text size
       ];
       var _rawLS = window.localStorage;
@@ -4048,7 +4105,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.3';
+      var APP_VERSION = '1.131.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4548,51 +4605,64 @@
     try { localStorage.setItem('ebird_seed_dismissed', '1'); } catch (e) { }
     return n;
   }
-      // Text scale for low-vision readers. Applied to <html> as a CSS custom
-      // property, which every px font-size and picture box in the stylesheet
-      // multiplies through. Read and applied before first paint of any section
-      // so nothing renders at the wrong size and reflows.
+      // One Display choice owns scale, spacing, targets and contrast. The
+      // semantic attribute handles responsive content; --s remains the shared
+      // numeric input for every scaled box and font.
+      var DISPLAY_KEY = 'bc_display_profile';
+      var DISPLAY_PROFILES = {
+        standard: { scale: 1, easy: false },
+        large: { scale: 1.3, easy: true },
+        'high-visibility': { scale: 1.75, easy: true }
+      };
       var UI_SCALE_KEY = 'ebird_ui_scale';
-      var UI_SCALE_MIN = 1, UI_SCALE_MAX = 2;
-      function getUiScale() {
-        var v = parseFloat(localStorage.getItem(UI_SCALE_KEY) || '');
-        if (!isFinite(v) || v < UI_SCALE_MIN || v > UI_SCALE_MAX) return 1;
-        return v;
+      var A11Y_KEY = 'bc_easyread';
+      function legacyDisplayProfile() {
+        var scale = parseFloat(localStorage.getItem(UI_SCALE_KEY) || '');
+        var easy = localStorage.getItem(A11Y_KEY) === 'on';
+        if (!isFinite(scale)) scale = 1;
+        if (scale > 1.3) return 'high-visibility';
+        if (easy || scale > 1) return 'large';
+        return 'standard';
       }
-      function applyUiScale(v) {
-        document.documentElement.style.setProperty('--s', String(v));
+      function getDisplayProfile() {
+        var name = localStorage.getItem(DISPLAY_KEY);
+        if (DISPLAY_PROFILES[name]) return name;
+        name = legacyDisplayProfile();
+        localStorage.setItem(DISPLAY_KEY, name);
+        localStorage.removeItem(UI_SCALE_KEY);
+        localStorage.removeItem(A11Y_KEY);
+        return name;
+      }
+      function applyDisplayProfile(name) {
+        var profile = DISPLAY_PROFILES[name] || DISPLAY_PROFILES.standard;
+        document.documentElement.setAttribute('data-display',
+          DISPLAY_PROFILES[name] ? name : 'standard');
+        document.documentElement.style.setProperty('--s', String(profile.scale));
+        if (profile.easy) document.documentElement.setAttribute('data-a11y', 'on');
+        else document.documentElement.removeAttribute('data-a11y');
+        return profile;
+      }
+      function setDisplayProfile(name) {
+        if (!DISPLAY_PROFILES[name]) name = 'standard';
+        localStorage.setItem(DISPLAY_KEY, name);
+        applyDisplayProfile(name);
+        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
+        return name;
+      }
+      function getUiScale() {
+        return DISPLAY_PROFILES[getDisplayProfile()].scale;
       }
       function setUiScale(v) {
-        var n = parseFloat(v);
-        if (!isFinite(n)) n = 1;
-        n = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, n));
-        localStorage.setItem(UI_SCALE_KEY, String(n));
-        applyUiScale(n);
-        // Leaflet caches the pixel size of its container; a text-size change
-        // resizes every panel around it, so any live map must be told.
-        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
-        return n;
+        var scale = parseFloat(v);
+        var name = scale > 1.3 ? 'high-visibility'
+          : scale > 1 ? 'large' : 'standard';
+        setDisplayProfile(name);
+        return DISPLAY_PROFILES[name].scale;
       }
-      applyUiScale(getUiScale());
-      // F142 "Easy read". A SEPARATE switch from text size on purpose: they
-      // compose. Someone already on Huge who turns this on keeps Huge and gains
-      // tap targets, spacing and contrast on top. Stored as its own key so
-      // neither setting can clobber the other.
-      var A11Y_KEY = 'bc_easyread';
-      function getA11y() { return localStorage.getItem(A11Y_KEY) === 'on'; }
-      function applyA11y(on) {
-        if (on) document.documentElement.setAttribute('data-a11y', 'on');
-        else document.documentElement.removeAttribute('data-a11y');
+      function getA11y() {
+        return DISPLAY_PROFILES[getDisplayProfile()].easy;
       }
-      function setA11y(on) {
-        localStorage.setItem(A11Y_KEY, on ? 'on' : 'off');
-        applyA11y(on);
-        // Same reason as the text-size setting: Leaflet caches its container
-        // size and every panel around it just changed.
-        if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
-        return on;
-      }
-      applyA11y(getA11y());
+      applyDisplayProfile(getDisplayProfile());
       // F138 "Theme". THREE values, not two: System is the default, and an
       // explicit choice wins until it is cleared.
       //
@@ -4604,10 +4674,8 @@
       // `html:not([data-theme="light"])` inside the media query for exactly
       // that reason.
       //
-      // Easy read is deliberately NOT one of the values here. It is a separate
-      // switch that COMPOSES with any of the three (see A11Y_KEY above) — a
-      // reader who needs bigger targets and more contrast should not have to
-      // give up dark to get them.
+      // Display and theme stay orthogonal: a reader should not have to give up
+      // dark mode to get larger text, targets and stronger contrast.
       var THEME_KEY = 'bc_theme';
       var THEMES = ['system', 'light', 'dark'];
       function getTheme() {
@@ -27422,13 +27490,50 @@
           month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'
         });
       }
+      function birdcastShiftDate(parts, days) {
+        var d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+        return {
+          year: d.getUTCFullYear(),
+          month: d.getUTCMonth() + 1,
+          day: d.getUTCDate()
+        };
+      }
+      function birdcastIsoDate(parts) {
+        return parts.year + '-' + String(parts.month).padStart(2, '0')
+          + '-' + String(parts.day).padStart(2, '0');
+      }
+      function birdcastNightRange(parts) {
+        var start = birdcastShiftDate(parts, -1);
+        return start.month === parts.month
+          ? start.month + '/' + start.day + '-' + parts.day
+          : start.month + '/' + start.day + '-' + parts.month + '/' + parts.day;
+      }
+      function birdcastTonightRange(parts) {
+        var end = birdcastShiftDate(parts, 1);
+        return end.month === parts.month
+          ? parts.month + '/' + parts.day + '-' + end.day
+          : parts.month + '/' + parts.day + '-' + end.month + '/' + end.day;
+      }
+      function birdcastDestination(url, icon, title, detail) {
+        return '<a class="birdcast-destination extlink" data-href="' + esc(url) + '">'
+          + '<span class="birdcast-destination-icon" aria-hidden="true">'
+          + icon + '</span><span class="birdcast-destination-copy"><strong>'
+          + esc(title) + '</strong><small>' + esc(detail) + '</small></span>'
+          + '<span class="birdcast-destination-arrow" aria-hidden="true">\u203a</span></a>';
+      }
       function birdcastToolLinks(state) {
         return [
-          '<a class="birdcast-action extlink" data-href="https://birdcast.org/migration-tools/migration-forecast-maps/">Forecast</a>',
-          '<a class="birdcast-action extlink" data-href="https://birdcast.org/migration-tools/live-migration-maps/">Live map</a>',
-          '<a class="birdcast-action extlink" data-href="' + esc(state && state.alertUrl
-            || 'https://alert.birdcast.org/') + '">Local alert</a>',
-          '<a class="birdcast-action extlink" data-href="https://birdcast.org/lights-out/">Lights Out</a>'
+          birdcastDestination(
+            'https://birdcast.org/migration-tools/migration-forecast-maps/',
+            '\ud83c\udf19', 'Tonight\u2019s forecast', 'Plan before sunset'),
+          birdcastDestination(
+            'https://birdcast.org/migration-tools/live-migration-maps/',
+            '\ud83d\udce1', 'Live migration map', 'See what radar detects now'),
+          birdcastDestination(state && state.alertUrl || 'https://alert.birdcast.org/',
+            '\ud83d\udd14', 'Alert for your Home', 'BirdCast\u2019s location forecast'),
+          birdcastDestination('https://birdcast.org/lights-out/',
+            '\ud83d\udca1', 'Lights Out guidance',
+            'Reduce collision risk on busy nights')
         ].join('');
       }
       function birdcastAlertState(now, report) {
@@ -27513,7 +27618,9 @@
         }
         return {
           birds: birds,
-          label: m[2].replace(/\s+/g, ' ').trim()
+          label: m[2].replace(/\s+/g, ' ').trim(),
+          high: /class="Badge[^"]*Badge--error[^"]*"[\s\S]{0,250}?class="Badge-label">\s*High\s*</i
+            .test(html.slice(m.index, m.index + 1200))
         };
       }
       function birdcastNuxtArgs(source) {
@@ -27634,8 +27741,10 @@
         var dashboardP = choicePatchHomeCounty().then(function (counties) {
           var county = (counties || [])[0];
           if (!county || !county.code) throw new Error('Home county is unavailable');
+          var previousNight = birdcastShiftDate(local, -1);
           var url = 'https://dashboard.birdcast.org/region/'
-            + encodeURIComponent(county.code);
+            + encodeURIComponent(county.code) + '?night='
+            + encodeURIComponent(birdcastIsoDate(previousNight));
           return fetch(url, { headers: { Accept: 'text/html' } })
             .then(function (response) {
               if (!response || !response.ok) {
@@ -27645,9 +27754,12 @@
               return response.text();
             })
             .then(function (html) {
+              var count = birdcastCountFromHtml(html);
+              count.countyLabel = county.label;
+              count.dateRange = birdcastNightRange(local);
               return {
                 countyCode: county.code,
-                count: birdcastCountFromHtml(html),
+                count: count,
                 config: birdcastDashboardConfig(html)
               };
             });
@@ -27751,11 +27863,13 @@
         } else if (!rows.length) {
           body = '<div class="birdcast-migrants-empty">No expected migrants listed.</div>';
         } else {
-          body = '<div class="birdcast-migrant-grid">'
-            + rows.map(function (row) {
-              return '<span class="birdcast-migrant" data-species-code="'
-                + esc(row.speciesCode) + '">' + esc(row.name) + '</span>';
-            }).join('') + '</div>';
+          body = SpeciesCards.list('small', rows.map(function (row) {
+            return SpeciesCards.small({
+              icon: photoSlot(row.name, row.speciesCode),
+              name: speciesLink(row.name, row.speciesCode),
+              data: { 'species-code': row.speciesCode }
+            });
+          }), 'birdcast-migrant-list');
         }
         return '<div class="birdcast-migrants" role="region" '
           + 'aria-label="Expected nocturnal migrants">'
@@ -27781,8 +27895,8 @@
         }
         var linkHtml = getCounties().map(function (c) {
           var link = 'https://dashboard.birdcast.org/region/' + encodeURIComponent(c.code);
-          return '<a class="birdcast-action extlink" data-href="' + esc(link) + '">'
-            + esc(c.label) + ' dashboard</a>';
+          return birdcastDestination(link, '\ud83d\udcca', c.label + ' history',
+            'Nightly totals, timing and migrants');
         }).join('');
         var s = birdcastSeason(now, report);
         var alertState = birdcastAlertState(now, report);
@@ -27799,7 +27913,7 @@
             + '</div>';
         if (s.active) {
           el.innerHTML = alertHeader + birdcastMigrantsHtml(snapshot)
-            + '<div class="birdcast-actions">'
+            + '<div class="birdcast-destinations" aria-label="Open BirdCast">'
             + tools + linkHtml + '</div>'
             + apiNote;
         } else {
@@ -27808,9 +27922,11 @@
             + 'tools are <b>between seasonal coverage</b> on the report\u2019s local '
             + 'date, <b>' + esc(localDate) + '</b>. Coverage resumes <b>'
             + esc(nd) + '</b>; local dashboards retain historical nights.</div>'
-            + '<div class="birdcast-actions">' + tools + linkHtml + '</div>'
+            + '<div class="birdcast-destinations" aria-label="Open BirdCast">'
+            + tools + linkHtml + '</div>'
             + apiNote;
         }
+        hydratePhotos(el);
         }
         paint(suppliedSnapshot || _birdcastSnapshot);
         if (!s.active) return Promise.resolve(null);
@@ -27828,36 +27944,84 @@
             + ' migration. Open Nightly Migration') + '">'
           + birdcastLevelArt(snapshot) + '</a>';
       }
-      function birdcastSurgeRow(now, snapshot) {
+      function birdcastShortMillions(n) {
+        return (Number(n) / 1000000).toFixed(1) + 'M';
+      }
+      function birdcastCountCounty(count) {
+        var m = /crossed\s+(.+?)\s+(?:last night|this night|so far tonight)/i
+          .exec(count && count.label || '');
+        return m ? m[1] : count && count.countyLabel || 'your county';
+      }
+      function birdcastCountTile(snapshot) {
+        var shortCount = birdcastShortMillions(snapshot.count.birds);
+        return '<a class="thumb surgebirdcastthumb birdcast-count-tile seclink"'
+          + ' data-sec="sec-bcBody" data-birdcast-level="HIGH"'
+          + ' aria-label="' + esc(shortCount
+            + ' birds migrated last night. Open Nightly Migration') + '">'
+          + '<span class="birdcast-flight birdcast-flight-high" aria-hidden="true">'
+          + '<span class="birdcast-flight-moon"></span>'
+          + '<span class="birdcast-flight-label">' + esc(shortCount)
+          + '</span></span></a>';
+      }
+      function birdcastSurgeRows(now, snapshot) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var report = getReport();
         if (!report || !hasCounties() || report.stateCode === 'US-HI'
             || getCounties().some(function (c) { return /^US-HI(?:-|$)/.test(c.code); })) {
-          return null;
+          return [];
         }
         var state = birdcastAlertState(now, report);
-        if (!state) return null;
-        var level = birdcastLevel(snapshot);
-        var countLine = birdcastCountLine(snapshot);
-        var errors = snapshot
-          ? [snapshot.forecastError, snapshot.countError].filter(Boolean) : [];
-        return {
-          kind: 'migration',
-          icon: birdcastLevelTile(snapshot),
-          name: '<a class="seclink" data-sec="sec-bcBody">' + esc(level)
-            + ' migration</a>',
-          alpha: 'BIRDCAST',
-          where: '<a class="seclink" data-sec="sec-bcBody">'
-            + esc(state.place) + ' migration alert</a>',
-          when: now.toISOString(),
-          time: now.getTime(),
-          ageTime: now.getTime(),
-          noteHeader: 'MIGRATION: ' + level + ' · ' + countLine,
-          why: '<b>' + esc(level) + ' migration</b> · ' + esc(countLine),
-          extra: errors.length
-            ? '<span class="dim">⚠️ ' + esc(errors.join('; ')) + '.</span>'
-            : '<span class="dim">Direct from BirdCast · open Nightly Migration for details.</span>'
-        };
+        if (!state || !snapshot) return [];
+        var rows = [];
+        var county = birdcastCountCounty(snapshot.count);
+        if (county === 'your county') county = countyLabelStr();
+        if (snapshot.forecast && snapshot.forecast.level === 'High') {
+          rows.push({
+            kind: 'migration',
+            icon: birdcastLevelTile(snapshot),
+            name: '<a class="seclink" data-sec="sec-bcBody">High migration tonight</a>',
+            alpha: '',
+            where: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(county) + ' Birdcast Alert · '
+              + esc(birdcastTonightRange(birdcastLocalParts(now, report))) + '</a>',
+            when: now.toISOString(),
+            time: now.getTime(),
+            ageTime: now.getTime(),
+            noteHeader: 'MIGRATION: Heavy migration expected tonight',
+            why: '<b>High migration tonight</b>',
+            extra: snapshot.forecastError
+              ? '<span class="dim">⚠️ ' + esc(snapshot.forecastError) + '.</span>'
+              : '<span class="dim">Open Nightly Migration for forecast details.</span>'
+          });
+        }
+        if (snapshot.count && snapshot.count.high) {
+          var shortCount = birdcastShortMillions(snapshot.count.birds);
+          var dateRange = snapshot.count.dateRange
+            || birdcastNightRange(birdcastLocalParts(now, report));
+          var sentence = birdcastMillions(snapshot.count.birds)
+            + ' crossed ' + county + ' last night';
+          rows.push({
+            kind: 'migration',
+            icon: birdcastCountTile(snapshot),
+            name: '<a class="seclink" data-sec="sec-bcBody">' + esc(shortCount)
+              + ' migration last night</a>',
+            alpha: '',
+            where: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(county) + ' Birdcast Alert · ' + esc(dateRange) + '</a>',
+            when: now.toISOString(),
+            time: now.getTime() - 1,
+            ageTime: now.getTime() - 1,
+            ageLabel: 'Last night',
+            noteHeader: 'MIGRATION: ' + sentence,
+            why: '<b>' + esc(sentence) + '</b>',
+            extra: '<span class="dim">Shown because BirdCast classified '
+              + 'the county\u2019s night as High.</span>'
+          });
+        }
+        return rows;
+      }
+      function birdcastSurgeRow(now, snapshot) {
+        return birdcastSurgeRows(now, snapshot)[0] || null;
       }
 
       // --- P13: time-of-day specialists (dawn / dusk accumulator) ---
@@ -32157,8 +32321,9 @@
         return { main: days + 'd ago', tail: '' };
       }
 
-      function surgeKindRight(kind, t) {
-        var k = SURGE_KINDS[kind], age = surgeAgeParts(t);
+      function surgeKindRight(kind, t, ageLabel) {
+        var k = SURGE_KINDS[kind], age = ageLabel
+          ? { main: ageLabel, tail: '' } : surgeAgeParts(t);
         return '<span class="surgekindwrap">'
           + '<span class="surgekindtile surgekind-' + kind + '" role="img"'
           + ' aria-label="' + esc(k.word) + ' category" title="' + esc(k.word) + '">'
@@ -32246,10 +32411,12 @@
         Object.keys(a.data || {}).forEach(function (key) { data[key] = a.data[key]; });
         return SpeciesCards.small({
           icon: a.icon,
-          name: a.name,
-          tags: (a.tags || '') + surgeBirdTag(a),
+          name: '<span class="surgealerttitle">' + a.name
+            + (a.tags || '') + surgeBirdTag(a) + '</span>',
+          tags: '',
           sub: surgeFactsHtml(a),
-          right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime),
+          right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime,
+            a.ageLabel),
           below: surgeExplanationHtml(a, reason.text),
           data: data
         });
@@ -32555,13 +32722,13 @@
           }) : null;
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
-        var migrationRow = birdcastSurgeRow(new Date(), _birdcastSnapshot);
+        var migrationRows = birdcastSurgeRows(new Date(), _birdcastSnapshot);
         var sourceWarning = surgeSourceWarning(sourceStates);
         var sourceProgress = surgeSourceProgress(sourceStates);
         markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length && !topPatches.length
-            && !migrationRow) {
+            && !migrationRows.length) {
           LANE_DOCS.feed.context = window.BirdInfoDialogs.birdGenContext({
             count: 0,
             megaAge: mega ? megaAge(mega.at) : ''
@@ -32586,8 +32753,7 @@
           return 0;
         }
 
-        var rows = [], order = 0;
-        if (migrationRow) rows.push(migrationRow);
+        var rows = migrationRows.slice(), order = 0;
         megaRows.forEach(function (m) {
           var far = m.mi != null && m.mi > MEGA_DAYTRIP_MI;
           var why = (m.news || []).map(function (tag) {
@@ -34107,7 +34273,7 @@
         todBtn:        'Time-of-day specialists',
         myYearBody:    'Your seen bird list this year',
         recordBody:    'Overdue megararities',
-        settingsPanel: 'Region, text size, data',
+        settingsPanel: 'Region, display, data',
         helpBody:      'What every button does'
       };
       function rankMenuHeading() {
@@ -34496,6 +34662,7 @@
           report: getReportSlug(),
           county_view: getCountyView() || 'all',
           rank_scope: (getRankScope() || {}).region || '',
+          display_profile: getDisplayProfile(),
           text_scale: getUiScale(),
           theme: getTheme(),
           easy_read: getA11y(),
@@ -37502,9 +37669,8 @@
             $('bcProfileName').dataset.loadedValue = $('bcProfileName').value;
           }
         }
-        if ($('uiScale')) $('uiScale').value = String(getUiScale());
+        if ($('displayProfile')) $('displayProfile').value = getDisplayProfile();
         if ($('themeMode')) $('themeMode').value = getTheme();
-        if ($('a11yMode')) $('a11yMode').value = getA11y() ? 'on' : 'off';
         if ($('sciNames')) $('sciNames').value = getSciNames() ? 'on' : 'off';
         if ($('mapProvider')) $('mapProvider').value = getMapProvider();
         syncChaseMi();
@@ -38499,9 +38665,10 @@
           st.textContent = (e && e.message) ? e.message : 'Could not find that place.';
         }).finally(function () { btn.disabled = false; });
       });
-      $('uiScale').addEventListener('change', function () { setUiScale(this.value); });
+      $('displayProfile').addEventListener('change', function () {
+        setDisplayProfile(this.value);
+      });
       if ($('themeMode')) $('themeMode').addEventListener('change', function () { setTheme(this.value); });
-      if ($('a11yMode')) $('a11yMode').addEventListener('change', function () { setA11y(this.value === 'on'); });
       if ($('sciNames')) $('sciNames').addEventListener('change', function () { setSciNames(this.value === 'on'); });
       if ($('wallProbeBtn')) $('wallProbeBtn').addEventListener('click', probeWall);
       // ONE table drives every switch.
@@ -39610,6 +39777,8 @@
         cascadeSpots: cascadeSpots, loadSpeciesIndex: loadSpeciesIndex, baseSpeciesName: baseSpeciesName,
         getHome: getHome, hasRealHome: hasRealHome,
         homeKey: homeKey, tideKey: tideKey,
+        getDisplayProfile: getDisplayProfile, setDisplayProfile: setDisplayProfile,
+        DISPLAY_KEY: DISPLAY_KEY, DISPLAY_PROFILES: DISPLAY_PROFILES,
         getUiScale: getUiScale, setUiScale: setUiScale, UI_SCALE_KEY: UI_SCALE_KEY,
         getReportSlug: getReportSlug, getReport: getReport, menuApplies: menuApplies, setActiveReport: setActiveReport,
         deriveRegionCode: deriveRegionCode, selectResolvedRegion: selectResolvedRegion,
@@ -39659,9 +39828,13 @@
         birdcastMigrantsFromJson: birdcastMigrantsFromJson,
         birdcastMigrantsHtml: birdcastMigrantsHtml,
         birdcastMillions: birdcastMillions,
+        birdcastNightRange: birdcastNightRange,
+        birdcastTonightRange: birdcastTonightRange,
         setBirdcastSnapshot: setBirdcastSnapshot,
         loadBirdcastSnapshot: loadBirdcastSnapshot,
-        birdcastSurgeRow: birdcastSurgeRow, birdcastMenuBadge: birdcastMenuBadge,
+        birdcastSurgeRow: birdcastSurgeRow,
+        birdcastSurgeRows: birdcastSurgeRows,
+        birdcastMenuBadge: birdcastMenuBadge,
         renderBirdcast: renderBirdcast,
         performanceReport: performanceReport, renderPerformance: renderPerformance,
         firstReport: firstReport, coverageStart: coverageStart,

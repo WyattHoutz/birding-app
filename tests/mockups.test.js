@@ -54,7 +54,8 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo',
-      'stakeoutreports', 'megaaba', 'meganearest'],
+      'stakeoutreports', 'megaaba', 'meganearest',
+      'f629-nightly', 'f629-birdgen', 'f630-birdgen-top'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
@@ -85,7 +86,7 @@ test('F506 release mockups require the full Stakeout card with Notes off and on'
   assert.doesNotMatch(mockStyle, /stakeoutSpeciesCard|bchero|stakeoutPlaceDetails/,
     'release fixtures must not restyle the production species/checklist cards');
   assert.match(postWorkflow,
-    /for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-max-magnification/,
+    /for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-large iphone-17-pro-max-magnification/,
     'post-release must verify every required device variant');
   assert.doesNotMatch(indexSource, /stakeoutSpeciesCard-compact/,
     'the removed top-level Compact Stakeout card is still shipped');
@@ -123,15 +124,17 @@ test('F607 BirdCast mockups seed the production level and county-count surfaces'
     'the section catalog still claims unsupported BirdCast detail');
   assert.match(source, /forecast:\s*\{\s*level:\s*'High'/,
     'the mockup does not seed the representative official forecast level');
-  assert.match(source, /birds:\s*3471500/,
+  assert.match(source, /birds:\s*1825700/,
     'the mockup does not seed the representative county total');
   assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\), snapshot\)/,
     'the mockup does not render the production BirdCast surface with deterministic data');
-  assert.match(indexSource, />Forecast</);
-  assert.match(indexSource, />Live map</);
+  assert.match(indexSource, /Tonight\\u2019s forecast|Tonight’s forecast/);
+  assert.match(indexSource, /Live migration map/);
   assert.match(source, /migrants:\s*\[/,
     'the mockup does not seed representative expected migrants');
   assert.match(indexSource, /Expected nocturnal migrants/);
+  assert.match(indexSource, /SpeciesCards\.list\('small'/,
+    'expected migrants do not use the shared small species card renderer');
   assert.match(source, /REPRESENTATIVE BIRDCAST DATA/);
   assert.match(indexSource, /class="birdcast-alert-icon"/);
   assert.match(indexSource, /class="birdcast-alert-count"/);
@@ -779,8 +782,8 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
     /^\s{2}mockups:[\s\S]*^\s{4}needs:\s*verify\s*$/m,
     'mockups do not wait for the fast post-release integrity check');
   assert.match(postWorkflow,
-    /mockups\.js --width 414 --out mockups\/iphone-11[\s\S]*mockups\.js --width 402 --out mockups\/iphone-17-pro[\s\S]*mockups\.js --width 402 --scale 1\.75[\s\S]*mockups\/iphone-17-pro-max-magnification/,
-    'the iPhone 11, iPhone 17 Pro, and maximum-magnification galleries are not all rendered');
+    /mockups\.js --width 414 --out mockups\/iphone-11[\s\S]*mockups\.js --width 402 --out mockups\/iphone-17-pro[\s\S]*mockups\.js --width 402 --scale 1\.3[\s\S]*mockups\/iphone-17-pro-large[\s\S]*mockups\.js --width 402 --scale 1\.75[\s\S]*mockups\/iphone-17-pro-max-magnification/,
+    'the Standard, Large, and High visibility report galleries are not all rendered');
   assert.match(postWorkflow,
     /SHOTS\.length[\s\S]*BirdChaser-mockups\.zip[\s\S]*gh release upload[\s\S]*--clobber/,
     'the gallery count, archive, and idempotent Release attachment are incomplete');

@@ -34,14 +34,19 @@ function parseReadme(text) {
 }
 
 const VARIANTS = [
-  { id: 'iphone-11', label: 'iPhone 11', detail: '414px · Normal text', width: 414, scale: 1 },
-  { id: 'iphone-17-pro', label: 'iPhone 17 Pro', detail: '402px · Normal text', width: 402, scale: 1 },
+  { id: 'iphone-11', label: 'iPhone 11', detail: '414px · Standard (1.0x)',
+    width: 414, scale: 1, profile: 'standard' },
+  { id: 'iphone-17-pro', label: 'iPhone 17 Pro', detail: '402px · Standard (1.0x)',
+    width: 402, scale: 1, profile: 'standard' },
+  { id: 'iphone-17-pro-large', label: 'iPhone 17 Pro', detail: '402px · Large (1.3x)',
+    width: 402, scale: 1.3, profile: 'large' },
   {
     id: 'iphone-17-pro-max-magnification',
     label: 'iPhone 17 Pro',
-    detail: '402px · Huge text (1.75×)',
+    detail: '402px · High visibility (1.75x)',
     width: 402,
     scale: 1.75,
+    profile: 'high-visibility',
   },
 ];
 
@@ -107,7 +112,7 @@ a{color:var(--blue);text-underline-offset:3px}.release{font-weight:800}
 label{display:block;font-weight:800;margin-bottom:4px}input{width:min(100%,560px);min-height:44px;border:2px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;padding:8px 11px}
 main{max-width:1100px;margin:auto;padding:20px 16px 60px}.shot{margin:0 0 28px;scroll-margin-top:90px}.shot[hidden]{display:none}
 .shot h2{font-size:1.15rem;margin:0 0 8px;border-left:6px solid var(--orange);padding-left:10px}
-.variants{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.variants{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 figcaption{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-bottom:1px solid var(--line)}figcaption span{color:var(--muted)}
 img{display:block;width:100%;height:auto;background:#fff}a:focus-visible,input:focus-visible{outline:3px solid var(--orange);outline-offset:3px}
 #count{margin:6px 0 0;color:var(--muted)}
@@ -118,20 +123,20 @@ img{display:block;width:100%;height:auto;background:#fff}a:focus-visible,input:f
 <body>
 <header>
   <h1>Bird Chaser ${esc(version)} mockups</h1>
-  <p class="lede">Every production release screenshot on iPhone 11, iPhone 17 Pro, and iPhone 17 Pro with the app’s maximum Huge text setting. Every variant is labelled in words; select an image to open it at full size.</p>
+  <p class="lede">Every production report in Standard, Large and High visibility Display profiles, plus the Standard iPhone 11 width. Every variant is labelled in words; select an image to open it at full size.</p>
   <div class="actions"><a class="release" href="${esc(releaseUrl)}">Open GitHub Release ${esc(version)}</a><a href="../../">Latest gallery</a></div>
 </header>
 <div class="tools">
   <label for="filter">Filter screenshots</label>
   <input id="filter" type="search" placeholder="Try: Twitches, Nemesis, Stakeout…">
-  <p id="count">${first.entries.length} surfaces · 3 variants each</p>
+  <p id="count">${first.entries.length} surfaces · ${VARIANTS.length} variants each</p>
 </div>
 <main>${rows}</main>
 <script>
 const input=document.getElementById('filter');
 const shots=[...document.querySelectorAll('.shot')];
 const count=document.getElementById('count');
-input.addEventListener('input',()=>{const q=input.value.trim().toLowerCase();let shown=0;for(const shot of shots){shot.hidden=q&&!shot.dataset.search.includes(q);if(!shot.hidden)shown++}count.textContent=shown+' of '+shots.length+' surfaces · 3 variants each'});
+input.addEventListener('input',()=>{const q=input.value.trim().toLowerCase();let shown=0;for(const shot of shots){shot.hidden=q&&!shot.dataset.search.includes(q);if(!shot.hidden)shown++}count.textContent=shown+' of '+shots.length+' surfaces · ${VARIANTS.length} variants each'});
 </script>
 </body>
 </html>`;

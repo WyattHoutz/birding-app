@@ -27,10 +27,8 @@ const WWW = path.join(__dirname, '..', 'www');
 const WIDTH = +(process.argv[2] || 390);
 const HEIGHT = 844;
 const SCALE = process.argv[3] || '1';
-// F142. Easy read at the NARROWEST width is the hardest layout case in the
-// app - 44px tap targets and extra spacing pushed into 320px - so it belongs
-// in the sweep from the first commit rather than after something clips.
-const EASY = String(process.argv[4] || '') === 'easyread';
+const PROFILE = +SCALE > 1.3 ? 'high-visibility'
+  : +SCALE > 1 ? 'large' : 'standard';
 
 // F245/F251. LABELS WHOSE MID-WORD BREAK IS ACCEPTED.
 //
@@ -80,8 +78,7 @@ const BOOTSTRAP = `<script>
     localStorage.setItem('ebird_home_lat', '47.75');
     localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_report', 'wa');
-    localStorage.setItem('ebird_ui_scale', '__SCALE__');
-    localStorage.setItem('bc_easyread', '__EASY__');
+    localStorage.setItem('bc_display_profile', '__PROFILE__');
   } catch (e) {}
   var realFetch = window.fetch;
   // Realistic-shaped eBird responses so sections actually RENDER. An empty
@@ -644,7 +641,8 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(file).toLowerCase();
   if (ext === '.html') {
     let html = fs.readFileSync(file, 'utf8');
-    html = html.replace(/<head(\s[^>]*)?>/i, (m) => m + BOOTSTRAP.replace('__SCALE__', SCALE).replace('__EASY__', EASY ? 'on' : 'off'));
+    html = html.replace(/<head(\s[^>]*)?>/i,
+      (m) => m + BOOTSTRAP.replace('__PROFILE__', PROFILE));
     html = html.replace(/<\/body>/i, AUDIT + '</body>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html); return;
@@ -796,7 +794,8 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
-    console.log('viewport ' + WIDTH + 'px  text scale ' + SCALE + (EASY ? '  EASY READ' : '') + '\n');
+    console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
+      + ' (' + SCALE + 'x)\n');
     report.forEach((r) => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
@@ -917,7 +916,8 @@ server.listen(0, '127.0.0.1', () => {
       });
       console.log('');
     });
-    if (!bad) console.log('\nnothing overflows at ' + WIDTH + 'px' + (EASY ? ', and every tap target clears 44px' : ''));
+    if (!bad) console.log('\nnothing overflows at ' + WIDTH + 'px'
+      + (PROFILE === 'standard' ? '' : ', and every tap target clears 44px'));
     process.exit(bad ? 1 : 0);
   };
 
