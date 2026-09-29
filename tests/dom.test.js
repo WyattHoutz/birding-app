@@ -8014,8 +8014,10 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
     'ungrouped Mega does not show the unknown Notes state before hydration');
   assert.match(card.querySelector('.rarewhere').textContent, /×2/,
     'ungrouped Mega omits the checklist bird count');
-  assert.equal(card.querySelectorAll('.rareflags').length, 1,
-    'ungrouped Mega duplicates its media evidence');
+  assert.equal(card.querySelectorAll('.ckevid.raremedia').length, 1,
+    'ungrouped Mega does not keep exactly one inline media evidence slot');
+  assert.doesNotMatch(card.querySelector('.rareflags')?.textContent || '', /📷|🔊|🎥/,
+    'ungrouped Mega still puts media evidence before its details sentence');
   assert.equal(card.querySelectorAll('.spmetric').length, 2,
     'ungrouped Mega omits the relative-age or distance metric');
 
@@ -9271,7 +9273,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
     'Bird Gen opened a second Mega-only hotspot/checklist list');
   app.$('spLookupRecent').querySelector('button.spLookupMore').click();
-  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .hscard-sm').length, 6,
+  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .hscard-md').length, 6,
     'the unified Stakeout list is not grouped into one row per supporting hotspot');
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm').length, 6,
     'one supporting Mega checklist is not nested under its unified place row');
@@ -13454,7 +13456,23 @@ test('F506 Twitches has no Compact control and always renders medium cards', asy
 });
 
 test('F545 ungrouped Twitches keeps count, age, and one media mark', async () => {
-  const app = await boot();
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S-FIELD/.test(url)) {
+        return {
+          userDisplayName: 'Field Observer',
+          obsDt: new Date(Date.now() - 2 * 3600000)
+            .toISOString().slice(0, 16).replace('T', ' '),
+          obs: [{
+            speciesCode: 'fieldbird', howMany: 4,
+            mediaCounts: { P: 1, A: 1, V: 1 },
+          }],
+        };
+      }
+      if (/api\.ebird\.org/.test(url)) return [];
+      return null;
+    },
+  });
   const A = app.window.__app, doc = app.window.document;
   seedSeen(app, []);
   app.window.localStorage.setItem('ebird_twitch_view_v1', 'list');
@@ -13463,7 +13481,7 @@ test('F545 ungrouped Twitches keeps count, age, and one media mark', async () =>
     lat: 47.6, lon: -122.1, dateStr: new Date(Date.now() - 2 * 3600000)
       .toISOString().slice(0, 16).replace('T', ' '),
     loc: 'Field Park', locId: 'L-FIELD', subId: 'S-FIELD',
-    count: 4, evidence: 'P', observer: 'Field Observer',
+    count: 4, evidence: 'PAV', observer: 'Field Observer',
   }]);
   A.refresh();
   await waitFor(() => doc.querySelector('#results > li'), 'ungrouped Twitches row');
@@ -13472,8 +13490,18 @@ test('F545 ungrouped Twitches keeps count, age, and one media mark', async () =>
   assert.match(row.querySelector('.spmetric-age').textContent,
     /^(?:now|[0-9]+[mhd]\s*ago)(?:age)?$/,
     'ungrouped Twitches omits the relative-age metric');
-  assert.equal(row.querySelectorAll('.rareflags').length, 1,
-    'media evidence appears more than once');
+  await A.hydrateChecklistEvidence(row);
+  const media = row.querySelectorAll('.ckevid');
+  assert.equal(media.length, 1,
+    'hydration appended a second copy of the media evidence');
+  assert.equal(media[0].textContent,
+    app.window.BirdLogic.recordIcons({ evidence: 'PAV' }));
+  assert.equal(media[0].parentElement, row.querySelector('.rarewhere'),
+    'the media mark left the details sentence');
+  assert.equal(row.querySelector('.rarewhere').lastElementChild, media[0],
+    'the media mark is not the final inline fact');
+  assert.doesNotMatch(row.querySelector('.rareflags')?.textContent || '', /📷|🔊|🎥/,
+    'the media mark still leads the details sentence');
   app.window.close();
 });
 
@@ -15656,7 +15684,7 @@ test('a newer Stakeout lookup rejects an older asynchronous taxonomy paint',
   app.window.close();
 });
 
-test('F370 Stakeout recent reports append one small hotspot row per place into the same list', async () => {
+test('F633 Stakeout recent reports use one medium hotspot row with a Maps distance cell', async () => {
   let fetches = 0;
   const rows = Array.from({ length: 55 }, (_, i) => ({
     speciesCode: 'sem', comName: 'Semipalmated Sandpiper',
@@ -15669,6 +15697,10 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     ...rows[0], obsDt: '2026-09-02 09:30', subId: 'SNEW', howMany: 7,
   });
   const app = await boot({
+    storage: {
+      'ebird_home_lat:wa': '47.75',
+      'ebird_home_lng:wa': '-122.16',
+    },
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) {
         fetches++;
@@ -15678,14 +15710,15 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
     },
   });
   installSpuhFixture(app);
-  await app.window.__app.lookupSpecies('sem', 'Semipalmated Sandpiper');
+  const A = app.window.__app;
+  await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
   const card = app.document.querySelector('#spLookupResults > li');
   const list = app.document.querySelector('#spLookupRecent ul.spLookupPlaceList');
   assert.ok(list, 'recent reports do not have one stable list');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 5,
-    'the first lazy batch is not 5 shared small hotspot cards');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 0,
-    'the old medium hotspot template survived');
+  assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 5,
+    'the first lazy batch is not 5 shared medium hotspot cards');
+  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 0,
+    'the old small hotspot template survived');
   assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 5,
     'the first batch does not expose each place’s complete checklist list');
   assert.equal(list.querySelectorAll(':scope > [data-ev-place="Hotspot 1"]').length, 1,
@@ -15704,7 +15737,7 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   more.click();
   assert.strictEqual(app.$('spLookupRecent').querySelector('ul.spLookupPlaceList'), list,
     'Show more replaced the list instead of appending to it');
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 10);
+  assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 10);
   assert.equal(app.$('spLookupRecent').querySelectorAll('ul.spLookupPlaceList').length, 1);
   assert.equal(list.querySelectorAll('ul.stakeoutPlaceChecklists').length, 10,
     'expanded places did not append their checklist lists');
@@ -15715,11 +15748,46 @@ test('F370 Stakeout recent reports append one small hotspot row per place into t
   while (app.$('spLookupRecent').querySelector('button.spLookupMore')) {
     app.$('spLookupRecent').querySelector('button.spLookupMore').click();
   }
-  assert.equal(list.querySelectorAll(':scope > li.hscard-sm').length, 55);
+  assert.equal(list.querySelectorAll(':scope > li.hscard-md').length, 55);
   assert.equal(numberedPins(), 55);
   assert.equal(fetches, beforeFetches, 'lazy expansion refetched the species feed');
   assert.equal(app.$('spLookupRecent').querySelector('button.spLookupMore'), null,
     'the exhausted Show-more control remains active');
+
+  const distanceHost = app.document.createElement('div');
+  distanceHost.innerHTML = A.spLookupPlacesHtml([{
+    loc: 'Distance Hotspot', locId: 'L-DIST',
+    lat: 47.61, lon: -122.33, distMi: 9.2,
+    dateStr: todayFixtureDate() + ' 09:30', subId: 'S-DIST', count: 7,
+    checklists: [{
+      subId: 'S-DIST', dateStr: todayFixtureDate() + ' 09:30', count: 7,
+    }],
+  }], { code: 'sem', name: 'Semipalmated Sandpiper' });
+  app.document.body.appendChild(distanceHost);
+  A.mountProgressiveLists(distanceHost);
+  const distancePlace = distanceHost.querySelector('[data-ev-place="Distance Hotspot"]');
+  assert.ok(distancePlace, 'the focused ranked-hotspot fixture did not mount');
+  const distance = distancePlace.querySelector(':scope > .name > .hsdist.maplink');
+  assert.ok(distance, 'the ranked hotspot does not have a right-side Maps distance cell: '
+    + distancePlace.outerHTML);
+  assert.equal(distance.textContent, '9.2mi',
+    'the Maps distance cell does not keep the shared large number/unit shape');
+  assert.equal(distance.dataset.q, '47.61,-122.33',
+    'the Maps distance does not carry the selected hotspot coordinates');
+  assert.doesNotMatch(distancePlace.querySelector(':scope > .name > .ntext').textContent, /\bmi\b/,
+    'mileage is still folded into the hotspot name column');
+  const launched = [];
+  app.window.Capacitor = { Plugins: { AppLauncher: {
+    openUrl({ url }) {
+      launched.push(url);
+      return Promise.resolve({ completed: true });
+    },
+  } } };
+  distance.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(launched, [
+    'comgooglemaps://?daddr=47.61%2C-122.33&directionsmode=driving',
+  ], 'clicking the ranked distance did not launch Maps for that hotspot');
   app.window.close();
 });
 
@@ -15805,7 +15873,7 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   const visiblePlaces = app.document.querySelectorAll(
-    '#spLookupRecent .spLookupPlaceList > .hscard-sm');
+    '#spLookupRecent .spLookupPlaceList > .hscard-md');
   assert.equal(visiblePlaces.length, 5,
     'Stakeout did not stop at the requested initial five-place batch');
   assert.equal(listCalls.length, 0,
@@ -15833,7 +15901,7 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
   app.document.querySelector('#spLookupRecent .spLookupMore').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(app.document.querySelectorAll(
-    '#spLookupRecent .spLookupPlaceList > .hscard-sm').length, 10);
+    '#spLookupRecent .spLookupPlaceList > .hscard-md').length, 10);
   assert.equal(listCalls.length, 0,
     'loading more places automatically launched their checklist-history scans');
   const selectedSlot = prompts[0].closest('.stakeoutPlaceHistory');
@@ -16292,7 +16360,7 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
     'Stakeout rendered a second retained-Mega hotspot/checklist list');
   const places = app.$('spLookupRecent').querySelector('.spLookupPlaceList');
   assert.ok(places, 'Stakeout did not render the unified report history');
-  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 1,
+  assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 1,
     'the unified reports are not one hotspot/place list');
   assert.equal(places.querySelectorAll('.cklcard-sm').length, 2,
     'the retained latest and older checklists are not nested under the hotspot row');
@@ -16347,7 +16415,7 @@ test('F461 Stakeout merges retained Mega checklists into one complete place list
     'Stakeout still renders a second Mega-only place/checklist list');
   const places = app.$('spLookupRecent').querySelector('.spLookupPlaceList');
   assert.ok(places, 'the unified Stakeout place list is missing');
-  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 2,
+  assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 2,
     'the Twitches, retained, and live Mega places did not merge into one hotspot list');
   const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
     .map((link) => link.getAttribute('href'));
@@ -19031,6 +19099,17 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.equal(A.birdcastNightRange({ year: 2027, month: 1, day: 1 }), '12/31-1/1');
   assert.equal(A.birdcastTonightRange({ year: 2026, month: 9, day: 28 }), '9/28-29');
   assert.equal(A.birdcastTonightRange({ year: 2026, month: 9, day: 30 }), '9/30-10/1');
+  const beforeSunrise = A.birdcastCompletedNight(
+    new Date('2026-09-29T07:32:00Z'), A.getReport());
+  assert.equal(beforeSunrise.night, '2026-09-27',
+    'after midnight BirdCast switched to the still-running night');
+  assert.equal(beforeSunrise.range, '9/27-28');
+  const afterSunrise = A.birdcastCompletedNight(
+    new Date('2026-09-29T17:00:00Z'), A.getReport());
+  assert.equal(afterSunrise.night, '2026-09-28');
+  assert.equal(afterSunrise.range, '9/28-29');
+  assert.ok(beforeSunrise.endedAt < new Date('2026-09-29T07:32:00Z').getTime(),
+    'the completed-night age did not begin at the ending sunrise');
   const snapshot = await A.renderBirdcast(daytime);
   const body = app.$('bcBody');
   assert.match(body.textContent, /HIGH/);
@@ -19073,6 +19152,8 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
   assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
+  assert.equal(rows[0].omitWhen, true,
+    'the forecast source line still appends Bird Chaser’s render time');
   assert.match(rows[0].noteHeader, /Heavy migration expected tonight/);
   assert.match(rows[1].name, />1\.8M migration last night</);
   assert.match(rows[1].where, /King County Birdcast Alert · 9\/27-28/);
@@ -19080,7 +19161,20 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     /1\.8 million birds crossed King County last night/);
   assert.match(rows[1].icon, /birdcast-flight-label">1\.8M</,
     'last night’s measured count is not printed inside its migration tile');
-  assert.equal(rows[1].ageLabel, 'Last night');
+  assert.equal(rows[1].omitWhen, true,
+    'the completed-night source line still appends Bird Chaser’s render time');
+  assert.equal(rows[1].ageLabel, undefined,
+    'the clipped fixed Last night label still overrides relative age');
+  assert.equal(rows[1].ageTime, snapshot.count.nightEndedAt,
+    'the relative age is not measured from the ending sunrise');
+  app.window.Date.now = () => daytime.getTime();
+  const card = app.document.createElement('div');
+  card.innerHTML = A.surgeAlertCard(rows[1], 1);
+  assert.equal(card.querySelector('.surgefacts').textContent.trim(),
+    'King County Birdcast Alert · 9/27-28',
+    'the source line includes a generated timestamp after the overnight range');
+  assert.match(card.querySelector('.surgeage').textContent, /^\d+hr ago$/,
+    'the completed night does not show a compact time-ago label');
 
   const low = JSON.parse(JSON.stringify(snapshot));
   low.forecast.level = 'Low';
@@ -21097,7 +21191,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   const places = D.querySelector('#spLookupRecent .spLookupPlaceList');
   assert.ok(places, 'the unified Mega report list did not render immediately');
   D.querySelector('#spLookupRecent button.spLookupMore').click();
-  assert.equal(places.querySelectorAll(':scope > .hscard-sm').length, 6,
+  assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 6,
     'the unified Mega reports are not grouped into one row per hotspot');
   assert.equal(places.querySelectorAll('.cklcard-sm').length, 14,
     'the unified Mega report list did not keep every supporting checklist');
@@ -28694,8 +28788,8 @@ test('the Stakeout list groups every recent checklist under one hotspot', async 
     /recent checklists/,
   'the hotspot heading repeats a checklist summary above the checklist rows');
   assert.equal((rows[0].querySelector('.hsnum') || {}).textContent, '1');
-  assert.ok(rows[0].classList.contains('hscard-sm'),
-    'the result is not the shared SMALL hotspot card');
+  assert.ok(rows[0].classList.contains('hscard-md'),
+    'the result is not the shared MEDIUM hotspot card');
   assert.equal(doc.querySelectorAll('#spLookupRecent .sppl .thumb').length, 0,
     'the bird photo is repeated on every row');
 
@@ -32752,10 +32846,10 @@ test('a card modifier may not reach into a card nested inside it', () => {
     + `so they restyle cards nested inside a card: ${leaky.join(' | ')}`);
 });
 
-// The behavioural half, in the real nesting the app builds: a SMALL hotspot
-// row inside a species medium card must keep its own flex name row and block
-// subline. The outer medium-card child selectors must not dissolve it.
-test('a small hotspot card nested in a species card keeps its own layout', async () => {
+// The behavioural half, in the real nesting the app builds: a MEDIUM hotspot
+// row inside a species medium card must keep its own three-column layout.
+// The outer species-card child selectors must not dissolve it.
+test('a medium hotspot card nested in a species card keeps its own layout', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -32773,16 +32867,17 @@ test('a small hotspot card nested in a species card keeps its own layout', async
   });
   A.mountProgressiveLists(host);
 
-  const cards = [].slice.call(host.querySelectorAll('li.hscard-sm'));
-  assert.equal(cards.length, 3, 'the places rendered as small hotspot cards');
+  const cards = [].slice.call(host.querySelectorAll('li.hscard-md'));
+  assert.equal(cards.length, 3, 'the places rendered as medium hotspot cards');
   cards.forEach((li) => {
     const name = li.querySelector('.name');
-    assert.equal(app.window.getComputedStyle(name).display, 'flex',
-      'the outer species card dissolved the nested small hotspot name row');
-    assert.equal(app.window.getComputedStyle(li.querySelector('.sub')).display, 'block',
-      'distance/date/checklist facts no longer stay on the small card subline');
-    assert.notEqual(app.window.getComputedStyle(li).display, 'grid',
-      'the outer medium species grid leaked onto the nested small hotspot row');
+    const distance = name.querySelector('.hsdist');
+    assert.equal(app.window.getComputedStyle(li).display, 'grid',
+      'the nested medium hotspot lost its three-column grid');
+    assert.equal(app.window.getComputedStyle(name).display, 'contents',
+      'the outer species card wrapped the nested hotspot columns into one cell');
+    assert.ok(distance && distance.parentElement === name,
+      'the nested hotspot lost its right-side distance cell');
   });
   app.window.close();
 });

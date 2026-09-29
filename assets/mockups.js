@@ -107,7 +107,7 @@ const STUB_SPEC = {
       '#spLookupResults .thumb',
       '#spLookupSortRow:not([hidden])',
       '#spLookupMap .mockmap',
-      '#spLookupRecent .spLookupPlaceList > .hscard-sm',
+      '#spLookupRecent .spLookupPlaceList > .hscard-md',
       '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm',
       '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
       '#spLookupIdHelp .spuhpathsentence',
@@ -218,7 +218,7 @@ const REVIEW_SHOTS = [
     title: 'Stakeout bird — Reachable hides pelagic and other-island evidence',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupByDate[aria-pressed="true"]',
-      '#spLookupRecent .spLookupPlaceList > .hscard-sm'],
+      '#spLookupRecent .spLookupPlaceList > .hscard-md'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
@@ -227,7 +227,7 @@ const REVIEW_SHOTS = [
     title: 'Stakeout bird — Distance retains all regional evidence',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupByDist[aria-pressed="true"]',
-      '#spLookupRecent .spLookupPlaceList > .hscard-sm'],
+      '#spLookupRecent .spLookupPlaceList > .hscard-md'],
     prep: `var anchor = document.getElementById('spLookupBtn');
            var sec = anchor.closest('section');
            A.showSection(sec.id);
@@ -245,7 +245,7 @@ const REVIEW_SHOTS = [
     title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes off',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
-      '#spLookupRecent .spLookupPlaceList .hscard-sm',
+      '#spLookupRecent .spLookupPlaceList .hscard-md',
       '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]',
       '#spLookupNotes[aria-pressed="false"]',
       '#spLookupDetailsContent:not([hidden])'],
@@ -1384,10 +1384,17 @@ const BOOTSTRAP = `
         || titles[1] !== '1.8M migration last night') {
       throw new Error('Bird Gen migration titles changed: ' + titles.join(' | '));
     }
-    migration[0].querySelector('.ntext > .sub').textContent =
-      'King County Birdcast Alert · 9/28-29';
-    migration[1].querySelector('.ntext > .sub').textContent =
-      'King County Birdcast Alert · 9/27-28';
+    var sources = migration.map(function (row) {
+      return row.querySelector('.ntext > .sub').textContent.trim();
+    });
+    if (sources[0] !== 'King County Birdcast Alert · 9/28-29'
+        || sources[1] !== 'King County Birdcast Alert · 9/27-28') {
+      throw new Error('Bird Gen migration source dates changed: ' + sources.join(' | '));
+    }
+    var completedAge = migration[1].querySelector('.surgeage').textContent.trim();
+    if (!/^\d+(?:hr|d) ago$/.test(completedAge)) {
+      throw new Error('Completed BirdCast night has no compact relative age: ' + completedAge);
+    }
     var review = document.createElement('div');
     review.className = 'mocklabel';
     review.textContent =
@@ -1982,7 +1989,7 @@ const BOOTSTRAP = `
     }
     await waitFor(function () {
       return document.querySelectorAll(
-        '#spLookupRecent .spLookupPlaceList > .hscard-sm').length === 30;
+        '#spLookupRecent .spLookupPlaceList > .hscard-md').length === 30;
     }, 'expanded Stakeout hotspot rows');
     await wait(100);
     if (A.fgProgressReset) A.fgProgressReset();

@@ -4105,7 +4105,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.4';
+      var APP_VERSION = '1.131.5';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10373,6 +10373,7 @@
       function birdReportEvidence(r, opts) {
         opts = opts || {};
         var count = '';
+        var media = BirdLogic.recordIcons(r);
         if (Object.prototype.hasOwnProperty.call(r || {}, 'count')) {
           count = '\u00d7' + (r.count == null || r.count === '' ? 'X' : r.count);
         }
@@ -10380,12 +10381,13 @@
           when: r.subId
             ? checklistLink(r.subId, fmtEvidenceDateTime(r.dateStr))
             : esc(fmtEvidenceDateTime(r.dateStr)),
-          icons: BirdLogic.recordIcons(r),
           loc: recLocLink(r),
           alert: opts.rare ? countyAlertLink(r) : '',
           observer: r.observer || '',
           tail: count,
-          noteAction: opts.noteAction || ''
+          noteAction: opts.noteAction || '',
+          end: media ? '<span class="ckevid raremedia"'
+            + ' aria-label="Media attached to this checklist">' + media + '</span>' : ''
         });
       }
       function birdReportMetric(r, sortMode) {
@@ -13301,11 +13303,12 @@
                 : '<div class="hint">Private-location evidence has no public hotspot history.</div>')
               : '')
             + '</div>';
-          out.push(HotspotCards.small({
+          out.push(HotspotCards.medium({
             num: num,
             name: nameHtml,
             distance: (p.distMi != null && isFinite(p.distMi))
-              ? p.distMi.toFixed(1) + ' mi' : '',
+              ? p.distMi : '',
+            distQ: distQ(p.lat, p.lon != null ? p.lon : p.lng),
             data: {
               'ev-sub': c.subId || '',
               'ev-code': (bird && bird.code) || '',
@@ -13602,7 +13605,7 @@
           initialCount: SP_ROWS_MAX,
           batchSize: SP_ROWS_MAX,
           noun: 'places',
-          listClass: 'obs hscards hscards-small spLookupPlaceList',
+          listClass: 'obs hscards hscards-medium spLookupPlaceList',
           buttonClass: 'spLookupMore',
           renderItem: function (place, i) {
             return spLookupPlaceCards([place], i + 1, bird).join('');
@@ -16410,6 +16413,7 @@
         }
         if (o.tail) bits.push('<span class="raretail">' + o.tail + '</span>');
         if (o.when) bits.push('<span class="when">' + o.when + '</span>');
+        if (o.end) bits.push(o.end);
         return '<span class="rarewhere">' + bits.join(' ') + '</span>';
       }
       // 🔍 = not on the active report's year list; ★ = eBird-flagged rarity.
@@ -27514,6 +27518,38 @@
           ? parts.month + '/' + parts.day + '-' + end.day
           : parts.month + '/' + parts.day + '-' + end.month + '/' + end.day;
       }
+      function birdcastSunriseHour(parts, report, home) {
+        if (!home || !isFinite(home.lat) || !isFinite(home.lng)) return 6;
+        var solar = BL.solarHours(home.lat, home.lng, parts.year, parts.month,
+          parts.day, report.tzStdOffset, report.tzObservesDst !== false);
+        return solar && isFinite(solar.rise) ? solar.rise : 6;
+      }
+      function birdcastLocalTimeMs(parts, hour, report) {
+        var wall = Date.UTC(parts.year, parts.month - 1, parts.day)
+          + Number(hour) * 3600000;
+        var noon = Date.UTC(parts.year, parts.month - 1, parts.day, 12);
+        var offset = BL.regionUtcOffset(noon, report.tzStdOffset,
+          report.tzObservesDst !== false);
+        return wall - offset * 3600000;
+      }
+      function birdcastCompletedNight(now, report) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        report = report || getReport();
+        var local = birdcastLocalParts(now, report);
+        var home = getHome() || report.home;
+        var currentRise = birdcastSunriseHour(local, report, home);
+        var beforeRise = local.hour + local.minute / 60 < currentRise;
+        var end = beforeRise ? birdcastShiftDate(local, -1) : birdcastShiftDate(local, 0);
+        var start = birdcastShiftDate(end, -1);
+        var endRise = birdcastSunriseHour(end, report, home);
+        return {
+          start: start,
+          end: end,
+          night: birdcastIsoDate(start),
+          range: birdcastNightRange(end),
+          endedAt: birdcastLocalTimeMs(end, endRise, report)
+        };
+      }
       function birdcastDestination(url, icon, title, detail) {
         return '<a class="birdcast-destination extlink" data-href="' + esc(url) + '">'
           + '<span class="birdcast-destination-icon" aria-hidden="true">'
@@ -27697,8 +27733,10 @@
         if (!state) return Promise.resolve(null);
         var home = getHome() || getReport().home;
         var local = birdcastLocalParts(now, getReport());
+        var completedNight = birdcastCompletedNight(now, getReport());
         var key = getReportSlug() + '|' + Number(home.lat).toFixed(4) + '|'
-          + Number(home.lng).toFixed(4) + '|' + local.year + '-' + local.month + '-' + local.day;
+          + Number(home.lng).toFixed(4) + '|' + local.year + '-' + local.month + '-'
+          + local.day + '|' + completedNight.night;
         if (!force && _birdcastSnapshot && _birdcastSnapshot.key === key
             && Date.now() - _birdcastSnapshot.fetchedAt < BIRDCAST_REFRESH_MS) {
           return Promise.resolve(_birdcastSnapshot);
@@ -27741,10 +27779,9 @@
         var dashboardP = choicePatchHomeCounty().then(function (counties) {
           var county = (counties || [])[0];
           if (!county || !county.code) throw new Error('Home county is unavailable');
-          var previousNight = birdcastShiftDate(local, -1);
           var url = 'https://dashboard.birdcast.org/region/'
             + encodeURIComponent(county.code) + '?night='
-            + encodeURIComponent(birdcastIsoDate(previousNight));
+            + encodeURIComponent(completedNight.night);
           return fetch(url, { headers: { Accept: 'text/html' } })
             .then(function (response) {
               if (!response || !response.ok) {
@@ -27756,7 +27793,8 @@
             .then(function (html) {
               var count = birdcastCountFromHtml(html);
               count.countyLabel = county.label;
-              count.dateRange = birdcastNightRange(local);
+              count.dateRange = completedNight.range;
+              count.nightEndedAt = completedNight.endedAt;
               return {
                 countyCode: county.code,
                 count: count,
@@ -27987,6 +28025,7 @@
             when: now.toISOString(),
             time: now.getTime(),
             ageTime: now.getTime(),
+            omitWhen: true,
             noteHeader: 'MIGRATION: Heavy migration expected tonight',
             why: '<b>High migration tonight</b>',
             extra: snapshot.forecastError
@@ -28000,6 +28039,7 @@
             || birdcastNightRange(birdcastLocalParts(now, report));
           var sentence = birdcastMillions(snapshot.count.birds)
             + ' crossed ' + county + ' last night';
+          var completedNight = birdcastCompletedNight(now, report);
           rows.push({
             kind: 'migration',
             icon: birdcastCountTile(snapshot),
@@ -28010,8 +28050,8 @@
               + esc(county) + ' Birdcast Alert · ' + esc(dateRange) + '</a>',
             when: now.toISOString(),
             time: now.getTime() - 1,
-            ageTime: now.getTime() - 1,
-            ageLabel: 'Last night',
+            ageTime: snapshot.count.nightEndedAt || completedNight.endedAt,
+            omitWhen: true,
             noteHeader: 'MIGRATION: ' + sentence,
             why: '<b>' + esc(sentence) + '</b>',
             extra: '<span class="dim">Shown because BirdCast classified '
@@ -32287,8 +32327,6 @@
       }
 
       function surgeFactsHtml(a) {
-        var date = esc(surgeCompactDate(a.when));
-        if (a.checklistId) date = checklistLink(a.checklistId, date);
         var count = Number(a.count);
         var lead = [
           a.alpha ? '<span class="spalpha">' + esc(a.alpha) + '</span>' : '',
@@ -32297,9 +32335,13 @@
         ].filter(Boolean).join(' ');
         var bits = [
           lead,
-          a.where || '<span class="dim">Location unavailable</span>',
-          '<span class="surgeabsolute">' + date + '</span>'
+          a.where || '<span class="dim">Location unavailable</span>'
         ].filter(Boolean);
+        if (!a.omitWhen) {
+          var date = esc(surgeCompactDate(a.when));
+          if (a.checklistId) date = checklistLink(a.checklistId, date);
+          bits.push('<span class="surgeabsolute">' + date + '</span>');
+        }
         return '<span class="surgefacts">'
           + bits.join('<span class="surgefactsep"> - </span>') + '</span>';
       }
@@ -39830,10 +39872,12 @@
         birdcastMillions: birdcastMillions,
         birdcastNightRange: birdcastNightRange,
         birdcastTonightRange: birdcastTonightRange,
+        birdcastCompletedNight: birdcastCompletedNight,
         setBirdcastSnapshot: setBirdcastSnapshot,
         loadBirdcastSnapshot: loadBirdcastSnapshot,
         birdcastSurgeRow: birdcastSurgeRow,
         birdcastSurgeRows: birdcastSurgeRows,
+        surgeAlertCard: surgeAlertCard,
         birdcastMenuBadge: birdcastMenuBadge,
         renderBirdcast: renderBirdcast,
         performanceReport: performanceReport, renderPerformance: renderPerformance,
