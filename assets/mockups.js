@@ -91,7 +91,6 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 const STUB_SPEC = {
   surgeBtn:       { kind: 'birdgen',       host: 'surgeResults' },
   wxBtn:          { kind: 'weather',       host: 'wxForecast' },
-  dueBackBtn:     { kind: 'bird',          host: 'dueBackResults' },
   rankBtn:        { kind: 'ranking',       host: 'rankResults' },
   patchBtn:       { kind: 'patches',       host: 'patchResults',
     expects: ['#patchResults .hscard.hscard-md', '#patchResults .patchwho'] },
@@ -139,10 +138,6 @@ const STUB_SPEC = {
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults',
     allowDisabled: ['.nvup', '.nvdown'] },
-  migBtn:         { kind: 'migration',     host: 'migFirstResults',
-    expects: ['#migEvent [data-event-id="october-big-day-2026"]',
-      '#migFirstResults .obs.big.xl.icon-sm > li', '#migFirstResults .spdist',
-      '#migResults .obs.big.xl.icon-sm > li', '#migResults .spdist'] },
   bcBody:         { kind: 'birdcast',      host: 'bcBody' },
   todBtn:         { kind: 'bird',          host: 'todResults' },
   myYearBody:     { kind: 'bird',          host: 'myYearList' },
@@ -613,7 +608,7 @@ const REVIEW_SHOTS = [
            document.querySelector('#abaSortPick [data-abasort="distance"]').click();
            return true;` },
   { id: 'f629-nightly', at: 'bcBody',
-    title: 'Nightly Migration — list migrants and explain BirdCast destinations',
+    title: 'Migration — combine migrants and explain BirdCast destinations',
     host: 'bcBody', fullPage: true,
     prep: `var anchor = document.getElementById('bcBody');
            var sec = anchor.closest('section');
@@ -829,8 +824,6 @@ const BOOTSTRAP = `
       })[0] || {};
     }
     var cfg = {
-      dueBackBtn: ['Western Sandpiper', 'wessan', 'Calidris mauri',
-        'DUE IN 6 DAYS', 'Usually returns Sep 8 · 1,084 archived records'],
       refreshBtn: ['Sharp-tailed Sandpiper', 'shtsan', 'Calidris acuminata',
         'RARITY · REVIEWED', 'Latest today 8:14 AM · 3 reports'],
       abaBtn: ['Nazca Booby', 'nazboo1', 'Sula granti',
@@ -843,8 +836,6 @@ const BOOTSTRAP = `
         'COMMON MISS', 'Reported on 18 of 30 days · 7 spots'],
       nvResults: ['Semipalmated Sandpiper', 'semsan', 'Calidris pusilla',
         'NEEDS PROOF', 'Still counted by eBird · remains a chase target'],
-      migBtn: ['Western Sandpiper', 'wessan', 'Calidris mauri',
-        'ARRIVING', 'Rising this week · expected peak Sep 12'],
       todBtn: ['Solitary Sandpiper', 'solsan', 'Tringa solitaria',
         'DAWN SPECIALIST', '63% of records before 8 AM'],
       myYearBody: ["Lewis's Woodpecker", 'lewwoo', 'Melanerpes lewis',
@@ -1334,6 +1325,29 @@ const BOOTSTRAP = `
     markHost(host, label);
   }
   function fillBirdcast(host, label, A) {
+    localStorage.setItem(A.firstYearKey('US-WA', 2026), JSON.stringify({
+      day: A.todayStr(), region: 'US-WA', year: 2026, declared: 1,
+      rows: [{
+        code: 'comnig', name: 'Common Nighthawk', sci: 'Chordeiles minor',
+        count: 1, sensitive: false, date: '2026-09-08',
+        observedAt: '2026-09-08 19:10', subId: 'S-MIGRATION-ARRIVAL',
+        observer: 'Sample Birder', locId: 'L-MIGRATION-ARRIVAL',
+        locName: 'Union Bay Natural Area', county: 'King', isPrivate: false
+      }]
+    }));
+    localStorage.setItem('ebird_mig_wa', JSON.stringify({
+      samples: {
+        'wa|2024-09-11': ['amecro'],
+        'wa|2025-09-10': ['amecro'],
+        'wa|2024-09-18': ['semsan'],
+        'wa|2025-09-17': ['semsan']
+      },
+      names: {
+        amecro: 'American Crow',
+        semsan: 'Semipalmated Sandpiper'
+      },
+      updated: '2026-09-09T12:00:00Z'
+    }));
     var snapshot = {
       fetchedAt: Date.now(),
       forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
@@ -1367,8 +1381,13 @@ const BOOTSTRAP = `
   function prepareF629Nightly(A, document, sec) {
     var host = document.getElementById('bcBody');
     fillBirdcast(host, 'F629 REVIEW', A);
-    if (host.querySelectorAll('.birdcast-migrant-list > li .thumb').length !== 6) {
-      throw new Error('expected migrants did not use shared small species cards');
+    if (host.querySelectorAll('.migration-list > li .thumb').length < 8) {
+      throw new Error('merged migration feeds did not use shared small species cards');
+    }
+    if (!/OBSERVED/.test(host.textContent)
+        || !/Expected aloft tonight/.test(host.textContent)
+        || !/Departing soon|Last chance/.test(host.textContent)) {
+      throw new Error('merged Migration mockup lost an evidence lane');
     }
     if (host.querySelectorAll('.birdcast-destination').length !== 6) {
       throw new Error('BirdCast destinations did not render');

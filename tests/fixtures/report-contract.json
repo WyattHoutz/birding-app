@@ -40,14 +40,6 @@
       "sub": "Is today worth chasing"
     },
     {
-      "at": "dueBackBtn",
-      "label": "📆 Due back soon",
-      "report": null,
-      "map": null,
-      "why": "app-only (F11 part 2): the arrival dates come from sweeping GBIF for every species in the region - hundreds of calls, resumable, cached on the device. The report is built once from a fixed snapshot and committed; a section whose whole value is 'what changes between now and three weeks from now' is a live question, and printing a static answer to it in a document dated today would be worse than not printing it. Owner decision 2026-08-12: the app may carry sections the report does not, as long as the delta is written down.",
-      "sub": "Migrants due back soon"
-    },
-    {
       "at": "rankBtn",
       "label": "🏆 Top 100",
       "report": "## 🏆 Top 100 — Leaderboard",
@@ -65,8 +57,8 @@
     },
     {
       "at": "destBtn",
-      "label": "🥇 Today’s patches",
-      "report": "## 🥇 Today’s patches — Top hotspots to visit",
+      "label": "🏞 Today’s patches",
+      "report": "## 🏞 Today’s patches — Top hotspots to visit",
       "map": "destMap",
       "sub": "Top hotspots to visit"
     },
@@ -86,7 +78,7 @@
     },
     {
       "at": "spLookupBtn",
-      "label": "🔎 Stakeout Birds",
+      "label": "🧐 Stakeout Birds",
       "report": null,
       "map": "spLookupMap",
       "why": "app-only (F358): one interactive query accepts either a bird or a spuh. Birds continue into recent places and checklists; spuhs open their on-device bird hierarchy and candidates, and choosing one continues into that same evidence surface. A Markdown report cannot accept the query, comparison set, or candidate selection, and printing every bird and spuh path for a region would be a phone book.",
@@ -102,7 +94,7 @@
     },
     {
       "at": "iconicBtn",
-      "label": "⭐ Iconic Patches",
+      "label": "🖼 Iconic Patches",
       "report": null,
       "map": null,
       "why": "F156. APP-ONLY, and deliberately so: the numbers come from GBIF's keyless occurrence facets measured against the reader's own home and chase radius, which a Markdown report generated hours earlier cannot ask for. Ranks how much a place stands out for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags.",
@@ -124,9 +116,9 @@
     },
     {
       "at": "refreshBtn",
-      "label": "🌅 Twitches",
-      "report": "## 🌅 Twitches today — Rarities today",
-      "reportLabel": "🌅 Twitches today",
+      "label": "🚨 Twitches",
+      "report": "## 🚨 Twitches today — Rarities today",
+      "reportLabel": "🚨 Twitches today",
       "reportSub": "Rarities today",
       "map": null,
       "sub": "Rare Bird Alerts (RBA)"
@@ -170,15 +162,15 @@
     },
     {
       "at": "favResults",
-      "label": "🔖 Favorite patches",
-      "report": "## 🔖 Favorite patches — Saved hotspots",
+      "label": "⭐ Favorite patches",
+      "report": "## ⭐ Favorite patches — Saved hotspots",
       "map": null,
       "sub": "Saved hotspots"
     },
     {
       "at": "allUnseenBtn",
-      "label": "🎯 Nemesis birds",
-      "report": "## 🎯 Nemesis birds — Closest unseen birds reported now",
+      "label": "👿 Nemesis birds",
+      "report": "## 👿 Nemesis birds — Closest unseen birds reported now",
       "map": null,
       "why": "F474 consolidates Open targets and the proposed Closest unseen birds report into one bird-first current-sightings report. Every unseen report is collapsed to one row per species-per-place at 250 m and species are ranked nearest first. It remains mapless because every place row links its hotspot and checklist directly.",
       "sub": "Closest unseen birds reported now"
@@ -201,18 +193,13 @@
       "sub": "Birds considered unseen"
     },
     {
-      "at": "migBtn",
-      "label": "🛬 On passage",
-      "report": "## 🛬 On passage — What’s arriving and leaving",
-      "map": null,
-      "sub": "What’s arriving and leaving"
-    },
-    {
       "at": "bcBody",
-      "label": "🌙 Nightly Migration",
+      "label": "🌙 Migration",
       "report": "## 🌙 Nightly Migration — BirdCast reports",
+      "reportLabel": "🌙 Nightly Migration",
+      "reportSub": "BirdCast reports",
       "map": null,
-      "sub": "BirdCast reports"
+      "sub": "Tonight, arrivals, and departures"
     },
     {
       "at": "todBtn",
@@ -262,12 +249,15 @@
     "## 🔬 iNaturalist unseen": "BACKLOG: beta section reading a non-eBird source (iNaturalist), which the app has no client for",
     "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
     "## 🚨 Twitches this week — Rarities this week": "F452: the app combines today's checklist list and the weekly bird/place grouping behind one Twitches — Rare Bird Alerts menu item; refreshBtn maps to the report's today heading and this second report heading is deliberately represented by the same unified app surface",
+    "## 🛬 On passage — What’s arriving and leaving": "F642: the app merges On passage, Due back soon, and Nightly Migration into the one Migration screen; the archived report keeps its separately generated On passage section",
     "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
   },
   "menuOmittedAts": [
     "activeBtn",
     "tripBtn",
-    "scoutBtn"
+    "scoutBtn",
+    "dueBackBtn",
+    "migBtn"
   ],
-  "_menuOmittedAtsWhy": "Sections switched off in the app behind `enabled: false` in MENU. They are NOT in `menu` (the app does not list them) but the REPORT still emits them, so section-docs.json still describes them and must not be pruned to match the app. Turning one back on is one word in index.html plus removing it here."
+  "_menuOmittedAtsWhy": "Sections switched off in the app behind `enabled: false` in MENU. They are NOT in `menu` (the app does not list them) but their panels remain for disabled features or internal data providers. F642 keeps Due back soon and On passage as data providers for the one Migration screen; the report still emits On passage separately."
 }

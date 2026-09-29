@@ -132,7 +132,8 @@ test('F607 BirdCast mockups seed the production level and county-count surfaces'
   assert.match(indexSource, /Live migration map/);
   assert.match(source, /migrants:\s*\[/,
     'the mockup does not seed representative expected migrants');
-  assert.match(indexSource, /Expected nocturnal migrants/);
+  assert.match(indexSource, /Migration watch/);
+  assert.match(indexSource, /migration-event-proof/);
   assert.match(indexSource, /SpeciesCards\.list\('small'/,
     'expected migrants do not use the shared small species card renderer');
   assert.match(source, /REPRESENTATIVE BIRDCAST DATA/);
@@ -687,45 +688,32 @@ test('Stakeout checklist mockup uses the unified shared small-card list', () => 
     'Stakeout reintroduced the second Mega-only place list');
 });
 
-test('F268/F269 On passage mockup exercises event, first-report, and forecast lanes', () => {
-  const spec = mockups.STUB_SPEC.migBtn;
-  assert.equal(spec.kind, 'migration',
-    'On passage cannot use the generic one-card bird fixture');
-  assert.equal(spec.host, 'migFirstResults');
-  assert.deepEqual(spec.expects, [
-    '#migEvent [data-event-id="october-big-day-2026"]',
-    '#migFirstResults .obs.big.xl.icon-sm > li',
-    '#migFirstResults .spdist',
-    '#migResults .obs.big.xl.icon-sm > li',
-    '#migResults .spdist',
-  ], 'capture readiness requires both F268 lanes and their prominent timing columns');
-
-  const start = source.indexOf("spec.kind === 'migration'");
-  const end = source.indexOf("} else if (spec.kind === 'bird')", start);
-  assert.ok(start >= 0 && end > start, 'the dedicated migration fixture branch exists');
+test('F642 Migration mockup exercises tonight, observed arrival, and departure lanes', () => {
+  const spec = mockups.STUB_SPEC.bcBody;
+  assert.equal(spec.kind, 'birdcast');
+  assert.equal(spec.host, 'bcBody');
+  const start = source.indexOf('function fillBirdcast');
+  const end = source.indexOf('function prepareF629Nightly', start);
+  assert.ok(start >= 0 && end > start, 'the merged Migration fixture exists');
   const fixture = source.slice(start, end);
   for (const fact of [
-    'Nazca Booby', 'Gyrfalcon', 'Semipalmated Sandpiper',
-    'Sharp-tailed Sandpiper', 'county history', 'bundled GBIF',
+    'Common Nighthawk', 'Semipalmated Sandpiper', 'American Crow',
+    'firstYearKey', 'ebird_mig_wa', 'migrants:',
   ]) {
-    assert.ok(fixture.includes(fact), `On passage mockup lost ${fact}`);
+    assert.ok(fixture.includes(fact), `Migration mockup lost ${fact}`);
   }
-  assert.match(fixture, /A\.loadMigration\(\)/,
-    'the fixture must run the real F268 renderer rather than hand-roll cards');
-  assert.match(fixture,
-    /A\.renderMigrationEvent\(new Date\('2026-09-10T19:00:00Z'\)\)/,
-    'the release fixture pins the production F269 countdown to a stable instant');
-  assert.match(fixture, /October Big Day/,
-    'the release fixture waits for the next exact published event');
+  assert.match(fixture, /A\.renderBirdcast\(/,
+    'the fixture must run the production merged renderer');
 });
 
-test('F604 On passage mockup seeds a complete species cache', () => {
-  const start = source.indexOf("spec.kind === 'migration'");
-  const end = source.indexOf("} else if (spec.kind === 'bird')", start);
+test('F642 Migration mockup seeds repeated county weeks instead of one-off noise', () => {
+  const start = source.indexOf('function fillBirdcast');
+  const end = source.indexOf('function prepareF629Nightly', start);
   const fixture = source.slice(start, end);
-  assert.match(fixture,
-    /ebird_species_v2:US-WA[\s\S]*expected:\s*2[\s\S]*rows:\s*\[[\s\S]*semsan[\s\S]*shtsan/,
-    'an incomplete taxonomy cache triggers an unstubbed refresh and times out both release galleries');
+  assert.match(fixture, /2024-09-11[\s\S]*2025-09-10[\s\S]*amecro/,
+    'the departure fixture lacks the repeated weeks required by the model');
+  assert.match(fixture, /2024-09-18[\s\S]*2025-09-17[\s\S]*semsan/,
+    'the arrival fixture lacks the repeated weeks required by the model');
 });
 
 test('F340 mockups and artifact checks run after, never inside, the IPA release path', () => {

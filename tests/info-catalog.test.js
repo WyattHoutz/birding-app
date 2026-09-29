@@ -132,12 +132,14 @@ test('popup prose is read from separate shared sources', () => {
 
 test('the generated catalog has exact bidirectional section and sheet coverage', () => {
   const data = GENERATOR.inventory();
-  assert.equal(data.sections.length, 30, 'enabled section-information surfaces');
+  assert.equal(data.sections.length, CONTRACT.menu.length,
+    'enabled section-information surfaces');
   assert.equal(data.dialogs.length, 2, 'informational bottom-sheet families');
-  assert.equal(data.sections.length + data.dialogs.length, 32,
+  assert.equal(data.sections.length + data.dialogs.length,
+    CONTRACT.menu.length + Object.keys(INFO.catalog).length,
     'total in-scope informational surfaces');
   assert.equal(data.excluded.length, 8, 'classified out-of-scope popup types');
-  assert.deepEqual(data.inactiveDocs, ['activeBtn', 'scoutBtn', 'tripBtn'],
+  assert.deepEqual(data.inactiveDocs, [...CONTRACT.menuOmittedAts].sort(),
     'only disabled/non-menu section docs stay outside the real-popup catalog');
 
   const expected = [
@@ -183,7 +185,8 @@ test('the committed catalog is deterministic and works as a local searchable pag
   const dom = new JSDOM(committed, { runScripts: 'dangerously' });
   const document = dom.window.document;
   const entries = [...document.querySelectorAll('.catalog-entry')];
-  assert.equal(entries.length, 32);
+  assert.equal(entries.length,
+    CONTRACT.menu.length + Object.keys(INFO.catalog).length);
   const input = document.getElementById('catalogSearch');
   input.value = 'cascade';
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -195,7 +198,7 @@ test('the committed catalog is deterministic and works as a local searchable pag
     assert.equal(entry.open, true, 'a search match opens for immediate review');
   });
   assert.match(document.getElementById('matchCount').textContent,
-    new RegExp(`Showing ${visible.length} of 32`));
+    new RegExp(`Showing ${visible.length} of ${entries.length}`));
 
   document.getElementById('collapseAll').click();
   visible.forEach((entry) => assert.equal(entry.open, false));

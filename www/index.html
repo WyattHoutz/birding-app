@@ -708,15 +708,15 @@
     @media (max-width: 359px) { .hdrid { display: none; } }
     html[data-a11y="on"] .hdrid { display: none; }
     html[data-display="high-visibility"] header {
-      display: grid; grid-template-columns: auto minmax(0, 1fr);
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
       grid-template-rows: auto auto; align-items: start; gap: 4px 10px;
     }
     html[data-display="high-visibility"] header > .brand {
-      grid-column: 1; grid-row: 1 / span 2;
+      grid-column: 1 / -1; grid-row: 1;
     }
-    html[data-display="high-visibility"] header .brandtext { display: none; }
+    html[data-display="high-visibility"] header .brandtext { display: block; }
     html[data-display="high-visibility"] header > .hdrscope {
-      grid-column: 2; grid-row: 1; justify-self: end; margin-left: 0;
+      grid-column: 1; grid-row: 2; justify-self: start; margin-left: 0;
     }
     html[data-display="high-visibility"] header > .hdrid {
       display: block; grid-column: 2; grid-row: 2; justify-self: end;
@@ -1459,6 +1459,34 @@
     .birdcast-migrant-list { margin: 0; }
     .birdcast-migrant-list > li { padding: 7px 0; }
     .birdcast-migrant-list .name { min-height: 46px; }
+    .migration-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px; margin: 0 0 9px; }
+    .migration-filters button { min-width: 0; min-height: 44px; padding: 7px 4px; }
+    .migration-filters button[aria-pressed="true"] { border-width: 2px;
+      text-decoration: underline; text-underline-offset: 3px; }
+    .migration-list > li > .name { align-items: center; }
+    .migration-list .ntext { min-width: 0; }
+    .migration-list .sub { white-space: normal; }
+    .migration-event { flex: 0 0 calc(72px * var(--s)); display: grid;
+      justify-items: center; align-content: center; gap: 1px; text-align: center;
+      line-height: 1.1; }
+    .migration-event-icon { font-size: calc(22px * var(--s)); }
+    .migration-event-time { font-size: calc(12px * var(--s)); font-weight: 750; }
+    .migration-event-proof { font-size: calc(9px * var(--s)); font-weight: 850;
+      letter-spacing: .06em; }
+    html[data-display="high-visibility"] .migration-filters {
+      grid-template-columns: 1fr; }
+    html[data-display="high-visibility"] .migration-list > li > .name {
+      display: grid; grid-template-columns: auto minmax(0, 1fr);
+      column-gap: 12px; row-gap: 4px; align-items: start; }
+    html[data-display="high-visibility"] .migration-list > li > .name > .thumb {
+      grid-column: 1; grid-row: 1; }
+    html[data-display="high-visibility"] .migration-list > li > .name > .ntext {
+      grid-column: 2; grid-row: 1; overflow-wrap: break-word;
+      word-break: normal; hyphens: none; }
+    html[data-display="high-visibility"] .migration-list .migration-event {
+      grid-column: 1 / -1; grid-row: 2; display: flex; flex-basis: auto;
+      justify-content: flex-end; align-items: center; gap: 8px; min-height: 44px; }
     .birdcast-migrants-loading, .birdcast-migrants-empty {
       color: var(--muted); font-size: calc(13px * var(--s)); }
     .birdcast-destinations { display: grid; gap: 8px; margin: 11px 0; }
@@ -1706,14 +1734,14 @@
       text-decoration: underline; text-underline-offset: 2px;
     }
     .progressive-more.hotspotChecklistMore {
-      min-height: calc(30px * var(--s)); min-width: 0;
+      min-height: max(44px, calc(30px * var(--s))); min-width: 0;
       border: 0; border-radius: 0; padding: 0; background: none;
       color: var(--accent); font-size: calc(13px * var(--s)); line-height: 1.35;
       text-decoration: underline; text-underline-offset: 2px;
     }
     .progressive-more.hotspotChecklistMore .progressive-more-icon { display: none; }
     .progressive-more.iconicPlaceMore {
-      min-height: calc(30px * var(--s)); min-width: 0;
+      min-height: max(44px, calc(30px * var(--s))); min-width: 0;
       border: 0; border-radius: 0; padding: 0; background: none;
       color: var(--accent); font-size: calc(13px * var(--s)); line-height: 1.35;
       text-decoration: underline; text-underline-offset: 2px;
@@ -3103,7 +3131,7 @@
 
   <main>
     <section class="panel">
-      <h2>🌅 Twitches <span class="dim" id="regionLabel"></span></h2>
+      <h2>🚨 Twitches <span class="dim" id="regionLabel"></span></h2>
       <div class="row">
         <button id="refreshBtn">Refresh</button>
       </div>
@@ -3112,7 +3140,7 @@
     </section>
 
     <section class="panel">
-      <h2>🎯 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <h2>👿 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <span id="targetRegionLabel" hidden></span>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
@@ -3142,7 +3170,7 @@
     </section>
 
     <section class="panel" id="sec-spLookupBtn">
-      <h2>🔎 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <h2>🧐 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
                placeholder="Search for birds and spuhs…" autocomplete="off" />
@@ -3217,7 +3245,7 @@
       <div id="scoutResults"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel" hidden>
       <h2>📆 Due back soon <span class="dim" id="dueBackRegionLabel"></span></h2>
       <div class="row" id="dueBackKinds" role="group" aria-label="Show migration events">
         <button id="dueBackArrivals" class="pressbtn" type="button" aria-pressed="true"><span
@@ -3234,7 +3262,7 @@
     </section>
 
     <section class="panel">
-      <h2>🥇 Today’s patches <span class="dim" id="destRegionLabel"></span></h2>
+      <h2>🏞 Today’s patches <span class="dim" id="destRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="destBtn">Rank hotspots</button>
@@ -3325,7 +3353,7 @@
     </section>
 
     <section class="panel">
-      <h2>🔖 Favorite patches</h2>
+      <h2>⭐ Favorite patches</h2>
       <div class="row">
         <input id="favSearch" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="favSearchBtn" class="secondary">Search</button>
@@ -3374,7 +3402,7 @@
     </section>
 
     <section class="panel">
-      <h2>🌙 Nightly Migration <span class="dim" id="bcRegionLabel"></span></h2>
+      <h2>🌙 Migration <span class="dim" id="bcRegionLabel"></span></h2>
       <div id="bcBody"></div>
     </section>
 
@@ -3506,7 +3534,7 @@
     </section>
 
     <section class="panel" id="iconicPanel">
-      <h2>⭐ Iconic Patches <span class="dim" id="iconicRegionLabel"></span></h2>
+      <h2>🖼 Iconic Patches <span class="dim" id="iconicRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="iconicBtn">Scan nearby hotspots</button>
@@ -3564,7 +3592,7 @@
       <div id="convoyResults"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel" hidden>
       <h2>🛬 On passage <span class="dim" id="migRegionLabel"></span></h2>
       <div class="row">
         <button id="migBtn">Build migration history</button>
@@ -4118,7 +4146,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.6';
+      var APP_VERSION = '1.131.7';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12687,6 +12715,7 @@
       var _dueBackRun = 0;
       var _dueBackKinds = { arrivals: true, departures: true };
       var _dueBackView = null;
+      var _migrationSourceNote = '';
       function dueBackRows(store, rows, seen, now) {
         var byS = {};
         rows.forEach(function (r) { if (r.sci) byS[r.sci] = r; });
@@ -12764,6 +12793,10 @@
         });
         _dueBackView = { store: store, rows: rows, partial: partial };
         syncDueBackKinds();
+        _migrationSourceNote = partial
+          ? 'Arrival history is still checking in the background.'
+          : '';
+        refreshUnifiedMigration();
         var answered = Object.keys(store.done || {}).length;
         if (!list.length) {
           ul.innerHTML = '';
@@ -12895,6 +12928,9 @@
         if (stop) stop.hidden = true;
         if (st) st.textContent = 'Stopped. Everything already checked is saved — '
           + 'starting again picks up where this left off.';
+        if (_dueBackView) _dueBackView.partial = false;
+        _migrationSourceNote = 'Arrival-history check stopped; saved progress will resume on refresh.';
+        refreshUnifiedMigration();
       }
 
       // "Best places for this bird" + "due back" — backlog F11, Proposal A.
@@ -28001,28 +28037,182 @@
           + '<span class="birdcast-alert-count">' + esc(birdcastCountLine(snapshot))
           + '</span></span></div>';
       }
-      function birdcastMigrantsHtml(snapshot) {
-        var rows = snapshot && snapshot.migrants;
+      var _migrationKinds = { tonight: true, arrivals: true, departures: true };
+      function migrationUnifiedRows(snapshot, now, kinds) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        kinds = kinds || _migrationKinds;
+        var rows = {}, seen = migYearCodes();
+        function add(code, name, event) {
+          code = String(code || '').trim();
+          if (!code) return;
+          var row = rows[code] || (rows[code] = {
+            code: code, name: name || code, events: []
+          });
+          if (name && row.name === row.code) row.name = name;
+          row.events.push(event);
+        }
+        ((snapshot && snapshot.migrants) || []).forEach(function (row) {
+          add(row.speciesCode, row.name, {
+            kind: 'tonight', icon: '\ud83c\udf07', days: 0, observed: false,
+            movement: 'Expected aloft tonight',
+            source: 'BirdCast expected nocturnal migrant'
+          });
+        });
+
+        var ctx = firstYearContext();
+        var first = firstYearRead(ctx.region, ctx.year);
+        var firstEvidence = BL.firstYearEvidence(
+          first && first.rows || [], now, FIRST_YEAR_RECENT_DAYS);
+        firstEvidence.recent.forEach(function (row) {
+          var source = 'eBird first report ' + fmtDate(row.date);
+          if (row.locName) source += ' at ' + row.locName;
+          add(row.code, row.name, {
+            kind: 'arrivals', icon: '\ud83d\udeec', days: -row.ageDays,
+            ageDays: row.ageDays, observed: true, movement: 'Arrived',
+            source: source
+          });
+        });
+
+        var cache = migLoad();
+        var forecast = Object.keys(cache.samples || {}).length
+          ? migExpectedSoon(cache, now, seen)
+          : { arriving: [], departing: [], coveredCodes: [] };
+        var fallbackSource = _migFallback[ctx.region + '|' + ctx.year];
+        var fallback = fallbackSource
+          ? dueBackRows(fallbackSource.store, fallbackSource.rows, seen, now)
+          : [];
+        var plan = BL.mergeMigrationForecast(
+          first && first.rows || [], forecast.arriving, fallback, now,
+          FIRST_YEAR_RECENT_DAYS, forecast.coveredCodes);
+        plan.expected.forEach(function (row) {
+          var history = row.source === 'history';
+          var name = row.name || (cache.names && cache.names[row.code]) || row.code;
+          add(row.code, name, {
+            kind: 'arrivals', icon: '\ud83d\udeec', days: row.forecastDays,
+            observed: false, movement: row.forecastDays <= 0
+              ? 'Arrival window is now' : 'Arriving soon',
+            source: history
+              ? 'County history \u00b7 seen ' + row.nWeeks + ' wk/yr'
+              : 'GBIF history \u00b7 usually back around ' + BL.prettyMMDD(row.day)
+          });
+        });
+        forecast.departing.forEach(function (row) {
+          var name = (cache.names && cache.names[row.code]) || row.code;
+          add(row.code, name, {
+            kind: 'departures', icon: '\ud83d\udeeb',
+            days: Math.max(0, row.weeksUntil || 0) * 7,
+            observed: false, movement: row.weeksUntil === 0
+              ? 'Last chance this week' : 'Departing soon',
+            source: 'County history \u00b7 seen ' + row.nWeeks + ' wk/yr'
+          });
+        });
+        if (_dueBackView) {
+          dueBackRows(_dueBackView.store, _dueBackView.rows, seen, now)
+            .forEach(function (row) {
+              add(row.code, row.name, {
+                kind: 'arrivals', icon: '\ud83d\udeec', days: row.days,
+                observed: false, movement: row.days <= 0
+                  ? 'Arrival window is now' : 'Arriving soon',
+                source: 'GBIF history \u00b7 usually back around '
+                  + BL.prettyMMDD(row.day)
+              });
+            });
+        }
+        function priority(event) {
+          if (event.observed) return 0;
+          if (event.kind === 'tonight') return 1;
+          return 2;
+        }
+        return Object.keys(rows).map(function (code) {
+          var row = rows[code], selected = row.events.filter(function (event) {
+            return !!kinds[event.kind];
+          });
+          if (!selected.length) return null;
+          selected.sort(function (a, b) {
+            return priority(a) - priority(b)
+              || a.days - b.days
+              || a.kind.localeCompare(b.kind);
+          });
+          row.selectedEvents = selected;
+          row.primary = selected[0];
+          return row;
+        }).filter(Boolean).sort(function (a, b) {
+          return priority(a.primary) - priority(b.primary)
+            || a.primary.days - b.primary.days
+            || a.name.localeCompare(b.name);
+        });
+      }
+      function migrationRelative(event) {
+        if (event.kind === 'tonight') return 'tonight';
+        if (event.observed) {
+          if (event.ageDays === 0) return 'today';
+          if (event.ageDays === 1) return '1 day ago';
+          return event.ageDays + ' days ago';
+        }
+        if (event.days <= 0) return 'now';
+        if (event.days % 7 === 0) {
+          var weeks = event.days / 7;
+          return 'in ' + weeks + ' week' + (weeks === 1 ? '' : 's');
+        }
+        return 'in ' + event.days + ' day' + (event.days === 1 ? '' : 's');
+      }
+      function migrationFiltersHtml() {
+        return '<div class="migration-filters" role="group" '
+          + 'aria-label="Filter migration events">'
+          + ['tonight', 'arrivals', 'departures'].map(function (kind) {
+            var label = kind === 'tonight' ? 'Tonight'
+              : kind.charAt(0).toUpperCase() + kind.slice(1);
+            return '<button type="button" data-migration-kind="' + kind
+              + '" aria-pressed="' + (_migrationKinds[kind] ? 'true' : 'false')
+              + '">' + label + '</button>';
+          }).join('') + '</div>';
+      }
+      function birdcastMigrantsHtml(snapshot, now) {
+        var rows = migrationUnifiedRows(snapshot, now);
         var body;
-        if (!snapshot) {
-          body = '<div class="birdcast-migrants-loading">Loading species…</div>';
-        } else if (!rows) {
-          body = '<div class="birdcast-migrants-empty">Species list unavailable.</div>';
+        if (!snapshot && !rows.length) {
+          body = '<div class="birdcast-migrants-loading">Loading migration feeds…</div>';
         } else if (!rows.length) {
-          body = '<div class="birdcast-migrants-empty">No expected migrants listed.</div>';
+          body = '<div class="birdcast-migrants-empty">No migration events match these filters.</div>';
         } else {
           body = SpeciesCards.list('small', rows.map(function (row) {
-            return SpeciesCards.small({
-              icon: photoSlot(row.name, row.speciesCode),
-              name: speciesLink(row.name, row.speciesCode),
-              data: { 'species-code': row.speciesCode }
+            var event = row.primary;
+            var sources = row.selectedEvents.map(function (item) {
+              return item.source;
+            }).filter(function (item, at, all) {
+              return all.indexOf(item) === at;
             });
-          }), 'birdcast-migrant-list');
+            var proof = event.observed ? 'OBSERVED' : 'EXPECTED';
+            var relative = migrationRelative(event);
+            return SpeciesCards.small({
+              icon: photoSlot(row.name, row.code),
+              name: speciesLink(row.name, row.code),
+              sub: '<b>' + esc(event.movement) + '</b> \u00b7 '
+                + esc(sources.join(' \u00b7 ')),
+              right: '<span class="migration-event" aria-label="'
+                + esc(event.movement + ', ' + relative + ', ' + proof.toLowerCase())
+                + '"><span class="migration-event-icon" aria-hidden="true">'
+                + event.icon + '</span><span class="migration-event-time">'
+                + esc(relative) + '</span><span class="migration-event-proof">'
+                + proof + '</span></span>',
+              data: { 'species-code': row.code, 'migration-kind': event.kind }
+            });
+          }), 'birdcast-migrant-list migration-list');
         }
         return '<div class="birdcast-migrants" role="region" '
-          + 'aria-label="Expected nocturnal migrants">'
-          + '<h3 class="birdcast-migrants-title">Expected nocturnal migrants</h3>'
-          + body + '</div>';
+          + 'aria-label="Combined migration watch">'
+          + '<h3 class="birdcast-migrants-title">Migration watch</h3>'
+          + migrationFiltersHtml()
+          + (_dueBackView && _dueBackView.partial
+            ? '<button type="button" class="secondary" data-migration-stop>'
+              + 'Stop arrival-history check</button>' : '')
+          + (_migrationSourceNote
+            ? '<div class="status">' + esc(_migrationSourceNote) + '</div>' : '')
+          + body
+          + '<div class="hint">' + rows.length + ' bird'
+          + (rows.length === 1 ? '' : 's')
+          + ' \u00b7 one list, ordered by current evidence \u00b7 '
+          + 'observations and predictions remain labelled.</div></div>';
       }
       function renderBirdcast(now, suppliedSnapshot) {
         var el = $('bcBody'); if (!el) return;
@@ -28051,6 +28241,7 @@
         var localDate = birdcastDateLabel(s.local);
         var tools = birdcastToolLinks(alertState);
         function paint(snapshot) {
+          if (!el.isConnected) return;
           var alertHeader = birdcastAlertHeader(alertState, snapshot);
           var errors = snapshot
             ? [snapshot.forecastError, snapshot.countError, snapshot.migrantsError]
@@ -28060,7 +28251,7 @@
             + (errors.length ? ' ⚠️ ' + esc(errors.join('; ')) + '.' : '')
             + '</div>';
         if (s.active) {
-          el.innerHTML = alertHeader + birdcastMigrantsHtml(snapshot)
+          el.innerHTML = alertHeader + birdcastMigrantsHtml(snapshot, now)
             + '<div class="birdcast-destinations" aria-label="Open BirdCast">'
             + tools + linkHtml + '</div>'
             + apiNote;
@@ -28084,12 +28275,29 @@
           return snapshot;
         });
       }
+      function refreshUnifiedMigration() {
+        var el = $('bcBody');
+        if (!el) return;
+        renderBirdcast(new Date(), _birdcastSnapshot);
+      }
+      function loadUnifiedMigration() {
+        var birdcast = Promise.resolve(renderBirdcast());
+        var jobs = [birdcast, loadMigration()];
+        if (getKey()) jobs.push(loadDueBack());
+        return Promise.all(jobs).then(function (results) {
+          var snapshot = results[0] || _birdcastSnapshot;
+          if (typeof document !== 'undefined' && document.getElementById('bcBody')) {
+            renderBirdcast(new Date(), snapshot);
+          }
+          return snapshot;
+        });
+      }
       function birdcastLevelTile(snapshot) {
         var level = birdcastLevel(snapshot).toUpperCase();
         return '<a class="thumb surgebirdcastthumb seclink" data-sec="sec-bcBody"'
           + ' data-birdcast-level="' + esc(level) + '"'
           + ' aria-label="' + esc(level.charAt(0) + level.slice(1).toLowerCase()
-            + ' migration. Open Nightly Migration') + '">'
+            + ' migration. Open Migration') + '">'
           + birdcastLevelArt(snapshot) + '</a>';
       }
       function birdcastShortMillions(n) {
@@ -28105,7 +28313,7 @@
         return '<a class="thumb surgebirdcastthumb birdcast-count-tile seclink"'
           + ' data-sec="sec-bcBody" data-birdcast-level="HIGH"'
           + ' aria-label="' + esc(shortCount
-            + ' birds migrated last night. Open Nightly Migration') + '">'
+            + ' birds migrated last night. Open Migration') + '">'
           + '<span class="birdcast-flight birdcast-flight-high" aria-hidden="true">'
           + '<span class="birdcast-flight-moon"></span>'
           + '<span class="birdcast-flight-label">' + esc(shortCount)
@@ -28140,7 +28348,7 @@
             why: '<b>High migration tonight</b>',
             extra: snapshot.forecastError
               ? '<span class="dim">⚠️ ' + esc(snapshot.forecastError) + '.</span>'
-              : '<span class="dim">Open Nightly Migration for forecast details.</span>'
+              : '<span class="dim">Open Migration for forecast details.</span>'
           });
         }
         if (snapshot.count && snapshot.count.high) {
@@ -28169,6 +28377,66 @@
           });
         }
         return rows;
+      }
+      function migrationSignificantRows(now, snapshot) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        var all = migrationUnifiedRows(snapshot, now, {
+          tonight: true, arrivals: true, departures: true
+        });
+        var observed = [], lastChance = [];
+        all.forEach(function (row) {
+          row.events.forEach(function (event) {
+            if (event.kind === 'arrivals' && event.observed) {
+              observed.push({ row: row, event: event });
+            } else if (event.kind === 'departures' && event.days === 0) {
+              lastChance.push({ row: row, event: event });
+            }
+          });
+        });
+        observed.sort(function (a, b) {
+          return a.event.ageDays - b.event.ageDays || a.row.name.localeCompare(b.row.name);
+        });
+        lastChance.sort(function (a, b) {
+          return a.row.name.localeCompare(b.row.name);
+        });
+        var news = [];
+        if (observed.length) {
+          var arrival = observed[0], arrivalAt = new Date(
+            now.getTime() - arrival.event.ageDays * 86400000);
+          news.push({
+            kind: 'migration',
+            icon: photoSlot(arrival.row.name, arrival.row.code),
+            name: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(arrival.row.name) + ' is showing up now</a>',
+            alpha: '',
+            where: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(arrival.event.source) + '</a>',
+            when: arrivalAt.toISOString(),
+            time: arrivalAt.getTime(),
+            noteHeader: 'MIGRATION ARRIVAL: ' + arrival.row.name,
+            why: '<b>First regional report this year</b>',
+            extra: '<span class="dim">Observed on eBird, not inferred from a forecast.</span>'
+          });
+        }
+        if (lastChance.length) {
+          var departure = lastChance[0];
+          news.push({
+            kind: 'migration',
+            icon: photoSlot(departure.row.name, departure.row.code),
+            name: '<a class="seclink" data-sec="sec-bcBody">Last chance for '
+              + esc(departure.row.name) + '</a>',
+            alpha: '',
+            where: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(departure.event.source) + '</a>',
+            when: now.toISOString(),
+            time: now.getTime() - 2,
+            omitWhen: true,
+            noteHeader: 'MIGRATION DEPARTURE: ' + departure.row.name,
+            why: '<b>County history puts departure in the current week</b>',
+            extra: '<span class="dim">Expected from local history; not a confirmed departure.</span>'
+          });
+        }
+        return news;
       }
       function birdcastSurgeRow(now, snapshot) {
         return birdcastSurgeRows(now, snapshot)[0] || null;
@@ -31703,6 +31971,7 @@
           + (fallback.length ? ' · bundled GBIF fills forecast gaps' : '') + '.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
+        refreshUnifiedMigration();
       }
       function migSampleKey(d) { return getReportSlug() + '|' + migIsoDate(d); }
       // Merge every county's species for one historic day into a single sample,
@@ -32874,7 +33143,9 @@
           }) : null;
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
-        var migrationRows = birdcastSurgeRows(new Date(), _birdcastSnapshot);
+        var migrationNow = new Date();
+        var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
+          .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot));
         var sourceWarning = surgeSourceWarning(sourceStates);
         var sourceProgress = surgeSourceProgress(sourceStates);
         markSurgeSourceStates(box, sourceStates);
@@ -34398,7 +34669,6 @@
       var MENU_SUB = {
         surgeBtn:      'Talk and news',
         wxBtn:         'Is today worth chasing',
-        dueBackBtn:    'Migrants due back soon',
         rankBtn:       'Leaderboard',
         patchBtn:      'Where the top 100 actually bird',
         destBtn:       'Top hotspots to visit',
@@ -34420,8 +34690,7 @@
         allUnseenBtn:  'Closest unseen birds reported now',
         easyBtn:       'Common birds you still need',
         nvResults:     'Birds considered unseen',
-        migBtn:        'What’s arriving and leaving',
-        bcBody:        'BirdCast reports',
+        bcBody:        'Tonight, arrivals, and departures',
         todBtn:        'Time-of-day specialists',
         myYearBody:    'Your seen bird list this year',
         recordBody:    'Overdue megararities',
@@ -34445,24 +34714,22 @@
       // that coupling was cut rather than satisfied.
       var MENU = [
         { at: 'surgeBtn',      label: '🔔 Bird Gen', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'refreshBtn',    label: '🌅 Twitches', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'allUnseenBtn',  label: '🎯 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'refreshBtn',    label: '🚨 Twitches', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'allUnseenBtn',  label: '👿 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News', enabled: false },
         { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'destBtn',       label: '🥇 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
+        { at: 'destBtn',       label: '🏞 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'quickBtn',      label: '🚶 Nearby Patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'excBtn',        label: '🚗 Day trip patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'favResults',    label: '🔖 Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'iconicBtn',     label: '⭐ Iconic Patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'iconicBtn',     label: '🖼 Iconic Patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
+        { at: 'favResults',    label: '⭐ Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
-        { at: 'spLookupBtn',   label: '🔎 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
+        { at: 'spLookupBtn',   label: '🧐 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
         { at: 'stakeHsBtn',    label: '🏞 Stakeout Patches', group: 'Stakeouts - Birds and Hotspots' },
         { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Birding Tools' },
-        { at: 'dueBackBtn',    label: '📆 Due back soon', group: 'Birding Tools' },
-        { at: 'migBtn',        label: '🛬 On passage', needs: 'county', group: 'Birding Tools' },
-        { at: 'bcBody',        label: '🌙 Nightly Migration', needs: 'county', group: 'Birding Tools' },
+        { at: 'bcBody',        label: '🌙 Migration', needs: 'county', group: 'Birding Tools' },
         { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Birding Tools' },
         { at: 'recordBody',    label: '🏅 Break a record', group: 'Birding Tools' },
         // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
@@ -34545,12 +34812,10 @@
         favResults: { fn: loadFavs, needsKey: true },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true },
         nvResults:  { fn: renderWatch },
-        bcBody:     { fn: renderBirdcast },
+        bcBody:     { fn: loadUnifiedMigration },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
         myYearBody: { fn: loadMyYear },
         recordBody: { fn: loadStateRecords },
-        migBtn:     { fn: loadMigration },
-        dueBackBtn: { fn: loadDueBack, needsKey: true, retryOnFailure: true },
         helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
@@ -39197,6 +39462,23 @@
           renderDueBack(_dueBackView.store, _dueBackView.rows, _dueBackView.partial);
         }
       });
+      $('bcBody').addEventListener('click', function (ev) {
+        var stop = ev.target.closest && ev.target.closest('[data-migration-stop]');
+        if (stop) {
+          stopDueBack();
+          return;
+        }
+        var button = ev.target.closest && ev.target.closest('[data-migration-kind]');
+        if (!button) return;
+        var kind = button.getAttribute('data-migration-kind');
+        if (!_migrationKinds.hasOwnProperty(kind)) return;
+        var enabled = Object.keys(_migrationKinds).filter(function (key) {
+          return _migrationKinds[key];
+        });
+        if (_migrationKinds[kind] && enabled.length === 1) return;
+        _migrationKinds[kind] = !_migrationKinds[kind];
+        renderBirdcast(new Date(), _birdcastSnapshot);
+      });
       // A search box that ignores the Return key is broken on a phone, where
       // the keyboard's blue "search" key is the obvious way to submit.
       $('spLookup').addEventListener('keydown', function (e) {
@@ -39992,9 +40274,13 @@
         loadBirdcastSnapshot: loadBirdcastSnapshot,
         birdcastSurgeRow: birdcastSurgeRow,
         birdcastSurgeRows: birdcastSurgeRows,
+        migrationSignificantRows: migrationSignificantRows,
+        migrationUnifiedRows: migrationUnifiedRows,
         surgeAlertCard: surgeAlertCard,
         birdcastMenuBadge: birdcastMenuBadge,
         renderBirdcast: renderBirdcast,
+        loadUnifiedMigration: loadUnifiedMigration,
+        stopDueBack: stopDueBack,
         performanceReport: performanceReport, renderPerformance: renderPerformance,
         firstReport: firstReport, coverageStart: coverageStart,
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,

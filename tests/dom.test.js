@@ -1087,7 +1087,7 @@ test('F268 On passage loads first-year data by default and caches one region-yea
     });
   };
 
-  app.open(/On passage/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   const birdCalls = calls.filter((url) => /\/bird-list\?/.test(url));
@@ -1106,10 +1106,19 @@ test('F268 On passage loads first-year data by default and caches one region-yea
     'first-report medium cards use the compact icon modifier at phone width');
 
   await A.loadMigration();
+  A.stopDueBack();
+  await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(calls.filter((url) => /\/bird-list\?/.test(url)).length, 1,
     'a second load on the same local day reuses the region-year cache');
   const key = A.firstYearKey('US-WA', new Date().getFullYear());
   assert.ok(app.window.localStorage.getItem(key), 'the valid page is cached');
+  const migrationNews = A.migrationSignificantRows(new Date(), null);
+  assert.match(migrationNews.map((row) => row.name).join(' '),
+    /Common Nighthawk.*showing up now/,
+    'Bird Gen did not promote the observed first arrival from the merged feed');
+  assert.match(migrationNews.map((row) => row.extra).join(' '),
+    /Observed on eBird, not inferred from a forecast/,
+    'Bird Gen blurred an observed arrival into a prediction');
   app.window.localStorage.setItem('bcp:2:ebird_report', 'wa');
   A.bcSetProfile('2');
   await A.loadMigration();
@@ -1345,21 +1354,28 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
 
   const targetWeek = weekOf(now) === 53 ? 1 : weekOf(now) + 1;
   const sampleDate = sampleDateForWeek(now.getFullYear() - 1, targetWeek);
+  const departureDate = sampleDateForWeek(now.getFullYear() - 1, weekOf(now));
   const outsideWeek = ((targetWeek + 9 - 1) % 53) + 1;
   const outsideDate = sampleDateForWeek(now.getFullYear() - 1, outsideWeek);
   app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
     samples: {
       ['wa|' + sampleDate]: ['westan'],
+      ['wa|' + departureDate]: ['depmig'],
       ['wa|' + outsideDate]: ['rufhum'],
     },
-    names: { westan: 'Western Tanager', rufhum: 'Rufous Hummingbird' },
+    names: {
+      westan: 'Western Tanager',
+      depmig: 'Departing Migrant',
+      rufhum: 'Rufous Hummingbird',
+    },
     updated: now.toISOString(),
   }));
   app.window.localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
     at: Date.now(),
-    expected: 3,
+    expected: 4,
     rows: [
       { code: 'westan', name: 'Western Tanager', sci: 'Piranga ludoviciana', alpha: 'weta' },
+      { code: 'depmig', name: 'Departing Migrant', sci: 'Migrans discedens', alpha: 'demi' },
       { code: 'purmar', name: 'Purple Martin', sci: 'Progne subis', alpha: 'puma' },
       { code: 'rufhum', name: 'Rufous Hummingbird', sci: 'Selasphorus rufus', alpha: 'ruhu' },
     ],
@@ -1384,9 +1400,9 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
         county: 'King', isPrivate: false,
       }],
     }));
-  seedSeen(app, ['amecro']);
+  seedSeen(app, ['amecro', 'depmig']);
 
-  app.open(/On passage/);
+  app.open(/Tonight, arrivals, and departures/);
   await A.loadMigration();
 
   const text = app.$('migResults').textContent.replace(/\s+/g, ' ');
@@ -1402,8 +1418,15 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
     'the winter first report remains separate context on the history forecast');
   assert.ok(app.$('migResults').querySelector('.obs.big.xl.icon-sm'),
     'forecast medium cards use the compact icon modifier at phone width');
+  const departureNews = A.migrationSignificantRows(now, null);
+  assert.match(departureNews.map((row) => row.name).join(' '),
+    /Last chance for Departing Migrant/,
+    'Bird Gen did not promote a current-week county-history departure');
+  assert.match(departureNews.map((row) => row.extra).join(' '),
+    /Expected from local history; not a confirmed departure/,
+    'Bird Gen presented a predicted departure as observed');
 
-  seedSeen(app, ['amecro', 'purmar']);
+  seedSeen(app, ['amecro', 'depmig', 'purmar']);
   await A.loadMigration();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const afterSeen = app.$('migResults').textContent.replace(/\s+/g, ' ');
@@ -1965,14 +1988,22 @@ test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
   // (`needflag`) and was ALSO the Quick-outing "Find…" chip. One glyph, three
   // meanings, two of them in the same menu.
   //
-  // A tile's icon is the only part of it visible at a glance, so it has to be
-  // the part that is unique. This asserts the property rather than the current
-  // assignment, so the next section added cannot quietly re-collide.
+  // A tile's icon is the only part of it visible at a glance, so it should be
+  // unique where possible. 🏞 is intentionally shared by Today's patches and
+  // Stakeout Patches: both are place-first landscape views, and the former is
+  // the historical full-day-trip icon requested by the owner.
   const icons = CONTRACT.menu.map((m) => [...m.label][0]);
   const seen = new Map();
   icons.forEach((ic, i) => {
     const prev = seen.get(ic);
-    assert.ok(prev === undefined,
+    const allowedLandscapePair = ic === '🏞'
+      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
+        .size === 2
+      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
+        .has('destBtn')
+      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
+        .has('stakeHsBtn');
+    assert.ok(prev === undefined || allowedLandscapePair,
       `two menu tiles share the icon ${ic}: "${CONTRACT.menu[prev || 0].label}" `
       + `and "${CONTRACT.menu[i].label}" — the glyph is the only part of a tile `
       + 'read at a glance, so it must be the unique part');
@@ -2076,11 +2107,15 @@ test('Contents menu matches the report section contract (labels + order)', async
   app.window.close();
 });
 
-test('F460 Twitches menu keeps its short title and RBA subtitle', () => {
-  const entry = CONTRACT.menu.find((item) => item.at === 'refreshBtn');
-  assert.deepEqual({ label: entry.label, sub: entry.sub }, {
-    label: '🌅 Twitches',
-    sub: 'Rare Bird Alerts (RBA)',
+test('F460/F645 Twitches and Nemesis keep distinct selected icons and subtitles', () => {
+  const twitches = CONTRACT.menu.find((item) => item.at === 'refreshBtn');
+  const nemesis = CONTRACT.menu.find((item) => item.at === 'allUnseenBtn');
+  assert.deepEqual({
+    twitches: { label: twitches.label, sub: twitches.sub },
+    nemesis: { label: nemesis.label, sub: nemesis.sub },
+  }, {
+    twitches: { label: '🚨 Twitches', sub: 'Rare Bird Alerts (RBA)' },
+    nemesis: { label: '👿 Nemesis birds', sub: 'Closest unseen birds reported now' },
   });
 });
 
@@ -6982,7 +7017,7 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
   assert.equal(departures[0].nWeeks, 18);
 });
 
-test('F637 opening Due back soon loads the active region without a refresh tap', async () => {
+test('F637/F642 opening Migration loads due-back data without a refresh tap', async () => {
   const app = await boot();
   const A = app.window.__app;
   const now = new Date();
@@ -7010,31 +7045,20 @@ test('F637 opening Due back soon loads the active region without a refresh tap',
     },
   }));
 
-  assert.equal(app.$('dueBackStatus').textContent.trim(), '',
-    'the report body still contains the long explanatory prose meant for Info');
-  A.showSection('sec-dueBackBtn');
-  await waitFor(() => /Regional Migrant/.test(app.$('dueBackResults').textContent),
-    'Due back soon to auto-load on section open');
-  const cards = [...app.$('dueBackResults').querySelectorAll(':scope > li')];
+  app.open(/Tonight, arrivals, and departures/);
+  await waitFor(() => /Regional Migrant/.test(app.$('bcBody').textContent),
+    'Migration to auto-load due-back data on section open');
+  const cards = [...app.$('bcBody').querySelectorAll('.migration-list > li')];
   assert.deepEqual(cards.map((row) => row.querySelector('.splink').textContent),
     ['Returned Migrant', 'Regional Migrant', 'Next Migrant'],
     'the arrival timeline is not chronological across today');
-  assert.equal(cards[0].querySelector('.arrivalmetric').getAttribute('aria-label'),
-    'Arrived 3 days ago');
-  assert.equal(cards[0].querySelector('.arrivalicon').textContent, '🛬');
-  assert.equal(cards[1].querySelector('.arrivalmetric').getAttribute('aria-label'),
-    'Arrived today');
-  assert.equal(cards[2].querySelector('.arrivalmetric').getAttribute('aria-label'),
-    'Arriving in 5 days');
-  assert.equal(cards[2].querySelector('.arrivalicon').textContent, '🛬');
-  assert.equal(app.$('dueBackArrivals').getAttribute('aria-pressed'), 'true');
-  assert.equal(app.$('dueBackDepartures').getAttribute('aria-pressed'), 'true');
-  app.$('dueBackDepartures').click();
-  assert.equal(app.$('dueBackDepartures').getAttribute('aria-pressed'), 'false');
-  assert.equal(app.$('dueBackResults').querySelectorAll(':scope > li').length, 3,
-    'hiding departures removed arrival rows');
-  assert.match(app.$('dueBackStatus').textContent,
-    /3 migration events in chronological order.*past 14 days through the next 30 days/i);
+  assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
+    'Arrival window is now, now, expected');
+  assert.equal(cards[0].querySelector('.migration-event-icon').textContent, '🛬');
+  assert.equal(cards[1].querySelector('.migration-event').getAttribute('aria-label'),
+    'Arrival window is now, now, expected');
+  assert.equal(cards[2].querySelector('.migration-event').getAttribute('aria-label'),
+    'Arriving soon, in 5 days, expected');
   app.window.close();
 });
 
@@ -17664,6 +17688,9 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   assert.match(HTML,
     /\.progressive-more\.hotspotChecklistMore\s*\{[^}]*border:\s*0[^}]*background:\s*none[^}]*text-decoration:\s*underline/,
     'the remaining-checklist action is still styled as a filled button');
+  assert.match(HTML,
+    /\.progressive-more\.(?:hotspotChecklistMore|iconicPlaceMore)\s*\{[^}]*min-height:\s*max\(44px,\s*calc\(30px \* var\(--s\)\)\)/,
+    'the compact text-link progressive action can shrink below a 44px tap target');
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
   assert.ok(list.children[0].querySelector('.cksummary > .cknote .evidbtn'),
@@ -19294,9 +19321,22 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     /1\.8 million birds crossed King County last night \(est\.\)/);
   assert.deepEqual(JSON.parse(JSON.stringify(snapshot.migrants)),
     migrants.dataRows.map(({ name, speciesCode }) => ({ name, speciesCode })));
-  assert.match(body.textContent,
-    /Expected nocturnal migrants.*Swainson’s Thrush.*Western Tanager.*Orange-crowned Warbler/s,
-    'Nightly Migration did not show BirdCast’s parsed expected-migrant list');
+  assert.match(body.textContent, /Migration watch/,
+    'the merged Migration screen lost its one-list heading');
+  for (const name of ['Swainson’s Thrush', 'Western Tanager',
+    'Orange-crowned Warbler']) {
+    assert.match(body.textContent, new RegExp(name),
+      `Migration did not show BirdCast’s parsed ${name} row`);
+  }
+  assert.deepEqual(
+    Array.from(body.querySelectorAll('.migration-filters button'),
+      (button) => [button.textContent.trim(), button.getAttribute('aria-pressed')]),
+    [['Tonight', 'true'], ['Arrivals', 'true'], ['Departures', 'true']],
+    'the merged Migration filters are missing or start with a feed hidden');
+  assert.equal(body.querySelectorAll('.migration-list').length, 1,
+    'the merged feeds are grouped into more than one bird list');
+  assert.equal(body.querySelectorAll('.migration-event-proof').length, 3,
+    'migration rows do not print OBSERVED/EXPECTED beside their event icon');
   assert.equal(body.querySelectorAll('.birdcast-migrant-list > li .thumb').length, 3,
     'expected migrants did not use the shared small species card with photo slots');
   await waitFor(() => [...body.querySelectorAll('.birdcast-migrant-list .thumb')]
@@ -19307,13 +19347,26 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
       node.textContent.trim()).slice(0, 4),
     ['Tonight’s forecast', 'Live migration map', 'Alert for your Home',
       'Lights Out guidance'],
-    'Nightly Migration does not label its BirdCast destinations clearly');
+    'Migration does not label its BirdCast destinations clearly');
+  assert.equal(body.querySelectorAll('.birdcast-destination').length, 6,
+    'the merged Migration screen does not retain all six BirdCast destinations');
+  body.querySelector('[data-migration-kind="arrivals"]').click();
+  body.querySelector('[data-migration-kind="tonight"]').click();
+  assert.match(body.textContent, /No migration events match these filters/,
+    'the merged list did not respond to its feed filters');
+  body.querySelector('[data-migration-kind="departures"]').click();
+  assert.equal(
+    body.querySelector('[data-migration-kind="departures"]').getAttribute('aria-pressed'),
+    'true',
+    'Migration allowed the final visible feed to be switched off');
+  body.querySelector('[data-migration-kind="arrivals"]').click();
+  body.querySelector('[data-migration-kind="tonight"]').click();
   const alertArt = body.querySelector('.birdcast-alert-icon .birdcast-flight-high');
   assert.equal(alertArt?.textContent, 'HIGH',
     'Nightly Migration does not pair the cutout flock with its printed level');
   assert.match(HTML,
     /\.birdcast-flight-high\s*\{\s*--migration-art:\s*url\("assets\/migration-high\.png"\)/,
-    'Nightly Migration lost the shape-cut High migration flock');
+    'Migration lost the shape-cut High migration flock');
 
   const rows = A.birdcastSurgeRows(daytime, snapshot);
   assert.equal(rows.length, 2,
@@ -22458,11 +22511,28 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     return result;
   }
   assert.deepEqual(labelsUnder('Stakeouts - Birds and Hotspots'),
-    ['🔎 Stakeout Birds', '🏞 Stakeout Patches']);
+    ['🧐 Stakeout Birds', '🏞 Stakeout Patches']);
   assert.deepEqual(labelsUnder('Birding Tools'), [
-    '🌤 Twitch weather', '📆 Due back soon', '🛬 On passage', '🌙 Nightly Migration',
+    '🌤 Twitch weather', '🌙 Migration',
     '🌄 Dawn and dusk', '🏅 Break a record', '🐦 Common birds',
   ]);
+  const migrationTiles = [...doc.querySelectorAll('#menuList .toclink')]
+    .filter((tile) => /Migration|Due back soon|On passage/i.test(
+      tile.getAttribute('aria-label') || ''))
+    .map((tile) => ({
+      at: tile.getAttribute('data-at'),
+      label: tile.getAttribute('aria-label'),
+      target: tile.getAttribute('data-sec'),
+    }));
+  assert.deepEqual(migrationTiles, [{
+    at: 'bcBody',
+    label: '🌙 Migration',
+    target: 'sec-bcBody',
+  }], 'Contents must expose one Migration destination and no retired source screen');
+  assert.equal(doc.querySelector('#menuList .toclink[data-at="dueBackBtn"]'), null,
+    'Due back soon returned as a visible menu destination');
+  assert.equal(doc.querySelector('#menuList .toclink[data-at="migBtn"]'), null,
+    'On passage returned as a visible menu destination');
 
   const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
     && /go birding/i.test(k.textContent));
@@ -22474,6 +22544,15 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   }
   assert.equal(under.length, GO.length,
     'exactly the place-finding sections sit under it, got: ' + under.join(' | '));
+  assert.deepEqual(under, [
+    '🏞 Today’s patches',
+    '🚶 Nearby Patches',
+    '🚗 Day trip patches',
+    '🖼 Iconic Patches',
+    '🥶 Cold patches',
+    '🔥 Hot patches',
+    '⭐ Favorite patches',
+  ], 'patch menu icons and owner-selected order must stay exact');
   assert.match(under[0], /Today’s patches/);
   assert.match(under[1], /Nearby Patches/,
     'Nearby Patches is not immediately after Today’s patches');
@@ -22703,8 +22782,10 @@ test('no section shows a bare Load button — every loader is the refresh icon',
   assert.ok(LOADERS.length >= 20,
     `only ${LOADERS.length} load buttons were derived — the scan has stopped `
     + 'matching the file it reads and is passing by never looking (F197)');
-  assert.ok(LOADERS.indexOf('dueBackBtn') >= 0,
-    'dueBackBtn is derived now — it is the section the hand-kept list forgot');
+  assert.ok(!CONTRACT.menu.some((entry) => entry.at === 'dueBackBtn'),
+    'the retired Due back soon screen returned to the visible menu contract');
+  assert.ok(CONTRACT.menu.some((entry) => entry.at === 'bcBody'),
+    'the merged Migration screen is absent from the visible menu contract');
   const visible = [], noIcon = [];
   for (const id of LOADERS) {
     const b = doc.getElementById(id);
@@ -28673,8 +28754,14 @@ test('F630 larger Display profiles buy 44px tap targets, not just bigger text', 
 
 test('F630 High visibility owns the responsive header and Bird Gen card hierarchy', () => {
   assert.match(HTML,
-    /html\[data-display="high-visibility"\] header \.brandtext\s*\{\s*display:\s*none/,
-    'the redundant visible Bird Chaser wordmark remains at High visibility');
+    /html\[data-display="high-visibility"\] header \.brandtext\s*\{\s*display:\s*block/,
+    'High visibility must restore the Bird Chaser title');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] header > \.brand\s*\{[^}]*grid-column:\s*1\s*\/\s*-1[^}]*grid-row:\s*1/,
+    'High visibility must give Bird Chaser its own first row');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] header > \.hdrid\s*\{[^}]*grid-row:\s*2/,
+    'High visibility must place name, rank, and species count on row two');
   assert.match(HTML,
     /html\[data-display="high-visibility"\] \.hdrid \.hdrstat\s*\{[^}]*var\(--s\)/,
     'the upper-right values do not scale with the selected profile');
@@ -28684,6 +28771,15 @@ test('F630 High visibility owns the responsive header and Bird Gen card hierarch
   assert.match(HTML,
     /\.surgefeed > li > \.name > \.ntext > \.sub\s*\{[^}]*font-size:\s*calc\(13px \* var\(--s\)\)/,
     'the Huge source line does not match the explanation text size');
+});
+
+test('F648 High visibility gives Migration names a real text column', () => {
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] \.migration-list > li > \.name\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/,
+    'High visibility leaves Migration in a three-column row that crushes bird names');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] \.migration-list \.migration-event\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
+    'High visibility keeps the event status beside the name instead of below it');
 });
 
 test('reduced motion is honoured app-wide, not on one spinner', () => {
@@ -34749,7 +34845,7 @@ test('F152: the county chip is RENDERED, and only where it is true', async () =>
   assert.ok(!chip, 'Nearby Patches does not claim a county scope for its place-only view');
 
   // A section that does NOT read the chase cache must not claim to be filtered.
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
   const open = [...app.window.document.querySelectorAll('section')]
     .filter((s) => !s.hidden);
@@ -34785,13 +34881,13 @@ test('searching a place FETCHES that place, it does not just re-sort home', asyn
   // A section has to be OPEN: the scouted place renders into the section you
   // searched from, because the Look up a place panel is hidden and unreachable.
   //
-  // BirdCast, deliberately, and this took a probe to work out. Opening Today's
-  // patches starts the ~47-call chase wave, and boot() stubs fetch with a
+  // A static section, deliberately, and this took a probe to work out. Opening
+  // Today's patches starts the ~47-call chase wave, and boot() stubs fetch with a
   // promise that NEVER settles — so nothing releases, the limiter's slots stay
   // taken, and the scout's calls queue behind a wave that can never finish. In
   // that state the section under test issues nothing and the failure looks
   // like a missing feature rather than a saturated queue.
-  app.open(/Nightly Migration/);
+  app.open(/How each section works/);
   await new Promise((r) => setTimeout(r, 40));
   const before = app.state.fetches.length;
 
@@ -34878,7 +34974,7 @@ test('F241: the scout answers with hotspots only inside a Patches section, and w
 
   // 2. BIRDCAST — not a Patches section, so the SAME scouted place answers
   //    with birds, exactly as the hidden Look-up-a-place panel always has.
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
   await A.autoScoutForAnchor(place);
   box = app.window.document.querySelector('.scoutinline');
@@ -35317,7 +35413,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   const app = await boot();
   const A = app.window.__app;
 
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
   assert.ok(!app.window.document.querySelector('.secprofile'),
     'Main is the normal case and says nothing — a marker that is always there '
@@ -35325,7 +35421,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '2');
   assert.equal(A.isDefaultProfile(), false, 'now standing in a test profile');
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
   const chip = app.window.document.querySelector('.secprofile');
   assert.ok(chip, 'a test profile says so');
@@ -35335,7 +35431,7 @@ test('F188: the profile chip shows on a test profile and never on Main', async (
   assert.ok(!/^\s*$/.test(chip.textContent));
 
   app.window.localStorage.setItem(A.BC_PROFILE_PTR, '');
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
   assert.ok(!app.window.document.querySelector('.secprofile'),
     'switching back takes the chip away — a notice that outlives its cause is '
@@ -35478,7 +35574,7 @@ test('F191: the scouted place renders ABOVE the rows it replaces', async () => {
   // the screen. Placement is invisible to a regex, so this reads the DOM.
   const app = await boot();
   const A = app.window.__app;
-  app.open(/Nightly Migration/);
+  app.open(/Tonight, arrivals, and departures/);
   await new Promise((r) => setTimeout(r, 40));
 
   A.autoScoutForAnchor({ lat: 46.6021, lng: -120.5059, label: 'Yakima', state: 'Washington' });

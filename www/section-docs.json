@@ -166,7 +166,7 @@
       ]
     },
     "refreshBtn": {
-      "report": "## 🌅 Twitches today — Rarities today",
+      "report": "## 🚨 Twitches today — Rarities today",
       "summary": "One live Rare Bird Alerts surface: checklist-by-checklist List mode or bird/place Grouped mode.",
       "inputs": [
         "/data/obs/{county}/recent/notable for each county",
@@ -256,7 +256,7 @@
       ]
     },
     "destBtn": {
-      "report": "## 🥇 Today’s patches — Top hotspots to visit",
+      "report": "## 🏞 Today’s patches — Top hotspots to visit",
       "summary": "The places holding the most unseen birds, ranked by how many you would gain.",
       "inputs": [
         "county recent + notable feeds",
@@ -410,7 +410,7 @@
       ]
     },
     "favResults": {
-      "report": "## 🔖 Favorite patches — Saved hotspots",
+      "report": "## ⭐ Favorite patches — Saved hotspots",
       "summary": "Your own pinned hotspots, in your own order, each showing what is worth driving for right now.",
       "inputs": [
         "the region's hotspot reference list, cached on device for a day",
@@ -435,7 +435,7 @@
       ]
     },
     "allUnseenBtn": {
-      "report": "## 🎯 Nemesis birds — Closest unseen birds reported now",
+      "report": "## 👿 Nemesis birds — Closest unseen birds reported now",
       "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"
@@ -592,17 +592,22 @@
     },
     "bcBody": {
       "report": "## 🌙 Nightly Migration — BirdCast reports",
-      "summary": "BirdCast forecast, prior-night county alert and expected migrants, with clearly labelled official destinations.",
+      "summary": "One Migration watch combining tonight's expected migrants, observed arrivals, predicted arrivals and departures.",
       "inputs": [
         "The active report's local date, saved Home coordinates, and Home county.",
         "The current forecast level from BirdCast's public location-alert service.",
         "The previous night's estimated county migration count and BirdCast's own county-specific High classification from its public dashboard.",
-        "BirdCast's expected nocturnal migrant list for the current night."
+        "BirdCast's expected nocturnal migrant list for the current night.",
+        "The current-year eBird regional bird-list page for observed first reports.",
+        "About two years of weekly county history for expected arrivals and departures.",
+        "Bundled state-wide GBIF timing for species missing from county history."
       ],
       "how": [
         "Leads with a large text-labelled migration level and the previous night's county count expressed in millions.",
-        "Shows expected nocturnal migrants as shared small species cards with bird photos.",
-        "Bird Gen shows tonight only when the location forecast is High, and independently shows the previous night only when BirdCast classifies that county night as High.",
+        "Shows every bird in one ungrouped compact list, deduplicating overlapping feeds while retaining their source text.",
+        "Tonight, Arrivals and Departures buttons filter the one list; at least one remains selected.",
+        "Each row pairs its event icon with movement words, relative time, and an explicit OBSERVED or EXPECTED label.",
+        "Bird Gen shows observed first arrivals and current-week last-chance departures, plus tonight only when the location forecast is High and the previous night only when BirdCast classifies that county night as High.",
         "The Bird Gen cards use explicit overnight ranges: 9/27-28 within one month, 9/30-10/1 across months, and 12/31-1/1 across years.",
         "A completed night runs from local sunset to local sunrise. Before sunrise, the newest completed night ended yesterday morning; after sunrise, it ended this morning. Its compact age is measured from that ending sunrise rather than from when Bird Chaser rendered the card.",
         "The forecast header links to the saved Home, or the selected region's default Home when none is saved. The live header links to BirdCast's live migration map.",
@@ -613,7 +618,9 @@
       "limits": [
         "BirdCast's radar products cover the contiguous United States; Hawaiʻi is explicitly unsupported.",
         "BirdCast does not publish a documented public API. Bird Chaser reads the same public first-party alert response and server-rendered county total used by BirdCast's own pages; either value is labelled unavailable when its current response is missing or malformed.",
-        "An ordinary Low or Medium forecast is still visible in Nightly Migration but is not promoted as Bird Gen news.",
+        "An ordinary Low or Medium forecast is still visible in Migration but is not promoted as Bird Gen news.",
+        "Expected aloft means BirdCast predicts a species in nocturnal passage; it is never described as a confirmed local arrival.",
+        "GBIF and county-history dates are expectations, not observations. Only a current-year eBird first report is labelled OBSERVED.",
         "The prior-night Bird Gen alert follows BirdCast's region-specific High classification rather than a universal bird-count threshold."
       ]
     },
