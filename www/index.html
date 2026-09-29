@@ -1351,6 +1351,16 @@
     .obs .name { font-weight: 700; font-size: calc(17px * var(--s)); color: var(--accent); line-height: 1.3; }
     .obs .meta { font-size: calc(13px * var(--s)); color: var(--muted); margin-top: 2px; }
     .obs .count { float: right; font-size: calc(12px * var(--s)); color: var(--muted); font-variant-numeric: tabular-nums; }
+    #dueBackResults .arrivalmetric {
+      display: grid; justify-items: center; gap: 2px; min-width: calc(72px * var(--s));
+      color: var(--ink); text-align: center; line-height: 1.05;
+    }
+    #dueBackResults .arrivalicon { font-size: calc(30px * var(--s)); line-height: 1; }
+    #dueBackResults .arrivalmetric small {
+      max-width: calc(82px * var(--s)); color: var(--muted);
+      font-size: calc(11px * var(--s)); font-weight: 700; line-height: 1.15;
+      white-space: normal;
+    }
     .filebtn { font: inherit; font-weight: 700; border: none; border-radius: var(--btn-radius); padding: 11px 16px; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: inline-block; }
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
@@ -2723,9 +2733,6 @@
     .betaexpired > div { max-width: 620px; margin: 8vh auto; padding: 22px;
                         border: 2px solid var(--safe-blue); border-radius: 16px;
                         background: var(--card); }
-    .betabanner { margin: 10px auto; max-width: 720px; padding: 8px 12px;
-                 border: 2px solid var(--safe-blue); border-radius: 10px;
-                 background: var(--card); font-weight: 700; text-align: center; }
     .patchunplaced { margin-top: 18px; border-top: 1px solid var(--line);
                      padding-top: 12px; }
     .patchunplaced h3 { font-size: calc(16px * var(--s)); margin: 0 0 6px; }
@@ -3212,11 +3219,17 @@
 
     <section class="panel">
       <h2>📆 Due back soon <span class="dim" id="dueBackRegionLabel"></span></h2>
+      <div class="row" id="dueBackKinds" role="group" aria-label="Show migration events">
+        <button id="dueBackArrivals" class="pressbtn" type="button" aria-pressed="true"><span
+          class="pressicon" aria-hidden="true">🛬</span><span class="presslabel">Arrivals</span></button>
+        <button id="dueBackDepartures" class="pressbtn" type="button" aria-pressed="true"><span
+          class="pressicon" aria-hidden="true">🛫</span><span class="presslabel">Departures</span></button>
+      </div>
       <div class="row">
         <button id="dueBackBtn">Check arrivals</button>
         <button id="dueBackStop" class="secondary" type="button" hidden>Stop</button>
       </div>
-      <div id="dueBackStatus" class="status">Every species ever recorded in the region, checked against seven years of GBIF history for when it usually returns — so you know what to expect before it turns up. The first run reads hundreds of records and can be stopped and resumed; after that it is instant.</div>
+      <div id="dueBackStatus" class="status"></div>
       <ul id="dueBackResults" class="obs big xl"></ul>
     </section>
 
@@ -4105,7 +4118,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.5';
+      var APP_VERSION = '1.131.6';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12672,6 +12685,8 @@
       // it is the only one that has to say so before it starts, show real
       // progress while it runs, stop when asked, and pick up where it left off.
       var _dueBackRun = 0;
+      var _dueBackKinds = { arrivals: true, departures: true };
+      var _dueBackView = null;
       function dueBackRows(store, rows, seen, now) {
         var byS = {};
         rows.forEach(function (r) { if (r.sci) byS[r.sci] = r; });
@@ -12679,6 +12694,11 @@
         Object.keys(store.done || {}).forEach(function (sci) {
           var v = store.done[sci], r = byS[sci];
           if (!v || !v.day || !r) return;              // null = no arrival to predict
+          // A regional occurrence is not necessarily a regional migrant.
+          // Blue-footed Booby produced a confident-looking date from two
+          // Washington records; the shared migration fallback already uses
+          // this measured evidence floor to reject that exact failure.
+          if ((v.records || 0) < DUE_BACK_MIN_RECORDS) return;
           var d = BL.daysUntil(v.day, now);
           if (d == null || d > DUEBACK_AHEAD_D || d < -DUEBACK_BACK_D) return;
           out.push({ code: r.code, name: r.name, sci: sci, day: v.day, days: d,
@@ -12696,19 +12716,70 @@
         if (d === -1) return 'due back yesterday';
         return 'due back ' + Math.abs(d) + ' days ago';
       }
+      function dueBackDepartureRows(rows, seen, now, forecast) {
+        var byCode = {};
+        (rows || []).forEach(function (r) { if (r && r.code) byCode[r.code] = r; });
+        if (!forecast) {
+          var cache = migLoad();
+          forecast = Object.keys(cache.samples || {}).length
+            ? migExpectedSoon(cache, now || new Date(), seen || {})
+            : { departing: [] };
+        }
+        return (forecast.departing || []).map(function (e) {
+          var r = byCode[e.code];
+          if (!r) return null;
+          return {
+            code: r.code, name: r.name, sci: r.sci, event: 'departure',
+            days: Math.max(0, e.weeksUntil || 0) * 7,
+            weeks: Math.max(0, e.weeksUntil || 0),
+            nWeeks: e.nWeeks || 0, need: !BL.isSeen(r.code, seen || {})
+          };
+        }).filter(Boolean);
+      }
+      function syncDueBackKinds() {
+        if ($('dueBackArrivals')) {
+          $('dueBackArrivals').setAttribute('aria-pressed',
+            _dueBackKinds.arrivals ? 'true' : 'false');
+        }
+        if ($('dueBackDepartures')) {
+          $('dueBackDepartures').setAttribute('aria-pressed',
+            _dueBackKinds.departures ? 'true' : 'false');
+        }
+      }
       function renderDueBack(store, rows, partial) {
         var ul = $('dueBackResults'), st = $('dueBackStatus');
         if (!ul) return;
-        var list = dueBackRows(store, rows, getReportSeen(), new Date());
+        var seen = getReportSeen(), now = new Date();
+        var arrivals = dueBackRows(store, rows, seen, now).map(function (r) {
+          r.event = 'arrival';
+          return r;
+        });
+        var departures = dueBackDepartureRows(rows, seen, now);
+        var list = [];
+        if (_dueBackKinds.arrivals) list = list.concat(arrivals);
+        if (_dueBackKinds.departures) list = list.concat(departures);
+        list.sort(function (a, b) {
+          return a.days - b.days || a.event.localeCompare(b.event)
+            || a.name.localeCompare(b.name);
+        });
+        _dueBackView = { store: store, rows: rows, partial: partial };
+        syncDueBackKinds();
         var answered = Object.keys(store.done || {}).length;
         if (!list.length) {
           ul.innerHTML = '';
           if (!partial) {
-            st.textContent = answered
-              ? 'Nothing is due back in the next ' + DUEBACK_AHEAD_D + ' days. '
-                + answered + ' species checked; most are residents, which have no '
-                + 'arrival to predict.'
-              : st.textContent;
+            if (_dueBackKinds.departures && !departures.length) {
+              st.textContent = _dueBackKinds.arrivals
+                ? 'No matching arrivals or departures in this window. Departure '
+                  + 'predictions appear after Migration outlook has built county history.'
+                : 'No departure predictions yet. Build county history in Migration outlook.';
+            } else {
+              st.textContent = answered
+                ? 'Nothing is due back in the next ' + DUEBACK_AHEAD_D + ' days. '
+                  + answered + ' species checked; most are residents, which have no '
+                  + 'arrival to predict.'
+                : st.textContent;
+            }
           }
           return;
         }
@@ -12716,31 +12787,45 @@
         // to declare it — a list of correct <li> inside a plain <ul> renders as
         // unstyled rows, which is how this looked before.
         ul.className = 'obs big xl';
-        ul.innerHTML = list.map(function (r) {
+        function card(r) {
           // The bird's own name leads; the date is the reason the row exists,
           // so it sits directly under it rather than in a trailing column.
           // The SAME medium species card every other list uses. This was the
           // other hand-rolled markup — "also no template card used" — and like
           // Migration outlook it puts its timing in the prominent column
           // instead of the grey sub-line, because WHEN is what it is for.
+          var past = r.days < 0;
+          var departing = r.event === 'departure';
+          var when = r.days === 0 ? (departing ? 'now' : 'today')
+            : (past ? Math.abs(r.days) + ' days ago' : 'in ' + r.days + ' days');
+          var state = departing ? 'Departing'
+            : (past || r.days === 0 ? 'Arrived' : 'Arriving');
           return SpeciesCards.medium({
             icon: photoSlot(r.name, r.code),
             name: speciesLink(r.name, r.code),
             code: r.code,
             alpha: alphaFor(r.code),
             tags: r.need ? '<span class="needflag">🔍</span>' : '',
-            lead: r.days === 0 ? 'today' : String(Math.abs(r.days)),
-            leadUnit: r.days === 0 ? '' : (r.days < 0 ? 'days ago' : 'days'),
-            sub: 'usually back around ' + esc(BL.prettyMMDD(r.day))
-              + (r.records ? ' \u00b7 from ' + fmtInt(r.records) + ' GBIF records' : '')
+            primary: '<span class="arrivalmetric" aria-label="' + state + ' ' + when
+              + '"><span class="arrivalicon" aria-hidden="true">'
+              + (departing ? '🛫' : '🛬')
+              + '</span><small>' + state + '<br>' + when + '</small></span>',
+            sub: departing
+              ? 'county history · seen ' + r.nWeeks + ' wk/yr'
+              : 'usually back around ' + esc(BL.prettyMMDD(r.day))
+                + (r.records ? ' \u00b7 from ' + fmtInt(r.records) + ' GBIF records' : '')
           });
-        }).join('');
+        }
+        ul.innerHTML = list.map(card).join('');
         // The rows now carry photo slots, which do nothing until hydrated —
         // the previous hand-rolled markup had no images at all, so this call
         // did not exist.
         hydratePhotos(ul);
-        st.textContent = list.length + ' bird' + (list.length === 1 ? '' : 's')
-          + ' due back within ' + DUEBACK_AHEAD_D + ' days'
+        st.textContent = list.length + ' migration event' + (list.length === 1 ? '' : 's')
+          + ' in chronological order'
+          + (_dueBackKinds.arrivals ? ' · arrivals from the past ' + DUEBACK_BACK_D
+            + ' days through the next ' + DUEBACK_AHEAD_D + ' days' : '')
+          + (_dueBackKinds.departures ? ' · departures from county history' : '')
           + (partial ? ' so far — still checking…' : '')
           + ' · 🔍 marks the ones you still need'
           + ' · ' + answered + ' species checked';
@@ -12750,19 +12835,28 @@
         // BL.stateNameFor, not the label: a hand-added region's label is
         // typed, and GBIF wants the state NAME. See the note in logic.js.
         var region = getObsRegion(), state = BL.stateNameFor(getReport());
-        if (!state) { st.textContent = 'Pick a report first — the arrival history is per state.'; return; }
+        if (!state) {
+          st.textContent = 'Pick a report first — the arrival history is per state.';
+          return Promise.resolve(false);
+        }
         var run = ++_dueBackRun;
         function alive() { return _dueBackRun === run; }
         btn.disabled = true; stop.hidden = false;
         st.textContent = 'Loading the region species list…';
         var store = loadArrivalStore(region, state);
-        loadSpeciesIndex(region).then(function (rows) {
-          if (!alive()) return;
+        return loadSpeciesIndex(region).then(function (rows) {
+          if (!alive()) return false;
           rows = (rows || []).filter(function (r) { return r && r.sci; });
-          if (!rows.length) { st.textContent = 'No species list for this region yet.'; return; }
+          if (!rows.length) {
+            st.textContent = 'No species list for this region yet.';
+            return false;
+          }
           renderDueBack(store, rows, true);
           var left = rows.filter(function (r) { return store.done[r.sci] === undefined; }).length;
-          if (!left) { renderDueBack(store, rows, false); return; }
+          if (!left) {
+            renderDueBack(store, rows, false);
+            return true;
+          }
           // A fixed total, declared up front, exactly as progressStage requires
           // — the denominator is how many species are still UNANSWERED, which
           // cannot grow while the sweep runs. With the bundled table in place
@@ -12779,15 +12873,18 @@
             // from the whole store each time, and 400 rebuilds is a stutter.
             if (Date.now() - lastPaint > 900) { lastPaint = Date.now(); renderDueBack(store, rows, true); }
           }).then(function () {
-            if (!alive()) return;
+            if (!alive()) return false;
             renderDueBack(store, rows, false);
+            return true;
           });
         }).catch(function (e) {
           if (alive()) st.textContent = netErr(e);
-        }).then(function () {
-          if (!alive()) return;
+          return false;
+        }).then(function (ok) {
+          if (!alive()) return false;
           progressEnd();
           btn.disabled = false; stop.hidden = true;
+          return ok !== false;
         });
       }
       function stopDueBack() {
@@ -13215,7 +13312,10 @@
       // without refetching or nesting a second list.
       var SP_ROWS_MAX = 5;
       var STAKEOUT_CHECKLIST_INITIAL = 1;
-      var STAKEOUT_CHECKLIST_BATCH = 3;
+      // One click should finish the ordinary nine-checklist hotspot: the newest
+      // row is already visible and the existing evidence budget safely admits
+      // eight more. Keep this below the measured ~10-request burst bucket.
+      var STAKEOUT_CHECKLIST_BATCH = 8;
       var STAKEOUT_HISTORY_SCAN = 6;
 
       function renderSpeciesLookupMap(g, iconicMode, visibleCount) {
@@ -13289,8 +13389,10 @@
           var details = '<div class="stakeoutPlaceDetails">'
             + ChecklistCards.list('small', rows, 'stakeoutPlaceChecklists')
             + (speciesLookupDetails()
-              ? (p.locId && !p.locationPrivate
-                ? (cks.length < STAKEOUT_HISTORY_SCAN
+              ? (p.locationPrivate === true
+                ? '<div class="hint">Private-location evidence has no public hotspot history.</div>'
+                : (p.locId
+                  ? (cks.length < STAKEOUT_HISTORY_SCAN
                   ? '<div class="stakeoutPlaceHistory" data-loc="' + esc(p.locId)
                     + '" data-code="' + esc((bird && bird.code) || '')
                     + '" data-place="' + esc(where) + '" data-lat="' + esc(p.lat)
@@ -13299,8 +13401,8 @@
                     + '<button type="button" class="secondary stakeoutLoadHistory">'
                     + 'Search up to ' + Math.max(0, STAKEOUT_HISTORY_SCAN - cks.length)
                     + ' older checklists</button></div>'
-                  : '')
-                : '<div class="hint">Private-location evidence has no public hotspot history.</div>')
+                    : '')
+                  : '<div class="hint">No public hotspot history link is available for this evidence.</div>'))
               : '')
             + '</div>';
           out.push(HotspotCards.medium({
@@ -13413,7 +13515,12 @@
         button.addEventListener('click', function () {
           list.setAttribute('data-visible-count', String(visible + next));
           limitStakeoutChecklistRows(list);
-          hydrateStakeoutChecklistFacts(list);
+          // Hydrate the newly revealed rows as one bounded pool. Sending each
+          // IntersectionObserver callback through its own one-row pool would
+          // defeat CKL_EVID_CONC and burst all eight requests at once.
+          Promise.resolve(hydrateChecklistEvidence(list, true)).catch(function (e) {
+            try { log('Stakeout checklist hydration failed: ' + netErr(e)); } catch (_) {}
+          });
         });
         list.parentNode.insertBefore(button, list.nextSibling);
       }
@@ -21686,6 +21793,10 @@
         row.appendChild(noteHead('Comments loading\u2026'));
         appendNoteRow(el, row);
       }
+      function checklistNotesShown(el) {
+        return rarityNotes()
+          || (el && el.getAttribute('data-ev-show-notes') === '1');
+      }
       function setChecklistDuration(el, durationHrs) {
         var slot = el && el.querySelector('.ckduration');
         if (!slot) return;
@@ -21864,11 +21975,14 @@
           });
         }
       }
-      function hydrateChecklistEvidence(root) {
+      function hydrateChecklistEvidence(root, visibleOnly) {
         if (!root || !getKey()) return Promise.resolve();
         var rows = [].slice.call(root.querySelectorAll('[data-ev-sub]:not([data-ev-done])'));
         if (root.matches && root.matches('[data-ev-sub]:not([data-ev-done])')) {
           rows.unshift(root);
+        }
+        if (visibleOnly) {
+          rows = rows.filter(function (el) { return !el.hidden; });
         }
         if (!rows.length) return Promise.resolve();
         // Rows are built newest-first, so this keeps the freshest reports.
@@ -21894,10 +22008,7 @@
         // resolve — `rows` is already filtered to the CKL_EVID_MAX budget, so a
         // row that will never be fetched cannot be left saying "loading"
         // forever. A placeholder that never settles is worse than none.
-        rows.filter(function (el) {
-          return rarityNotes()
-            || el.getAttribute('data-ev-show-notes') === '1';
-        }).forEach(setNoteLoading);
+        rows.filter(checklistNotesShown).forEach(setNoteLoading);
         return pool(rows, CKL_EVID_CONC, function (el) {
           var sub = el.getAttribute('data-ev-sub');
           var code = el.getAttribute('data-ev-code') || '';
@@ -21960,7 +22071,7 @@
                 speciesNotes: speciesNotes, w: firstWaypoint, m: media
               };
               setChecklistNoteButton(el, checklistDet, sub + '|checklist');
-              if (rarityNotes()) setNoteText(el, checklistDet);
+              if (checklistNotesShown(el)) setNoteText(el, checklistDet);
               return;
             }
             var ob = got.obs[code];
@@ -21994,7 +22105,7 @@
             // control automatic prose elsewhere, but it must never erase the
             // explicit end-of-sentence action on a checklist that has words.
             if (det) setChecklistNoteButton(el, det, sub + '|' + code);
-            var showDetails = rarityNotes();
+            var showDetails = checklistNotesShown(el);
             if (showDetails && det) setNoteText(el, det);
             // The comment action was installed at the end of the sentence.
             // This evidence slot is media-only so the row cannot grow a
@@ -27371,7 +27482,6 @@
           id: 'abaReportResults',
           grouped: grouped,
           rare: true,
-          notesUnknown: true,
           initialCount: ABA_CARD_REPORTS,
           batchSize: ABA_CARD_REPORTS,
           buttonClass: 'abaReportMore',
@@ -34440,6 +34550,7 @@
         myYearBody: { fn: loadMyYear },
         recordBody: { fn: loadStateRecords },
         migBtn:     { fn: loadMigration },
+        dueBackBtn: { fn: loadDueBack, needsKey: true, retryOnFailure: true },
         helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
@@ -35154,16 +35265,6 @@
             + _betaState.daysRemaining + ' day'
             + (_betaState.daysRemaining === 1 ? '' : 's') + ' remaining).';
           bindDiagnosticControls('betaDiag');
-        }
-        if (!_betaState.expired && !$('betaBanner')) {
-          var banner = document.createElement('div');
-          banner.id = 'betaBanner';
-          banner.className = 'betabanner';
-          banner.textContent = 'Beta build · expires ' + betaDateText(_betaState.expiresAt)
-            + ' · ' + _betaState.daysRemaining + ' day'
-            + (_betaState.daysRemaining === 1 ? '' : 's') + ' remaining';
-          var menu = $('menuPanel');
-          if (menu) menu.insertAdjacentElement('afterbegin', banner);
         }
         return true;
       }
@@ -39082,6 +39183,20 @@
       });
       $('dueBackBtn').addEventListener('click', loadDueBack);
       $('dueBackStop').addEventListener('click', stopDueBack);
+      $('dueBackKinds').addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('button');
+        if (!b) return;
+        var key = b.id === 'dueBackArrivals' ? 'arrivals'
+          : (b.id === 'dueBackDepartures' ? 'departures' : '');
+        if (!key) return;
+        var other = key === 'arrivals' ? 'departures' : 'arrivals';
+        if (_dueBackKinds[key] && !_dueBackKinds[other]) return;
+        _dueBackKinds[key] = !_dueBackKinds[key];
+        syncDueBackKinds();
+        if (_dueBackView) {
+          renderDueBack(_dueBackView.store, _dueBackView.rows, _dueBackView.partial);
+        }
+      });
       // A search box that ignores the Return key is broken on a phone, where
       // the keyboard's blue "search" key is the obvious way to submit.
       $('spLookup').addEventListener('keydown', function (e) {
@@ -39958,7 +40073,8 @@
         showInfoSheet: showInfoSheet, showExcludedSheet: showExcludedSheet,
         confirmAction: confirmAction, hideSheet: hideSheet,
         qrUrl: qrUrl, qrButton: qrButton, showQr: showQr, renderStakeHs: renderStakeHs,
-        dueBackRows: dueBackRows, dueBackWhen: dueBackWhen,
+        dueBackRows: dueBackRows, dueBackDepartureRows: dueBackDepartureRows,
+        dueBackWhen: dueBackWhen,
         seedArrivals: seedArrivals, warmRegion: warmRegion,
         scoutPlaceRun: scoutPlaceRun, renderScout: renderScout,
         loadScout: loadScout, saveScout: saveScout, clearScout: clearScout,

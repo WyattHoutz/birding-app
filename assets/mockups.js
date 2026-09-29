@@ -241,6 +241,18 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutChecklistProgressive(A, document, sec);` },
+  { id: 'stakeoutmixed-f634', at: 'spLookupBtn',
+    title: 'Stakeout bird — mixed privacy and nine checklist notes',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupResults', fullPage: true,
+    prepTimeoutMs: 45000,
+    expects: ['#spLookupRecent.f634StakeoutMock',
+      '#spLookupRecent [data-ev-place="Union Bay Natural Area"]',
+      '#spLookupRecent [data-ev-place="UW farm"]',
+      '#spLookupRecent .stakeoutPlaceChecklists .evnoterow blockquote'],
+    prep: `var anchor = document.getElementById('spLookupBtn');
+           var sec = anchor.closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareF634Stakeout(A, document, sec);` },
   { id: 'stakeoutspts-notes-off', at: 'spLookupBtn',
     title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes off',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
@@ -2048,6 +2060,108 @@ const BOOTSTRAP = `
     sec.dataset.mockReady = 'true';
     return true;
   }
+  async function prepareF634Stakeout(A, document, sec) {
+    ensureMockStyle(document);
+    fixtureStatus(sec, 'Clay-colored Sparrow mixed location evidence');
+    var union = Array.from({ length: 9 }, function (_, i) {
+      return {
+        speciesCode: 'clcspa', comName: 'Clay-colored Sparrow',
+        locId: '', locName: 'Union Bay Natural Area',
+        lat: 47.6579, lng: -122.2900,
+        obsDt: mockObservationDate(3 + i * 5),
+        howMany: 1, subId: 'S-F634-UNION-' + (i + 1),
+        userDisplayName: 'Test Birder ' + (i + 1),
+        durationHrs: (45 + i * 4) / 60,
+        numSpecies: 28 + i,
+        observationComments: i === 0
+          ? 'Continuing near the east edge of the restoration field.'
+          : 'Seen with the continuing sparrow group.',
+        checklistComments: i === 0
+          ? 'Entered from the public Union Bay trail.'
+          : 'Complete checklist from the public hotspot.',
+        hasComments: true,
+        obsValid: true,
+        locationPrivate: false
+      };
+    });
+    union.push({
+      speciesCode: 'clcspa', comName: 'Clay-colored Sparrow',
+      locId: 'P-F634-UW', locName: 'UW farm',
+      lat: 47.6530, lng: -122.2900,
+      obsDt: mockObservationDate(60),
+      howMany: 1, subId: 'S-F634-PRIVATE',
+      userDisplayName: 'Private-location observer',
+      durationHrs: 0.8, numSpecies: 31,
+      observationComments: 'Private-location evidence.',
+      checklistComments: 'Location intentionally kept private.',
+      hasComments: true, obsValid: true, locationPrivate: true
+    });
+    await fillStakeoutSpecies(A, document,
+      'Clay-colored Sparrow mixed location evidence', union.length, {
+        code: 'clcspa',
+        name: 'Clay-colored Sparrow',
+        rows: union,
+        primeChecklistDetails: true,
+        detailsOn: true
+      });
+    A.setSpeciesLookupWithinChase(false);
+    await wait(100);
+    var places = Array.from(document.querySelectorAll(
+      '#spLookupRecent .spLookupPlaceList > .hscard-md'));
+    var publicPlace = places.find(function (place) {
+      return /Union Bay Natural Area/.test(place.textContent || '');
+    });
+    var privatePlace = places.find(function (place) {
+      return /UW farm/.test(place.textContent || '');
+    });
+    if (!publicPlace || !privatePlace) {
+      throw new Error('mixed public/private Stakeout places did not mount separately');
+    }
+    if (/Private-location evidence has no public hotspot history/.test(
+        publicPlace.textContent || '')) {
+      throw new Error('public Union Bay evidence was labeled private');
+    }
+    var more = publicPlace.querySelector('.stakeoutChecklistMore');
+    if (!more || !/Load 8 more checklists/.test(more.textContent || '')) {
+      throw new Error('nine-checklist place did not offer one eight-row expansion');
+    }
+    more.click();
+    await wait(500);
+    var renderedRows = Array.from(publicPlace.querySelectorAll(
+      '.stakeoutPlaceChecklists > li:not([hidden])'));
+    var noteCounts = renderedRows.map(function (row) {
+      return row.querySelectorAll('.evnoterow blockquote').length;
+    });
+    if (renderedRows.length !== 9 || noteCounts.some(function (n) { return n !== 2; })) {
+      throw new Error('all nine Stakeout checklist comments did not paint: rows='
+        + renderedRows.length + ' notes=' + noteCounts.join(',')
+        + ' show=' + renderedRows.map(function (row) {
+          return row.getAttribute('data-ev-show-notes');
+        }).join(',')
+        + ' done=' + renderedRows.map(function (row) {
+          return row.getAttribute('data-ev-done') || '0';
+        }).join(',')
+        + ' actions=' + renderedRows.map(function (row) {
+          return row.querySelectorAll('.cknote .evidbtn').length;
+        }).join(','));
+    }
+    Array.from(document.querySelectorAll('.status')).forEach(function (node) {
+      if (/Loading the eBird taxonomy/i.test(node.textContent || '')) {
+        node.textContent = '';
+        node.hidden = true;
+      }
+    });
+    var host = document.getElementById('spLookupRecent');
+    host.classList.add('f634StakeoutMock');
+    if (A.fgProgressReset) A.fgProgressReset();
+    var loadBar = document.getElementById('loadBar');
+    if (loadBar) loadBar.style.setProperty('display', 'none', 'important');
+    markHost(host, 'Clay-colored Sparrow mixed location evidence');
+    markHost(sec, 'Clay-colored Sparrow mixed location evidence');
+    sec.dataset.mockAt = 'spLookupBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
+  }
   async function prepareStakeoutSpts(A, document, sec, detailsOn) {
     ensureMockStyle(document);
     fixtureStatus(sec, 'Sharp-tailed Sandpiper Stakeout, Notes '
@@ -2492,6 +2606,7 @@ const BOOTSTRAP = `
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,
+    prepareF634Stakeout: prepareF634Stakeout,
     prepareStakeoutSpts: prepareStakeoutSpts,
     prepareF389Stakeout: prepareF389Stakeout,
     prepareBirdFinderMerged: prepareBirdFinderMerged,

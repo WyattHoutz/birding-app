@@ -6949,7 +6949,9 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
     'Ixoreus naevius':     { day: '04-05', records: 700 },   // -10, already back
     'Cardinalis cardinalis': null,                           // resident
     'Distant warblerus':   { day: '09-01', records: 50 },    // far outside window
+    'Vagrans misleadingus': { day: '04-18', records: 2 },    // occurrence, not a season
   } };
+  rows.push({ code: 'vagmis', name: 'Misleading Vagrant', sci: 'Vagrans misleadingus' });
   const now = new Date(2026, 3, 15);            // 15 Apr 2026
   const seen = { rufhum: 1 };                   // already got this one
   const out = a.dueBackRows(store, rows, seen, now);
@@ -6961,7 +6963,8 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
     ['Varied Thrush', 'Western Kingbird', 'Rufous Hummingbird'].join(' | '),
     'rows must be soonest-first with an already-arrived bird at the top — it is '
     + 'the one you can act on today — and must exclude both the resident (no '
-    + 'arrival to predict) and the bird months away');
+    + 'arrival to predict), the bird months away, and a vagrant whose two '
+    + 'records cannot establish a regional migration season');
   assert.strictEqual(out[0].days, -10, 'a bird already back reads as negative days');
   assert.strictEqual(out.find((r) => r.code === 'rufhum').need, false,
     'a bird already on your year list is listed but not flagged as needed');
@@ -6969,6 +6972,70 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
     'a bird you have not recorded is flagged');
   assert.match(a.dueBackWhen(0), /today/);
   assert.match(a.dueBackWhen(-3), /3 days ago/);
+
+  const departures = a.dueBackDepartureRows(rows, { weskin: 1 }, now, {
+    departing: [{ code: 'weskin', weeksUntil: 2, nWeeks: 18 }],
+  });
+  assert.equal(departures.length, 1);
+  assert.equal(departures[0].event, 'departure');
+  assert.equal(departures[0].days, 14);
+  assert.equal(departures[0].nWeeks, 18);
+});
+
+test('F637 opening Due back soon loads the active region without a refresh tap', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date();
+  function mmdd(offset) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+    return String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+  }
+
+  app.window.localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({
+    at: Date.now(),
+    expected: 3,
+    rows: [
+      { code: 'retmig', name: 'Returned Migrant', sci: 'Returned migrans' },
+      { code: 'regmig', name: 'Regional Migrant', sci: 'Regionalis migrans' },
+      { code: 'nextmig', name: 'Next Migrant', sci: 'Next migrans' },
+    ],
+  }));
+  app.window.localStorage.setItem('bc_arrival_v1:US-WA|Washington', JSON.stringify({
+    at: Date.now(),
+    done: {
+      'Returned migrans': { day: mmdd(-3), records: 100 },
+      'Regionalis migrans': { day: mmdd(0), records: 100 },
+      'Next migrans': { day: mmdd(5), records: 100 },
+    },
+  }));
+
+  assert.equal(app.$('dueBackStatus').textContent.trim(), '',
+    'the report body still contains the long explanatory prose meant for Info');
+  A.showSection('sec-dueBackBtn');
+  await waitFor(() => /Regional Migrant/.test(app.$('dueBackResults').textContent),
+    'Due back soon to auto-load on section open');
+  const cards = [...app.$('dueBackResults').querySelectorAll(':scope > li')];
+  assert.deepEqual(cards.map((row) => row.querySelector('.splink').textContent),
+    ['Returned Migrant', 'Regional Migrant', 'Next Migrant'],
+    'the arrival timeline is not chronological across today');
+  assert.equal(cards[0].querySelector('.arrivalmetric').getAttribute('aria-label'),
+    'Arrived 3 days ago');
+  assert.equal(cards[0].querySelector('.arrivalicon').textContent, '🛬');
+  assert.equal(cards[1].querySelector('.arrivalmetric').getAttribute('aria-label'),
+    'Arrived today');
+  assert.equal(cards[2].querySelector('.arrivalmetric').getAttribute('aria-label'),
+    'Arriving in 5 days');
+  assert.equal(cards[2].querySelector('.arrivalicon').textContent, '🛬');
+  assert.equal(app.$('dueBackArrivals').getAttribute('aria-pressed'), 'true');
+  assert.equal(app.$('dueBackDepartures').getAttribute('aria-pressed'), 'true');
+  app.$('dueBackDepartures').click();
+  assert.equal(app.$('dueBackDepartures').getAttribute('aria-pressed'), 'false');
+  assert.equal(app.$('dueBackResults').querySelectorAll(':scope > li').length, 3,
+    'hiding departures removed arrival rows');
+  assert.match(app.$('dueBackStatus').textContent,
+    /3 migration events in chronological order.*past 14 days through the next 30 days/i);
+  app.window.close();
 });
 
 // BirdLogic.iconicMultiplier, iconicLabel, arrivalDay and the GBIF callers were
@@ -8008,10 +8075,10 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   let noteButton = card.querySelector(':scope > .meta > .spmetaact .cknote-pending');
   assert.ok(noteButton,
     'ungrouped Mega has no shared pending Notes action');
-  assert.ok(!noteButton.classList.contains('cknote-expected'),
-    'ungrouped Mega claims Notes exist before its checklist is checked');
-  assert.equal(noteButton.textContent.trim(), '…',
-    'ungrouped Mega does not show the unknown Notes state before hydration');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'ungrouped Mega treats an RBA-required comment as unknown');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'ungrouped Mega shows an ellipsis instead of the Notes action');
   assert.match(card.querySelector('.rarewhere').textContent, /×2/,
     'ungrouped Mega omits the checklist bird count');
   assert.equal(card.querySelectorAll('.ckevid.raremedia').length, 1,
@@ -8038,10 +8105,10 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   noteButton = checklist.querySelector('.cknote-pending');
   assert.ok(noteButton,
     'grouped Mega checklist has no shared pending Notes action');
-  assert.ok(!noteButton.classList.contains('cknote-expected'),
-    'grouped Mega claims Notes exist before its checklist is checked');
-  assert.equal(noteButton.textContent.trim(), '…',
-    'grouped Mega does not show the unknown Notes state before hydration');
+  assert.ok(noteButton.classList.contains('cknote-expected'),
+    'grouped Mega treats an RBA-required comment as unknown');
+  assert.equal(noteButton.textContent.trim(), '📋',
+    'grouped Mega shows an ellipsis instead of the Notes action');
   app.window.close();
 });
 
@@ -15831,6 +15898,7 @@ test('F501-F510 Stakeout always shows details, merges history, and keeps Notes i
     'matching history is not merged into the current checklist list');
   const hydrate = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence('),
     HTML.indexOf('var _evidStore'));
+  assert.match(hydrate, /var showDetails = checklistNotesShown\(el\)/);
   assert.match(hydrate, /if \(showDetails && det\) setNoteText\(el, det\)/);
   assert.doesNotMatch(hydrate, /!hasCommentButton/);
 });
@@ -15850,7 +15918,7 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
     obsValid: true,
   }));
   places[0].obsDt = '2026-09-25 23:00';
-  for (let i = 1; i < 7; i++) {
+  for (let i = 1; i < 9; i++) {
     places.push({
       ...places[0],
       obsDt: `2026-09-${25 - i} 08:00`,
@@ -15891,10 +15959,12 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
   assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 1,
     'a hotspot exposed more than its newest checklist before its load-more action');
   const moreChecklists = visiblePlaces[0].querySelector('.stakeoutChecklistMore');
-  assert.match(moreChecklists.textContent, /Load 3 more of 6 checklists/);
+  assert.match(moreChecklists.textContent, /Load 8 more checklists/);
   moreChecklists.click();
-  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 4,
-    'the per-hotspot action did not reveal the next three fetched checklists');
+  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 9,
+    'one per-hotspot action did not reveal the remaining eight checklists');
+  assert.equal(visiblePlaces[0].querySelector('.stakeoutChecklistMore'), null,
+    'a fully revealed nine-checklist hotspot still asks for another batch');
   assert.equal(listCalls.length, 0,
     'revealing fetched checklist rows unnecessarily contacted eBird');
 
@@ -15914,6 +15984,112 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
   assert.match(HTML, /var STAKEOUT_HISTORY_SCAN = 6;/);
   assert.match(HTML, /rows = \(rows \|\| \[\]\)\.slice\(0, STAKEOUT_HISTORY_SCAN\);/,
     'the selected hotspot scan is not bounded by the same six-candidate limit as its action');
+  app.window.close();
+});
+
+test('F634 Stakeout separates privacy, reveals nine checklists once, and paints Notes', async () => {
+  const today = todayFixtureDate();
+  const unionRows = Array.from({ length: 9 }, (_, i) => ({
+    speciesCode: 'clcspa',
+    comName: 'Clay-colored Sparrow',
+    locName: 'Union Bay Natural Area',
+    locId: '',
+    lat: 47.6579,
+    lng: -122.29,
+    obsDt: `${today} ${String(17 - i).padStart(2, '0')}:00`,
+    subId: `S-UNION-${i + 1}`,
+    howMany: 1,
+    obsValid: true,
+    locationPrivate: false,
+  }));
+  const app = await boot({
+    fetch(url) {
+      const path = String(url);
+      if (/data\/obs\/.*\/recent\/clcspa/.test(path)) {
+        return unionRows.concat([{
+          speciesCode: 'clcspa',
+          comName: 'Clay-colored Sparrow',
+          locName: 'UW farm',
+          locId: 'P-UW-FARM',
+          lat: 47.653,
+          lng: -122.29,
+          obsDt: `${today} 08:00`,
+          subId: 'S-UW-FARM',
+          howMany: 1,
+          obsValid: true,
+          locationPrivate: true,
+        }]);
+      }
+      const match = path.match(/product\/checklist\/view\/([^?]+)/);
+      if (match) {
+        const sub = decodeURIComponent(match[1]);
+        return {
+          userDisplayName: 'Observer',
+          obsDt: `${today} 17:00`,
+          durationHrs: 1,
+          comments: `Checklist note ${sub}`,
+          obs: [{
+            speciesCode: 'clcspa',
+            comments: `Species note ${sub}`,
+            howMany: 1,
+          }],
+        };
+      }
+      if (/api\.ebird\.org/.test(path)) return [];
+      return null;
+    },
+  });
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('clcspa', 'Clay-colored Sparrow');
+  app.click(app.$('spLookupStatewide'));
+
+  const places = [...app.document.querySelectorAll(
+    '#spLookupRecent .spLookupPlaceList > .hscard-md')];
+  assert.equal(places.length, 2, 'the public park and private farm merged into one place');
+  const union = places.find((place) => /Union Bay/.test(place.textContent));
+  const farm = places.find((place) => /UW farm/.test(place.textContent));
+  assert.ok(union && farm, 'both mixed-privacy place rows remain available');
+  assert.doesNotMatch(union.textContent, /Private-location evidence/,
+    'missing hotspot history falsely labels the public Union Bay row private');
+  assert.match(union.textContent, /No public hotspot history link is available/,
+    'public evidence without a locId does not explain the unavailable history action');
+  assert.match(farm.textContent, /Private-location evidence has no public hotspot history/,
+    'the genuinely private UW farm row lost its privacy explanation');
+
+  app.click(app.$('spLookupNotes'));
+  await waitFor(() => app.document.querySelector(
+    '#spLookupRecent .stakeoutPlaceChecklists > li:not([hidden]) .evnoterow blockquote'),
+  'Stakeout Notes to paint the initially visible checklist comments');
+
+  const currentUnion = [...app.document.querySelectorAll(
+    '#spLookupRecent .spLookupPlaceList > .hscard-md')]
+    .find((place) => /Union Bay/.test(place.textContent));
+  const list = currentUnion.querySelector('.stakeoutPlaceChecklists');
+  assert.equal(list.querySelectorAll(':scope > li:not([hidden])').length, 1);
+  const more = currentUnion.querySelector('.stakeoutChecklistMore');
+  assert.match(more.textContent, /Load 8 more checklists/);
+  more.click();
+  assert.equal(list.querySelectorAll(':scope > li:not([hidden])').length, 9,
+    'one click did not reveal all nine known Union Bay checklists');
+  assert.equal(currentUnion.querySelector('.stakeoutChecklistMore'), null);
+
+  await waitFor(() => {
+    const rows = list.querySelectorAll(':scope > li:not([hidden])');
+    return rows.length === 9 && [...rows].every((row) => row.querySelectorAll(
+      '.evnoterow blockquote').length === 2);
+  }, 'Stakeout Notes to paint both species and checklist comments on every visible row');
+  const unionNotes = list.querySelector('.evnoterow');
+  assert.match(unionNotes.textContent, /Species note S-UNION-/);
+  assert.match(unionNotes.textContent, /Checklist note S-UNION-/);
+
+  const limiter = HTML.slice(HTML.indexOf('function limitStakeoutChecklistRows'),
+    HTML.indexOf('function loadStakeoutPlaceHistory'));
+  assert.match(HTML, /var STAKEOUT_CHECKLIST_BATCH = 8;/,
+    'Stakeout expansion no longer matches the measured eight-call evidence budget');
+  assert.match(limiter, /hydrateChecklistEvidence\(list, true\)/,
+    'newly revealed rows bypass the shared three-concurrent evidence pool');
+  assert.equal(app.window.__app.CKL_EVID_MAX, 8,
+    'the expansion batch exceeds the existing checklist request budget');
   app.window.close();
 });
 
@@ -19777,8 +19953,7 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
 test('the comments placeholder always settles', () => {
   const hyd = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence'),
                          HTML.indexOf('var _evidStore = {}'));
-  assert.match(hyd,
-    /rows\.filter\(function \(el\) \{[\s\S]*rarityNotes\(\)[\s\S]*data-ev-show-notes[\s\S]*\}\)\.forEach\(setNoteLoading\)/,
+  assert.match(hyd, /rows\.filter\(checklistNotesShown\)\.forEach\(setNoteLoading\)/,
     'the wait is announced');
   // ...but only on rows the budget will actually fetch. `rows` is filtered to
   // CKL_EVID_MAX first, so a skipped row cannot sit at "loading" forever —
@@ -33760,6 +33935,8 @@ test('F608 beta controls are absent in production and require preview before sha
   A.initBetaRuntime();
   A.initBetaTools();
   assert.ok(app.$('betaTools'), 'beta build did not render tester controls');
+  assert.equal(app.$('betaBanner'), null,
+    'a TestFlight-oriented beta still shows the removed menu warning');
   assert.equal(app.$('betaDiagPreview').hidden, true,
     'diagnostic contents are exposed as if already approved');
   app.$('betaDiagCreate').click();
