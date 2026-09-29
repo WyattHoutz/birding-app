@@ -714,6 +714,65 @@ test('F317 Fetch my name uses the persistent eBird profile WebView session', asy
   app.window.close();
 });
 
+test('F652 first-year fallback stays hidden unless eBird requires sign-in', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const handlers = {};
+  let shown = 0;
+  const realSetTimeout = app.window.setTimeout.bind(app.window);
+  app.window.setTimeout = (fn, ms, ...args) =>
+    realSetTimeout(fn, ms === 6000 ? 10 : ms, ...args);
+  const fake = {
+    addListener(name, fn) {
+      handlers[name] = fn;
+      return Promise.resolve({ remove() {} });
+    },
+    openWebView() {
+      return Promise.resolve({ id: 'f652-window' });
+    },
+    hide() {},
+    show() { shown++; },
+    close() {},
+    executeScript() {
+      setTimeout(() => handlers.messageFromWebview({
+        id: 'f652-window',
+        detail: {
+          __ebird: true, kind: 'firstYear', needsLogin: false, ok: false,
+          data: { valid: false, declared: 0, rows: [] },
+        },
+      }), 0);
+      return Promise.resolve();
+    },
+  };
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: fake } };
+
+  const pending = A.captureEbird({
+    kind: 'firstYear',
+    url: 'https://ebird.org/region/US-WA/bird-list?yr=cur&rank=lrec',
+    buildInject: () => '',
+    revealAfterDelay: false,
+    timeout: 500,
+  });
+  for (let i = 0; i < 100 && !handlers.browserPageLoaded; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  handlers.browserPageLoaded({ id: 'f652-window' });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(shown, 0,
+    'a slow client-rendered public year list was revealed without a sign-in requirement');
+  handlers.closeEvent({ id: 'f652-window' });
+  await assert.rejects(pending, /closed before it finished/);
+  const injectSource = HTML.slice(HTML.indexOf('function buildFirstYearInject'),
+    HTML.indexOf('function buildIdentityInject'));
+  assert.match(injectSource, /needsLogin:/,
+    'the hidden fallback cannot explicitly reveal a real signed-out page');
+  const fetchSource = HTML.slice(HTML.indexOf('function firstYearFetch'),
+    HTML.indexOf('function firstYearAgeLabel'));
+  assert.match(fetchSource, /kind: 'firstYear'[\s\S]*revealAfterDelay: false/,
+    'first-year capture does not disable the generic delayed reveal');
+  app.window.close();
+});
+
 test('F575 identity listeners are active before the installed WebView can load', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
@@ -19206,6 +19265,33 @@ test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', as
   hawaii.window.close();
 });
 
+test('F649 small BirdCast totals stay meaningful instead of rounding to zero', async () => {
+  const app = await boot({ report: 'wa' });
+  const A = app.window.__app;
+
+  assert.equal(A.birdcastMillions(3100), '3,100 birds',
+    'King County’s measured 3,100 birds became the false display “0.0 million”');
+  assert.equal(A.birdcastMillions(685100), '685,100 birds',
+    'a sub-million BirdCast estimate lost its measured whole-bird count');
+  assert.equal(A.birdcastMillions(1800000), '1.8 million birds',
+    'large BirdCast totals lost the compact million format');
+  app.window.close();
+});
+
+test('F650 Migration filters use the shared segmented-button styling', async () => {
+  const app = await boot({ report: 'wa' });
+  app.window.__app.renderBirdcast(new Date('2026-09-29T17:00:00Z'));
+  const group = app.document.querySelector('#bcBody .migration-filters');
+  const buttons = [...group.querySelectorAll('button')];
+
+  assert.ok(group.classList.contains('sortpick'),
+    'Migration invented a custom filter container instead of the shared segmented control');
+  assert.equal(buttons.length, 3);
+  assert.ok(buttons.every((button) => button.classList.contains('sortbtn')),
+    'Migration filters do not use the shared segmented-button class');
+  app.window.close();
+});
+
 test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home', async () => {
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
@@ -28780,6 +28866,16 @@ test('F648 High visibility gives Migration names a real text column', () => {
   assert.match(HTML,
     /html\[data-display="high-visibility"\] \.migration-list \.migration-event\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
     'High visibility keeps the event status beside the name instead of below it');
+});
+
+test('F651 Migration movement icons remain visually primary', () => {
+  const icon = /\.migration-event-icon\s*\{[^}]*font-size:\s*calc\((\d+)px \* var\(--s\)\)/
+    .exec(HTML);
+  const time = /\.migration-event-time\s*\{[^}]*font-size:\s*calc\((\d+)px \* var\(--s\)\)/
+    .exec(HTML);
+  assert.ok(icon && time, 'Migration movement-icon sizing rules are missing');
+  assert.ok(Number(icon[1]) >= Number(time[1]) * 2.25,
+    `the ${icon[1]}px movement icon is too close to the ${time[1]}px secondary time label`);
 });
 
 test('reduced motion is honoured app-wide, not on one spinner', () => {

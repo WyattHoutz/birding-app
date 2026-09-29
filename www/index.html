@@ -1460,22 +1460,24 @@
     .birdcast-migrant-list > li { padding: 7px 0; }
     .birdcast-migrant-list .name { min-height: 46px; }
     .migration-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 7px; margin: 0 0 9px; }
-    .migration-filters button { min-width: 0; min-height: 44px; padding: 7px 4px; }
-    .migration-filters button[aria-pressed="true"] { border-width: 2px;
-      text-decoration: underline; text-underline-offset: 3px; }
+      gap: 0; margin: 0 0 9px; border-radius: var(--btn-radius); }
+    .migration-filters .sortbtn { min-width: 0; min-height: 44px; padding: 7px 4px;
+      font-size: calc(14px * var(--s)); }
+    .migration-filters .sortbtn + .sortbtn { border-left: 1px solid var(--line); }
     .migration-list > li > .name { align-items: center; }
     .migration-list .ntext { min-width: 0; }
     .migration-list .sub { white-space: normal; }
     .migration-event { flex: 0 0 calc(72px * var(--s)); display: grid;
       justify-items: center; align-content: center; gap: 1px; text-align: center;
       line-height: 1.1; }
-    .migration-event-icon { font-size: calc(22px * var(--s)); }
+    .migration-event-icon { font-size: calc(28px * var(--s)); }
     .migration-event-time { font-size: calc(12px * var(--s)); font-weight: 750; }
     .migration-event-proof { font-size: calc(9px * var(--s)); font-weight: 850;
       letter-spacing: .06em; }
     html[data-display="high-visibility"] .migration-filters {
       grid-template-columns: 1fr; }
+    html[data-display="high-visibility"] .migration-filters .sortbtn + .sortbtn {
+      border-left: 0; border-top: 1px solid var(--line); }
     html[data-display="high-visibility"] .migration-list > li > .name {
       display: grid; grid-template-columns: auto minmax(0, 1fr);
       column-gap: 12px; row-gap: 4px; align-items: start; }
@@ -4146,7 +4148,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.7';
+      var APP_VERSION = '1.131.8';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -23894,8 +23896,9 @@
           'var onPage=path.indexOf("/region/"+want+"/bird-list")>=0;' +
           parseEbirdAccountIdentity.toString() + ';' +
           parseFirstYearBirdList.toString() + ';' +
+          'var I=parseEbirdAccountIdentity(H);' +
           'var R=parseFirstYearBirdList(H);' +
-          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:!!(onPage&&R&&R.valid),data:R}});' +
+          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",needsLogin:!!(I&&I.status==="logged-out"),ok:!!(onPage&&R&&R.valid),data:R}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"firstYear",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
       function buildIdentityInject(attempt) {
@@ -24150,7 +24153,9 @@
             flushPending();
             if (done) return;
             try { IB.hide({ id: id }); } catch (e) {}
-            revealTimer = setTimeout(reveal, 6000);
+            if (opts.revealAfterDelay !== false) {
+              revealTimer = setTimeout(reveal, 6000);
+            }
             timer = setTimeout(function () {
               trace('timeout', 'no usable bridge message', 'warn');
               finish(new Error('Timed out waiting for eBird — try “View on eBird”.'));
@@ -27868,7 +27873,12 @@
         });
       }
       function birdcastMillions(n) {
-        return (Number(n) / 1000000).toFixed(1) + ' million birds';
+        var birds = Math.round(Number(n));
+        if (!isFinite(birds)) return 'Migration count unavailable';
+        if (birds < 1000000) {
+          return birds.toLocaleString('en-US') + ' bird' + (birds === 1 ? '' : 's');
+        }
+        return (birds / 1000000).toFixed(1) + ' million birds';
       }
       function setBirdcastSnapshot(snapshot) {
         _birdcastSnapshot = snapshot || null;
@@ -28157,12 +28167,12 @@
         return 'in ' + event.days + ' day' + (event.days === 1 ? '' : 's');
       }
       function migrationFiltersHtml() {
-        return '<div class="migration-filters" role="group" '
+        return '<div class="migration-filters sortpick" role="group" '
           + 'aria-label="Filter migration events">'
           + ['tonight', 'arrivals', 'departures'].map(function (kind) {
             var label = kind === 'tonight' ? 'Tonight'
               : kind.charAt(0).toUpperCase() + kind.slice(1);
-            return '<button type="button" data-migration-kind="' + kind
+            return '<button class="sortbtn" type="button" data-migration-kind="' + kind
               + '" aria-pressed="' + (_migrationKinds[kind] ? 'true' : 'false')
               + '">' + label + '</button>';
           }).join('') + '</div>';
@@ -31596,6 +31606,7 @@
           return captureEbird({
             kind: 'firstYear', url: url, alive: current,
             buildInject: function () { return buildFirstYearInject(region); },
+            revealAfterDelay: false,
             onStatus: status
           }).then(function (page) {
             if (!page || !page.valid) throw new Error('Could not read eBird first reports');

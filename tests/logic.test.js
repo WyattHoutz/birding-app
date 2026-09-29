@@ -639,6 +639,51 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
 });
 
+test('F653 Today patches never recommend an explicitly private location', () => {
+  const wa = BL.profileFor('wa');
+  const SNAP = '2026-09-29';
+  const publicRows = [1, 2, 3].map((i) => Object.assign(OBS({
+    obsId: 'union-bay-' + i,
+    speciesCode: 'clcspa',
+    comName: 'Clay-colored Sparrow',
+    locId: 'L-UNION-BAY',
+    locName: 'Union Bay Natural Area',
+    lat: 47.6525,
+    lng: -122.3000,
+    obsDt: SNAP + ' 08:0' + i,
+    subId: 'S-UNION-BAY-' + i
+  }), { subnational2Code: 'US-WA-033' }));
+  const privateFarm = Object.assign(OBS({
+    obsId: 'uw-farm',
+    speciesCode: 'clcspa',
+    comName: 'Clay-colored Sparrow',
+    locId: 'P-UW-FARM',
+    locName: 'UW farm',
+    lat: 47.6500,
+    lng: -122.3000,
+    obsDt: SNAP + ' 08:10',
+    subId: 'S-UW-FARM'
+  }), { locationPrivate: true, subnational2Code: 'US-WA-033' });
+
+  const cv = BL.computeChaseViews(wa, {
+    rowsToday: waSnapshot({ 'king-recent.json': publicRows.concat(privateFarm) }),
+    rowsPrior: waSnapshot({}),
+    seen: {},
+    ownName: 'Nobody',
+    snapshotDate: SNAP,
+    home: { lat: 47.66, lng: -122.30 },
+    dailyDriveMi: wa.dailyDriveMi
+  });
+  const todayLocations = cv.destinations.map((r) => r.loc);
+
+  assert.ok(todayLocations.includes('Union Bay Natural Area'),
+    'the nearby public control remains a Today patch');
+  assert.ok(!todayLocations.includes('UW farm'),
+    'a private pin cannot become a recommended patch through the shared stakeout cluster');
+  assert.ok(cv.near.some((r) => r.loc === 'UW farm'),
+    'private evidence remains available to non-destination views');
+});
+
 test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today-eligible', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-08';

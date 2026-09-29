@@ -1051,6 +1051,10 @@
     return isReachable(rec, stakeoutLocIds);
   }
 
+  function isPublicLocation(rec) {
+    return !(rec.location_private || rec.locationPrivate);
+  }
+
   // locIds hosting a rarity/unseen stakeout (many checklists clustered near one
   // spot) — mirror report._compute_stakeout_locids (STAKEOUT_MIN_CHECKLISTS=3,
   // STAKEOUT_CLUSTER_M=300). seen = set (obj) of speciesCodes.
@@ -2606,7 +2610,11 @@
       return t >= cutoff || (isSpecialTrip(r) && t >= excCutoff);
     });
 
-    var nearRecentGo = nearRecent.filter(function (r) { return isChaseable(r, stakeout); });
+    // Today patches are recommendations, not just evidence. Private pins can
+    // still support Stakeout/Twitches, but must never become a named place to go.
+    var nearRecentGo = nearRecent.filter(function (r) {
+      return isPublicLocation(r) && isChaseable(r, stakeout);
+    });
     var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
 
     var destOpts = {
@@ -2665,6 +2673,7 @@
     if (dest.length < fallbackTarget && fallbackRecs.length) {
       var fallbackNearGo = fallbackRecs.filter(function (r) {
         return inTargetCounties(r, countyLabels, countyCodes) &&
+          isPublicLocation(r) &&
           isChaseable(r, stakeout);
       });
       var fallbackDest = destinations(fallbackNearGo,

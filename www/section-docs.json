@@ -603,7 +603,7 @@
         "Bundled state-wide GBIF timing for species missing from county history."
       ],
       "how": [
-        "Leads with a large text-labelled migration level and the previous night's county count expressed in millions.",
+        "Leads with a large text-labelled migration level and the previous night's county count. Sub-million estimates retain BirdCast's whole-bird number; larger totals use a compact one-decimal million format.",
         "Shows every bird in one ungrouped compact list, deduplicating overlapping feeds while retaining their source text.",
         "Tonight, Arrivals and Departures buttons filter the one list; at least one remains selected.",
         "Each row pairs its event icon with movement words, relative time, and an explicit OBSERVED or EXPECTED label.",
