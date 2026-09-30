@@ -32011,13 +32011,14 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
         species: ['hawama1', 'hawama2'],
       }],
       source: {
-        observedAt: '2026-09-18T12:00:00Z',
+        observedAt: '2026-09-30T09:03:19.579Z',
         provenance: state === 'partial' ? 'partial' : 'live',
         rawBody: 'SECRET-RAW-BODY',
       },
       exclusions: [{ reason: 'outside county scope', count: 4 }],
       counts: { listRows: 2, mapMarkers: 1 },
       apiKey: 'SECRET-API-KEY',
+      capturedAt: '2026-09-30T09:03:19.579Z',
     });
   });
 
@@ -32040,9 +32041,41 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
     hiddenSpecies: 1,
     publicHotspots: 1,
   }, 'list, map and species counts are exported together from one snapshot');
+  assert.match(exported, /2026-09-30T09:03:19\.579Z/,
+    'the privacy guard accepts timestamps whose digits resemble a coordinate');
+  const rows = parsed.sections.concat(parsed.history);
+  rows.forEach((row) => {
+    assert.deepEqual(Object.keys(row).sort(), [
+      'anchor', 'appVersion', 'capturedAt', 'counts', 'countyScope', 'exclusions',
+      'filter', 'hiddenSpecies', 'publicHotspots', 'region', 'report', 'section',
+      'sort', 'source', 'state', 'visibleSpecies',
+    ], 'coverage rows expose only the documented scrubbed fields');
+    assert.deepEqual(Object.keys(row.source).sort(),
+      ['cachedAt', 'observedAt', 'provenance'],
+      'coverage source metadata excludes raw responses');
+    assert.deepEqual(Object.keys(row.counts).sort(), [
+      'hiddenSpecies', 'listRows', 'mapMarkers', 'publicHotspots', 'visibleSpecies',
+    ], 'coverage counts contain only aggregate integers');
+    row.visibleSpecies.concat(row.hiddenSpecies).forEach((species) => {
+      assert.deepEqual(Object.keys(species), ['code'],
+        'coverage species expose only public taxonomy codes');
+    });
+    row.publicHotspots.forEach((hotspot) => {
+      assert.deepEqual(Object.keys(hotspot).sort(), ['id', 'species'],
+        'coverage hotspots exclude names and coordinates');
+      hotspot.species.forEach((species) => {
+        assert.deepEqual(Object.keys(species), ['code'],
+          'hotspot species expose only public taxonomy codes');
+      });
+    });
+    row.exclusions.forEach((exclusion) => {
+      assert.deepEqual(Object.keys(exclusion).sort(), ['count', 'reason'],
+        'coverage exclusions contain only normalized aggregate reasons');
+    });
+  });
   assert.doesNotMatch(exported,
-    /SECRET|Private yard|checklist comment|19\.5|-155\.5|apiKey|rawBody/,
-    'credentials, coordinates, private locations, comments and raw bodies are absent');
+    /SECRET|Private yard|checklist comment|apiKey|rawBody/,
+    'credentials, private locations, comments and raw bodies are absent');
   assert.match(HTML.slice(HTML.indexOf('function dbgCopyLog'),
     HTML.indexOf('function reportPdfName')), /coverageAuditText\(\)/,
   'Copy all appends the one parseable coverage artifact');
