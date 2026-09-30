@@ -26632,6 +26632,14 @@ test('F342 My Ticks marks its first paint as updating until a new bird is includ
   await waitFor(() => releaseKing, 'the fresh King County checklist list request');
   assert.match(app.$('myYearBody').textContent, /checking recent.*checklists|still updating/i,
     'the first visible list looked complete while its fresh checklist scan was still pending');
+  const progress = app.$('myYearFreshness').querySelector('progress');
+  assert.ok(progress,
+    'Washington My Ticks has updating text but no visible loading bar');
+  assert.equal(progress.hasAttribute('value'), false,
+    'the checklist loading bar pretends to know progress it cannot measure');
+  assert.match(progress.getAttribute('aria-label'),
+    /Loading recent eBird checklists for Washington/i,
+    'the checklist loading bar does not name its report or work');
   assert.doesNotMatch(app.$('myYearList').textContent, /Lewis/,
     'the controlled new bird appeared before its checklist response');
 
@@ -26641,6 +26649,8 @@ test('F342 My Ticks marks its first paint as updating until a new bird is includ
     'the loader settled before the newly harvested bird reached the authoritative list');
   assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|checking recent/i,
     'the updating disclosure remained after the fresh list settled');
+  assert.equal(app.$('myYearBody').querySelector('progress'), null,
+    'the checklist loading bar remained after the fresh list settled');
   app.window.close();
 });
 
@@ -26728,6 +26738,12 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
   assert.match(app.$('myYearBody').textContent.trim(),
     /^Still updating\..*Reading your ABA Area year list/is,
     'F425 the active ABA loader is not the first visible My Year List status');
+  const progress = app.$('myYearFreshness').querySelector('progress');
+  assert.ok(progress, 'the ABA refresh has text but no visible loading bar');
+  assert.equal(progress.hasAttribute('value'), false,
+    'the ABA loading bar pretends to know progress it cannot measure');
+  assert.match(progress.getAttribute('aria-label'), /Loading.*ABA Area year list/i,
+    'the loading bar does not name the work in progress');
   assert.doesNotMatch(app.$('myYearBody').textContent, /Hawaii.*38 species/is,
     'F425 stale Hawaii summary survived after the ABA refresh started');
   assert.doesNotMatch(app.$('myYearList').textContent, /stale Hawaii bird/i,
@@ -26745,6 +26761,8 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
       name + ' did not reach the authoritative ABA list'));
   assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|reading.*year list/i,
     'the ABA updating disclosure remained after the signed-in list settled');
+  assert.equal(app.$('myYearBody').querySelector('progress'), null,
+    'the loading bar remained after the ABA year list settled');
   assert.equal(Object.keys(JSON.parse(
     app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
   )).length, 5, 'the ABA rows were stored under a different report');

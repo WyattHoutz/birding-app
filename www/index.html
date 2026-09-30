@@ -1508,6 +1508,8 @@
       font-size: calc(12px * var(--s)); line-height: 1.25; }
     .birdcast-destination-arrow { color: var(--safe-blue);
       font-size: calc(23px * var(--s)); font-weight: 900; }
+    .my-year-progress { display: block; width: 100%; height: calc(10px * var(--s));
+      margin-top: 9px; accent-color: var(--safe-blue); }
     .leaflet-div-icon { background: transparent; border: none; }
     .pinbubble { width: calc(24px * var(--s)); height: calc(24px * var(--s)); border-radius: 50%; background: var(--pin, #e5484d); color: #fff; font-weight: 800; font-size: calc(12px * var(--s)); line-height: calc(24px * var(--s) - 4px); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid #fff; box-sizing: border-box; }
     .pinbubble.home { background: var(--accent); }
@@ -4200,7 +4202,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.9';
+      var APP_VERSION = '1.131.10';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -34417,12 +34419,16 @@
               + '<b>Still updating. <span class="loadingdots" aria-hidden="true">\u2026</span></b> '
               + 'Reading your ' + esc(getReport().label) + ' year list straight '
               + 'from eBird now; the rows already shown remain available while '
-              + 'that finishes.</div>';
+              + 'that finishes.'
+              + '<progress class="my-year-progress" aria-label="Loading '
+              + esc(getReport().label) + ' year list"></progress></div>';
           }
           return '<div class="hint" id="myYearFreshness" role="status" aria-live="polite">'
             + '<b>Still updating. <span class="loadingdots" aria-hidden="true">\u2026</span></b> '
             + 'Checking your recent eBird checklists now; the rows already shown '
-            + 'remain available while that finishes.</div>';
+            + 'remain available while that finishes.'
+            + '<progress class="my-year-progress" aria-label="Loading recent eBird '
+            + 'checklists for ' + esc(getReport().label) + '"></progress></div>';
         }
         if (_myYearRefreshState === 'failed') {
           if (_myYearRefreshKind === 'lifelist') {
