@@ -4222,7 +4222,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.13';
+      var APP_VERSION = '1.131.14';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -32622,6 +32622,7 @@
         patch:   { priority: 6, word: 'TOP PATCH',   glyph: '🥇' }
       };
       var _surgeEarlyPaint = null;
+      var _surgeHotspotRetry = null;
       var _surgeLoadGeneration = 0;
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
       function surgeSourceCacheKey() {
@@ -33560,6 +33561,7 @@
         }
         var force = takeForce();
         var generation = ++_surgeLoadGeneration;
+        _surgeHotspotRetry = null;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
         var btn = $('surgeBtn'), st = $('surgeStatus'), resultsBox = $('surgeResults');
         var existingFeed = resultsBox.querySelector('#surgeFeed');
@@ -33709,14 +33711,24 @@
             return cachedConvergence;
           }
           if (!hasCounties()) return { state: 'notApplicable', rows: [] };
-          return Promise.all(BL.planConvoyFeeds(getReport()).map(function (f) {
-              return ebird(BL.requestUrl(f))
-                .then(function (rows) { return { state: 'ok', rows: rows }; })
+          var feeds = BL.planConvoyFeeds(getReport());
+          var convergenceByPath = {};
+          function fetchConvergenceFeed(f) {
+            var path = BL.requestUrl(f);
+            return ebird(path)
+                .then(function (rows) {
+                  return (convergenceByPath[path] = { state: 'ok', rows: rows });
+                })
                 .catch(function (e) {
                   dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
-                  return { state: 'failed', rows: [] };
+                  return (convergenceByPath[path] = { state: 'failed', rows: [] });
                 });
-            })).then(function (results) {
+          }
+          function convergenceResult() {
+              var results = feeds.map(function (f) {
+                return convergenceByPath[BL.requestUrl(f)]
+                  || { state: 'loading', rows: [] };
+              });
               var lists = [];
               results.forEach(function (r) {
                 if (Array.isArray(r.rows)) lists.push.apply(lists, r.rows);
@@ -33756,10 +33768,32 @@
               } catch (e) { /* a log line must never break a lane */ }
               return {
                 state: results.some(function (r) { return r.state === 'failed'; })
-                  ? 'failed' : 'ok',
+                  ? 'failed'
+                  : results.some(function (r) { return r.state === 'loading'; })
+                    ? 'loading' : 'ok',
                 rows: conv
               };
+          }
+          _surgeHotspotRetry = function (path) {
+            if (generation !== _surgeLoadGeneration) return Promise.resolve(false);
+            var feed = feeds.filter(function (f) {
+              return BL.requestUrl(f) === path;
+            })[0];
+            if (!feed) return Promise.resolve(false);
+            if (_ebCache[path]) delete _ebCache[path];
+            st.hidden = false;
+            st.textContent = 'Retrying the failed Bird Gen hotspot source…';
+            dbg('net', 'retrying only Bird Gen hotspot source · ' + path);
+            return fetchConvergenceFeed(feed).then(function () {
+              if (generation !== _surgeLoadGeneration || !surgeModel) return false;
+              var live = convergenceResult();
+              surgeModel.convergence = surgeSourceFallback(live, cachedConvergence);
+              paintSurgeModel();
+              saveSurgeSourceCache({ convergence: live }).catch(function () {});
+              return live.state === 'ok';
             });
+          };
+          return Promise.all(feeds.map(fetchConvergenceFeed)).then(convergenceResult);
         }).catch(function (e) {
               dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
@@ -37576,8 +37610,12 @@
         var stall = _fgStall;
         if (!stall) return;
         if (stall.path && _ebCache[stall.path]) delete _ebCache[stall.path];
-        fgCancelAll('Retrying after a stopped request');
         var sec = stall.sectionId && $(stall.sectionId);
+        if (sec && sec._at === 'surgeBtn' && typeof _surgeHotspotRetry === 'function') {
+          fgClearStall();
+          return _surgeHotspotRetry(stall.path);
+        }
+        fgCancelAll('Retrying after a stopped request');
         if (!sec || sec.hidden || !sec._loader || !sec._loader.fn) return;
         _autoLoaded[sec.id] = false;
         setTimeout(function () { autoLoad(sec); }, 0);
@@ -40769,6 +40807,7 @@
         fgCancelObsolete: fgCancelObsolete, fgCancelAll: fgCancelAll,
         navGeneration: function () { return _navGeneration; }, navWork: navWork,
         retryStalledSection: retryStalledSection,
+        setSurgeHotspotRetry: function (fn) { _surgeHotspotRetry = fn; },
         cancelStalledWork: cancelStalledWork,
         retryAfterMs: retryAfterMs,
         costReport: costReport, costEnter: costEnter, costNote: costNote,

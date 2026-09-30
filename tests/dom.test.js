@@ -38181,6 +38181,70 @@ test('F347 a My Ticks timeout never paints failure controls on Today’s patches
   app.window.close();
 });
 
+test('F674 Bird Gen retries only its failed hotspot source', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  let releaseSibling;
+  let siblingAborted = false;
+  app.window.fetch = (url, init) => new Promise((resolve, reject) => {
+    releaseSibling = () => resolve({
+      ok: true, status: 200, headers: { get: () => null },
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve('[]'),
+    });
+    if (init && init.signal) {
+      init.signal.addEventListener('abort', () => {
+        siblingAborted = true;
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      }, { once: true });
+    }
+  });
+
+  A.fgSchedReset(Date.now());
+  const sibling = A.ebird('probe/unrelated-sibling');
+  await waitFor(() => releaseSibling, 'the unrelated sibling request to start');
+  A.showSection('sec-surgeBtn');
+  A.sleepReset();
+  const start = 100000;
+  const failedPath = 'product/lists/US-WA-033?maxResults=1200';
+  assert.equal(A.fgCheckActiveStall(
+    failedPath, { activeSlept0: A.sleptMs() },
+    start, start + A.FG_ACTIVE_STALL_MS + 1, {
+      label: 'Bird Gen hotspot source',
+      sectionId: 'sec-surgeBtn',
+    }), true);
+
+  let retried = '';
+  A.setSurgeHotspotRetry((path) => {
+    retried = path;
+    return Promise.resolve(true);
+  });
+  assert.equal(await A.retryStalledSection(), true);
+  assert.equal(retried, failedPath,
+    'Retry this section did not target the one failed Bird Gen source');
+  assert.equal(siblingAborted, false,
+    'retrying one Bird Gen source cancelled unrelated queued or active work');
+  assert.equal(A.fgStall(), null,
+    'the handled source failure left the global stopped-request banner active');
+
+  releaseSibling();
+  await sibling;
+
+  const retry = HTML.slice(HTML.indexOf('function retryStalledSection('),
+    HTML.indexOf('function cancelStalledWork('));
+  assert.match(retry, /_surgeHotspotRetry\(stall\.path\)/,
+    'Bird Gen fell back to the global whole-section retry');
+  const converge = HTML.slice(HTML.indexOf('var pConverge ='),
+    HTML.indexOf('return Promise.all([pObserved', HTML.indexOf('var pConverge =')));
+  assert.match(converge, /convergenceByPath/,
+    'successful hotspot-source rows are not retained independently');
+  assert.match(converge, /surgeModel\.convergence = surgeSourceFallback/,
+    'the source-local retry does not repaint the existing Bird Gen model');
+  app.window.close();
+});
+
 test('F320 every long section-owned history plan carries one navigation token', () => {
   const names = HTML.slice(HTML.indexOf('function ensureCountyNames('),
     HTML.indexOf('function ensureCountyCatalog('));
