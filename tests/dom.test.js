@@ -9065,6 +9065,12 @@ test('F534 every report heading keeps its reload action on the same row', () => 
 });
 
 test('Bird Gen relative age stays on one line as 24hr ago', async () => {
+  assert.match(HTML,
+    /\.surgekindwrap \{[^}]*flex:\s*0 0 calc\(72px \* var\(--s\)\)[^}]*width:\s*calc\(72px \* var\(--s\)\)[^}]*min-width:\s*calc\(72px \* var\(--s\)\)/,
+    'the alert category lane is too narrow for the complete High visibility age');
+  assert.match(HTML,
+    /\.surgeage \{[^}]*width:\s*calc\(72px \* var\(--s\)\)[^}]*white-space:\s*nowrap/,
+    'the age label does not share the widened one-line lane');
   const app = await boot();
   const d = new Date(Date.now() - 24 * 3600000);
   const p = (n) => String(n).padStart(2, '0');
@@ -16634,6 +16640,27 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
   app.window.close();
 });
 
+test('F655 Stakeout Rare bird panel opens Twitches and Mega stays informational', async () => {
+  const app = await boot({ storage: { ebird_report: 'wa' } });
+  const A = app.window.__app;
+  const host = app.$('spLookupEvidenceDetails');
+  host.innerHTML = A.stakeoutRarityBannerHtml({ rarityKind: 'rare' });
+  A.wireStakeoutRarityLink(host);
+  const rare = host.querySelector('.stakeoutrarity');
+  assert.equal(rare.tagName, 'BUTTON',
+    'the Rare bird panel is not a keyboard-accessible action');
+  assert.match(rare.textContent, /Open Twitches/,
+    'the panel does not name its destination without relying on styling');
+  app.click(rare);
+  assert.equal(app.$('sec-refreshBtn').hidden, false,
+    'the Rare bird panel did not open Twitches');
+
+  host.innerHTML = A.stakeoutRarityBannerHtml({ rarityKind: 'mega' });
+  assert.equal(host.querySelector('.stakeoutrarity').tagName, 'DIV',
+    'the distinct Mega rarity panel was turned into the Twitches link');
+  app.window.close();
+});
+
 test('F461 Stakeout merges retained Mega checklists into one complete place list', async () => {
   const statewide = Array.from({ length: 40 }, (_, i) => ({
     speciesCode: 'shtsan',
@@ -19242,10 +19269,10 @@ test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', as
   assert.deepEqual(
     [...doc.querySelectorAll('#bcBody .birdcast-destination')]
       .slice(0, 4).map((node) => node.textContent.trim()),
-    ['🌙Tonight’s forecastPlan before sunset›',
-      '📡Live migration mapSee what radar detects now›',
-      '🔔Alert for your HomeBirdCast’s location forecast›',
-      '💡Lights Out guidanceReduce collision risk on busy nights›'],
+    ['🔔Alert for your HomeBirdCast’s location forecast›',
+      '📊King historyNightly totals, timing and migrants›',
+      '📊Snohomish historyNightly totals, timing and migrants›',
+      '🌙Tonight’s forecastPlan before sunset›'],
     'BirdCast destinations do not explain what each official link opens');
   assert.match(text, /migration count loading/i);
   assert.doesNotMatch(text, /forecast is live|radar forecast/i);
@@ -19289,6 +19316,25 @@ test('F650 Migration filters use the shared segmented-button styling', async () 
   assert.equal(buttons.length, 3);
   assert.ok(buttons.every((button) => button.classList.contains('sortbtn')),
     'Migration filters do not use the shared segmented-button class');
+  app.window.close();
+});
+
+test('F659 Migration orders Home alerts, counties, then other links', async () => {
+  const app = await boot({ report: 'wa' });
+  app.window.__app.renderBirdcast(new Date('2026-09-29T17:00:00Z'));
+  const titles = Array.from(
+    app.document.querySelectorAll('#bcBody .birdcast-destination strong'),
+    (node) => node.textContent.trim());
+
+  assert.equal(titles[0], 'Alert for your Home',
+    'the Home alert should be the first Migration destination');
+  const countyTitles = titles.filter((title) => / history$/.test(title));
+  assert.ok(countyTitles.length > 0, 'Migration lost its county dashboard links');
+  assert.deepEqual(titles.slice(1, 1 + countyTitles.length), countyTitles,
+    'county alerts should immediately follow Home');
+  assert.deepEqual(titles.slice(1 + countyTitles.length),
+    ['Tonight’s forecast', 'Live migration map', 'Lights Out guidance'],
+    'regional and reference links should follow Home and county alerts');
   app.window.close();
 });
 
@@ -19430,10 +19476,10 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   'bundled expected-migrant photos to settle', 5000);
   assert.deepEqual(
     Array.from(body.querySelectorAll('.birdcast-destination strong'), (node) =>
-      node.textContent.trim()).slice(0, 4),
-    ['Tonight’s forecast', 'Live migration map', 'Alert for your Home',
-      'Lights Out guidance'],
-    'Migration does not label its BirdCast destinations clearly');
+      node.textContent.trim()),
+    ['Alert for your Home', 'King history', 'Snohomish history',
+      'Tonight’s forecast', 'Live migration map', 'Lights Out guidance'],
+    'Migration does not order and label its Home, county, and other destinations clearly');
   assert.equal(body.querySelectorAll('.birdcast-destination').length, 6,
     'the merged Migration screen does not retain all six BirdCast destinations');
   body.querySelector('[data-migration-kind="arrivals"]').click();
@@ -19636,8 +19682,11 @@ test('Top 100 rows keep the numeric hierarchy without bird thumbnails (F246/F570
   //    so the global `.wholine` can never again override the scoped `.who`.
   //    That was the actual bug; the 1.5 was the remedy that overshot.
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
-    'the center sentence does not use one compact font size');
+    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*font-size:\s*calc\(17px \* var\(--s\)\)/,
+    'the center sentence did not increase to the shared list-name size');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*align-items:\s*flex-end[^}]*width:\s*calc\(56px \* var\(--s\)\)/,
+    'the rank stack has no fixed right-aligned column');
   assert.match(HTML,
     /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
     'the birder name is not the only bold part of the center sentence');
@@ -24623,6 +24672,7 @@ test('an edited own checklist is reread when its species count changes', async (
       return null;
     },
   });
+
   const A = app.window.__app, W = app.window;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
   const row = {
@@ -24646,6 +24696,34 @@ test('an edited own checklist is reread when its species count changes', async (
   assert.equal(await A.harvestOwnChecklists([edited]), 0,
     'an unchanged fingerprint remains free');
   assert.equal(bodyCalls, 2, 'the stable edited checklist is not bought again');
+  app.window.close();
+});
+
+test('F654 exact forms cannot inflate My Ticks when they arrive before parents', async () => {
+  const app = await boot({ storage: { ebird_report: 'wa' } });
+  const A = app.window.__app, W = app.window;
+  W.__SEED_BIRDLIST__.reportAsParents = {
+    grbher: 'grbher3',
+    orejun: 'daejun',
+    rocpig1: 'rocpig',
+  };
+  W.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()].yearList = [];
+  W.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
+    grbher: { n: 'Great Blue Heron (Great Blue)', d: '26 Sep 2026', p: 'checklist' },
+    orejun: { n: 'Dark-eyed Junco (Oregon)', d: '23 Sep 2026', p: 'checklist' },
+    rocpig1: { n: 'Rock Pigeon (Feral Pigeon)', d: '23 Sep 2026', p: 'checklist' },
+    grbher3: { n: 'Great Blue Heron', d: '20 Sep 2026', p: 'lifelist' },
+    daejun: { n: 'Dark-eyed Junco', d: '20 Sep 2026', p: 'lifelist' },
+    rocpig: { n: 'Rock Pigeon', d: '20 Sep 2026', p: 'lifelist' },
+    shtsan: { n: 'Sharp-tailed Sandpiper', d: '21 Sep 2026', p: 'lifelist' },
+  }));
+
+  const rows = A.mergedYearList();
+  assert.deepEqual(rows.map((row) => row.code).sort(),
+    ['daejun', 'grbher3', 'rocpig', 'shtsan'].sort(),
+    'three exact forms were counted in addition to their parent species');
+  assert.equal(rows.length, 4,
+    'the displayed total is not the number of distinct parent species');
   app.window.close();
 });
 
@@ -34339,6 +34417,29 @@ test('Iconic Patches bird view sorts by score or selected-anchor distance', asyn
     .map((n) => n.textContent.trim());
   assert.deepEqual(names(), ['Far Bird', 'Near Bird'],
     'Iconic score should order the strongest pairing first');
+  const first = doc.querySelector('#iconicResults .iconic-pair');
+  assert.ok(first, 'bird view should render the dedicated three-column iconic pairing card');
+  assert.match(first.textContent, /Far Bird\s+at\s+Far Marsh/,
+    'the primary sentence should name the bird and hotspot together');
+  assert.equal(first.querySelector('a.splink').textContent.trim(), 'Far Bird',
+    'the bird name should remain independently actionable');
+  assert.equal(first.querySelector('a.hslink').textContent.trim(), 'Far Marsh',
+    'the hotspot name should be independently actionable');
+  assert.equal(first.querySelector('.iconic-pair-score').textContent.trim(), '40×',
+    'the iconic score graphic should occupy the dedicated right column');
+  const iconicCss = HTML.slice(HTML.indexOf('.obs.iconic-pairs'),
+    HTML.indexOf('// --- P15: migration outlook'));
+  assert.match(iconicCss, /grid-template-columns:\s*calc\(56px \* var\(--s\)\)\s+minmax\(0,\s*1fr\)\s+auto/,
+    'Iconic pairings need explicit photo, sentence, and score columns');
+  assert.match(iconicCss, /font-size:\s*calc\(20px \* var\(--s\)\)/,
+    'the linked bird-at-hotspot sentence should be large enough to target');
+  assert.match(iconicCss, /min-height:\s*44px/,
+    'both names should retain a full touch-height target');
+  assert.match(iconicCss,
+    /html\[data-display="high-visibility"\] \.obs\.iconic-pairs[^}]+grid-template-columns:\s*calc\(44px \* var\(--s\)\)\s+minmax\(0,\s*1fr\)\s+auto/s,
+    'High visibility should preserve all three columns while giving linked names usable width');
+  assert.match(iconicCss, /\.obs\.iconic-pairs > li > \.name > \.ntext[^}]+overflow-wrap:\s*normal[^}]+word-break:\s*normal/s,
+    'Iconic bird and hotspot names should wrap between words, never through them');
   const sortRow = doc.getElementById('iconicBirdSortRow');
   assert.equal(sortRow.hidden, false, 'Bird view should expose its sort toggle');
   assert.equal(doc.getElementById('iconicBirdByScore').getAttribute('aria-pressed'), 'true');
@@ -36230,8 +36331,11 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
     /\.rankrow\.hscard-md > \.name > \.rankstack > :where\(\.hsnum\) \{[^}]*font-size:\s*calc\(28px \* var\(--s\)\)[^}]*line-height:\s*1/,
     'the large rank is not fixed inside the first-column stack');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
+    /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*font-size:\s*calc\(17px \* var\(--s\)\)/,
     'the center sentence is not one compact, top-level grid cell');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*width:\s*calc\(56px \* var\(--s\)\)/,
+    'one- and two-digit ranks do not share a fixed first-column width');
   assert.match(HTML,
     /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
     'the birder name is not bold and inline with the remaining sentence');

@@ -1912,6 +1912,20 @@ const BOOTSTRAP = `
       document.getElementById('stakeHsStatus').textContent =
         '4 recent checklists · 10:03 PM';
       markHost(host, label);
+    } else if (at === 'iconicBtn') {
+      A.setIconicRows([
+        { locId: 'L109044', place: "Deer Lagoon", lat: 48.209, lng: -122.704,
+          distMi: 22.7, mult: 136, n: 19, effort: 102364,
+          code: 'forter', name: "Forster's Tern" },
+        { locId: 'L215613', place: 'Edmonds Marsh', lat: 47.809, lng: -122.381,
+          distMi: 11.2, mult: 129, n: 1008, effort: 397931,
+          code: 'surfbir', name: 'Surfbird' },
+        { locId: 'L128454', place: 'Cedar River mouth', lat: 47.499, lng: -122.219,
+          distMi: 17.6, mult: 73, n: 37, effort: 106943,
+          code: 'gbbgul', name: 'Great Black-backed Gull' }
+      ]);
+      A.setIconicBirdSort('score');
+      markHost(host, label);
     } else if (spec.kind === 'hotspot') {
       fillHotspotHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'species-search') {

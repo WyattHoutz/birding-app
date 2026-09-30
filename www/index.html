@@ -1530,6 +1530,56 @@
              border: 1px solid var(--safe-blue); border-radius: 0.5em; color: var(--safe-blue);
              font-size: 0.82em; font-weight: 700; font-variant-numeric: tabular-nums;
              vertical-align: 0.04em; }
+    .obs.iconic-pairs > li > .name {
+      display: grid;
+      grid-template-columns: calc(56px * var(--s)) minmax(0, 1fr) auto;
+      align-items: center;
+      column-gap: 10px;
+    }
+    .obs.iconic-pairs > li > .name > .thumb {
+      grid-column: 1;
+      width: calc(56px * var(--s));
+      height: calc(56px * var(--s));
+    }
+    .obs.iconic-pairs > li > .name > .ntext {
+      grid-column: 2;
+      font-size: calc(20px * var(--s));
+      font-weight: 800;
+      line-height: 1.15;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: none;
+    }
+    .obs.iconic-pairs .ntext > a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+    .obs.iconic-pairs .iconic-at {
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .obs.iconic-pairs .ntext .sub {
+      font-size: calc(15px * var(--s));
+      margin-top: 2px;
+    }
+    .obs.iconic-pairs .iconic-pair-score {
+      grid-column: 3;
+      margin-left: 0;
+      font-size: calc(20px * var(--s));
+      white-space: nowrap;
+    }
+    html[data-display="high-visibility"] .obs.iconic-pairs > li > .name {
+      grid-template-columns: calc(44px * var(--s)) minmax(0, 1fr) auto;
+      column-gap: 6px;
+    }
+    html[data-display="high-visibility"] .obs.iconic-pairs > li > .name > .thumb {
+      width: calc(44px * var(--s));
+      height: calc(44px * var(--s));
+    }
+    html[data-display="high-visibility"] .obs.iconic-pairs .iconic-pair-score {
+      font-size: calc(14px * var(--s));
+    }
     /* ...and WHEN. Lighter weight so the multiplier still leads, but inside
        the same tile so the two are read as one fact. */
     .ictag .icwhen { font-weight: 500; opacity: 0.85; }
@@ -1711,6 +1761,8 @@
                       gap: 4px 10px; align-items: center; margin: 8px 0 12px;
                       padding: 12px 14px; border: 2px solid var(--safe-blue);
                       border-radius: 12px; background: color-mix(in srgb, var(--safe-blue) 9%, transparent); }
+    button.stakeoutrarity { width: 100%; color: inherit; font: inherit;
+                           text-align: left; cursor: pointer; }
     .stakeoutrarity[data-kind="mega"] { border-color: #e69f00;
                       background: color-mix(in srgb, #e69f00 12%, transparent); }
     .stakeoutrarity .rarityicon { grid-row: 1 / span 2; font-size: calc(28px * var(--s)); }
@@ -2102,14 +2154,14 @@
     }
     .surgefeed > li > .name > .ntext { flex: 1 1 auto; padding-top: 1px; }
     .surgefeed .ntext .sub { display: block; margin-top: 4px; }
-    .surgekindwrap { margin-left: auto; flex: 0 0 calc(62px * var(--s));
-                     width: calc(62px * var(--s)); min-width: calc(62px * var(--s));
+    .surgekindwrap { margin-left: auto; flex: 0 0 calc(72px * var(--s));
+                     width: calc(72px * var(--s)); min-width: calc(72px * var(--s));
                      display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
     .surgekindtile { flex: 0 0 auto; display: inline-flex; align-items: center;
                      justify-content: center; width: calc(56px * var(--s));
                      height: calc(56px * var(--s)); border-radius: 10px;
                      font-size: calc(28px * var(--s)); line-height: 1; }
-    .surgeage { width: calc(62px * var(--s)); color: var(--ink); text-align: center;
+    .surgeage { width: calc(72px * var(--s)); color: var(--ink); text-align: center;
                 font-size: calc(14px * var(--s)); font-weight: 800; line-height: 1.05;
                 white-space: nowrap; font-variant-numeric: tabular-nums; }
     .surgeage small { display: block; font-size: calc(11px * var(--s));
@@ -2642,7 +2694,7 @@
     .rankrow.hscard-md > .name > .rankstack {
       grid-column: 1; grid-row: 1; align-self: start;
       display: flex; flex-direction: column; align-items: flex-end;
-      gap: 1px; min-width: 0;
+      gap: 1px; width: calc(56px * var(--s)); min-width: 0;
     }
     .rankrow.hscard-md > .name > .rankstack > :where(.hsnum) {
       width: auto; min-width: 0; height: auto; border: 0; border-radius: 0;
@@ -2656,7 +2708,7 @@
     }
     .rankrow.hscard-md > .name > .ntext {
       grid-column: 2; grid-row: 1; align-self: start;
-      font-size: calc(15px * var(--s)); line-height: 1.25;
+      font-size: calc(17px * var(--s)); line-height: 1.25;
     }
     .rankrow.hscard-md > .name > .hsdist {
       grid-column: 3; grid-row: 1; align-self: start;
@@ -4148,7 +4200,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.8';
+      var APP_VERSION = '1.131.9';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13286,6 +13338,7 @@
         if (evidenceHost) {
           evidenceHost.innerHTML = stakeoutEvidenceHtml(evidence)
             + speciesReferenceLinks(g.name, g.code);
+          wireStakeoutRarityLink(evidenceHost);
         }
         var detailsHost = $('spLookupDetailsContent');
         if (detailsHost) detailsHost.hidden = false;
@@ -27062,10 +27115,20 @@
             + '<strong>Mega rarity</strong>'
             + '<span>ABA Code 3, 4 or 5 · exceptionally rare in the ABA area</span></div>';
         }
-        return '<div class="stakeoutrarity" data-kind="rare">'
+        return '<button type="button" class="stakeoutrarity" data-kind="rare" '
+          + 'data-stakeout-route="twitches">'
           + '<span class="rarityicon" aria-hidden="true">★</span>'
           + '<strong>Rare bird</strong>'
-          + '<span>Flagged by eBird as notable in the selected region</span></div>';
+          + '<span>Flagged by eBird as notable in the selected region · '
+          + '<b>Open Twitches →</b></span></button>';
+      }
+      function wireStakeoutRarityLink(host) {
+        var action = host && host.querySelector(
+          '.stakeoutrarity[data-stakeout-route="twitches"]');
+        if (!action) return;
+        action.addEventListener('click', function () {
+          showSection('sec-refreshBtn');
+        });
       }
       function stakeoutEvidenceHtml(entry) {
         if (!entry) return '';
@@ -27708,16 +27771,17 @@
           + esc(title) + '</strong><small>' + esc(detail) + '</small></span>'
           + '<span class="birdcast-destination-arrow" aria-hidden="true">\u203a</span></a>';
       }
-      function birdcastToolLinks(state) {
+      function birdcastToolLinks(state, countyLinks) {
         return [
+          birdcastDestination(state && state.alertUrl || 'https://alert.birdcast.org/',
+            '\ud83d\udd14', 'Alert for your Home', 'BirdCast\u2019s location forecast'),
+          countyLinks || '',
           birdcastDestination(
             'https://birdcast.org/migration-tools/migration-forecast-maps/',
             '\ud83c\udf19', 'Tonight\u2019s forecast', 'Plan before sunset'),
           birdcastDestination(
             'https://birdcast.org/migration-tools/live-migration-maps/',
             '\ud83d\udce1', 'Live migration map', 'See what radar detects now'),
-          birdcastDestination(state && state.alertUrl || 'https://alert.birdcast.org/',
-            '\ud83d\udd14', 'Alert for your Home', 'BirdCast\u2019s location forecast'),
           birdcastDestination('https://birdcast.org/lights-out/',
             '\ud83d\udca1', 'Lights Out guidance',
             'Reduce collision risk on busy nights')
@@ -28249,7 +28313,7 @@
         var s = birdcastSeason(now, report);
         var alertState = birdcastAlertState(now, report);
         var localDate = birdcastDateLabel(s.local);
-        var tools = birdcastToolLinks(alertState);
+        var tools = birdcastToolLinks(alertState, linkHtml);
         function paint(snapshot) {
           if (!el.isConnected) return;
           var alertHeader = birdcastAlertHeader(alertState, snapshot);
@@ -28263,7 +28327,7 @@
         if (s.active) {
           el.innerHTML = alertHeader + birdcastMigrantsHtml(snapshot, now)
             + '<div class="birdcast-destinations" aria-label="Open BirdCast">'
-            + tools + linkHtml + '</div>'
+            + tools + '</div>'
             + apiNote;
         } else {
           var nd = birdcastDateLabel(s.next, s.next.year);
@@ -28272,7 +28336,7 @@
             + 'date, <b>' + esc(localDate) + '</b>. Coverage resumes <b>'
             + esc(nd) + '</b>; local dashboards retain historical nights.</div>'
             + '<div class="birdcast-destinations" aria-label="Open BirdCast">'
-            + tools + linkHtml + '</div>'
+            + tools + '</div>'
             + apiNote;
         }
         hydratePhotos(el);
@@ -31241,18 +31305,20 @@
           : function (a, b) { return b.mult - a.mult || a.distMi - b.distMi; });
         box.innerHTML = SpeciesCards.list('small', birdRows.map(function (r) {
           return SpeciesCards.small({
+            cls: 'iconic-pair',
             icon: photoSlot(r.name, r.code),
-            name: r.code ? speciesLink(r.name, r.code) : esc(r.name),
-            code: r.code, alpha: r.code ? alphaFor(r.code) : '',
-            tags: '<span class="ictag">' + Math.round(r.mult) + '\u00d7</span>'
-              + needTag(r.code, r.name),
-            sub: (r.locId
-                  ? locLink(r.place, r.lat, r.lng, r.locId, false)
-                  : esc(r.place))
-              + ' \u00b7 ' + r.distMi.toFixed(1) + ' mi'
+            name: (r.code ? speciesLink(r.name, r.code) : esc(r.name))
+              + '<span class="iconic-at"> at </span>'
+              + (r.locId
+                ? locLink(r.place, r.lat, r.lng, r.locId, false)
+                : esc(r.place)),
+            tags: needTag(r.code, r.name),
+            right: '<span class="ictag iconic-pair-score">'
+              + Math.round(r.mult) + '\u00d7</span>',
+            sub: r.distMi.toFixed(1) + ' mi'
               + ' \u00b7 ' + r.n + ' of ' + r.effort + ' records here'
           });
-        }), 'sppl');
+        }), 'sppl iconic-pairs');
         hydratePhotos(box);
       }
 
@@ -34206,6 +34272,32 @@
         var _kind = function (e) { return BL.taxonKind(e && e.name, e && e.exoticCategory); };
         seed = (seed || []).filter(function (e) { return _kind(e) === 'species'; });
         own = own.filter(function (e) { return _kind(e) === 'species'; });
+        // Prefer the parent species regardless of row order. The live year-list
+        // refresh is newest-first, so an exact form commonly arrives before an
+        // older parent row; the former one-way merge kept both and inflated the
+        // numbered total.
+        var parentOf = ((window.__SEED_BIRDLIST__ || {}).reportAsParents || {});
+        var allRows = seed.concat(own), presentCode = {}, plainName = {};
+        allRows.forEach(function (e) {
+          var c = String(e.code || '').trim().toLowerCase();
+          if (c) presentCode[c] = 1;
+          var raw = String(e.name || '');
+          if (!/\([^()]*\)\s*$/.test(raw)) {
+            var n = baseSpeciesName(raw).toLowerCase();
+            if (n) plainName[n] = 1;
+          }
+        });
+        function exactFormWithParent(e) {
+          var c = String(e.code || '').trim().toLowerCase();
+          var root = resolveSpecies(c, parentOf);
+          if (root && root !== c && presentCode[root]) return true;
+          var raw = String(e.name || '');
+          if (!/\([^()]*\)\s*$/.test(raw)) return false;
+          var n = baseSpeciesName(raw).toLowerCase();
+          return !!(n && plainName[n]);
+        }
+        seed = seed.filter(function (e) { return !exactFormWithParent(e); });
+        own = own.filter(function (e) { return !exactFormWithParent(e); });
         if (!own.length) return seed;
         var have = {}, haveName = {};
         seed.forEach(function (e) {
@@ -40200,6 +40292,8 @@
         twitchView: twitchView, setTwitchView: setTwitchView,
         rarityChecklistDetails: rarityChecklistDetails,
         loadActiveRarities: loadActiveRarities,
+        stakeoutRarityBannerHtml: stakeoutRarityBannerHtml,
+        wireStakeoutRarityLink: wireStakeoutRarityLink,
         raritySeenIds: raritySeenIds, markRaritySeen: markRaritySeen,
         rarityRowId: rarityRowId,
         initPullToRefresh: initPullToRefresh, PULL_TRIGGER_PX: PULL_TRIGGER_PX,
