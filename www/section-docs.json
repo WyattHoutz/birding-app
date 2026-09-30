@@ -677,9 +677,14 @@
         "Main and Test 2–4 are isolated local storage slots, not eBird accounts discovered by the app. Imported or signed-in identity labels the selected slot automatically.",
         "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
+        "All 65 ABA jurisdictions are selectable before API-key setup: 50 US states, DC, 13 Canadian provinces/territories and Saint Pierre and Miquelon. Choosing one reuses an existing region or creates a local profile; its reference point never becomes your Home.",
+        "Refresh region names optionally checks US and Canadian names against eBird. Saved and bundled choices remain usable if it fails. County names load on demand without fetching every county boundary; Saint Pierre and Miquelon legitimately has no county subdivisions.",
         "You can add your own regions. They live only in the app because the Markdown report's regions are compiled into it, and each new region starts with an empty seen list until its year list is imported."
       ],
-      "limits": []
+      "limits": [
+        "Jurisdiction selection does not make the county view an app-wide filter; personal year-list and other report scopes retain their existing rules.",
+        "Reference-point time zones are approximate in multi-zone jurisdictions. US-only history is unavailable outside the US, and county-dependent sections require supported county metadata."
+      ]
     },
     "researchBody": {
       "report": null,

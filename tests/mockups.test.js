@@ -115,6 +115,9 @@ test('every menu section declares representative fixture data or an intentional 
     .filter((shot) => shot.kind === 'static').map((shot) => shot.at).sort();
   assert.deepEqual(staticAts, ['researchBody', 'settingsPanel'],
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
+  assert.equal(mockups.SECTION_SHOTS.find((shot) => shot.at === 'researchBody')
+    .minControls, 0,
+  'the read-only Research findings surface must not inherit Settings controls');
 });
 
 test('F607 BirdCast mockups seed the production level and county-count surfaces', () => {
@@ -171,6 +174,9 @@ test('blank detection inspects the active section and requires its data marker',
     'the static fixture branch is bracketed by stable setup statements');
   assert.match(source.slice(staticStart, staticEnd), /A\.fgProgressReset\(\)/,
     'the static Settings fixture does not clear work left by earlier gallery shots');
+  assert.match(source.slice(staticStart, staticEnd),
+    /A\.LOADERS\[at\].*await A\.LOADERS\[at\]\.fn\(\)/s,
+    'a loader-backed static surface is marked ready before its authored content is painted');
   assert.match(source, /problems\.push\('disabled controls'\)/,
     'visible disabled-loader states fail the shot');
   assert.match(source, /FIXTURE CHANGED AFTER READY/,
@@ -207,9 +213,12 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
   }), ['oversized result host'],
   'a default result host that grows beyond its measured release cap fails');
   assert.deepEqual(mockups.shotReadinessProblems({
-    ...ready, isStatic: true, data: false, text: 199, controls: 3,
+    ...ready, isStatic: true, data: false, text: 199, controls: 3, minControls: 3,
   }), ['blank static surface'],
   'a static screen still needs enough authored content');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, isStatic: true, data: false, text: 745, controls: 0, minControls: 0,
+  }), [], 'a configured read-only static screen passes on authored content alone');
 
   assert.equal(mockups.shotLooksBlank({ text: 29, nodes: 20 }, true), true);
   assert.equal(mockups.shotLooksBlank({ text: 80, nodes: 4 }, true), true);

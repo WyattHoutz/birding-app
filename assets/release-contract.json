@@ -2,6 +2,7 @@
   "requiredFiles": [
     "index.html",
     "logic.js",
+    "aba-regions.js",
     "ebird-events.js",
     "controls-toggle.js",
     "controls-progressive.js",
@@ -38,6 +39,7 @@
   "requiredText": {
     "index.html": [
       "APP_VERSION = '${version}'",
+      "<script src=\"aba-regions.js\"></script>",
       "<script src=\"ebird-events.js\"></script>",
       "<script src=\"controls-toggle.js\"></script>",
       "<script src=\"controls-progressive.js\"></script>",

@@ -3582,6 +3582,217 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   app.window.close();
 });
 
+test('F362 all ABA jurisdictions are selectable offline without creating profiles', async () => {
+  const app = await boot({ key: null, home: false });
+  const catalog = app.window.AbaRegions.regions;
+  assert.equal(catalog.length, 65);
+  assert.equal(new Set(catalog.map((r) => r.code)).size, 65);
+  assert.equal(catalog.filter((r) => r.code.startsWith('US-')).length, 51);
+  assert.equal(catalog.filter((r) => r.code.startsWith('CA-')).length, 13);
+  for (const id of ['menuRegion', 'navRegion', 'reportSelect']) {
+    const labels = [...app.$(id).options].map((o) => o.textContent);
+    for (const region of catalog) {
+      assert.ok(labels.some((text) => text.endsWith('  ' + region.code)),
+        `${id} cannot select ${region.code}`);
+    }
+  }
+  assert.equal(app.window.__app.getCustomRegions().length, 0);
+  assert.equal(app.state.fetches.some((url) => /api\.ebird\.org/.test(url)), false);
+  app.window.close();
+});
+
+test('F362 region pickers create one persistent profile and preserve Home ownership', async () => {
+  const app = await boot({ key: null, home: false });
+  const A = app.window.__app;
+  const picker = app.$('reportSelect');
+  picker.value = 'region:CA-NL';
+  picker.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await waitFor(() => A.getReport().stateCode === 'CA-NL', 'Newfoundland selection');
+  const slug = A.getReportSlug();
+  assert.equal(A.getReport().tzStdOffset, -3.5);
+  assert.equal(A.getReport().home, null);
+  assert.equal(app.window.localStorage.getItem('ebird_home_lat:' + slug), null);
+  app.$('menuRegion').value = 'wa';
+  app.$('menuRegion').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(A.getReportSlug(), 'wa', 'bundled Washington was duplicated');
+  app.$('navRegion').value = slug;
+  app.$('navRegion').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(A.getCustomRegions().length, 1, 'reselection duplicated the runtime region');
+  assert.equal(A.getReportSlug(), slug);
+  const saved = app.window.localStorage.getItem('ebird_custom_regions');
+  app.window.close();
+  const again = await boot({
+    key: null, home: false, report: slug,
+    storage: { ebird_custom_regions: saved },
+  });
+  assert.equal(again.window.__app.getReport().stateCode, 'CA-NL');
+  assert.equal(again.$('menuRegion').value, slug);
+  again.window.close();
+});
+
+test('F362 Canadian county choices cost one list request and no bounds or observations', async () => {
+  const app = await boot({
+    home: false,
+    fetch: (url) => /ref\/region\/list\/subnational2\/CA-PE/.test(url)
+      ? [{ code: 'CA-PE-KI', name: 'Kings' }, { code: 'CA-PE-QU', name: 'Queens' }]
+      : /ref\/region\/info\/CA-PE-/.test(url)
+        ? { bounds: { minX: -64, maxX: -62, minY: 46, maxY: 47 } }
+      : null,
+  });
+  const A = app.window.__app;
+  await A.selectRegionChoice('region:CA-PE');
+  const before = app.state.fetches.length;
+  await A.ensureActiveCountyCatalog();
+  assert.equal(A.getCountyChoices().length, 2);
+  assert.ok([...app.$('menuCounty').options].some((o) => o.value === 'CA-PE-KI'));
+  await A.ensureActiveCountyCatalog();
+  const calls = app.state.fetches.slice(before).filter((u) => /api\.ebird\.org/.test(u));
+  assert.equal(calls.length, 1, calls.join('\n'));
+  assert.match(calls[0], /ref\/region\/list\/subnational2\/CA-PE/);
+  assert.doesNotMatch(calls.join('\n'), /ref\/region\/info|data\/obs/);
+  app.window.close();
+});
+
+test('F362 PM remains usable with a cached empty county catalog', async () => {
+  const app = await boot({
+    home: false,
+    fetch: (url) => /ref\/region\/list\/subnational2\/PM/.test(url) ? [] : null,
+  });
+  const A = app.window.__app;
+  await A.selectRegionChoice('region:PM');
+  assert.equal(A.getReport().stateCode, 'PM');
+  assert.equal(A.getRankScope().region, 'PM');
+  await A.ensureActiveCountyCatalog();
+  assert.match(app.$('countyLoadStatus').textContent, /no county subdivisions/);
+  assert.equal(A.getCountyView(), '');
+  assert.equal(app.$('countyRetryBtn'), null);
+  await A.ensureActiveCountyCatalog();
+  assert.equal(app.state.fetches.filter((u) => /subnational2\/PM/.test(u)).length, 1);
+  app.window.close();
+});
+
+test('F362 failed county discovery cannot repaint a newer region', async () => {
+  let rejectOld;
+  const app = await boot({
+    home: false,
+    fetch: (url) => {
+      if (/subnational2\/CA-PE/.test(url)) return new Promise((_r, reject) => { rejectOld = reject; });
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  await A.selectRegionChoice('region:CA-PE');
+  const pending = A.ensureActiveCountyCatalog();
+  await waitFor(() => !!rejectOld, 'county request started');
+  await A.selectRegionChoice('region:PM');
+  rejectOld(new Error('old request failed'));
+  await pending;
+  assert.equal(A.getReport().stateCode, 'PM');
+  assert.equal(app.$('countyRetryBtn'), null, 'old failure painted a retry in PM');
+  app.window.close();
+});
+
+test('F362 reference refresh validates completeness and preserves offline choices on failure', async () => {
+  let fail = false;
+  const catalog = require('../www/aba-regions.js');
+  const app = await boot({
+    home: false,
+    fetch: (url) => {
+      const country = /ref\/region\/list\/subnational1\/(US|CA)/.exec(url);
+      if (!country) return null;
+      if (fail) return [];
+      return catalog.regions.filter((r) => r.code.startsWith(country[1] + '-'))
+        .map((r) => ({ code: r.code, name: r.label + ' verified' }));
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(await A.refreshRegionNames(), true);
+  assert.match(app.$('reportSelect').textContent, /Oregon verified/);
+  const saved = app.window.localStorage.getItem('bc_region_names_v1');
+  fail = true;
+  assert.equal(await A.refreshRegionNames(), false);
+  assert.equal(app.window.localStorage.getItem('bc_region_names_v1'), saved);
+  assert.match(app.$('regionCatalogStatus').textContent, /could not be refreshed/);
+  assert.match(app.$('reportSelect').textContent, /Oregon verified/);
+  app.window.close();
+});
+
+test('F362 onboarding uses the complete catalog before key setup', async () => {
+  const app = await boot({
+    key: null, home: false, report: null,
+    storage: { ebird_region_setup_v1: JSON.stringify({ status: 'denied', message: 'Choose manually' }) },
+  });
+  const picker = app.$('onboardRegionSelect');
+  assert.ok([...picker.options].some((o) => o.value === 'region:PM'));
+  picker.value = 'region:PM';
+  app.click(app.$('regionChooseBtn'));
+  await waitFor(() => app.window.__app.getReport().stateCode === 'PM', 'PM onboarding choice');
+  assert.equal(app.window.__app.getHome(), null);
+  assert.equal(app.state.fetches.some((u) => /api\.ebird\.org/.test(u)), false);
+  app.window.close();
+});
+
+test('F362 a failed profile save keeps the old region and reports the error', async () => {
+  const app = await boot({ key: null, home: false });
+  const A = app.window.__app;
+  const original = app.window.Storage.prototype.setItem;
+  app.window.Storage.prototype.setItem = function (key, value) {
+    if (key === 'ebird_custom_regions') throw new Error('Quota exceeded');
+    return original.call(this, key, value);
+  };
+  await A.selectRegionChoice('region:US-OR');
+  assert.equal(A.getReportSlug(), 'wa');
+  assert.equal(A.getCustomRegions().length, 0);
+  assert.match(app.$('menuScope').querySelector('[role="alert"]').textContent, /could not be saved/);
+  assert.equal(app.$('menuRegion').value, 'wa');
+  app.window.close();
+});
+
+test('F362 catalog clocks do not overwrite a geolocated region estimate', async () => {
+  const app = await boot({
+    report: null, key: null, home: false, sample: false,
+    location: { lat: 31.76, lng: -106.48 },
+    fetch: (url) => /photon\.komoot\.io\/reverse/.test(url) ? {
+      features: [{
+        properties: { state: 'Texas', countrycode: 'US' },
+        geometry: { type: 'Point', coordinates: [-106.48, 31.76] },
+      }],
+    } : null,
+  });
+  await waitFor(() => app.window.__app.getReport().stateCode === 'US-TX', 'resolved Texas');
+  assert.equal(app.window.__app.getReport().tzStdOffset, -7,
+    'the catalog reference point in Austin must not replace the existing El Paso estimate');
+  app.window.close();
+});
+
+test('F362 large county catalogs stay names-only and failures remain retryable', async () => {
+  let valid = false;
+  const app = await boot({
+    home: false,
+    fetch: (url) => {
+      if (/subnational2\/US-TX/.test(url)) {
+        return valid ? Array.from({ length: 254 }, (_, i) => ({
+          code: 'US-TX-' + String(i * 2 + 1).padStart(3, '0'), name: 'County ' + i,
+        })) : { error: 'not a catalog' };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  await A.selectRegionChoice('region:US-TX');
+  await A.ensureActiveCountyCatalog();
+  assert.ok(app.$('countyRetryBtn'));
+  valid = true;
+  await A.ensureActiveCountyCatalog();
+  assert.equal(A.getCountyChoices().length, 254);
+  assert.equal(app.$('countyRetryBtn'), null);
+  await A.ensureActiveCountyCatalog();
+  const calls = app.state.fetches.filter((u) => /api\.ebird\.org/.test(u));
+  assert.equal(calls.length, 2, 'one failed and one successful list request, then a warm cache');
+  assert.ok(calls.every((u) => /ref\/region\/list\/subnational2\/US-TX/.test(u)));
+  app.window.close();
+});
+
 test('F318: a clean profile has no implicit Washington region or request', async () => {
   const app = await boot({
     report: null,
@@ -35837,12 +36048,13 @@ test('F189: the county picker says what it is, on screen', async () => {
 
   // ...and a line saying what it does AND what it never touches, because the
   // second half is the part that is genuinely surprising.
-  const hint = doc.querySelector('.menuidhint');
-  assert.ok(hint, 'the control explains itself');
-  assert.match(hint.textContent, /no eBird calls/, 'it is free, and says so');
-  assert.match(hint.textContent, /never changes what counts as seen/,
+  const hints = [...sel.closest('.scopebody').querySelectorAll('.menuidhint')];
+  assert.ok(hints.length, 'the control explains itself');
+  const hintText = hints.map((hint) => hint.textContent).join(' ');
+  assert.match(hintText, /no eBird calls/, 'it is free, and says so');
+  assert.match(hintText, /never changes what counts as seen/,
     'and it does not redefine seen — the F152 hard constraint, said out loud');
-  assert.match(hint.textContent, /Washington year list/,
+  assert.match(hintText, /Washington year list/,
     'naming the list that still decides');
   app.window.close();
 });
@@ -37937,9 +38149,13 @@ test('F347 a My Ticks timeout never paints failure controls on Today’s patches
 });
 
 test('F320 every long section-owned history plan carries one navigation token', () => {
+  const names = HTML.slice(HTML.indexOf('function ensureCountyNames('),
+    HTML.indexOf('function ensureCountyCatalog('));
   const county = HTML.slice(HTML.indexOf('function ensureCountyCatalog('),
     HTML.indexOf('function tripScopeProfile('));
-  assert.match(county, /ebird\(listPath, true, true, false, work\)/,
+  assert.match(county, /ensureCountyNames\(parent, work\)/,
+    'the county list helper lost its navigation owner');
+  assert.match(names, /ebird\(path, true, true, false, work\)/,
     'the non-Washington county list still uses the foreground lane');
   assert.match(county, /ebird\(path, true, true, false, work\)/,
     'county-info reads do not share the cancellable background owner');

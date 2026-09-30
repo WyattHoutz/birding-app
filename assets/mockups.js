@@ -144,7 +144,7 @@ const STUB_SPEC = {
   settingsPanel:  { kind: 'static',        host: 'settingsPanel' },
   recordBody:     { kind: 'bird',          host: 'recordBody' },
   researchBody:   { kind: 'static',        host: 'researchBody',
-    expects: ['#researchBody .researchfinding'] },
+    expects: ['#researchBody .researchfinding'], minControls: 0 },
   helpBody:       { kind: 'help',          host: 'helpBody' },
 };
 
@@ -160,6 +160,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     map: spec && spec.map,
     scrollTo: spec && spec.scrollTo,
     maxHostHeight: spec && spec.maxHostHeight,
+    minControls: spec && spec.minControls,
     expects: (spec && spec.expects) || [],
     allowDisabled: (spec && spec.allowDisabled) || [],
     prep: `var spec = ${JSON.stringify(spec || null)};
@@ -655,7 +656,10 @@ function shotReadinessProblems(ready) {
   if (ready && ready.missing && ready.missing.length) problems.push('missing expected components');
   if (ready && !ready.mapReady) problems.push('map not ready');
   if (ready && ready.isStatic) {
-    if (ready.text < 200 || ready.controls < 3) problems.push('blank static surface');
+    var minControls = ready.minControls == null ? 3 : ready.minControls;
+    if (ready.text < 200 || ready.controls < minControls) {
+      problems.push('blank static surface');
+    }
   } else if (!ready || !ready.data || ready.text < 30) {
     problems.push('blank data surface');
   }
@@ -1553,6 +1557,9 @@ const BOOTSTRAP = `
     fixtureStatus(sec, label);
     if (spec.kind === 'static') {
       if (A.fgProgressReset) A.fgProgressReset();
+      if (A.LOADERS[at] && typeof A.LOADERS[at].fn === 'function') {
+        await A.LOADERS[at].fn();
+      }
       sec.dataset.mockReady = 'true';
       sec.dataset.mockStatic = 'true';
       return true;
@@ -2964,6 +2971,7 @@ async function main() {
       const ready = JSON.parse(readyProbe.result.value || '{}');
       ready.expectedAt = shot.at;
       ready.maxHostHeight = shot.maxHostHeight || 0;
+      ready.minControls = shot.minControls == null ? 3 : shot.minControls;
       measuredHostHeight = ready.hostHeight;
       const readinessProblems = shotReadinessProblems(ready);
       if (readinessProblems.length) {

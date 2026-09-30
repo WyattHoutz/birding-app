@@ -3757,6 +3757,8 @@
       <label for="reportSelect">Default report</label>
       <select id="reportSelect"></select>
       <p class="hint">Pick which birding region to chase. County view and Home are separate choices.</p>
+      <button id="regionCatalogRefresh" class="secondary" type="button">Refresh region names</button>
+      <p id="regionCatalogStatus" class="hint" role="status">All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US and Canadian reference names, not observations.</p>
       <label for="tripName">My regions</label>
       <div id="myRegions"></div>
       <div class="row">
@@ -3948,6 +3950,7 @@
 
   <script src="vendor/leaflet.js"></script>
   <script src="logic.js"></script>
+  <script src="aba-regions.js"></script>
   <script src="ebird-events.js"></script>
   <script src="info-dialogs.js"></script>
   <script src="controls-progressive.js"></script>
@@ -4022,6 +4025,7 @@
         'ebird_ebirders_count_v1',  // a published statistic
         'ebird_aba_archive_v1',     // the ABA alert archive
         'bc_county_meta_v1:',       // static eBird county names + bounds
+        'bc_region_names_v1',      // public jurisdiction reference names
         'ebird_first_year_v1:',     // public regional bird-list facts
         'bc_display_profile',       // accessibility, not identity
         'ebird_ui_scale',           // legacy display preference, for migration
@@ -4218,7 +4222,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.11';
+      var APP_VERSION = '1.131.12';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4325,7 +4329,7 @@
 
       function countyParentCode(profile) {
         var code = String((profile && profile.stateCode) || '').trim().toUpperCase();
-        return /^[A-Z]{2}-[A-Z0-9]{2,3}$/.test(code) ? code : '';
+        return code === 'PM' || /^[A-Z]{2}-[A-Z0-9]{2,3}$/.test(code) ? code : '';
       }
 
       function countyListKey(parent) {
@@ -4398,6 +4402,29 @@
         return _countySeedPromises[parent];
       }
 
+      function ensureCountyNames(parent, work) {
+        var path = 'ref/region/list/subnational2/' + encodeURIComponent(parent);
+        var key = countyListKey(parent);
+        function valid(value) {
+          return Array.isArray(value) && value.every(function (r) {
+            return r && typeof r.name === 'string' && r.name.trim()
+              && typeof r.code === 'string' && r.code.indexOf(parent + '-') === 0
+              && /^[A-Z]{2}(?:-[A-Z0-9]+)+$/.test(r.code);
+          });
+        }
+        return zcGet(key).then(function (cached) {
+          if (valid(cached)) return countyListRows(cached);
+          if (cached != null) forgetCountyValue(key, path);
+          return ebird(path, true, true, false, work).then(function (live) {
+            if (!valid(live)) {
+              forgetCountyValue(key, path);
+              throw new Error('eBird returned invalid county choices for ' + parent);
+            }
+            var rows = countyListRows(live);
+            return zcPut(key, rows).then(function () { return rows; });
+          });
+        });
+      }
       function ensureCountyCatalog(parent, onProgress, work) {
         parent = String(parent || '').trim().toUpperCase();
         if (!parent) return Promise.reject(new Error('This report has no county parent region'));
@@ -4406,23 +4433,8 @@
           return _countyCatalogInflight[parent];
         }
         delete _countyCatalogInflight[parent];
-        var listKey = countyListKey(parent);
-        var listPath = 'ref/region/list/subnational2/' + encodeURIComponent(parent);
-
         function readList() {
-          return zcGet(listKey).then(function (cached) {
-            var rows = countyListRows(cached);
-            if (rows.length) return rows;
-            if (cached != null) forgetCountyValue(listKey, listPath);
-            return ebird(listPath, true, true, false, work).then(function (live) {
-              rows = countyListRows(live);
-              if (!rows.length) {
-                forgetCountyValue(listKey, listPath);
-                throw new Error('eBird returned no counties for ' + parent);
-              }
-              return zcPut(listKey, rows).then(function () { return rows; });
-            });
-          });
+          return ensureCountyNames(parent, work);
         }
 
         function readInfo(item) {
@@ -23721,8 +23733,7 @@
             $('regionSetupStatus').textContent = 'Choose a region from the list first.';
             return;
           }
-          clearRegionSetup();
-          setActiveReport(slug);
+          selectRegionChoice(slug);
         });
         var find = $('regionFindBtn');
         if (find) find.addEventListener('click', function () {
@@ -36838,6 +36849,13 @@
           + '<div class="scopebody">'
           +   '<span class="regionpick"><label for="menuRegion">Region</label>'
           +   '<select id="menuRegion"></select></span>'
+          +   '<span class="menuidhint">All ABA jurisdictions are available. New regions need your Home; reference points are not travel origins.</span>'
+          +   (getReport().custom && !/^US-/.test(getRegion())
+                ? '<span class="menuidhint">US-only historical sources are unavailable here. County-dependent reports require a supported county view.</span>'
+                : '')
+          +   (getReport().custom
+                ? '<span class="menuidhint">Regional clock estimates use an administrative reference point; multi-zone and local daylight-saving rules can differ.</span>'
+                : '')
           +   coHtml
           +   (coHtml
                 ? '<span class="menuidhint">Narrows every list to one county. '
@@ -37931,6 +37949,7 @@
         var p = properties || {};
         var country = String(p.countrycode || '').trim().toUpperCase();
         var state = String(p.state || '').trim();
+        if (country === 'PM') return 'PM';
         if (!/^[A-Z]{2}$/.test(country) || !state) return '';
         if (country === 'US') {
           var direct = state.toUpperCase();
@@ -38036,7 +38055,8 @@
           setCountyView('');
           return Promise.resolve({ slug: existing.slug, created: false });
         }
-        var tz = tzFromLng(result.lng);
+        var tz = typeof result.tzStdOffset === 'number' && isFinite(result.tzStdOffset)
+          ? result : tzFromLng(result.lng);
         var rec = {
           slug: slugifyRegion(result.label || result.code),
           label: result.label || result.code,
@@ -38052,6 +38072,9 @@
         var list = getCustomRegions();
         list.push(rec);
         saveCustomRegions(list);
+        if (!getCustomRegions().some(function (r) { return r.slug === rec.slug; })) {
+          return Promise.reject(new Error('The new region could not be saved. Free device storage and retry.'));
+        }
         setActiveReport(rec.slug);
         setCountyView('');
         return Promise.resolve({ slug: rec.slug, created: true });
@@ -38063,7 +38086,86 @@
       // on next launch.
       // An eBird region code: US-WA, US-WA-033, CA-BC. Deliberately strict,
       // because its whole job is to tell a real code from a slug.
-      var EBIRD_REGION_RE = /^[A-Z]{2}(-[A-Z0-9]+)+$/;
+      var EBIRD_REGION_RE = /^(?:PM|[A-Z]{2}(-[A-Z0-9]+)+)$/;
+      var REGION_NAMES_KEY = 'bc_region_names_v1';
+      function regionCatalogNames() {
+        try {
+          var saved = JSON.parse(localStorage.getItem(REGION_NAMES_KEY) || '{}');
+          return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+        } catch (e) {
+          dbg('warn', 'region catalog cache: ' + e.message);
+          return {};
+        }
+      }
+      function selectRegionChoice(value) {
+        if (String(value).indexOf('region:') !== 0) {
+          clearRegionSetup();
+          setActiveReport(value);
+          return Promise.resolve();
+        }
+        var code = value.slice(7), region = window.AbaRegions.find(code);
+        if (!region) {
+          regionFailure(new Error('That jurisdiction is not in the supported catalog.'));
+          return Promise.resolve();
+        }
+        var result = Object.assign({}, region, { status: 'ok' });
+        return finishRegionSelection(result).catch(function (error) {
+          regionFailure(error);
+          dbg('warn', 'region selection: ' + error.message);
+          syncRegionNav();
+          var host = $('menuScope');
+          if (host) {
+            host.open = true;
+            var message = document.createElement('p');
+            message.setAttribute('role', 'alert');
+            message.textContent = error.message;
+            host.appendChild(message);
+          }
+          if ($('regionCatalogStatus')) $('regionCatalogStatus').textContent = error.message;
+        });
+      }
+      var _regionNamesInflight = null;
+      function refreshRegionNames() {
+        if (_regionNamesInflight) return _regionNamesInflight;
+        var status = $('regionCatalogStatus');
+        if (!getKey()) {
+          if (status) status.textContent = 'Add your eBird API key to refresh names. All 65 choices work offline.';
+          return Promise.resolve(false);
+        }
+        if (status) status.textContent = 'Refreshing jurisdiction names from eBird...';
+        var work = navWork('region names');
+        _regionNamesInflight = Promise.all(['US', 'CA'].map(function (country) {
+          return ebird('ref/region/list/subnational1/' + country, true, true, true, work)
+            .then(function (rows) {
+              var expected = window.AbaRegions.regions.filter(function (r) {
+                return r.code.indexOf(country + '-') === 0;
+              });
+              if (!Array.isArray(rows) || !expected.every(function (r) {
+                return rows.some(function (v) {
+                  return v && v.code === r.code && typeof v.name === 'string' && v.name.trim();
+                });
+              })) throw new Error('Incomplete ' + country + ' jurisdiction catalog');
+              return rows.filter(function (r) { return window.AbaRegions.find(r.code); });
+            });
+        })).then(function (groups) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          var names = {};
+          groups.forEach(function (rows) {
+            rows.forEach(function (r) { names[r.code] = r.name.trim(); });
+          });
+          localStorage.setItem(REGION_NAMES_KEY, JSON.stringify(names));
+          ['menuRegion', 'navRegion', 'reportSelect', 'onboardRegionSelect'].forEach(function (id) {
+            fillRegionSelect($(id));
+          });
+          if (status) status.textContent = 'US and Canadian names refreshed. All 65 ABA jurisdictions available.';
+          return true;
+        }).catch(function (e) {
+          dbg('warn', 'region catalog refresh: ' + e.message);
+          if (status) status.textContent = 'Names could not be refreshed. Saved/offline choices remain available. Use Refresh to retry.';
+          return false;
+        }).finally(function () { _regionNamesInflight = null; });
+        return _regionNamesInflight;
+      }
       function fillRegionSelect(sel) {
         if (!sel) return;
         // Rebuilt rather than filled-once: adding or deleting a region has to
@@ -38076,7 +38178,10 @@
           prompt.textContent = 'Choose a region';
           sel.appendChild(prompt);
         }
-        (allReportsList() || []).forEach(function (r) {
+        var reports = allReportsList() || [], represented = {};
+        var names = regionCatalogNames();
+        reports.forEach(function (r) {
+          if (r.stateCode && !r.isRarityTracker) represented[r.stateCode.toUpperCase()] = true;
           var o = document.createElement('option');
           o.value = r.slug;
           // THE CODE IS SHOWN BESIDE THE NAME, because the top bar displays
@@ -38097,6 +38202,19 @@
             + (EBIRD_REGION_RE.test(r.stateCode || '') ? '  ' + r.stateCode : '');
           sel.appendChild(o);
         });
+        ['US', 'CA', 'PM'].forEach(function (country) {
+          var group = document.createElement('optgroup');
+          group.label = country === 'US' ? 'United States' : country === 'CA' ? 'Canada' : 'Saint Pierre and Miquelon';
+          window.AbaRegions.regions.filter(function (r) {
+            return r.code.split('-')[0] === country && !represented[r.code];
+          }).forEach(function (r) {
+            var o = document.createElement('option');
+            o.value = 'region:' + r.code;
+            o.textContent = (typeof names[r.code] === 'string' ? names[r.code] : r.label) + '  ' + r.code;
+            group.appendChild(o);
+          });
+          if (group.children.length) sel.appendChild(group);
+        });
         sel.value = cur || '';
         sel.dataset.filled = '1';
       }
@@ -38104,7 +38222,7 @@
         ['menuRegion', 'navRegion'].forEach(function (id) {
           var sel = $(id); if (!sel || sel.dataset.bound) return;
           fillRegionSelect(sel);
-            sel.addEventListener('change', function () { setActiveReport(this.value); });
+          sel.addEventListener('change', function () { selectRegionChoice(this.value); });
           sel.dataset.bound = '1';
         });
         bindCountyPicker();
@@ -38151,7 +38269,7 @@
         return ((catalog && catalog.rows) || []).map(function (row) {
           var code = String((row && row.code) || '').trim().toUpperCase();
           var label = String((row && row.name) || code).trim();
-          if (!/^[A-Z]{2}-[A-Z0-9]{2,3}-[A-Z0-9]{3}$/.test(code)) return null;
+          if (!/^[A-Z]{2}-[A-Z0-9]+-[A-Z0-9]+$/.test(code)) return null;
           return {
             code: code,
             label: label,
@@ -38170,9 +38288,10 @@
           } catch (e) { return null; }
         }
         if (!slug || !parent) return Promise.resolve([]);
-        if (_runtimeCounties[slug] && _runtimeCounties[slug].length) {
+        if (_runtimeCounties[slug]) {
           fillCountyPicker($('menuCounty'));
-          if (status) status.textContent = '';
+          if (status) status.textContent = _runtimeCounties[slug].length
+            ? '' : 'This jurisdiction has no county subdivisions. The whole region remains selected.';
           return Promise.resolve(_runtimeCounties[slug]);
         }
         if (!getKey() && !COUNTY_SEED_FILES[parent]) {
@@ -38181,25 +38300,31 @@
         }
         if (status) status.textContent = 'Loading county choices…';
         var work = navWork('county choices');
-        return ensureCountyCatalog(parent, function (done, total) {
-          var live = liveElement('countyLoadStatus');
-          if (live) live.textContent = 'Loading county choices ' + done + ' of ' + total + '…';
-        }, work).then(function (catalog) {
-          if (!window.document || slug !== getReportSlug()) return [];
+        var choices = COUNTY_SEED_FILES[parent]
+          ? loadCountySeed(parent).then(function (rows) {
+              return rows.length ? rows : ensureCountyNames(parent, work);
+            })
+          : ensureCountyNames(parent, work);
+        return choices.then(function (names) {
+          if (!window.document || slug !== getReportSlug() || !workCurrent(work)) return [];
+          var catalog = { rows: names };
           var rows = activeCountyChoiceRows(catalog);
-          if (!rows.length) throw new Error('eBird returned no usable county choices.');
+          if (names.length && rows.length !== names.length) throw new Error('eBird returned unusable county choices.');
           _runtimeCounties[slug] = rows;
           fillCountyPicker(liveElement('menuCounty'));
           var liveStatus = liveElement('countyLoadStatus');
           if (liveStatus) {
-            liveStatus.textContent = rows.length + ' county choice'
-              + (rows.length === 1 ? '' : 's') + ' loaded.';
+            liveStatus.textContent = rows.length
+              ? rows.length + ' county choice' + (rows.length === 1 ? '' : 's') + ' loaded.'
+              : 'This jurisdiction has no county subdivisions. The whole region remains selected.';
           }
           headerScopeRefresh();
           renderMenuList();
           return rows;
         }).catch(function (error) {
           if (error && error.queueCancelled) return [];
+          dbg('warn', 'county choices: ' + error.message);
+          if (slug !== getReportSlug() || !workCurrent(work)) return [];
           var liveStatus = liveElement('countyLoadStatus');
           if (liveStatus) {
             liveStatus.innerHTML = 'County choices could not be loaded. '
@@ -38238,7 +38363,10 @@
         var slug = getReportSlug();
         ['menuRegion', 'navRegion', 'reportSelect'].forEach(function (id) {
           var sel = $(id);
-          if (sel && sel.options.length && sel.value !== slug) sel.value = slug;
+          if (sel) {
+            fillRegionSelect(sel);
+            sel.value = slug;
+          }
         });
       }
       // Switching region rebuilds the report: the cached chase data, the
@@ -39243,7 +39371,8 @@
       // read a cache nobody had filled. Once per session, background lane.
       try { lazyFetchRankMe(); } catch (e) {}
       bindDoubleTapGuard();
-      $('reportSelect').addEventListener('change', function () { setActiveReport(this.value); });
+      $('reportSelect').addEventListener('change', function () { selectRegionChoice(this.value); });
+      $('regionCatalogRefresh').addEventListener('click', refreshRegionNames);
       ['apiKey', 'homePlace', 'homeLat', 'homeLng', 'tideStation',
         'abaSid'].forEach(function (id) {
         var field = $(id);
@@ -40437,6 +40566,7 @@
         countyView: countyView, getCounties: getCounties,
         getCountyChoices: getCountyChoices,
         ensureActiveCountyCatalog: ensureActiveCountyCatalog,
+        selectRegionChoice: selectRegionChoice, refreshRegionNames: refreshRegionNames,
         loadDestinations: loadDestinations,
         loadExcursions: loadExcursions,
         getRankScope: getRankScope, setRankScope: setRankScope,

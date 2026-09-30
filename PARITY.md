@@ -639,6 +639,15 @@ The report ships ten committed regions. The app shows those *plus* any the
 reader adds — a trip to Victoria BC, a week in Hawaii — each with its own home,
 its own chase radius, and its own cached feeds.
 
+F362 adds an offline catalog of all 65 ABA jurisdictions to every app picker,
+including onboarding. Selecting a new jurisdiction uses the existing runtime
+profile path, never sets Home, and does not add it to Python's fixed reports.
+An optional authenticated refresh updates public US/Canadian names. County
+choices use a cached reference list without eagerly loading bounds; PM's empty
+subdivision list is valid. Bounds remain lazy enrichment for calculations.
+Reference-point time zones and US-only history retain their stated limits.
+This does not make county selection an app-wide evidence filter (F669).
+
 Three rules keep this from becoming drift:
 
 1. **`logic.js` never learns about them.** That module is proven equal to
