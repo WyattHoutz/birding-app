@@ -30,7 +30,7 @@
     }
     var docs = {
       mega: {
-        title: '🦅 ABA Code 3+ megas',
+        title: '🦤 ABA Code 3+ megas',
         body: '<p>Continent-level rarities — <b>ABA Code 3, 4 and 5</b> — currently '
           + 'reported in this region, one line per species, newest report kept.</p>'
           + '<p><b>This category never fetches.</b> It shows whatever the '

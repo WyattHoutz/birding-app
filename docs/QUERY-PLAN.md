@@ -170,7 +170,7 @@ are repainted when it advances. Everything else is listed with what it adds.
 | 🚶 Quick outing | `ref/hotspot/geo` | 1 | `bc_ref:` 7 d |
 | 🔎 Stakeout bird | `product/spplist` + `ref/taxonomy` + species feed; a Mega launch starts/reuses only the selected view's state/wide promises | 1–2 normally; +2 country location feeds for selected Mega | `SPECIES_TTL_MS` 24 h + transient Mega context |
 | 🥚 Easy misses | `{county}/recent` × sampled days | many | `easymiss_v1:` — past days never change |
-| 🦅 Mega rarities | public alert HTML; selected bird lazily adds state `recent/{code}` and US+CA `recent/{code}` deepening | 1 for the index; detail only after a row opens | `ebird_aba_archive_v1`; in-memory view registry owns raw rows/promises |
+| 🦤 Mega rarities | public alert HTML; selected bird lazily adds state `recent/{code}` and US+CA `recent/{code}` deepening | 1 for the index; detail only after a row opens | `ebird_aba_archive_v1`; in-memory view registry owns raw rows/promises |
 | 🔖 Favourite hotspots | `{locId}/recent` per saved spot | 1 each | — |
 | ⏰ Time-of-day specialists | `{county}` feeds | 1 per county | — |
 | 🏆 eBird Rankings | leaderboard HTML + `ref/region/info` | 2–3 | `ebird_rank_cache_v2` |

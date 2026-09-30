@@ -78,7 +78,7 @@
     },
     {
       "at": "spLookupBtn",
-      "label": "🧐 Stakeout Birds",
+      "label": "🦉 Stakeout Birds",
       "report": null,
       "map": "spLookupMap",
       "why": "app-only (F358): one interactive query accepts either a bird or a spuh. Birds continue into recent places and checklists; spuhs open their on-device bird hierarchy and candidates, and choosing one continues into that same evidence surface. A Markdown report cannot accept the query, comparison set, or candidate selection, and printing every bird and spuh path for a region would be a phone book.",
@@ -86,7 +86,7 @@
     },
     {
       "at": "stakeHsBtn",
-      "label": "🏞 Stakeout Patches",
+      "label": "🏜️ Stakeout Patches",
       "report": null,
       "map": null,
       "why": "app-only, and for the same reason as Stakeout bird above: a Markdown report cannot take a query. It is the INVERSE of every place-finding section - those answer 'which place should I go to', this one starts from 'I have chosen this place, tell me everything'. It leads with the PATTERN (how often the place is birded, what a visit is usually worth, who the regulars are) rather than with today rows, because eBird embargoes checklists for an hour and people submit hours later - measured 2026-08-22, three target species returned ZERO reports from that day statewide at 10:10.",
@@ -125,8 +125,8 @@
     },
     {
       "at": "abaBtn",
-      "label": "🦅 Mega rarities",
-      "report": "## 🦅 Mega rarities — ABA Code 3+ alert",
+      "label": "🦤 Mega rarities",
+      "report": "## 🦤 Mega rarities — ABA Code 3+ alert",
       "map": null,
       "sub": "ABA Code 3+ alert"
     },
@@ -169,8 +169,8 @@
     },
     {
       "at": "allUnseenBtn",
-      "label": "👿 Nemesis birds",
-      "report": "## 👿 Nemesis birds — Closest unseen birds reported now",
+      "label": "🦅 Nemesis birds",
+      "report": "## 🦅 Nemesis birds — Closest unseen birds reported now",
       "map": null,
       "why": "F474 consolidates Open targets and the proposed Closest unseen birds report into one bird-first current-sightings report. Every unseen report is collapsed to one row per species-per-place at 250 m and species are ranked nearest first. It remains mapless because every place row links its hotspot and checklist directly.",
       "sub": "Closest unseen birds reported now"
@@ -230,6 +230,14 @@
       "map": null,
       "why": "app-only (F137): the model needs GBIF and decades of history, so it is computed OFFLINE and shipped as a bundled asset - scripts/pack_state_records.py, 222 KB for six regions. The report could carry the same list, and may later, but it would have to be regenerated to change and this list only moves once a year. Ranked by THIS MONTH rather than by rarity, which is the one thing every other section already sorts on.",
       "sub": "Overdue megararities"
+    },
+    {
+      "at": "researchBody",
+      "label": "🧪 Research findings",
+      "report": null,
+      "map": null,
+      "why": "app-only (F662): completed research decisions are embedded so measured results are visible without a runtime GitHub dependency. Rejected hypotheses remain labelled as decisions, not live alerts.",
+      "sub": "Measured decisions"
     },
     {
       "at": "helpBody",

@@ -1896,6 +1896,15 @@
     .helpname { font-weight: 700; font-size: calc(16px * var(--s)); }
     .helpone { grid-column: 2; font-size: calc(13px * var(--s)); color: var(--muted); }
     .helpdoc { padding: 0 13px 12px; }
+    .researchintro { margin: 0 0 12px; color: var(--muted);
+                     font-size: calc(14px * var(--s)); }
+    .researchfinding { border: 1px solid var(--line); border-radius: 12px;
+                       background: var(--card); padding: 13px; margin: 0 0 10px; }
+    .researchfinding h3 { margin: 0 0 7px; font-size: calc(18px * var(--s)); }
+    .researchfinding p { margin: 6px 0 0; }
+    .researchverdict { display: inline-block; border: 2px solid currentColor;
+                       border-radius: 999px; padding: 3px 9px; font-weight: 800;
+                       font-size: calc(12px * var(--s)); letter-spacing: .03em; }
 
     .farplaces { margin-top: 8px; }
     .farplaces > summary { cursor: pointer; color: var(--muted);
@@ -3196,7 +3205,7 @@
     </section>
 
     <section class="panel">
-      <h2>👿 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <h2>🦅 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <span id="targetRegionLabel" hidden></span>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
@@ -3209,7 +3218,7 @@
     </section>
 
     <section class="panel">
-      <h2>🏞 Stakeout Patches <span class="dim" id="stakeHsRegionLabel"></span>
+      <h2>🏜️ Stakeout Patches <span class="dim" id="stakeHsRegionLabel"></span>
         <button id="stakeHsRefresh" class="refreshbtn" type="button"
                 aria-label="Reload Stakeout Patches" disabled></button></h2>
       <div class="row stakeHsActions">
@@ -3226,7 +3235,7 @@
     </section>
 
     <section class="panel" id="sec-spLookupBtn">
-      <h2>🧐 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
+      <h2>🦉 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
                placeholder="Search for birds and spuhs…" autocomplete="off" />
@@ -3535,7 +3544,7 @@
     </section>
 
     <section class="panel">
-      <h2>🦅 Mega rarities</h2>
+      <h2>🦤 Mega rarities</h2>
       <div class="row">
         <button id="abaBtn">Load mega rarities</button>
       </div>
@@ -3666,6 +3675,13 @@
       <div id="recordWhat" class="recwhat"></div>
       <div id="recordScope" class="recscope"></div>
       <div id="recordBody"></div>
+    </section>
+
+    <section class="panel" hidden>
+      <div id="researchPanel">
+        <h2>🧪 Research findings</h2>
+        <div id="researchBody"></div>
+      </div>
     </section>
 
     <section class="panel" id="helpPanel">
@@ -4202,7 +4218,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.10';
+      var APP_VERSION = '1.131.11';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8934,7 +8950,7 @@
         // definition"*, so this lane alone ignored the chase radius. True of the
         // bird; false of the NEWS — a mega that has sat on the same jetty for
         // three weeks is not news, and it was crowding out the close bird you
-        // could act on while 🦅 Mega rarities already carried it. So rarity
+        // could act on while 🦤 Mega rarities already carried it. So rarity
         // stopped being sufficient; it did not stop mattering.
         out.sort(function (a, b) {
           if (a.mi == null && b.mi == null) return String(b.obsDt).localeCompare(String(a.obsDt));
@@ -8946,7 +8962,7 @@
         //
         // Owner: *"bird gen needs fresh bird buzz and news. its like a alert so
         // nothing should be stwle"*. A mega whose most recent report is a week
-        // old is not news however rare it is — 🦅 Mega rarities is the section
+        // old is not news however rare it is — 🦤 Mega rarities is the section
         // whose job is completeness, and it still lists it.
         var news = out.filter(freshNews);
         return {
@@ -8973,13 +8989,13 @@
       // So it is ONE FILTER AND A FOUR-WAY OR. Being an ABA Code 3+ bird makes
       // a species a CANDIDATE; one of the four qualifiers decides whether it is
       // news. ⚠️ Until now the code alone was sufficient, which is why the same
-      // far-away bird occupied both this lane and 🦅 Mega rarities for days
+      // far-away bird occupied both this lane and 🦤 Mega rarities for days
       // after it stopped being news, crowding out the close bird you could act
       // on. He named the case exactly: *"the ruff and wagtail are too far for
       // bird gen, and are already in the mega rarities. they should only show
       // up in bird gen when they are new"*.
       //
-      // ⚠️ THE ABA PATH IS GATED, NOT DELETED. 🦅 Mega rarities still lists
+      // ⚠️ THE ABA PATH IS GATED, NOT DELETED. 🦤 Mega rarities still lists
       // every one of them; it is the only section whose job is completeness.
       // Removing the path would lose the far mega entirely, which is a
       // different and worse bug than showing it too often.
@@ -25653,7 +25669,7 @@
       // The per-birder SUB-PAGE. The list hides, the page shows, and the navbar
       // back button is told where it is rather than a second back affordance
       // being invented.
-      var _patchOpen = '';
+      var _patchOpen = '', _patchScroll = 0;
       var PATCH_PARTS = ['patchLead', 'patchResults', 'patchUnplaced'];
       function patchOpenBirder(name) {
         var d = _renderedChoicePatchData || choicePatchData();
@@ -25671,6 +25687,7 @@
         var st = $('patchStatus'); if (st) st.hidden = true;
         detail.hidden = false;
         _patchOpen = name;
+        _patchScroll = Number(window.scrollY) || 0;
         // The navbar names where you ARE, so it names the birder.
         var t = $('navTitle'); if (t) t.textContent = b.n;
         var back = $('navBack');
@@ -25678,7 +25695,7 @@
         try { window.scrollTo(0, 0); } catch (e) {}
         return true;
       }
-      function patchCloseBirder() {
+      function patchCloseBirder(restoreScroll) {
         var detail = $('patchDetail');
         if (detail) detail.hidden = true;
         PATCH_PARTS.forEach(function (id) { var el = $(id); if (el) el.hidden = false; });
@@ -25689,10 +25706,13 @@
         if (!_patchOpen) return;
         _patchOpen = '';
         var back = $('navBack');
-        if (back) back.setAttribute('aria-label', 'Back to Contents');
+        if (back) back.setAttribute('aria-label', 'Back');
         var sec = detail && detail.closest ? detail.closest('section') : null;
         var t = $('navTitle'), h = sec && sec.querySelector('h2');
         if (t && h) t.textContent = h.textContent.trim();
+        if (restoreScroll) {
+          try { window.scrollTo(0, _patchScroll); } catch (e) {}
+        }
       }
 
       function loadChoicePatches() {
@@ -26634,7 +26654,7 @@
         _stakeOrigin = null;
         var back = $('navBack');
         if (back && visibleSectionId() === 'sec-spLookupBtn') {
-          back.setAttribute('aria-label', 'Back to Contents');
+          back.setAttribute('aria-label', 'Back');
         }
       }
       function invalidateMegaViews() {
@@ -27113,7 +27133,7 @@
         if (!entry || !entry.rarityKind) return '';
         if (entry.rarityKind === 'mega') {
           return '<div class="stakeoutrarity" data-kind="mega">'
-            + '<span class="rarityicon" aria-hidden="true">🦅</span>'
+            + '<span class="rarityicon" aria-hidden="true">🦤</span>'
             + '<strong>Mega rarity</strong>'
             + '<span>ABA Code 3, 4 or 5 · exceptionally rare in the ABA area</span></div>';
         }
@@ -32582,7 +32602,7 @@
         return 'from the ABA alert, ' + Math.round(h / 24) + ' days ago — refreshing in the background';
       }
       var SURGE_KINDS = {
-        mega:    { priority: 0, word: 'MEGA',        glyph: '🦅' },
+        mega:    { priority: 0, word: 'MEGA',        glyph: '🦤' },
         migration: { priority: 1, word: 'MIGRATION', glyph: '🌙' },
         need:    { priority: 2, word: 'CELEBRITY',   glyph: '🎯' },
         crowd:   { priority: 3, word: 'CROWD',       glyph: '🐦' },
@@ -34804,6 +34824,7 @@
         myYearBody:    'Your seen bird list this year',
         recordBody:    'Overdue megararities',
         settingsPanel: 'Region, display, data',
+        researchBody:  'Measured decisions',
         helpBody:      'What every button does'
       };
       function rankMenuHeading() {
@@ -34824,9 +34845,9 @@
       var MENU = [
         { at: 'surgeBtn',      label: '🔔 Bird Gen', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'refreshBtn',    label: '🚨 Twitches', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'allUnseenBtn',  label: '👿 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'allUnseenBtn',  label: '🦅 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News', enabled: false },
-        { at: 'abaBtn',        label: '🦅 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
+        { at: 'abaBtn',        label: '🦤 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
         { at: 'destBtn',       label: '🏞 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'quickBtn',      label: '🚶 Nearby Patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'excBtn',        label: '🚗 Day trip patches', needs: 'geo', group: 'Patches - Go birding' },
@@ -34835,8 +34856,8 @@
         { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
         { at: 'favResults',    label: '⭐ Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
         { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
-        { at: 'spLookupBtn',   label: '🧐 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
-        { at: 'stakeHsBtn',    label: '🏞 Stakeout Patches', group: 'Stakeouts - Birds and Hotspots' },
+        { at: 'spLookupBtn',   label: '🦉 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
+        { at: 'stakeHsBtn',    label: '🏜️ Stakeout Patches', group: 'Stakeouts - Birds and Hotspots' },
         { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Birding Tools' },
         { at: 'bcBody',        label: '🌙 Migration', needs: 'county', group: 'Birding Tools' },
         { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Birding Tools' },
@@ -34856,6 +34877,7 @@
         { at: 'myYearBody',    label: '📅 My Year List', group: 'My Bird List' },
         { at: 'nvResults',     label: '❓ Watch List', group: 'My Bird List' },
         { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
+        { at: 'researchBody',  label: '🧪 Research findings', group: 'Settings & Doc' },
         { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },
       ];
       function menuApplies(m) {
@@ -34866,7 +34888,8 @@
         // measured travel model it ought to be built on.
         if (m.enabled === false) return false;
         if (!getReportSlug()) {
-          return m.at === 'settingsPanel' || m.at === 'helpBody';
+          return m.at === 'settingsPanel' || m.at === 'researchBody'
+            || m.at === 'helpBody';
         }
         if (m.needs === 'county') return hasCounties();
         if (m.needs === 'geo') return !getReport().isRarityTracker;
@@ -34925,6 +34948,7 @@
         todBtn:     { fn: loadTimeOfDay,    needsKey: true },
         myYearBody: { fn: loadMyYear },
         recordBody: { fn: loadStateRecords },
+        researchBody: { fn: loadResearch },
         helpBody:   { fn: loadHelp }
       };
       var _autoLoaded = {};
@@ -36090,6 +36114,37 @@
         });
       }
 
+      function loadResearch() {
+        var host = $('researchBody');
+        if (!host) return Promise.resolve();
+        host.innerHTML =
+          '<p class="researchintro">Completed measurements that changed what Bird Chaser builds. '
+          + 'These are decisions, not live alerts.</p>'
+          + '<article class="researchfinding">'
+          + '<h3>Potential fallout</h3>'
+          + '<span class="researchverdict">No alert added</span>'
+          + '<p><b>35 unique usable nights</b> produced <b>zero '
+          + 'High-migration-plus-weather candidates</b>. The archive also had no '
+          + 'effort-normalized morning fallout outcomes, so it cannot support an '
+          + 'honest probability or warning.</p>'
+          + '</article>'
+          + '<article class="researchfinding">'
+          + '<h3>Expected nocturnal migrants</h3>'
+          + '<span class="researchverdict">Kept descriptive</span>'
+          + '<p><b>214 successful county/date reads</b> found identical 2025 and '
+          + '2026 species sets on all <b>47 comparable dates</b> in each county. '
+          + 'The source is a county-specific <b>seasonal calendar</b>, not a changing '
+          + 'live signal.</p>'
+          + '</article>'
+          + '<article class="researchfinding">'
+          + '<h3>Hawaii endemic coverage</h3>'
+          + '<span class="researchverdict">Follow-up implemented</span>'
+          + '<p><b>36 endemic taxa</b> were audited across <b>17 report surfaces</b>. '
+          + 'The completed audit led to the coverage export implemented in F419.</p>'
+          + '</article>';
+        return Promise.resolve();
+      }
+
       function loadHelp() {
         var host = $('helpBody');
         if (!host) return Promise.resolve();
@@ -37209,7 +37264,60 @@
           + (isNew ? '\u2022 ' : '') + esc(String(b.n)) + '</span>';
       }
 
+      var _navHistory = [];
+      function navContextKey() {
+        return String(getReportSlug() || '') + '|' + String(bcProfile() || '');
+      }
+      function navHistoryClear() {
+        _navHistory = [];
+      }
+      function navHistoryPush(id, scrollY) {
+        if (!id || id === '(menu)') return;
+        var entry = {
+          id: id,
+          scrollY: Math.max(0, Number(scrollY) || 0),
+          context: navContextKey()
+        };
+        var last = _navHistory[_navHistory.length - 1];
+        if (last && last.id === entry.id && last.context === entry.context) {
+          last.scrollY = entry.scrollY;
+          return;
+        }
+        _navHistory.push(entry);
+      }
+      function navHistoryPop() {
+        var context = navContextKey();
+        while (_navHistory.length) {
+          var entry = _navHistory.pop();
+          var sec = entry && $(entry.id);
+          if (!entry || entry.context !== context || !sec) continue;
+          if (!menuApplies({
+            at: sec._at, needs: sec._needs, enabled: sec._enabled
+          })) continue;
+          return entry;
+        }
+        return null;
+      }
+      function restoreSectionScroll(scrollY) {
+        var y = Math.max(0, Number(scrollY) || 0);
+        try { window.scrollTo(0, y); } catch (e) {}
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function () {
+            try { window.scrollTo(0, y); } catch (e) {}
+          });
+        }
+      }
+      function syncNavBackLabel() {
+        var back = $('navBack');
+        if (!back || _patchOpen || _stakeOrigin) return;
+        var top = _navHistory[_navHistory.length - 1];
+        var sec = top && top.context === navContextKey() && $(top.id);
+        back.setAttribute('aria-label', sec && sec._label
+          ? 'Back to ' + splitLabel(sec._label).text : 'Back to Contents');
+      }
+
       function showSection(id) {
+        var options = arguments[1] || {};
         // F261. THE PAGE IS LAID OUT AGAINST A STALE VIEWPORT, AND NOTHING
         // EVER RE-MEASURES.
         //
@@ -37243,8 +37351,12 @@
           var _from = visibleSectionId();
           if (_from !== id) dbg('info', 'nav ' + _from + ' \u2192 ' + id + navWhy());
         } catch (e) {}
-        if (visibleSectionId() !== id) {
-          performanceCancelSection(visibleSectionId(), 'navigation');
+        var fromId = visibleSectionId();
+        if (fromId !== id && options.record !== false) {
+          navHistoryPush(fromId, window.scrollY);
+        }
+        if (fromId !== id) {
+          performanceCancelSection(fromId, 'navigation');
           _navGeneration++;
           fgCancelObsolete();
         }
@@ -37340,11 +37452,12 @@
         var nav = $('navbar'); if (nav) nav.hidden = false;
         var target = $(id), t = $('navTitle');
         if (t) t.textContent = target && target._label ? target._label : '';
+        syncNavBackLabel();
         syncRegionNav();
         // Arriving from the Contents menu must move the selector too, or it
         // keeps naming whichever mode you were in last.
         syncModePick(id);
-        try { window.scrollTo(0, 0); } catch (e) {}
+        restoreSectionScroll(options.scrollY);
         autoLoad(target);
         refreshVisibleMaps();
         auditOverflow(id);
@@ -37425,6 +37538,7 @@
         renderMenuList();
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = false;
         var nav = $('navbar'); if (nav) nav.hidden = true;
+        navHistoryClear();
         // The "Washington · tap a section to open it" line is gone: the region
         // is already named in the picker directly above, and a menu of labelled
         // tiles does not need to be told it is tappable.
@@ -38141,6 +38255,7 @@
           || isCustomSlug(slug)));
         if (!valid) slug = '';
         if (slug && slug === getReportSlug()) { syncRegionNav(); return; }
+        navHistoryClear();
         if (slug) localStorage.setItem(K.report, slug);
         else localStorage.removeItem(K.report);
         migrateHomeKeys();
@@ -39726,16 +39841,25 @@
           var view = _megaViews[origin.viewKey];
           var returnToMega = !!(view && megaViewCurrent(view)
             && view.bySpecies[origin.code]);
+          var megaEntry = navHistoryPop();
           clearSpeciesLookup();
           if (returnToMega) {
-            showSection(origin.section);
-            try { window.scrollTo(0, 0); } catch (e) {}
+            showSection(origin.section, {
+              record: false,
+              scrollY: megaEntry && megaEntry.id === origin.section
+                ? megaEntry.scrollY : 0
+            });
           } else {
             showMenu();
           }
           return;
         }
-        if (_patchOpen) { patchCloseBirder(); try { window.scrollTo(0, 0); } catch (e) {} return; }
+        if (_patchOpen) { patchCloseBirder(true); syncNavBackLabel(); return; }
+        var entry = navHistoryPop();
+        if (entry) {
+          showSection(entry.id, { record: false, scrollY: entry.scrollY });
+          return;
+        }
         showMenu();
       }
       function openMegaIndexRow(row, ev) {

@@ -2047,22 +2047,16 @@ test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
   // (`needflag`) and was ALSO the Quick-outing "Find…" chip. One glyph, three
   // meanings, two of them in the same menu.
   //
-  // A tile's icon is the only part of it visible at a glance, so it should be
-  // unique where possible. 🏞 is intentionally shared by Today's patches and
-  // Stakeout Patches: both are place-first landscape views, and the former is
-  // the historical full-day-trip icon requested by the owner.
-  const icons = CONTRACT.menu.map((m) => [...m.label][0]);
+  // A tile's icon is the only part of it visible at a glance, so each tile
+  // must use a distinct icon.
+  // Read the same full leading glyph token as splitLabel(). Emoji may contain
+  // multiple code points, so comparing only the first can invent collisions
+  // that do not exist on screen.
+  const icons = CONTRACT.menu.map((m) => m.label.slice(0, m.label.indexOf(' ')));
   const seen = new Map();
   icons.forEach((ic, i) => {
     const prev = seen.get(ic);
-    const allowedLandscapePair = ic === '🏞'
-      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
-        .size === 2
-      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
-        .has('destBtn')
-      && new Set([CONTRACT.menu[prev || 0].at, CONTRACT.menu[i].at])
-        .has('stakeHsBtn');
-    assert.ok(prev === undefined || allowedLandscapePair,
+    assert.ok(prev === undefined,
       `two menu tiles share the icon ${ic}: "${CONTRACT.menu[prev || 0].label}" `
       + `and "${CONTRACT.menu[i].label}" — the glyph is the only part of a tile `
       + 'read at a glance, so it must be the unique part');
@@ -2174,7 +2168,7 @@ test('F460/F645 Twitches and Nemesis keep distinct selected icons and subtitles'
     nemesis: { label: nemesis.label, sub: nemesis.sub },
   }, {
     twitches: { label: '🚨 Twitches', sub: 'Rare Bird Alerts (RBA)' },
-    nemesis: { label: '👿 Nemesis birds', sub: 'Closest unseen birds reported now' },
+    nemesis: { label: '🦅 Nemesis birds', sub: 'Closest unseen birds reported now' },
   });
 });
 
@@ -2331,6 +2325,75 @@ test('navigation opens exactly one section and the back button returns', async (
   assert.equal(app.$('navbar').hidden, true, 'navbar hides on the menu');
   assert.equal(sections.filter((s) => !s.hidden).length, 0, 'no section left open');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors while navigating');
+  app.window.close();
+});
+
+test('F661 Back and swipe restore populated search results before Contents', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  Object.defineProperty(app.window, 'scrollY', {
+    configurable: true, writable: true, value: 0,
+  });
+  app.window.scrollTo = (_x, y) => { app.window.scrollY = Number(y) || 0; };
+
+  app.open(/Stakeout Birds/);
+  app.$('spLookup').value = 'Varied Thrush';
+  app.$('spLookupFound').innerHTML =
+    '<details id="f661Result" open><summary>Varied Thrush results</summary>'
+    + '<p>Populated result stays here.</p></details>';
+  app.window.scrollY = 275;
+
+  A.showSection('sec-researchBody');
+  assert.equal(app.$('researchPanel').hidden, false,
+    'the nested destination did not open');
+  app.click(app.$('navBack'));
+  assert.equal(app.$('spLookupBtn').closest('section').hidden, false,
+    'Back skipped the originating search and returned directly to Contents');
+  assert.equal(app.$('spLookup').value, 'Varied Thrush',
+    'Back cleared the originating search query');
+  assert.ok(app.$('f661Result') && app.$('f661Result').open,
+    'Back rebuilt or collapsed the populated search result');
+  assert.equal(app.window.scrollY, 275,
+    'Back did not restore the originating result scroll position');
+
+  app.window.scrollY = 190;
+  A.showSection('sec-researchBody');
+  swipe(app, app.$('researchBody'), 140, 0);
+  assert.equal(app.$('spLookupBtn').closest('section').hidden, false,
+    'swipe-right does not use the same history as the Back button');
+  assert.equal(app.$('spLookup').value, 'Varied Thrush');
+  assert.ok(app.$('f661Result').open);
+  assert.equal(app.window.scrollY, 190,
+    'swipe-right did not restore the originating result scroll position');
+
+  app.click(app.$('navBack'));
+  assert.equal(app.$('menuPanel').hidden, false,
+    'Contents is not the fallback after section history is exhausted');
+  app.window.close();
+});
+
+test('F662 Research findings show measured decisions offline', async () => {
+  const app = await boot();
+  const before = app.state.fetches.length;
+  app.open(/Research findings/);
+  const text = app.$('researchBody').textContent;
+
+  assert.match(text, /Potential fallout/i);
+  assert.match(text, /35 unique usable nights/i);
+  assert.match(text, /zero High-migration-plus-weather candidates/i);
+  assert.match(text, /No alert added/i);
+  assert.match(text, /Expected nocturnal migrants/i);
+  assert.match(text, /214 successful county\/date reads/i);
+  assert.match(text, /47 comparable dates/i);
+  assert.match(text, /seasonal calendar/i);
+  assert.match(text, /Hawaii endemic coverage/i);
+  assert.match(text, /36 endemic taxa/i);
+  assert.match(text, /17 report surfaces/i);
+  assert.match(text, /Follow-up implemented/i);
+  assert.equal(app.state.fetches.length, before,
+    'opening bundled research findings used the network');
+  assert.equal(app.$('researchBody').querySelectorAll('.researchfinding').length, 3,
+    'the research screen omitted or duplicated a completed finding');
   app.window.close();
 });
 
@@ -9161,7 +9224,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   assert.equal(rows.length, 5,
     'a non-qualifying migration placeholder returned or a loaded alert disappeared');
   const expected = {
-    mega: ['MEGA', '🦅'], migration: ['MIGRATION', '🌙'],
+    mega: ['MEGA', '🦤'], migration: ['MIGRATION', '🌙'],
     need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
     cascade: ['CASCADE', '🏆'], hotspot: ['HOTSPOT', '📍'],
   };
@@ -16658,6 +16721,8 @@ test('F655 Stakeout Rare bird panel opens Twitches and Mega stays informational'
   host.innerHTML = A.stakeoutRarityBannerHtml({ rarityKind: 'mega' });
   assert.equal(host.querySelector('.stakeoutrarity').tagName, 'DIV',
     'the distinct Mega rarity panel was turned into the Twitches link');
+  assert.equal(host.querySelector('.rarityicon').textContent, '🦤',
+    'the Mega rarity evidence panel did not adopt the dodo icon');
   app.window.close();
 });
 
@@ -22646,7 +22711,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     return result;
   }
   assert.deepEqual(labelsUnder('Stakeouts - Birds and Hotspots'),
-    ['🧐 Stakeout Birds', '🏞 Stakeout Patches']);
+    ['🦉 Stakeout Birds', '🏜️ Stakeout Patches']);
   assert.deepEqual(labelsUnder('Birding Tools'), [
     '🌤 Twitch weather', '🌙 Migration',
     '🌄 Dawn and dusk', '🏅 Break a record', '🐦 Common birds',

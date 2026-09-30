@@ -143,6 +143,8 @@ const STUB_SPEC = {
   myYearBody:     { kind: 'bird',          host: 'myYearList' },
   settingsPanel:  { kind: 'static',        host: 'settingsPanel' },
   recordBody:     { kind: 'bird',          host: 'recordBody' },
+  researchBody:   { kind: 'static',        host: 'researchBody',
+    expects: ['#researchBody .researchfinding'] },
   helpBody:       { kind: 'help',          host: 'helpBody' },
 };
 

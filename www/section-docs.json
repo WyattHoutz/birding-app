@@ -200,7 +200,7 @@
       ]
     },
     "abaBtn": {
-      "report": "## 🦅 Mega rarities — ABA Code 3+ alert",
+      "report": "## 🦤 Mega rarities — ABA Code 3+ alert",
       "summary": "ABA Code 3+ birds — continental-scale rarities, normally 0-3 of them.",
       "inputs": [
         "the ABA Rarities needs alert (SN10489)",
@@ -435,7 +435,7 @@
       ]
     },
     "allUnseenBtn": {
-      "report": "## 👿 Nemesis birds — Closest unseen birds reported now",
+      "report": "## 🦅 Nemesis birds — Closest unseen birds reported now",
       "summary": "Every unseen bird you could go and see today, grouped by species, with each hotspot and its checklists beneath it.",
       "inputs": [
         "all county and geo feeds"
@@ -680,6 +680,22 @@
         "You can add your own regions. They live only in the app because the Markdown report's regions are compiled into it, and each new region starts with an empty seen list until its year list is imported."
       ],
       "limits": []
+    },
+    "researchBody": {
+      "report": null,
+      "summary": "Measured research decisions, including ideas the evidence did not support.",
+      "inputs": [
+        "three completed feature research records embedded with the app - no network"
+      ],
+      "how": [
+        "Shows the decisive measurement, the plain-language conclusion and what Bird Chaser did with it.",
+        "A rejected hypothesis is labelled as a decision such as No alert added, never presented as a current warning.",
+        "The bundled summaries remain available offline and introduce no runtime GitHub dependency."
+      ],
+      "limits": [
+        "This is a record of completed research, not live conditions or a substitute for the feature's full measurement record.",
+        "Only completed findings selected for an in-app explanation appear here."
+      ]
     },
     "helpBody": {
       "summary": "What every other section reads, how it decides, and what it cannot tell you.",

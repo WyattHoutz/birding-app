@@ -113,7 +113,7 @@ test('every menu section declares representative fixture data or an intentional 
   }
   const staticAts = mockups.SECTION_SHOTS
     .filter((shot) => shot.kind === 'static').map((shot) => shot.at).sort();
-  assert.deepEqual(staticAts, ['settingsPanel'],
+  assert.deepEqual(staticAts, ['researchBody', 'settingsPanel'],
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
 });
 

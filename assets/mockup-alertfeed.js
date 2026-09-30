@@ -487,7 +487,7 @@ const SMALL_CSS = `
 // 1.08), because ⛔ is a TWO-TONE red/white glyph and no single background can
 // serve both halves.
 //
-// So the glyph goes back to what the lanes already use — 🦅 🎯 🐦 🏆 📍
+// So the glyph goes back to what the lanes already use — 🦤 🎯 🐦 🏆 📍
 // (www/index.html:21767, 21872, 21930, 21993, 22057). They are mid-tone and
 // multi-hued rather than red-on-red, they read on a light tile, and they carry
 // continuity from the section this replaces. The lesson is the general one:

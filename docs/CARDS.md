@@ -47,7 +47,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `small` | `speciesListHtml` | the bird lists nested inside a hotspot card ("3 unseen 🔍" / "40 more species already seen") |
 | `small` | `surgeAlertCard` | 🔔 Bird Gen — compact bird, alpha/eBird identifier line, linked facts and reason |
 | `medium` | `refresh` | 🌅 Today's rarity reports |
-| `medium` | `renderMegaIndex` | 🦅 Mega rarities — one species-index row; photo, name, chevron and unclaimed row space route by exact eBird code |
+| `medium` | `renderMegaIndex` | 🦤 Mega rarities — one species-index row; photo, name, chevron and unclaimed row space route by exact eBird code |
 | `medium` | `renderSpeciesLookup` | 🔎 Stakeout bird Compact — exactly one scannable species card with its 64×76 photo, nearest distance and actions |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Leader Board Ticks |
