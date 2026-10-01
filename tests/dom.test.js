@@ -2375,8 +2375,8 @@ test('F661 Back and swipe restore populated search results before Contents', asy
     + '<p>Populated result stays here.</p></details>';
   app.window.scrollY = 275;
 
-  A.showSection('sec-researchBody');
-  assert.equal(app.$('researchPanel').hidden, false,
+  A.showSection('helpPanel');
+  assert.equal(app.$('helpPanel').hidden, false,
     'the nested destination did not open');
   app.click(app.$('navBack'));
   assert.equal(app.$('spLookupBtn').closest('section').hidden, false,
@@ -2389,8 +2389,8 @@ test('F661 Back and swipe restore populated search results before Contents', asy
     'Back did not restore the originating result scroll position');
 
   app.window.scrollY = 190;
-  A.showSection('sec-researchBody');
-  swipe(app, app.$('researchBody'), 140, 0);
+  A.showSection('helpPanel');
+  swipe(app, app.$('helpBody'), 140, 0);
   assert.equal(app.$('spLookupBtn').closest('section').hidden, false,
     'swipe-right does not use the same history as the Back button');
   assert.equal(app.$('spLookup').value, 'Varied Thrush');
@@ -2404,28 +2404,18 @@ test('F661 Back and swipe restore populated search results before Contents', asy
   app.window.close();
 });
 
-test('F662 Research findings show measured decisions offline', async () => {
+test('F702 completed research lives in feature records, not an app report', async () => {
   const app = await boot();
-  const before = app.state.fetches.length;
-  app.open(/Research findings/);
-  const text = app.$('researchBody').textContent;
-
-  assert.match(text, /Potential fallout/i);
-  assert.match(text, /35 unique usable nights/i);
-  assert.match(text, /zero High-migration-plus-weather candidates/i);
-  assert.match(text, /No alert added/i);
-  assert.match(text, /Expected nocturnal migrants/i);
-  assert.match(text, /214 successful county\/date reads/i);
-  assert.match(text, /47 comparable dates/i);
-  assert.match(text, /seasonal calendar/i);
-  assert.match(text, /Hawaii endemic coverage/i);
-  assert.match(text, /36 endemic taxa/i);
-  assert.match(text, /17 report surfaces/i);
-  assert.match(text, /Follow-up implemented/i);
-  assert.equal(app.state.fetches.length, before,
-    'opening bundled research findings used the network');
-  assert.equal(app.$('researchBody').querySelectorAll('.researchfinding').length, 3,
-    'the research screen omitted or duplicated a completed finding');
+  assert.equal(app.links().some((link) => /Research findings/i.test(link.textContent)), false,
+    'repository research is still presented as a field report in Contents');
+  assert.equal(app.$('researchPanel'), null,
+    'the retired Research findings panel remains in the application DOM');
+  assert.equal(app.window.__app.LOADERS.researchBody, undefined,
+    'the retired report still has a runtime loader');
+  assert.doesNotMatch(HTML, /at:\s*'researchBody'/,
+    'Research findings remains in the Contents section contract');
+  assert.doesNotMatch(HTML, /35 unique usable nights|214 successful county\/date reads/,
+    'completed feature measurements are still duplicated into the app bundle');
   app.window.close();
 });
 
@@ -3612,6 +3602,159 @@ test('region nav: switching region rewrites the menu, the home and the storage',
     'sections the rarity report does emit stay');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors while switching region');
   app.window.close();
+});
+
+test('F701 switching regions discards a transient Find anchor before BirdCast reloads', async () => {
+  const app = await boot({
+    report: 'wa',
+    storage: {
+      'ebird_home_lat:wa': '47.75',
+      'ebird_home_lng:wa': '-122.16',
+      'ebird_home_place:wa': 'Woodinville',
+    },
+  });
+  const A = app.window.__app;
+  A.useFoundAnchor({
+    lat: 42.3180163,
+    lng: -84.020224,
+    label: 'Chelsea, Michigan',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(A.anchorPoint())), {
+    lat: 42.3180163,
+    lng: -84.020224,
+    label: 'Chelsea, Michigan',
+  }, 'the fixture did not reproduce the transient Michigan anchor');
+
+  A.setBirdcastSnapshot({
+    key: 'u-michigan|42.3180|-84.0202|2026-10-01|2026-09-30',
+    fetchedAt: Date.now(),
+    count: { countyLabel: 'Washtenaw County' },
+  });
+  A.setActiveReport('hi');
+  A.setActiveReport('wa');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(A.anchorPoint())), {
+    lat: 47.75,
+    lng: -122.16,
+    label: 'home',
+  }, 'returning to Washington still uses the Michigan Find anchor');
+  assert.equal(A.birdcastSnapshot(), null,
+    'the Michigan BirdCast snapshot survived the report change');
+  app.window.close();
+});
+
+test('F701 an in-flight BirdCast request cannot publish after a region switch', async () => {
+  const daytime = new Date('2026-09-28T17:00:00Z');
+  const nuxt = '<script>window.__NUXT__=(function(a,b){return {state:{env:{'
+    + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
+    + '"PUBLIC_CLIENT_KEY"));</script>';
+  const dashboard = '<span class="is-visuallyHidden">1825700</span>'
+    + '<span>Birds crossed King County last night (est.)</span>'
+    + '<div class="Badge Badge--small Badge--error"><span class="Badge-label">'
+    + 'High</span></div>'
+    + '<script>window.__NUXT__=(function(a,b){return {config:{baseUrl:a,'
+    + 'bcApiKey:b}}}("https:\\u002F\\u002Fdashboard.birdcast.org",'
+    + '"DASHBOARD_PUBLIC_KEY"));</script>';
+  let releaseForecast;
+  const forecast = new Promise((resolve) => { releaseForecast = resolve; });
+  const app = await boot({
+    report: 'wa',
+    fetch(url) {
+      url = String(url);
+      if (url.startsWith('https://alert.birdcast.org/?')) return nuxt;
+      if (url.includes('/api/is-birdcast-alert-api/')) return forecast;
+      if (url.startsWith('https://dashboard.birdcast.org/region/')) return dashboard;
+      if (url.startsWith(
+        'https://dashboard.birdcast.org/api/v1/is-birdcast-alert-api/barchart/'
+      )) return { dataRows: [] };
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+  const oldRequest = A.loadBirdcastSnapshot(daytime, true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  A.setActiveReport('hi');
+  releaseForecast({
+    forecastNights: [{
+      code: 3, raw: 25.56, total: 7787, totalMin: 7525,
+      totalMax: null, date: '2026-09-28T00:00:00',
+    }],
+  });
+
+  assert.equal(await oldRequest, null,
+    'the superseded Washington request published into the Hawaiʻi report');
+  assert.equal(A.birdcastSnapshot(), null,
+    'the superseded request repopulated the cleared BirdCast snapshot');
+  app.window.close();
+});
+
+test('F687-F700 release contracts remain wired at their ownership boundaries', () => {
+  const between = (start, end) => {
+    const from = HTML.indexOf(start);
+    const to = HTML.indexOf(end, from + start.length);
+    assert.ok(from >= 0 && to > from, `${start} and ${end} no longer bound a source contract`);
+    return HTML.slice(from, to);
+  };
+
+  const finder = between('function megaFinderState(', 'function megaFinderHtml(');
+  assert.doesNotMatch(finder, /megaChaseRows\(entry\.stateRows/,
+    'F687 finder attribution again drops remote reports before matching the latest locality');
+
+  const timing = between('function fgTiming(', 'function fgTimingStr(');
+  assert.match(timing, /heartbeat\(\);[\s\S]*var end = Date\.now\(\)/,
+    'F694 timing does not sample suspension at the phase boundary');
+  const attempt = between('function fgAttempt(', 'function fgNoteOk(');
+  assert.match(attempt, /fgSlot\(bg, work\)\.then\(function \(job\) \{\s*heartbeat\(\);/,
+    'F694 network timing starts without a fresh suspension heartbeat');
+
+  const chase = between('function computeChaseRows(', 'function destinationFallbackRows');
+  assert.equal((chase.match(/home:\s*anchorPoint\(\)/g) || []).length, 2,
+    'F697 both unseen and all-patch scoring must follow the active Home/Here/Find anchor');
+  assert.doesNotMatch(chase, /home:\s*getHome\(\)/,
+    'F697 one patch path still ranks from saved Home instead of the active anchor');
+  assert.match(chase, /reportAs:\s*seed\.reportAsParents/,
+    'F693 explicit taxonomy parents no longer reach shared destination scoring');
+  const patchKey = between('function patchContextKey(', 'function patchFeedIssue(');
+  assert.match(patchKey, /var anchor = anchorPoint\(\)/,
+    'F697 patch caches are keyed to saved Home instead of the active anchor');
+
+  const phaseTwo = between('function getChaseAll(', 'function anyRows(');
+  assert.match(phaseTwo, /phase2Cancel = \{ cancelled: false \}/);
+  assert.match(phaseTwo, /!phase2Cancel\.cancelled/,
+    'F696 a replacement generation cannot stop superseded phase-two work');
+
+  const converge = between('var pConverge =', 'return Promise.all([pObserved');
+  assert.match(converge,
+    /current\.state === 'loading' && current\.promise[\s\S]*return current\.promise/,
+    'F695 duplicate Bird Gen callers no longer join the active source promise');
+  assert.match(converge,
+    /source\.state === 'loading' && source\.promise[\s\S]*return source\.promise\.then/,
+    'F695 Retry starts a rival request instead of joining an active source');
+  assert.match(converge, /BL\.planConvoyFeeds\(surgeConvoyProfile\(\)\)/,
+    'F700 Bird Gen ignores runtime-derived custom counties');
+  assert.match(converge, /if \(!feeds\.length\)[\s\S]*state: 'failed'/,
+    'F700 an unavailable derived scope is presented as a confident empty result');
+
+  const sourceContext = between('function surgeConvoyProfile(', 'function loadSurgeSourceCache(');
+  assert.match(sourceContext, /counties:\s*\(getCounties\(\) \|\| \[\]\)\.slice\(\)/);
+  assert.match(sourceContext, /anchorPoint\(\)/);
+  assert.match(sourceContext, /encodeURIComponent\(surgeSourceContext\(\)\)/,
+    'F700 Bird Gen source cache is not scoped to counties and the active anchor');
+
+  const checklistSource = fs.readFileSync(path.join(WWW, 'cards-checklist.js'), 'utf8');
+  assert.match(checklistSource,
+    /v\.data\['ev-note-pending'\] === '1'\s*\?\s*pendingNoteAction/,
+    'F692 checklist-only rows again claim Notes are busy without a real request');
+  assert.doesNotMatch(checklistSource,
+    /ev-checklist-only'\] === '1'[\s\S]{0,100}pendingNoteAction/,
+    'F692 checklist identity again creates a permanent loading action');
+
+  const stakePatch = between('function renderStakeHs(', 'function loadIconicSpots(');
+  assert.match(stakePatch, /stakeTargetsBySub/);
+  assert.match(stakePatch, /hydrateChecklistEvidence\(box\)/,
+    'F691 duration and targets are again gated by the Comments setting');
 });
 
 test('F362 all ABA jurisdictions are selectable offline without creating profiles', async () => {
@@ -5998,6 +6141,9 @@ test('F476 Common birds completes and paints one regional day at a time', async 
   const app = await boot({
     fetch(url) {
       const u = String(url);
+      if (/\/product\/checklist\/view\//.test(u)) {
+        return { comments: '', obs: [], numSpecies: 1, durationHrs: 1 };
+      }
       if (!/\/historic\//.test(u)) return null;
       calls.push(u);
       const date = /\/historic\/(\d+)\/(\d+)\/(\d+)/.exec(u);
@@ -18358,15 +18504,14 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
   assert.ok(doc.querySelector('#lastNewResults details.ckall'),
     'Group click did not replace the visible list with grouped checklist content');
 
-  const note = doc.querySelector('#lastNewResults .cknote');
-  assert.ok(note && !note.hidden,
-    'Notes off hides inline prose, not the on-demand checklist action');
+  assert.equal(doc.querySelector('#lastNewResults .cknote-pending'), null,
+    'Notes off shows a busy action even though no request is queued');
   assert.equal(doc.querySelector('#lastNewResults .evnoterow'), null,
     'inline Notes prose is visible before Notes is enabled');
   doc.getElementById('lastNewNotes').click();
   assert.equal(doc.getElementById('lastNewNotes').getAttribute('aria-pressed'), 'true');
-  assert.equal(doc.querySelector('#lastNewResults .cknote').hidden, false,
-    'Notes click hid the checklist-note action');
+  assert.equal(doc.querySelector('#lastNewResults .cknote-pending'), null,
+    'Notes click invented a busy action before checklist hydration began');
   app.window.close();
 });
 
@@ -18532,8 +18677,8 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
     'extra padding remains between checklist evidence and patch actions');
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
-  assert.ok(list.children[0].querySelector('.cksummary > .cknote .evidbtn'),
-    'patch checklist rows do not show the shared right-edge Notes action');
+  assert.equal(list.children[0].querySelector('.cknote-pending'), null,
+    'patch checklist rows show an idle control as if Notes were loading');
   const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
   assert.doesNotMatch(checklistCss, /padding-left:\s*1em;\s*text-indent:\s*-1em/,
     'patch checklist rows restored the removed hanging indent');
@@ -18685,8 +18830,8 @@ test('F579/F582/F583 hotspot Notes default off above the map without hiding evid
     'Notes off removed the recent checklist row');
   assert.match(evidence.textContent, /SABGUL/,
     'Notes off removed the unseen-bird checklist evidence');
-  assert.ok(doc.querySelector('#destResults .cknote .evidbtn'),
-    'default-off Notes hid the per-checklist on-demand note action');
+  assert.equal(doc.querySelector('#destResults .cknote-pending'), null,
+    'default-off Notes shows a pending action without scheduling a request');
 
   const on = host.querySelector('.reportnotesbtn[data-notes="on"]');
   assert.ok(on, 'the default-off control cannot turn notes on');
@@ -21737,6 +21882,17 @@ test('a checklist row under a hotspot actually says something', async () => {
 test('QR controls open an accessible sheet for only the existing eBird pages', async () => {
   const app = await boot();
   const w = app.window, doc = w.document, A = w.__app;
+  const encodedUrls = [];
+  const svg = w.BirdQR.svg;
+  w.BirdQR.svg = (url) => {
+    encodedUrls.push(url);
+    return svg(url);
+  };
+  const copiedUrls = [];
+  Object.defineProperty(w.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText(url) { copiedUrls.push(url); return Promise.resolve(); } },
+  });
 
   assert.match(HTML, /<script src="qr\.js"><\/script>/,
     'the QR component is bundled into the app');
@@ -21762,7 +21918,16 @@ test('QR controls open an accessible sheet for only the existing eBird pages', a
   assert.ok(body.querySelector('.qrcode svg'), 'the sheet contains the locally generated code');
   const fallback = body.querySelector('a.extlink[data-href]');
   assert.ok(fallback, 'a text-equivalent external link remains');
-  assert.equal(fallback.getAttribute('data-href'), 'https://ebird.org/checklist/S123456789');
+  const expectedUrl = 'https://ebird.org/checklist/S123456789';
+  assert.equal(body.querySelector('#qrShareUrl').textContent, expectedUrl,
+    'the exact QR payload is not visible for verification');
+  assert.equal(fallback.getAttribute('data-href'), expectedUrl);
+  assert.deepEqual(encodedUrls, [expectedUrl],
+    'the rendered QR encodes a different destination than the visible link');
+  app.click(body.querySelector('#qrCopyLink'));
+  await waitFor(() => copiedUrls.length === 1, 'QR link copy');
+  assert.deepEqual(copiedUrls, [expectedUrl],
+    'Copy link does not copy the same URL the QR and Open action use');
   assert.match(body.textContent, /opens this eBird checklist/i,
     'the non-visual destination is stated in words');
 
@@ -23586,8 +23751,8 @@ test('F498 checklist facts have separate destinations and the row itself is iner
     'media evidence became an independent action');
   const stakeoutRow = HTML.slice(HTML.indexOf('function stakeoutChecklistRow('),
     HTML.indexOf('function loadStakeoutPlaceHistory('));
-  assert.match(stakeoutRow, /birdHtml: flat \? speciesLink\(/,
-    'the bird fact does not retain its Stakeout Bird action');
+  assert.match(stakeoutRow, /birdHtml:\s*''/,
+    'flat Stakeout rows repeat the species already named by the report');
   app.window.close();
 });
 
@@ -30208,7 +30373,10 @@ test('F515 unchecked checklist notes use a labelled ellipsis action', () => {
   const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
   const pending = ChecklistCards.small({
     date: 'Sep 22 8:30 AM',
-    data: { 'ev-sub': 'S515', 'ev-checklist-only': '1' }
+    data: {
+      'ev-sub': 'S515', 'ev-checklist-only': '1',
+      'ev-note-pending': '1'
+    }
   });
   assert.match(pending,
     /class="evidbtn cknote-pending" data-note-pending="1" aria-label="Checking for notes; activate to load now" aria-busy="true"><span aria-hidden="true">…<\/span>/,
@@ -30255,7 +30423,10 @@ test('F515 activating the pending ellipsis fetches and opens checklist notes', a
   const host = app.document.createElement('div');
   host.innerHTML = app.window.ChecklistCards.small({
     date: 'Sep 22 8:30 AM',
-    data: { 'ev-sub': 'S515', 'ev-checklist-only': '1' }
+    data: {
+      'ev-sub': 'S515', 'ev-checklist-only': '1',
+      'ev-note-pending': '1'
+    }
   });
   app.document.body.appendChild(host);
   app.click(host.querySelector('.cknote-pending'));
@@ -30281,7 +30452,10 @@ test('F515 a completed no-notes lookup gives the checklist back the full row', a
   const host = app.document.createElement('div');
   host.innerHTML = app.window.ChecklistCards.small({
     date: 'Sep 22 8:30 AM',
-    data: { 'ev-sub': 'S515EMPTY', 'ev-checklist-only': '1' }
+    data: {
+      'ev-sub': 'S515EMPTY', 'ev-checklist-only': '1',
+      'ev-note-pending': '1'
+    }
   });
   app.document.body.appendChild(host);
   app.click(host.querySelector('.cknote-pending'));
@@ -32079,6 +32253,52 @@ test('a GBIF 429 is retried, never resolved as "no data"', async () => {
 // Render-probed rather than regexed. The two claims worth pinning are that it
 // LEADS WITH THE PATTERN and that the patch-regular ranking is real, and both
 // are invisible to a search over source text.
+test('F691 Stakeout Patch hydrates duration and unseen targets with Comments off', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/checklist\/view\/S691/.test(url)) {
+        return {
+          comments: '',
+          durationHrs: 1.5,
+          numSpecies: 24,
+          obs: [{ speciesCode: 'sabgul', howMany: 2 }],
+        };
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const report = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+  report.codes = report.codes.filter((code) => code !== 'sabgul');
+  report.names = report.names.filter((name) => name !== "Sabine's Gull");
+  A.renderStakeHs('L691', 'Juanita Bay Park', [{
+    subId: 'S691',
+    obsDt: '2026-09-30 08:00',
+    userDisplayName: 'A Birder',
+    numSpecies: 24,
+    loc: { lat: 47.70, lng: -122.21 },
+  }], [{
+    speciesCode: 'sabgul',
+    comName: "Sabine's Gull",
+    subId: 'S691',
+    howMany: 2,
+  }], { lat: 47.70, lng: -122.21, n: 200, nc: 1000 }, false);
+
+  const root = app.$('stakeHsResults');
+  const row = root.querySelector('[data-ev-sub="S691"]');
+  assert.match(row.textContent, /sabgul ×2/i,
+    'the checklist does not name its still-unseen target and count');
+  assert.equal(row.querySelector('.cknote-pending'), null,
+    'Comments off shows a pending Notes action before a request starts');
+  await waitFor(() => /1h30m/.test(row.querySelector('.ckduration')?.textContent || ''),
+    'Stakeout Patch duration hydration');
+  assert.match(row.querySelector('.ckduration').textContent, /1h30m/,
+    'duration did not hydrate independently of Comments');
+  assert.equal(row.querySelector('.cknote-pending'), null,
+    'the settled checklist retained a loading ellipsis');
+  app.window.close();
+});
+
 test('Stake out a hotspot leads with the pattern, and names who birds there', async () => {
   // Three visits by one regular, one by a visitor — so the ranking has an
   // unambiguous answer.
@@ -32105,9 +32325,9 @@ test('Stake out a hotspot leads with the pattern, and names who birds there', as
   // for an hour and people submit later anyway. A page that leads with "what
   // was seen today" is empty every morning, which is exactly when someone is
   // deciding where to go.
-  assert.match(txt, /4 (recent )?checklists across 4 days/,
+  assert.match(txt, /Recent activity4 checklists · 4 days/,
     'the header does not state how often the place is birded: ' + txt.slice(0, 120));
-  assert.match(txt, /typically 19 species/,
+  assert.match(txt, /Typical visit19 species/,
     'it does not say what a visit here is usually worth');
 
   // The patch regular, ranked. This is a different and more useful list than
@@ -34824,6 +35044,11 @@ test('F675/F677 Contents Quick settings routes Home and Display to their existin
   const doc = app.window.document;
   const host = doc.getElementById('menuScopeHost');
 
+  assert.ok(host.querySelector('.quicksettings'),
+    'Region, Home and Display are not grouped as one Quick settings block');
+  assert.equal(host.querySelectorAll('.quicksettingvalue').length, 2);
+  assert.equal(host.querySelectorAll('.quicksettingaction').length, 2,
+    'Home and Display do not keep their values separate from their actions');
   assert.ok(host.querySelector('#menuScope'),
     'the existing Region disclosure remains in the shared bottom block');
   const home = host.querySelector('#menuHomeQuick');
@@ -34853,6 +35078,52 @@ test('F675/F677 Contents Quick settings routes Home and Display to their existin
   assert.match(missing.$('menuHomeQuick').textContent, /Set Home/i,
     'the persistent route remains available before onboarding is complete');
   missing.window.close();
+});
+
+test('F698 a missing-Home Find result is temporary unless Save as Home is chosen', async () => {
+  const geocode = (url) => /photon\.komoot\.io\/api/.test(url) ? {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { name: 'Ann Arbor', state: 'Michigan', countrycode: 'US' },
+      geometry: { type: 'Point', coordinates: [-83.743, 42.281] },
+    }],
+  } : null;
+  const region = michiganRuntimeRegion();
+  const options = {
+    report: region.slug,
+    home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch: geocode,
+  };
+
+  const once = await boot(options);
+  const oncePending = once.window.__app.ensureActiveAnchor();
+  once.click(once.$('anchorUseFind'));
+  once.$('requiredAnchorFind').value = 'Ann Arbor';
+  once.click(once.$('requiredAnchorGo'));
+  await waitFor(() => once.$('requiredAnchorOnce'), 'temporary Find choice');
+  once.click(once.$('requiredAnchorOnce'));
+  const oncePoint = await oncePending;
+  assert.equal(once.window.__app.getHome(), null,
+    'Use once persisted a transient Find result as Home');
+  assert.equal(oncePoint.label, 'Ann Arbor');
+  once.window.close();
+
+  const saved = await boot(options);
+  const savedPending = saved.window.__app.ensureActiveAnchor();
+  saved.click(saved.$('anchorUseFind'));
+  saved.$('requiredAnchorFind').value = 'Ann Arbor';
+  saved.click(saved.$('requiredAnchorGo'));
+  await waitFor(() => saved.$('requiredAnchorSave'), 'Save as Home choice');
+  saved.click(saved.$('requiredAnchorSave'));
+  const savedPoint = await savedPending;
+  assert.equal(savedPoint.label, 'home');
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.window.__app.getHome())), {
+    lat: 42.281,
+    lng: -83.743,
+  }, 'Save as Home did not persist the resolved Find result');
+  saved.window.close();
 });
 
 // --- F200: the top bar carries the scope CODE and opens the pickers --------

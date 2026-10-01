@@ -843,16 +843,34 @@
   function speciesWeight(code, watch) {
     return (watch && watch[code]) ? CONST.NV_WEIGHT : 1;
   }
-  function scoreCluster(records, watch) {
+  function resolveReportAs(code, parentOf) {
+    var cur = String(code || ''), seen = {};
+    while (parentOf && parentOf[cur] && !seen[cur]) {
+      seen[cur] = 1;
+      cur = parentOf[cur];
+    }
+    return cur;
+  }
+  function strongerSpeciesRecord(current, candidate) {
+    if (!current) return candidate;
+    if (candidate.kind === 'Rarity' && current.kind !== 'Rarity') return candidate;
+    if (candidate.kind !== 'Rarity' && current.kind === 'Rarity') return current;
+    var currentDate = String(current.dateStr || current.obsDt || '');
+    var candidateDate = String(candidate.dateStr || candidate.obsDt || '');
+    return candidateDate > currentDate ? candidate : current;
+  }
+  function scoreCluster(records, watch, parentOf) {
     var byCode = {}, order = [];
     (records || []).forEach(function (r) {
       if (!r.code) return;
-      if (!byCode[r.code]) { byCode[r.code] = r; order.push(r.code); }
-      else if (r.kind === 'Rarity') byCode[r.code] = r;
+      var code = resolveReportAs(r.code, parentOf);
+      if (!byCode[code]) order.push(code);
+      byCode[code] = strongerSpeciesRecord(byCode[code], r);
     });
     var sp = order.map(function (c) { return byCode[c]; });
-    var total = sp.reduce(function (a, r) {
-      return a + (r.kind === 'Rarity' ? 3 : 1) * speciesWeight(r.code, watch);
+    var total = order.reduce(function (a, code) {
+      var r = byCode[code];
+      return a + (r.kind === 'Rarity' ? 3 : 1) * speciesWeight(code, watch);
     }, 0);
     return { total: total, species: sp };
   }
@@ -860,10 +878,10 @@
   // ---- destinations / excursions (mirror report sections) ------------------
   // Returns scored clusters sorted (−score, min distMi). Each:
   //   { score, loc, lat, lon, locId, distMi(min), rareCount, species:[...], records:[...] }
-  function scoreDestinationClusters(nearRecent, watch) {
+  function scoreDestinationClusters(nearRecent, watch, parentOf) {
     var clusters = clusterByProximity(nearRecent, CONST.CLUSTER_RADIUS_M);
     var scored = clusters.map(function (rs) {
-      var sc = scoreCluster(rs, watch);
+      var sc = scoreCluster(rs, watch, parentOf);
       var rep = pickCanonicalLoc(rs);
       var minDist = rs.reduce(function (m, r) {
         var d = (r.distMi == null ? Infinity : r.distMi); return d < m ? d : m;
@@ -963,7 +981,7 @@
     opts = opts || {};
     var base = opts.dailyDriveMi == null ? CONST.DAILY_DRIVE_MI : opts.dailyDriveMi;
     var top = opts.top == null ? CONST.TOP_DEST : opts.top;
-    var scored = scoreDestinationClusters(nearRecent, opts.watch);
+    var scored = scoreDestinationClusters(nearRecent, opts.watch, opts.reportAs);
     var threshold = opts.radiusMi == null
       ? destinationRadius(scored, base, opts.chaseMaxMi, opts.minRows)
       : opts.radiusMi;
@@ -995,7 +1013,8 @@
     // those warrant a dedicated outing regardless of distance, so a ferry
     // pelagic just off Edmonds still lands here rather than vanishing (mirror
     // report.section_excursions's far filter).
-    var scored = scoreDestinationClusters(excursionRecent, opts.watch).filter(function (c) {
+    var scored = scoreDestinationClusters(
+      excursionRecent, opts.watch, opts.reportAs).filter(function (c) {
       return c.distMi > threshold ||
              c.records.some(function (r) { return isSpecialTrip(r); });
     }).map(function (c) {
@@ -2845,7 +2864,8 @@
       return isFinite(a.lat) && isFinite(alon) && isFinite(b.lat) && isFinite(blon)
         && haversineKm(a.lat, alon, b.lat, blon) * 1000 <= CONST.CLUSTER_RADIUS_M;
     }
-    var clusters = scoreDestinationClusters(recs, opts.watch).filter(function (cluster) {
+    var clusters = scoreDestinationClusters(
+      recs, opts.watch, opts.reportAs).filter(function (cluster) {
       return !fresh.some(function (row) { return samePlace(cluster, row); });
     }).map(function (cluster) {
       cluster.latestMs = cluster.records.reduce(function (latest, r) {

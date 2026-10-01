@@ -232,14 +232,6 @@
       "sub": "Overdue megararities"
     },
     {
-      "at": "researchBody",
-      "label": "🧪 Research findings",
-      "report": null,
-      "map": null,
-      "why": "app-only (F662): completed research decisions are embedded so measured results are visible without a runtime GitHub dependency. Rejected hypotheses remain labelled as decisions, not live alerts.",
-      "sub": "Measured decisions"
-    },
-    {
       "at": "helpBody",
       "label": "📘 How each section works",
       "report": null,

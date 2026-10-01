@@ -501,8 +501,7 @@
       }
     }
     var pendingNote = !isMedium && v.data && v.data['ev-sub']
-      && (v.data['ev-checklist-only'] === '1'
-        || v.data['ev-note-pending'] === '1')
+      && v.data['ev-note-pending'] === '1'
       ? pendingNoteAction(v.data['ev-notes-expected'] === '1')
       : '';
 

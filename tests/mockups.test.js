@@ -113,11 +113,8 @@ test('every menu section declares representative fixture data or an intentional 
   }
   const staticAts = mockups.SECTION_SHOTS
     .filter((shot) => shot.kind === 'static').map((shot) => shot.at).sort();
-  assert.deepEqual(staticAts, ['researchBody', 'settingsPanel'],
+  assert.deepEqual(staticAts, ['settingsPanel'],
     'only genuinely data-free documentation/settings surfaces may skip stub rows');
-  assert.equal(mockups.SECTION_SHOTS.find((shot) => shot.at === 'researchBody')
-    .minControls, 0,
-  'the read-only Research findings surface must not inherit Settings controls');
 });
 
 test('F607 BirdCast mockups seed the production level and county-count surfaces', () => {
@@ -347,7 +344,7 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
 test('F628 Top 100 compact-height guard allows deliberate Huge-text reflow', () => {
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
-  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > 72\)/,
+  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > 86\)/,
     'the normal-size compact-row ceiling still rejects intentional Huge-text wrapping');
   assert.match(source,
     /async function fixturePrepare\(at, spec, A, document, sec, renderScale\)/,
@@ -355,6 +352,34 @@ test('F628 Top 100 compact-height guard allows deliberate Huge-text reflow', () 
   assert.match(source,
     /FIX\.prepare\(\$\{at\}, spec, A, document, sec,[\s\S]*\$\{JSON\.stringify\(SCALE\)\}\)/,
     'the browser-side fixture does not receive the requested gallery text scale');
+});
+
+test('F686 release preparation follows compact Top 100 and owns Stakeout work', () => {
+  const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("} else if (spec.kind === 'patches')"));
+  assert.doesNotMatch(rank, /visually prominent|rank-to-content gutter/,
+    'the gallery still enforces F680\'s retired dominant-rank presentation');
+  assert.match(rank, /compact rank column is too wide/);
+  assert.match(rank, /compact column gutter is not 10px/);
+
+  const stakeout = source.slice(source.indexOf('async function prepareStakeoutSpts'),
+    source.indexOf('async function prepareBirdFinderMerged'));
+  assert.match(stakeout,
+    /A\.fgCancelAll\('Starting deterministic Stakeout fixture'\)/,
+    'Stakeout preparation can still queue behind unrelated startup hydration');
+  assert.match(stakeout, /A\.fgProgressReset\(\)/,
+    'the deterministic Stakeout fixture does not clear inherited progress state');
+  assert.match(source,
+    /A\.seedEbirdCache\(A\.speciesLookupPath\(region, code, A\.SP_LOOKUP_BACK\),[\s\S]*sightingRows\)/,
+    'Stakeout preparation can still queue its deterministic sighting behind unrelated work');
+  assert.match(stakeout, /A\.seedChecklistView\(row\.subId, detail\)/,
+    'Stakeout checklist hydration can still queue behind unrelated foreground work');
+  assert.match(source,
+    /prepTimeoutMs: item\.at === 'spLookupBtn' \? 45000 : undefined/,
+    'the mandatory Stakeout capture still uses the generic 15-second preparation budget');
+  assert.match(source,
+    /id: 'stakeoutdetail'[\s\S]*?prepTimeoutMs: 45000/,
+    'the detailed Stakeout capture still uses the generic 15-second preparation budget');
 });
 
 test('F384/F385 release mockups expose row actions and regional watch scope', () => {

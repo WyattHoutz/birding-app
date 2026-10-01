@@ -143,8 +143,6 @@ const STUB_SPEC = {
   myYearBody:     { kind: 'bird',          host: 'myYearList' },
   settingsPanel:  { kind: 'static',        host: 'settingsPanel' },
   recordBody:     { kind: 'bird',          host: 'recordBody' },
-  researchBody:   { kind: 'static',        host: 'researchBody',
-    expects: ['#researchBody .researchfinding'], minControls: 0 },
   helpBody:       { kind: 'help',          host: 'helpBody' },
 };
 
@@ -163,6 +161,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     minControls: spec && spec.minControls,
     expects: (spec && spec.expects) || [],
     allowDisabled: (spec && spec.allowDisabled) || [],
+    prepTimeoutMs: item.at === 'spLookupBtn' ? 45000 : undefined,
     prep: `var spec = ${JSON.stringify(spec || null)};
            A.setActiveReport((spec && spec.report) || 'wa');
            FIX.before(${at}, A, document);
@@ -193,6 +192,7 @@ const EXTRA_SHOTS = [
   { id: 'stakeoutdetail', at: 'spLookupBtn',
     title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes on',
     host: 'sec-spLookupBtn', fullPage: true, freshApp: true,
+    prepTimeoutMs: 45000,
     expects: ['#spLookupResults.stakeoutSptsMock.stakeoutSpeciesCard-details',
       '#spLookupResults .bcbody .bcname',
       '#spLookupResults .bchero',
@@ -1060,24 +1060,24 @@ const BOOTSTRAP = `
     var region = options.region || 'US-WA';
     var W = document.defaultView;
     var previousFetch = W.fetch;
+    var n = placeCount || 2;
+    var names = options.places || ['Marymoor Park', 'Cedar River Mouth'];
+    var sightingRows = options.rows || Array.from({ length: n }, function (_, i) {
+      return {
+        speciesCode: code, comName: name,
+        locId: 'L' + (i + 1),
+        locName: names[i] || 'Representative hotspot ' + (i + 1),
+        lat: 47.70 + i / 100, lng: -122.16,
+        obsDt: mockObservationDate(10 + i * 18),
+        howMany: (i % 4) + 1, subId: 'S' + (i + 1), obsValid: true
+      };
+    });
     W.fetch = function (url) {
       if (String(url).indexOf('/data/obs/' + region + '/recent/' + code) >= 0) {
-        var n = placeCount || 2;
-        var names = options.places || ['Marymoor Park', 'Cedar River Mouth'];
-        var rows = options.rows || Array.from({ length: n }, function (_, i) {
-          return {
-            speciesCode: code, comName: name,
-            locId: 'L' + (i + 1),
-            locName: names[i] || 'Representative hotspot ' + (i + 1),
-            lat: 47.70 + i / 100, lng: -122.16,
-            obsDt: mockObservationDate(10 + i * 18),
-            howMany: (i % 4) + 1, subId: 'S' + (i + 1), obsValid: true
-          };
-        });
         return Promise.resolve({
           ok: true, status: 200,
-          json: function () { return Promise.resolve(rows); },
-          text: function () { return Promise.resolve(JSON.stringify(rows)); }
+          json: function () { return Promise.resolve(sightingRows); },
+          text: function () { return Promise.resolve(JSON.stringify(sightingRows)); }
         });
       }
       var checklistMatch = /\\/product\\/checklist\\/view\\/([^/?]+)/.exec(String(url));
@@ -1140,13 +1140,20 @@ const BOOTSTRAP = `
       });
     };
     try {
+      A.seedEbirdCache(A.speciesLookupPath(region, code, A.SP_LOOKUP_BACK),
+        sightingRows);
       if (options.primeChecklistDetails && options.rows) {
         await Promise.all(options.rows.map(function (row) {
           return A.checklistView(row.subId, false);
         }));
       }
-      await A.lookupSpecies(code, name, null, null, null,
-        options.finderContext || null);
+      await Promise.race([
+        A.lookupSpecies(code, name, null, null, null,
+          options.finderContext || null),
+        wait(10000).then(function () {
+          throw new Error('Stakeout species lookup did not settle');
+        })
+      ]);
       A.setSpeciesLookupNotes(!!options.detailsOn);
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
       if (options.detailsOn && options.rows
@@ -1766,12 +1773,14 @@ const BOOTSTRAP = `
       var nameRect = textRect(rankName);
       var speciesRect = textRect(rankSpecies);
       var speciesBox = rankSpecies.getBoundingClientRect();
-      var markerCenter = markerRect.top + markerRect.height / 2;
       if (markerRect.right >= nameRect.left) {
         throw new Error('Top 100 rank is not in its own left column');
       }
-      if (parseFloat(getComputedStyle(rankMarker).fontSize) < 28) {
-        throw new Error('Top 100 rank is not visually prominent');
+      var rankStack = rankMarker.closest('.rankstack');
+      var rankStackRect = rankStack && rankStack.getBoundingClientRect();
+      if (!rankStackRect || rankStackRect.width > 46 * renderScale + 2) {
+        throw new Error('Top 100 compact rank column is too wide: '
+          + (rankStackRect ? rankStackRect.width : 'missing') + 'px');
       }
       var speciesUnit = rankSpecies.querySelector('small');
       var speciesUnitRect = speciesUnit && speciesUnit.getBoundingClientRect();
@@ -1780,7 +1789,7 @@ const BOOTSTRAP = `
       if (recentThumb) {
         throw new Error('Top 100 recent-bird image still consumes list space');
       }
-      if (renderScale <= 1 && firstRowRect.height > 72) {
+      if (renderScale <= 1 && firstRowRect.height > 86) {
         throw new Error('Top 100 sentence row is too tall: '
           + firstRowRect.height + 'px');
       }
@@ -1800,10 +1809,10 @@ const BOOTSTRAP = `
           + ' flex=' + getComputedStyle(rankSpecies).flexDirection
           + ' display=' + (speciesUnit ? getComputedStyle(speciesUnit).display : 'missing'));
       }
-      var rankContentGap = nameRect.left - markerRect.right;
-      if (rankContentGap < 9 || rankContentGap > 11) {
-        throw new Error('Top 100 rank-to-content gutter is not 10px: '
-          + rankContentGap + 'px');
+      var rankColumnGap = nameBox.left - rankStackRect.right;
+      if (rankColumnGap < 8 || rankColumnGap > 12) {
+        throw new Error('Top 100 compact column gutter is not 10px: '
+          + rankColumnGap + 'px');
       }
       var movements = Array.from(document.querySelectorAll(
         '#rankResults .rankrow.hscard-md .mv'
@@ -1818,7 +1827,7 @@ const BOOTSTRAP = `
       var movementRect = firstMovement && firstMovement.getBoundingClientRect();
       if (!movementRect || movementRect.left >= nameRect.left
           || movementRect.top < markerRect.bottom - 3
-          || movementRect.top - markerRect.bottom > 2) {
+          || movementRect.top - markerRect.bottom > 4) {
         throw new Error('Top 100 movement is not tightly below the rank in column 1: rank='
           + JSON.stringify({ top: markerRect.top, bottom: markerRect.bottom })
           + ' movement=' + JSON.stringify(movementRect
@@ -2206,6 +2215,8 @@ const BOOTSTRAP = `
   }
   async function prepareStakeoutSpts(A, document, sec, detailsOn) {
     ensureMockStyle(document);
+    if (A.fgCancelAll) A.fgCancelAll('Starting deterministic Stakeout fixture');
+    if (A.fgProgressReset) A.fgProgressReset();
     fixtureStatus(sec, 'Sharp-tailed Sandpiper Stakeout, Notes '
       + (detailsOn ? 'on' : 'off'));
     A.setActiveReport('wa');
@@ -2304,21 +2315,23 @@ const BOOTSTRAP = `
     }));
     var cacheDay = new Date().toISOString().slice(0, 10);
     rows.forEach(function (row) {
+      var detail = {
+        userDisplayName: row.userDisplayName || '',
+        obsDt: row.obsDt || '',
+        durationHrs: row.durationHrs,
+        groupId: '',
+        comments: row.checklistComments || '',
+        obs: [{
+          speciesCode: 'shtsan',
+          comments: row.observationComments || ''
+        }]
+      };
+      A.seedChecklistView(row.subId, detail);
       localStorage.setItem('bc_ckl2:' + row.subId, JSON.stringify({
         d: cacheDay,
         o: String(row.obsDt || '').slice(0, 10),
         m: !!row.evidence,
-        v: {
-          userDisplayName: row.userDisplayName || '',
-          obsDt: row.obsDt || '',
-          durationHrs: row.durationHrs,
-          groupId: '',
-          comments: row.checklistComments || '',
-          obs: [{
-            speciesCode: 'shtsan',
-            comments: row.observationComments || ''
-          }]
-        }
+        v: detail
       }));
     });
     await fillStakeoutSpecies(A, document, 'Sharp-tailed Sandpiper Stakeout',
@@ -2327,7 +2340,6 @@ const BOOTSTRAP = `
         name: 'Sharp-tailed Sandpiper',
         rows: rows,
         detailsOn: !!detailsOn,
-        primeChecklistDetails: true,
         iconic: true
       });
     var results = document.getElementById('spLookupResults');

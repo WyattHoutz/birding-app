@@ -686,22 +686,6 @@
         "Reference-point time zones are approximate in multi-zone jurisdictions. US-only history is unavailable outside the US, and county-dependent sections require supported county metadata."
       ]
     },
-    "researchBody": {
-      "report": null,
-      "summary": "Measured research decisions, including ideas the evidence did not support.",
-      "inputs": [
-        "three completed feature research records embedded with the app - no network"
-      ],
-      "how": [
-        "Shows the decisive measurement, the plain-language conclusion and what Bird Chaser did with it.",
-        "A rejected hypothesis is labelled as a decision such as No alert added, never presented as a current warning.",
-        "The bundled summaries remain available offline and introduce no runtime GitHub dependency."
-      ],
-      "limits": [
-        "This is a record of completed research, not live conditions or a substitute for the feature's full measurement record.",
-        "Only completed findings selected for an in-app explanation appear here."
-      ]
-    },
     "helpBody": {
       "summary": "What every other section reads, how it decides, and what it cannot tell you.",
       "inputs": [

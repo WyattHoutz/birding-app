@@ -2584,3 +2584,32 @@ test('a long count is not treated as stale at the moment it started', () => {
   // long walk, and widening that edge would admit it.
   assert.equal(codes([at(-30)]), 0, 'a future-dated row is still rejected');
 });
+
+test('F693 destination scoring collapses reportAs forms into one parent vote', () => {
+  const records = [
+    { code: 'palwar', name: 'Palm Warbler', kind: 'Need', obsDt: '2026-09-29' },
+    { code: 'palwar3', name: 'Palm Warbler (Western)', kind: 'Rarity',
+      obsDt: '2026-09-28', subId: 'S-WESTERN' },
+    { code: 'redcro9', name: 'Red Crossbill Type 9', kind: 'Need',
+      obsDt: '2026-09-27' },
+    { code: 'redcro4', name: 'Red Crossbill Type 4', kind: 'Need',
+      obsDt: '2026-09-30', subId: 'S-NEWEST' },
+    { code: 'plain9', name: 'Numeric suffix control', kind: 'Need',
+      obsDt: '2026-09-30' },
+  ];
+  const reportAs = {
+    palwar3: 'palwar',
+    redcro9: 'redcro1',
+    redcro4: 'redcro1',
+  };
+  const scored = BL.scoreCluster(records, {}, reportAs);
+  assert.equal(scored.species.length, 3);
+  assert.equal(scored.total, 5,
+    'Palm Warbler rarity counts once, Red Crossbill once, and the unrelated suffix once');
+  assert.equal(scored.species[0].subId, 'S-WESTERN',
+    'the stronger rarity evidence survives the parent collapse');
+  assert.equal(scored.species[1].subId, 'S-NEWEST',
+    'equally strong forms retain the newest checklist evidence');
+  assert.ok(scored.species.some((row) => row.code === 'plain9'),
+    'a numeric suffix without reportAs must not be guessed into a parent');
+});
