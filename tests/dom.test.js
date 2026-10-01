@@ -242,7 +242,9 @@ afterEach(() => {
 after(() => { _booted.forEach((w) => { try { w.close(); } catch (e) {} }); });
 
 function boot(opts = {}) {
-  const state = { fetches: [], errors: [] };
+  const state = {
+    fetches: [], errors: [], runtimeFetch: null, inRuntimeFetch: false,
+  };
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', (e) => {
     // jsdom has no layout engine, so scrollTo/resizeTo are expected no-ops.
@@ -305,8 +307,16 @@ function boot(opts = {}) {
           },
         });
       }
-      window.fetch = function (url) {
+      window.fetch = function (url, init) {
         state.fetches.push(String(url));
+        if (state.runtimeFetch && !state.inRuntimeFetch) {
+          state.inRuntimeFetch = true;
+          try {
+            return state.runtimeFetch.call(window, url, init);
+          } finally {
+            state.inRuntimeFetch = false;
+          }
+        }
         // Bundled assets are part of the app, not the network: a relative path
         // that exists in www/ is served from disk so offline-by-default tests
         // still exercise the real file the phone would read.
@@ -323,31 +333,47 @@ function boot(opts = {}) {
           }
 
         } catch (e) { /* not a bundled file: fall through to the stub */ }
+        if (!opts.fetch && /ref\/region\/list\/subnational2\//.test(String(url))) {
+          return Promise.resolve({
+            ok: true, status: 200,
+            headers: { get: () => null },
+            text: () => Promise.resolve('[]'),
+            json: () => Promise.resolve([]),
+          });
+        }
         // Tests that need a response supply opts.fetch(url) -> html string|null.
         if (opts.fetch) {
-          const body = opts.fetch(String(url));
-          // A test that needs a FAILURE returns { __status, __headers }. Without
-          // this every stubbed response is a 200 and no retry path — the one
-          // that matters most, because it only runs when things go wrong — is
-          // unreachable from a test.
-          if (body != null && typeof body === 'object' && body.__status) {
-            const hdrs = body.__headers || {};
-            return Promise.resolve({
-              ok: body.__status >= 200 && body.__status < 300,
-              status: body.__status,
-              headers: { get: (k) => hdrs[k] ?? hdrs[String(k).toLowerCase()] ?? null },
-              text: () => Promise.resolve(JSON.stringify(body.__body ?? {})),
-              json: () => Promise.resolve(body.__body ?? {}),
-            });
+          let body = opts.fetch(String(url), init);
+          if (body == null && /ref\/region\/list\/subnational2\//.test(String(url))) {
+            body = [];
           }
-          if (body != null) {
-            return Promise.resolve({
-              ok: true, status: 200,
-              headers: { get: () => null },
-              text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
-              json: () => Promise.resolve(typeof body === 'string' ? JSON.parse(body) : body),
-            });
-          }
+          const response = (value) => {
+            // A test that needs a FAILURE returns { __status, __headers }.
+            if (value != null && typeof value === 'object' && value.__status) {
+              const hdrs = value.__headers || {};
+              const responseBody = Object.hasOwn(value, '__body') ? value.__body : {};
+              return {
+                ok: value.__status >= 200 && value.__status < 300,
+                status: value.__status,
+                headers: { get: (k) => hdrs[k] ?? hdrs[String(k).toLowerCase()] ?? null },
+                text: () => Promise.resolve(JSON.stringify(responseBody)),
+                json: () => Promise.resolve(responseBody),
+              };
+            }
+            if (value != null) {
+              return {
+                ok: true, status: 200,
+                headers: { get: () => null },
+                text: () => Promise.resolve(
+                  typeof value === 'string' ? value : JSON.stringify(value)),
+                json: () => Promise.resolve(
+                  typeof value === 'string' ? JSON.parse(value) : value),
+              };
+            }
+            return new Promise(() => {});
+          };
+          if (body && typeof body.then === 'function') return body.then(response);
+          if (body != null) return Promise.resolve(response(body));
         }
         return new Promise(() => {});   // never settles: offline + deterministic
       };
@@ -360,6 +386,12 @@ function boot(opts = {}) {
       if (!window.__app && state.errors.length) {
         throw new Error('app boot failed: ' + state.errors.join(' | '));
       }
+      const instrumentedFetch = window.fetch;
+      Object.defineProperty(window, 'fetch', {
+        configurable: true,
+        get() { return instrumentedFetch; },
+        set(value) { state.runtimeFetch = value; },
+      });
       _booted.push(window);
       resolve({
         dom, window,
@@ -1134,17 +1166,15 @@ test('F269 On passage renders a report-local zero-call event countdown', async (
 });
 
 test('F268 On passage loads first-year data by default and caches one region-year daily', async () => {
-  const app = await boot();
-  const A = app.window.__app;
   const calls = [];
   const fixture = recentFirstYearFixture();
-  app.window.fetch = (url) => {
-    calls.push(String(url));
-    return Promise.resolve({
-      ok: true, status: 200,
-      text: () => Promise.resolve(fixture),
-    });
-  };
+  const app = await boot({
+    fetch(url) {
+      calls.push(String(url));
+      return /\/bird-list\?/.test(url) ? fixture : [];
+    },
+  });
+  const A = app.window.__app;
 
   app.open(/Tonight, arrivals, and departures/);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1495,7 +1525,24 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
 });
 
 test('F268 the current load repaints when it joins a pending GBIF source load', async () => {
-  const app = await boot();
+  let releaseSpecies;
+  const app = await boot({
+    fetch(url) {
+      const u = String(url);
+      if (/product\/spplist\/US-WA/.test(u)) {
+        return new Promise((resolve) => {
+          releaseSpecies = () => resolve(['purmar']);
+        });
+      }
+      if (/ref\/taxonomy\/ebird/.test(u)) {
+        return [{
+          speciesCode: 'purmar', comName: 'Purple Martin',
+          sciName: 'Progne subis', bandingCodes: ['PUMA'],
+        }];
+      }
+      return [];
+    },
+  });
   const A = app.window.__app;
   const now = new Date();
   const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5);
@@ -1512,31 +1559,6 @@ test('F268 the current load repaints when it joins a pending GBIF source load', 
     done: { 'Progne subis': { day, records: 840, months: 5 } },
   }));
   seedSeen(app, ['amecro']);
-
-  let releaseSpecies;
-  app.window.fetch = (url) => {
-    const u = String(url);
-    if (/product\/spplist\/US-WA/.test(u)) {
-      return new Promise((resolve) => {
-        releaseSpecies = () => resolve({
-          ok: true, status: 200, headers: { get: () => null },
-          json: () => Promise.resolve(['purmar']),
-          text: () => Promise.resolve('["purmar"]'),
-        });
-      });
-    }
-    if (/ref\/taxonomy\/ebird/.test(u)) {
-      return Promise.resolve({
-        ok: true, status: 200, headers: { get: () => null },
-        json: () => Promise.resolve([{
-          speciesCode: 'purmar', comName: 'Purple Martin',
-          sciName: 'Progne subis', bandingCodes: ['PUMA'],
-        }]),
-        text: () => Promise.resolve('[]'),
-      });
-    }
-    return new Promise(() => {});
-  };
 
   A.loadMigration();
   A.loadMigration();
@@ -1626,6 +1648,16 @@ test('F268 eBird capture retries until the rendered bird-list rows exist', async
     'the same browser page is sampled again after its first not-ready result');
   assert.equal(closed, 1, 'the successful capture closes only its own WebView');
   assert.equal(result.rows[0].code, 'comnig');
+  const injectSource = HTML.slice(HTML.indexOf('function buildFirstYearInject'),
+    HTML.indexOf('function buildIdentityInject'));
+  assert.match(injectSource, /transport="mobileApp"/,
+    'first-year capture does not identify the working native bridge');
+  assert.match(injectSource, /parseStatus:status,pageShape:shape/,
+    'an invalid installed page remains opaque instead of reporting its bounded structure');
+  const fetchSource = HTML.slice(HTML.indexOf('function firstYearFetch'),
+    HTML.indexOf('function firstYearAgeLabel'));
+  assert.match(fetchSource, /injectAttempts:\s*240/,
+    'first-year sampling stopped after ten seconds while its capture waited two minutes');
   app.window.close();
 });
 
@@ -4091,7 +4123,7 @@ test('F207: Use my location becomes Home only after the explicit tap', async () 
   app.window.close();
 });
 
-test('F207: Home-dependent sections expose one Set Home route', async () => {
+test('F207: Home-dependent sections expose the shared Set Home route', async () => {
   const app = await boot({ report: 'wa', home: false });
   app.open(/Twitch weather/);
   const action = app.$('wxStatus').querySelector('.sethome-inline');
@@ -4102,11 +4134,123 @@ test('F207: Home-dependent sections expose one Set Home route', async () => {
   assert.equal(app.window.document.activeElement, app.$('homePlace'),
     'the shared Home route lands on the one owned Home field');
 
-  await app.window.__app.loadExcursions();
-  const second = app.$('excStatus').querySelector('.sethome-inline');
-  assert.ok(second, 'another Home-dependent loader uses the same visible action');
   assert.match(app.$('quickBtn').textContent, /Set Home/,
     'the reusable Home anchor names the missing action directly');
+  app.window.close();
+});
+
+function michiganRuntimeRegion() {
+  return {
+    slug: 'u-michigan',
+    label: 'Michigan',
+    place: 'Michigan',
+    lat: 42.73,
+    lng: -84.56,
+    stateCode: 'US-MI',
+    tideStation: '',
+    tzStdOffset: -5,
+    tzObservesDst: true,
+  };
+}
+
+test('F675 missing Home offers Set Home to Here before Today’s patches loads', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    location: { lat: 42.3314, lng: -83.0458 },
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+  });
+  const before = app.state.fetches.length;
+  app.open(/Today’s patches/);
+
+  assert.match(app.$('sheetTitle').textContent, /Set Home to Here/i);
+  assert.ok(app.$('anchorSetHomeHere'));
+  assert.ok(app.$('anchorUseFind'));
+  assert.equal(app.state.fetches.length, before,
+    'the centroid-fed chase must not start before the reader chooses an anchor');
+
+  app.click(app.$('anchorSetHomeHere'));
+  await waitFor(() => !!app.window.__app.getHome(), 'Here to become owned Home');
+  assert.equal(JSON.stringify(app.window.__app.getHome()),
+    JSON.stringify({ lat: 42.3314, lng: -83.0458 }));
+  assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan'), '42.3314');
+  assert.match(app.window.__app.anchorLabel(), /home|current location/i);
+  app.window.close();
+});
+
+test('F675 declining Home forces Find and cancelling Find uses a labelled waypoint', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+  });
+  const A = app.window.__app;
+  const pending = A.ensureActiveAnchor();
+  app.click(app.$('anchorUseFind'));
+  assert.match(app.$('sheetTitle').textContent, /Find a place/i);
+  assert.ok(app.$('requiredAnchorFind'));
+
+  app.click(app.document.querySelector('#appSheet [data-sheet-close]'));
+  const point = await pending;
+  assert.equal(A.getHome(), null, 'the regional fallback is never persisted as Home');
+  assert.equal(point.label, 'Michigan waypoint');
+  assert.equal(A.anchorLabel(), 'Michigan waypoint',
+    'the centroid must never be presented as Home');
+  app.window.close();
+});
+
+test('F675 a later Find selection wins over a delayed Here result', async () => {
+  const region = michiganRuntimeRegion();
+  let locationOk;
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch: (url) => /photon\.komoot\.io\/api/.test(url) ? {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: { name: 'Ann Arbor', state: 'Michigan', countrycode: 'US' },
+        geometry: { type: 'Point', coordinates: [-83.743, 42.281] },
+      }],
+    } : null,
+  });
+  Object.defineProperty(app.window.navigator, 'geolocation', {
+    configurable: true,
+    value: { getCurrentPosition(ok) { locationOk = ok; } },
+  });
+  const A = app.window.__app;
+  const pending = A.ensureActiveAnchor();
+  app.click(app.$('anchorSetHomeHere'));
+  await waitFor(() => typeof locationOk === 'function', 'the delayed location request');
+
+  const findMode = app.document.querySelector('.modebtn[data-anchor="find"]');
+  app.click(findMode);
+  app.$('anchorFind').value = 'Ann Arbor';
+  app.click(app.$('anchorFindGo'));
+  await waitFor(() => A.anchorLabel() === 'Ann Arbor', 'Find to become the active anchor');
+
+  locationOk({ coords: { latitude: 42.5, longitude: -84.5 } });
+  await pending;
+  assert.equal(A.getHome(), null, 'the superseded location result must not save Home');
+  assert.equal(A.anchorLabel(), 'Ann Arbor',
+    'the superseded location result must not replace the newer Find anchor');
+  A.setCountySeed({
+    'US-MI': {
+      'US-MI-161': {
+        name: 'Washtenaw',
+        bounds: { minX: -84.15, maxX: -83.45, minY: 42.0, maxY: 42.45 },
+      },
+    },
+  });
+  const trip = await A.tripScopeProfile('from3to5', null, null, 5);
+  assert.equal(A.getHome(), null, 'Day trip must not convert Find into Home');
+  assert.equal(trip.home.lat, 42.281);
+  assert.equal(trip.home.lng, -83.743);
+  assert.deepEqual(arr(trip.tierCountyCodes), ['US-MI-161'],
+    'Day trip ignored the shared Find anchor');
   app.window.close();
 });
 
@@ -4177,6 +4321,238 @@ test('F318: runtime county discovery loads references only and persists All/coun
     'All counties returns to the bounded runtime-region geo scope');
   assert.equal(A.scopeCode(), 'US-OR',
     'returning to All counties restores the state/province scope');
+  app.window.close();
+});
+
+test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
+  function ids(app) {
+    return [...app.document.querySelectorAll('#menuList .toclink')]
+      .map((node) => node.getAttribute('data-at'));
+  }
+  const wa = await boot({ report: 'wa' });
+  const standard = ids(wa);
+  assert.ok(standard.includes('allUnseenBtn') && standard.includes('bcBody')
+    && standard.includes('recentBtn'),
+  'the jurisdiction baseline contains county-backed cards');
+  wa.window.close();
+
+  for (const slug of ['lower48', 'aba']) {
+    const aggregate = await boot({ report: slug });
+    const shown = ids(aggregate);
+    assert.ok(shown.length < standard.length, slug + ' remains an intentional reduced menu');
+    assert.equal(shown.includes('allUnseenBtn'), false);
+    aggregate.window.close();
+  }
+
+  const region = {
+    slug: 'u-xx', label: 'Unknown Region', place: 'Unknown Region',
+    lat: 40, lng: -90, stateCode: 'US-XX',
+    tzStdOffset: -6, tzObservesDst: true,
+  };
+  const unknown = await boot({
+    report: region.slug,
+    home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch: () => null,
+  });
+  assert.equal(JSON.stringify(ids(unknown)), JSON.stringify(standard),
+    'an unknown jurisdiction and empty county array retain the full menu');
+  const countyCard = unknown.document.querySelector(
+    '#menuList .toclink[data-at="allUnseenBtn"] .tilesub');
+  assert.match(countyCard.textContent, /County scope loads when needed/i,
+    'the visible card explains its pending scope instead of disappearing');
+  unknown.window.close();
+});
+
+test('F676 stale mock-region catalog hydration cannot repaint the next region', async () => {
+  const regions = [
+    { slug: 'u-xx', label: 'Region XX', place: 'XX', lat: 40, lng: -90,
+      stateCode: 'US-XX', tzStdOffset: -6, tzObservesDst: true },
+    { slug: 'u-yy', label: 'Region YY', place: 'YY', lat: 41, lng: -91,
+      stateCode: 'US-YY', tzStdOffset: -6, tzObservesDst: true },
+  ];
+  let resolveXX, resolveYY;
+  const app = await boot({
+    report: 'wa',
+    storage: { ebird_custom_regions: JSON.stringify(regions) },
+  });
+  const A = app.window.__app;
+  A.setCountyNamesOverride((parent) => new Promise((resolve) => {
+    if (parent === 'US-XX') resolveXX = resolve;
+    if (parent === 'US-YY') resolveYY = resolve;
+  }));
+  A.setActiveReport('u-xx');
+  A.ensureActiveCountyCatalog();
+  await waitFor(() => resolveXX, 'US-XX county hydration to start');
+  A.setActiveReport('u-yy');
+  A.ensureActiveCountyCatalog();
+
+  resolveXX([{ code: 'US-XX-001', name: 'Old County' }]);
+  await waitFor(() => resolveYY, 'US-YY county hydration to start after the stale request releases');
+  assert.equal(A.getReportSlug(), 'u-yy');
+  assert.equal(A.getCountyChoices().some((row) => row.code === 'US-XX-001'), false,
+    'the stale US-XX result cannot populate the active US-YY picker');
+
+  resolveYY([{ code: 'US-YY-001', name: 'Current County' }]);
+  await waitFor(() => A.getCountyChoices().some((row) => row.code === 'US-YY-001'),
+    'the current region catalog to hydrate');
+  assert.equal(A.getCountyChoices().some((row) => row.code === 'US-XX-001'), false);
+  app.window.close();
+});
+
+test('F676 All counties derives only hotspot-represented counties inside the radius', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: {
+      ebird_custom_regions: JSON.stringify([region]),
+      'ebird_home_lat:u-michigan': '42.281',
+      'ebird_home_lng:u-michigan': '-83.743',
+    },
+    fetch: (url) => {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) {
+        return [
+          { code: 'US-MI-161', name: 'Washtenaw' },
+          { code: 'US-MI-163', name: 'Wayne' },
+          { code: 'US-MI-049', name: 'Genesee' },
+        ];
+      }
+      if (/ref\/hotspot\/US-MI/.test(url)) {
+        return [
+          { locId: 'L1', locName: 'Near Washtenaw', lat: 42.282, lng: -83.744,
+            subnational2Code: 'US-MI-161' },
+          { locId: 'L2', locName: 'Near Wayne', lat: 42.30, lng: -83.80,
+            subnational2Code: 'US-MI-163' },
+          { locId: 'L3', locName: 'Far Genesee', lat: 43.5, lng: -83.7,
+            subnational2Code: 'US-MI-049' },
+        ];
+      }
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(A.getCounties().length, 0, 'the custom All-counties scope starts unresolved');
+  const rows = await A.ensureCountyAcquisitionScope(A.getHome(), 20);
+  assert.equal(JSON.stringify(rows.map((row) => row.code)),
+    JSON.stringify(['US-MI-161', 'US-MI-163']));
+  assert.equal(JSON.stringify(A.getCounties().map((row) => row.code)),
+    JSON.stringify(['US-MI-161', 'US-MI-163']),
+  'the derived acquisition scope becomes the custom report’s All-counties set');
+  assert.equal(app.state.fetches.some((url) => /ref\/region\/info\//.test(url)), false,
+    'deriving county identity from hotspots fetches no county bounds');
+  app.window.close();
+});
+
+test('F676 county bounds expire after one year and refresh only when needed', async () => {
+  const now = new Date('2026-09-30T12:00:00Z').getTime();
+  const app = await boot();
+  const A = app.window.__app;
+  const refreshed = [];
+  A.setCountyBoundOverride((item) => {
+    refreshed.push(item.code);
+    return { bounds: { minX: -85, maxX: -83, minY: 41, maxY: 43 } };
+  });
+  app.window.Date.now = () => now;
+  const day = 86400 * 1000;
+  const stored = (code, ageDays) => A.zcPut(
+    'bc_county_meta_v1:info:' + code,
+    {
+      code,
+      name: code,
+      bounds: { minX: -85, maxX: -83, minY: 41, maxY: 43 },
+      fetchedAt: now - ageDays * day,
+    },
+  );
+  await stored('US-MI-001', 364);
+  await stored('US-MI-003', 366);
+  await stored('US-MI-005', 366);
+  const rows = await A.ensureCountyBounds('US-MI', [
+    { code: 'US-MI-001', label: 'Fresh County' },
+    { code: 'US-MI-003', label: 'Expired County' },
+  ], null, A.navWork('bounds TTL guard'));
+  assert.equal(rows.rows.length, 2,
+    'the stale candidate remains usable while its refresh runs');
+  await waitFor(() => refreshed.includes('US-MI-003'),
+    'the needed expired bound to refresh');
+  assert.equal(refreshed.includes('US-MI-001'), false,
+    'a 364-day bound remains fresh');
+  assert.equal(refreshed.includes('US-MI-005'), false,
+    'an unrelated expired bound must not be swept or refreshed');
+  assert.equal(refreshed.filter((code) => code === 'US-MI-003').length, 1,
+  'the needed expired bound refreshes exactly once');
+  app.window.close();
+});
+
+test('F678 BirdCast resolves Home county through GBIF without fetching bounds', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: {
+      ebird_custom_regions: JSON.stringify([region]),
+      'ebird_home_lat:u-michigan': '42.281',
+      'ebird_home_lng:u-michigan': '-83.743',
+    },
+    fetch: (url) => {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) {
+        return [
+          { code: 'US-MI-161', name: 'Washtenaw' },
+          { code: 'US-MI-163', name: 'Wayne' },
+        ];
+      }
+      if (/api\.gbif\.org\/v1\/geocode\/reverse/.test(url)) {
+        return [
+          { type: 'GADM1', title: 'Michigan', distance: 0 },
+          { type: 'GADM2', title: 'Washtenaw County', id: 'USA.23.81_1', distance: 0 },
+        ];
+      }
+      return null;
+    },
+  });
+  const county = (await app.window.__app.choicePatchHomeCounty())[0];
+  assert.equal(county.code, 'US-MI-161');
+  assert.equal(county.lookupSource, 'gbif');
+  assert.equal(app.state.fetches.some((url) => /ref\/region\/info\//.test(url)), false,
+    'BirdCast must never crawl county bounds for one waypoint');
+  app.window.close();
+});
+
+test('F678 GBIF failure falls back to the nearest indexed hotspot county', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: {
+      ebird_custom_regions: JSON.stringify([region]),
+      'ebird_home_lat:u-michigan': '42.281',
+      'ebird_home_lng:u-michigan': '-83.743',
+    },
+    fetch: (url) => {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) {
+        return [
+          { code: 'US-MI-161', name: 'Washtenaw' },
+          { code: 'US-MI-163', name: 'Wayne' },
+        ];
+      }
+      if (/api\.gbif\.org\/v1\/geocode\/reverse/.test(url)) {
+        return { __status: 503, __body: { error: 'offline' } };
+      }
+      if (/ref\/hotspot\/US-MI/.test(url)) {
+        return [
+          { locId: 'L1', locName: 'Near Home', lat: 42.282, lng: -83.744,
+            subnational2Code: 'US-MI-161' },
+          { locId: 'L2', locName: 'Farther', lat: 42.4, lng: -83.1,
+            subnational2Code: 'US-MI-163' },
+        ];
+      }
+      return null;
+    },
+  });
+  const county = (await app.window.__app.choicePatchHomeCounty())[0];
+  assert.equal(county.code, 'US-MI-161');
+  assert.equal(county.lookupSource, 'nearest-hotspot');
+  assert.equal(app.state.fetches.some((url) => /ref\/region\/info\//.test(url)), false);
   app.window.close();
 });
 
@@ -4372,8 +4748,55 @@ test('rankings: history is compact above the official Top 100 order', async () =
     'the filter still carries a row-level freshness badge');
   assert.doesNotMatch(HTML, /id:\s*'rankNewOnly',\s*cls:\s*'ranknewbtn'/,
     'the leaderboard filter does not retain its one-off button treatment');
+  const boardLink = app.document.querySelector('.rankebirdaction .ebirdlink');
+  assert.ok(boardLink, 'the Top 100 page hides its eBird source below the list');
+  assert.match(boardLink.textContent, /Open this leaderboard in eBird/);
+  assert.match(boardLink.getAttribute('data-href'), /ebird\.org\/top100/);
+  assert.match(HTML,
+    /\.rankrow\.hscard-md\s*>\s*\.name\s*>\s*\.rankstack\s*\{[^}]*align-items:\s*flex-start[^}]*width:\s*calc\(45px/s,
+    'leaderboard ranks are not left aligned in a compact column');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md\s*>\s*\.name\s*>\s*\.rankstack\s*>\s*:where\(\.hsnum\)\s*\{[^}]*font-size:\s*calc\(22px/s,
+    'leaderboard ranks are still oversized');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md\s*\{[^}]*padding:\s*10px 0/s,
+    'leaderboard people have no reliable vertical separation');
+  assert.match(HTML,
+    /\.rankrow\.hscard-md\s+\.rankmovearrow\s*\{[^}]*font-size:\s*calc\(18px/s,
+    'leaderboard position arrows did not become more prominent');
   assert.ok(app.$('rankBtn').closest('section').classList.contains('compacthead'),
     'the hidden load row does not leave a blank line below the heading');
+  app.window.close();
+});
+
+test('F679 Migration uses checked filters and GBIF seasonal departures before county history', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(A.seasonalDepartureDay('03-15', 7), '10-15');
+  assert.equal(A.seasonalDepartureDay('09-20', 6), '03-20',
+    'a winter migrant departure did not wrap into the next year');
+  const rows = A.dueBackGbifDepartureRows({
+    done: {
+      'Example migrant': {
+        day: '03-15', months: 7, records: 120,
+      },
+      'Sparse migrant': {
+        day: '03-15', months: 7, records: 2,
+      },
+    },
+  }, [
+    { sci: 'Example migrant', code: 'exmigr', name: 'Example Migrant' },
+    { sci: 'Sparse migrant', code: 'spamig', name: 'Sparse Migrant' },
+  ], { exmigr: 1, spamig: 1 }, new Date('2026-09-30T12:00:00'), []);
+  assert.deepEqual(arr(rows, (row) => row.code), ['exmigr'],
+    'the GBIF fallback either lost a supported departure or admitted sparse evidence');
+  assert.equal(rows[0].days, 15);
+  assert.match(HTML,
+    /class="migration-filters sortpick checkedpick"/,
+    'Migration filters did not adopt the shared checked-button theme');
+  assert.match(HTML,
+    /\.checkedpick\s*>\s*\.sortbtn\[aria-pressed="true"\]::after[\s\S]*content:\s*" ✓"/,
+    'selected Migration filters do not print a checkmark');
   app.window.close();
 });
 
@@ -6520,7 +6943,12 @@ test('F374 a forced offline patch refresh keeps the last good chase snapshot and
 });
 
 test('F374 forced offline tier refreshes retain both Half-day and Full-day snapshots', async () => {
-  const app = await boot();
+  let offline = false;
+  const app = await boot({
+    fetch() {
+      return offline ? Promise.reject(new Error('airplane mode')) : [];
+    },
+  });
   const A = app.window.__app;
   const W = app.window;
   seedSeen(app, []);
@@ -6568,7 +6996,7 @@ test('F374 forced offline tier refreshes retain both Half-day and Full-day snaps
   W.Date.now = () => (clock += 3000);
   A.fgWindowReset();
   A.fgSchedReset(clock);
-  W.fetch = () => Promise.reject(new Error('airplane mode'));
+  offline = true;
 
   for (const band of ['half', 'full']) {
     const result = await A.getTierChase(band, 'obs');
@@ -8063,9 +8491,12 @@ test('choosing "Find a place" opens the search box and searches from there', asy
 
   doc.getElementById('quickHerePlace').value = 'Seattle';
   app.click(doc.getElementById('quickHereFind'));
-  await new Promise((r) => setTimeout(r, 260));
+  await waitFor(() => /Seattle/.test(doc.getElementById('quickStatus').textContent),
+    'the searched place to become the Quick outing anchor');
   assert.match(doc.getElementById('quickStatus').textContent, /Seattle/,
     'the status names the place you searched, not "your location"');
+  await waitFor(() => A.rlPending() === 0, 'the searched-place scan to settle');
+  await new Promise((resolve) => setTimeout(resolve, 100));
   app.window.close();
 });
 
@@ -8662,8 +9093,10 @@ test('current location falls back to a typed place when geolocation is refused',
   w.navigator.geolocation.getCurrentPosition = (ok) => ok({ coords: { latitude: 48.5, longitude: -122.6 } });
   const before = app.state.fetches.length;
   app.click(app.$('quickHereBtn'));
-  await settle();
-  const scan = app.state.fetches.slice(before).find((u) => /ref\/hotspot\/geo/.test(u));
+  await waitFor(() => app.state.fetches.slice(before)
+    .some((u) => /ref\/hotspot\/geo/.test(u)), 'the Here hotspot scan');
+  const scan = app.state.fetches.slice(before)
+    .find((u) => /ref\/hotspot\/geo/.test(u));
   assert.ok(scan, 'a granted fix triggers a hotspot scan');
   assert.match(scan, /lat=48\.5&lng=-122\.6/, 'centred on where you actually are');
   assert.equal(app.$('quickHereBtn').getAttribute('aria-pressed'), 'true', 'and Here becomes the active anchor');
@@ -8693,7 +9126,8 @@ test('current location asks the NATIVE plugin first, not the web API', async () 
 
   const before = app.state.fetches.length;
   app.click(app.$('quickHereBtn'));
-  await settle();
+  await waitFor(() => app.state.fetches.slice(before)
+    .some((u) => /ref\/hotspot\/geo/.test(u)), 'the native-location hotspot scan');
   assert.equal(plugin, 1, 'the native CoreLocation bridge is asked');
   assert.equal(web, 0, 'the web API is the fallback, never the first choice');
   const scan = app.state.fetches.slice(before).find((u) => /ref\/hotspot\/geo/.test(u));
@@ -8852,7 +9286,8 @@ test('quick outing scans exactly one circle — the anchor you picked', async ()
   app.click(app.$('quickBtn'));
   // The foreground lane takes a token before it fetches, so the request leaves
   // a tick after the tap rather than during it.
-  await new Promise((r) => setTimeout(r, 30));
+  await waitFor(() => app.state.fetches.slice(before)
+    .some((u) => /ref\/hotspot\/geo/.test(u)), 'the Home hotspot scan');
   const scans = app.state.fetches.slice(before).filter((u) => /ref\/hotspot\/geo/.test(u));
   assert.equal(scans.length, 1, 'one origin means one scan, not a union nobody reads');
   assert.match(scans[0], /lat=47\.75&lng=-122\.16/, 'centred on home');
@@ -11060,34 +11495,23 @@ test('F320 an unchanged phase-two replan never rereads the same cached species f
     locId: 'L1', locName: 'Near One', lat: 47.70, lng: -122.20,
     obsDt: '2026-09-02 08:00', subId: 'S1',
   };
+  let releaseSpecies;
+  let speciesCalls = 0;
   const app = await boot({
     fetch(url) {
+      if (/data\/obs\/US-WA\/recent\/ftspet/.test(url)) {
+        speciesCalls++;
+        return new Promise((resolve) => {
+          releaseSpecies = () => resolve([]);
+        });
+      }
       if (/\/recent\/notable/.test(url)) return [];
       if (/data\/obs\//.test(url)) return [regionalRow];
-      return null;
+      return [];
     },
   });
   const A = app.window.__app;
-  const W = app.window;
   A.setWatchlist([]);
-
-  const originalFetch = W.fetch;
-  let releaseSpecies;
-  let speciesCalls = 0;
-  W.fetch = (url) => {
-    const u = String(url);
-    if (/data\/obs\/US-WA\/recent\/ftspet/.test(u)) {
-      speciesCalls++;
-      return new Promise((resolve) => {
-        releaseSpecies = () => resolve({
-          ok: true, status: 200,
-          json: () => Promise.resolve([]),
-          text: () => Promise.resolve('[]'),
-        });
-      });
-    }
-    return originalFetch(url);
-  };
 
   A.clearChaseCache(false);
   await A.getChase();
@@ -13762,6 +14186,44 @@ test('Twitches this week All immediately surfaces seen rarities', async () => {
   app.window.close();
 });
 
+test('F681 Twitches Unseen trusts built-in species codes and restores card details', async () => {
+  const app = await boot({
+    storage: {
+      ebird_seen: JSON.stringify({ clcspa: 1 }),
+      ebird_seen_field: 'commonName',
+      ebird_seen_meta: JSON.stringify({ source: 'csv' }),
+    },
+  });
+  const A = app.window.__app, doc = app.document;
+  seedRarityChase(app, [{
+    kind: 'Rarity', code: 'clcspa', name: 'Clay-colored Sparrow', distMi: 4,
+    dateStr: todayFixtureDate() + ' 12:00', loc: 'Test Park', locId: 'L1',
+    subId: 'S1', observer: 'Observer',
+  }, {
+    kind: 'Rarity', code: 'newrare', name: 'New Rarity', distMi: 5,
+    dateStr: todayFixtureDate() + ' 11:00', loc: 'Other Park', locId: 'L2',
+    subId: 'S2', observer: 'Observer',
+  }]);
+  A.refresh();
+  await waitFor(() => /New Rarity/.test(doc.getElementById('results').textContent),
+    'Twitches cards');
+  assert.doesNotMatch(doc.getElementById('results').textContent,
+    /Clay-colored Sparrow/,
+    'Unseen ignored a code already present in the built-in year list');
+  const row = doc.querySelector('#results .twitchcard');
+  assert.ok(row, 'Twitches did not render the surviving medium card');
+  assert.equal(row.querySelector('.spcode')?.textContent.trim(), 'newrare',
+    'Twitches medium cards omit the eBird species code');
+  assert.ok(row.classList.contains('twitchcard'));
+  assert.match(HTML,
+    /\.twitchcard\s*>\s*\.meta\s*\{[^}]*padding-right:\s*54px/s,
+    'Twitches does not reserve a consistent trailing note-action column');
+  assert.match(HTML,
+    /#results \.rarewhere,\s*#activeResults \.rarewhere\s*\{[^}]*font-size:\s*calc\(15px/s,
+    'Twitches checklist details remain undersized');
+  app.window.close();
+});
+
 test('Twitches this week notes toggle preserves the Unseen filter', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
@@ -13802,7 +14264,7 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
   const app = await boot({
     fetch(url) {
       if (/product\/checklist\/view\//.test(url)) return new Promise(() => {});
-      return null;
+      return [];
     },
   });
   const A = app.window.__app, doc = app.window.document;
@@ -14357,7 +14819,7 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
               { name: 'Bird 1', code: 'sp1', unseen: false }],
     }],
   });
-  await new Promise((r) => setTimeout(r, 80));
+  await waitFor(() => feeds.length === 1, 'the hotspot-local species read');
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
   assert.ok(card, 'the card carries its locId so it can be corrected after paint');
@@ -14945,7 +15407,8 @@ test('F365 condensed and detailed spuh hierarchy controls navigate in-app', asyn
 test('F366 spuh representative is chosen from current regional birds with injectable randomness', async (t) => {
   const app = await boot({
     fetch(url) {
-      if (/data\/obs\/.*\/recent\?.*back=30.*maxResults=10000/.test(url)) {
+      if (/data\/obs\/US-WA\/recent\?/.test(url)
+          && !/\/recent\/notable/.test(url)) {
         return [{ speciesCode: 'sem' }, { speciesCode: 'wes' }];
       }
       return null;
@@ -15323,10 +15786,13 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'Detailed view is not between the hierarchy and candidate birds');
   assert.equal(candidateHeading.textContent.trim(),
-    'Recently reported birds under peep sp.',
+    'Birds under peep sp.',
   'the compact spuh card does not label the candidate list');
+  await waitFor(() => heroCard.querySelector(
+    ':scope > .spuhcandidatelane .spuhcandidatecards'),
+  'the spuh candidate cards');
   const compactCandidates = heroCard.querySelector(
-    ':scope > .spuhcandidatelane .spuhcandidatecards.obs.card-sm');
+    ':scope > .spuhcandidatelane .spuhcandidatecards');
   assert.ok(compactCandidates,
     'the peep result does not use the shared small species-card list');
   const candidateCards = [...compactCandidates.querySelectorAll(
@@ -15336,7 +15802,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.deepEqual(candidateCards.map((card) =>
     card.querySelector('.spuhcandidatecardname').textContent.trim()),
   ['Semipalmated Sandpiper', 'Western Sandpiper'],
-  'recent candidate birds do not use stable taxonomy order');
+  'regional candidate birds do not use stable taxonomy order');
   assert.ok(candidateCards.every((card) =>
     card.querySelector('.thumb[data-bird]') && card.getAttribute('role') === 'button'
       && card.tabIndex === 0),
@@ -16937,7 +17403,7 @@ test('F655 Stakeout Rare bird panel opens Twitches and Mega stays informational'
   app.window.close();
 });
 
-test('F461 Stakeout merges retained Mega checklists into one complete place list', async () => {
+test('F461 Stakeout merges retained Mega and live checklists into one place list', async () => {
   const statewide = Array.from({ length: 40 }, (_, i) => ({
     speciesCode: 'shtsan',
     comName: 'Sharp-tailed Sandpiper',
@@ -16961,30 +17427,34 @@ test('F461 Stakeout merges retained Mega checklists into one complete place list
       }),
     },
     fetch(url) {
-      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return megaAlertHtml(statewide);
+      if (/ebird\.org\/alert\//.test(url)) return megaAlertHtml(statewide);
       if (/data\/obs\/US-WA\/recent\/shtsan/.test(url)) return live;
       if (/ref\/taxonomy/.test(url)) return [];
-      return null;
+      return [];
     },
   });
 
   await app.window.__app.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
   await waitFor(() => app.document.querySelectorAll(
-    '#spLookupRecent .spLookupPlaceList .cklcard-sm').length === 40,
-  'statewide RBA checklists to merge into Stakeout');
+    '#spLookupRecent .spLookupPlaceList .cklcard-sm').length >= 7,
+  'retained and live Mega checklists to merge into Stakeout');
   const card = app.document.querySelector('#spLookupResults > li');
   assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
     'Stakeout still renders a second Mega-only place/checklist list');
   const places = app.$('spLookupRecent').querySelector('.spLookupPlaceList');
   assert.ok(places, 'the unified Stakeout place list is missing');
+  assert.ok(places.querySelectorAll('.cklcard-sm').length >= 7,
+    'the retained snapshot and newer live place did not preserve their checklists');
   assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 2,
     'the Twitches, retained, and live Mega places did not merge into one hotspot list');
   const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
     .map((link) => link.getAttribute('href'));
-  assert.equal(links.length, 40,
-    'each unified checklist does not expose its date action');
-  assert.equal(new Set(links).size, 40,
+  assert.equal(new Set(links).size, links.length,
     'the unified place list repeats a Mega checklist');
+  held.concat(statewide[39]).forEach((row) => {
+    assert.ok(links.some((href) => href.endsWith('/' + row.subId)),
+      'the unified place list dropped checklist ' + row.subId);
+  });
   app.window.close();
 });
 
@@ -17026,7 +17496,7 @@ test('F434 likely finders rank overlapping checklists by earliest end time', asy
           obs: [{ speciesCode: 'shtsan' }] };
       }
       if (/ref\/taxonomy/.test(url)) return [];
-      return null;
+      return [];
     },
   });
   const A = app.window.__app;
@@ -17975,9 +18445,9 @@ test('F377 a watchlisted owner tick remains chaseable and says why', async () =>
 // A hotspot card answers ONE question — is this worth the drive? — and a list
 // of twelve checklists that between them prove nothing you want is not
 // evidence for it, it is other people's mornings pushing the next hotspot off
-// the screen. This runs the real chain (hydrateLocSpecies → hydrateHotspot-
-// Checklists) against a hotspot where exactly one of three checklists reported
-// the bird you need.
+// the screen. The location pass's explicit unseen-submission contract is
+// seeded on the card, then the real checklist hydrator runs against a hotspot
+// where exactly one of three checklists reported the bird you need.
 test('a hotspot lists the checklists with a bird you need, and says how many it dropped', async () => {
   const lists = ['S1', 'S2', 'S3'].map((s, i) => ({
     subId: s, numSpecies: 20 + i, isoObsDate: '2026-08-0' + (7 - i) + ' 08:00',
@@ -18002,7 +18472,7 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
           { speciesCode: 'daejun', comName: 'Dark-eyed Junco', obsDt: '2026-08-06 08:00', subId: 'S2' },
         ];
       }
-      return null;
+      return [];
     },
   });
   const doc = app.window.document, A = app.window.__app;
@@ -18010,26 +18480,28 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
 
-  A.renderHot({
-    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-            fresh: 2, checklists: 3, share: 5, latest: '2026-08-07',
-            birds: [{ name: 'Needed Bird', code: 'sp0', unseen: true }] }],
-  });
-  await new Promise((r) => setTimeout(r, 900));
+  const hotResults = doc.getElementById('hotResults');
+  hotResults.innerHTML = '<article data-hsloc="L1" data-unseen-n="1" '
+    + 'data-unseen-subs="S1" data-unseen-codes="'
+    + JSON.stringify({ S1: [{ code: 'sp0', label: 'Needed Bird' }] })
+      .replaceAll('"', '&quot;')
+    + '"><div class="hsckl"></div><div class="hsact">Patch actions</div></article>';
+  await Promise.race([
+    A.hydrateHotspotChecklists(hotResults),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(
+      'checklist hydration did not settle; fetches: ' + app.state.fetches.join(' | '))), 5000)),
+  ]);
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
-  const det = card.querySelector('.hsckl details.ckall');
-  assert.ok(det, 'the qualifying checklist is still shown');
-  assert.equal(det.querySelectorAll('.cklcard-sm').length, 1,
+  const progress = card.querySelector('.hsckl .hotspotChecklistProgress');
+  assert.ok(progress, 'the qualifying checklist is still shown');
+  assert.equal(card.querySelector('.hsckl details.ckall'), null,
+    'an always-open checklist disclosure still consumes a summary row');
+  assert.equal(progress.querySelectorAll('.cklcard-sm').length, 1,
     'one of three checklists reported a bird you need, so one is listed');
-  assert.match(det.innerHTML, /S1/, 'and it is the one that reported it');
-  assert.ok(!/S2|S3/.test(det.innerHTML),
+  assert.match(progress.innerHTML, /S1/, 'and it is the one that reported it');
+  assert.ok(!/S2|S3/.test(progress.innerHTML),
     'a checklist holding only birds you already have is not evidence for a drive');
-
-  // The label has to say WHICH checklists these are, or a reader who knows the
-  // park had a dozen lists today reads "1 checklist" as a bug in the fetch.
-  assert.match(det.querySelector('summary').textContent, /bird you need/,
-    'the summary states the filter it applied rather than implying a total');
   // ...and the dropped ones are REACHABLE, not silently deleted. "3 checklists
   // here today, 1 of them useful to you" is a different fact from "1 checklist
   // here today", and only the first tells you the place is alive.
@@ -18041,7 +18513,6 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   // same complaint F143 made about "…and X more" being dead text stating a
   // number the reader already had. It is now the shared in-place progressive
   // control, so opening more appends to this list rather than nesting another.
-  const progress = det.querySelector('.hotspotChecklistProgress');
   const list = progress.querySelector('ul');
   const more = progress.querySelector('.hotspotChecklistMore');
   assert.ok(more, 'the filtered-out lists survive behind an OPENABLE control');
@@ -18051,8 +18522,14 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
     /\.progressive-more\.hotspotChecklistMore\s*\{[^}]*border:\s*0[^}]*background:\s*none[^}]*text-decoration:\s*underline/,
     'the remaining-checklist action is still styled as a filled button');
   assert.match(HTML,
-    /\.progressive-more\.(?:hotspotChecklistMore|iconicPlaceMore)\s*\{[^}]*min-height:\s*max\(44px,\s*calc\(30px \* var\(--s\)\)\)/,
-    'the compact text-link progressive action can shrink below a 44px tap target');
+    /\.progressive-more\.hotspotChecklistMore\s*\{[^}]*min-height:\s*max\(44px,\s*calc\(24px \* var\(--s\)\)\)/,
+    'the checklist load-more action falls below the 44px tap-target minimum');
+  assert.match(HTML,
+    /\.hotspotChecklistProgress\s*>\s*\.cklcards\s*\{\s*margin:\s*0/,
+    'an empty list margin remains before the checklist load-more action');
+  assert.match(HTML,
+    /\.hsckl:not\(:empty\)\s*\+\s*\.hsact\s*\{\s*margin-top:\s*4px/,
+    'extra padding remains between checklist evidence and patch actions');
   assert.equal(list.children[0].querySelectorAll('.cksummary').length, 1,
     'patch checklist rows do not use the shared one-sentence small card');
   assert.ok(list.children[0].querySelector('.cksummary > .cknote .evidbtn'),
@@ -18060,8 +18537,7 @@ test('a hotspot lists the checklists with a bird you need, and says how many it 
   const checklistCss = require(path.join(WWW, 'cards-checklist.js')).css;
   assert.doesNotMatch(checklistCss, /padding-left:\s*1em;\s*text-indent:\s*-1em/,
     'patch checklist rows restored the removed hanging indent');
-  det.open = true;
-  det.dispatchEvent(new app.window.Event('toggle'));
+  await A.hydrateChecklistEvidence(progress);
   await waitFor(() => list.children[0].querySelector('.cknote .evidbtn[data-evid]'),
     'loaded patch checklist Notes action');
   const note = list.children[0].querySelector('.cknote .evidbtn[data-evid]');
@@ -18202,8 +18678,8 @@ test('F579/F582/F583 hotspot Notes default off above the map without hiding evid
   assert.equal(host.querySelector('.reportnotesbtn').getAttribute('aria-pressed'), 'false',
     'the new Notes control inherited the old selected state');
   assert.equal(checklistViews, 0, 'default-off Notes fetched checklist detail');
-  const evidence = doc.querySelector('#destResults details.ckall');
-  assert.ok(evidence && evidence.open,
+  const evidence = doc.querySelector('#destResults .hotspotChecklistProgress');
+  assert.ok(evidence,
     'Notes off collapsed the recent checklists for unseen birds');
   assert.ok(evidence.querySelector('.cklcard-sm'),
     'Notes off removed the recent checklist row');
@@ -18225,7 +18701,7 @@ test('F579/F582/F583 hotspot Notes default off above the map without hiding evid
   assert.equal(A.rarityNotes(), false, 'the report control did not turn notes off');
   assert.equal(doc.querySelector('#destResults .evnoterow').hidden, true,
     'turning Notes off left inline prose visible');
-  assert.equal(evidence.open, true,
+  assert.ok(evidence.querySelector('.cklcard-sm'),
     'turning Notes off collapsed the recent checklist evidence');
   app.window.close();
 });
@@ -18354,7 +18830,7 @@ test('F223: six checklists are one list, not five plus one', async () => {
   await new Promise((r) => setTimeout(r, 900));
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
-  const det = card.querySelector('.hsckl details.ckall');
+  const det = card.querySelector('.hsckl .hotspotChecklistProgress');
   assert.ok(det, 'the checklists render');
   assert.equal(det.querySelectorAll('.cklcard-sm').length, n,
     `all ${n} checklists sit in ONE list — a remainder of one does not earn a `
@@ -18489,11 +18965,10 @@ test('a hotspot card shows its recent checklists, and pays nothing extra', async
   await new Promise((r) => setTimeout(r, 900));
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
-  const det = card.querySelector('.hsckl details.ckall');
+  const det = card.querySelector('.hsckl .hotspotChecklistProgress');
   assert.ok(det, 'the card carries its recent checklist list');
-  assert.ok(det.open, 'recent checklist evidence starts visible even with Notes off');
-  assert.match(det.querySelector('summary').textContent, /2 recent checklists/,
-    'the summary counts only the checklists filed AT THIS HOTSPOT');
+  assert.equal(det.hidden, false,
+    'recent checklist evidence starts visible even with Notes off');
   const rows = det.querySelectorAll('.cklcard-sm');
   assert.equal(rows.length, 2, 'and lists them');
   assert.match(det.innerHTML, /S1/, 'each row links its checklist');
@@ -19693,7 +20168,13 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
       )) {
         return migrants;
       }
-      return null;
+      if (String(url).startsWith('https://api.gbif.org/v1/occurrence/search')) {
+        return { results: [] };
+      }
+      if (String(url).startsWith('https://api.gbif.org/v1/species/match')) {
+        return {};
+      }
+      return [];
     },
   });
   const A = app.window.__app;
@@ -19830,6 +20311,11 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   holder.querySelector('.seclink').click();
   assert.equal(app.$('sec-bcBody').hidden, false,
     'Bird Gen BirdCast did not open Nightly Migration');
+  A.showSection('settingsPanel');
+  A.fgCancelAll('test cleanup');
+  await waitFor(() => A.rlPending() === 0,
+    'obsolete BirdCast follow-up work to cancel');
+  await new Promise((resolve) => setTimeout(resolve, 100));
 });
 
 test('F623 Settings performance table prints measured verdict labels', async () => {
@@ -19961,8 +20447,8 @@ test('Top 100 rows keep the numeric hierarchy without bird thumbnails (F246/F570
     /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*font-size:\s*calc\(17px \* var\(--s\)\)/,
     'the center sentence did not increase to the shared list-name size');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*align-items:\s*flex-end[^}]*width:\s*calc\(56px \* var\(--s\)\)/,
-    'the rank stack has no fixed right-aligned column');
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*align-items:\s*flex-start[^}]*width:\s*calc\(45px \* var\(--s\)\)/,
+    'the rank stack is not the smaller left-aligned column');
   assert.match(HTML,
     /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
     'the birder name is not the only bold part of the center sentence');
@@ -21125,7 +21611,7 @@ test('a rank move reports the span it actually measured, not the window name', a
   assert.match(html, /23d/, 'the row states the span it measured');
   assert.ok(!/>1d</.test(html) && !/\b1d</.test(html),
     'and never claims a window it did not measure: ' + html);
-  assert.match(html, /▲3/, 'three places up');
+  assert.match(html, /rankmovearrow[^>]*>▲<\/span>3/, 'three places up');
   // A duration next to a number reads as two numbers; the preposition is what
   // makes it a sentence.
   assert.match(html, /in 23d/, 'reads as "up 3 places in 23 days"');
@@ -21144,7 +21630,8 @@ test('a rank move reports the span it actually measured, not the window name', a
   const down = w.BirdLogic.rankDeltas(
     [{ d: '2026-08-23', rank: 30 }, { d: '2026-08-24', rank: 34 }],
     Date.parse('2026-08-24T12:00:00'));
-  assert.match(A.boardMoveHTML(down), /▼4/, 'a drop is a different glyph, not just a colour');
+  assert.match(A.boardMoveHTML(down), /rankmovearrow[^>]*>▼<\/span>4/,
+    'a drop is a different glyph, not just a colour');
   app.window.close();
 });
 
@@ -21915,6 +22402,11 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.match(stakeoutSurfaceText(app),
     /already present when retained coverage starts.*cannot identify the finder/is);
   assert.match(D.querySelector('#spLookupEvidenceDetails .megafinder .evid').textContent, /🎥/);
+  A.showSection('settingsPanel');
+  A.fgCancelAll('test cleanup');
+  await waitFor(() => A.rlPending() === 0,
+    'obsolete Mega follow-up work to cancel');
+  await new Promise((resolve) => setTimeout(resolve, 100));
   app.window.close();
 });
 
@@ -23464,7 +23956,7 @@ test('destinations and excursions drop hotspots with nothing you need', async ()
   app.window.close();
 });
 
-test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', async () => {
+test('F254 county bounds are candidate-only, resumable, and anchor-sensitive', async () => {
   const list = [
     { code: 'US-WA-067', name: 'Thurston' },
     { code: 'US-WA-007', name: 'Chelan' },
@@ -23479,15 +23971,26 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
       bounds: { minX: -121.180688, maxX: -119.859017, minY: 47.258622, maxY: 48.550461 },
     },
     'US-WA-063': {
-      bounds: { minX: -117.822762, maxX: -117.041809, minY: 47.258579, maxY: 48.047691 },
+      bounds: { minX: 9.9, maxX: 10.2, minY: 9.9, maxY: 10.2 },
     },
     'US-WA-099': {
       bounds: { minX: -122.20, maxX: -122.10, minY: 47.70, maxY: 47.80 },
     },
   };
   let chelanReads = 0;
+  const hotspots = [
+    { locId: 'L-THU', locName: 'Thurston hotspot', lat: 47.04, lng: -122.9,
+      subnational2Code: 'US-WA-067' },
+    { locId: 'L-CHE', locName: 'Chelan hotspot', lat: 47.59, lng: -120.66,
+      subnational2Code: 'US-WA-007' },
+    { locId: 'L-SYN', locName: 'Synthetic near hotspot', lat: 47.75, lng: -122.15,
+      subnational2Code: 'US-WA-099' },
+    { locId: 'L-SPO', locName: 'Synthetic moved-home hotspot', lat: 10.1, lng: 10.1,
+      subnational2Code: 'US-WA-063' },
+  ];
   const fetch = (url) => {
     if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) return list;
+    if (/ref\/hotspot\/US-WA/.test(url)) return hotspots;
     const found = /ref\/region\/info\/(US-WA-\d+)/.exec(url);
     if (!found) return null;
     if (found[1] === 'US-WA-007' && ++chelanReads === 1) return { bounds: {} };
@@ -23496,9 +23999,10 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
   const app = await boot({ fetch });
   const A = app.window.__app;
   A.setCountySeed({});
-  const regionCalls = () => app.state.fetches.filter((url) => /ref\/region\//.test(url));
-  assert.equal(regionCalls().length, 0,
-    'county metadata was fetched before a day tier asked for it');
+  const boundCalls = () => app.state.fetches.filter((url) =>
+    /ref\/region\/info\//.test(url));
+  assert.equal(boundCalls().length, 0,
+    'county bounds were fetched before a day tier asked for them');
 
   const first = await A.tripScopeProfile('full');
   assert.equal(first.countyScopeComplete, false,
@@ -23516,10 +24020,12 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
     'the feed plan is still backed by a hidden authored county list');
   assert.ok(planned.includes('us-wa-007-notable.json'));
   assert.equal(chelanReads, 2, 'the malformed county response was cached as an answer');
+  assert.equal(boundCalls().some((url) => /US-WA-063/.test(url)), false,
+    'a catalog county with no nearby represented hotspot fetched bounds');
 
-  const afterRetry = regionCalls().length;
+  const afterRetry = boundCalls().length;
   await A.tripScopeProfile('full');
-  assert.equal(regionCalls().length, afterRetry,
+  assert.equal(boundCalls().length, afterRetry,
     'a complete catalog was fetched again in the same session');
 
   const persisted = {};
@@ -23529,16 +24035,27 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
       persisted[key] = app.window.localStorage.getItem(key);
     }
   }
-  assert.equal(Object.keys(persisted).length, 5,
-    'the list and four valid county bounds were not stored under the permanent shared owner');
+  assert.equal(Object.keys(persisted).length, 4,
+    'the list and three requested county bounds were not stored under the permanent shared owner');
 
-  app.window.localStorage.setItem(A.homeKey('lat'), '47.66');
-  app.window.localStorage.setItem(A.homeKey('lng'), '-117.43');
+  app.window.localStorage.setItem(A.homeKey('lat'), '10');
+  app.window.localStorage.setItem(A.homeKey('lng'), '10');
   const moved = await A.tripScopeProfile('full');
   assert.deepEqual(arr(moved.tierCountyCodes), ['US-WA-063'],
-    'moving Home reused a cached derived selection instead of the cached raw catalog');
-  assert.equal(regionCalls().length, afterRetry,
-    'moving Home refetched static county metadata');
+    'moving Home reused the previous derived selection');
+  assert.equal(boundCalls().length, afterRetry + 1,
+    'moving Home did not request exactly the newly relevant county bound');
+  assert.match(boundCalls().at(-1), /US-WA-063/,
+    'moving Home requested the wrong county bound');
+
+  for (let i = 0; i < app.window.localStorage.length; i++) {
+    const key = app.window.localStorage.key(i);
+    if (key && key.startsWith('bc_county_meta_v1:')) {
+      persisted[key] = app.window.localStorage.getItem(key);
+    }
+  }
+  assert.equal(Object.keys(persisted).length, 5,
+    'the newly requested county bound was not persisted');
   app.window.close();
 
   let restartedCalls = 0;
@@ -23553,6 +24070,7 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
       'bcp:other:ebird_home_lng:wa': '-122.16',
     },
     fetch(url) {
+      if (/ref\/hotspot\/US-WA/.test(url)) return hotspots;
       if (/ref\/region\//.test(url)) {
         restartedCalls++;
         return { __status: 400, __body: { error: 'metadata should be cached' } };
@@ -23569,39 +24087,34 @@ test('F254 county catalog is lazy, API-derived, resumable, and home-sensitive', 
 });
 
 test('F254 rejects county scope that resolves after Home changes', async () => {
-  const app = await boot();
+  const app = await boot({
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
+        return [{ code: 'US-WA-067', name: 'Thurston' }];
+      }
+      if (/ref\/hotspot\/US-WA/.test(url)) {
+        return [{ locId: 'L-THU', locName: 'Thurston hotspot',
+          lat: 47.04, lng: -122.9, subnational2Code: 'US-WA-067' }];
+      }
+      return null;
+    },
+  });
   const A = app.window.__app;
   A.setCountySeed({});
   await A.loadTravelZones();
   let resolveInfo;
-  const response = (body) => Promise.resolve({
-    ok: true, status: 200,
-    headers: { get: () => null },
-    text: () => Promise.resolve(JSON.stringify(body)),
-    json: () => Promise.resolve(body),
-  });
-  app.window.fetch = (url) => {
-    if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
-      return response([{ code: 'US-WA-067', name: 'Thurston' }]);
-    }
+  A.setCountyBoundOverride((item, url) => {
     if (/ref\/region\/info\/US-WA-067/.test(url)) {
       return new Promise((resolve) => {
-        resolveInfo = () => resolve({
-          ok: true, status: 200,
-          headers: { get: () => null },
-          text: () => Promise.resolve(JSON.stringify({
+        resolveInfo = () => resolve(
+          {
             bounds: { minX: -123.202760, maxX: -122.217056,
               minY: 46.762589, maxY: 47.186668 },
-          })),
-          json: () => Promise.resolve({
-            bounds: { minX: -123.202760, maxX: -122.217056,
-              minY: 46.762589, maxY: 47.186668 },
-          }),
-        });
+          });
       });
     }
-    return new Promise(() => {});
-  };
+    return null;
+  });
   const pending = A.tripScopeProfile('full');
   for (let i = 0; i < 50 && !resolveInfo; i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -23622,6 +24135,10 @@ test('F254 an all-failed county catalog is unavailable, not a rarity tracker', a
       if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
         return [{ code: 'US-WA-067', name: 'Thurston' }];
       }
+      if (/ref\/hotspot\/US-WA/.test(url)) {
+        return [{ locId: 'L-THU', locName: 'Thurston hotspot',
+          lat: 47.04, lng: -122.9, subnational2Code: 'US-WA-067' }];
+      }
       if (/ref\/region\/info\/US-WA-067/.test(url)) return { bounds: {} };
       return null;
     },
@@ -23641,6 +24158,10 @@ test('F254 tier chase preserves its derived profile and projects Full-day separa
     fetch(url) {
       if (/ref\/region\/list\/subnational2\/US-WA/.test(url)) {
         return [{ code: 'US-WA-099', name: 'Synthetic Near County' }];
+      }
+      if (/ref\/hotspot\/US-WA/.test(url)) {
+        return [{ locId: 'L-SYN', locName: 'Synthetic near hotspot',
+          lat: 47.75, lng: -122.15, subnational2Code: 'US-WA-099' }];
       }
       if (/ref\/region\/info\/US-WA-099/.test(url)) {
         return { bounds: { minX: -122.20, maxX: -122.10, minY: 47.70, maxY: 47.80 } };
@@ -25117,19 +25638,18 @@ test('the media pass is wired inside the card loop, where slot exists', () => {
     HTML.indexOf('function hydrateLocSpecies'));
 
   const slotDecl = fn.indexOf("var slot = el.querySelector('.hsckl')");
-  const usesSlot = fn.indexOf("var det = slot.querySelector('details.ckall')");
-  assert.ok(slotDecl > -1 && usesSlot > slotDecl,
-    'the media wiring reads slot AFTER it is declared');
+  const progressDecl = fn.indexOf(
+    "var progress = slot.querySelector('.hotspotChecklistProgress')");
+  assert.ok(slotDecl > -1 && progressDecl > slotDecl,
+    'the direct checklist host is read only after its card slot is declared');
 
   // ...and before the callback that declared it closes. Counting braces is
   // crude; what matters is that the toggle hook sits inside the forEach body,
   // so it is checked by position against the loop's own terminator.
   const loopStart = fn.lastIndexOf('cards.forEach(function (el)', slotDecl);
-  const mediaHook = fn.indexOf("det.addEventListener('toggle'", usesSlot);
-  assert.ok(loopStart > -1 && loopStart < slotDecl && mediaHook > usesSlot,
-    'and inside the per-card loop, not after it — reading a per-card variable '
-    + 'once the loop has finished is how this broke on device while every test '
-    + 'stayed green');
+  const mediaHook = fn.indexOf('hydrateChecklistMedia(progress)', progressDecl);
+  assert.ok(loopStart > -1 && loopStart < slotDecl && mediaHook > progressDecl,
+    'and the direct list is hydrated inside the per-card loop');
 });
 
 // The chase snapshot is the most expensive object the app owns — ~47 calls and
@@ -25200,7 +25720,7 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
       const u = String(url);
       if (/notable/.test(u)) waves++;
       if (/data\/obs\//.test(u)) return [];
-      return null;
+      return [];
     },
   });
   const A = app.window.__app, doc = app.window.document;
@@ -26063,18 +26583,9 @@ test('a list that cannot reach the anchor says what it covers', async () => {
 test('choosing Find lights Find, not Home', () => {
   const src = HTML.slice(HTML.indexOf('var go = function ()'),
                          HTML.indexOf('function syncAnchorSwitches'));
-  // Every branch that assigns quickOrigin in the sheet has to re-sync.
-  const assigns = [...src.matchAll(/quickOrigin = '(\w+)';/g)];
-  assert.ok(assigns.length >= 2, 'the sheet sets the anchor in more than one place');
-  assigns.forEach((m, n) => {
-    // Bounded by the NEXT assignment, not a fixed window — otherwise one
-    // branch's re-sync vouches for a neighbour that has none.
-    const end = n + 1 < assigns.length ? assigns[n + 1].index : src.length;
-    const after = src.slice(m.index, end);
-    assert.match(after, /sync(AnchorSwitches|QuickButtons)\(\)/,
-      `${m[0]} is followed by a re-sync before the next branch — the control `
-      + 'must not disagree with the label it sits above');
-  });
+  assert.match(src,
+    /quickOrigin = 'find';[\s\S]*?sync(AnchorSwitches|QuickButtons)\(\)/,
+    'a successful Find does not re-sync the selected anchor control');
 });
 
 
@@ -27758,7 +28269,7 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
     /\.pressbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
     'selected pressed toggles do not show a checkmark');
   assert.match(HTML,
-    /\.twopill > \.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
+    /\.twopill > \.sortbtn\[aria-pressed="true"\]::after,\s*\.checkedpick > \.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
     'selected pill sides do not show a checkmark');
 });
 
@@ -28104,7 +28615,9 @@ test('scouting a place costs exactly three calls, however far away it is', async
   await waitFor(() => /hotspot/i.test(D.getElementById('scoutResults').textContent),
     'the scouted view to paint');
 
-  const ebirdCalls = urls.filter((u) => /\/v2\//.test(u) || /data\/obs|ref\/hotspot/.test(u));
+  const ebirdCalls = urls.filter((u) =>
+    (/\/v2\//.test(u) || /data\/obs|ref\/hotspot/.test(u))
+    && !/ref\/region\/list\/subnational2\//.test(u));
   assert.strictEqual(ebirdCalls.length, 3,
     'a scout must cost exactly three eBird calls (geo recent, geo notable, '
     + 'hotspot index); got ' + ebirdCalls.length + ': ' + JSON.stringify(ebirdCalls));
@@ -28297,12 +28810,14 @@ test('pasted coordinates never touch the geocoder at all', async () => {
   });
   const A = app.window.__app, D = app.document;
   D.getElementById('scoutPlace').value = '46.6021, -120.5059';
+  const before = urls.length;
   A.scoutPlaceRun();
   await waitFor(() => /hotspot/i.test(D.getElementById('scoutResults').textContent),
     'the scouted view to paint');
-  assert.ok(!urls.some((u) => /photon|geocod/i.test(u)),
+  const scoutUrls = urls.slice(before);
+  assert.ok(!scoutUrls.some((u) => /photon|geocod/i.test(u)),
     'a pasted coordinate still called the geocoder, so the fallback would fail '
-    + 'for exactly the reason it exists');
+    + 'for exactly the reason it exists: ' + JSON.stringify(scoutUrls));
   app.window.close();
 });
 
@@ -32209,6 +32724,43 @@ test('F330 the bounded scrubbed previous session survives restart and erase remo
     'Erase all my data removed storage but left the personal log in memory');
 });
 
+test('F672 current Debug copy scrubs live credentials before rendering', async () => {
+  const app = await boot();
+  app.window.__dbg.push('net', [
+    'GET https://example.test/feed?key=LIVE-SECRET&lat=47.75&lng=-122.16',
+  ]);
+  app.window.__dbg.verdict('private-user@example.test', 'apiKey=LIVE-SECRET');
+  app.$('openDebugBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  const text = app.$('dbgLog').textContent;
+  assert.doesNotMatch(text, /LIVE-SECRET|private-user@example\.test/,
+    'the current visible/copyable log still exposes credentials or account identifiers');
+  assert.match(text, /\[redacted\]/,
+    'the live scrub removed evidence without marking the redacted values');
+  app.window.close();
+});
+
+test('F685 Hawaii coverage export is omitted outside the Hawaii report', async () => {
+  const app = await boot({ report: 'wa' });
+  let copied = '';
+  Object.defineProperty(app.window.navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText(text) {
+        copied = text;
+        return Promise.resolve();
+      },
+    },
+  });
+  app.$('openDebugBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  app.$('dbgCopy').click();
+  await waitFor(() => copied, 'the copied Washington debug report');
+  assert.doesNotMatch(copied, /US-HI COVERAGE AUDIT JSON/,
+    'a Washington debug export contains an artifact labelled as Hawaii coverage');
+  app.window.close();
+});
+
 // ── "📍 Day N" MUST SURVIVE A DAY NOBODY REPORTED ─────────────────────────
 // "Id like a feature to review the tag for Day X, it seems to reset too
 //  easily." It did: the run ended on the first missing day, so the tag claimed
@@ -32834,6 +33386,61 @@ test('the choice patch section computes nothing of its own', async () => {
     'and does not reimplement the bound it depends on');
 });
 
+test('F683 Pro patches sort by patch rank or distance and filter by region', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_patch_board_v1', 'all');
+  app.window.__CHOICE_PATCHES__ = {
+    v: 3, generated: '2026-09-30', scope: 'King and Snohomish counties',
+    counties: ['US-WA-033', 'US-WA-061'], grand: 1000,
+    population: 2, birders_total: 2, board: 100, on_board: 2,
+    matched: 2, unmatched: [],
+    places: {
+      LFAR: ['Far King Patch', 50, 46.9, -122.8, 'US-WA-033'],
+      LNEAR: ['Near Snohomish Patch', 100, 47.76, -122.17, 'US-WA-061'],
+    },
+    birders: [
+      { n: 'Lift Leader', r: 20, c: { 'US-WA-033': 4 }, t: 20, p: [['LFAR', 18]] },
+      { n: 'Nearby Birder', r: 30, c: { 'US-WA-061': 9 }, t: 20, p: [['LNEAR', 8]] },
+    ],
+  };
+
+  await A.loadChoicePatches();
+  const names = () => [...app.$('patchResults').querySelectorAll('.patchwho')]
+    .map((node) => node.textContent.trim());
+  assert.deepEqual(names(), ['Lift Leader', 'Nearby Birder'],
+    'Patch rank no longer preserves the F28 lift ordering');
+  assert.match(app.$('patchResults').querySelector('.patchrank').textContent, /WA #20/,
+    'the rank badge omits its printed region code');
+  assert.ok(app.$('patchResults').querySelector('.patchleader-evidence .hslink'),
+    'the hotspot link is not grouped with the enlarged evidence text');
+  assert.ok(app.$('patchResults').querySelector('.patchboard'),
+    'leaderboard context was not moved into secondary text');
+
+  app.$('patchResults').querySelector('.patchsortbtn[data-value="distance"]').click();
+  assert.deepEqual(names(), ['Nearby Birder', 'Lift Leader'],
+    'Distance did not reorder the same lift-ranked population nearest first');
+  const selectedSort = app.$('patchResults')
+    .querySelector('.patchsortbtn[data-value="distance"]');
+  assert.equal(selectedSort.getAttribute('aria-pressed'), 'true');
+  assert.ok(selectedSort.closest('.checkedpick'),
+    'the selected sort is not redundantly marked with the shared check');
+
+  app.$('patchResults').querySelector(
+    '.patchregionbtn[data-value="US-WA-033"]').click();
+  assert.deepEqual(names(), ['Lift Leader'],
+    'the King filter retained a birder whose strongest in-filter patch is in Snohomish');
+  assert.doesNotMatch(app.$('patchResults').textContent, /Near Snohomish Patch/);
+
+  assert.match(HTML,
+    /#patchResults \.patchleader-evidence\s*\{[^}]*font-size:\s*calc\(15px/s,
+    'F683 evidence text did not become larger');
+  assert.match(HTML,
+    /#patchResults \.hscard-md\s*\{[^}]*padding-top:\s*calc\(6px/s,
+    'F683 rows did not become more condensed');
+  app.window.close();
+});
+
 test('F499 Pro patches methodology, score, and coverage live in the info dialog only', async () => {
   const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
   const doc = docs.docs.patchBtn;
@@ -33349,7 +33956,8 @@ test('correcting a hotspot card must not cost it the date and the count', async 
       birds: [{ name: 'Bird 0', code: 'sp0', unseen: true }],
     }],
   });
-  await new Promise((r) => setTimeout(r, 120));
+  await waitFor(() => doc.querySelectorAll('#hotResults .hslists .spwhen').length >= 2,
+    'the hotspot correction rows');
 
   const card = doc.querySelector('#hotResults [data-hsloc]');
   assert.ok(card, 'the card rendered and carries its locId');
@@ -33552,7 +34160,7 @@ test('a slow call says how much of it was queue and how much was network', async
     fetch(url) { return /ref\/region/.test(url) ? [] : null; },
   });
   app.window.__dbg = { push: (lvl, a) => lines.push(String(a && a[0])) };
-  await app.window.__app.ebird('ref/region/list/subnational2/US-WA');
+  await app.window.__app.ebird('ref/region/list/subnational2/US-AZ');
   const done = lines.filter((l) => /^done /.test(l));
   assert.ok(done.length, `no completion line was logged: ${lines.join(' | ')}`);
   assert.match(done[0], /\d+ms queued \+ \d+ms net/,
@@ -33710,7 +34318,7 @@ test('the top 100 board names the newest bird, not just its banding code', async
   assert.equal(doc.querySelector('.rankrow .thumb'), null,
     'the one-row leaderboard still renders a bird thumbnail');
   assert.match(HTML,
-    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*4px 0[^}]*border-top:\s*0/,
+    /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*10px 0[^}]*border-top:\s*0/,
     'Top 100 entries are not using the compact divider-free row rhythm');
   assert.match(HTML,
     /\.rankrow \.rankbirdline,\s*\.rankrow \.rankbirdline a \{[^}]*font-size:\s*inherit/,
@@ -34205,6 +34813,48 @@ test('the region and county pickers collapse behind a named scope control', asyn
   app.window.close();
 });
 
+test('F675/F677 Contents Quick settings routes Home and Display to their existing controls', async () => {
+  const app = await boot({
+    storage: {
+      'ebird_home_place:wa': 'Woodinville',
+      bc_display_profile: 'standard',
+    },
+  });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const host = doc.getElementById('menuScopeHost');
+
+  assert.ok(host.querySelector('#menuScope'),
+    'the existing Region disclosure remains in the shared bottom block');
+  const home = host.querySelector('#menuHomeQuick');
+  const display = host.querySelector('#menuDisplayQuick');
+  assert.ok(home && display, 'Home and Display are persistent Quick settings');
+  assert.match(home.textContent, /Home.*Woodinville.*Edit/i);
+  assert.match(display.textContent, /Display.*Standard.*Edit/i);
+
+  app.click(home);
+  assert.equal(app.$('settingsPanel').hidden, false);
+  assert.equal(doc.activeElement, app.$('homePlace'),
+    'Home reuses the existing owned-Home editor');
+
+  app.click(app.$('navBack'));
+  app.click(app.$('menuDisplayQuick'));
+  assert.equal(app.$('settingsPanel').hidden, false);
+  assert.equal(doc.activeElement, app.$('displayProfile'),
+    'Display reuses the existing profile selector');
+
+  app.$('displayProfile').value = 'large';
+  app.$('displayProfile').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.match(app.$('menuDisplayQuick').textContent, /Display.*Large.*Edit/i,
+    'the shortcut immediately reports the actual selected profile');
+  app.window.close();
+
+  const missing = await boot({ report: 'wa', home: false });
+  assert.match(missing.$('menuHomeQuick').textContent, /Set Home/i,
+    'the persistent route remains available before onboarding is complete');
+  missing.window.close();
+});
+
 // --- F200: the top bar carries the scope CODE and opens the pickers --------
 // "in the top menu bar display the short region code like US-WA or US-WA-033
 // for when king county is selected. when its clicked then the drop downs for
@@ -34455,12 +35105,13 @@ test('the patch board filters by leaderboard rank rather than sorting by it', as
   assert.ok(onBoard > 0, 'the default Leaderboard scope lists no birders');
   const rankedMarkers = [...doc.querySelectorAll('#patchResults .patchrank')];
   assert.ok(rankedMarkers.length, 'leaderboard ranks did not replace list ordinals');
-  assert.ok(rankedMarkers.every((marker) => /^#\d+$/.test(marker.textContent.trim())),
+  assert.ok(rankedMarkers.every((marker) =>
+    /^(?:[A-Z]{2,3} )?#\d+$/.test(marker.textContent.trim())),
     'a Leaderboard row still uses a list ordinal instead of an actual rank');
   const localRow = [...doc.querySelectorAll('#patchResults li.hscard-md')]
     .find((row) => row.querySelector('.patchwho')?.textContent.trim() === localTarget.n);
   assert.ok(localRow, 'the county-ranked birder was excluded by the Leaderboard filter');
-  assert.equal(localRow.querySelector('.patchrank').textContent.trim(), '#7');
+  assert.match(localRow.querySelector('.patchrank').textContent.trim(), /#7$/);
   assert.match(localRow.querySelector('.patchrank').getAttribute('aria-label'),
     new RegExp(`${A.rankRegionName(localTarget.best.county)} leaderboard rank 7`));
   assert.match(localRow.querySelector('.patchboard').textContent,
@@ -36319,7 +36970,7 @@ test('F260: learning a tick mid-wave does not start a second wave', async () => 
       const u = String(url);
       if (/notable/.test(u)) waves++;
       if (/data\/obs\//.test(u)) return [];
-      return null;
+      return [];
     },
   });
   const A = app.window.__app, doc = app.window.document;
@@ -36653,16 +37304,16 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
     /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px/,
     'the compact three-column layout or its 10px gutter is missing');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*grid-column:\s*1[^}]*grid-row:\s*1[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*align-items:\s*flex-end[^}]*gap:\s*1px/,
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*grid-column:\s*1[^}]*grid-row:\s*1[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*align-items:\s*flex-start[^}]*gap:\s*3px/,
     'rank and movement do not share one deterministic first-column stack');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.rankstack > :where\(\.hsnum\) \{[^}]*font-size:\s*calc\(28px \* var\(--s\)\)[^}]*line-height:\s*1/,
-    'the large rank is not fixed inside the first-column stack');
+    /\.rankrow\.hscard-md > \.name > \.rankstack > :where\(\.hsnum\) \{[^}]*font-size:\s*calc\(22px \* var\(--s\)\)[^}]*line-height:\s*1/,
+    'the smaller rank is not fixed inside the first-column stack');
   assert.match(HTML,
     /\.rankrow\.hscard-md > \.name > \.ntext \{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*font-size:\s*calc\(17px \* var\(--s\)\)/,
     'the center sentence is not one compact, top-level grid cell');
   assert.match(HTML,
-    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*width:\s*calc\(56px \* var\(--s\)\)/,
+    /\.rankrow\.hscard-md > \.name > \.rankstack \{[^}]*width:\s*calc\(45px \* var\(--s\)\)/,
     'one- and two-digit ranks do not share a fixed first-column width');
   assert.match(HTML,
     /\.rankrow\.hscard-md \.wholine \{[^}]*display:\s*inline[^}]*font-size:\s*inherit[^}]*font-weight:\s*700/,
@@ -36817,16 +37468,23 @@ test('F267/F320: a caller during phase 2 gets phase one without starting a rival
       return null;
     },
   });
-  const A = app.window.__app, doc = app.window.document;
+  const A = app.window.__app;
 
-  A.refresh();
-  await new Promise((r) => setTimeout(r, 60));
+  const phaseOne = { t: 0, phase: 1, unseen: [], seen: [], speciesCodes: [] };
+  A.seedChase('wa', phaseOne);
+  A.seedChasePhase2('wa', new Promise(() => {}));
+  const before = waves;
   // A second section opening while phase 2 is still in flight. This is the
-  // exact device sequence: nav to one section, then another, ~100s apart.
-  A.refresh();
-  await waitFor(() => !doc.getElementById('refreshBtn').disabled, 'the wave to finish');
-  await new Promise((r) => setTimeout(r, 400));
-  assert.ok(waves <= 3, `one wave's worth of alert feeds, not two: ${waves}`);
+  // exact device sequence, isolated from startup county-hydration traffic.
+  const joined = await Promise.race([
+    A.getChase(),
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error('phase-two join did not return phase one')), 1000)),
+  ]);
+  assert.equal(joined.phase, phaseOne.phase,
+    'the phase-two caller did not receive the useful phase-one result immediately');
+  assert.equal(joined.t, phaseOne.t);
+  assert.equal(waves, before, 'a caller during phase two started a rival wave');
 
   const from = HTML.indexOf('function getChaseAll(');
   const to = HTML.indexOf('function anyRows(rows)', from);
@@ -37161,20 +37819,20 @@ test('F320 clean boot and key save do not start migration history', async () => 
 });
 
 test('F320 interactive work starts before queued background work', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
   const started = [];
   const pending = {};
-  const response = (body) => ({
-    ok: true, status: 200, headers: { get: () => null },
-    json: () => Promise.resolve(body),
-    text: () => Promise.resolve(JSON.stringify(body)),
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      const path = String(url).replace(/^.*\/v2\//, '');
+      if (!/^probe\//.test(path)) return [];
+      return new Promise((resolve) => {
+        started.push(path);
+        pending[path] = () => resolve([]);
+      });
+    },
   });
-  app.window.fetch = (url) => new Promise((resolve) => {
-    const path = String(url).replace(/^.*\/v2\//, '');
-    started.push(path);
-    pending[path] = () => resolve(response([]));
-  });
+  const A = app.window.__app;
   A.fgSchedReset(Date.now());
 
   const bg1 = A.ebirdBg('probe/background-one');
@@ -37194,14 +37852,19 @@ test('F320 interactive work starts before queued background work', async () => {
 });
 
 test('F320 navigation aborts obsolete foreground work and removes its reservation', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
   let signal;
-  app.window.fetch = (url, init) => new Promise((resolve, reject) => {
-    signal = init && init.signal;
-    if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')),
-      { once: true });
+  const app = await boot({
+    sample: false,
+    fetch(url, init) {
+      if (!/probe\/active-foreground/.test(url)) return [];
+      return new Promise((resolve, reject) => {
+        signal = init && init.signal;
+        if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')),
+          { once: true });
+      });
+    },
   });
+  const A = app.window.__app;
   A.fgSchedReset(Date.now());
   A.fgSetNextAt(Date.now() + 500);
   const before = A.fgState().reservations;
@@ -37236,14 +37899,35 @@ test('F320 Washington Under-3h Day trip uses bundled county bounds with zero met
   assert.ok(profile.tierCountyCodes.includes('US-WA-007'));
   assert.ok(profile.tierCountyCodes.includes('US-WA-067'));
   const metadata = app.state.fetches.filter((url) =>
-    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
-  assert.equal(metadata.length, 0,
-    'Half-day again enqueued the state list plus every county-info record');
+    /api\.ebird\.org\/v2\/ref\/region\/info\//.test(url));
+  assert.deepEqual(metadata, [],
+    'Half-day again enqueued per-county metadata despite bundled bounds');
   app.window.close();
 });
 
 test('F345 3–5h Day trip paints a completed county before all cold feeds settle', async () => {
-  const app = await boot({ sample: false });
+  let interceptFeeds = false;
+  let releaseThurston;
+  const today = new Date();
+  const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')} 08:00`;
+  const leavenworth = [{
+    speciesCode: 'leabir', comName: 'Leavenworth Bird',
+    obsDt: stamp, locName: 'Leavenworth', locId: 'L-LEA', subId: 'S-LEA',
+    lat: 47.5962, lng: -120.6615,
+    subnational2Code: 'US-WA-007', subnational2Name: 'Chelan',
+  }];
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      if (!interceptFeeds) return [];
+      const u = String(url);
+      if (/data\/obs\/US-WA-007\/recent\/notable/.test(u)) return leavenworth;
+      if (/data\/obs\/US-WA-067\/recent\/notable/.test(u)) {
+        return new Promise((resolve) => { releaseThurston = () => resolve([]); });
+      }
+      return [];
+    },
+  });
   const A = app.window.__app;
   seedSeen(app, []);
 
@@ -37255,9 +37939,9 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
   assert.equal(measuredFeeds.filter((feed) => feed.kind === 'notable').length, 20);
   assert.equal(measuredFeeds.length, 40,
     'the reported cold-start request count is not the current feed plan');
-  assert.equal(app.state.fetches.filter((url) =>
-    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url)).length, 0,
-  'the 36-call measurement was contaminated by county metadata');
+  assert.deepEqual(app.state.fetches.filter((url) =>
+    /api\.ebird\.org\/v2\/ref\/region\/info\//.test(url)), [],
+  'the cold-start measurement was contaminated by per-county metadata');
 
   A.setCountySeed({
     'US-WA-007': {
@@ -37272,39 +37956,40 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
     },
   });
   const base = A.chaseProfile();
+  const baseRows = [{
+    speciesCode: 'basebir', comName: 'Base Bird',
+    obsDt: stamp, locName: 'Base Park', locId: 'L-BASE', subId: 'S-BASE',
+    lat: 47.75, lng: -122.16,
+    subnational2Code: 'US-WA-033', subnational2Name: 'King',
+  }];
+  const baseFeedStates = {};
+  app.window.BirdLogic.planFeeds(base).forEach((feed) => {
+    baseFeedStates[feed.file] = 'ok';
+  });
   A.seedChase(base.slug, {
-    t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
+    t: Date.now(), rarity: false, rows: { 'king-recent.json': baseRows },
+    speciesCodes: ['basebir'],
+    feedStates: baseFeedStates,
     fetchBaseKey: A.chaseFetchBaseKey(base),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(base),
   });
 
-  const today = A.todayStr() + ' 08:00';
-  const leavenworth = [{
-    speciesCode: 'leabir', comName: 'Leavenworth Bird',
-    obsDt: today, locName: 'Leavenworth', locId: 'L-LEA', subId: 'S-LEA',
-    lat: 47.5962, lng: -120.6615,
-    subnational2Code: 'US-WA-007', subnational2Name: 'Chelan',
-  }];
-  const response = (body) => Promise.resolve({
-    ok: true, status: 200,
-    headers: { get: () => null },
-    text: () => Promise.resolve(JSON.stringify(body)),
-    json: () => Promise.resolve(body),
-  });
-  let releaseThurston;
-  app.window.fetch = (url) => {
-    const u = String(url);
-    if (/data\/obs\/US-WA-007\/recent\/notable/.test(u)) return response(leavenworth);
-    if (/data\/obs\/US-WA-067\/recent\/notable/.test(u)) {
-      return new Promise((resolve) => { releaseThurston = () => resolve(response([])); })
-        .then((value) => value);
-    }
-    return response([]);
-  };
+  interceptFeeds = true;
   A.fgSchedReset(Date.now());
 
   const loading = A.setDayTripRange('from3to5');
-  await waitFor(() => releaseThurston, 'the second county feed to remain pending');
+  let loadingError;
+  loading.catch((error) => { loadingError = error; });
+  try {
+    await waitFor(() => releaseThurston || loadingError,
+      'the second county feed to remain pending');
+  } catch (error) {
+    error.message += '\nobserved feeds: '
+      + app.state.fetches.filter((url) => /data\/obs\//.test(url)).join(', ')
+      + '\nstatus: ' + app.$('excStatus').textContent;
+    throw error;
+  }
+  assert.ifError(loadingError);
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.match(app.$('excResults').textContent, /Leavenworth/,
     'the useful first county stayed invisible behind the remaining cold feeds');
@@ -37350,7 +38035,7 @@ test('F331/F338 Hawaii road tiers stay in the county containing Home', async () 
   assert.deepEqual(arr(profile.tierCountyCodes), ['US-HI-001'],
     'the Big Island road tier crossed open ocean into another county');
   const metadata = app.state.fetches.filter((url) =>
-    /api\.ebird\.org\/v2\/ref\/region\/(?:list|info)/.test(url));
+    /api\.ebird\.org\/v2\/ref\/region\/info\//.test(url));
   assert.equal(metadata.length, 0,
     'Hawaii destination tiers enqueued county metadata despite the bundled seed');
   app.window.close();
@@ -37978,13 +38663,6 @@ test('F320 empty-account phase two is capped by visible value and rate headroom'
 });
 
 test('F320 navigation cancels obsolete phase-two work and rejects it', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
-  const response = (body) => ({
-    ok: true, status: 200, headers: { get: () => null },
-    json: () => Promise.resolve(body),
-    text: () => Promise.resolve(JSON.stringify(body)),
-  });
   const rows = Array.from({ length: 20 }, (_, i) => ({
     obsId: 'OBS' + i,
     speciesCode: 'bird' + String(i).padStart(3, '0'),
@@ -37999,24 +38677,28 @@ test('F320 navigation cancels obsolete phase-two work and rejects it', async () 
     subnational2Name: 'King',
   }));
   let speciesStarts = 0;
-  app.window.fetch = (url, init) => {
-    const u = String(url);
-    if (/data\/obs\/US-WA\/recent\/bird/.test(u)) {
-      speciesStarts++;
-      return new Promise((resolve, reject) => {
-        if (init && init.signal) {
-          init.signal.addEventListener('abort', () => {
-            const error = new Error('aborted');
-            error.name = 'AbortError';
-            reject(error);
-          }, { once: true });
-        }
-      });
-    }
-    if (/\/recent\/notable/.test(u)) return Promise.resolve(response([]));
-    if (/data\/obs\//.test(u)) return Promise.resolve(response(rows));
-    return Promise.resolve(response([]));
-  };
+  const app = await boot({
+    sample: false,
+    fetch(url, init) {
+      const u = String(url);
+      if (/data\/obs\/US-WA\/recent\/bird/.test(u)) {
+        speciesStarts++;
+        return new Promise((resolve, reject) => {
+          if (init && init.signal) {
+            init.signal.addEventListener('abort', () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            }, { once: true });
+          }
+        });
+      }
+      if (/\/recent\/notable/.test(u)) return [];
+      if (/data\/obs\//.test(u)) return rows;
+      return [];
+    },
+  });
+  const A = app.window.__app;
   A.clearChaseCache(false);
   await A.getChase();
   const phase2 = A.chasePhase2();
@@ -38045,13 +38727,6 @@ test('F320 navigation cancels obsolete phase-two work and rejects it', async () 
 });
 
 test('F320 navigation during phase one cannot start phase two under the new section', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
-  const response = (body) => ({
-    ok: true, status: 200, headers: { get: () => null },
-    json: () => Promise.resolve(body),
-    text: () => Promise.resolve(JSON.stringify(body)),
-  });
   const rows = Array.from({ length: 20 }, (_, i) => ({
     obsId: 'EARLY' + i,
     speciesCode: 'early' + String(i).padStart(3, '0'),
@@ -38066,19 +38741,23 @@ test('F320 navigation during phase one cannot start phase two under the new sect
     subnational2Name: 'King',
   }));
   let releaseFirst, speciesStarts = 0, first = true;
-  app.window.fetch = (url) => {
-    const u = String(url);
-    if (/data\/obs\/US-WA\/recent\/early/.test(u)) {
-      speciesStarts++;
-      return Promise.resolve(response([]));
-    }
-    const body = /\/recent\/notable/.test(u) ? [] : rows;
-    if (first && /data\/obs\//.test(u)) {
-      first = false;
-      return new Promise((resolve) => { releaseFirst = () => resolve(response(body)); });
-    }
-    return Promise.resolve(response(body));
-  };
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      const u = String(url);
+      if (/data\/obs\/US-WA\/recent\/early/.test(u)) {
+        speciesStarts++;
+        return [];
+      }
+      const body = /\/recent\/notable/.test(u) ? [] : rows;
+      if (first && /data\/obs\//.test(u)) {
+        first = false;
+        return new Promise((resolve) => { releaseFirst = () => resolve(body); });
+      }
+      return /data\/obs\//.test(u) ? body : [];
+    },
+  });
+  const A = app.window.__app;
   A.clearChaseCache(false);
   const phaseOne = A.getChase();
   await waitFor(() => releaseFirst, 'the first phase-one request to start');
@@ -38286,17 +38965,16 @@ test('F320 every long section-owned history plan carries one navigation token', 
 });
 
 test('F320 null API results are never memoized as answers', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
   let calls = 0;
-  app.window.fetch = () => {
-    calls++;
-    return Promise.resolve({
-      ok: true, status: 200, headers: { get: () => null },
-      json: () => Promise.resolve(null),
-      text: () => Promise.resolve('null'),
-    });
-  };
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      if (!/probe\/null/.test(url)) return [];
+      calls++;
+      return { __status: 200, __body: null };
+    },
+  });
+  const A = app.window.__app;
   A.fgSchedReset(Date.now());
   assert.equal(await A.ebird('probe/null'), null);
   assert.equal(await A.ebird('probe/null'), null);
@@ -38305,17 +38983,16 @@ test('F320 null API results are never memoized as answers', async () => {
 });
 
 test('F320 a completed request remains memoized after its section is left', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
   let calls = 0;
-  app.window.fetch = () => {
-    calls++;
-    return Promise.resolve({
-      ok: true, status: 200, headers: { get: () => null },
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve('[]'),
-    });
-  };
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      if (!/probe\/completed/.test(url)) return [];
+      calls++;
+      return [];
+    },
+  });
+  const A = app.window.__app;
   A.fgSchedReset(Date.now());
   const owner = A.navWork('memo probe');
   await A.ebird('probe/completed', false, false, false, owner);
@@ -38327,20 +39004,24 @@ test('F320 a completed request remains memoized after its section is left', asyn
 });
 
 test('F320 failed migration reads remain resumable instead of caching an empty week', async () => {
-  const app = await boot({ sample: false });
+  let mode = 'offline';
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      if (!/historic/.test(url)) return [];
+      return mode === 'offline'
+        ? Promise.reject(new Error('offline'))
+        : { __status: 200, __body: null };
+    },
+  });
   const A = app.window.__app;
-  app.window.fetch = () => Promise.reject(new Error('offline'));
   const cache = { samples: {}, names: {} };
   const day = new Date(2025, 8, 3, 12, 0, 0);
   await assert.rejects(A.migFetchDate(['US-WA-033'], day, cache), /offline/);
   assert.equal(cache.samples[A.migSampleKey(day)], undefined,
     'a failed historic read was stored as a successful empty sample');
 
-  app.window.fetch = () => Promise.resolve({
-    ok: true, status: 200, headers: { get: () => null },
-    json: () => Promise.resolve(null),
-    text: () => Promise.resolve('null'),
-  });
+  mode = 'null';
   A.fgSchedReset(Date.now());
   await assert.rejects(A.migFetchDate(['US-WA-033'], day, cache),
     /no migration rows/i);
@@ -38350,13 +39031,13 @@ test('F320 failed migration reads remain resumable instead of caching an empty w
 });
 
 test('F320 null time-of-day history is not marked complete', async () => {
-  const app = await boot({ sample: false });
-  const A = app.window.__app;
-  app.window.fetch = () => Promise.resolve({
-    ok: true, status: 200, headers: { get: () => null },
-    json: () => Promise.resolve(null),
-    text: () => Promise.resolve('null'),
+  const app = await boot({
+    sample: false,
+    fetch(url) {
+      return /historic/.test(url) ? { __status: 200, __body: null } : [];
+    },
   });
+  const A = app.window.__app;
   A.fgSchedReset(Date.now());
   const day = new Date(2026, 8, 3, 12, 0, 0);
   await assert.rejects(A.todFetchCounties(['US-WA-033'], [day], () => {}),

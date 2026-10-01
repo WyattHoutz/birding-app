@@ -259,6 +259,16 @@
       name: 'Rank from a place',
       reason: 'Interactive place-entry workflow used for navigation and ranking, not a help or calculation sheet.'
     },
+    'set-home-anchor': {
+      surface: 'sheet',
+      name: 'Set Home to Here',
+      reason: 'Interactive missing-anchor workflow, not an informational help sheet.'
+    },
+    'find-anchor-required': {
+      surface: 'sheet',
+      name: 'Find an anchor',
+      reason: 'Interactive fallback place-entry workflow, not an informational help sheet.'
+    },
     'delete-region': {
       surface: 'confirmation',
       name: 'Delete a custom region',
