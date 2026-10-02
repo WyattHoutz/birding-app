@@ -112,6 +112,30 @@
     "purple pooper": {
       "definition": "A joking nickname for the Gray Catbird, inspired by the purple stains left after it eats dark berries.",
       "usedIn": "Glossary only; never used as the app's species name"
+    },
+    "spuh": {
+      "definition": "An eBird identification above species level when the bird can be narrowed to a group but not one exact species, such as gull sp.",
+      "usedIn": "Species search and uncertain-identification explanations"
+    },
+    "slash": {
+      "definition": "An eBird identification narrowed to one of two species, written with a slash when the observer cannot safely choose between them.",
+      "usedIn": "Species search and uncertain-identification explanations"
+    },
+    "heard-only": {
+      "definition": "A bird identified confidently by its voice without being seen; it still counts on a complete eBird checklist.",
+      "usedIn": "Glossary and checklist evidence"
+    },
+    "endemic": {
+      "definition": "Native to and found naturally only within one limited geographic area.",
+      "usedIn": "Glossary and range context"
+    },
+    "jizz (or GISS)": {
+      "definition": "The overall impression of a bird's shape, posture, movement and behavior that can suggest its identity before individual field marks do.",
+      "usedIn": "Glossary and identification language"
+    },
+    "trash bird": {
+      "definition": "A dismissive, subjective label some birders use for a species that is very common where they bird.",
+      "usedIn": "Glossary only; never assigned to a species by the app"
     }
   }
 }

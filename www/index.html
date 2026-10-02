@@ -4310,7 +4310,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.18';
+      var APP_VERSION = '1.131.19';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4399,6 +4399,11 @@
         'US-HI': 'county-bounds-hi.json'
       };
       var _countySeedPromises = {}, _countySeedOverride = null;
+      var REGION_BOUNDARY_FILES = {
+        'US-WA': 'region-boundaries-wa.json',
+        'US-HI': 'region-boundaries-hi.json'
+      };
+      var _regionBoundaryPromises = {};
       var _travelZonesPromise = null;
 
       function loadTravelZones() {
@@ -4528,6 +4533,35 @@
           });
         }
         return _countySeedPromises[parent];
+      }
+
+      function loadRegionBoundary(parent, code) {
+        parent = String(parent || '').trim().toUpperCase();
+        code = String(code || '').trim().toUpperCase();
+        var asset = REGION_BOUNDARY_FILES[parent];
+        if (!asset || !code) return Promise.resolve(null);
+        if (!_regionBoundaryPromises[parent]) {
+          _regionBoundaryPromises[parent] = fetch(asset).then(function (r) {
+            if (!r || !r.ok) throw new Error('Bundled region boundaries are unavailable');
+            return r.json();
+          }).catch(function (e) {
+            delete _regionBoundaryPromises[parent];
+            dbg('warn', 'region boundaries: ' + ((e && e.message) || e));
+            return null;
+          });
+        }
+        return _regionBoundaryPromises[parent].then(function (doc) {
+          var row = doc && doc.regions && doc.regions[code];
+          if (!row || !row.geometry) return null;
+          return {
+            code: code,
+            name: row.name || code,
+            bounds: row.bounds,
+            geometry: row.geometry,
+            accuracyMi: Number(doc.accuracyMi) || 0,
+            boundaryVersion: String(doc.vintage || '')
+          };
+        });
       }
 
       function ensureCountyNames(parent, work) {
@@ -4694,7 +4728,10 @@
         var code = scope.effectiveRegion;
         var key = countyInfoKey(code);
         if (_reachabilityInflight[key]) return _reachabilityInflight[key];
-        _reachabilityInflight[key] = loadCountySeed(scope.parentRegion).then(function (seed) {
+        _reachabilityInflight[key] = loadRegionBoundary(scope.parentRegion, code)
+          .then(function (boundary) {
+            if (boundary) return boundary;
+            return loadCountySeed(scope.parentRegion).then(function (seed) {
           if (scope.level === 'subregion') {
             return seed.filter(function (row) { return row.code === code; })[0] || null;
           }
@@ -4711,6 +4748,7 @@
               return box;
             }, null)
           };
+            });
         }).then(function (seeded) {
           if (seeded) return seeded;
           return zcGet(key).then(function (cached) {
@@ -4719,9 +4757,10 @@
             return row;
           });
         }).then(function (row) {
-          var result = BL.regionReachability(home, row.bounds, radius);
+          var result = BL.regionReachability(home, row, radius);
           result.scope = scope;
           result.radius = radius;
+          if (row.boundaryVersion) result.boundaryVersion = row.boundaryVersion;
           return result;
         }).catch(function () {
           return { state: 'unknown', edgeMi: null, scope: scope, radius: radius };

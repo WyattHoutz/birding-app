@@ -738,7 +738,63 @@
     return haversineMi(lat, lng, nearLat, nearLng);
   }
 
-  function regionReachability(home, bounds, radiusMi) {
+  function lonFromHome(lng, homeLng) {
+    var d = Number(lng) - Number(homeLng);
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    return d;
+  }
+
+  function boundaryGeometry(value) {
+    var geometry = value && value.geometry ? value.geometry : value;
+    if (!geometry || !Array.isArray(geometry.coordinates)) return null;
+    if (geometry.type === 'Polygon') return [geometry.coordinates];
+    if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+    return null;
+  }
+
+  function pointSegmentMi(ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay;
+    var den = dx * dx + dy * dy;
+    var t = den ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / den)) : 0;
+    var x = ax + t * dx, y = ay + t * dy;
+    return Math.sqrt(x * x + y * y);
+  }
+
+  function polygonBoundaryInfo(home, boundary) {
+    var polygons = boundaryGeometry(boundary);
+    var lat = home && Number(home.lat), lng = home && Number(home.lng);
+    if (!polygons || !isFinite(lat) || !isFinite(lng)) return null;
+    var latMi = 69.093, lonMi = 69.172 * Math.cos(lat * Math.PI / 180);
+    var inside = false, edge = Infinity;
+    polygons.forEach(function (polygon) {
+      var polygonInside = false;
+      (polygon || []).forEach(function (ring) {
+        var ringInside = false;
+        for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          var ai = ring[i] || [], bj = ring[j] || [];
+          var ax = lonFromHome(ai[0], lng), ay = Number(ai[1]) - lat;
+          var bx = lonFromHome(bj[0], lng), by = Number(bj[1]) - lat;
+          if (![ax, ay, bx, by].every(isFinite)) continue;
+          if (Math.abs(ax - bx) > 180) {
+            if (ax < bx) ax += 360;
+            else bx += 360;
+          }
+          if ((ay > 0) !== (by > 0)
+              && 0 < (bx - ax) * (-ay) / (by - ay) + ax) {
+            ringInside = !ringInside;
+          }
+          edge = Math.min(edge,
+            pointSegmentMi(ax * lonMi, ay * latMi, bx * lonMi, by * latMi));
+        }
+        if (ringInside) polygonInside = !polygonInside;
+      });
+      if (polygonInside) inside = true;
+    });
+    return isFinite(edge) ? { inside: inside, boundaryMi: edge } : null;
+  }
+
+  function regionReachability(home, boundary, radiusMi) {
     var radius = Number(radiusMi);
     if (!home || !isFinite(Number(home.lat)) || !isFinite(Number(home.lng))) {
       return { state: 'missing-home', edgeMi: null };
@@ -746,7 +802,24 @@
     if (!isFinite(radius) || radius < 0) {
       return { state: 'unknown', edgeMi: null };
     }
-    var edge = countyEdgeMi(home, bounds);
+    var exact = polygonBoundaryInfo(home, boundary);
+    if (exact) {
+      var accuracy = Number(boundary && boundary.accuracyMi);
+      if (!isFinite(accuracy) || accuracy < 0) accuracy = 0;
+      var edgeMi = exact.inside ? 0 : exact.boundaryMi;
+      if (exact.boundaryMi <= accuracy
+          || (!exact.inside && Math.abs(exact.boundaryMi - radius) <= accuracy)) {
+        return { state: 'unknown', edgeMi: edgeMi, accuracyMi: accuracy };
+      }
+      return {
+        state: exact.inside || exact.boundaryMi + accuracy < radius
+          ? 'reachable' : 'unreachable',
+        edgeMi: edgeMi,
+        accuracyMi: accuracy
+      };
+    }
+    var edge = countyEdgeMi(home, boundary && boundary.bounds
+      ? boundary.bounds : boundary);
     if (!isFinite(edge)) return { state: 'unknown', edgeMi: null };
     // Region reference data supplies a containing rectangle, not an exact
     // administrative polygon. Outside its radius is conclusive; overlap is

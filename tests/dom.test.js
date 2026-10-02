@@ -29611,6 +29611,18 @@ test('the birder glossary is defined once, and says where each word is used (F14
     'the potentially disparaging partner term lost its glossary-only safeguard');
   assert.match(by['purple pooper'].where, /never used as the app's species name/i,
     'the nickname can replace the accepted species name');
+  for (const term of ['spuh', 'slash', 'heard-only', 'endemic',
+    'jizz (or GISS)', 'trash bird']) {
+    assert.ok(by[term], `${term} is missing from the researched F716 additions`);
+  }
+  assert.match(by.spuh.where, /uncertain-identification explanations/i,
+    'spuh is not tied to the app surface that already uses it');
+  assert.match(by.slash.def, /one of two species/i,
+    'slash regressed to a generic punctuation definition');
+  assert.match(by['heard-only'].def, /still counts on a complete eBird checklist/i,
+    'heard-only incorrectly implies that a visual sighting is required');
+  assert.match(by['trash bird'].where, /never assigned to a species/i,
+    'the subjective term can become an app-assigned species label');
 });
 
 test('F475 the main menu shows one cached Birder Jargon definition above Buzz', async () => {
@@ -35395,7 +35407,7 @@ test('F669 county scope owns observation requests and exact year evidence', asyn
   app.window.close();
 });
 
-test('F707 bounds can prove unreachable but never falsely prove reachable', () => {
+test('F707 rectangles stay conservative and F717 polygons prove reachability', () => {
   const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
   const bounds = { minX: -85, maxX: -82, minY: 41.5, maxY: 48.3 };
   const seattle = BL.regionReachability({ lat: 47.61, lng: -122.33 }, bounds, 35);
@@ -35406,6 +35418,81 @@ test('F707 bounds can prove unreachable but never falsely prove reachable', () =
     'a containing rectangle cannot certify exact administrative reachability');
   assert.equal(BL.regionReachability(null, bounds, 35).state, 'missing-home');
   assert.equal(BL.regionReachability({ lat: 42, lng: -84 }, null, 35).state, 'unknown');
+
+  const square = {
+    accuracyMi: 0.1,
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [-85, 41], [-82, 41], [-82, 44], [-85, 44], [-85, 41],
+      ]],
+    },
+  };
+  assert.equal(BL.regionReachability({ lat: 42, lng: -84 }, square, 0).state,
+    'reachable', 'a point safely inside an administrative polygon is reachable');
+  assert.equal(BL.regionReachability({ lat: 42, lng: -81.8 }, square, 20).state,
+    'reachable', 'a chase radius that safely crosses the exact edge is reachable');
+  assert.equal(BL.regionReachability({ lat: 42, lng: -81.8 }, square, 1).state,
+    'unreachable', 'a radius short of the exact edge is unreachable');
+  assert.equal(BL.regionReachability({ lat: 42, lng: -82.001 }, square, 0).state,
+    'unknown', 'the simplification tolerance prevents false edge confidence');
+});
+
+test('F717 bundled boundary files cover every selectable WA and HI region', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const loaded = {};
+  for (const suffix of ['wa', 'hi']) {
+    const countyDoc = JSON.parse(fs.readFileSync(
+      path.join(WWW, `county-bounds-${suffix}.json`), 'utf8'));
+    const boundaryDoc = JSON.parse(fs.readFileSync(
+      path.join(WWW, `region-boundaries-${suffix}.json`), 'utf8'));
+    loaded[suffix] = boundaryDoc;
+    const parent = suffix === 'wa' ? 'US-WA' : 'US-HI';
+    assert.equal(boundaryDoc.vintage, 'January 1, 2026');
+    assert.equal(boundaryDoc.accuracyMi, 0.1);
+    assert.ok(boundaryDoc.regions[parent], `${parent} state geometry is missing`);
+    const expectedExact = Object.keys(countyDoc)
+      .filter((code) => code !== 'US-HI-010')
+      .sort();
+    assert.deepEqual(
+      Object.keys(boundaryDoc.regions).filter((code) => code !== parent).sort(),
+      expectedExact,
+      `${parent} exact county geometry drifted from the selectable eBird codes`,
+    );
+    for (const [code, row] of Object.entries(boundaryDoc.regions)) {
+      assert.ok(row.geometry && ['Polygon', 'MultiPolygon'].includes(row.geometry.type),
+        `${code} has no polygon geometry`);
+      assert.ok(row.bounds && Number.isFinite(row.bounds.minX),
+        `${code} has no measured bounds`);
+    }
+    if (parent === 'US-HI') {
+      assert.equal(boundaryDoc.regions['US-HI-010'], undefined,
+        'Northwestern Hawaiian Islands has no Census county equivalent; '
+        + 'inventing one would falsely certify eBird pelagic membership');
+    }
+  }
+  const exact = (doc, code) => ({
+    ...doc.regions[code],
+    accuracyMi: doc.accuracyMi,
+  });
+  assert.equal(BL.regionReachability(
+    { lat: 47.6062, lng: -122.3321 },
+    exact(loaded.wa, 'US-WA-033'), 0,
+  ).state, 'reachable', 'Seattle must be inside exact King County');
+  assert.equal(BL.regionReachability(
+    { lat: 47.6588, lng: -117.4260 },
+    exact(loaded.wa, 'US-WA-033'), 35,
+  ).state, 'unreachable', 'Spokane must not be reachable as King County');
+  assert.equal(BL.regionReachability(
+    { lat: 21.3069, lng: -157.8583 },
+    exact(loaded.hi, 'US-HI-003'), 0,
+  ).state, 'reachable', 'Honolulu must be inside its multipolygon county');
+  assert.equal(BL.regionReachability(
+    { lat: 19.94, lng: -155.79 },
+    exact(loaded.hi, 'US-HI-001'), 0,
+  ).state, 'reachable', 'Waikoloa must be inside Hawaii County');
+  assert.match(HTML, /loadRegionBoundary\(scope\.parentRegion, code\)/,
+    'reachability does not load the exact boundary before rectangle fallback');
 });
 
 // --- F200: the top bar carries the scope CODE and opens the pickers --------
