@@ -725,6 +725,30 @@ test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today
     'the 29.6-mile offshore trip belongs in Half-day, not Full-day');
 });
 
+test('F705 shared chase output retains destinations at eight hours and beyond', () => {
+  const base = BL.profileFor('wa');
+  const profile = Object.assign({}, base, {
+    counties: [{ code: 'US-WA-063', slug: 'us-wa-063', label: 'Spokane' }],
+    tierBaseRadiusMi: base.dailyDriveMi,
+  });
+  const far = Object.assign(OBS({
+    obsId: 'spokane-eight-plus', speciesCode: 'farbir',
+    comName: 'Far Bird', locId: 'L-SPOKANE',
+    locName: 'Spokane River patch', lat: 47.66, lng: -117.42,
+    obsDt: '2026-10-01 08:00', subId: 'S-SPOKANE',
+  }), { subnational2Code: 'US-WA-063' });
+  const cv = BL.computeChaseViews(profile, {
+    rowsToday: { 'us-wa-063-recent.json': [far] },
+    seen: {}, ownName: 'Nobody', snapshotDate: '2026-10-01',
+    home: base.home, dailyDriveMi: base.dailyDriveMi, travelCfg: TZ,
+  });
+  const row = cv.dayTrip.find((item) => item.loc === 'Spokane River patch');
+
+  assert.ok(row, 'the old shared 8-hour ceiling still drops the 8h+ destination');
+  assert.ok(row.travelHours >= 8,
+    `the control must genuinely exercise 8h+, got ${row.travelHours}`);
+});
+
 test('F389 named ocean hotspots cannot route into Today’s patches', () => {
   const hi = BL.profileFor('hi');
   const SNAP = '2026-09-13';

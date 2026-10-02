@@ -24381,7 +24381,7 @@ test('F254 tier chase preserves its derived profile and projects Full-day separa
   app.window.close();
 });
 
-test('F600 unifies day-trip patches behind three explicit distinct ranges', async () => {
+test('F600/F705 unifies day-trip patches behind four explicit distinct ranges', async () => {
   const item = CONTRACT.menu.find((entry) => entry.at === 'excBtn');
   assert.ok(item, 'the day-trip section disappeared');
   assert.equal(item.label, '🚗 Day trip patches');
@@ -24390,18 +24390,28 @@ test('F600 unifies day-trip patches behind three explicit distinct ranges', asyn
   assert.equal(CONTRACT.menu.some((entry) => entry.at === 'fullDayBtn'), false,
     'the superseded Full-day menu sibling still exists');
   assert.match(HTML,
-    /id="dayTripUnder3"[\s\S]*>Under 3h<[\s\S]*id="dayTrip3To5"[\s\S]*>3–5h<[\s\S]*id="dayTrip5To8"[\s\S]*>5–8h</,
-    'the unified panel does not expose all three visible travel choices');
+    /id="dayTripUnder3"[\s\S]*>Under 3h<[\s\S]*id="dayTrip3To5"[\s\S]*>3–5h<[\s\S]*id="dayTrip5To8"[\s\S]*>5–8h<[\s\S]*id="dayTrip8Plus"[\s\S]*>8h\+</,
+    'the unified panel does not expose all four visible travel choices');
 
   const app = await boot();
   const A = app.window.__app;
-  const rows = [2.99, 3, 4.99, 5, 7.99, 8].map((travelHours) => ({ travelHours }));
+  const rows = [2.99, 3, 4.99, 5, 7.99, 8, 12]
+    .map((travelHours) => ({ travelHours }));
   assert.deepEqual(arr(A.dayTripRangeRows(rows, 'under3'), (row) => row.travelHours),
     [2.99]);
   assert.deepEqual(arr(A.dayTripRangeRows(rows, 'from3to5'), (row) => row.travelHours),
     [3, 4.99]);
   assert.deepEqual(arr(A.dayTripRangeRows(rows, 'from5to8'), (row) => row.travelHours),
     [5, 7.99]);
+  assert.deepEqual(arr(A.dayTripRangeRows(rows, 'from8plus'), (row) => row.travelHours),
+    [8, 12]);
+  assert.equal(A.DAY_TRIP_RANGES.from8plus.max, Infinity,
+    '8h+ silently regained a fabricated upper-hour boundary');
+  assert.equal(app.window.BirdLogic.travelHoursMaxStraightMi({}, Infinity), Infinity,
+    'open-ended Day trip scope does not include every hotspot county in the active region');
+  assert.doesNotMatch(app.window.BirdLogic.computeChaseViews.toString(),
+    /maxRoundTripH:\s*8/,
+    'the shared chase output still drops every destination at eight hours or more');
   app.window.close();
 });
 
@@ -34231,6 +34241,65 @@ test('the scored set is carried across whole, not just enough to name the bird',
   assert.equal(scored[0].count, 6, 'HOW MANY survives the round trip');
   assert.equal(scored[0].subId, 'S999',
     'and the checklist that reported it, so the folded-back row can still link to its evidence');
+
+  app.window.close();
+});
+
+test('F704 hotspot hydration keeps reportAs forms collapsed', async () => {
+  const today = new Date();
+  const ymd = today.getFullYear() + '-'
+    + String(today.getMonth() + 1).padStart(2, '0') + '-'
+    + String(today.getDate()).padStart(2, '0');
+  const app = await boot({
+    fetch(url) {
+      if (/data\/obs\/L-PALM\/recent/.test(String(url))) {
+        return [
+          { speciesCode: 'palwar', comName: 'Palm Warbler',
+            obsDt: ymd + ' 08:00', howMany: 1, subId: 'S-PARENT' },
+          { speciesCode: 'palwar3', comName: 'Palm Warbler (Western)',
+            obsDt: ymd + ' 07:00', howMany: 1, subId: 'S-WESTERN' },
+        ];
+      }
+      if (/product\/lists\//.test(String(url))) return [];
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  const W = app.window;
+  const doc = app.window.document;
+  W.__SEED_BIRDLIST__.reportAsParents = { palwar3: 'palwar' };
+
+  const map = doc.createElement('div');
+  const list = doc.createElement('ul');
+  doc.body.append(map, list);
+  A.renderDestinations([{
+    locId: 'L-PALM', locName: 'Hoquiam STP', lat: 46.98, lng: -123.88,
+    dist: 98, score: 1, rare: 0,
+    species: [{ code: 'palwar', comName: 'Palm Warbler',
+      dateStr: ymd + ' 08:00', subId: 'S-PARENT' }],
+  }], map, list, false, false);
+
+  const card = await waitFor(() => {
+    const row = list.querySelector('[data-hsloc="L-PALM"]');
+    return row && row.getAttribute('data-unseen-n') != null ? row : null;
+  }, 'the Palm Warbler destination to hydrate');
+  const names = [...card.querySelectorAll('.hslists .name')]
+    .map((node) => node.textContent.replace(/\s+/g, ' ').trim());
+  assert.equal(names.length, 1,
+    'the hotspot feed restored the parent and Western form as separate rows');
+  assert.ok(names[0].startsWith('Palm Warbler'),
+    'the retained row is not the Palm Warbler species group');
+  assert.equal(card.getAttribute('data-unseen-n'), '1',
+    'one species-level tick became two hydrated targets');
+  assert.equal(card.getAttribute('data-hydrated-score'), '1',
+    'one species-level tick received two score votes');
+  assert.match(card.querySelector('.meta').textContent, /1 target\b/,
+    'the facts line still announces the duplicated target count');
+  assert.doesNotMatch(card.textContent, /Palm Warbler \(Western\)/,
+    'the older exact form displaced the newer parent-species evidence');
+  const targetMap = JSON.parse(card.getAttribute('data-unseen-codes') || '{}');
+  assert.deepEqual(Object.keys(targetMap), ['S-PARENT'],
+    'the retained checklist is not the newest evidence for the species group');
 
   app.window.close();
 });

@@ -2722,7 +2722,6 @@
     var dayTrip = opts.travelCfg
       ? excursions(excursionRecentGo, Object.assign({}, excursionOpts, {
           bandIds: ['quick', 'half', 'full', 'trip'],
-          maxRoundTripH: 8,
           top: 30
         }))
       : [];
@@ -2756,7 +2755,6 @@
       var fallbackDayTrip = excursions(fallbackExcursionGo,
         Object.assign({}, excursionOpts, {
           bandIds: ['quick', 'half', 'full', 'trip'],
-          maxRoundTripH: 8,
           top: 30
         }));
       dayTrip = fillFreshFirst(dayTrip, fallbackDayTrip, 30);
@@ -3521,7 +3519,8 @@
 
   function travelHoursMaxStraightMi(cfg, hours) {
     var h = Number(hours);
-    if (!(h > 0) || !isFinite(h)) return 0;
+    if (!(h > 0)) return 0;
+    if (!isFinite(h)) return h === Infinity ? Infinity : 0;
     return h * travelMph(cfg) / 2;
   }
 

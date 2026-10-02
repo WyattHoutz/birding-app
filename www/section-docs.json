@@ -311,8 +311,8 @@
       ],
       "how": [
         "The first open loads county names and bounds from eBird and caches each valid result permanently. A failed or malformed county is not cached and is retried on refresh.",
-        "Under 3h, 3–5h, and 5–8h are distinct estimated round-trip bands. A hotspot appears in only one choice.",
-        "County acquisition is derived from Home and the selected band’s upper bound. Moving Home recomputes the selection from the same cached metadata.",
+        "Under 3h, 3–5h, 5–8h, and 8h+ are distinct estimated round-trip bands. A hotspot appears in only one choice.",
+        "County acquisition is derived from Home and the selected band’s upper bound. The open-ended 8h+ choice uses every hotspot-represented county in the active state or region. Moving Home recomputes the bounded selections from the same cached metadata.",
         "Bounding boxes decide only which feeds are worth buying. Each actual hotspot is classified from its own coordinates using straight mileage plus route friction.",
         "An explicitly offshore, pelagic, moving-ferry, open-water, or strait location is a special trip even when its straight-line distance falls inside Today’s boundary, so it routes here instead of being presented as drivable.",
         "The board starts beyond the exact adaptive boundary Today’s patches used, so one hotspot cannot appear in both.",

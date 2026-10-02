@@ -3416,6 +3416,8 @@
             aria-pressed="false">3–5h</button>
           <button id="dayTrip5To8" class="sortbtn" type="button"
             aria-pressed="false">5–8h</button>
+          <button id="dayTrip8Plus" class="sortbtn" type="button"
+            aria-pressed="false">8h+</button>
         </span>
       </div>
       <div class="row" hidden>
@@ -4282,7 +4284,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.131.16';
+      var APP_VERSION = '1.131.17';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -19519,27 +19521,42 @@
           return locRecentSpecies(lid, days).then(function (rows) {
             if (!rows.length) { markNoRecent(el, days); return; }
             var unseen = [], seen = [], dedupe = {};
+            var seed = window.__SEED_BIRDLIST__ || {};
+            var parentOf = seed.reportAsParents || seed.domesticParents || {};
             // Which birds eBird flags as notable AT THIS PLACE. The location
             // feed does not say, but the chase view already knows — it is the
             // same source the card's own "1 rarity" sub-header counts. Without
             // it this pass rewrote every row as `rare: 0` and the rarity the
             // header was counting had no marker on any row.
             var bucket = lid ? (locSpeciesIndex()[lid] || {}) : {};
-            rows.forEach(function (o) {
-              if (dedupe[o.code]) return;
-              dedupe[o.code] = 1;
+            var groupRare = {};
+            Object.keys(bucket).forEach(function (code) {
+              var key = resolveSpecies(code, parentOf);
+              if (bucket[code] && bucket[code].rare) groupRare[key] = 1;
+            });
+            var groupedRows = BL.scoreCluster(rows.map(function (o) {
+              var exact = bucket[o.code];
+              return Object.assign({}, o, {
+                kind: exact && exact.rare ? 'Rarity' : 'Need',
+                _groupRare: !!groupRare[resolveSpecies(o.code, parentOf)]
+              });
+            }), {}, parentOf).species;
+            groupedRows.forEach(function (o) {
+              var speciesKey = resolveSpecies(o.code, parentOf);
+              if (dedupe[speciesKey]) return;
+              dedupe[speciesKey] = 1;
               var hit = isSeen(o.code, o.name);
-              var b = bucket[o.code];
+              var rare = !hit && (o.kind === 'Rarity' || o._groupRare);
               (hit ? seen : unseen).push({
                 comName: o.name, code: o.code,
                 // Seen rows carry no flags: the marks mean "worth chasing".
-                rare: hit ? 0 : ((b && b.rare) ? 1 : 0),
+                rare: rare ? 1 : 0,
                 subId: o.subId || '',
                 // WHEN and HOW MANY, which this pass used to drop on the floor.
                 dateStr: o.dateStr || '',
                 count: (o.count == null ? null : o.count),
                 tag: hit ? '' : '<span class="needflag">🔍</span>'
-                  + ((b && b.rare) ? rareBadge() : '')
+                  + (rare ? rareBadge() : '')
               });
             });
             // THE CORRECTION MAY ONLY ADD, NEVER DELETE.
@@ -19556,13 +19573,15 @@
             // ticked; it only stops a narrower window from deleting one.
             try {
               JSON.parse(el.getAttribute('data-scored') || '[]').forEach(function (u) {
-                if (!u || dedupe[u.code]) return;
+                if (!u) return;
+                var speciesKey = resolveSpecies(u.code, parentOf);
+                if (dedupe[speciesKey]) return;
                 if (isSeen(u.code, u.name)) return;
-                dedupe[u.code] = 1;
-                var b2 = bucket[u.code];
+                dedupe[speciesKey] = 1;
+                var rare = !!groupRare[speciesKey];
                 unseen.push({
                   comName: u.name, code: u.code,
-                  rare: (b2 && b2.rare) ? 1 : 0,
+                  rare: rare ? 1 : 0,
                   // subId was hard-coded empty, so a bird folded back in from
                   // the scored set also lost its link to the checklist that
                   // reported it. Same drop, third place.
@@ -19570,7 +19589,7 @@
                   dateStr: u.dateStr || '',
                   count: (u.count == null ? null : u.count),
                   tag: '<span class="needflag">🔍</span>'
-                    + ((b2 && b2.rare) ? rareBadge() : '')
+                    + (rare ? rareBadge() : '')
                 });
               });
             } catch (e) { /* no hint on this card: keep the feed's answer */ }
@@ -19612,7 +19631,9 @@
             // list; the second must not throw away evidence it cannot rule on.
             el.setAttribute('data-unseen-n', String(unseen.length));
             var hydratedScore = unseen.reduce(function (sum, row) {
-              return sum + (row.rare ? 3 : 1) * BL.speciesWeight(row.code, watchCodes());
+              var speciesCode = resolveSpecies(row.code, parentOf);
+              return sum + (row.rare ? 3 : 1)
+                * BL.speciesWeight(speciesCode, watchCodes());
             }, 0);
             el.setAttribute('data-hydrated-score', String(hydratedScore));
             el.setAttribute('data-hydrated-rarities', String(unseen.filter(function (row) {
@@ -19953,7 +19974,8 @@
       var DAY_TRIP_RANGES = {
         under3: { label: 'Under 3h', min: 0, max: 3 },
         from3to5: { label: '3–5h', min: 3, max: 5 },
-        from5to8: { label: '5–8h', min: 5, max: 8 }
+        from5to8: { label: '5–8h', min: 5, max: 8 },
+        from8plus: { label: '8h+', min: 8, max: Infinity }
       };
       var _dayTripRange = 'under3';
       function dayTripRangeRows(source, rangeId) {
@@ -20098,7 +20120,8 @@
         [
           ['dayTripUnder3', 'under3'],
           ['dayTrip3To5', 'from3to5'],
-          ['dayTrip5To8', 'from5to8']
+          ['dayTrip5To8', 'from5to8'],
+          ['dayTrip8Plus', 'from8plus']
         ].forEach(function (pair) {
           var button = $(pair[0]);
           if (button) button.setAttribute('aria-pressed',
@@ -40458,6 +40481,9 @@
       });
       $('dayTrip5To8').addEventListener('click', function () {
         setDayTripRange('from5to8');
+      });
+      $('dayTrip8Plus').addEventListener('click', function () {
+        setDayTripRange('from8plus');
       });
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadChecklists);
