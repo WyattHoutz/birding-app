@@ -38,8 +38,8 @@ const VARIANTS = [
     width: 414, scale: 1, profile: 'standard' },
   { id: 'iphone-17-pro', label: 'iPhone 17 Pro', detail: '402px · Standard (1.0x)',
     width: 402, scale: 1, profile: 'standard' },
-  { id: 'iphone-17-pro-large', label: 'iPhone 17 Pro', detail: '402px · Large (1.3x)',
-    width: 402, scale: 1.3, profile: 'large' },
+  { id: 'iphone-17-pro-large', label: 'iPhone 17 Pro', detail: '402px · Large (1.2x)',
+    width: 402, scale: 1.2, profile: 'large' },
   {
     id: 'iphone-17-pro-max-magnification',
     label: 'iPhone 17 Pro',

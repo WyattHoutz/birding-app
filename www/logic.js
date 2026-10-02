@@ -727,6 +727,7 @@
   }
 
   function countyEdgeMi(home, bounds) {
+    if (!home || !bounds) return Infinity;
     var lat = home && Number(home.lat), lng = home && Number(home.lng);
     var minX = bounds && Number(bounds.minX), maxX = bounds && Number(bounds.maxX);
     var minY = bounds && Number(bounds.minY), maxY = bounds && Number(bounds.maxY);
@@ -735,6 +736,24 @@
     var nearLat = Math.min(Math.max(lat, minY), maxY);
     var nearLng = nearestBoundsLon(lng, minX, maxX);
     return haversineMi(lat, lng, nearLat, nearLng);
+  }
+
+  function regionReachability(home, bounds, radiusMi) {
+    var radius = Number(radiusMi);
+    if (!home || !isFinite(Number(home.lat)) || !isFinite(Number(home.lng))) {
+      return { state: 'missing-home', edgeMi: null };
+    }
+    if (!isFinite(radius) || radius < 0) {
+      return { state: 'unknown', edgeMi: null };
+    }
+    var edge = countyEdgeMi(home, bounds);
+    if (!isFinite(edge)) return { state: 'unknown', edgeMi: null };
+    // Region reference data supplies a containing rectangle, not an exact
+    // administrative polygon. Outside its radius is conclusive; overlap is
+    // deliberately unknown rather than a false reachable verdict.
+    return edge > radius
+      ? { state: 'unreachable', edgeMi: edge }
+      : { state: 'unknown', edgeMi: edge };
   }
 
   function deriveCountyScope(home, counties, edgeMi) {
@@ -4850,7 +4869,7 @@
     haversineKm: haversineKm,
     haversineMi: haversineMi,
     countyEdgeMi: countyEdgeMi,
-    deriveCountyScope: deriveCountyScope,
+    deriveCountyScope: deriveCountyScope, regionReachability: regionReachability,
     annotateDistance: annotateDistance,
     parseObsDt: parseObsDt,
     dayStr: dayStr,

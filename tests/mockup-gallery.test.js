@@ -48,7 +48,7 @@ test('F630 mockup gallery builds every Display profile for every report', () => 
   assert.match(html, /Bird Chaser v1\.127\.0 mockups/);
   assert.match(html, /<strong>iPhone 11<\/strong><span>414px · Standard \(1\.0x\)<\/span>/);
   assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Standard \(1\.0x\)<\/span>/);
-  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Large \(1\.3x\)<\/span>/);
+  assert.match(html, /<strong>iPhone 17 Pro<\/strong><span>402px · Large \(1\.2x\)<\/span>/);
   assert.match(html,
     /<strong>iPhone 17 Pro<\/strong><span>402px · High visibility \(1\.75x\)<\/span>/);
   assert.match(html, /iphone-11\/twitches-414px\.png/);

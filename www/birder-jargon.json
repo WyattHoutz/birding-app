@@ -30,11 +30,11 @@
       "usedIn": "Leaderboard Ticks and My Year List"
     },
     "lifer": {
-      "definition": "A bird seen for the first time ever. Once only, and never again.",
+      "definition": "A species seen by a birder for the first time ever in their life.",
       "usedIn": "My Year List and species cards"
     },
     "nemesis bird": {
-      "definition": "An unseen species being reported close enough to chase now.",
+      "definition": "A species that repeatedly eludes a birder despite their attempts to see it.",
       "usedIn": "Nemesis birds"
     },
     "dip": {
@@ -50,7 +50,7 @@
       "usedIn": "BirdCast and On passage"
     },
     "vagrant": {
-      "definition": "A bird well outside its normal range - lost, blown off course, or exploring.",
+      "definition": "A bird found well outside its regular geographic range.",
       "usedIn": "Rarity reports"
     },
     "armchair tick": {
@@ -58,12 +58,60 @@
       "usedIn": "My Year List"
     },
     "spark bird": {
-      "definition": "The bird that turned you into a birder.",
+      "definition": "The species that triggered a lasting passion for birding.",
       "usedIn": "Your profile"
     },
     "peep": {
       "definition": "Any of the small, maddeningly similar Calidris sandpipers.",
       "usedIn": "Stakeout bird"
+    },
+    "LBJ": {
+      "definition": "Little brown job - a blanket term for small, drab brown birds that are difficult to distinguish.",
+      "usedIn": "Glossary and identification language"
+    },
+    "crippler": {
+      "definition": "A spectacularly striking rarity - an enthusiastic, subjective reaction rather than a measurable category.",
+      "usedIn": "Glossary only; never assigned by the app"
+    },
+    "gripped off": {
+      "definition": "To miss a bird that other birders managed to see, usually after making the same attempt.",
+      "usedIn": "Glossary only; never used to judge a chase"
+    },
+    "stringer": {
+      "definition": "A birder suspected of reporting birds they did not see or could not reliably identify.",
+      "usedIn": "Glossary only; never applied to a person by the app"
+    },
+    "twitcher": {
+      "definition": "A dedicated birder who travels considerable distances to see target species and add them to a list.",
+      "usedIn": "Glossary and chase context"
+    },
+    "Patagonia Picnic Table Effect": {
+      "definition": "One rarity attracts many birders to a place, and their added searching produces more unusual discoveries there.",
+      "usedIn": "Glossary and crowded-rarity context"
+    },
+    "pish": {
+      "definition": "To make repeated pishing sounds in an attempt to draw songbirds out of cover.",
+      "usedIn": "Glossary and identification language"
+    },
+    "pelagic": {
+      "definition": "Living on the open ocean, or birding offshore for species associated with it.",
+      "usedIn": "Glossary and coastal birding context"
+    },
+    "siesta time": {
+      "definition": "The quiet middle of the afternoon, when many birds are less active and harder to find.",
+      "usedIn": "Glossary and time-of-day context"
+    },
+    "SOB": {
+      "definition": "Spouse of birder - humorous shorthand for a birder's non-birding partner.",
+      "usedIn": "Glossary only; never used to label a person by the app"
+    },
+    "butterbutt": {
+      "definition": "An affectionate nickname for the Yellow-rumped Warbler, named for its bright yellow rump patch.",
+      "usedIn": "Glossary and species nickname context"
+    },
+    "purple pooper": {
+      "definition": "A joking nickname for the Gray Catbird, inspired by the purple stains left after it eats dark berries.",
+      "usedIn": "Glossary only; never used as the app's species name"
     }
   }
 }

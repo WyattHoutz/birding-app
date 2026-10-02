@@ -462,6 +462,14 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
     FIRST_YEAR_HTML.replace('Native and Naturalized (4)', 'Native and Naturalized (5)'));
   assert.equal(malformed.valid, false,
     'a partial parse cannot be accepted when the page declares more native rows');
+  const withOtherSection = A.parseFirstYearBirdList(FIRST_YEAR_HTML.replace(
+    '</body>',
+    '<section><h2>Provisional (1)</h2><ul>'
+      + '<li class="BirdList-list-list-item countable"></li></ul></section></body>'));
+  assert.equal(withOtherSection.valid, true,
+    'rows from another eBird list section made a complete Native/Naturalized capture partial');
+  assert.equal(withOtherSection.rows.length, 4,
+    'another eBird list section leaked into first-year evidence');
 
   A.renderFirstYear(
     { day: '2026-01-03', region: 'US-WA', rows: page.rows },
@@ -2454,7 +2462,7 @@ test('hot and cold hotspots render from ONE shared scan', async () => {
   app.open(/Cold patches/);
   assert.equal(app.state.fetches.length, afterHot,
     'opening Under-birded patches must reuse the in-flight scan, not refetch');
-  assert.match(app.$('coldStatus').textContent, /Scanning|overlooked/,
+  assert.match(app.$('coldStatus').textContent, /Scanning|[Oo]verlooked/,
     'the cold section reports the shared scan');
   // Let the in-flight scan settle before tearing the window down. The
   // foreground lane defers behind a token now, so closing immediately leaves
@@ -3542,14 +3550,11 @@ test('rankings: the board is scoped to the active report and includes the Top 10
   assert.match(app.$('rankBtn').closest('section').querySelector('h2').textContent,
     /Leaderboard - Washington \d{4}/,
     'the heading names the region, not the raw region code');
-  // F152 brings a scope control back — for COUNTY boards of this same report.
-  // The invariant that removing it protected is what matters, and it is now
-  // asserted directly in "F152: a county board is a view, not a region"
-  // below: the heading is derived from the same call the fetch uses, so it
-  // cannot name one board while the rows are another.
+  // F669 removes the independent board override: the app-wide scope owns the
+  // board, so this selector has one hidden matching option.
   assert.ok(app.$('rankScope'), 'the county board picker is present');
-  assert.ok(app.$('rankScope').options.length >= 2,
-    'a report with counties offers its own board plus each county');
+  assert.equal(app.$('rankScope').options.length, 1,
+    'Top 100 still offers a board scope independent of the app-wide scope');
   assert.equal(app.$('rankScope').value, 'US-WA',
     'and opens on the report\'s own board, not a county');
   const src = HTML.slice(HTML.indexOf('function renderRankings('),
@@ -4307,7 +4312,7 @@ test('F675 missing Home offers Set Home to Here before Today’s patches loads',
   const before = app.state.fetches.length;
   app.open(/Today’s patches/);
 
-  assert.match(app.$('sheetTitle').textContent, /Set Home to Here/i);
+  assert.match(app.$('sheetTitle').textContent, /Set (?:Michigan )?Home to Here/i);
   assert.ok(app.$('anchorSetHomeHere'));
   assert.ok(app.$('anchorUseFind'));
   assert.equal(app.state.fetches.length, before,
@@ -4940,6 +4945,9 @@ test('F679 Migration uses checked filters and GBIF seasonal departures before co
   assert.match(HTML,
     /\.checkedpick\s*>\s*\.sortbtn\[aria-pressed="true"\]::after[\s\S]*content:\s*" ✓"/,
     'selected Migration filters do not print a checkmark');
+  assert.match(HTML,
+    /\.migration-filters\s+\.sortbtn\[aria-pressed="true"\]\s*\{[\s\S]*background:\s*var\(--card\)[\s\S]*box-shadow:\s*inset 0 0 0 2px var\(--accent\)/,
+    'selected Migration filters reverted to oversized solid blocks');
   app.window.close();
 });
 
@@ -6383,13 +6391,18 @@ test('branding: the app icon photo is the in-app mark, bundled offline', async (
   // render as a hole on a phone with no signal - the whole point of bundling.
   assert.ok(!/<img[^>]+src="(https?:)?\/\//i.test(HTML),
     'no image anywhere in the shell is fetched over the network');
-  // The header mark carries the name; the navbar copy is decorative beside a
-  // title that already says it, so announcing it twice is noise.
+  // Both images are decorative because adjacent text names the app and the
+  // header image lives inside a separately labelled Settings button.
   const header = d.querySelector('header img.brandmark');
-  assert.equal(header.getAttribute('alt'), 'Bird Chaser',
-    'the header mark names the app for screen readers');
+  assert.equal(header.getAttribute('alt'), '',
+    'the labelled Settings button must not announce the image a second time');
   assert.equal(d.querySelector('#navbar img.brandmark').getAttribute('alt'), '',
     'the navbar copy is decorative and stays silent');
+  const settings = d.getElementById('brandSettings');
+  assert.equal(settings.getAttribute('aria-label'), 'Open Settings');
+  app.click(settings);
+  assert.equal(app.$('settingsPanel').hidden, false,
+    'the header bird icon did not open Settings');
   assert.match(d.querySelector('header h1').textContent, /Bird Chaser/,
     'the wordmark is real text, so it is searchable and scales');
   app.window.close();
@@ -9124,7 +9137,7 @@ test('F630 Display profiles persist and drive scale plus accessibility treatment
   const sel = app.$('displayProfile');
   assert.ok(sel, 'Settings has one Display control');
   assert.deepEqual([...sel.options].map((option) => option.textContent), [
-    'Standard (1.0x)', 'Large (1.3x)', 'High visibility (1.75x)'
+    'Standard (1.0x)', 'Large (1.2x)', 'High visibility (1.75x)'
   ]);
   assert.equal(sel.value, 'standard', 'the control shows the stored profile');
 
@@ -9145,8 +9158,8 @@ test('F630 Display profiles persist and drive scale plus accessibility treatment
 
 test('F630 migrates legacy display settings before anything renders', async () => {
   const app = await boot({ storage: { ebird_ui_scale: '1.3' } });
-  assert.equal(app.document.documentElement.style.getPropertyValue('--s'), '1.3',
-    'the scale is live on boot, not only after opening Settings');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--s'), '1.2',
+    'legacy Large migrates to the current 1.2x profile on boot');
   assert.equal(app.document.documentElement.getAttribute('data-display'), 'large');
   assert.equal(app.document.documentElement.getAttribute('data-a11y'), 'on');
   assert.equal(app.$('displayProfile').value, 'large', 'Settings reflects the migration');
@@ -11794,6 +11807,11 @@ test('a superseded asynchronous snapshot save cannot recreate a cleared key', as
 test('a hidden Bird Gen consumes the full phase-one repaint when reopened', async () => {
   const app = await boot();
   const A = app.window.__app;
+  A.LOADERS.surgeBtn.reachability = false;
+  A.LOADERS.surgeBtn.fn = () => {
+    app.$('surgeStatus').textContent = 'Looking for twitches';
+    return true;
+  };
   app.open(/Bird Gen/i);
   const sec = A.loadedSectionFor('surgeBtn');
   assert.ok(sec, 'opening Bird Gen marks its section loaded');
@@ -14085,8 +14103,14 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   assert.match(src, /generation !== _surgeLoadGeneration/,
     'an older partial paint can overwrite the later complete paint');
   assert.match(src,
+    /var pObservedStarted = chaseRarityStarted\(\)/,
+    'Bird Gen has no signal for when its priority observation requests are queued');
+  assert.match(src,
+    /var pConverge = Promise\.all\(\[pCachedSources, pObservedStarted\]\)\.then/,
+    'optional product/list hotspot calls can jump ahead of the priority observation source');
+  assert.doesNotMatch(src,
     /var pConverge = Promise\.all\(\[pCachedSources, pObserved\]\)\.then/,
-    'optional product/list hotspot calls can jump ahead of the six-feed observation source');
+    'hotspot convergence waits for observation responses instead of only request startup');
 
   // The Twitch screens now own a bounded notable-only load. Happening now can
   // consume that result without making either Twitch screen start the full
@@ -20256,6 +20280,11 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   assert.match(header.textContent, /LOADING/i);
   assert.match(header.textContent, /Checking migration size/i);
   assert.match(header.getAttribute('aria-label'), /loading/i);
+  assert.ok(header.querySelector('progress.birdcast-alert-progress:not([value])'),
+    'Migration loading has no visible indeterminate progress indicator');
+  assert.match(HTML,
+    /\.birdcast-alert-icon[\s\S]*overflow:\s*visible/,
+    'Large text can crop the printed Migration loading state');
   assert.match(app.document.getElementById('bcBody').textContent, /Lights Out/i);
   assert.match(app.document.getElementById('bcBody').textContent, /Alert for your Home/i);
 
@@ -29526,7 +29555,7 @@ test('the birder glossary is defined once, and says where each word is used (F14
   const J = Object.entries(jargonDoc.terms || {}).map(([term, row]) => ({
     term, def: row.definition, where: row.usedIn,
   }));
-  assert.ok(Array.isArray(J) && J.length >= 12, 'the glossary exists and is not a stub');
+  assert.ok(Array.isArray(J) && J.length >= 28, 'the researched glossary is incomplete');
 
   for (const j of J) {
     assert.ok(j.term && j.def && j.where,
@@ -29567,10 +29596,21 @@ test('the birder glossary is defined once, and says where each word is used (F14
   assert.match(HTML, /fetch\('birder-jargon\.json', \{ cache: 'force-cache' \}\)/,
     'the bundled dictionary is not read through the browser cache');
 
-  // Terms rejected on purpose: subjective, hostile, or accusing a named person.
-  for (const bad of ['crippler', 'gripped off', 'stringer']) {
-    assert.ok(!by[bad], `"${bad}" stays out of the glossary`);
+  for (const term of ['LBJ', 'crippler', 'gripped off', 'stringer']) {
+    assert.ok(by[term], `"${term}" was researched in F141 but is missing`);
   }
+  assert.match(by.stringer.where, /never applied to a person/i,
+    'the accusatory term lost its non-application safeguard');
+  for (const term of ['twitcher', 'Patagonia Picnic Table Effect', 'pish',
+    'pelagic', 'siesta time', 'SOB', 'butterbutt', 'purple pooper']) {
+    assert.ok(by[term], `"${term}" from the source review is missing`);
+  }
+  assert.match(by['nemesis bird'].def, /repeatedly eludes/i,
+    'nemesis bird regressed to meaning any currently unseen bird');
+  assert.match(by.SOB.where, /never used to label a person/i,
+    'the potentially disparaging partner term lost its glossary-only safeguard');
+  assert.match(by['purple pooper'].where, /never used as the app's species name/i,
+    'the nickname can replace the accepted species name');
 });
 
 test('F475 the main menu shows one cached Birder Jargon definition above Buzz', async () => {
@@ -29594,10 +29634,14 @@ test('F475 the main menu shows one cached Birder Jargon definition above Buzz', 
   assert.ok([...list.children].indexOf(tip) < [...list.children].indexOf(firstGroup),
     'Birder Jargon is not above the Buzz menu block');
   assert.equal(tip.querySelector('.jargonlabel').textContent, 'Birder Jargon');
+  const entry = tip.querySelector(':scope > p.jargonentry');
+  assert.ok(entry, 'the term and definition are not one wrapping dictionary paragraph');
   const term = tip.querySelector('.jargonterm').textContent;
   assert.equal(tip.querySelector('.jargondef').textContent,
     jargonDoc.terms[term].definition,
   'the displayed definition did not come from the JSON dictionary');
+  assert.match(entry.textContent, new RegExp(`^${term} \u2014 `),
+    'the dictionary paragraph does not join the term and definition with an em dash');
   const cacheKey = Object.keys(app.window.localStorage)
     .find((key) => key.startsWith('bc_birder_jargon_v1:'));
   assert.ok(cacheKey, 'the parsed dictionary was not cached for later menu opens');
@@ -29882,7 +29926,7 @@ test('pinch-zoom is never disabled, because it is the reader\'s last resort', ()
 test('F630 has one semantic Display profile instead of independent size and Easy Read', () => {
   assert.ok(/DISPLAY_KEY\s*=\s*'bc_display_profile'/.test(HTML));
   assert.ok(/standard:\s*\{\s*scale:\s*1,\s*easy:\s*false/.test(HTML));
-  assert.ok(/large:\s*\{\s*scale:\s*1\.3,\s*easy:\s*true/.test(HTML));
+  assert.ok(/large:\s*\{\s*scale:\s*1\.2,\s*easy:\s*true/.test(HTML));
   assert.ok(/'high-visibility':\s*\{\s*scale:\s*1\.75,\s*easy:\s*true/.test(HTML));
   assert.ok(/id="displayProfile"/.test(HTML), 'the combined Display control is absent');
   assert.ok(!/id="uiScale"|id="a11yMode"/.test(HTML),
@@ -29905,11 +29949,23 @@ test('F630 High visibility owns the responsive header and Bird Gen card hierarch
     /html\[data-display="high-visibility"\] header \.brandtext\s*\{\s*display:\s*block/,
     'High visibility must restore the Bird Chaser title');
   assert.match(HTML,
-    /html\[data-display="high-visibility"\] header > \.brand\s*\{[^}]*grid-column:\s*1\s*\/\s*-1[^}]*grid-row:\s*1/,
-    'High visibility must give Bird Chaser its own first row');
+    /html\[data-display="high-visibility"\] header > \.brand\s*\{[^}]*grid-column:\s*1[^}]*grid-row:\s*1/,
+    'High visibility must place Bird Chaser at upper left');
   assert.match(HTML,
-    /html\[data-display="high-visibility"\] header > \.hdrid\s*\{[^}]*grid-row:\s*2/,
-    'High visibility must place name, rank, and species count on row two');
+    /html\[data-display="high-visibility"\] header > \.hdrscope\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*1[^}]*justify-self:\s*end/,
+    'High visibility must place the region code at upper right');
+  assert.match(HTML,
+    /html\[data-display="high-visibility"\] header > \.hdrid\s*\{[^}]*display:\s*flex[^}]*grid-column:\s*1\s*\/\s*-1[^}]*grid-row:\s*2[^}]*justify-content:\s*space-between/,
+    'High visibility must place name left and rank/species right on row two');
+  assert.match(HTML,
+    /html\[data-display="large"\] header > \.hdrscope\s*\{[^}]*grid-column:\s*2[^}]*grid-row:\s*1/,
+    'Large must place the region code on the first row');
+  assert.match(HTML,
+    /html\[data-display="large"\] header > \.hdrid\s*\{[^}]*display:\s*flex[^}]*grid-column:\s*1\s*\/\s*-1[^}]*grid-row:\s*2[^}]*justify-content:\s*space-between/,
+    'Large must use the same full-width identity row');
+  assert.doesNotMatch(HTML,
+    /html\[data-a11y="on"\] \.hdrid\s*\{\s*display:\s*none/,
+    'Easy Read still hides the identity row required by Large');
   assert.match(HTML,
     /html\[data-display="high-visibility"\] \.hdrid \.hdrstat\s*\{[^}]*var\(--s\)/,
     'the upper-right values do not scale with the selected profile');
@@ -30788,7 +30844,7 @@ test('the code list hides rare birds by default, and says how to see them', () =
   assert.ok(/\(r\.seen \|\| 0\) > 0/.test(r), 'the filter is not based on real reports');
 });
 
-test('scientific names are a setting, on by default, and only on the big cards', () => {
+test('scientific names are always on and only shown on the big cards', () => {
   const cards = fs.readFileSync(path.join(WWW, 'cards-species.js'), 'utf8');
   assert.ok(/function sciHtml/.test(cards), 'the card cannot render a scientific name');
   // Gated INSIDE the card, so "which sizes show this" is a property of the card
@@ -30797,11 +30853,12 @@ test('scientific names are a setting, on by default, and only on the big cards',
   assert.ok(/tpl !== MEDIUM && tpl !== LARGE/.test(g),
     'small cards would show it too, and small is a scanning surface');
 
-  // ON by default: absence of the key must mean shown, not hidden.
-  assert.ok(/localStorage\.getItem\(SCI_KEY\) !== 'off'/.test(HTML),
-    'the default is off, or the check is inverted');
-  assert.ok(/id="sciNames"/.test(HTML), 'there is no control for it');
-  assert.ok(/\$\('sciNames'\)\.value = getSciNames\(\)/.test(HTML), 'the control never loads its value');
+  assert.ok(/function getSciNames\(\) \{ return true; \}/.test(HTML),
+    'scientific names are not an unconditional policy');
+  assert.ok(!/id="sciNames"/.test(HTML),
+    'the obsolete scientific-name setting is still visible');
+  assert.ok(!/bc_scinames|setSciNames/.test(HTML),
+    'a stale saved Hide preference can still suppress scientific names');
 });
 
 test('F493 medium species cards put the italic scientific name under the common name', () => {
@@ -32057,6 +32114,29 @@ test('mega snapshots enrich official hotspot ids from the cached directory', asy
   assert.equal(saved.rows[0].locId, 'L7706326',
     'the public hotspot identity available in cache was discarded from the snapshot');
   app.window.close();
+});
+
+test('F720 publishing Mega evidence repaints an already-loaded Bird Gen model', () => {
+  const saveAt = HTML.indexOf('function saveMegaSnapshot');
+  const save = HTML.slice(saveAt, HTML.indexOf('\n      function ', saveAt + 1));
+  assert.match(save,
+    /localStorage\.setItem\(MEGA_SNAP_KEY[\s\S]*typeof _surgeRepaint === 'function'[\s\S]*_surgeRepaint\(\)/,
+    'Mega can update its archive and snapshot while loaded Bird Gen stays stale');
+  const loadAt = HTML.indexOf('function loadSurge()');
+  const load = HTML.slice(loadAt, HTML.indexOf('\n      function ', loadAt + 1));
+  assert.match(load, /_surgeRepaint = paintSurgeModel/,
+    'Bird Gen does not publish its current in-memory model for Mega updates');
+});
+
+test('F721 Bird Gen starts independent hotspot work without waiting for observations', () => {
+  const at = HTML.indexOf('function loadSurge()');
+  const source = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
+  assert.match(source,
+    /var pConverge = Promise\.all\(\[pCachedSources, pObservedStarted\]\)\.then/,
+    'independent hotspot convergence does not start after observation requests are queued');
+  assert.doesNotMatch(source,
+    /var pConverge = Promise\.all\(\[pCachedSources,\s*pObserved\]\)/,
+    'Bird Gen restored the full observation-response barrier');
 });
 
 test('the just-found badge is legible without seeing its colour', () => {
@@ -35126,8 +35206,22 @@ test('F675/F677 Contents Quick settings routes Home and Display to their existin
   assert.match(home.textContent, /Home.*Woodinville.*Edit/i);
   assert.match(display.textContent, /Display.*Standard.*Edit/i);
 
+  let homeReveal = null;
+  const revealOrder = [];
+  app.window.scrollTo = () => { revealOrder.push('restore'); };
+  app.$('homePlace').scrollIntoView = (options) => {
+    homeReveal = options;
+    revealOrder.push('home');
+  };
   app.click(home);
   assert.equal(app.$('settingsPanel').hidden, false);
+  await waitFor(() => homeReveal, 'Home editor to be revealed after Settings navigation');
+  await new Promise((resolve) => app.window.requestAnimationFrame(() =>
+    app.window.requestAnimationFrame(resolve)));
+  assert.equal(homeReveal.block, 'center',
+    'the Settings scroll restoration left the Home editor above the viewport');
+  assert.equal(revealOrder[revealOrder.length - 1], 'home',
+    'Settings restored its saved top position after revealing Home');
   assert.equal(doc.activeElement, app.$('homePlace'),
     'Home reuses the existing owned-Home editor');
 
@@ -35193,6 +35287,125 @@ test('F698 a missing-Home Find result is temporary unless Save as Home is chosen
     lng: -83.743,
   }, 'Save as Home did not persist the resolved Find result');
   saved.window.close();
+});
+
+test('F706 Bird Gen rejects a temporary Find anchor until this report owns Home', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug,
+    home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch: () => null,
+  });
+  const A = app.window.__app;
+  A.useFoundAnchor({ lat: 42.3180163, lng: -84.020224 }, 'Chelsea');
+  const before = app.state.fetches.length;
+
+  app.open(/Bird Gen/i);
+
+  assert.equal(A.getHome(), null,
+    'the temporary patch-search anchor became the selected report Home');
+  assert.equal(app.state.fetches.length, before,
+    'Bird Gen spent network requests before its selected report had a saved Home');
+  assert.match(app.$('surgeStatus').textContent, /saved Michigan Home/i,
+    'the Home gate does not name the selected report');
+  assert.match(app.$('surgeStatus').querySelector('button').textContent,
+    /Set Michigan Home/i,
+    'the Home action still looks like it edits one global Home');
+  assert.match(app.$('surgeStatus').textContent, /independent of Homes saved for other reports/i,
+    'the Home gate hides that report Homes are independently owned');
+  assert.match(app.$('surgeStatus').textContent, /temporary Here or Find location cannot replace it/i,
+    'the Home gate still permits the transient anchor that caused F706');
+  assert.equal(A.loadedSectionFor('surgeBtn'), null,
+    'Bird Gen was marked loaded even though the Home gate blocked it');
+
+  const directBefore = app.state.fetches.length;
+  assert.equal(A.loadSurge(), false,
+    'the direct Bird Gen refresh path did not report the Home gate');
+  assert.equal(app.state.fetches.length, directBefore,
+    'direct Bird Gen refresh bypassed the Home gate and spent requests');
+  app.window.close();
+});
+
+test('F669 county transitions share parent source identity but isolate derived scope', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const parent = A.activeScope();
+  assert.equal(parent.level, 'parent');
+  assert.equal(parent.effectiveRegion, 'US-WA');
+
+  A.setCountyView('US-WA-033');
+  const king = A.activeScope();
+  assert.equal(king.level, 'subregion');
+  assert.equal(king.effectiveRegion, 'US-WA-033');
+  assert.equal(king.parentRegion, 'US-WA');
+  assert.equal(king.sharedIdentity, parent.sharedIdentity,
+    'King cannot reuse Washington source records');
+  assert.notEqual(king.cacheIdentity, parent.cacheIdentity,
+    'King derived answers share Washington cache ownership');
+  assert.equal(A.scopeCurrent(parent), false,
+    'a delayed Washington request remains current after selecting King');
+  assert.equal(A.scopeCurrent(king), true);
+
+  A.setCountyView('US-WA-061');
+  const snohomish = A.activeScope();
+  assert.equal(snohomish.sharedIdentity, king.sharedIdentity,
+    'sibling counties cannot reuse common parent source records');
+  assert.notEqual(snohomish.cacheIdentity, king.cacheIdentity,
+    'King and Snohomish derived results share one cache identity');
+  assert.equal(A.scopeCurrent(king), false,
+    'a delayed King response can repaint Snohomish');
+
+  A.setCountyView('');
+  const restored = A.activeScope();
+  assert.equal(restored.cacheIdentity, parent.cacheIdentity,
+    'returning to Washington cannot restore its matching derived cache');
+  assert.ok(restored.generation > snohomish.generation,
+    'scope transitions do not advance the stale-response generation');
+  app.window.close();
+});
+
+test('F669 county scope owns observation requests and exact year evidence', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const parentSeen = Object.keys(A.getReportSeen()).length;
+  assert.ok(parentSeen > 1, 'the Washington control needs a real parent seen set');
+
+  A.setCountyView('US-WA-033');
+  assert.equal(A.getObsRegion(), 'US-WA-033',
+    'observation requests still use Washington under a King scope');
+  assert.equal(A.firstYearContext().region, 'US-WA-033',
+    'the exact year-list route still reads the parent region');
+  assert.deepEqual(Object.keys(A.getReportSeen()), [],
+    'King silently inherited Washington seen evidence before its list loaded');
+  assert.equal(A.countySeenEvidenceReady(), false,
+    'missing exact county evidence is being treated as complete');
+
+  A.firstYearWrite('US-WA-033', new Date().getFullYear(), {
+    declared: 1,
+    rows: [{ code: 'kingfixture', name: 'King Fixture Bird',
+      date: '2026-05-01', subId: 'S1', locName: 'King Park', locId: 'L1' }],
+  });
+
+  assert.deepEqual(Object.keys(A.getReportSeen()), ['kingfixture'],
+    'the county seen set is not built from its exact cached year evidence');
+  assert.equal(A.countySeenEvidenceReady(), true,
+    'cached exact county evidence is not recognized as complete');
+  assert.equal(A.reportYearList()[0].loc, 'King Park');
+  app.window.close();
+});
+
+test('F707 bounds can prove unreachable but never falsely prove reachable', () => {
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const bounds = { minX: -85, maxX: -82, minY: 41.5, maxY: 48.3 };
+  const seattle = BL.regionReachability({ lat: 47.61, lng: -122.33 }, bounds, 35);
+  assert.equal(seattle.state, 'unreachable');
+  assert.ok(seattle.edgeMi > 35);
+  const toledo = BL.regionReachability({ lat: 41.65, lng: -83.2 }, bounds, 35);
+  assert.equal(toledo.state, 'unknown',
+    'a containing rectangle cannot certify exact administrative reachability');
+  assert.equal(BL.regionReachability(null, bounds, 35).state, 'missing-home');
+  assert.equal(BL.regionReachability({ lat: 42, lng: -84 }, null, 35).state, 'unknown');
 });
 
 // --- F200: the top bar carries the scope CODE and opens the pickers --------
@@ -36203,27 +36416,14 @@ test('the pause message only blames eBird when eBird actually refused', () => {
 // Region, and it must not redefine what "seen" means.
 // ---------------------------------------------------------------------------
 
-test('F152: a county board is a different board, not a different region', async () => {
+test('F669: the app-wide county scope owns the leaderboard board', async () => {
   const app = await boot();
   const A = app.window.__app;
+  A.setCountyView('US-WA-033');
   app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 60));
-
-  const sel = app.$('rankScope');
-  assert.ok(sel, 'the section offers its county boards');
-  const opts = [...sel.options].map((o) => o.value);
-  assert.deepEqual(opts, ['US-WA', 'US-WA-033', 'US-WA-061'],
-    'the report own board first, then each county it already fetches');
-
-  const before = app.state.fetches.filter((u) => /top100/.test(u)).length;
-  sel.value = 'US-WA-033';
-  sel.dispatchEvent(new app.window.Event('change'));
-  await new Promise((r) => setTimeout(r, 60));
   const after = app.state.fetches.filter((u) => /top100/.test(u));
-  assert.ok(after.length > before,
-    'changing the board fetches that board — a control with no listener is the '
-    + 'v1.0.10 bug that hid the rankings scope for a whole release');
-  const last = after[after.length - 1];
+  const last = after[after.length - 1] || '';
   assert.match(last, /US-WA-033/, 'and it asks for the county');
   assert.match(last, /subnational2/,
     'as a subnational2, which rankingsUrl already emitted before this feature '
@@ -36236,10 +36436,10 @@ test('F152: a county board is a different board, not a different region', async 
     /Leaderboard - King \d{4}/,
     'the heading follows the board');
 
-  // AND THE HARD CONSTRAINT: this is a board, not a region. Nothing about the
-  // seen set moved.
-  assert.equal(A.getCountyView(), '',
-    'picking a county BOARD does not switch the app into a county view');
+  const sel = app.$('rankScope');
+  assert.equal(sel.hidden, true, 'the matching county board is not a second choice');
+  assert.deepEqual([...sel.options].map((o) => o.value), ['US-WA-033']);
+  assert.equal(A.getCountyView(), 'US-WA-033');
   app.window.close();
 });
 
@@ -36973,6 +37173,16 @@ test('F188: the picker sits beside the key it scopes, and says when it acts', ()
     'the control must say when it takes effect');
   assert.doesNotMatch(panel, /id="(?:bcProfileName|ebirdName)"/,
     'read-only identity must not look like an unfinished editable setting');
+  assert.match(HTML, /<output id="region" class="settingvalue"/,
+    'the derived region code still looks like an editable field');
+  assert.match(HTML, /<output id="abaSid" class="settingvalue"/,
+    'the fixed alert code still looks like an editable field');
+  assert.doesNotMatch(HTML, /<input id="(?:region|abaSid)"/,
+    'a read-only Settings fact is still implemented as an input');
+  const settings = HTML.slice(HTML.indexOf('<section class="panel" id="settingsPanel"'),
+                              HTML.indexOf('</section>', HTML.indexOf('id="settingsPanel"')));
+  assert.doesNotMatch(settings, /<(?:input|select)[^>]+\b(?:readonly|disabled)\b/i,
+    'Settings contains a non-editable form control instead of a displayed fact');
   assert.match(panel, /separate local storage slots.*not eBird accounts/is,
     'the fixed slots are explained instead of presented as discovered accounts');
   assert.ok(!/<option value="2">Test 2<\/option>/.test(panel),
@@ -37733,7 +37943,7 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
   const fn = HTML.slice(HTML.indexOf('function lazyFetchRankMe()'),
                         HTML.indexOf('function lazyFetchRankMe()') + 1400);
   assert.ok(fn.length > 100, 'lazyFetchRankMe still exists');
-  assert.match(fn, /if \(cachedRankMe\(getRegion\(\)\)\) return;/,
+  assert.match(fn, /if \(cachedRankMe\(activeScope\(\)\.effectiveRegion\)\) return;/,
     'it must not re-fetch what today already has');
   assert.match(fn, /_rankLazyDone/, 'once per session, not once per menu render');
   assert.match(fn, /headerIdentityRefresh\(\)/,
@@ -39224,6 +39434,8 @@ test('F674 Bird Gen retries only its failed hotspot source', async () => {
   A.fgSchedReset(Date.now());
   const sibling = A.ebird('probe/unrelated-sibling');
   await waitFor(() => releaseSibling, 'the unrelated sibling request to start');
+  A.LOADERS.surgeBtn.fn = () => true;
+  A.LOADERS.surgeBtn.reachability = false;
   A.showSection('sec-surgeBtn');
   A.sleepReset();
   const start = 100000;
