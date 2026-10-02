@@ -1784,10 +1784,12 @@ const BOOTSTRAP = `
       }
       var speciesUnit = rankSpecies.querySelector('small');
       var speciesUnitRect = speciesUnit && speciesUnit.getBoundingClientRect();
-      var recentThumb = firstRankRow.querySelector('.thumb');
+      var recentThumb = firstRankRow.querySelector('.rankbirdicon .thumb');
+      var recentThumbBox = recentThumb && recentThumb.getBoundingClientRect();
       var firstRowRect = firstRankRow.getBoundingClientRect();
-      if (recentThumb) {
-        throw new Error('Top 100 recent-bird image still consumes list space');
+      if (!recentThumbBox || recentThumbBox.width > 19 * renderScale
+          || recentThumbBox.height > 19 * renderScale) {
+        throw new Error('Top 100 latest-bird icon is missing or not compact');
       }
       if (renderScale <= 1 && firstRowRect.height > 86) {
         throw new Error('Top 100 sentence row is too tall: '

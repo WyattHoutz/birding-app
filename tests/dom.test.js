@@ -483,6 +483,37 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
   app.window.close();
 });
 
+test('F723 exact county membership survives incomplete optional first-report evidence', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const source = new app.window.DOMParser().parseFromString(FIRST_YEAR_HTML, 'text/html');
+  const incompleteRow = source.querySelector('#tersan');
+  for (const selector of ['.Obs-date', '.Obs-observer', '.Obs-location']) {
+    incompleteRow.querySelector(selector).replaceChildren();
+  }
+  const incomplete = '<!doctype html>' + source.documentElement.outerHTML;
+
+  const page = A.parseFirstYearBirdList(incomplete);
+  assert.equal(page.valid, true,
+    'missing optional report evidence invalidated the exact declared species set');
+  assert.equal(page.evidenceComplete, false,
+    'the parser hid that some first-report detail was unavailable');
+  assert.deepEqual(arr(page.rows, (row) => row.code),
+    ['comnig', 'tersan', 'brdowl', 'gyrfal'],
+    'an incomplete evidence row disappeared from county membership');
+  const row = page.rows.find((item) => item.code === 'tersan');
+  assert.equal(row.evidenceComplete, false);
+  assert.deepEqual(
+    { date: row.date, subId: row.subId, observer: row.observer, locName: row.locName },
+    { date: '', subId: '', observer: '', locName: '' },
+    'missing evidence was invented to make the row look complete',
+  );
+  assert.equal(page.rows.find((item) => item.code === 'comnig').evidenceComplete, true);
+  assert.equal(page.rows.find((item) => item.code === 'gyrfal').evidenceComplete, true,
+    'intentional sensitive withholding is not a broken page capture');
+  app.window.close();
+});
+
 test('F568 Mega paints its matching snapshot before the live alert settles', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -918,6 +949,7 @@ test('F569 identity injection reaches the native WKWebView bridge without window
         status: 'ok',
         displayName: 'Birder Wyatt',
         evidence: 'profile-heading',
+        profileRegion: { status: 'unsupported', code: '', source: 'ebird-profile' },
       },
       transport: 'webkit',
     },
@@ -2430,7 +2462,7 @@ test('F702 completed research lives in feature records, not an app report', asyn
 test('opening a section auto-loads its content (no button tap)', async () => {
   const app = await boot();
   app.open(/Today.s patches/);
-  assert.match(app.$('destStatus').textContent, /Ranking hotspots/,
+  assert.match(app.$('destStatus').textContent, /Ranking Washington hotspots/,
     'the section loader ran on first open');
   app.window.close();
 });
@@ -3582,6 +3614,7 @@ test('rankings follow the region: a Lower 48 report loads the Lower 48 board', a
 
 test('region nav: switching region rewrites the menu, the home and the storage', async () => {
   const app = await boot();
+  const A = app.window.__app;
   const sel = app.$('menuRegion');
   assert.ok(sel, 'the Contents header carries a region picker');
   assert.ok(app.$('navRegion'), 'so does the section navbar, so you can switch without going back');
@@ -3590,8 +3623,7 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   const waHome = app.window.localStorage.getItem('ebird_home_lat:wa');
   assert.equal(waHome, '47.75', 'a home saved before per-region homes migrates to the active region');
 
-  sel.value = 'lower48';
-  sel.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await A.selectRegionChoice('lower48');
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(app.window.localStorage.getItem('ebird_report'), 'lower48',
     'the choice is persisted, so the app reopens on it');
@@ -3769,12 +3801,12 @@ test('F362 all ABA jurisdictions are selectable offline without creating profile
   assert.equal(new Set(catalog.map((r) => r.code)).size, 65);
   assert.equal(catalog.filter((r) => r.code.startsWith('US-')).length, 51);
   assert.equal(catalog.filter((r) => r.code.startsWith('CA-')).length, 13);
-  for (const id of ['menuRegion', 'navRegion', 'reportSelect']) {
-    const labels = [...app.$(id).options].map((o) => o.textContent);
-    for (const region of catalog) {
-      assert.ok(labels.some((text) => text.endsWith('  ' + region.code)),
-        `${id} cannot select ${region.code}`);
-    }
+  app.window.__app.openRegionChooser();
+  const labels = [...app.$('regionChooserAll').querySelectorAll('.regionchoice')]
+    .map((button) => button.textContent);
+  for (const region of catalog) {
+    assert.ok(labels.some((text) => text.endsWith('  ' + region.code)),
+      `the shared chooser cannot select ${region.code}`);
   }
   assert.equal(app.window.__app.getCustomRegions().length, 0);
   assert.equal(app.state.fetches.some((url) => /api\.ebird\.org/.test(url)), false);
@@ -3784,19 +3816,15 @@ test('F362 all ABA jurisdictions are selectable offline without creating profile
 test('F362 region pickers create one persistent profile and preserve Home ownership', async () => {
   const app = await boot({ key: null, home: false });
   const A = app.window.__app;
-  const picker = app.$('reportSelect');
-  picker.value = 'region:CA-NL';
-  picker.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await A.selectRegionChoice('region:CA-NL');
   await waitFor(() => A.getReport().stateCode === 'CA-NL', 'Newfoundland selection');
   const slug = A.getReportSlug();
   assert.equal(A.getReport().tzStdOffset, -3.5);
   assert.equal(A.getReport().home, null);
   assert.equal(app.window.localStorage.getItem('ebird_home_lat:' + slug), null);
-  app.$('menuRegion').value = 'wa';
-  app.$('menuRegion').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await A.selectRegionChoice('wa');
   assert.equal(A.getReportSlug(), 'wa', 'bundled Washington was duplicated');
-  app.$('navRegion').value = slug;
-  app.$('navRegion').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await A.selectRegionChoice(slug);
   assert.equal(A.getCustomRegions().length, 1, 'reselection duplicated the runtime region');
   assert.equal(A.getReportSlug(), slug);
   const saved = app.window.localStorage.getItem('ebird_custom_regions');
@@ -3887,13 +3915,15 @@ test('F362 reference refresh validates completeness and preserves offline choice
   });
   const A = app.window.__app;
   assert.equal(await A.refreshRegionNames(), true);
-  assert.match(app.$('reportSelect').textContent, /Oregon verified/);
+  A.renderRegionChooser();
+  assert.match(app.$('regionChooserAll').textContent, /Oregon verified/);
   const saved = app.window.localStorage.getItem('bc_region_names_v1');
   fail = true;
   assert.equal(await A.refreshRegionNames(), false);
   assert.equal(app.window.localStorage.getItem('bc_region_names_v1'), saved);
   assert.match(app.$('regionCatalogStatus').textContent, /could not be refreshed/);
-  assert.match(app.$('reportSelect').textContent, /Oregon verified/);
+  A.renderRegionChooser();
+  assert.match(app.$('regionChooserAll').textContent, /Oregon verified/);
   app.window.close();
 });
 
@@ -3902,13 +3932,151 @@ test('F362 onboarding uses the complete catalog before key setup', async () => {
     key: null, home: false, report: null,
     storage: { ebird_region_setup_v1: JSON.stringify({ status: 'denied', message: 'Choose manually' }) },
   });
-  const picker = app.$('onboardRegionSelect');
-  assert.ok([...picker.options].some((o) => o.value === 'region:PM'));
-  picker.value = 'region:PM';
   app.click(app.$('regionChooseBtn'));
+  const pm = [...app.$('regionChooserAll').querySelectorAll('.regionchoice')]
+    .find((button) => button.dataset.regionChoice === 'region:PM');
+  assert.ok(pm);
+  app.click(pm);
   await waitFor(() => app.window.__app.getReport().stateCode === 'PM', 'PM onboarding choice');
   assert.equal(app.window.__app.getHome(), null);
   assert.equal(app.state.fetches.some((u) => /api\.ebird\.org/.test(u)), false);
+  app.window.close();
+});
+
+test('F726 removes Default report and parses profile recommendations without persisting them', async () => {
+  const app = await boot({
+    report: null, key: null, home: false, sample: false,
+    storage: { ebird_region_setup_v1: JSON.stringify({ status: 'denied', message: 'Choose manually' }) },
+  });
+  const A = app.window.__app;
+  assert.equal(app.$('reportSelect'), null,
+    'Settings still exposes a second Default report preference');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), null);
+
+  const state = A.profileRegionRecommendation('/profile/sample-account/US-WA');
+  assert.equal(state.status, 'supported');
+  assert.equal(state.parentCode, 'US-WA');
+  const county = A.profileRegionRecommendation('/profile/sample-account/US-WA-033');
+  assert.deepEqual(JSON.parse(JSON.stringify(county)), {
+    status: 'supported',
+    code: 'US-WA-033',
+    parentCode: 'US-WA',
+    countyCode: 'US-WA-033',
+    source: 'ebird-profile',
+  });
+  assert.equal(A.profileRegionRecommendation('/profile/sample-account/lower48').code,
+    'lower48');
+  assert.equal(A.profileRegionRecommendation('/profile/sample-account/world').status,
+    'unsupported');
+  assert.equal(A.profileRegionRecommendation('/profile/sample-account/US').status,
+    'unsupported');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), null,
+    'parsing or rendering a recommendation silently selected it');
+  app.window.close();
+});
+
+test('F726 accepting a county recommendation persists its parent and leaves Home separate', async () => {
+  const app = await boot({
+    report: null, key: null, home: false, sample: false,
+    storage: {
+      'ebird_home_lat:wa': '47.61',
+      'ebird_home_lng:wa': '-122.24',
+    },
+  });
+  const A = app.window.__app;
+  const recommendation = A.profileRegionRecommendation(
+    '/profile/sample-account/US-WA-033'
+  );
+  assert.equal(await A.acceptRegionRecommendation(recommendation), true);
+  assert.equal(A.getReportSlug(), 'wa');
+  assert.equal(A.getCountyView(), 'US-WA-033');
+  assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())),
+    { lat: 47.61, lng: -122.24 },
+    'accepting a region recommendation rewrote Home');
+
+  const savedReport = app.window.localStorage.getItem('ebird_report');
+  const savedCounty = app.window.localStorage.getItem('ebird_county_view:wa');
+  app.window.close();
+  const restarted = await boot({
+    report: null, home: false, key: null, sample: false,
+    storage: {
+      ebird_report: savedReport,
+      'ebird_county_view:wa': savedCounty,
+      'ebird_home_lat:wa': '47.61',
+      'ebird_home_lng:wa': '-122.24',
+    },
+  });
+  assert.equal(restarted.window.__app.getReportSlug(), 'wa');
+  assert.equal(restarted.window.__app.getCountyView(), 'US-WA-033');
+  restarted.window.close();
+});
+
+test('F727 setup distinguishes website, API key, Home and seen-list capabilities', async () => {
+  const app = await boot({ report: null, key: null, home: false, sample: false });
+  const A = app.window.__app;
+  A.openSetupSheet();
+  const sheet = app.$('setupSheet');
+  assert.equal(sheet.hidden, false);
+  assert.match(sheet.textContent, /Setup Bird Chaser/);
+  assert.match(sheet.textContent, /eBird website (?:not connected|connected)/i);
+  assert.match(sheet.textContent, /default region (?:not parsed|parsed|unsupported)/i);
+  assert.match(sheet.textContent, /personal API key (?:not verified|verified)/i);
+  assert.match(sheet.textContent, /Home (?:not set|ready)/i);
+  assert.match(sheet.textContent, /seen list (?:not ready|ready)/i);
+  assert.match(sheet.textContent, /Bird Chaser never receives or stores.*password/i);
+  assert.match(sheet.textContent, /Continue with limited features/i);
+  assert.doesNotMatch(sheet.textContent, /public web token/i,
+    'an automatic implementation token is presented as a setup credential');
+  assert.equal(A.LOADERS.rankBtn.needsKey, undefined,
+    'the public leaderboard still requires an unrelated personal API key');
+  assert.equal(A.LOADERS.abaBtn.needsKey, undefined,
+    'the public ABA alert still requires an unrelated personal API key');
+  for (const row of sheet.querySelectorAll('[data-setup-state]')) {
+    assert.match(row.textContent, /(?:✓|!|×|Not|Ready|Connected|Verified|Parsed)/i,
+      'a setup state relies on colour without a glyph or explicit text');
+  }
+  app.window.localStorage.setItem('ebird_seen_setup_skipped', '1');
+  A.renderSetupSheet();
+  assert.match(sheet.textContent, /seen list not ready/i,
+    'skipping personal data was falsely labelled as an available seen list');
+  app.click(app.$('setupContinue'));
+  assert.equal(sheet.hidden, true);
+  assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
+  A.openSetupSheet();
+  assert.equal(sheet.hidden, false, 'limited setup cannot be resumed');
+  app.window.close();
+});
+
+test('F728 chooser keeps the previous region directly visible in Recent', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.notEqual(app.$('menuRegion').tagName, 'SELECT');
+  assert.notEqual(app.$('navRegion').tagName, 'SELECT');
+
+  await A.selectRegionChoice('region:US-MI');
+  A.openRegionChooser();
+  const chooser = app.$('regionChooser');
+  assert.equal(chooser.hidden, false);
+  assert.match(app.$('regionChooserCurrent').textContent, /Michigan.*US-MI/i);
+  assert.match(app.$('regionChooserRecent').textContent, /Washington.*US-WA/i,
+    'Washington still requires an undiscoverable reverse scroll gesture');
+  assert.match(chooser.textContent, /65 ABA jurisdictions/i);
+  assert.match(chooser.textContent, /search or scroll/i);
+  const search = app.$('regionChooserSearch');
+  search.value = 'Newfoundland';
+  search.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  const visible = [...app.$('regionChooserAll').querySelectorAll('.regionchoice')]
+    .filter((button) => !button.hidden);
+  assert.ok(visible.some((button) => /Newfoundland.*CA-NL/i.test(button.textContent)),
+    'search cannot find an offline jurisdiction');
+  assert.match(app.$('regionChooserClose').getAttribute('aria-label'), /Close/i);
+  const before = A.scopeGeneration();
+  const washington = [...app.$('regionChooserRecent').querySelectorAll('.regionchoice')]
+    .find((button) => /Washington/.test(button.textContent));
+  app.click(washington);
+  assert.equal(A.getReportSlug(), 'wa');
+  assert.equal(A.scopeGeneration(), before + 1,
+    'one chooser selection changed scope more than once');
   app.window.close();
 });
 
@@ -3939,7 +4107,15 @@ test('F362 catalog clocks do not overwrite a geolocated region estimate', async 
       }],
     } : null,
   });
-  await waitFor(() => app.window.__app.getReport().stateCode === 'US-TX', 'resolved Texas');
+  await waitFor(() => {
+    const value = JSON.parse(
+      app.window.localStorage.getItem('bc_profile_region_recommendation_v1') || 'null');
+    return value && value.code === 'US-TX';
+  }, 'recommended Texas');
+  assert.equal(app.window.__app.getReportSlug(), '',
+    'a device-location recommendation was persisted before acceptance');
+  await app.window.__app.acceptRegionRecommendation();
+  assert.equal(app.window.__app.getReport().stateCode, 'US-TX');
   assert.equal(app.window.__app.getReport().tzStdOffset, -7,
     'the catalog reference point in Austin must not replace the existing El Paso estimate');
   app.window.close();
@@ -4022,7 +4198,7 @@ test('F207: only profile-scoped stored coordinates count as Home', async () => {
   app.window.close();
 });
 
-test('F318: current location selects a confidently resolved bundled region before key setup', async () => {
+test('F318/F726: current location recommends a bundled region for explicit acceptance before key setup', async () => {
   const app = await boot({
     report: null,
     home: false,
@@ -4043,11 +4219,13 @@ test('F318: current location selects a confidently resolved bundled region befor
     } : null,
   });
 
-  await waitFor(() => app.window.localStorage.getItem('ebird_report') === 'wa',
-    'current location to select Washington');
+  await waitFor(() => app.window.localStorage.getItem('bc_profile_region_recommendation_v1'),
+    'current location to recommend Washington');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), null);
+  await app.window.__app.acceptRegionRecommendation();
   assert.equal(app.window.__app.getReportSlug(), 'wa');
   assert.equal(app.window.__app.getCountyView(), '',
-    'automatic state selection starts at All counties');
+    'accepting a state recommendation starts at All counties');
   assert.match(app.$('keyBanner').textContent, /Set Home/i,
     'the state machine advances to Home rather than skipping ahead to the API key');
   assert.equal(app.state.fetches.some((url) => /api\.ebird\.org/i.test(url)), false,
@@ -4055,7 +4233,7 @@ test('F318: current location selects a confidently resolved bundled region befor
   app.window.close();
 });
 
-test('F318: a confidently resolved unbundled region is persisted without becoming Home', async () => {
+test('F318/F726: an accepted unbundled recommendation persists without becoming Home', async () => {
   const app = await boot({
     report: null,
     home: false,
@@ -4076,9 +4254,11 @@ test('F318: a confidently resolved unbundled region is persisted without becomin
     } : null,
   });
 
-  await waitFor(() => /^u-/.test(app.window.localStorage.getItem('ebird_report') || ''),
-    'current location to create the Oregon runtime region');
   const A = app.window.__app;
+  await waitFor(() => app.window.localStorage.getItem('bc_profile_region_recommendation_v1'),
+    'current location to recommend Oregon');
+  assert.equal(app.window.localStorage.getItem('ebird_report'), null);
+  await A.acceptRegionRecommendation();
   const slug = A.getReportSlug();
   const rec = A.getCustomRegions().find((row) => row.slug === slug);
   assert.equal(rec.stateCode, 'US-OR');
@@ -4181,8 +4361,8 @@ test('F318: Find a region uses the same runtime-region path and survives restart
     'Find creates one runtime region rather than a parallel region type');
   const source = HTML.slice(HTML.indexOf('function beginRegionDetection('),
     HTML.indexOf('function renderRegionOnboarding('));
-  assert.equal((source.match(/\.then\(finishRegionSelection\)/g) || []).length, 2,
-    'automatic and Find-based discovery converge on the same selection helper');
+  assert.equal((source.match(/\.then\(finishRegionSelection\)/g) || []).length, 1,
+    'an explicit Find choice must select, while automatic location only recommends');
 
   const restarted = await boot({
     report: null,
@@ -4716,11 +4896,14 @@ test('retired built-in trips are absent and stored trip choices migrate', async 
     assert.equal(app.window.localStorage.getItem('ebird_report'), replacement,
       retired + ' is removed from durable selection state');
     for (const id of ['menuRegion', 'navRegion']) {
-      const values = [...app.$(id).options].map((option) => option.value);
+      app.click(app.$(id));
+      const values = [...app.$('regionChooserAll').querySelectorAll('[data-region-choice]')]
+        .map((option) => option.dataset.regionChoice);
       assert.equal(values.includes('fort-casey'), false,
         id + ' still offers the retired Fort Casey trip');
       assert.equal(values.includes('waikoloa'), false,
         id + ' still offers the retired Waikoloa trip');
+      app.click(app.$('regionChooserClose'));
     }
     app.window.close();
   }
@@ -9916,7 +10099,7 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   assert.ok(help, 'the moved explanation has no info-button destination');
   app.click(help);
   const sheet = app.document.querySelector('#appSheet');
-  assert.match(sheet.textContent, /Buzz.*Hotspot alerts/s);
+  assert.match(sheet.textContent, /Buzz.*Mass flocks.*Favorite Patch birds.*Hotspots unusually busy/s);
   assert.doesNotMatch(sheet.textContent, /Newest/);
   assert.match(sheet.textContent, /Mega snapshot/i,
     'the dynamic source context was not moved into the info sheet');
@@ -9926,10 +10109,392 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   app.window.close();
 });
 
+test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active county', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const source = HTML;
+  assert.match(source, /loadFavoritePatchAlertSource\(force,\s*activeScope\(\)\)/,
+    'the live Bird Gen load does not start the Favorite patch source');
+  assert.match(source, /favorites:\s*surgeModel\.favorite\.state/,
+    'the Favorite patch source state is absent from the live source model');
+  assert.match(source, /surgeModel\.favorite\.rows/,
+    'live Favorite patch rows never reach the unified alert renderer');
+  const now = Date.now();
+  const stamp = (hoursAgo) => {
+    const date = new Date(now - hoursAgo * 3600000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} `
+      + `${p(date.getHours())}:${p(date.getMinutes())}`;
+  };
+  const favorites = [
+    { locId: 'LKING', locName: 'Marymoor Park', region: 'US-WA',
+      countyCode: 'US-WA-033', lat: 47.66, lng: -122.12 },
+    { locId: 'LSNO', locName: 'Snohomish Patch', region: 'US-WA',
+      countyCode: 'US-WA-061', lat: 47.9, lng: -122.2 },
+    { locId: 'LKINGFAIL', locName: 'King Feed Failure', region: 'US-WA',
+      countyCode: 'US-WA-033', lat: 47.7, lng: -122.1 },
+    { locId: 'LWRONGOBS', locName: 'County Boundary Control', region: 'US-WA',
+      countyCode: 'US-WA-033', lat: 47.7, lng: -122.1 },
+    { locId: 'LOR', locName: 'Oregon Control', region: 'US-OR',
+      countyCode: 'US-WA-033', lat: 45.5, lng: -122.6 },
+  ];
+  const feeds = {
+    LKING: {
+      state: 'ok',
+      rows: [
+        { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+          howMany: 1, obsDt: stamp(4), subId: 'SOLD',
+          locId: 'LKING', locName: 'Marymoor Park', subnational2Code: 'US-WA-033' },
+        { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+          howMany: 2, obsDt: stamp(1), subId: 'SNEW',
+          locId: 'LKING', locName: 'Marymoor Park', subnational2Code: 'US-WA-033' },
+        { speciesCode: 'amerob', comName: 'American Robin',
+          howMany: 3, obsDt: stamp(1), subId: 'SSEEN',
+          locId: 'LKING', locName: 'Marymoor Park', subnational2Code: 'US-WA-033' },
+        { speciesCode: 'stale1', comName: 'Stale Bird',
+          howMany: 1, obsDt: stamp(60), subId: 'SSTALE',
+          locId: 'LKING', locName: 'Marymoor Park', subnational2Code: 'US-WA-033' },
+      ],
+    },
+    LSNO: {
+      state: 'failed',
+      rows: [{ speciesCode: 'snogoo', comName: 'Snow Goose',
+        howMany: 100, obsDt: stamp(1), locId: 'LSNO',
+        subnational2Code: 'US-WA-061' }],
+    },
+    LKINGFAIL: { state: 'failed', rows: [] },
+    LWRONGOBS: {
+      state: 'ok',
+      rows: [{ speciesCode: 'redkno', comName: 'Red Knot',
+        obsDt: stamp(1), howMany: 4, subId: 'S-WRONG-COUNTY',
+        subnational2Code: 'US-WA-061' }],
+    },
+    LOR: {
+      state: 'ok',
+      rows: [{ speciesCode: 'tufted', comName: 'Tufted Duck',
+        obsDt: stamp(1), howMany: 1, subId: 'S-WRONG-REGION',
+        subnational2Code: 'US-WA-033' }],
+    },
+  };
+  const result = A.favoritePatchAlerts(favorites, feeds, {
+    now,
+    region: 'US-WA',
+    countyCode: 'US-WA-033',
+    seen: (code) => code === 'amerob',
+  });
+  assert.equal(result.state, 'partial',
+    'a failed sibling favorite was presented as a complete source');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].code, 'shtsan');
+  assert.equal(result.rows[0].count, 2,
+    'duplicate reports did not retain the newest evidence');
+  assert.equal(result.rows[0].checklistId, 'SNEW');
+
+  A.renderSurge([], [], [], [], [], {
+    mega: 'notApplicable', observations: 'ok', leaderboard: 'notApplicable',
+    hotspots: 'notApplicable', favorites: result.state,
+  }, [], result.rows);
+  const row = app.$('surgeFeed').querySelector('[data-alert-kind="favorite"]');
+  assert.ok(row, 'the Favorite Patch alert did not render');
+  assert.match(row.textContent, /FAVORITE PATCH/);
+  assert.match(row.textContent, /Sharp-tailed Sandpiper.*Marymoor Park/s);
+  assert.ok(row.querySelector(':scope > .name > .thumb'),
+    'the alert uses a generic place tile instead of the bird photo');
+  assert.equal(row.dataset.hsloc, 'LKING');
+  app.click(row.querySelector(':scope > .name'));
+  assert.equal(app.$('sec-stakeHsBtn').hidden, false,
+    'the Favorite Patch headline did not open the saved patch');
+  assert.match(app.$('surgeResults').textContent, /Favorite patch feeds failed/i,
+    'successful rows hid the partial-source failure');
+
+  seedSeen(app, ['shtsan', 'amerob']);
+  A.renderSurge([], [], [], [], [], {
+    mega: 'notApplicable', observations: 'ok', leaderboard: 'notApplicable',
+    hotspots: 'notApplicable', favorites: result.state,
+  }, [], result.rows);
+  assert.equal(app.$('surgeFeed')?.querySelector('[data-alert-kind="favorite"]'), null,
+    'a newly seen bird remained in Favorite Patch alerts after repaint');
+  app.window.close();
+});
+
+test('F729 live favorites preserve successful feeds, reuse cache and force retry failures', async () => {
+  let failed = true;
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    + `-${String(now.getDate()).padStart(2, '0')} 00:01`;
+  const app = await boot({
+    storage: { ebird_favs: JSON.stringify([
+      { id: 'good', locId: 'LFGOOD', locName: 'Marymoor Park', region: 'US-WA' },
+      { id: 'retry', locId: 'LFRETRY', locName: 'Union Bay', region: 'US-WA' },
+      { id: 'away', locId: 'LFOTHER', locName: 'Oregon Control', region: 'US-OR' },
+    ]) },
+    fetch(url) {
+      if (/data\/obs\/LFRETRY\/recent/.test(url)) return failed ? { unreadable: true } : [];
+      if (/data\/obs\/LFGOOD\/recent/.test(url)) return [
+        { speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LFGOOD',
+          howMany: 1, obsDt: stamp, subId: 'SFG' },
+        { speciesCode: 'wrong', comName: 'Wrong patch bird', locId: 'LFOTHER',
+          howMany: 1, obsDt: stamp, subId: 'SFW' },
+      ];
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  const first = await A.loadFavoritePatchAlertSource(false, A.activeScope());
+  assert.equal(first.state, 'partial');
+  assert.deepEqual(Array.from(first.rows, (r) => r.code), ['margod']);
+  await A.loadFavoritePatchAlertSource(false, A.activeScope());
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\/LFGOOD/.test(url)).length, 1);
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\/LFOTHER/.test(url)).length, 0);
+  failed = false;
+  assert.equal((await A.loadFavoritePatchAlertSource(true, A.activeScope())).state, 'ok');
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\/LFGOOD/.test(url)).length, 2);
+  app.window.close();
+});
+
 test('F534 every report heading keeps its reload action on the same row', () => {
   assert.match(HTML,
     /\.panel h2\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;/s);
   assert.match(HTML, /\.refreshbtn\s*\{[^}]*flex:\s*0 0 auto;/s);
+});
+
+test('F730 Mass Flock keeps corroborated regional events and boosts chase-distance flocks', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const source = HTML;
+  assert.match(source, /loadMassFlockAlertSource\(force,\s*activeScope\(\)\)/,
+    'the live Bird Gen load does not start the Mass Flock source');
+  assert.match(source, /BL\.publicPersonalLocids/,
+    'Mass Flock does not reuse the established safe custom-pin ownership rule');
+  const now = Date.now();
+  const stamp = (hoursAgo) => {
+    const date = new Date(now - hoursAgo * 3600000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} `
+      + `${p(date.getHours())}:${p(date.getMinutes())}`;
+  };
+  const row = (code, name, count, locId, locName, lat, lng, hoursAgo, extra = {}) => ({
+    speciesCode: code, comName: name, howMany: count,
+    locId, locName, lat, lng, obsDt: stamp(hoursAgo),
+    subId: extra.subId || `${locId}-${count}-${hoursAgo}`,
+    subnational1Code: extra.region || 'US-WA',
+    subnational2Code: extra.county || 'US-WA-027',
+    locationPrivate: Boolean(extra.private),
+  });
+  const rows = [
+    row('margod', 'Marbled Godwit', 600, 'L257970', 'Tokeland--marina',
+      46.707, -123.974, 3),
+    row('margod', 'Marbled Godwit', 600, 'L787853', 'Tokeland',
+      46.708, -123.971, 24),
+    row('margod', 'Marbled Godwit', 750, 'LPUBLICPIN', 'Tokeland marina',
+      46.706, -123.972, 48, { private: true }),
+    row('margod', 'Marbled Godwit', 3, 'L257976', 'Graveyard Spit',
+      46.710, -123.969, 1),
+    row('margod', 'Marbled Godwit', 900, 'LHOME', 'Tokeland Backyard',
+      46.706, -123.973, 2, { private: true }),
+    row('snogoo', 'Snow Goose', 900, 'LS1', 'Eide Road Preserve',
+      48.220, -122.360, 2, { county: 'US-WA-061' }),
+    row('snogoo', 'Snow Goose', 750, 'LS2', 'North Fir Island',
+      48.223, -122.361, 5, { county: 'US-WA-061' }),
+    row('snogoo', 'Snow Goose', 500, 'LS3', 'Fir Island Fields',
+      48.222, -122.365, 8, { county: 'US-WA-061' }),
+    row('amecro', 'American Crow', 651, 'LC1', 'North Seattle College',
+      47.699, -122.333, 2, { county: 'US-WA-033' }),
+    row('amecro', 'American Crow', 400, 'LC2', 'Licton Springs Park',
+      47.724, -122.330, 4, { county: 'US-WA-033' }),
+    row('amecro', 'American Crow', 390, 'LC3', 'Union Bay',
+      47.660, -122.290, 6, { county: 'US-WA-033' }),
+    row('brant', 'Brant', 5000, 'TYPO', 'One uncorroborated checklist',
+      47.0, -124.0, 1),
+    row('tufted', 'Tufted Duck', 800, 'OR1', 'Oregon One',
+      45.5, -122.6, 2, { region: 'US-OR', county: 'US-OR-051' }),
+    row('tufted', 'Tufted Duck', 700, 'OR2', 'Oregon Two',
+      45.6, -122.6, 3, { region: 'US-OR', county: 'US-OR-051' }),
+  ];
+
+  const events = A.massFlockAlerts(rows, {
+    region: 'US-WA',
+    now,
+    home: { lat: 48.25, lng: -122.38 },
+    maxMi: 35,
+    allowedPrivateLocIds: { LPUBLICPIN: 1 },
+  });
+  assert.deepEqual(Array.from(events, (event) => event.code), ['snogoo', 'margod'],
+    'nearby boost, scope, corroboration or resident-noise control regressed');
+  const godwit = events.find((event) => event.code === 'margod');
+  assert.equal(godwit.minCount, 600);
+  assert.equal(godwit.maxCount, 750);
+  assert.equal(godwit.supportingLowRows, 1,
+    'the latest count of 3 erased or incorrectly joined the corroborated range');
+  assert.equal(godwit.insideChase, false);
+  assert.equal(godwit.evidenceCount, 3,
+    'the safe nearby custom pin was not retained as flock evidence');
+  assert.ok(!events.some((event) => event.code === 'amecro'),
+    'routine resident crow concentrations became Mass Flock noise');
+  assert.ok(!events.some((event) => event.code === 'brant'),
+    'one uncorroborated extreme count became a Mass Flock alert');
+  const classify = (input, options = {}) => A.massFlockAlerts(input, {
+    region: 'US-WA', now, home: { lat: 48.25, lng: -122.38 }, maxMi: 35,
+    allowedPrivateLocIds: { LPUBLICPIN: 1 }, ...options,
+  });
+  assert.equal(classify(rows, { countyCode: 'US-WA-033' }).length, 0);
+  assert.equal(classify([rows[0], { ...rows[1], obsDt: rows[0].obsDt }]).length, 0,
+    'different pins for the same-minute shared visit supplied corroboration');
+  assert.equal(classify([rows[0], { ...rows[1], subId: rows[0].subId }]).length, 0);
+  assert.equal(classify([rows[0], { ...rows[1], lat: 46.9 }]).length, 0,
+    'remote flocks were merged by the unmeasured 20-mile rule');
+  assert.equal(classify([rows[0], { ...rows[1], locId: rows[0].locId }]).length, 1,
+    'repeat visits to the same hotspot must also corroborate a flock');
+  assert.equal(classify(rows.map((r, i) => ({ ...r, obsDt: stamp(240 + i) }))).length, 0);
+  assert.equal(classify(rows.map((r, i) => ({ ...r, obsDt: stamp(-240 - i) }))).length, 0);
+  assert.equal(classify(rows.map((r) => ({ ...r, lat: null }))).length, 0);
+  assert.equal(classify(rows.map((r) => ({ ...r, locName: 'Private residence',
+    locationPrivate: false }))).length, 0, 'privacy names must not trust the pin flag');
+  assert.equal(classify(rows.map((r) => ({ ...r, subnational1Code: '' }))).length, 0);
+  seedSeen(app, ['margod', 'snogoo']);
+
+  A.renderSurge([], [], [], [], [], {
+    mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
+    favorites: 'notApplicable', mass: 'ok',
+  }, [], [], events);
+  const cards = [...app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]')];
+  assert.equal(cards.length, 2);
+  assert.match(cards[0].textContent, /Snow Goose.*MASS FLOCK.*within chase distance/s);
+  assert.match(cards[1].textContent,
+    /Marbled Godwit.*MASS FLOCK.*600.*750.*outside chase radius/s);
+  assert.ok(cards[1].querySelector(':scope > .name > .thumb'),
+    'the Mass Flock row does not use the bird photo tile');
+  assert.match(cards[1].textContent, /Graveyard Spit/);
+  assert.doesNotMatch(cards[1].textContent, /Tokeland Backyard/);
+  assert.doesNotMatch(cards[1].textContent, /[x×]\s*0\b/,
+    'an unknown latest count became a fabricated zero');
+  app.click(cards[1].querySelector(':scope > .name'));
+  assert.equal(app.$('sec-spLookupBtn').hidden, false,
+    'the Mass Flock headline did not open bird Stakeout');
+  const boosted = classify(rows.map((r) =>
+    r.speciesCode === 'margod' && r.howMany > 500 ? { ...r, howMany: 2000 } : r));
+  A.renderSurge([], [], [], [], [], {}, [], [], boosted);
+  assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="mass"]').textContent,
+    /Snow Goose/, 'final rendering lost chase-distance priority to a bigger remote flock');
+  const many = Array.from({ length: 5 }, (_, i) => ({
+    ...godwit, code: 'flock' + i, name: 'Flock ' + i,
+  }));
+  A.renderSurge([], [], [], [], [], {
+    mass: 'partial', massCoverage: '12 of 13 candidate species; capped coverage',
+  }, [], [], many);
+  assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]').length, 3);
+  const showAll = [...app.$('surgeResults').querySelectorAll('button')]
+    .find((button) => /Show all 5 mass flocks/.test(button.textContent));
+  assert.ok(showAll, 'bounded summary made the remaining events inaccessible');
+  app.click(showAll);
+  assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]').length, 5);
+  assert.match(app.$('surgeResults').textContent,
+    /12 of 13 candidate species.*not exhaustive/s,
+    'Show all removed the sampling/coverage disclosure');
+  app.window.close();
+});
+
+test('F730 live source combines dated evidence with scoped species rows and rejects stale work', async () => {
+  const now = new Date();
+  const day = (ago) => {
+    const d = new Date(now); d.setDate(d.getDate() - ago);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const observation = (ago, count, subId) => ({
+    speciesCode: 'margod', comName: 'Marbled Godwit', howMany: count,
+    obsDt: day(ago) + ' 08:00', locId: 'LTOKE', locName: 'Tokeland marina',
+    lat: 46.707, lng: -123.974, subId, locationPrivate: false,
+  });
+  const storage = {};
+  for (let ago = 0; ago < 7; ago++) {
+    storage['bc_mass_day_v1:US-WA:' + day(ago)] = JSON.stringify({
+      at: Date.now(), complete: true,
+      rows: ago === 1 ? [observation(1, 600, 'SOLDER')] : [],
+    });
+  }
+  const app = await boot({ storage, fetch: (url) => {
+    if (/recent\/margod/.test(url)) return [observation(0, 650, 'SNEW')];
+    return [];
+  } });
+  const A = app.window.__app;
+  const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+  assert.equal(result.state, 'ok');
+  assert.equal(result.rows.length, 1,
+    'missing species-feed county fields or same-pin dated evidence lost the real event');
+  assert.equal(result.rows[0].minCount, 600);
+  assert.equal(result.rows[0].maxCount, 650);
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 0);
+  assert.equal(app.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 1);
+  const refreshed = await A.loadMassFlockAlertSource(true, A.activeScope());
+  assert.equal(refreshed.state, 'ok');
+  assert.equal(refreshed.rows.length, 0);
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 7,
+    'force refresh reused the dated source cache');
+  app.window.close();
+
+  const cappedStorage = {};
+  for (let ago = 0; ago < 7; ago++) {
+    cappedStorage['bc_mass_day_v1:US-WA:' + day(ago)] = JSON.stringify({
+      at: Date.now(), complete: true,
+      rows: ago < 2 ? Array.from({ length: 13 }, (_, i) => ({
+        ...observation(ago, 700 + i, 'SB-' + ago + '-' + i),
+        speciesCode: 'budget' + i, comName: 'Flock bird ' + i,
+      })) : [],
+    });
+  }
+  const capped = await boot({ storage: cappedStorage, fetch: (url) => {
+    if (/recent\/budget12/.test(url)) return { unreadable: true };
+    return [];
+  } });
+  const bounded = await capped.window.__app.loadMassFlockAlertSource(
+    false, capped.window.__app.activeScope());
+  assert.equal(bounded.state, 'partial', 'cap/failure became a complete empty success');
+  assert.match(bounded.coverage, /12 of 13.*sources failed.*capped coverage/);
+  assert.equal(bounded.rows.length, 13, 'valid dated evidence was lost on species failure');
+  assert.equal(capped.state.fetches.filter((url) => /recent\/budget/.test(url)).length, 12,
+    'the source exceeded its explicit species follow-up budget');
+  capped.window.close();
+
+  let release;
+  const pending = await boot({ fetch: (url) => {
+    if (/\/historic\//.test(url)) return new Promise((resolve) => { release = resolve; });
+    return [];
+  } });
+  const B = pending.window.__app;
+  const loading = B.loadMassFlockAlertSource(false, B.activeScope());
+  await waitFor(() => Boolean(release), 'held dated flock request');
+  B.setCountyView('US-WA-033');
+  release([observation(1, 600, 'SLATE')]);
+  assert.equal((await loading).state, 'failed');
+  assert.equal(pending.state.fetches.filter((url) => /\/historic\//.test(url)).length, 1,
+    'obsolete scope launched the remaining dated sweep');
+  assert.equal(pending.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 0);
+  assert.equal(Object.keys(pending.window.localStorage)
+    .filter((key) => key.startsWith('bc_mass_day_v1:')).length, 0,
+  'an obsolete response poisoned the next scope cache');
+  pending.window.close();
+});
+
+test('F732 latest-bird icons preserve per-row identity and omit unavailable evidence', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.renderRankings({ rows: [
+    { rank: 1, name: 'Birder A', species: 300, recent: 'American Robin (Oct. 1, 2026)' },
+    { rank: 2, name: 'Birder B', species: 299, recent: 'Snow Goose (Oct. 1, 2026)' },
+    { rank: 3, name: 'Birder C', species: 298, recent: 'unavailable' },
+    { rank: 4, name: 'Birder D', species: 297, recent: '' },
+  ] }, 'US-WA', 'https://ebird.org/top100', '');
+  const rows = [...app.$('rankResults').querySelectorAll('.rankrow')];
+  assert.equal(rows[0].querySelector('.thumb').dataset.bird, 'American Robin');
+  assert.equal(rows[1].querySelector('.thumb').dataset.bird, 'Snow Goose');
+  assert.match(rows[1].querySelector('.rankbirdline').textContent, /Snow Goose/);
+  assert.equal(rows[2].querySelector('.rankbirdicon'), null);
+  assert.equal(rows[3].querySelector('.rankbirdicon'), null);
+  assert.equal(app.state.fetches.filter((url) =>
+    /api\.ebird\.org.*(?:data\/obs|top100)/.test(url)).length, 0,
+  'the photo addition introduced an observation or leaderboard fetch');
+  app.window.close();
 });
 
 test('Bird Gen relative age stays on one line as 24hr ago', async () => {
@@ -10087,7 +10652,8 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     el.dataset.countKind, Number(el.querySelector('b').textContent),
   ]));
   assert.deepEqual(counts, {
-    mega: 1, migration: 0, need: 1, crowd: 1, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 0, mass: 0, need: 1, crowd: 1, cascade: 1,
+    favorite: 0, hotspot: 1, patch: 0,
   },
     'the category counts were lost when their headings were removed');
   const cascade = feed.querySelector('[data-alert-kind="cascade"]');
@@ -11898,13 +12464,14 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
     'pending source work fabricated an alert before any qualifying result loaded');
   await waitFor(() => {
     return box.dataset.sourceLeaderboard !== 'loading'
-      && box.dataset.sourceHotspots !== 'loading';
+      && box.dataset.sourceHotspots !== 'loading'
+      && box.dataset.sourceMass !== 'loading';
   }, 'the optional Bird Gen sources to settle around the held Mega refresh');
   const progress = box.querySelector('.surgesourceprogress[role="progressbar"]');
   assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
-  assert.equal(progress.getAttribute('aria-valuenow'), '3');
-  assert.equal(progress.getAttribute('aria-valuemax'), '4');
-  assert.match(progress.textContent, /3 of 4 complete/i);
+  assert.equal(progress.getAttribute('aria-valuenow'), '5');
+  assert.equal(progress.getAttribute('aria-valuemax'), '6');
+  assert.match(progress.textContent, /5 of 6 complete/i);
 
   resolveMega();
   await waitFor(() => box.dataset.sourceMega === 'ok',
@@ -13165,16 +13732,19 @@ test('F10: the navbar back control is icon-only but keeps its accessible name', 
     'shrinking the control must not unwire it - it still returns to Contents');
 });
 
-test('F10: the region picker is an icon-sized overlay, not an inline-sized select', async () => {
+test('F10/F728: the region chooser opens from an icon-sized navbar button', async () => {
   const app = await boot();
   const sel = app.$('navRegion');
   assert.ok(sel, 'the navbar still offers the region picker');
-  assert.equal(sel.tagName, 'SELECT',
-    'it stays a native select so iOS opens its wheel picker with the full region labels');
+  assert.equal(sel.tagName, 'BUTTON',
+    'the navbar must open the shared chooser rather than the undiscoverable native wheel');
   const wrap = sel.closest('.navregion');
   assert.ok(wrap, 'the select is wrapped in a fixed-size box that supplies the icon');
   assert.ok(wrap.querySelector('.navregionicon'),
     'the wrapper paints a glyph, which is what the reader sees instead of "Waikoloa / Big Island"');
+  app.click(sel);
+  assert.equal(app.$('regionChooser').hidden, false);
+  app.click(app.$('regionChooserClose'));
 
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
   const rule = (sel2) => {
@@ -13189,6 +13759,7 @@ test('F10: the region picker is an icon-sized overlay, not an inline-sized selec
     'the title is the element that should absorb the freed space');
   assert.match(rule('#navTitle'), /min-width:\s*0/,
     'without min-width:0 a flex item refuses to shrink below its content and the ellipsis never engages');
+  app.window.close();
 });
 
 test('F10: the navbar controls scale with the text-size setting', () => {
@@ -20555,7 +21126,7 @@ test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
       + 'lowering the bar globally makes the imbalance worse');
 });
 
-test('Top 100 rows keep the numeric hierarchy without bird thumbnails (F246/F570)', async () => {
+test('F732 Top 100 keeps numeric hierarchy with tiny latest-bird icons', async () => {
   // Owner, 2026-08-29: "in the top 100, increase the font size by 50% and show
   // the bird icon for the recently added birds just for the rows, not
   // everythings."
@@ -20586,12 +21157,14 @@ test('Top 100 rows keep the numeric hierarchy without bird thumbnails (F246/F570
   assert.equal(rows.length, 1,
     'only the official Top 100 row renders; rank 182 is not pinned into the board');
 
-  assert.equal(rows[0].querySelector('.thumb'), null,
-    'the compact leaderboard still spends width and height on bird thumbnails');
+  const icon = rows[0].querySelector('.rankbirdline .rankbirdicon .thumb');
+  assert.ok(icon, 'the latest species has no compact shared photo slot');
+  assert.equal(icon.dataset.code, 'coripl');
+  assert.match(icon.parentElement.getAttribute('aria-label'), /Common Ringed Plover/);
   const birdLink = rows[0].querySelector('.rankbirdline a.splink');
   assert.ok(birdLink && birdLink.getAttribute('data-sp') === 'coripl'
     && /Common Ringed Plover/.test(birdLink.textContent),
-  'removing the image also removed the linked bird identity');
+  'adding the image removed the linked bird identity');
 
   // 2. THE SCALE. ⚠️ NOT via getComputedStyle: jsdom has no layout engine and
   //    resolves `calc(15px * var(--s) * var(--rf))` to NaN, so a computed-style
@@ -25312,7 +25885,7 @@ test('the 24-hour badge reaches the shared species row, not just the rarity list
 // the per-species phase (a different question, and the expensive half), and not
 // ref/hotspot/{county}, which is a list of PARKS — and parks do not appear
 // between two taps of a button.
-test('the Go birding sections refresh observations, not the world', () => {
+test('the Go birding sections refresh observations, not the world', async () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
 
   // The three modes are distinct on purpose; a single boolean force would make
@@ -25337,8 +25910,8 @@ test('the Go birding sections refresh observations, not the world', () => {
 
   // All six section loaders wired: Today and Closest through getChase, both
   // day tiers through getTierChase, and hot/cold through their own scan.
-  const dest = HTML.slice(HTML.indexOf('function loadDestinations'),
-    HTML.indexOf('function loadDestinations') + 1200);
+  const app = await boot();
+  const dest = String(app.window.__app.loadDestinations);
   assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top patches');
   const closest = HTML.slice(HTML.indexOf('function loadTargets'),
     HTML.indexOf('function loadTargets') + 2200);
@@ -25354,10 +25927,13 @@ test('the Go birding sections refresh observations, not the world', () => {
     'Hot and Cold clear the same feeds');
   // ...and their ↻ actually sets force, which it did not before: the registry
   // called runHotspotScan({}) so the button rescanned from cache.
-  assert.match(HTML, /hotBtn:\s*\{ fn: function \(\) \{ runHotspotScan\(\{ force: takeForce\(\) \}\)/,
+  assert.match(String(app.window.__app.LOADERS.hotBtn.fn),
+    /runHotspotScan\(\{ force: takeForce\(\) \}\)/,
     'Hot passes the flag');
-  assert.match(HTML, /coldBtn:\s*\{ fn: function \(\) \{ runHotspotScan\(\{ force: takeForce\(\) \}\)/,
+  assert.match(String(app.window.__app.LOADERS.coldBtn.fn),
+    /runHotspotScan\(\{ force: takeForce\(\) \}\)/,
     'Cold passes the flag');
+  app.window.close();
 });
 
 
@@ -27566,7 +28142,7 @@ test('opening My Ticks owns an immediate fresh own-checklist scan', () => {
     'opening or reloading My Ticks bypasses the session list cache');
   assert.match(fn, /nameOwnCodes\(\)/,
     'the owned first-paint promise settles before newly harvested codes receive names');
-  assert.match(HTML, /myYearBody:\s*\{\s*fn:\s*loadMyYear\s*\}/,
+  assert.match(HTML, /myYearBody:\s*\{\s*fn:\s*loadMyYear\b/,
     'the menu section is wired to the refreshing loader');
 });
 
@@ -28698,7 +29274,8 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
   const counts = () => Object.fromEntries([...app.document.querySelectorAll('.surgecount')]
     .map((el) => [el.dataset.countKind, Number(el.querySelector('b').textContent)]));
   assert.deepEqual(counts(), {
-    mega: 1, migration: 0, need: 1, crowd: 2, cascade: 1, hotspot: 1, patch: 0,
+    mega: 1, migration: 0, mass: 0, need: 1, crowd: 2, cascade: 1, favorite: 0,
+    hotspot: 1, patch: 0,
   },
     'category counts do not describe the complete Bird Gen report');
 
@@ -33438,7 +34015,10 @@ test('the region and county pickers show the code the top bar displays', async (
   const doc = app.window.document, A = app.window.__app;
 
   A.scopeOpen();          // builds and binds the pickers
-  const opts = [...doc.getElementById('menuRegion').options].map((o) => o.textContent);
+  app.click(app.$('menuRegion'));
+  const opts = [...app.$('regionChooserAll').querySelectorAll('.regionchoice')]
+    .map((o) => o.textContent);
+  app.click(app.$('regionChooserClose'));
   const wa = opts.find((t) => t.startsWith('Washington'));
   assert.ok(/^Washington\s+US-WA\b/.test(wa), 'the report names its code: ' + wa);
 
@@ -33485,16 +34065,14 @@ test('Hawaii exposes its Big Island county view beside the region picker', async
   assert.ok(scope, 'the scope control is painted');
   let region = scope.querySelector('#menuRegion');
   assert.ok(region, 'the region selector remains available');
-  region.value = 'hi';
-  region.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  await A.selectRegionChoice('hi');
   scope = doc.getElementById('menuScope');
   region = scope.querySelector('#menuRegion');
   A.scopeOpen();
   assert.equal(region.value, 'hi', 'the Hawaii region is the active region');
   assert.equal(scope.querySelector('label[for="menuRegion"]').textContent, 'Region',
     'the first control is named for the region it selects');
-  assert.ok([...region.options].some((o) =>
-    o.value === 'hi' && /Hawaii\s+US-HI\b/.test(o.textContent)),
+  assert.match(region.textContent, /Hawaii\s+US-HI\b/,
   'the region selector identifies Hawaii by its eBird code');
 
   const county = scope.querySelector('#menuCounty');
@@ -33521,8 +34099,10 @@ test('Hawaii exposes its Big Island county view beside the region picker', async
 test('identity-only repaints keep the region and county pickers populated', async () => {
   const app = await boot();
   const doc = app.window.document, A = app.window.__app;
-  assert.ok(doc.getElementById('menuRegion').options.length > 1,
-    'the boot render starts with populated regions');
+  app.click(app.$('menuRegion'));
+  assert.ok(app.$('regionChooserAll').querySelectorAll('.regionchoice').length > 1,
+    'the boot render opens populated regions');
+  app.click(app.$('regionChooserClose'));
   assert.ok(doc.getElementById('menuCounty').options.length > 1,
     'the boot render starts with populated county views');
 
@@ -33533,8 +34113,10 @@ test('identity-only repaints keep the region and county pickers populated', asyn
   const region = doc.getElementById('menuRegion');
   const county = doc.getElementById('menuCounty');
   assert.equal(region.value, 'wa', 'the replacement region select keeps US-WA selected');
-  assert.ok([...region.options].some((o) => o.value === 'hi'),
-    'the replacement region select is repopulated');
+  app.click(region);
+  assert.ok(app.$('regionChooserAll').querySelector('[data-region-choice="hi"]'),
+    'the replacement region button opens populated choices');
+  app.click(app.$('regionChooserClose'));
   assert.equal(county.value, '', 'the replacement county select keeps All counties selected');
   assert.ok([...county.options].some((o) => o.value === 'US-WA-033'),
     'the replacement county select is repopulated');
@@ -34696,8 +35278,8 @@ test('the top 100 board names the newest bird, not just its banding code', async
   assert.doesNotMatch(HTML,
     /\.rankrow \.rankbirdline \{[^}]*white-space:\s*nowrap/,
     'the full species line still refuses natural wrapping');
-  assert.equal(doc.querySelector('.rankrow .thumb'), null,
-    'the one-row leaderboard still renders a bird thumbnail');
+  assert.equal(doc.querySelector('.rankrow .rankbirdicon .thumb').dataset.bird,
+    'Common Ringed Plover', 'the tiny icon disagrees with the visible latest-bird name');
   assert.match(HTML,
     /\.rankrow\.hscard-md \{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto[^}]*gap:\s*0 10px[^}]*padding:\s*10px 0[^}]*border-top:\s*0/,
     'Top 100 entries are not using the compact divider-free row rhythm');
@@ -35182,7 +35764,10 @@ test('the region and county pickers collapse behind a named scope control', asyn
   // looks for, or this becomes the rankings-scope bug again.
   const sel = det.querySelector('#menuRegion');
   assert.ok(sel, 'the region picker moved WITH its id, so bindRegionPickers still finds it');
-  assert.ok(sel.options.length > 1, 'and it is populated, so the binding ran');
+  app.click(sel);
+  assert.equal(app.$('regionChooser').hidden, false, 'the replacement button remains bound');
+  assert.ok(app.$('regionChooserAll').children.length > 1, 'its region choices are populated');
+  app.click(app.$('regionChooserClose'));
   assert.equal(doc.querySelectorAll('#menuRegion').length, 1,
     'ONE set of selects, not two — a duplicate id gives the binder a choice, '
     + 'which is the shape of the bug that hid the rankings scope');
@@ -35407,6 +35992,175 @@ test('F669 county scope owns observation requests and exact year evidence', asyn
   app.window.close();
 });
 
+test('F723 My Year joins an active exact-county capture and force-refreshes only when idle', async () => {
+  let release;
+  const page = new Promise((resolve) => { release = resolve; });
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Sample Observer' },
+    fetch: (url) => (/\/bird-list\?/.test(url) ? page : null),
+  });
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+  const scope = A.activeScope();
+
+  const chase = A.ensureCountySeenEvidence(scope);
+  const myYear = A.loadMyYear();
+  assert.equal(
+    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    1,
+    'concurrent county consumers opened duplicate exact-year-list captures',
+  );
+
+  release(FIRST_YEAR_HTML);
+  assert.equal(await chase, true);
+  assert.equal(await myYear, 4);
+  assert.equal(A.countySeenEvidenceReady(scope), true);
+
+  const beforeRefresh = app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length;
+  await A.loadMyYear();
+  assert.equal(
+    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    beforeRefresh + 1,
+    'an explicit idle My Year refresh reused the old county list instead of refreshing it',
+  );
+  app.window.close();
+});
+
+test('F724 Today’s patches names and shares its county year-list prerequisite', async () => {
+  let release;
+  const page = new Promise((resolve) => { release = resolve; });
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Sample Observer' },
+    fetch: (url) => (/\/bird-list\?/.test(url) ? page : null),
+  });
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+  const scope = A.activeScope();
+
+  const existing = A.ensureCountySeenEvidence(scope);
+  const loading = A.loadDestinations();
+  assert.match(app.$('destStatus').textContent, /^Loading King year list/i,
+    'the hidden county prerequisite still looks like Washington hotspot ranking');
+  assert.equal(app.$('destStatus').getAttribute('aria-busy'), 'true');
+  assert.equal(
+    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    1,
+    'Today’s patches opened a second capture instead of joining the shared county load',
+  );
+
+  release(FIRST_YEAR_HTML);
+  assert.equal(await existing, true);
+  await waitFor(() => /^Ranking King hotspots/i.test(app.$('destStatus').textContent),
+    'the county patch loader to advance from year evidence to hotspot ranking');
+  assert.doesNotMatch(app.$('destStatus').textContent, /Washington/,
+    'the county stage regressed to the parent report label');
+
+  void loading;
+  app.window.close();
+});
+
+test('F724 a failed county year-list prerequisite leaves an explicit retry', async () => {
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Sample Observer' },
+    fetch: (url) => (/\/bird-list\?/.test(url)
+      ? Promise.reject(new Error('fixture offline'))
+      : null),
+  });
+  const A = app.window.__app;
+  A.setCountyView('US-WA-033');
+
+  assert.equal(await A.loadDestinations(), false,
+    'a missing exact county list was reported as a successful section load');
+  assert.match(app.$('destStatus').textContent,
+    /exact King year list is unavailable/i);
+  assert.match(app.$('destBtn').textContent, /Retry King year list/i,
+    'the bounded failure leaves no named recovery action');
+  assert.equal(app.$('destStatus').getAttribute('aria-busy'), 'false');
+  app.window.close();
+});
+
+test('F725 every menu loader declares how a scope transition affects it', async () => {
+  const app = await boot();
+  const allowed = new Set([
+    'none', 'observations', 'year-list', 'leaderboard', 'weather', 'records',
+  ]);
+  for (const [at, spec] of Object.entries(app.window.__app.LOADERS)) {
+    assert.ok(Object.prototype.hasOwnProperty.call(spec, 'scopeTransition'),
+      `${at} has no explicit scope-transition policy`);
+    assert.ok(allowed.has(spec.scopeTransition),
+      `${at} has unknown scope-transition policy ${spec.scopeTransition}`);
+  }
+  app.window.close();
+});
+
+test('F725 a county switch clears old scope output and labels each prerequisite', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const cases = [
+    {
+      at: 'refreshBtn', hosts: ['results'],
+      pending: /^Loading King observations/i,
+    },
+    {
+      at: 'destBtn', hosts: ['destMap', 'destResults'],
+      pending: /^Loading King year list/i,
+    },
+    {
+      at: 'rankBtn', hosts: ['rankSummary', 'rankResults'],
+      pending: /^Loading King leaderboard/i,
+    },
+  ];
+  cases.forEach(({ at, hosts }) => {
+    const section = app.$(at).closest('section');
+    section.querySelector('.status').textContent = 'Washington answer';
+    hosts.forEach((id) => {
+      app.$(id).innerHTML = '<div>Washington-only row</div>';
+    });
+  });
+  app.$('helpBody').textContent = 'Non-geographic help remains';
+
+  A.setCountyView('US-WA-033');
+
+  cases.forEach(({ at, hosts, pending }) => {
+    const status = app.$(at).closest('section').querySelector('.status');
+    assert.match(status.textContent, pending, `${at} does not name its King prerequisite`);
+    assert.equal(status.getAttribute('aria-busy'), 'true',
+      `${at} pending state is conveyed only visually`);
+    hosts.forEach((id) => {
+      assert.equal(app.$(id).textContent, '', `${id} retained Washington output`);
+    });
+  });
+  assert.equal(app.$('helpBody').textContent, 'Non-geographic help remains',
+    'a scope transition cleared non-geographic documentation');
+  app.window.close();
+});
+
+test('F725 a delayed old-scope autoload cannot repaint the new scope', async () => {
+  let release;
+  const delayed = new Promise((resolve) => { release = resolve; });
+  const app = await boot();
+  const A = app.window.__app;
+  const section = app.$('refreshBtn').closest('section');
+  section._loader.fn = () => delayed.then(() => {
+    app.$('results').innerHTML = '<li>Delayed Washington row</li>';
+    return true;
+  });
+
+  const washington = A.autoLoad(section);
+  A.setCountyView('US-WA-033');
+  release();
+  assert.equal(await washington, false,
+    'an obsolete scope completion was accepted as current');
+  assert.equal(app.$('results').textContent, '',
+    'a delayed Washington result repainted the King section');
+  assert.match(section.querySelector('.status').textContent,
+    /^Loading King observations/i);
+  app.window.close();
+});
+
 test('F707 rectangles stay conservative and F717 polygons prove reachability', () => {
   const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
   const bounds = { minX: -85, maxX: -82, minY: 41.5, maxY: 48.3 };
@@ -35624,6 +36378,27 @@ test('the header carries name, rank and species without fetching', async () => {
   if (!el.textContent.trim()) {
     assert.equal(el.hidden, true, 'an unknown identity shows nothing at all');
   }
+  app.window.close();
+});
+
+test('F722 a county switch immediately replaces the parent standing with labelled pending text', async () => {
+  const app = await boot({ storage: { ebird_display_name: 'Sample Observer' } });
+  const A = app.window.__app;
+  A.rankCachePut('fixture-wa', {
+    region: 'US-WA',
+    me: { rank: 12, species: 222 },
+  });
+  A.headerIdentityRefresh();
+  assert.match(app.$('hdrId').textContent, /#12.*222sp/,
+    'the Washington control standing was not painted');
+
+  A.setCountyView('US-WA-033');
+  assert.doesNotMatch(app.$('hdrId').textContent, /#12|222sp/,
+    'Washington standing remained visible after selecting King County');
+  assert.match(app.$('hdrId').textContent, /Loading/i,
+    'the new scope has no visible pending standing');
+  assert.match(app.$('hdrId').getAttribute('aria-label') || '', /Loading King standing/i,
+    'the compact pending text does not name its scope accessibly');
   app.window.close();
 });
 
@@ -38028,11 +38803,14 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
   // The prefetch exists, is bounded, and repaints — a fetch whose result
   // nothing redraws is the F256 bug one level down.
   const fn = HTML.slice(HTML.indexOf('function lazyFetchRankMe()'),
-                        HTML.indexOf('function lazyFetchRankMe()') + 1400);
+                        HTML.indexOf('function lazyFetchRankMe()') + 2200);
   assert.ok(fn.length > 100, 'lazyFetchRankMe still exists');
-  assert.match(fn, /if \(cachedRankMe\(activeScope\(\)\.effectiveRegion\)\) return;/,
+  assert.match(fn, /cachedRankMe\(scope\.effectiveRegion\)/,
     'it must not re-fetch what today already has');
-  assert.match(fn, /_rankLazyDone/, 'once per session, not once per menu render');
+  assert.match(fn, /_rankLazyInflight\[owner\]/,
+    'concurrent requests for one scope must share one owner');
+  assert.match(fn, /scopeCurrent\(scope\)/,
+    'a delayed standing cannot repaint a newer scope');
   assert.match(fn, /headerIdentityRefresh\(\)/,
     'and it MUST repaint, or the fetch is invisible — that is F256 exactly');
 

@@ -74,8 +74,15 @@ test('every popup primitive is cataloged or explicitly excluded', () => {
     'showSheet must appear only as its definition and the two classified wrappers');
   assert.equal((HTML.match(/\bwindow\.confirm\s*\(/g) || []).length, 1,
     'window.confirm must appear only inside confirmAction');
-  assert.equal((HTML.match(/role="dialog"/g) || []).length, 1,
-    'the shared classified sheet is the only dialog primitive');
+  const fullscreen = Object.entries(INFO.excluded)
+    .filter(([, entry]) => entry.surface === 'fullscreen').map(([id]) => id);
+  const document = new JSDOM(HTML).window.document;
+  assert.deepEqual(sorted([...document.querySelectorAll('[role="dialog"]')]
+    .map((el) => el.id)), sorted(fullscreen),
+  'every static full-screen interaction has an explicit catalog exclusion');
+  assert.equal((HTML.match(/role="dialog"/g) || []).length, 1 + fullscreen.length,
+    'only the classified shared sheet and registered full-screen interactions may be dialogs');
+  document.defaultView.close();
   assert.doesNotMatch(HTML, /<dialog\b/i,
     'a second dialog primitive bypasses the catalog coverage guard');
   assert.doesNotMatch(INLINE_JS, /\b(?:window\.)?(?:alert|prompt)\s*\(/,
@@ -138,7 +145,7 @@ test('the generated catalog has exact bidirectional section and sheet coverage',
   assert.equal(data.sections.length + data.dialogs.length,
     CONTRACT.menu.length + Object.keys(INFO.catalog).length,
     'total in-scope informational surfaces');
-  assert.equal(data.excluded.length, 10, 'classified out-of-scope popup types');
+  assert.equal(data.excluded.length, 12, 'classified out-of-scope popup types');
   assert.deepEqual(data.inactiveDocs, [...CONTRACT.menuOmittedAts].sort(),
     'only disabled/non-menu section docs stay outside the real-popup catalog');
 

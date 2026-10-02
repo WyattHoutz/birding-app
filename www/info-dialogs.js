@@ -117,6 +117,32 @@
           + '<p>The headline opens Stakeout hotspot. Bird Gen does not duplicate '
           + '<b>Hot patches</b> or the Stakeout section’s species/checklist lists.</p>'
       },
+      favorite: {
+        title: '★ Favorite Patch birds',
+        body: '<p>Fresh unseen species at a saved patch, using its own recent feed. '
+          + 'One alert per species and patch keeps the newest evidence. The bird photo '
+          + 'identifies the species; the headline opens the patch. County scope requires '
+          + 'the exact county year list and matching patch/observation ownership. '
+          + 'Failed sibling feeds are named while successful results remain visible.</p>'
+      },
+      mass: {
+        title: '🪶 Mass flocks',
+        body: '<p>Seven dated regional samples find species with counts of 250 or more; '
+          + 'at most 12 species feeds are then checked. Dated evidence and species feeds '
+          + 'are combined, not substituted. This is a bounded sample, not an exhaustive census.</p>'
+          + '<p>Two distinct checklist visits with counts of at least 500 must agree '
+          + 'within the existing one-kilometre place grouping. Same-minute shared submissions '
+          + 'do not corroborate each other. Lower counts do not erase the high-count range; '
+          + 'counts are never added together across pins. Public custom pins use the existing '
+          + 'hotspot-proximity and residential/access exclusions.</p>'
+          + '<p>Seen status and chase radius do not exclude a flock. Within-chase events '
+          + 'rank first; at most three flock cards appear initially, with Show all for the rest. '
+          + 'A large count is not proof of seasonal rarity or fallout. Recurring resident '
+          + 'gatherings can still qualify; there is no seasonal population baseline.</p>'
+          + '<p>More eyes on this flock appears only alongside an independently qualifying '
+          + 'Crowd signal. It describes Patagonia-effect potential, not proof that associated '
+          + 'rarities have appeared. All evidence comes directly from eBird.</p>'
+      },
       patch: {
         title: '🥇 High-yield top patches',
         body: '<p>Today’s patches grades every current destination against the '
@@ -132,14 +158,15 @@
     docs.feed = {
       title: '🔔 Bird Gen',
       body: '<p>One feed ranks every active alert in <b>Buzz</b> order: '
-        + 'the six categories — mega, celebrity, crowd, cascade, hotspot, top patch — '
-        + 'then recency inside each category.</p>'
-        + '<p>Hotspot alerts stay visible in Unseen mode because they describe '
-        + 'a place, not one bird.</p>'
+        + 'mega, migration, mass flock, celebrity, crowd, cascade, favorite patch, '
+        + 'hotspot, top patch; then recency, except mass flocks prefer chase distance '
+        + 'and corroborated size.</p>'
+        + '<p>There is no feed-wide Unseen filter. Favorite Patch eligibility is personal; '
+        + 'flock and place news remain useful even for species already seen.</p>'
         + '<p>If one species qualifies more than once, it appears once under '
         + 'its strongest category and keeps every qualifying reason on that '
         + 'row in accessible category metadata. The visible third line explains '
-        + 'the strongest category.</p>'
+        + 'the strongest category. Place-specific favorite and flock stories remain separate.</p>'
         + '<p>Every card has three lines: name plus category; four-letter code, '
         + '<b>xN</b>, linked place and linked compact date; then a bold category '
         + 'explanation. The alert icon and relative age remain at the right. '
@@ -150,6 +177,8 @@
         + 'A complete retained snapshot may still supply TOP PATCH rows while '
         + 'live data refreshes; partial or failed destination views may not.</p>'
         + '<h3>' + docs.mega.title + '</h3>' + docs.mega.body
+        + '<h3>' + docs.mass.title + '</h3>' + docs.mass.body
+        + '<h3>' + docs.favorite.title + '</h3>' + docs.favorite.body
         + '<h3>' + docs.celebrity.title + '</h3>' + docs.celebrity.body
         + '<h3>' + docs.crowd.title + '</h3>' + docs.crowd.body
         + '<h3>' + docs.cascade.title + '</h3>' + docs.cascade.body
@@ -283,6 +312,16 @@
       surface: 'confirmation',
       name: 'Erase device data',
       reason: 'Destructive native confirmation.'
+    },
+    'regionChooser': {
+      surface: 'fullscreen',
+      name: 'Choose active region',
+      reason: 'Interactive Current/Recent/All navigation, not informational prose.'
+    },
+    'setupSheet': {
+      surface: 'fullscreen',
+      name: 'Setup Bird Chaser',
+      reason: 'Resumable credential and capability actions, not a read-only information dialog.'
     },
     'clear-diagnostics': {
       surface: 'confirmation',

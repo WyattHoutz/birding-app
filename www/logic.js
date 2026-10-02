@@ -4949,6 +4949,7 @@
     dayMs: dayMs,
     approxMeters: approxMeters,
     clusterByProximity: clusterByProximity,
+    needClusters: needClusters,
     isPersonalLocName: isPersonalLocName,
     pickCanonicalLoc: pickCanonicalLoc,
     scoreCluster: scoreCluster,

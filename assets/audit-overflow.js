@@ -187,6 +187,15 @@ const AUDIT = `<script>
       metadataGap: place.left - lead.right
     };
     host.remove();
+    if (panel.id === 'sec-rankBtn') {
+      var icons = [].slice.call(panel.querySelectorAll('.rankbirdicon .thumb'));
+      var font = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
+      result.latestBirdIcons = icons.length === 2 && icons.every(function (icon) {
+        var box = icon.getBoundingClientRect();
+        return box.width > 0 && box.width <= 19 * font
+          && box.height > 0 && box.height <= 19 * font;
+      });
+    }
     return result;
   }
   function scan(label) {
@@ -547,6 +556,12 @@ const AUDIT = `<script>
   }
   function run() {
     var A = window.__app, out = [];
+    A.openSetupSheet();
+    out.push(scan('(F727 setup sheet)'));
+    document.getElementById('setupSheetClose').click();
+    A.openRegionChooser();
+    out.push(scan('(F728 region chooser)'));
+    document.getElementById('regionChooserClose').click();
     out.push(scan('(contents menu)'));
     var secs = [].slice.call(document.querySelectorAll('section.panel'))
       .map(function (s) { return s.id; }).filter(Boolean);
@@ -586,6 +601,37 @@ const AUDIT = `<script>
         var at = TICKS[k], prev = k ? TICKS[k - 1] : 0;
         k++;
         setTimeout(function () {
+          if (id === 'sec-rankBtn') {
+            A.renderRankings({ rows: [
+              { rank: 1, name: 'Leaderboard fixture one', species: 301,
+                recent: 'Black-throated Gray Warbler (Oct. 1, 2026)' },
+              { rank: 2, name: 'Leaderboard fixture two', species: 300,
+                recent: 'Marbled Godwit (Oct. 1, 2026)' }
+            ] }, 'US-WA', 'https://ebird.org/top100', '');
+          }
+          if (id === 'sec-surgeBtn') {
+            var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
+            var stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1)
+              + '-' + pad(now.getDate()) + ' 00:01';
+            A.renderSurge([], [], [], [], [], {
+              observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
+              favorites: 'partial', mass: 'partial',
+              massCoverage: '12 of 15 candidate species; 6 of 7 daily samples; capped coverage'
+            }, [], [{
+              code: 'bktgwa', name: 'Black-throated Gray Warbler',
+              count: 2, when: stamp, time: +now, checklistId: 'SFIXTURE',
+              locId: 'L2', locName: 'Marymoor Park--Audubon Bird Loop'
+            }], [{
+              code: 'margod', name: 'Marbled Godwit', minCount: 600, maxCount: 750,
+              evidenceCount: 3, supportingLowRows: 1, when: stamp, time: +now,
+              locId: 'L257970', locName: 'Tokeland--marina', distanceMi: 125,
+              insideChase: false, checklistId: 'SFLOCK',
+              locations: [
+                { locId: 'L257970', locName: 'Tokeland--marina', count: 750 },
+                { locId: 'L257976', locName: 'Tokeland--Graveyard Spit', count: 3 }
+              ]
+            }]);
+          }
           var s = scan(id);
           s.atMs = at;
           // WORST, not last: the widest moment is the one the reader saw.
@@ -891,6 +937,9 @@ server.listen(0, '127.0.0.1', () => {
       var layout = r.releaseLayout;
       if (layout) {
         var layoutProblems = [];
+        if (layout.latestBirdIcons === false) {
+          layoutProblems.push('Top 100 latest-bird icons missing or larger than compact geometry');
+        }
         if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
         if (layout.emptyMinHeight > 0.5) {
           layoutProblems.push('empty checklist reserves ' + layout.emptyMinHeight + 'px min-height');

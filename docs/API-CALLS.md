@@ -17,12 +17,12 @@ profile the examples use.
 | 2 | `data/obs/{region}/recent/notable` | just the flagged rarities | chase wave (per county) |
 | 3 | `data/obs/geo/recent` | same, as a circle around home (**capped at 50 km**) | chase wave |
 | 4 | `data/obs/geo/recent/notable` | rarities in that circle | chase wave |
-| 5 | `data/obs/{region}/recent/{species}` | **every** recent report of ONE bird | chase phase 2, Leader Board Ticks, rarity cascade |
+| 5 | `data/obs/{region}/recent/{species}` | latest report of ONE bird at each location; not every checklist, and no supported `detail=full` | chase phase 2, Leader Board Ticks, rarity cascade, Mass Flock |
 | 6 | `data/obs/{locId}/recent` | the species list for ONE hotspot | hotspot cards, favourites |
 | 7 | `data/obs/{locId}/historic/{y}/{m}/{d}` | what was at a place on a past date | ABA history, GBIF-style baselines |
 | 8 | `product/lists/{region}` | recent checklists for a county | Birdiest · Convoys · Happening now (**one shared cached promise**) |
-| 9 | `product/checklist/view/{subId}` | one checklist in full — species, media, **comments** | convoy species, finder names, birdiest unseen, 🎯 evidence |
-| 10 | `ref/hotspot/geo` | hotspots near a point (**capped at 50 km**) | Quick outing, region derivation |
+| 9 | `product/checklist/view/{subId}` | one checklist's structured observations/metadata; not a documented general comments feed | convoy species, finder names, birdiest unseen, 🎯 evidence |
+| 10 | `ref/hotspot/geo` | hotspots near a point (**measured maximum 500 km**) | Quick outing, region derivation |
 | 11 | `ref/taxonomy/ebird` | code → name/family | species index, Easy misses, convoys |
 | 12 | `product/spplist/{region}` | every species ever recorded in a region | species index |
 
@@ -102,6 +102,9 @@ graph LR
 | Quick outing | **1** | one `ref/hotspot/geo` |
 | Species lookup | **1–2** | spplist + one species feed |
 | Favourites | 1 per saved spot | one `{locId}/recent` each |
+| Bird Gen Favorite Patch | 1 per uncached in-scope saved spot; county directory when cold | reuses Favorite patches' ten-minute recent cache; exact county seen-list prerequisite |
+| Bird Gen Mass Flock | **7 + up to 12 + 1** before transport retries | seven dated latest-per-species samples, bounded species follow-ups, optional cold public-hotspot directory for custom-pin safety; background paced, cached, scope-cancelled; not exhaustive |
+| Top 100 latest-bird icon | **0 additional eBird calls** | parsed year-list addition and existing bird-photo cache/hydration |
 | Time of day | 1 per county | |
 | Half-day / Full-day county metadata | **0 in Washington** | bundled county bounds replace the former list + 39 info calls |
 

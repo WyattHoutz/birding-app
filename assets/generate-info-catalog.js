@@ -122,7 +122,7 @@ function dialogEntry(entry) {
 function excludedEntry(entry) {
   const surface = entry.surface === 'confirmation'
     ? 'Native confirmation'
-    : 'Bottom sheet';
+    : entry.surface === 'fullscreen' ? 'Full-screen setup/navigation' : 'Bottom sheet';
   return '<li class="excluded-entry" data-excluded-id="' + escapeHtml(entry.id) + '">'
     + '<strong>' + escapeHtml(entry.name) + '</strong>'
     + '<span class="excluded-type">' + escapeHtml(surface) + '</span>'
