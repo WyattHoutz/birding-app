@@ -128,7 +128,8 @@ test('F607 BirdCast mockups seed the production level and county-count surfaces'
     'the mockup does not seed the representative county total');
   assert.match(source, /A\.renderBirdcast\(new Date\('2026-09-09T19:00:00Z'\), snapshot\)/,
     'the mockup does not render the production BirdCast surface with deterministic data');
-  assert.match(indexSource, /Tonight\\u2019s forecast|Tonight’s forecast/);
+  assert.doesNotMatch(indexSource, /Tonight\\u2019s forecast|Tonight’s forecast/);
+  assert.doesNotMatch(indexSource, /Lights Out guidance|birdcast\.org\/lights-out/);
   assert.match(indexSource, /Live migration map/);
   assert.match(source, /migrants:\s*\[/,
     'the mockup does not seed representative expected migrants');

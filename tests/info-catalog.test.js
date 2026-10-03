@@ -120,6 +120,9 @@ test('popup prose is read from separate shared sources', () => {
     'the sample stopped reading the live Cascade thresholds');
   assert.match(birdGen.bodyHtml, /Current feed:.*3 active alerts.*3h ago/s,
     'the conditional sample is not visibly represented');
+  assert.match(birdGen.bodyHtml,
+    /Regional reporting activity.*not bird abundance or chase odds.*Late submissions and review can revise them.*well a hotspot was searched/s,
+    'the reporting caveat must remain in the Bird Gen info dialog after the summary is disabled');
 
   const spuh = INFO.render('spuh-explanation', {
     name: 'sample sp.',

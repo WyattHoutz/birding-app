@@ -10771,8 +10771,22 @@ test('F733 reporting uses completed regional dates and at most seven cached day 
   await A.loadReportingActivity(1);
   assert.match(app.$('reportingRows').textContent, /Offline.*Dated cached counts/);
   assert.equal(statsCalls().length, 8);
-  assert.ok(app.$('reportingActivity').compareDocumentPosition(app.$('surgeResults'))
-    & app.window.Node.DOCUMENT_POSITION_PRECEDING, 'context belongs below actionable stories');
+  assert.equal(app.$('reportingActivity').hidden, true,
+    'regional activity is disabled in Bird Gen while placement is under review');
+});
+
+test('F753 Bird Gen does not automatically request or display regional reporting activity', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.equal(app.$('reportingActivity').hidden, true,
+    'the reporting summary is still visible at the bottom of Bird Gen');
+  const start = HTML.indexOf('function loadSurge()');
+  assert.ok(start >= 0, 'loadSurge moved');
+  const end = HTML.indexOf('\n      function ', start + 1);
+  assert.ok(end > start, 'could not isolate the Bird Gen loader');
+  assert.doesNotMatch(HTML.slice(start, end), /loadReportingActivity\s*\(/,
+    'opening Bird Gen still starts reporting-activity requests');
+  app.window.close();
 });
 
 test('F733 real zero is valid but malformed and unsupported reporting responses are not cached as zero', async () => {
@@ -13072,7 +13086,8 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   const optionalIndex = calls.findIndex((url) => /product\/lists/.test(url));
   assert.ok(megaIndex >= 0, 'Bird Gen never started its one Mega summary request');
   assert.ok(optionalIndex < 0 || megaIndex < optionalIndex,
-    'the Mega refresh waited behind optional leaderboard/hotspot work');
+    'the Mega refresh waited behind optional leaderboard/hotspot work: '
+      + calls.map((url) => new URL(url).pathname).join(', '));
   assert.equal(calls.filter((url) => /alert\/summary/.test(url)).length, 1,
     'one Bird Gen load started duplicate Mega requests');
 
@@ -13094,6 +13109,10 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.equal(progress.getAttribute('aria-valuenow'), '5');
   assert.equal(progress.getAttribute('aria-valuemax'), '6');
   assert.match(progress.textContent, /5 of 6 complete/i);
+  assert.equal(app.$('loadBar').hidden, false,
+    'the shared loading bar disappeared while Bird Gen still owns the held Mega refresh');
+  assert.match(app.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/,
+    'the shared loading bar does not name the remaining Bird Gen work');
 
   resolveMega();
   await waitFor(() => box.dataset.sourceMega === 'ok',
@@ -13101,7 +13120,48 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
   assert.equal(box.querySelector('.surgesourceprogress'), null,
     'the completed Bird Gen load retained a stale progress bar');
+  await waitFor(() => app.$('loadBar').hidden,
+    'the shared loading bar to settle after the last Bird Gen source completes');
   app.window.close();
+});
+
+test('F754 Mega progress hold settles after failure and scope cancellation', async () => {
+  const failed = await boot();
+  failed.window.fetch = () => Promise.resolve({
+    ok: false, status: 503, text: () => Promise.resolve('unavailable'),
+  });
+  const failedRefresh = failed.window.__app.lazyRefreshMegaSnapshot();
+  assert.equal(failed.$('loadBar').hidden, false,
+    'the app-wide bar did not appear while the background Mega read was pending');
+  assert.match(failed.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/);
+  assert.equal(await failedRefresh, false,
+    'a failed background refresh must preserve the prior snapshot');
+  await waitFor(() => failed.$('loadBar').hidden,
+    'the app-wide bar to settle after the background fetch fails');
+  failed.window.close();
+
+  const cancelled = await boot();
+  let resolveMega;
+  let repaintCount = 0;
+  cancelled.window.fetch = () => new Promise((resolve) => {
+    resolveMega = () => resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve('<html><body><div class="Observation"></div></body></html>'),
+    });
+  });
+  const cancelledRefresh = cancelled.window.__app.lazyRefreshMegaSnapshot(
+    () => { repaintCount++; });
+  assert.equal(cancelled.$('loadBar').hidden, false,
+    'the app-wide bar did not appear while the cancellable read was pending');
+  cancelled.window.__app.setActiveReport('aba');
+  resolveMega();
+  assert.equal(await cancelledRefresh, false,
+    'a response for a scope the reader left must be discarded');
+  assert.equal(repaintCount, 0,
+    'a cancelled scope repainted the current Bird Gen');
+  await waitFor(() => cancelled.$('loadBar').hidden,
+    'the app-wide bar to settle after the scope changes');
+  cancelled.window.close();
 });
 
 test('phase-two completion repaints the visible chase-derived section', async () => {
@@ -21394,11 +21454,14 @@ test('F322 BirdCast is region-local and explicit about unsupported Hawaiʻi', as
     ['🔔Alert for your HomeBirdCast’s location forecast›',
       '📊King historyNightly totals, timing and migrants›',
       '📊Snohomish historyNightly totals, timing and migrants›',
-      '🌙Tonight’s forecastPlan before sunset›'],
+      '📡Live migration mapSee what radar detects now›'],
     'BirdCast destinations do not explain what each official link opens');
   assert.match(text, /migration count loading/i);
   assert.doesNotMatch(text, /forecast is live|radar forecast/i);
-  assert.ok(hrefs.some((href) => /migration-forecast-maps\/$/.test(href)));
+  assert.ok(!hrefs.some((href) => /migration-forecast-maps\/$/.test(href)),
+    'Migration still links to the Tonight’s forecast page');
+  assert.ok(!hrefs.some((href) => /birdcast\.org\/lights-out\/?$/.test(href)),
+    'Migration still links to Lights Out guidance');
   assert.ok(hrefs.some((href) => /live-migration-maps\/$/.test(href)));
   assert.ok(hrefs.some((href) => /^https:\/\/alert\.birdcast\.org\/\?/.test(href)));
   assert.ok(hrefs.some((href) => /dashboard\.birdcast\.org\/region\/US-WA-033/.test(href)));
@@ -21455,8 +21518,8 @@ test('F659 Migration orders Home alerts, counties, then other links', async () =
   assert.deepEqual(titles.slice(1, 1 + countyTitles.length), countyTitles,
     'county alerts should immediately follow Home');
   assert.deepEqual(titles.slice(1 + countyTitles.length),
-    ['Tonight’s forecast', 'Live migration map', 'Lights Out guidance'],
-    'regional and reference links should follow Home and county alerts');
+    ['Live migration map'],
+    'only the live radar map should follow Home and county alerts');
   app.window.close();
 });
 
@@ -21487,8 +21550,11 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   assert.match(HTML,
     /\.birdcast-alert-icon[\s\S]*overflow:\s*visible/,
     'Large text can crop the printed Migration loading state');
-  assert.match(app.document.getElementById('bcBody').textContent, /Lights Out/i);
+  assert.doesNotMatch(app.document.getElementById('bcBody').textContent, /Lights Out/i,
+    'Migration retained the removed Lights Out destination');
   assert.match(app.document.getElementById('bcBody').textContent, /Alert for your Home/i);
+  assert.match(app.document.getElementById('bcBody').textContent, /Live migration map/i,
+    'Migration lost its retained live radar link');
 
   app.window.localStorage.setItem(A.homeKey('lat'), '47.5000');
   app.window.localStorage.setItem(A.homeKey('lng'), '-122.3000');
@@ -21611,10 +21677,10 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     Array.from(body.querySelectorAll('.birdcast-destination strong'), (node) =>
       node.textContent.trim()),
     ['Alert for your Home', 'King history', 'Snohomish history',
-      'Tonight’s forecast', 'Live migration map', 'Lights Out guidance'],
+      'Live migration map'],
     'Migration does not order and label its Home, county, and other destinations clearly');
-  assert.equal(body.querySelectorAll('.birdcast-destination').length, 6,
-    'the merged Migration screen does not retain all six BirdCast destinations');
+  assert.equal(body.querySelectorAll('.birdcast-destination').length, 4,
+    'Migration retains only the Home, county and live-map destinations');
   body.querySelector('[data-migration-kind="arrivals"]').click();
   body.querySelector('[data-migration-kind="tonight"]').click();
   assert.match(body.textContent, /No migration events match these filters/,
@@ -25987,6 +26053,29 @@ test('F750 warns about cold 30s+ loads before opening Bird Gen or any Day trip b
   assert.ok(unrelated);
   assert.equal(unrelated.hasAttribute('aria-describedby'), false,
     'do not apply a measured slow-scan warning indiscriminately to unrelated menus');
+  app.window.close();
+});
+
+test('F752 menu loading warnings keep both original subtitles in a separate row', async () => {
+  const app = await boot();
+  for (const [at, subtitle] of [
+    ['surgeBtn', 'Talk and news'],
+    ['excBtn', 'Hotspot excursions'],
+  ]) {
+    const tile = app.document.querySelector('#menuList .toclink[data-at="' + at + '"]');
+    const original = tile.querySelector(':scope > .tilesub:not(.tileloadnotice)');
+    const warning = tile.querySelector(':scope > .tileextras > .tileloadnotice');
+    assert.ok(original, at + ' lost its original subtitle');
+    assert.equal(original.textContent, subtitle);
+    assert.ok(warning, at + ' has no separate cold-load warning');
+    assert.match(warning.textContent, /Cold scan: 30s\+.*several minutes/);
+    assert.equal(tile.getAttribute('aria-describedby'), warning.id,
+      at + ' is not accessibly associated with its warning');
+    assert.ok(original.compareDocumentPosition(warning)
+      & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    at + ' warning must follow, not replace, the subtitle');
+    assert.strictEqual(warning.parentElement, tile.querySelector('.tileextras'));
+  }
   app.window.close();
 });
 
@@ -34065,6 +34154,78 @@ test('F691 Stakeout Patch hydrates duration and unseen targets with Comments off
   assert.equal(row.querySelector('.cknote-pending'), null,
     'the settled checklist retained a loading ellipsis');
   app.window.close();
+});
+
+test('F751 Stakeout hotspot renders scoped unseen and already-seen species lists', async () => {
+  const app = await boot({
+    fetch(url) {
+      if (/product\/lists\/L-F751/.test(url)) {
+        return [{
+          subId: 'S-F751', obsDt: '2026-10-02 08:00',
+          numSpecies: 12, userDisplayName: 'Fixture Birder',
+        }];
+      }
+      if (/data\/obs\/L-F751\/recent/.test(url)) {
+        return [
+          { speciesCode: 'baleag', comName: 'Bald Eagle', subId: 'S-F751' },
+          { speciesCode: 'mallar3', comName: 'Mallard', subId: 'S-F751' },
+        ];
+      }
+      return null;
+    },
+  });
+  seedSeen(app, ['baleag']);
+  await app.window.__app.stakeHsOpen('L-F751', 'Fixture Stakeout Patch');
+  await waitFor(() => {
+    const root = app.$('stakeHsResults');
+    return root.querySelector('.hsunseen .obs.card-sm')
+      && root.querySelector('.hsseen .obs.card-sm');
+  }, 'the mixed seen and unseen hotspot lists');
+
+  const root = app.$('stakeHsResults');
+  const unseen = root.querySelector('.hsunseen');
+  const seen = root.querySelector('details.hsseen');
+  assert.match(unseen.querySelector('.hslabel').textContent, /1 unseen/);
+  assert.match(unseen.textContent, /Mallard/);
+  assert.doesNotMatch(unseen.textContent, /Bald Eagle/);
+  assert.match(seen.querySelector('summary').textContent, /1 more species already seen/);
+  assert.match(seen.textContent, /Bald Eagle/);
+  assert.doesNotMatch(seen.textContent, /Mallard/);
+  assert.equal(seen.open, false, 'the contextual already-seen list must remain collapsed');
+  app.window.close();
+});
+
+test('F751 distinguishes valid empty hotspot species results from feed failures', async () => {
+  const empty = await boot({
+    fetch(url) {
+      if (/product\/lists\/L-F751-EMPTY/.test(url)) return [];
+      if (/data\/obs\/L-F751-EMPTY\/recent/.test(url)) return [];
+      return null;
+    },
+  });
+  await empty.window.__app.stakeHsOpen('L-F751-EMPTY', 'Empty Patch');
+  await waitFor(() => /No species reports in the last/.test(
+    empty.$('stakeHsResults').textContent), 'the valid empty species state');
+  assert.doesNotMatch(empty.$('stakeHsResults').textContent, /Could not load species reports/);
+  empty.window.close();
+
+  const failed = await boot({
+    fetch(url) {
+      if (/product\/lists\/L-F751-FAILED/.test(url)) return [];
+      if (/data\/obs\/L-F751-FAILED\/recent/.test(url)) {
+        return { __status: 400, __body: { error: 'synthetic feed unavailable' } };
+      }
+      return null;
+    },
+  });
+  await failed.window.__app.stakeHsOpen('L-F751-FAILED', 'Unavailable Patch');
+  await waitFor(() => failed.$('stakeHsResults').querySelector('[role="alert"]'),
+    'the failed species-feed state');
+  assert.match(failed.$('stakeHsResults').textContent, /Could not load species reports/);
+  assert.match(failed.$('stakeHsResults').textContent, /Refresh this hotspot/);
+  assert.doesNotMatch(failed.$('stakeHsResults').textContent, /No species reports in the last/,
+    'a failed feed must not look like a successful empty response');
+  failed.window.close();
 });
 
 test('Stake out a hotspot leads with the pattern, and names who birds there', async () => {

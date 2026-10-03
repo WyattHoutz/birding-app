@@ -1231,6 +1231,11 @@
                font-size: calc(11.5px * var(--s)); line-height: 1.3;
                color: var(--muted); font-weight: 400; margin-top: 2px; }
     html[data-a11y="on"] .tilesub { font-size: calc(12.5px * var(--s)); }
+    .tileextras { display: flex; flex-direction: column; align-items: flex-start;
+                  grid-column: 1 / -1; grid-row: 3; gap: 4px; min-width: 0; }
+    .tileextras .tilesub { grid-column: auto; grid-row: auto; margin-top: 0; }
+    .tileextras .tilebadge { grid-column: auto; grid-row: auto;
+                             justify-self: auto; align-self: flex-start; margin-left: 0; }
     /* F134: a count pill, and a leading dot when it is NEW since you last
        looked. The dot and the number are the signal - colour is a second
        channel only, because red/green is unreadable for this owner. */
@@ -1241,7 +1246,7 @@
        Left to auto-placement it creates a third column and crushes Migration
        mid-word on two-column phones, so give the status its own explicit row. */
     .toclink[data-at="bcBody"] .tilebadge {
-      grid-column: 1 / -1; grid-row: 3; justify-self: start; margin-left: 0;
+    grid-column: auto; grid-row: auto; justify-self: auto; margin-left: 0;
     }
     .tilebadge.isnew { border-color: var(--safe-blue); color: var(--safe-blue); font-weight: 700; }
     /* The first tile is what the app opens on, so it spans the row and says
@@ -3627,7 +3632,7 @@
       </div>
       <div id="surgeResults"></div>
       <div id="surgeStatus" class="status" hidden></div>
-      <div id="reportingActivity" aria-label="Regional reporting activity">
+      <div id="reportingActivity" aria-label="Regional reporting activity" hidden>
         <h3>Regional reporting activity</h3>
         <div class="row">
           <button id="reportingDay" class="sortbtn" type="button" aria-pressed="true">Yesterday</button>
@@ -3635,8 +3640,6 @@
         </div>
         <div id="reportingStatus" class="status" role="status"></div>
         <div id="reportingRows"></div>
-        <p class="hint">Reporting activity, not bird abundance or chase odds. Late submissions
-          and review can revise these counts; they do not show how well a hotspot was searched.</p>
       </div>
     </section>
 
@@ -4407,7 +4410,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.133.0';
+      var APP_VERSION = '1.133.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -7019,6 +7022,7 @@
       var _fgStarts = [];
       var _fgActive = 0, _fgNextAt = 0, _fgWaiters = [], _fgBgWaiters = [];
       var _fgGap = FG_MIN_GAP_MS, _fgTokens = FG_BUCKET, _fgTokenAt = Date.now();
+      var _progressHolds = {}, _progressHoldId = 0;
       var _navGeneration = 0, _workCancelGeneration = 0;
       var _fgActiveJob = null, _fgActiveAbort = null;
       var _fgBgWake = null;
@@ -7287,6 +7291,18 @@
         fgProgressSync();
       }
       function progressEnd() { _stage = null; fgProgressSync(); }
+      function holdProgress(label) {
+        var id = ++_progressHoldId;
+        _progressHolds[id] = label || 'Background work';
+        fgProgressSync();
+        var released = false;
+        return function () {
+          if (released) return;
+          released = true;
+          delete _progressHolds[id];
+          fgProgressSync();
+        };
+      }
       // A fetch job, said out loud. `src` is a county label, "Geo50km", or
       // "Sp:<code>" — none of which is a sentence, and all of which were the
       // only thing the debug log ever showed.
@@ -7309,7 +7325,8 @@
       function fgProgressSync() {
         if (_stage && _stage.work && !workCurrent(_stage.work)) _stage = null;
         var busy = _fgWaiters.length
-          + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0);
+          + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
+          + Object.keys(_progressHolds).length;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
         var stall = fgVisibleStall();
         if (_stage || busy || stall) {
@@ -7375,7 +7392,11 @@
           // No fixed total to report against. An indeterminate bar is honest;
           // a made-up denominator is not.
           if (fill) fill.style.width = '100%';
-          if (txt) txt.textContent = head + (_stage ? _stage.label : 'Loading from eBird')
+          var heldLabels = Object.keys(_progressHolds).map(function (id) {
+            return _progressHolds[id];
+          });
+          if (txt) txt.textContent = head + (_stage ? _stage.label
+            : (heldLabels[0] || 'Loading from eBird'))
             + '…' + tail + slow;
         }
       }
@@ -9417,6 +9438,7 @@
           + ' — refreshing it here rather than asking you to open another section');
         var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(sid)
           + '&sortBy=obsDt&o=desc';
+        var releaseProgress = holdProgress('Refreshing Bird Gen Mega snapshot');
         entry.promise = fetchPublicHTML(url).then(function (html) {
           var list = parseAlertHTML(html);
           if (!list.length && !/class="Observation"/.test(html)) {
@@ -9451,6 +9473,7 @@
           return false;
         }).finally(function () {
           entry.promise = null;
+          releaseProgress();
         });
         return entry.promise.then(function (changed) {
           if ((changed || entry.outcome === 'failed')
@@ -29687,14 +29710,8 @@
             '\ud83d\udd14', 'Alert for your Home', 'BirdCast\u2019s location forecast'),
           countyLinks || '',
           birdcastDestination(
-            'https://birdcast.org/migration-tools/migration-forecast-maps/',
-            '\ud83c\udf19', 'Tonight\u2019s forecast', 'Plan before sunset'),
-          birdcastDestination(
             'https://birdcast.org/migration-tools/live-migration-maps/',
-            '\ud83d\udce1', 'Live migration map', 'See what radar detects now'),
-          birdcastDestination('https://birdcast.org/lights-out/',
-            '\ud83d\udca1', 'Lights Out guidance',
-            'Reduce collision risk on busy nights')
+            '\ud83d\udce1', 'Live migration map', 'See what radar detects now')
         ].join('');
       }
       function birdcastAlertState(now, report) {
@@ -32709,10 +32726,13 @@
         $('stakeHsFound').innerHTML = '';
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
-        var state = { lists: [], obs: [], hrow: null, iconic: undefined };
+        var state = {
+          lists: [], obs: [], obsState: 'loading', hrow: null, iconic: undefined
+        };
         function paint() {
           if (generation !== _stakeHsGeneration) return;
-          renderStakeHs(locId, name, state.lists, state.obs, state.hrow, state.iconic);
+          renderStakeHs(locId, name, state.lists, state.obs, state.hrow,
+            state.iconic, state.obsState);
         }
         // ── PAINT ON THE FIRST ANSWER, FILL IN THE REST ────────────────────
         //
@@ -32748,8 +32768,15 @@
               .then(function (obs) {
                 if (generation !== _stakeHsGeneration) return;
                 state.obs = Array.isArray(obs) ? obs : [];
+                state.obsState = 'loaded';
                 paint();
-              }).catch(function () { /* no bird list; the card still stands */ });
+              }).catch(function (e) {
+                if (generation !== _stakeHsGeneration) return;
+                state.obsState = 'error';
+                dbg('warn', 'Stakeout hotspot species feed: '
+                  + ((e && e.message) || e));
+                paint();
+              });
 
             stakeHsHotspotRow(locId).then(function (h) {
               if (generation !== _stakeHsGeneration) return;
@@ -32778,10 +32805,11 @@
           });
       }
 
-      function renderStakeHs(locId, name, lists, obs, hrow, iconic) {
+      function renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState) {
         var box = $('stakeHsResults');
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         lists = lists || []; obs = obs || []; hrow = hrow || {};
+        obsState = obsState || 'loaded';
         // WHO BIRDS HERE, and the visit pattern. Both counted from the call
         // already made, so neither costs anything.
         var by = {}, days = {}, spp = 0, n = 0;
@@ -32863,18 +32891,30 @@
         var below = (la != null && ln != null)
           ? '<div id="stakeHsMap" aria-label="Map showing ' + esc(name || locId) + '"></div>'
           : '';
-        if (!lists.length && !obs.length) {
+        if (!lists.length && !obs.length && obsState === 'loaded') {
           below += '<div class="status">eBird has no recent checklists for this place.</div>';
         }
-        if (unseen.length || seen.length) {
-          below += '<div class="rankhead"><b>\ud83d\udc26 Birds reported here</b>'
+        below += '<div class="rankhead"><b>\ud83d\udc26 Birds reported here</b>'
             + '<span class="rankwhy">the last ' + STAKE_HS_BACK + ' days, '
             + 'still-needed birds first</span></div>';
+        if (obsState === 'loading') {
+          below += '<div class="hint" role="status">Loading recent species reports\u2026</div>';
+        } else if (obsState === 'error') {
+          below += '<div class="status" role="alert">Could not load species reports. '
+            + 'Refresh this hotspot to try again.</div>';
+        } else if (!obs.length) {
+          below += '<div class="status">No species reports in the last '
+            + STAKE_HS_BACK + ' days.</div>';
+        } else {
           below += HotspotCards.splitLists({
-            unseen: unseen.length ? speciesListHtml(unseen) : '',
-            unseenLabel: unseen.length ? (unseen.length + ' unseen \ud83d\udd0d') : '',
-            seen: seen.length ? speciesListHtml(seen) : '',
-            seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
+            unseen: unseen.length ? speciesListHtml(unseen)
+              : '<div class="hint">No unseen birds in these reports.</div>',
+            unseenLabel: unseen.length
+              ? (unseen.length + ' unseen \ud83d\udd0d') : 'Unseen',
+            seen: seen.length ? speciesListHtml(seen)
+              : '<div class="hint">No already-seen birds in these reports.</div>',
+            seenLabel: seen.length
+              ? (seen.length + ' more species already seen') : 'Already seen (0)'
           });
         }
         // ---- recent checklists before historical iconic context
@@ -36284,7 +36324,6 @@
         var force = takeForce();
         var generation = ++_surgeLoadGeneration;
         var loadScope = activeScope(), loadContext = surgeSourceContext();
-        loadReportingActivity(null, force, loadScope);
         _surgeAllFlocks = false;
         _surgeHotspotRetry = null;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
@@ -40082,20 +40121,25 @@
             a.appendChild(sb);
           }
           var loadNotice = longLoadNotice(sec._at, true);
-          if (loadNotice) {
-            var ln = document.createElement('span');
-            ln.className = 'tilesub';
-            ln.id = 'menuLoadNotice-' + sec._at;
-            ln.textContent = loadNotice;
-            a.appendChild(ln);
-            a.setAttribute('aria-describedby', ln.id);
-          }
           // F134: only if the section has something to say. Reads cache only.
           var bh = menuBadgeHTML(menuBadge(sec._at, sec.id));
-          if (bh) {
-            var bw = document.createElement('span');
-            bw.innerHTML = bh;
-            if (bw.firstChild) a.appendChild(bw.firstChild);
+          if (loadNotice || bh) {
+            var extras = document.createElement('span');
+            extras.className = 'tileextras';
+            if (loadNotice) {
+              var ln = document.createElement('span');
+              ln.className = 'tilesub tileloadnotice';
+              ln.id = 'menuLoadNotice-' + sec._at;
+              ln.textContent = loadNotice;
+              extras.appendChild(ln);
+              a.setAttribute('aria-describedby', ln.id);
+            }
+            if (bh) {
+              var bw = document.createElement('span');
+              bw.innerHTML = bh;
+              if (bw.firstChild) extras.appendChild(bw.firstChild);
+            }
+            a.appendChild(extras);
           }
           (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
           li.appendChild(a); list.appendChild(li);

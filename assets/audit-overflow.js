@@ -549,6 +549,45 @@ const AUDIT = `<script>
         whiteSpace: getComputedStyle(hydrated).whiteSpace
       };
     }
+    var menuWarnings = [];
+    if (label === '(contents menu)') {
+      ['surgeBtn', 'excBtn'].forEach(function (at) {
+        var tile = document.querySelector('#menuList .toclink[data-at="' + at + '"]');
+        var subtitle = tile && tile.querySelector(':scope > .tilesub:not(.tileloadnotice)');
+        var warning = tile && tile.querySelector(':scope > .tileextras > .tileloadnotice');
+        function textRects(el) {
+          if (!el) return [];
+          var range = document.createRange();
+          range.selectNodeContents(el);
+          return [].slice.call(range.getClientRects()).filter(function (r) {
+            return r.width || r.height;
+          });
+        }
+        var sr = textRects(subtitle), wr = textRects(warning);
+        var tr = tile && tile.getBoundingClientRect();
+        var subtitleBottom = sr.length ? sr[sr.length - 1].bottom : 0;
+        var warningTop = wr.length ? wr[0].top : 0;
+        menuWarnings.push({
+          at: at,
+          subtitle: subtitle && subtitle.textContent.trim(),
+          warning: warning && warning.textContent.trim(),
+          subtitleBeforeWarning: !!(sr.length && wr.length
+            && subtitleBottom <= warningTop + 0.5),
+          withinTile: !!(tr && sr.length && wr.length
+            && sr.every(function (r) {
+              return r.left >= tr.left && r.right <= tr.right
+                && r.top >= tr.top && r.bottom <= tr.bottom;
+            }) && wr.every(function (r) {
+              return r.left >= tr.left && r.right <= tr.right
+                && r.top >= tr.top && r.bottom <= tr.bottom;
+            })),
+          withinViewportWidth: !!(sr.length && wr.length
+            && sr.concat(wr).every(function (r) {
+              return r.left >= 0 && r.right <= vw;
+            }))
+        });
+      });
+    }
     return {
       label: label, vw: vw, n: all.length,
       sectionId: vis ? vis.id : '',
@@ -565,6 +604,7 @@ const AUDIT = `<script>
       unnamed: unnamed.slice(0, 10),
       controlRows: controlRows,
       sharedControls: sharedControls.slice(0, 12),
+      menuWarnings: menuWarnings,
       hydratedMetadata: metadata,
       releaseLayout: releaseLayoutChecks()
     };
@@ -953,6 +993,17 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      if (r.label === '(contents menu)') {
+        var menuWarnings = r.menuWarnings || [];
+        if (menuWarnings.length !== 2 || menuWarnings.some(function (warning) {
+          return !warning.subtitle || !warning.warning
+            || !warning.subtitleBeforeWarning || !warning.withinTile
+            || !warning.withinViewportWidth;
+        })) {
+          bad++;
+          console.log('   LOADING WARNING LAYOUT  ' + JSON.stringify(menuWarnings));
+        }
+      }
       // F251. The number in the command and the viewport measured inside the
       // app must be the SAME number. Desktop Chrome's classic scrollbar used
       // to consume 15px, so a run labelled 393px was actually auditing 378px

@@ -176,6 +176,11 @@
         + 'the feed names that gap instead of claiming nothing is happening. '
         + 'A complete retained snapshot may still supply TOP PATCH rows while '
         + 'live data refreshes; partial or failed destination views may not.</p>'
+        + '<p>Regional reporting activity, if shown elsewhere, counts checklists, '
+        + 'contributors and species reported in a completed regional day. These '
+        + 'counts describe reporting activity, not bird abundance or chase odds. '
+        + 'Late submissions and review can revise them, and they do not show how '
+        + 'well a hotspot was searched.</p>'
         + '<h3>' + docs.mega.title + '</h3>' + docs.mega.body
         + '<h3>' + docs.mass.title + '</h3>' + docs.mass.body
         + '<h3>' + docs.favorite.title + '</h3>' + docs.favorite.body
