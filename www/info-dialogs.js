@@ -288,6 +288,11 @@
       name: 'Rank from a place',
       reason: 'Interactive place-entry workflow used for navigation and ranking, not a help or calculation sheet.'
     },
+    'favorite-save-failed': {
+      surface: 'sheet',
+      name: 'Favorite not saved',
+      reason: 'Transient persistence-error and recovery notice, not informational help.'
+    },
     'set-home-anchor': {
       surface: 'sheet',
       name: 'Set Home to Here',

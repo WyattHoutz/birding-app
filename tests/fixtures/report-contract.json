@@ -15,6 +15,8 @@
     "null = app-only section.",
     "'map' is the app's map container id, non-null only where the report embeds",
     "a rendered map (report.py _render_destinations_map call sites).",
+    "'appMap' is an explicitly documented app-only map addition inside a shared",
+    "section; its reason belongs in 'why' and PARITY.md.",
     "",
     "reportSectionsAppOmits is a map of heading prefix -> WHY the app omits it.",
     "It used to be a bare list, which made it an unaudited escape hatch: adding",
@@ -165,6 +167,8 @@
       "label": "⭐ Favorite patches",
       "report": "## ⭐ Favorite patches — Saved hotspots",
       "map": null,
+      "appMap": "favMap",
+      "why": "F743 adds a device-local numbered map of saved Favorite coordinates, without adding a map or runtime dependency to the archived report.",
       "sub": "Saved hotspots"
     },
     {

@@ -23,7 +23,7 @@ const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
 
-const WWW = path.join(__dirname, '..', 'www');
+const WWW = process.env.BIRDCHASER_WWW || path.join(__dirname, '..', 'www');
 const WIDTH = +(process.argv[2] || 390);
 const HEIGHT = 844;
 const SCALE = process.argv[3] || '1';
@@ -536,8 +536,22 @@ const AUDIT = `<script>
     }
 
     var vis = document.querySelector('section.panel:not([hidden])');
+    var hydrated = document.querySelector('[data-f740-fixture] .cktargets');
+    var metadata = null;
+    if (hydrated && hydrated.offsetParent) {
+      var targetBox = hydrated.getBoundingClientRect();
+      var cardBox = hydrated.closest('.cklcard').getBoundingClientRect();
+      var metaBox = hydrated.closest('.ckmeta').getBoundingClientRect();
+      metadata = {
+        text: hydrated.textContent,
+        targetRight: targetBox.right, metadataRight: metaBox.right,
+        cardRight: cardBox.right, viewportRight: vw,
+        whiteSpace: getComputedStyle(hydrated).whiteSpace
+      };
+    }
     return {
       label: label, vw: vw, n: all.length,
+      sectionId: vis ? vis.id : '',
       crushed: crushed.slice(0, 8),
       midword: midword.slice(0, 12),
       clipped: clipped.slice(0, 8),
@@ -551,6 +565,7 @@ const AUDIT = `<script>
       unnamed: unnamed.slice(0, 10),
       controlRows: controlRows,
       sharedControls: sharedControls.slice(0, 12),
+      hydratedMetadata: metadata,
       releaseLayout: releaseLayoutChecks()
     };
   }
@@ -582,9 +597,30 @@ const AUDIT = `<script>
     // moment, not the section. A CHECK THAT LOOKS ONCE CANNOT SEE A FLICKER.
     var TICKS = [80, 350, 1200];
     function step() {
-      if (i >= secs.length) return finish(out);
+      if (i >= secs.length) return finalFixtures();
       var id = secs[i++];
       try { A.showSection(id); } catch (e) { return step(); }
+      var fixtureReady = Promise.resolve();
+      if (id === 'sec-excBtn') {
+        var trip = document.createElement('ul');
+        trip.className = 'obs dest';
+        document.getElementById(id).appendChild(trip);
+        var fixture = document.createElement('li');
+        fixture.setAttribute('data-f740-fixture', '1');
+        fixture.setAttribute('data-hsloc', 'L2');
+        fixture.setAttribute('data-unseen-n', '9');
+        fixture.setAttribute('data-unseen-subs', 'S9');
+        fixture.setAttribute('data-unseen-codes', JSON.stringify({
+          S9: ['AMEGFI ×30', 'AMEPIP ×2', 'AMRO ×18', 'BARSWA ×4',
+            'BCCH ×12', 'BEKI ×3', 'BHCO ×40', 'BLJA ×8', 'BOHEWA ×16']
+            .map(function (label, index) { return { code: 'fixture' + index, label: label }; })
+        }));
+        fixture.innerHTML = '<div class="hsckl"></div>';
+        trip.appendChild(fixture);
+        fixtureReady = A.hydrateHotspotChecklists(trip).catch(function (error) {
+          fixture.textContent = 'Fixture hydration failed: ' + error.message;
+        });
+      }
       // F303 needs all three actions rendered simultaneously. Close normally
       // appears only after a search, but showing it for the audit changes no
       // layout rule and lets the row contract be measured directly.
@@ -638,10 +674,67 @@ const AUDIT = `<script>
           if (!worst || (s.items.length && s.items[0].over > (worst.items[0] ? worst.items[0].over : 0))
                      || (!worst.items.length && s.items.length)) worst = s;
           if (!worst) worst = s;
-          tick();
+          fixtureReady.then(function () {
+            if (id === 'sec-excBtn') A.setDayTripRange('from8plus');
+            tick();
+          });
         }, at - prev);
       }
       tick();
+    }
+    function finalFixtures() {
+      var feeds = window.BirdLogic.planSpeciesFeeds(A.chaseProfile(),
+        Array.from({ length: 60 }, function (_, index) { return 'eta' + index; }));
+      A.progressStage('Finding where your missing birds are', feeds.length, 2, 2,
+        { feeds: feeds, work: { current: function () { return true; } } });
+      A.progressDetail('Shared queue can change the estimate; useful results remain visible');
+      var countdown = scan('(F749 estimated loader)');
+      countdown.etaFixture = document.getElementById('loadBarText').textContent;
+      out.push(countdown);
+      A.progressEnd();
+      var rows = Array.from({ length: 8998 }, function (_, index) {
+        return { speciesCode: 'localetax' + index, comName: 'Synthetic bird ' + index,
+          sciName: 'Synthetic taxon ' + index, category: 'species' };
+      });
+      rows.push(
+        { speciesCode: 'localeaudit', comName: 'Synthetic locale bird',
+          sciName: 'Synthetic localeaudit', category: 'species' },
+        { speciesCode: 'localefallback',
+          comName: 'Synthetic English fallback with a long name describing a bird and its habitat',
+          sciName: 'Synthetic localefallback', category: 'species' }
+      );
+      var at = Date.now();
+      Promise.all([
+        A.taxonomyStore('put', 'identity:2025.0', window.BirdTaxonomy.create(rows, '2025.0')),
+        A.taxonomyStore('put', 'names:2025.0:fr', {
+          edition: '2025.0', locale: 'fr', at: at,
+          names: { localeaudit: 'Nom francais de demonstration pour un oiseau avec une longue description de ses formes et de son habitat' }
+        })
+      ]).then(function () {
+        localStorage.setItem('bc_taxonomy_v1', JSON.stringify({ edition: '2025.0', checkedAt: at }));
+        localStorage.setItem('bc_taxa_locales_v1', JSON.stringify({ at: at,
+          rows: [{ code: 'en', name: 'English' }, { code: 'fr', name: 'French (synthetic)' }] }));
+        localStorage.setItem('bc_name_locale', 'fr');
+        return A.restoreTaxonomyNames();
+      }).then(function (restored) {
+        if (!restored) throw new Error('Synthetic locale fixture did not restore.');
+        var panel = document.querySelector('section.panel:not([hidden])');
+        var list = document.createElement('ul');
+        list.className = 'obs big xl';
+        list.innerHTML = window.SpeciesCards.medium({
+          name: 'Synthetic locale bird', code: 'localeaudit', distMi: 123, count: 7
+        }) + window.SpeciesCards.medium({
+          name: 'Synthetic fallback bird', code: 'localefallback', distMi: 12, count: 3
+        });
+        panel.appendChild(list);
+        var locale = scan('(F736 long localized names)');
+        locale.localeFixture = list.textContent;
+        out.push(locale);
+        finish(out);
+      }).catch(function (error) {
+        out.push({ label: 'Required locale fixture failed', fixtureError: error.message });
+        finish(out);
+      });
     }
     step();
   }
@@ -840,9 +933,23 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (!report.some((r) => /Estimated time remaining for this stage/.test(r.etaFixture || ''))) {
+      bad++;
+      console.log('   F749 FIXTURE missing a real estimated loader');
+    }
+    if (!report.some((r) => /Nom francais/.test(r.localeFixture || '')
+        && /English fallback/.test(r.localeFixture))) {
+      bad++;
+      console.log('   F736 FIXTURE missing translated names and labelled fallback');
+    }
     console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
       + ' (' + SCALE + 'x)\n');
     report.forEach((r) => {
+      if (r.fixtureError) {
+        bad++;
+        console.log('   REQUIRED FIXTURE FAILED: ' + r.fixtureError);
+        return;
+      }
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
@@ -935,6 +1042,24 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.sectionId === 'sec-excBtn') {
+        var meta = r.hydratedMetadata;
+        if (!meta) {
+          bad++;
+          console.log('   F740 HYDRATION missing real checklist target metadata');
+        } else {
+          console.log('   F740 METADATA target=' + meta.targetRight.toFixed(1)
+            + ' meta=' + meta.metadataRight.toFixed(1)
+            + ' card=' + meta.cardRight.toFixed(1) + ' viewport=' + meta.viewportRight
+            + ' white-space=' + meta.whiteSpace);
+          if (meta.targetRight > meta.cardRight + 0.5
+              || meta.metadataRight > meta.viewportRight + 0.5
+              || meta.whiteSpace !== 'normal') {
+            bad++;
+            console.log('   F740 HYDRATED species/count facts exceed their card or cannot wrap');
+          }
+        }
+      }
       if (layout) {
         var layoutProblems = [];
         if (layout.latestBirdIcons === false) {

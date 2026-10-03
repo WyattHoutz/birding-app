@@ -775,13 +775,14 @@
     return String(q == null ? '' : q).replace(/[^0-9.,-]/g, '');
   }
 
+  var nameRenderer = function (html) { return html; };
   function build(tpl, v, cls) {
     v = v || {};
     var identifierLine = tpl === SMALL && !!v.identifierLine;
     return fill(tpl, {
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' ').trim(),
       icon: v.icon || '',
-      name: v.name || '',
+      name: nameRenderer(v.name || '', codeText(v.code)),
       tags: v.tags || '',
       sub: identifierLine ? identifierLineHtml(v) : subHtml(v, tpl === SMALL),
       dist: distHtml(v, tpl),
@@ -839,6 +840,10 @@
   }
 
   var API = {
+    setNameRenderer: function (renderer) {
+      if (typeof renderer !== 'function') throw new Error('A species name renderer is required.');
+      nameRenderer = renderer;
+    },
     css: CSS,
     templates: { small: SMALL, medium: MEDIUM, large: LARGE },
     // The row classes are empty: the SIZE lives on the <ul> wrapper, so a

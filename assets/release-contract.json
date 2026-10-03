@@ -2,6 +2,7 @@
   "requiredFiles": [
     "index.html",
     "logic.js",
+    "taxonomy.js",
     "aba-regions.js",
     "ebird-events.js",
     "controls-toggle.js",
@@ -39,6 +40,7 @@
   "requiredText": {
     "index.html": [
       "APP_VERSION = '${version}'",
+      "<script src=\"taxonomy.js\"></script>",
       "<script src=\"aba-regions.js\"></script>",
       "<script src=\"ebird-events.js\"></script>",
       "<script src=\"controls-toggle.js\"></script>",

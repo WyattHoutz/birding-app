@@ -2332,6 +2332,12 @@
     .surgebadge-migration { background: #fff; color: #000;
                             border: 3px solid var(--safe-blue); }
     .surgekind-migration { background: #EAF7FF; border: 3px solid var(--safe-blue); }
+    .surgebadge-mass { background: #EAF7FF; color: #005B8F;
+                      border-width: 2px; border-style: solid; border-color: var(--safe-blue); }
+    .surgekind-mass { background: #EAF7FF;
+                     border-width: 3px; border-style: solid; border-color: var(--safe-blue); }
+    .surgebadge-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
+    .surgekind-favorite { background: #fff; border: 3px double #E69F00; }
     /* A feed that came back capped is not an error — the section still renders —
        but it is the difference between "these are the birds" and "these are the
        birds that fit". Styled like a warning rather than a caption because a
@@ -2363,19 +2369,16 @@
        whatever is left after the fixed-width controls take their 40px. */
     .favrow { display: flex; align-items: flex-start; gap: 8px; flex-wrap: nowrap; }
     .favrow .favmain { flex: 1 1 0; min-width: 0; }
+    .favcontrols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .favcontrols .favbtn { width: auto; min-width: 44px; padding: 8px 12px;
+      min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+    .favoritecard[aria-current="location"]::after { content: "Selected patch";
+      display: block; font-weight: 700; margin-top: 8px; }
+    #favStatus { overflow-wrap: anywhere; }
+    #stakeHsFound .pickbtn { text-align: left; background: transparent; color: var(--link);
+      border: 1px solid var(--line); width: 100%; font-size: calc(16px * var(--s));
+      font-weight: 600; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
     .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
-    /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
-       the title outranks them. It was previously unstyled, which left it at
-       body size under 17px bold species links — the row read as a list of birds
-       with a caption rather than a place with a reason to drive there. */
-    /* The hotspot is the SUBJECT of the row and the birds are its evidence, so
-       the title outranks them. At 19px it sat only 2px above the 17px species
-       links beneath it, which is not a rank difference you can see — the row
-       still read as a list of birds with a caption. 24px makes the place the
-       heading and the birds the list under it. */
-    .favtitle { font-size: calc(24px * var(--s)); font-weight: 800; line-height: 1.25;
-                overflow-wrap: anywhere; }
-    .favtitle .dim { font-weight: 600; }
     .favspp { margin: 4px 0 6px; }
     .favspp li { padding: 5px 0; border: none; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
@@ -2573,6 +2576,9 @@
     .seenflag { color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); }
     .needflag { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
     .seenflag, .needflag { display: inline-block; white-space: nowrap; }
+    .rarityaccess { display: inline-block; padding: 2px 6px; border: 1px solid currentColor;
+      border-radius: 4px; color: var(--ink); font-size: calc(11px * var(--s));
+      font-weight: 700; white-space: normal; }
     /* The convoy's already-seen birds, folded away: the unseen list above is
        the finding, and this is the context it is contrasted with — but at a
        busy convoy it was the longer of the two and buried the answer. */
@@ -3496,12 +3502,13 @@
 
     <section class="panel">
       <h2>🚗 Day trip patches <span class="dim" id="excRegionLabel"></span></h2>
+      <p id="dayTripLoadNotice" class="hint" role="note" data-long-load="excBtn"></p>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row daytriprangewrap">
         <div class="daytriprange-label">Estimated round trip</div>
         <span class="sortpick daytripranges" role="group" aria-label="Choose round-trip travel range">
           <button id="dayTripUnder3" class="sortbtn" type="button"
-            aria-pressed="true">Under 3h</button>
+            aria-pressed="true" aria-label="Under 3 hours">&lt;3h</button>
           <button id="dayTrip3To5" class="sortbtn" type="button"
             aria-pressed="false">3–5h</button>
           <button id="dayTrip5To8" class="sortbtn" type="button"
@@ -3510,6 +3517,11 @@
             aria-pressed="false">8h+</button>
         </span>
       </div>
+      <p id="dayTripWarning" class="hint" role="note" hidden><b>Very slow broad scan.</b>
+        A first 8h+ scan may take several minutes. eBird requests are paced;
+        useful options appear as evidence arrives. A completed scan may still find no
+        matching patches. Switching bands cancels obsolete work.</p>
+      <progress id="dayTripProgress" aria-label="Day trip scan progress" hidden></progress>
       <div class="row" hidden>
         <button id="excBtn">Find day-trip options</button>
       </div>
@@ -3578,6 +3590,7 @@
 
     <section class="panel">
       <h2>⭐ Favorite patches</h2>
+      <div class="row"><button id="favLoadBtn" type="button">Refresh Favorite patches</button></div>
       <div class="row">
         <input id="favSearch" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="favSearchBtn" class="secondary">Search</button>
@@ -3585,6 +3598,7 @@
       </div>
       <ul id="favFound" class="obs picklist"></ul>
       <div id="favStatus" class="status">Search above, or save hotspots from the other lists to pin them here.</div>
+      <div id="favMap" aria-label="Numbered Favorite patches map"></div>
       <ul id="favResults" class="obs dest"></ul>
     </section>
 
@@ -3607,11 +3621,23 @@
 
     <section class="panel">
       <h2>🔔 Bird Gen <span class="dim" id="surgeRegionLabel"></span></h2>
+      <p id="birdGenLoadNotice" class="hint" role="note" data-long-load="surgeBtn"></p>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
       </div>
       <div id="surgeResults"></div>
       <div id="surgeStatus" class="status" hidden></div>
+      <div id="reportingActivity" aria-label="Regional reporting activity">
+        <h3>Regional reporting activity</h3>
+        <div class="row">
+          <button id="reportingDay" class="sortbtn" type="button" aria-pressed="true">Yesterday</button>
+          <button id="reportingWeek" class="sortbtn" type="button" aria-pressed="false">Last 7 completed days</button>
+        </div>
+        <div id="reportingStatus" class="status" role="status"></div>
+        <div id="reportingRows"></div>
+        <p class="hint">Reporting activity, not bird abundance or chase odds. Late submissions
+          and review can revise these counts; they do not show how well a hotspot was searched.</p>
+      </div>
     </section>
 
     <section class="panel">
@@ -3906,6 +3932,15 @@
       <p class="hint">Region, eBird website connection, personal API key, Home and seen-list readiness are independent setup steps.</p>
       <button id="regionCatalogRefresh" class="secondary" type="button">Refresh region names</button>
       <p id="regionCatalogStatus" class="hint" role="status">All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US and Canadian reference names, not observations.</p>
+      <label>Taxonomy edition and common names</label>
+      <div class="row">
+        <button id="taxonomyCheckBtn" class="secondary" type="button">Check official taxonomy edition</button>
+        <button id="namingLocalesBtn" class="secondary" type="button">Load naming languages</button>
+      </div>
+      <p id="taxonomyStatus" class="hint" role="status">Edition not checked. Existing dated evidence is preserved; no automatic split assignments.</p>
+      <label for="namingLocale">Common-name language / regional names</label>
+      <select id="namingLocale"><option value="en">English (default)</option></select>
+      <p id="namingStatus" class="hint" role="status">Names only; species identity, seen/watch membership and ranking do not change.</p>
       <label for="tripName">My regions</label>
       <div id="myRegions"></div>
       <div class="row">
@@ -4111,6 +4146,7 @@
        and own the markup + CSS for every bird row and every hotspot row. -->
   <script src="cards-species.js"></script>
   <script src="spuh.js"></script>
+  <script src="taxonomy.js"></script>
   <script src="cards-hotspot.js"></script>
   <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
@@ -4160,6 +4196,8 @@
         'ebird_gbif_v1',            // GBIF facts about boxes and counties
         'ebird_hotspots_v2:',       // the hotspot index — a 9.3s call
         'bc_ref:',                  // eBird reference/taxonomy cache
+        'bc_taxonomy_v1', 'bc_taxa_locales_v1', 'bc_name_locale',
+        'ebird_species_v3:',
         'ebird_birdinfo_v2',        // species blurbs and photos
         'bc_ckl2:',                 // checklist bodies: public documents
         'bc_board_v1:',             // public regional Top 100 snapshots
@@ -4369,7 +4407,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.132.0';
+      var APP_VERSION = '1.133.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -4937,7 +4975,7 @@
           return deriveCountyCandidates(home, cap, parent, work)
             .then(function (candidates) {
               if (!candidates.length) {
-                throw new Error('No hotspot-represented counties are inside this destination tier from Home');
+                return { rows: [], complete: true, failed: [], total: 0 };
               }
               return ensureCountyBounds(parent, candidates, onProgress, work);
             }).then(function (catalog) {
@@ -4951,7 +4989,7 @@
             superseded.tierSuperseded = true;
             throw superseded;
           }
-          if (!catalog.rows.length) {
+          if (!catalog.rows.length && !catalog.complete) {
             throw new Error('County bounds are unavailable; refresh to retry');
           }
           // Hawaii has no drivable connection between counties. A
@@ -4960,7 +4998,7 @@
           // eligible. A zero edge distance means Home is inside its bounds.
           var scope = BL.deriveCountyScope(home, catalog.rows,
             parent === 'US-HI' ? 0 : cap);
-          if (!scope.length) {
+          if (!scope.length && !catalog.complete) {
             throw new Error(catalog.complete
               ? 'No counties are inside this destination tier from Home'
               : 'County bounds are unavailable for this destination tier; refresh to retry');
@@ -5572,15 +5610,33 @@
         return set;
       }
       function finishReportSeenScope(set, watch, seed) {
-        var parentOf = seed && (seed.reportAsParents || seed.domesticParents);
+        var legacyParents = seed && (seed.reportAsParents || seed.domesticParents);
+        var parentOf = canonicalParents(legacyParents);
         var held = {};
         Object.keys(watch || {}).forEach(function (c) { held[c] = 1; });
+        if (_taxonomyModel) {
+          Object.keys(watch || {}).forEach(function (code) {
+            if (!_taxonomyUnresolved[code]
+                && Object.prototype.hasOwnProperty.call(_taxonomyModel.byCode, code)) return;
+            [_taxonomyPrevious ? _taxonomyPrevious.parents : legacyParents, _taxonomyModel.parents]
+              .forEach(function (parents) {
+                var cur = code, visited = {};
+                while (parents && parents[cur] && !visited[cur]) {
+                  visited[cur] = true;
+                  cur = parents[cur];
+                }
+                held[cur] = 1;
+              });
+          });
+        }
         addSeenGroup(held, parentOf);
         Object.keys(held).forEach(function (c) { delete set[c]; });
         var exact = {};
         Object.keys(set || {}).forEach(function (c) { exact[c] = set[c]; });
         var species = {};
-        Object.keys(exact).forEach(function (c) { species[c] = exact[c]; });
+        Object.keys(exact).forEach(function (c) {
+          if (!(_taxonomyUnresolved || {})[c]) species[c] = exact[c];
+        });
         addSeenGroup(species, parentOf);
         Object.keys(held).forEach(function (c) {
           delete exact[c];
@@ -5608,7 +5664,8 @@
           return finishReportSeenScope(exactSet, watchCodes(), seed);
         }
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
-        if (usesBundledSeed() && rep && Array.isArray(rep.codes)) {
+        if (usesBundledSeed() && rep && Array.isArray(rep.codes)
+            && String(seed.year) === String(scope.year)) {
           var set = {};
           rep.codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
           // The bundled set already has the AUTHORED watchlist subtracted
@@ -5628,7 +5685,7 @@
           // cannot un-see a bird, and it is applied before the watchlist is
           // subtracted below so a tentative ID you are deliberately holding
           // back is never ticked by your own checklist.
-          var own = ownSeenCodes();
+          var own = ownSeenCodes(null, scope.year);
           Object.keys(own).forEach(function (c) { if (!w[c]) set[c] = 1; });
           // eBird checklist detail preserves form/subspecies codes such as
           // hawama2 "Hawaii Amakihi (Hawaii)". Until form-level year tracking
@@ -5636,12 +5693,19 @@
           // seen group: any one tick suppresses the parent and all siblings.
           return finishReportSeenScope(set, w, seed);
         }
-        var base = getSeen(), w2 = watchCodes(), own2 = ownSeenCodes();
+        var meta = getSeenMeta();
+        var mismatched = meta && ((meta.year != null && String(meta.year) !== String(scope.year))
+          || (meta.region && meta.region !== scope.effectiveRegion));
+        var base = usesBundledSeed() || mismatched || getField() !== 'speciesCode' ? {} : getSeen();
+        var w2 = watchCodes(), own2 = ownSeenCodes(null, scope.year);
         Object.keys(own2).forEach(function (c) { if (!w2[c]) base[c] = 1; });
         return finishReportSeenScope(base, w2, seed);
       }
       function getReportSeen() {
-        return getReportSeenScope().species;
+        if (_taxonomyModel) updateTaxonomyImpact();
+        var species = getReportSeenScope().species;
+        Object.keys(_taxonomyUnresolved || {}).forEach(function (code) { delete species[code]; });
+        return species;
       }
 
       // ---- your own list, kept current between report builds ----------------
@@ -5666,8 +5730,20 @@
       // fresh and never claims to be a life list.
       var OWN_SEEN_NS = 'ebird_own_seen:';
       function ownSeenKey(slug) { return OWN_SEEN_NS + (slug || getReportSlug()); }
-      function ownSeenCodes(slug) {
-        try { return JSON.parse(localStorage.getItem(ownSeenKey(slug)) || '{}') || {}; }
+      function ownSeenCodes(slug, year) {
+        try {
+          var codes = JSON.parse(localStorage.getItem(ownSeenKey(slug)) || '{}') || {};
+          if (year == null) return codes;
+          var current = {};
+          Object.keys(codes).forEach(function (code) {
+            var date = codes[code] && codes[code].d;
+            var datedYear = /^(\d{4})-\d{2}-\d{2}(?:[ T].*)?$|^\d{1,2} [A-Za-z]{3} (\d{4})$/.exec(String(date || ''));
+            if (!date || (datedYear && (datedYear[1] || datedYear[2]) === String(year))) {
+              current[code] = codes[code];
+            }
+          });
+          return current;
+        }
         catch (e) { return {}; }
       }
       function ownSeenMeta(slug) {
@@ -7139,12 +7215,65 @@
       // 8 · Snohomish County rare birds" is a bar that tells you what the app
       // is doing with your minute.
       var _stage = null;   // { label, total, done, step, of, detail }
+      var _etaRetryHold = null;
       var _fgIdleTimer = null, _fgPauseTimer = null;
       var FG_IDLE_RESET_MS = 8000;
-      function progressStage(label, total, step, of) {
+      function createLoadingEstimate(live, now, slept) {
+        if (!Number.isInteger(live) || live < 0) throw new Error('Unreadable remaining request plan.');
+        return { remaining: live, completed: 0, started: now, lastDone: now,
+          slept0: slept, lastDoneSlept: slept, paused: 0, lastDonePaused: 0,
+          tickAt: now, tickSlept: slept, enabled: live * 3888 >= 30000 };
+      }
+      function loadingEstimateText(estimate, now, slept, retryHold) {
+        if (!estimate || !estimate.enabled || !estimate.remaining) return '';
+        var suspended = Math.max(0, slept - estimate.tickSlept);
+        var held = retryHold ? Math.max(0,
+          Math.min(now, retryHold.until) - Math.max(estimate.tickAt, retryHold.at)) : 0;
+        estimate.paused += Math.max(0, held - Math.min(held, suspended));
+        estimate.tickAt = now;
+        estimate.tickSlept = slept;
+        var active = Math.max(0, estimate.lastDone - estimate.started
+          - (estimate.lastDoneSlept - estimate.slept0) - estimate.lastDonePaused);
+        var pace = estimate.completed >= 3
+          ? Math.max(3888, active / estimate.completed) : 3888;
+        var sinceLast = Math.max(0, now - estimate.lastDone
+          - (slept - estimate.lastDoneSlept) - (estimate.paused - estimate.lastDonePaused));
+        var retry = retryHold ? Math.max(0, retryHold.until - now) : 0;
+        var left = pace * estimate.remaining - sinceLast;
+        if (left <= 0) return 'Taking longer than estimated — still loading';
+        var seconds = Math.ceil((left + retry) / 1000);
+        return 'Estimated time remaining for this stage: '
+          + Math.floor(seconds / 60) + 'm ' + String(seconds % 60).padStart(2, '0') + 's'
+          + ' · ' + estimate.remaining + ' uncached feeds remain'
+          + (retry ? ' · retry delay included' : '');
+      }
+      function progressStage(label, total, step, of, plan) {
         _stage = { label: label, total: Math.max(0, total | 0), done: 0,
                    step: step || 0, of: of || 0, detail: '' };
+        if (plan) {
+          var pending = {};
+          (plan.feeds || []).forEach(function (feed) {
+            var path = BL.requestUrl(feed), hit = _ebCache[path];
+            if (!hit || !hit.settled || !workCurrent(hit.work)
+                || Date.now() - hit.t >= EB_CACHE_MS) pending[path] = true;
+          });
+          _stage.work = plan.work;
+          _stage.pending = pending;
+          _stage.estimate = createLoadingEstimate(Object.keys(pending).length, Date.now(), _sleptMs);
+        }
         fgProgressSync();
+      }
+      function loadingFeedDone(stage, feed) {
+        if (!stage || stage !== _stage || !workCurrent(stage.work)) return;
+        var path = BL.requestUrl(feed);
+        if (!stage.pending || !stage.pending[path]) return;
+        loadingEstimateText(stage.estimate, Date.now(), _sleptMs, _etaRetryHold);
+        delete stage.pending[path];
+        stage.estimate.remaining--;
+        stage.estimate.completed++;
+        stage.estimate.lastDone = Date.now();
+        stage.estimate.lastDoneSlept = _sleptMs;
+        stage.estimate.lastDonePaused = stage.estimate.paused;
       }
       function progressStep(n, detail) {
         if (!_stage) return;
@@ -7178,6 +7307,7 @@
         if (el) el.hidden = true;
       }
       function fgProgressSync() {
+        if (_stage && _stage.work && !workCurrent(_stage.work)) _stage = null;
         var busy = _fgWaiters.length
           + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0);
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
@@ -7222,14 +7352,17 @@
           slow = ' · paused ' + Math.ceil(waitMs / 1000) + 's — '
             + (_fgHoldWhy === 'limit'
               ? 'eBird asked us to wait'
-              : 'spacing out our own calls');
+              : _fgHoldWhy === 'retry' ? 'retrying after an eBird server error'
+                : 'spacing out our own calls');
           // Repaint once a second so the number really counts down; the queue
           // is asleep, so nothing else will call back in to update it.
-          if (!_fgPauseTimer) _fgPauseTimer = setInterval(fgProgressSync, 1000);
         } else {
-          if (_fgPauseTimer) { clearInterval(_fgPauseTimer); _fgPauseTimer = null; }
-          slow = _fgGap > FG_MIN_GAP_MS * 2 ? ' · going slowly, eBird is rate-limiting' : '';
+          slow = _fgGap > FG_MIN_GAP_MS * 2 ? ' · going slowly after a retry' : '';
         }
+        var estimate = _stage && loadingEstimateText(_stage.estimate, Date.now(), _sleptMs, _etaRetryHold);
+        if (waitMs > 750 || estimate) {
+          if (!_fgPauseTimer) _fgPauseTimer = setInterval(fgProgressSync, 1000);
+        } else if (_fgPauseTimer) { clearInterval(_fgPauseTimer); _fgPauseTimer = null; }
         var head = (_stage && _stage.of)
           ? 'Step ' + _stage.step + ' of ' + _stage.of + ' · ' : '';
         var tail = (_stage && _stage.detail) ? ' · ' + _stage.detail : '';
@@ -7237,7 +7370,7 @@
           var pct = Math.round(_stage.done / _stage.total * 100);
           if (fill) fill.style.width = pct + '%';
           if (txt) txt.textContent = head + _stage.label + ' — ' + _stage.done
-            + ' of ' + _stage.total + tail + slow;
+            + ' of ' + _stage.total + tail + slow + (estimate ? ' · ' + estimate : '');
         } else {
           // No fixed total to report against. An indeterminate bar is honest;
           // a made-up denominator is not.
@@ -7625,9 +7758,10 @@
               _fgGap = Math.min(FG_GAP_MAX, Math.max(_fgGap * 2, 1000));
               _fgTokens = 0; _fgTokenAt = Date.now();
               _fgNextAt = Math.max(_fgNextAt, Date.now() + Math.max(back, FG_COOLDOWN_MS));
+              _etaRetryHold = { at: Date.now(), until: Date.now() + Math.max(back, FG_COOLDOWN_MS) };
               // eBird really did refuse. This is the ONLY thing entitled to
               // tell the user they are being rate-limited.
-              _fgHoldWhy = 'limit';
+              _fgHoldWhy = r.status === 429 ? 'limit' : 'retry';
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
                 return fgAttempt(path, attempt + 1, bg, stat, work);
@@ -7810,6 +7944,7 @@
       // wave. It is only a QUEUE POSITION, never a different rate: both lanes
       // share the token bucket, the rolling window and the AIMD gap.
       function ebird(path, bg, noRefCache, noMemoryCache, work) {
+        path = editionTaxonomyPath(path);
         noMemoryCache = !!noMemoryCache;
         var hit = noMemoryCache ? null : _ebCache[path];
         if (hit && !workCurrent(hit.work)) {
@@ -7842,7 +7977,7 @@
             path_kind: String(path).split('/').slice(0, 2).join('/')
           });
           var rp = Promise.resolve(ref);
-          _ebCache[path] = { t: Date.now(), p: rp };
+          _ebCache[path] = { t: Date.now(), p: rp, settled: true };
           return rp;
         }
         dbg('net', 'GET ' + path);
@@ -7901,6 +8036,7 @@
               + ' · gap ' + _fgGap + 'ms · tokens ' + _fgTokens.toFixed(1)
               + ' · window ' + fgWindowUsed() + '/' + FG_WINDOW_MAX
               + ' · ' + path);
+            if (_ebCache[path] && _ebCache[path].p === p) _ebCache[path].settled = true;
             return v;
           }, function (e) {
             release(); fgProgressSync();
@@ -7922,7 +8058,7 @@
             throw e;
           });
         if (!noMemoryCache) {
-          _ebCache[path] = { t: Date.now(), p: p, work: work || null };
+          _ebCache[path] = { t: Date.now(), p: p, work: work || null, settled: false };
         }
         return p;
       }
@@ -9865,10 +10001,11 @@
         var row = {
           kind: 'Rarity', obsId: o.obsId || '',
           code: o.speciesCode, name: o.comName,
-          loc: o.locName, locId: '',
+          loc: o.locName, locId: o.locId || '',
           lat: o.lat, lon: o.lng, dateStr: o.obsDt, subId: o.subId,
           count: o.howMany, observer: o.userDisplayName || '',
-          location_private: false, __stateRba: true
+          location_private: typeof o.locationPrivate === 'boolean' ? o.locationPrivate : null,
+          __stateRba: true
         };
         row.distMi = rarityRecordDistance(row, home);
         return row;
@@ -9878,9 +10015,16 @@
         function add(row) {
           var key = rarityRowId(row);
           if (!key) key = [row && row.code, row && row.dateStr, row && row.loc].join('|');
-          if (seen[key]) return;
-          seen[key] = true;
-          out.push(row);
+          if (seen[key]) {
+            if (row.location_private === true || row.locationPrivate === true) {
+              seen[key].location_private = true;
+            }
+            if (!seen[key].locId && row.locId) seen[key].locId = row.locId;
+            return;
+          }
+          var copy = Object.assign({}, row);
+          seen[key] = copy;
+          out.push(copy);
         }
         (chaseRows || []).forEach(add);
         (alertRows || []).forEach(add);
@@ -10911,10 +11055,11 @@
       }
       function reportDistance(r, anchor) {
         var lng = r && (r.lon != null ? r.lon : r.lng);
-        if (r && anchor && isFinite(r.lat) && isFinite(lng)) {
+        if (r && anchor && r.lat != null && lng != null
+            && r.lat !== '' && lng !== '' && isFinite(r.lat) && isFinite(lng)) {
           return haversineMi(anchor.lat, anchor.lng, r.lat, lng);
         }
-        return r && isFinite(r.distMi) ? +r.distMi : null;
+        return r && r.distMi != null && isFinite(r.distMi) ? +r.distMi : null;
       }
       function prepareBirdReportRows(records, anchor) {
         return (records || []).map(function (r) {
@@ -10928,8 +11073,8 @@
         var byDistance = (sortMode || raritySort()) === 'distance';
         function cmp(a, b) {
           if (byDistance) {
-            var ad = isFinite(a.distMi) ? +a.distMi : Infinity;
-            var bd = isFinite(b.distMi) ? +b.distMi : Infinity;
+            var ad = a.distMi != null && isFinite(a.distMi) ? +a.distMi : Infinity;
+            var bd = b.distMi != null && isFinite(b.distMi) ? +b.distMi : Infinity;
             if (ad !== bd) return ad - bd;
           }
           return String(b.dateStr || '').localeCompare(String(a.dateStr || ''));
@@ -10959,6 +11104,18 @@
           'ev-note-pending': '1'
         };
       }
+      function rarityAccessTag(r) {
+        var privateLocation = r && (r.location_private === true || r.locationPrivate === true);
+        if (privateLocation) {
+          var explanation = 'eBird marks this as a private or personal location. Land access is unverified; read checklist notes. This is not permission to enter.';
+          return '<span class="rarityaccess" title="' + explanation
+            + '" aria-label="Private location. ' + explanation + '">Private location</span>';
+        }
+        if (r && (r.location_private === null || r.locationPrivate === null)) {
+          return '<span class="rarityaccess" title="Location access metadata is unavailable. Read checklist notes; no permission to enter is implied.">Access unverified</span>';
+        }
+        return '';
+      }
       function birdReportEvidence(r, opts) {
         opts = opts || {};
         var count = '';
@@ -10984,14 +11141,15 @@
         var ageMatch = /^(\d+)([mhd]) ago$/.exec(age || '');
         var ageNumber = ageMatch ? ageMatch[1] + ageMatch[2] : (age === 'now' ? 'now' : '\u2014');
         var ageUnit = ageMatch ? 'ago' : (age === 'now' ? '' : 'age');
-        var distance = r && isFinite(r.distMi) ? Number(r.distMi).toFixed(1) : '\u2014';
+        var hasDistance = r && r.distMi != null && isFinite(r.distMi);
+        var distance = hasDistance ? Number(r.distMi).toFixed(1) : '\u2014';
         var ageHtml = r && r.subId
           ? '<a class="spmetric spmetric-age" target="_blank" rel="noopener" href="'
             + esc(checklistUrl(r.subId)) + '"><strong>' + ageNumber
             + '</strong><small>' + esc(ageUnit) + '</small></a>'
           : '<span class="spmetric spmetric-age"><strong>' + ageNumber
             + '</strong><small>' + esc(ageUnit) + '</small></span>';
-        var distHtml = r && isFinite(r.distMi)
+        var distHtml = hasDistance
           ? '<a class="spmetric spmetric-distance maplink" data-q="'
             + esc(distQ(r.lat, r.lon != null ? r.lon : r.lng))
             + '"><strong>' + distance + '</strong><small>mi</small></a>'
@@ -11025,7 +11183,8 @@
           sci: sciFor(r.sci || r.code),
           icon: photoSlot(r.name, r.code, megaView ? null : { stakeout: true }),
           name: common,
-          tags: birdReportTags([r], opts.rare) + reviewFlag(r),
+          tags: birdReportTags([r], opts.rare) + reviewFlag(r)
+            + (opts.rare ? rarityAccessTag(r) : ''),
           primary: birdReportMetric(r, opts.sortMode),
           sub: evidence,
           metaAction: data
@@ -11083,7 +11242,8 @@
             ? stakeHotspotLink(place.locId, place.loc || place.locId)
             : '<strong>' + esc(place.loc || 'Private location') + '</strong>',
           sub: (allReports.length || place.nReports || 0) + ' checklist'
-            + ((allReports.length || place.nReports || 0) === 1 ? '' : 's'),
+            + ((allReports.length || place.nReports || 0) === 1 ? '' : 's')
+            + (opts && opts.rare ? ' ' + rarityAccessTag(place) : ''),
           below: reportList
         });
       }
@@ -11202,6 +11362,9 @@
       var SPUH_DB = 'birding-spuh-v1';
       var SPUH_STORE = 'models';
       var SPUH_CACHE_KEY = 'taxonomy-en-v' + ((window.Spuh && Spuh.SCHEMA) || 1);
+      function spuhCacheKey() {
+        return SPUH_CACHE_KEY + (taxonomyEdition() ? ':' + taxonomyEdition() : '');
+      }
       var SPUH_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
       var _spuhModel = null, _spuhModelPromise = null, _spuhCacheEpoch = 0;
       var _spuhSearchHits = [], _spuhSearchShown = 0;
@@ -11224,13 +11387,14 @@
       }
 
       function spuhCacheGet() {
+        var key = spuhCacheKey();
         return spuhDbOpen().then(function (db) {
           if (!db) return null;
           return new Promise(function (resolve, reject) {
             var tx, req;
             try {
               tx = db.transaction(SPUH_STORE, 'readonly');
-              req = tx.objectStore(SPUH_STORE).get(SPUH_CACHE_KEY);
+              req = tx.objectStore(SPUH_STORE).get(key);
             } catch (e) { db.close(); reject(e); return; }
             req.onsuccess = function () {
               var row = req.result;
@@ -11255,6 +11419,7 @@
       }
 
       function spuhCachePut(packed, epoch) {
+        var key = spuhCacheKey();
         if (epoch !== _spuhCacheEpoch) return Promise.resolve(false);
         return spuhDbOpen().then(function (db) {
           if (!db) return true;
@@ -11264,7 +11429,7 @@
             try {
               tx = db.transaction(SPUH_STORE, 'readwrite');
               tx.objectStore(SPUH_STORE).put(
-                { t: Date.now(), packed: packed }, SPUH_CACHE_KEY);
+                { t: Date.now(), packed: packed }, key);
             } catch (e) { db.close(); reject(e); return; }
             tx.oncomplete = function () { db.close(); resolve(true); };
             tx.onerror = function () {
@@ -11279,7 +11444,8 @@
         });
       }
 
-      function spuhCacheDelete(bumpEpoch) {
+      function spuhCacheDelete(bumpEpoch, key) {
+        key = key || spuhCacheKey();
         if (bumpEpoch) {
           _spuhCacheEpoch++;
           _spuhModel = null;
@@ -11291,7 +11457,9 @@
             var tx;
             try {
               tx = db.transaction(SPUH_STORE, 'readwrite');
-              tx.objectStore(SPUH_STORE).delete(SPUH_CACHE_KEY);
+              var store = tx.objectStore(SPUH_STORE);
+              if (bumpEpoch) store.clear();
+              else store.delete(key);
             } catch (e) { db.close(); reject(e); return; }
             tx.oncomplete = function () { db.close(); resolve(true); };
             tx.onerror = function () {
@@ -11313,8 +11481,8 @@
         if (_spuhModel) return Promise.resolve(_spuhModel);
         if (_spuhModelPromise) return _spuhModelPromise;
         if (!window.Spuh) return Promise.reject(new Error('Spuh model did not load'));
-        var epoch = _spuhCacheEpoch;
-        var taxonomyPath = 'ref/taxonomy/ebird?fmt=json&locale=en';
+        var epoch = _spuhCacheEpoch, cacheKey = spuhCacheKey();
+        var taxonomyPath = editionTaxonomyPath('ref/taxonomy/ebird?fmt=json&locale=en');
         var fromCache = false;
         var promise = spuhCacheGet().then(function (packed) {
           if (epoch !== _spuhCacheEpoch) throw new Error('Spuh cache was cleared; retry.');
@@ -11376,7 +11544,7 @@
           // A structurally corrupt IndexedDB value must not become a permanent
           // failure. Drop that one entry without bumping the epoch, then let
           // the next open make a fresh direct taxonomy call.
-          return spuhCacheDelete(false).then(function () { throw e; });
+          return spuhCacheDelete(false, cacheKey).then(function () { throw e; });
         });
         _spuhModelPromise = promise;
         return _spuhModelPromise;
@@ -14811,8 +14979,9 @@
         return named || 'Everywhere';
       }
       function rarityRecordDistance(r, home) {
-        if (r && isFinite(r.distMi)) return +r.distMi;
-        if (r && home && isFinite(r.lat) && isFinite(r.lon)) {
+        if (r && r.distMi != null && isFinite(r.distMi)) return +r.distMi;
+        if (r && home && r.lat != null && r.lon != null
+            && r.lat !== '' && r.lon !== '' && isFinite(r.lat) && isFinite(r.lon)) {
           return haversineMi(home.lat, home.lng, r.lat, r.lon);
         }
         return null;
@@ -14823,15 +14992,43 @@
       // their existing meaning.
       function rarityFilterRecords(rows, home, prefs) {
         prefs = prefs || rarityFilters();
-        return (rows || []).filter(function (r) {
+        var seenExcluded = 0, distanceExcluded = 0;
+        var result = (rows || []).filter(function (r) {
           if (!r || r.kind !== 'Rarity' || !r.code || !BL.countableTaxon(r.name)) return false;
-          if (prefs.year !== 'all' && isSpeciesSeen(r.code, r.name, r.parentOf)) return false;
+          if (prefs.year !== 'all' && isSpeciesSeen(r.code, r.name, r.parentOf)) {
+            seenExcluded++;
+            return false;
+          }
           if (prefs.distance !== 'region') {
             var mi = rarityRecordDistance(r, home);
-            if (mi != null && mi > chaseMaxMi()) return false;
+            if (mi != null && mi > chaseMaxMi()) { distanceExcluded++; return false; }
           }
           return true;
         });
+        var context = seenDecisionContext();
+        dbg('net', 'Twitch filter: ' + context.region + ' / ' + context.year
+          + ' / ' + context.profile + ' · evidence ' + context.evidence
+          + ' · ' + prefs.year + '/' + prefs.distance + ' · input ' + (rows || []).length
+          + ', seen excluded ' + seenExcluded + ', distance excluded ' + distanceExcluded
+          + ', output ' + result.length + ' (canonical/watch/identity guards; no personal rows logged)');
+        return result;
+      }
+      function seenDecisionContext() {
+        var scope = activeScope(), meta = getSeenMeta(), seed = window.__SEED_BIRDLIST__;
+        var evidence;
+        if (scope.level === 'subregion') {
+          evidence = countySeenEvidenceReady(scope) ? 'exact county ready' : 'exact county pending';
+        } else if (usesBundledSeed()) {
+          evidence = seed && String(seed.year) === String(scope.year)
+            ? 'regional year bundle' : 'bundle year mismatch';
+        } else if (meta && ((meta.year != null && String(meta.year) !== String(scope.year))
+            || (meta.region && meta.region !== scope.effectiveRegion))) {
+          evidence = 'import year/scope mismatch';
+        } else {
+          evidence = meta && meta.region ? 'scoped import' : 'legacy import (scope unstamped)';
+        }
+        return { region: scope.effectiveRegion, year: scope.year,
+          profile: scope.profile ? 'alternate' : 'default', evidence: evidence };
       }
       function rarityFilterControl(id, kind, leftValue, leftLabel, rightValue, rightLabel) {
         var selected = rarityFilters()[kind];
@@ -15327,7 +15524,7 @@
           ownName: getDisplayName(), snapshotDate: todayStr(),
           watch: watchCodes(),
           home: anchorPoint(), dailyDriveMi: profile.dailyDriveMi,
-          reportAs: seed.reportAsParents || seed.domesticParents || {},
+          reportAs: canonicalParents(seed.reportAsParents || seed.domesticParents || {}),
           travelCfg: profile.travelCfg || null,
           hotspots: cachedHotspots(profile),
           destinationFallbackRows: fallbackRows || []
@@ -15342,7 +15539,7 @@
           rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
           seen: {}, ownName: '', snapshotDate: todayStr(), watch: {},
           home: anchorPoint(), dailyDriveMi: profile.dailyDriveMi,
-          reportAs: seed.reportAsParents || seed.domesticParents || {},
+          reportAs: canonicalParents(seed.reportAsParents || seed.domesticParents || {}),
           travelCfg: profile.travelCfg || null,
           hotspots: cachedHotspots(profile),
           destinationFallbackRows: fallbackRows || []
@@ -15997,6 +16194,7 @@
           return res;
         }
         function fetchAll(list, step, bg, work, onResult) {
+          var stage = _stage;
           return Promise.all(list.map(function (f) {
             return ebird(BL.requestUrl(f), bg, false, false, work)
               .then(function (rows) {
@@ -16015,7 +16213,10 @@
               // honestly — what CAN be is the last one that finished, which is
               // what turns a bare 3-of-8 into a description of the work.
               .then(function (r) {
-                if (step && chaseCurrent()) progressStep(1, feedLabel(f));
+                if (step && chaseCurrent() && stage === _stage) {
+                  loadingFeedDone(stage, f);
+                  progressStep(1, feedLabel(f));
+                }
                 if (typeof onResult === 'function') onResult(r, f);
                 return r;
               });
@@ -16024,7 +16225,7 @@
         // Phase 2 is one call PER UNSEEN SPECIES - 41 on a normal Washington
         // day. The foreground gate is the real limiter now, so this only bounds
         // how many promises exist at once.
-        function fetchBatched(list, size, bg, work, shouldContinue, onBatch) {
+        function fetchBatched(list, size, bg, work, shouldContinue, onBatch, onBatchDone) {
           var out = [], i = 0;
           function next() {
             requireCurrentChase();
@@ -16037,6 +16238,7 @@
               requireCurrentChase();
               if (!workCurrent(work)) throw queueCancelledError(work);
               out = out.concat(rs);
+              if (onBatchDone) onBatchDone(rs, out.length, list.length);
               if (shouldContinue && !shouldContinue()) return out;
               return next();
             });
@@ -16207,10 +16409,7 @@
             dbg('net', 'WAVE phase 2 · ' + spFeeds.length + ' species feeds'
               + ' (~' + Math.round(spFeeds.length / FG_REFILL_PER_S) + 's at the safe rate)'
               + ' — the screen is already up, this fills it in');
-            // Stage 2 of 2. Its total is known now and does not move.
-            progressStage('Finding where your missing birds are', spFeeds.length, 2, 2);
-            progressDetail(spFeeds.length + ' birds you still need');
-
+            var phaseTwoStarted = Date.now();
             // Detached: it refreshes the cache and repaints, and a failure here
             // must never take down what phase 1 already put on screen. Exposed
             // so a caller that genuinely needs the complete answer can wait for
@@ -16243,6 +16442,10 @@
               var remaining = Math.max(0,
                 phase2Budget - Object.keys(attemptedSpecies).length);
               pending = pending.slice(0, remaining);
+              progressStage('Finding where your missing birds are', pending.length, 2, 2,
+                { feeds: pending, work: phase2Work });
+              progressDetail((Object.keys(attemptedSpecies).length ? 'Targets changed; revised plan · ' : '')
+                + pending.length + ' birds you still need; shared queue can change the estimate');
               return fetchBatched(pending, SPECIES_BATCH, true, phase2Work,
                 function () {
                   return expectedTargetGeneration === _chaseTargetGeneration;
@@ -16250,10 +16453,15 @@
                   batch.forEach(function (feed) {
                     attemptedSpecies[feed.file] = 1;
                   });
-                }).then(function (spResults) {
+                }, typeof onPartial === 'function'
+                  ? function (batch, done, total) {
+                      applyFetchResults(batch);
+                      onPartial({ profile: profile, cv: compute(null), rarity: false },
+                        done, total, '', 2);
+                    } : null).then(function (spResults) {
                 requireCurrentChase();
                 if (!workCurrent(phase2Work)) throw queueCancelledError(phase2Work);
-                applyFetchResults(spResults);
+                if (typeof onPartial !== 'function') applyFetchResults(spResults);
                 var currentCv = compute(null);
                 var currentCodes = BL.speciesTargetCodes(currentCv.unseenAll);
                 var currentTargets = chasePhase2Codes(
@@ -16266,7 +16474,8 @@
                 }
                 finish(currentCodes, usingSnapshot && feedMeta.feedFailed);
                 dbg('net', 'WAVE phase 2 done in '
-                  + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
+                  + ((Date.now() - phaseTwoStarted) / 1000).toFixed(1)
+                  + 's · whole wave ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
                 requireCurrentChase();
                 return saveChaseSnapshot(slug, currentCodes, rowsByFile, feedStates, generation,
                   { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm });
@@ -16394,17 +16603,22 @@
         });
         return run;
       }
-      function getTierChase(bandId, force, onProgress, onPartial, maxHours) {
-        var work = navWork('Day-trip planning');
-        return Promise.all([
-          getChase(force),
-          tripScopeProfile(bandId, onProgress, work, maxHours)
-        ]).then(function (parts) {
-          var base = parts[0], profile = parts[1];
-          profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
-            ? base.cv.destRadiusMi
-            : (profile.dailyDriveMi || BL.CONST.DAILY_DRIVE_MI);
-          return getChaseAll(force, profile, work, onPartial);
+      function getTierChase(bandId, force, onProgress, onPartial, maxHours, workOverride) {
+        var work = workOverride || navWork('Day-trip planning');
+        return tripScopeProfile(bandId, onProgress, work, maxHours).then(function (profile) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          if (profile.countyScopeComplete && !profile.tierCountyCodes.length) {
+            return { profile: profile, rarity: false, rows: {}, speciesCodes: [],
+              feedComplete: true, feedFailed: false,
+              cv: computeChaseRows(profile, profile.slug, {}, []) };
+          }
+          return getChaseAll(force, null, work).then(function (base) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
+              ? base.cv.destRadiusMi
+              : (profile.dailyDriveMi || BL.CONST.DAILY_DRIVE_MI);
+            return getChaseAll(force, profile, work, onPartial);
+          });
         });
       }
       function anyRows(rows) {
@@ -16594,7 +16808,19 @@
           if (seq.length > 1) L.polyline(seq, { color: tone || '#e5484d', weight: 3, opacity: 0.6 }).addTo(map);
         }
         if (h) { L.marker([h.lat, h.lng], { icon: pinIcon('H', true) }).addTo(map); latlngs.push([h.lat, h.lng]); }
-        points.forEach(function (p, i) { L.marker([p.lat, p.lng], { icon: pinIcon(String(p.num || (i + 1)), false, tone) }).addTo(map); latlngs.push([p.lat, p.lng]); });
+        points.forEach(function (p, i) {
+          var number = p.num || (i + 1), label = number + (p.locName ? ': ' + p.locName : '');
+          var marker = L.marker([p.lat, p.lng], {
+            icon: pinIcon(String(number), false, tone), title: label, alt: label
+          }).addTo(map);
+          if (p.locName) {
+            var popup = document.createElement('span');
+            popup.textContent = label;
+            marker.bindPopup(popup);
+          }
+          if (typeof p.onSelect === 'function') marker.on('click', p.onSelect);
+          latlngs.push([p.lat, p.lng]);
+        });
         function fit() {
           try {
             map.invalidateSize();
@@ -16948,7 +17174,7 @@
           done(false);
         });
       }
-      function speciesLink(name, code) { return stakeSpeciesLink(name, code); }
+      function speciesLink(name, code) { return renderSpeciesNameHtml(stakeSpeciesLink(name, code), code); }
       function checklistLink(sub, label) {
         if (!sub) return '';
         // THE ID IS A DESTINATION, SO IT IS SIZED LIKE ONE. Reported from the
@@ -18152,9 +18378,7 @@
         var id = favId(o), favs = getFavs(), i = -1;
         for (var k = 0; k < favs.length; k++) { if (favs[k].id === id) { i = k; break; } }
         if (i > -1) { favs.splice(i, 1); setFavs(favs); return false; }
-        favs.push({ id: id, locId: o.locId || '', locName: o.locName || '',
-                    lat: o.lat, lng: o.lng, region: getRegion() });
-        setFavs(favs); return true;
+        return addFav(o);
       }
       function favLink(o) {
         return '<a class="favlink" data-locid="' + esc(o.locId || '') + '" data-locname="' + esc(o.locName || '') +
@@ -18253,7 +18477,7 @@
       // Detail is cached by hotspot, not by row, so reordering or deleting a
       // favorite repaints instantly instead of refetching every spot.
       var _favDetail = {};
-      function loadFavDetail(f, box, rarityCodes, force) {
+      function loadFavDetail(f, box, rarityCodes, force, work) {
         if (!box) return Promise.resolve();
         if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div>'; return Promise.resolve(); }
         var hit = _favDetail[f.locId];
@@ -18264,34 +18488,81 @@
         }
         box.innerHTML = '<div class="favmeta">Loading recent reports…</div>';
         return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS,
-          false, !!force, !!force)
+          false, !!force, !!force, work)
           .then(function (obs) {
+            if (work && !workCurrent(work)) throw queueCancelledError(work);
             if (!Array.isArray(obs)) throw new Error('eBird returned an unreadable hotspot feed.');
             var html = favDetailHtml(f, obs, rarityCodes);
             _favDetail[f.locId] = { t: Date.now(), obs: obs };
             if (box.isConnected !== false) { box.innerHTML = html; hydratePhotos(box); }
+            return true;
           })
           .catch(function (e) {
+            if (e && e.queueCancelled) return false;
             if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div>';
+            dbg('warn', 'Favorite patch detail unavailable: ' + netErr(e));
+            return false;
           });
       }
       // One call per hotspot against the same throttled key every other section
       // shares, so this runs serially and only when the section is opened —
       // never on a reorder, which is a repaint, not new information.
+      var _favLoadGeneration = 0, _favSelectedId = '';
       function loadFavs() {
+        var generation = ++_favLoadGeneration, force = takeForce();
+        var work = navWork('favorite patches'), scope = activeScope(), profile = bcProfile();
+        var button = $('favLoadBtn'), header = button && button.closest('section').querySelector('.refreshbtn');
         renderFavs();
-        if (!getKey()) return Promise.resolve();
+        if (!getKey()) {
+          $('favStatus').textContent += ' Add your eBird API key to refresh recent reports; saved patches remain available.';
+          return Promise.resolve();
+        }
         var el = $('favResults');
         if (!el) return Promise.resolve();
         var favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
           return entry.favorite;
         });
         var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
-        var chain = Promise.resolve();
+        var chain = Promise.resolve(), failed = 0;
+        if (button) button.disabled = true;
+        if (header) header.disabled = true;
+        el.setAttribute('aria-busy', 'true');
+        function current() {
+          return generation === _favLoadGeneration && profile === bcProfile()
+            && scopeCurrent(scope) && workCurrent(work);
+        }
         favs.forEach(function (f, i) {
-          chain = chain.then(function () { return loadFavDetail(f, boxes[i], rc); });
+          chain = chain.then(function () {
+            if (!current()) return;
+            return loadFavDetail(f, boxes[i], rc, force, work).then(function (ok) {
+              if (ok === false) failed++;
+            });
+          });
         });
-        return chain;
+        return chain.finally(function () {
+          if (generation !== _favLoadGeneration) return;
+          if (button) button.disabled = false;
+          if (header) header.disabled = false;
+          el.removeAttribute('aria-busy');
+          if (current() && failed) $('favStatus').textContent += ' '
+            + failed + ' hotspot feed' + (failed === 1 ? ' is' : 's are')
+            + ' unavailable; saved patches and their order are unchanged.';
+        });
+      }
+      function favoriteCoordinates(f) {
+        var lat = parseFloat(f && f.lat), lng = parseFloat(f && f.lng);
+        return isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+          ? { lat: lat, lng: lng } : null;
+      }
+      function selectFavoriteCard(id) {
+        _favSelectedId = id;
+        [].forEach.call($('favResults').children, function (card) {
+          var selected = card.getAttribute('data-favorite-id') === id;
+          if (selected) {
+            card.setAttribute('aria-current', 'location');
+            if (card.scrollIntoView) card.scrollIntoView({ block: 'nearest' });
+          } else card.removeAttribute('aria-current');
+        });
       }
       function renderFavs() {
         var all = getFavs(), favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
@@ -18301,6 +18572,7 @@
         if (!el) return;
         el.innerHTML = '';
         if (!favs.length) {
+          clearMap($('favMap'));
           st.textContent = all.length
             ? 'No favorite patches saved for ' + (getReport().label || getRegion())
               + '. Favorites in other regions are preserved.'
@@ -18313,38 +18585,39 @@
           '-day reports there: unseen species and watchlist verifications (🔍), ' +
           'with rarities (⭐) ranked first. Already-seen birds are skipped unless watchlisted.';
         var home = getHome();
+        var mapPoints = [];
         favs.forEach(function (f, i) {
-          var li = document.createElement('li');
-          var d = (home && f.lat != null && f.lng != null)
-            ? haversineMi(home.lat, home.lng, +f.lat, +f.lng) : null;
-          li.innerHTML =
-            '<div class="favrow"><div class="favmain">' +
-              // The hotspot name is the row's subject, so it is a title, not a
-              // caption with a distance and a map glyph crammed in beside it.
-              // stakeHotspotLink (not locLink) because locLink appends its own
-              // inline 🗺, which duplicated the Open in Maps link directly
-              // below. The name opens Stake out a hotspot; eBird sits in the
-              // actions row with the map link.
-              '<div class="favtitle"><span class="favrank">' + (i + 1) + '</span>' +
-              (f.locId ? stakeHotspotLink(f.locId, f.locName || f.id)
-                       : esc(f.locName || f.id)) + '</div>' +
-              '<div class="recentbox"></div>' +
-              '<div class="hsact">' +
-                '<a class="maplink" data-q="' + esc(f.lat + ',' + f.lng) + '">🗺 Open in Maps ↗</a>' +
-                (f.locId ? ebirdHotspotA(f.locId) : '') +
-                (d == null ? '' : '<span class="dim">' + d.toFixed(1) + ' mi</span>') +
-                (f.locId ? '<a class="recentlink" data-i="' + i + '">Refresh ↻</a>' : '') +
-              '</div>' +
-            '</div><div class="favctl">' +
+          var point = favoriteCoordinates(f);
+          var d = home && point ? haversineMi(home.lat, home.lng, point.lat, point.lng) : null;
+          var controls = '<div class="favcontrols">' +
               '<button class="favbtn favup" data-i="' + i + '" aria-label="Move ' +
-                esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+                esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>Move up</button>' +
               '<button class="favbtn favdown" data-i="' + i + '" aria-label="Move ' +
-                esc(f.locName || 'hotspot') + ' down"' + (i === favs.length - 1 ? ' disabled' : '') + '>▼</button>' +
+                esc(f.locName || 'hotspot') + ' down"' + (i === favs.length - 1 ? ' disabled' : '') + '>Move down</button>' +
               '<button class="favbtn del favdel" data-i="' + i + '" aria-label="Remove ' +
-                esc(f.locName || 'hotspot') + ' from favorites">✕</button>' +
-            '</div></div>';
-          el.appendChild(li);
+                esc(f.locName || 'hotspot') + ' from favorites">Remove</button></div>';
+          el.insertAdjacentHTML('beforeend', HotspotCards.medium({
+            cls: 'favoritecard', num: i + 1,
+            name: f.locId ? stakeHotspotLink(f.locId, f.locName || f.id) : esc(f.locName || f.id),
+            distance: d, distQ: point ? distQ(point.lat, point.lng) : '',
+            sub: d == null ? 'Distance unavailable: set Home and valid saved coordinates.' : '',
+            below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div></div>',
+            actions: controls + '<div class="hsact">'
+              + (point ? '<a class="maplink" data-q="' + esc(point.lat + ',' + point.lng) + '">🗺 Open in Maps ↗</a>' : '')
+              + (f.locId ? ebirdHotspotA(f.locId) : '') + '</div>',
+            data: { 'favorite-id': f.id }
+          }));
+          if (point) mapPoints.push({
+            lat: point.lat, lng: point.lng, num: i + 1, locName: f.locName || f.id,
+            onSelect: function () { selectFavoriteCard(f.id); }
+          });
         });
+        renderMap($('favMap'), mapPoints, home, false);
+        if (mapPoints.length !== favs.length) st.textContent += ' '
+          + (favs.length - mapPoints.length) + ' saved patch'
+          + (favs.length - mapPoints.length === 1 ? ' has' : 'es have')
+          + ' no valid coordinates and cannot appear on the map.';
+        if (_favSelectedId) selectFavoriteCard(_favSelectedId);
         // Repaint any detail already in hand so a reorder does not blank the
         // rows it moved.
         var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
@@ -18408,7 +18681,6 @@
           }
           return false;
         }
-        if (favoriteEntriesForRegion(getRegion()).length >= 5) return false;
         favs.push({ id: id, locId: o.locId || '', locName: o.locName || '',
                     lat: o.lat, lng: o.lng, region: getRegion() });
         setFavs(favs); return true;
@@ -18493,7 +18765,10 @@
         var btn = $('favSearchClear'), out = $('favFound');
         if (btn) btn.hidden = !(out && out.children.length);
       }
+      var _favSearchGeneration = 0;
       function runFavSearch() {
+        var generation = ++_favSearchGeneration, scope = activeScope(), profile = bcProfile();
+        var region = getRegion(), work = navWork('favorite search');
         var q = ($('favSearch') || {}).value || '', out = $('favFound'), st = $('favStatus');
         if (!out) return;
         out.innerHTML = '';
@@ -18501,7 +18776,8 @@
         if (!getKey()) { st.textContent = 'Add your eBird API key in Settings to search hotspots.'; return; }
         if (String(q).trim().length < 2) { st.textContent = 'Type at least two letters to search.'; return; }
         st.textContent = 'Searching hotspots in ' + (getReport().label || getRegion()) + '…';
-        loadHotspotIndex(getRegion()).then(function (rows) {
+        loadHotspotIndex(region, work).then(function (rows) {
+          if (generation !== _favSearchGeneration || profile !== bcProfile() || !scopeCurrent(scope)) return;
           var hits = searchHotspots(rows, q);
           if (!hits.length) {
             st.textContent = 'No hotspot in ' + (getReport().label || getRegion()) + ' matches “' + q + '”.';
@@ -18514,14 +18790,18 @@
             li.innerHTML =
               '<span class="pname">' + esc(h.locName) +
                 '<span class="pmeta">' + (h.n ? h.n + ' species all-time' : 'hotspot') + '</span></span>' +
-              '<button class="favbtn favadd" data-locid="' + esc(h.locId) + '" data-locname="' + esc(h.locName) +
+              '<button class="favbtn favadd" data-region="' + esc(region) + '" data-locid="' + esc(h.locId) + '" data-locname="' + esc(h.locName) +
                 '" data-lat="' + esc(h.lat) + '" data-lng="' + esc(h.lng) + '" aria-label="' +
                 (already ? 'Already saved: ' : 'Add ') + esc(h.locName) + '"' +
                 (already ? ' disabled' : '') + '>' + (already ? '★' : '✚') + '</button>';
             out.appendChild(li);
           });
           syncFavSearchClear();
-        }).catch(function (e) { st.textContent = netErr(e); });
+        }).catch(function (e) {
+          if (generation === _favSearchGeneration && profile === bcProfile() && scopeCurrent(scope)) {
+            st.textContent = netErr(e);
+          }
+        });
       }
 
       // --- Needs proof (the report's watchlist) -------------------------------
@@ -18630,9 +18910,382 @@
       // the names — in chunks, because the whole region goes in a query string.
       var SPECIES_TTL_MS = 24 * 3600 * 1000;
       var SPECIES_CHUNK = 100;
+      var TAXONOMY_META_KEY = 'bc_taxonomy_v1';
+      var TAXONOMY_CHECK_MS = 30 * 86400000;
+      var _taxonomyMeta = null, _taxonomyModel = null, _taxonomyPrevious = null;
+      var _taxonomyUnresolved = {}, _taxonomyGeneration = 0, _taxonomyEpoch = 0;
+      var _taxonomyEvidenceKey = '';
+      var _canonicalParentSource, _canonicalParentModel, _canonicalParentUnresolved, _canonicalParentMap;
+      var _namingGeneration = 0, _namingLocale = 'en', _namingNames = {};
+      var _namingLocales = [{ code: 'en', name: 'English (default)' }];
+      function taxonomyEdition() { return _taxonomyMeta && _taxonomyMeta.edition || ''; }
+      function editionTaxonomyPath(path) {
+        var edition = taxonomyEdition();
+        return edition && /^ref\/taxonomy\/ebird(?:\?|$)/.test(path)
+          && !/[?&]version=/.test(path)
+          ? path + (path.indexOf('?') < 0 ? '?' : '&') + 'version=' + encodeURIComponent(edition)
+          : path;
+      }
+      function taxonomyStore(action, key, value) {
+        if (typeof indexedDB === 'undefined') {
+          return action === 'get' ? Promise.resolve(null)
+            : action === 'clear' ? Promise.resolve(true)
+            : Promise.reject(new Error('Persistent taxonomy storage is unavailable.'));
+        }
+        return new Promise(function (resolve, reject) {
+          var open = indexedDB.open('birding-taxonomy-v1', 1);
+          open.onupgradeneeded = function () { open.result.createObjectStore('references'); };
+          open.onerror = function () { reject(open.error || new Error('Taxonomy database could not open.')); };
+          open.onsuccess = function () {
+            var db = open.result, tx, request;
+            try {
+              tx = db.transaction('references', action === 'get' ? 'readonly' : 'readwrite');
+              var store = tx.objectStore('references');
+              request = action === 'get' ? store.get(key)
+                : action === 'clear' ? store.clear() : store.put(value, key);
+            } catch (error) { db.close(); reject(error); return; }
+            tx.oncomplete = function () {
+              var result = action === 'get' ? request.result || null : true;
+              db.close(); resolve(result);
+            };
+            tx.onerror = tx.onabort = function () {
+              db.close(); reject(tx.error || new Error('Taxonomy storage failed.'));
+            };
+          };
+        });
+      }
+      function taxonomyEvidenceCodes() {
+        return Object.keys(getReportSeenScope().exact || {})
+          .concat(Object.keys(watchCodes() || {})).filter(function (code) {
+            return /^[a-z0-9]+$/.test(code);
+          });
+      }
+      function updateTaxonomyImpact() {
+        if (!_taxonomyModel) return;
+        var codes = taxonomyEvidenceCodes(), impact;
+        var scope = activeScope(), page = firstYearRead(scope.effectiveRegion, scope.year);
+        var fresh = {};
+        if (page && page.taxonomyEdition === taxonomyEdition() && page.evidenceComplete !== false) {
+          (page.rows || []).forEach(function (row) { if (row && row.code) fresh[row.code] = true; });
+        }
+        var key = [_taxonomyMeta.edition, _taxonomyMeta.checkedAt, scope.cacheIdentity,
+          codes.slice().sort().join(','), Object.keys(fresh).sort().join(',')].join('|');
+        if (key === _taxonomyEvidenceKey) return;
+        _taxonomyEvidenceKey = key;
+        _taxonomyUnresolved = {};
+        if (_taxonomyPrevious) impact = BirdTaxonomy.impact(_taxonomyPrevious, _taxonomyModel, codes);
+        else {
+          var seedParents = (window.__SEED_BIRDLIST__ || {}).reportAsParents || {};
+          impact = { renamed: [], unresolved: codes.filter(function (code) {
+            return !_taxonomyModel.byCode[code]
+              || seedParents[code] && seedParents[code] !== _taxonomyModel.parents[code];
+          }) };
+        }
+        impact.unresolved = impact.unresolved.filter(function (code) {
+          return !fresh[code] || !_taxonomyModel.byCode[code];
+        });
+        impact.unresolved.forEach(function (code) { _taxonomyUnresolved[code] = true; });
+        $('taxonomyStatus').textContent = 'Official edition ' + taxonomyEdition()
+          + ' · checked ' + new Date(_taxonomyMeta.checkedAt).toLocaleDateString()
+          + ' · ' + impact.renamed.length + ' rename-only codes; '
+          + impact.unresolved.length + ' unresolved seen/watch codes. '
+          + (_taxonomyPrevious ? '' : 'Prior edition is unlabelled; no automatic migration was attempted. ')
+          + 'Raw evidence and watch targets are retained. Unresolved identities need a fresh exact year list; no split ticks are awarded.';
+      }
+      function canonicalParents(fallback) {
+        if (!_taxonomyModel) return fallback || {};
+        if (_canonicalParentSource === fallback && _canonicalParentModel === _taxonomyModel
+            && _canonicalParentUnresolved === _taxonomyUnresolved) return _canonicalParentMap;
+        var parents = Object.assign({}, fallback || {}), unresolved = _taxonomyUnresolved || {};
+        Object.keys(parents).forEach(function (code) {
+          if (unresolved[code] || unresolved[parents[code]]
+              || !Object.prototype.hasOwnProperty.call(_taxonomyModel.byCode, code)
+              || _taxonomyModel.byCode[code].parent !== parents[code]) {
+            delete parents[code];
+          }
+        });
+        if (_taxonomyModel) Object.keys(_taxonomyModel.parents).forEach(function (code) {
+          var parent = _taxonomyModel.parents[code];
+          if (!_taxonomyUnresolved[code] && !_taxonomyUnresolved[parent]) parents[code] = parent;
+        });
+        _canonicalParentSource = fallback;
+        _canonicalParentModel = _taxonomyModel;
+        _canonicalParentUnresolved = _taxonomyUnresolved;
+        _canonicalParentMap = parents;
+        return parents;
+      }
+      function checkTaxonomyEdition(force) {
+        var scope = activeScope(), generation = ++_taxonomyGeneration, epoch = _taxonomyEpoch;
+        var work = cancellableWork('Taxonomy edition reference', 'settingsPanel');
+        work.current = function () {
+          return scopeCurrent(scope) && generation === _taxonomyGeneration && epoch === _taxonomyEpoch
+            && work.cancelGeneration === _workCancelGeneration;
+        };
+        if (!getKey()) {
+          $('taxonomyStatus').textContent = 'Add your eBird API key to check the official taxonomy edition.';
+          return Promise.resolve(false);
+        }
+        $('taxonomyStatus').textContent = 'Checking the official available editions; existing evidence stays intact…';
+        var button = $('taxonomyCheckBtn');
+        button.disabled = true;
+        return ebird('ref/taxonomy/versions', true, !!force, !!force, work).then(function (versions) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          var edition = BirdTaxonomy.latestEdition(versions);
+          if (_taxonomyModel && taxonomyEdition() === edition) return { model: _taxonomyModel, changed: false };
+          return taxonomyStore('get', 'identity:' + edition).then(function (cached) {
+            if (cached && cached.schema === 1 && cached.edition === edition
+                && cached.byCode && Object.keys(cached.byCode).length >= 9000) {
+              try {
+                return { model: BirdTaxonomy.validate(cached, edition), changed: edition !== taxonomyEdition() };
+              } catch (error) { dbg('warn', 'Canonical cache validation: ' + error.message); }
+            }
+            var path = 'ref/taxonomy/ebird?fmt=json&locale=en&version=' + encodeURIComponent(edition);
+            return ebird(path, true, true, true, work).then(function (rows) {
+              delete _ebCache[path];
+              if (!workCurrent(work)) throw queueCancelledError(work);
+              if (!Array.isArray(rows) || rows.length < 9000) throw new Error('Incomplete canonical taxonomy.');
+              var model = BirdTaxonomy.create(rows, edition);
+              return taxonomyStore('put', 'identity:' + edition, model).then(function () {
+                return { model: model, changed: edition !== taxonomyEdition() };
+              });
+            });
+          });
+        }).then(function (loaded) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          var previous = _taxonomyModel;
+          var meta = { edition: loaded.model.edition, checkedAt: Date.now(),
+            previousEdition: loaded.changed && previous ? previous.edition
+              : _taxonomyMeta && _taxonomyMeta.previousEdition || '' };
+          localStorage.setItem(TAXONOMY_META_KEY, JSON.stringify(meta));
+          if (loaded.changed) {
+            _taxonomyPrevious = previous;
+            _taxonomyUnresolved = {};
+            _taxonomyEvidenceKey = '';
+            _spuhCacheEpoch++;
+            _spuhModel = null;
+            _spuhModelPromise = null;
+            if (previous) _namingGeneration++;
+            _namingLocale = 'en';
+            _namingNames = {};
+            $('namingLocale').value = 'en';
+            $('namingStatus').textContent = 'Edition changed. English is shown until names for this edition are selected.';
+          }
+          _taxonomyMeta = meta;
+          _taxonomyModel = loaded.model;
+          updateTaxonomyImpact();
+          _autoLoaded = {};
+          return true;
+        }).catch(function (error) {
+          if (!workCurrent(work)) return false;
+          delete _ebCache['ref/taxonomy/versions'];
+          $('taxonomyStatus').textContent = 'Taxonomy check unavailable: '
+            + (error && error.message || netErr(error))
+            + '. Existing dated edition/evidence is retained; retry is available.';
+          dbg('warn', $('taxonomyStatus').textContent);
+          return false;
+        }).finally(function () {
+          if (generation === _taxonomyGeneration) button.disabled = false;
+        });
+      }
+      function renderNamingLocales() {
+        $('namingLocale').innerHTML = _namingLocales.map(function (locale) {
+          return '<option value="' + esc(locale.code) + '">' + esc(locale.name) + '</option>';
+        }).join('');
+        $('namingLocale').value = _namingLocale;
+      }
+      function loadNamingLocales(force) {
+        var cached;
+        try { cached = JSON.parse(localStorage.getItem('bc_taxa_locales_v1') || 'null'); }
+        catch (error) { dbg('warn', 'Naming catalogue cache unreadable: ' + error.message); }
+        var useCached = force !== true && cached && typeof cached.at === 'number'
+          && Date.now() - cached.at >= 0 && Date.now() - cached.at < 7 * 86400000;
+        var request = useCached
+          ? Promise.resolve(cached.rows) : getKey()
+            ? ebird('ref/taxa-locales/ebird?fmt=json', true)
+            : Promise.reject(new Error('Add your eBird API key to load naming languages.'));
+        return request.then(function (rows) {
+          var locales = BirdTaxonomy.locales(rows);
+          if (!locales.some(function (locale) { return locale.code === 'en'; })) {
+            throw new Error('Naming catalogue lacks the English default.');
+          }
+          localStorage.setItem('bc_taxa_locales_v1', JSON.stringify({
+            at: useCached ? cached.at : Date.now(), rows: locales
+          }));
+          _namingLocales = locales;
+          renderNamingLocales();
+          $('namingStatus').textContent = 'Choose a common-name language; this does not translate the whole app.';
+          return locales;
+        }).catch(function (error) {
+          delete _ebCache['ref/taxa-locales/ebird?fmt=json'];
+          $('namingStatus').textContent = 'Naming languages unavailable: '
+            + (error && error.message || netErr(error)) + '. Working names are unchanged.';
+          dbg('warn', $('namingStatus').textContent);
+          return [];
+        });
+      }
+      function validNamingCache(cached, edition, locale) {
+        return !!(cached && cached.edition === edition && cached.locale === locale
+          && typeof cached.at === 'number' && cached.at > 0 && cached.at <= Date.now()
+          && cached.names && Object.keys(cached.names).length
+          && Object.keys(cached.names).every(function (code) {
+            return _taxonomyModel.byCode[code] && typeof cached.names[code] === 'string'
+              && cached.names[code].trim();
+          }));
+      }
+      function selectNamingLocale(locale, cacheOnly) {
+        var generation = ++_namingGeneration, epoch = _taxonomyEpoch, scope = activeScope();
+        var work = cancellableWork('Common-name locale reference', 'settingsPanel');
+        work.current = function () {
+          return generation === _namingGeneration && epoch === _taxonomyEpoch
+            && scopeCurrent(scope) && work.cancelGeneration === _workCancelGeneration;
+        };
+        $('namingStatus').textContent = 'Loading requested common names; current names remain usable…';
+        var ready = _taxonomyModel ? Promise.resolve(true)
+          : cacheOnly ? Promise.resolve(false) : checkTaxonomyEdition(false);
+        return ready.then(function (ok) {
+          if (!ok || !_taxonomyModel) throw new Error('Check a usable canonical edition before selecting names.');
+          if (!_namingLocales.some(function (entry) { return entry.code === locale; })) {
+            throw new Error('Unsupported naming locale.');
+          }
+          var edition = taxonomyEdition(), key = 'names:' + edition + ':' + locale;
+          if (locale === 'en') return { names: {}, edition: edition, cached: false };
+          return taxonomyStore('get', key).then(function (cached) {
+            if (validNamingCache(cached, edition, locale)) {
+              return { names: cached.names, edition: edition, cached: true, at: cached.at };
+            }
+            if (cacheOnly) throw new Error('This edition has no usable cached names; select the language to retry.');
+            if (!getKey()) throw new Error('Names are not cached offline; add your eBird API key.');
+            var path = 'ref/taxonomy/ebird?fmt=json&locale=' + encodeURIComponent(locale)
+              + '&version=' + encodeURIComponent(edition);
+            return ebird(path, true, true, true, work).then(function (rows) {
+              delete _ebCache[path];
+              if (!workCurrent(work) || edition !== taxonomyEdition()) throw queueCancelledError(work);
+              if (!Array.isArray(rows) || rows.length !== Object.keys(_taxonomyModel.byCode).length) {
+                throw new Error('Incomplete localized taxonomy.');
+              }
+              var names = BirdTaxonomy.names(rows, _taxonomyModel), at = Date.now();
+              return taxonomyStore('put', key, { edition: edition, locale: locale, names: names, at: at })
+                .then(function () { return { names: names, edition: edition, cached: false, at: at }; });
+            });
+          });
+        }).then(function (loaded) {
+          if (!workCurrent(work) || loaded.edition !== taxonomyEdition()) throw queueCancelledError(work);
+          localStorage.setItem('bc_name_locale', locale);
+          _namingLocale = locale;
+          _namingNames = loaded.names;
+          _autoLoaded = {};
+          $('namingLocale').value = locale;
+          $('namingStatus').textContent = 'Names: ' + locale + ' · edition ' + loaded.edition
+            + (loaded.cached ? ' · dated offline-capable cache, saved ' + new Date(loaded.at).toLocaleDateString() : '')
+            + '. Missing translations show a labelled English fallback. Reopen a report to repaint names.';
+          return true;
+        }).catch(function (error) {
+          if (!workCurrent(work)) return false;
+          $('namingLocale').value = _namingLocale;
+          $('namingStatus').textContent = 'Name preference was not changed: '
+            + (error && error.message || netErr(error)) + '. Working names and personal data remain intact.';
+          dbg('warn', $('namingStatus').textContent);
+          return false;
+        });
+      }
+      function renderSpeciesNameHtml(html, code) {
+        if (!code || !_taxonomyModel) return html;
+        if (/data-naming-locale=/.test(html || '')) return html;
+        var holder = document.createElement('span');
+        holder.innerHTML = html || '';
+        var node = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT).nextNode();
+        var canonical = _taxonomyModel.byCode[code];
+        var localized = _namingLocale === 'en' ? canonical && canonical.name : _namingNames[code];
+        var displayName = localized || canonical && canonical.name;
+        if (node && displayName) node.nodeValue = displayName;
+        holder.setAttribute('data-naming-locale', _namingLocale);
+        if (localized) holder.setAttribute('lang', _namingLocale.replace(/_/g, '-'));
+        if (_namingLocale !== 'en' && !localized) {
+          holder.insertAdjacentHTML('beforeend', ' <small class="localeFallback">(English fallback)</small>');
+        }
+        if (!Object.prototype.hasOwnProperty.call(_taxonomyModel.byCode, code)) {
+          holder.insertAdjacentHTML('beforeend', ' <small class="taxonomyUnresolved">(Taxonomy unknown; retry edition check)</small>');
+        } else if (_taxonomyUnresolved[code]) {
+          holder.insertAdjacentHTML('beforeend', ' <small class="taxonomyUnresolved">(Taxonomy unresolved; refresh exact year list)</small>');
+        }
+        return holder.outerHTML;
+      }
+      function restoreTaxonomyNames() {
+        var generation = _taxonomyGeneration, epoch = _taxonomyEpoch;
+        try {
+          _taxonomyMeta = JSON.parse(localStorage.getItem(TAXONOMY_META_KEY) || 'null');
+          if (_taxonomyMeta) {
+            BirdTaxonomy.editionKey(_taxonomyMeta.edition);
+            if (typeof _taxonomyMeta.checkedAt !== 'number' || _taxonomyMeta.checkedAt <= 0
+                || _taxonomyMeta.checkedAt > Date.now()) throw new Error('Unreadable taxonomy check date.');
+            if (_taxonomyMeta.previousEdition) BirdTaxonomy.editionKey(_taxonomyMeta.previousEdition);
+          }
+        } catch (error) {
+          _taxonomyMeta = null;
+          dbg('warn', 'Taxonomy metadata cache unreadable: ' + error.message);
+        }
+        try {
+          var catalog = JSON.parse(localStorage.getItem('bc_taxa_locales_v1') || 'null');
+          if (catalog && typeof catalog.at === 'number' && catalog.at > 0 && catalog.at <= Date.now()) {
+            _namingLocales = BirdTaxonomy.locales(catalog.rows);
+          }
+        } catch (error) {
+          dbg('warn', 'Naming catalogue cache unreadable: ' + error.message);
+          $('namingStatus').textContent = 'Cached naming languages are unreadable; load the catalogue to retry.';
+        }
+        renderNamingLocales();
+        if (!_taxonomyMeta) return Promise.resolve(false);
+        var edition = taxonomyEdition();
+        return Promise.all([
+          taxonomyStore('get', 'identity:' + edition),
+          _taxonomyMeta.previousEdition
+            ? taxonomyStore('get', 'identity:' + _taxonomyMeta.previousEdition) : Promise.resolve(null)
+        ]).then(function (models) {
+          if (generation !== _taxonomyGeneration || epoch !== _taxonomyEpoch) return false;
+          if (!models[0] || models[0].schema !== 1 || models[0].edition !== edition
+              || !models[0].byCode || Object.keys(models[0].byCode).length < 9000) {
+            throw new Error('The dated canonical taxonomy cache is unavailable; check the edition to retry.');
+          }
+          _taxonomyModel = BirdTaxonomy.validate(models[0], edition);
+          _taxonomyPrevious = models[1] ? BirdTaxonomy.validate(models[1], _taxonomyMeta.previousEdition) : null;
+          updateTaxonomyImpact();
+          var locale = localStorage.getItem('bc_name_locale') || 'en';
+          return selectNamingLocale(locale, true).then(function () {
+            if (getKey() && Date.now() - _taxonomyMeta.checkedAt >= TAXONOMY_CHECK_MS) {
+              return checkTaxonomyEdition(false);
+            }
+            return true;
+          });
+        }).catch(function (error) {
+          if (generation !== _taxonomyGeneration || epoch !== _taxonomyEpoch) return false;
+          $('taxonomyStatus').textContent = error.message;
+          dbg('warn', 'Taxonomy restore: ' + error.message);
+          return false;
+        });
+      }
+      function taxonomyCacheClear() {
+        _taxonomyEpoch++;
+        _taxonomyGeneration++;
+        _namingGeneration++;
+        _taxonomyModel = null;
+        _taxonomyMeta = null;
+        _taxonomyPrevious = null;
+        _taxonomyUnresolved = {};
+        _taxonomyEvidenceKey = '';
+        _canonicalParentSource = _canonicalParentModel = _canonicalParentUnresolved = _canonicalParentMap = null;
+        _namingNames = {};
+        _namingLocale = 'en';
+        return taxonomyStore('clear').catch(function (error) {
+          dbg('warn', 'Taxonomy cache clear failed: ' + error.message);
+          return false;
+        });
+      }
       // v2 because the rows now carry banding codes. An old cache would keep
       // answering "no species found" to a code search until it expired.
-      function speciesCacheKey(region) { return 'ebird_species_v2:' + region; }
+      function speciesCacheKey(region) {
+        return taxonomyEdition() ? 'ebird_species_v3:' + taxonomyEdition() + ':' + region
+          : 'ebird_species_v2:' + region;
+      }
       // GBIF's backbone taxonomy does not resolve common names — "White
       // Wagtail" matches nothing — so every GBIF call needs the scientific
       // name. The species index already carries it; this just reads it back
@@ -18701,7 +19354,8 @@
                  : '<span class="spcode">' + esc(code || '') + '</span>';
       }
 
-      function loadSpeciesIndex(region) {        var key = speciesCacheKey(region);
+      function loadSpeciesIndex(region) {
+        var key = speciesCacheKey(region), edition = taxonomyEdition();
         try {
           var c = JSON.parse(localStorage.getItem(key) || 'null');
           if (c && c.at && (Date.now() - c.at) < SPECIES_TTL_MS
@@ -18733,6 +19387,7 @@
           return pool(chunks, 3, function (ch) {
             return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')), true)
               .then(function (list) {
+                if (edition !== taxonomyEdition()) throw new Error('Taxonomy edition changed; retry the regional index.');
                 (list || []).forEach(function (t) {
                   // bandingCodes/comNameCodes were being thrown away. eBird sends
                   // them in the SAME response, so keeping them costs nothing and is
@@ -18745,6 +19400,7 @@
                 });
               }).catch(function () { failed = true; });
           }).then(function () {
+            if (edition !== taxonomyEdition()) throw new Error('Taxonomy edition changed; retry the regional index.');
             if (failed || rows.length !== all.length) {
               throw new Error('eBird returned an incomplete regional taxonomy.');
             }
@@ -18766,7 +19422,20 @@
         var t = String(q || '').trim().toLowerCase();
         if (t.length < 2) return [];
         var terms = t.split(/[^a-z0-9]+/).filter(Boolean);
-        if (!terms.length) return [];
+        var localeWords = function (text) {
+          return String(text || '').normalize('NFKD').toLowerCase()
+            .replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+        };
+        var localeTerms = localeWords(t);
+        var localizedHit = function (s) {
+          var name = _namingLocale !== 'en' && _namingNames[s.code];
+          if (!name || !localeTerms.length) return false;
+          var words = localeWords(name);
+          return localeTerms.every(function (term) {
+            return words.some(function (word) { return word.indexOf(term) === 0; });
+          });
+        };
+        if (!terms.length) return (rows || []).filter(localizedHit).slice(0, HOTSPOT_HITS);
         // BY CODE, TOO. "the species look up shoudl allow searching by bird
         // codes." eBird codes are what the app's own debug log, the URLs and
         // every feed row actually carry — "tufpuf" is faster to type than
@@ -18821,7 +19490,7 @@
           var hit = terms.every(function (term) {
             return words.some(function (w) { return w.indexOf(term) === 0; });
           });
-          if (hit) out.push(s);
+          if (hit || localizedHit(s)) out.push(s);
         });
         return out.slice(0, HOTSPOT_HITS);
       }
@@ -20278,12 +20947,13 @@
       }
 
       var DAY_TRIP_RANGES = {
-        under3: { label: 'Under 3h', min: 0, max: 3 },
+        under3: { label: '<3h', min: 0, max: 3 },
         from3to5: { label: '3–5h', min: 3, max: 5 },
         from5to8: { label: '5–8h', min: 5, max: 8 },
         from8plus: { label: '8h+', min: 8, max: Infinity }
       };
       var _dayTripRange = 'under3';
+      var _dayTierGeneration = 0;
       function dayTripRangeRows(source, rangeId) {
         var range = DAY_TRIP_RANGES[rangeId] || DAY_TRIP_RANGES.under3;
         return (source || []).filter(function (row) {
@@ -20312,6 +20982,21 @@
         var btn = $(btnId), st = $(statusId);
         var results = $(resultsId), map = $(mapId);
         var contextKey = dayTierContextKey(bandId);
+        var generation = ++_dayTierGeneration, scopeOwner = activeScope();
+        var work = navWork('Day-trip ' + label, 'sec-excBtn');
+        function current() {
+          return generation === _dayTierGeneration && scopeCurrent(scopeOwner)
+            && contextKey === dayTierContextKey(bandId)
+            && work.navGeneration === _navGeneration
+            && work.cancelGeneration === _workCancelGeneration;
+        }
+        work.current = current;
+        fgCancelObsolete();
+        var progress = $('dayTripProgress'), enrichmentPending = false;
+        $('dayTripWarning').hidden = bandId !== 'from8plus';
+        progress.hidden = false;
+        progress.removeAttribute('value');
+        st.setAttribute('aria-busy', 'true');
         var preserve = results.getAttribute('data-tier-context') === contextKey
           && !!results.querySelector('.hscard');
         btn.disabled = true;
@@ -20325,8 +21010,8 @@
           : 'Loading ' + label.toLowerCase() + ' county scope from '
             + anchorLabel() + '…';
         var partialSignature = '';
-        function partialPaint(c, done, total, county) {
-          if (!c || c.rarity || !c.cv) return;
+        function partialPaint(c, done, total, county, phase) {
+          if (!current() || !c || c.rarity || !c.cv) return;
           var source = c.cv.dayTrip || [];
           var rows = rerankFromAnchor(
             dayTripRangeRows(source, bandId).map(toDest));
@@ -20342,14 +21027,24 @@
             ? rows.length + ' ' + label.toLowerCase() + ' option'
               + (rows.length === 1 ? '' : 's') + ' so far · '
             : '';
-          st.textContent = count + 'still checking county feed ' + done + ' of ' + total
+          progress.max = total || 1;
+          progress.value = done || 0;
+          progress.setAttribute('aria-label', phase === 2
+            ? 'Enriching species locations' : 'Checking county observation feeds');
+          st.textContent = count + (phase === 2
+            ? 'still enriching species locations ' : 'still checking county feed ') + done + ' of ' + total
             + (county ? ' · ' + county : '') + '…';
         }
         return getTierChase(bandId, takeForce() ? 'obs' : false,
           function (done, total, county) {
+            if (!current()) return;
+            progress.max = total || 1;
+            progress.value = done || 0;
+            progress.setAttribute('aria-label', 'Mapping county scope');
             st.textContent = 'Mapping counties ' + done + ' of ' + total
               + (county ? ' · ' + county : '') + '…';
-          }, partialPaint, range.max).then(function (c) {
+          }, partialPaint, range.max, work).then(function (c) {
+          if (!current()) return;
           if (c.rarity) { rarityRedirect(st); return; }
           var source = c.cv.dayTrip || [];
           var rows = rerankFromAnchor(
@@ -20362,6 +21057,7 @@
             : ' · ⚠️ some county bounds failed; refresh to retry';
           var feedIssue = patchFeedIssue(c);
           function paint(finalRows, usedFallback) {
+            if (!current()) return;
             renderDestinations(finalRows, map, results, false, false);
             results.setAttribute('data-tier-context', contextKey);
             if (!finalRows.length) {
@@ -20388,6 +21084,25 @@
           var currentFallback = [];
           if (c.profile.stateCode !== 'US-HI' || rows.length >= minRows) {
             paint(rows, false);
+            var enrichment = _chasePhase2[c.profile.slug];
+            if (enrichment && !c.feedFailed) {
+              enrichmentPending = true;
+              progress.removeAttribute('value');
+              progress.setAttribute('aria-label', 'Enriching species locations');
+              st.textContent += ' · Still enriching species locations; these options remain usable.';
+              Promise.resolve(enrichment).then(function (complete) {
+                if (!current() || !complete || !complete.cv) return;
+                paint(rerankFromAnchor(dayTripRangeRows(
+                  complete.cv.dayTrip || [], bandId).map(toDest)), false);
+              }).catch(function (error) {
+                if (current()) st.textContent += ' · Enrichment incomplete: ' + netErr(error);
+              }).finally(function () {
+                if (!current()) return;
+                progress.hidden = true;
+                st.setAttribute('aria-busy', 'false');
+                btn.disabled = false;
+              });
+            }
             return;
           }
           renderDestinations(rows, map, results, true);
@@ -20405,14 +21120,21 @@
               dayTripRangeRows(filledSource, bandId).map(toDest));
             paint(filled, true);
           }).catch(function (e) {
+            if (!current()) return;
             st.textContent = 'Incomplete ' + label.toLowerCase()
               + ' answer — older public-hotspot '
               + 'evidence could not be loaded: ' + netErr(e);
           });
         }).catch(function (e) {
+          if (!current()) return;
           st.textContent = netErr(e);
         }).finally(function () {
-          btn.disabled = false;
+          if (!current()) return;
+          btn.disabled = enrichmentPending;
+          if (!enrichmentPending) {
+            progress.hidden = true;
+            st.setAttribute('aria-busy', 'false');
+          }
         });
       }
 
@@ -24107,7 +24829,14 @@
       // an unseen bird you have in fact already seen.
       function resolveSpecies(code, parentOf) {
         var cur = String(code || ''), hops = {};
-        while (parentOf && parentOf[cur] && !hops[cur]) { hops[cur] = 1; cur = parentOf[cur]; }
+        while (!hops[cur]) {
+          var unresolved = _taxonomyUnresolved || {};
+          var parent = _taxonomyModel && _taxonomyModel.byCode[cur]
+            ? _taxonomyModel.parents[cur] : parentOf && parentOf[cur];
+          if (!parent || unresolved[cur] || unresolved[parent]) break;
+          hops[cur] = 1;
+          cur = parent;
+        }
         return cur;
       }
       // "Dark-eyed Junco (Oregon)" -> "Dark-eyed Junco". Name-level fallback for
@@ -24132,8 +24861,31 @@
       // Lower 48 bird as seen in Washington. They are consulted only when
       // there is no code to match on, which is the only case where they are
       // the best answer available rather than a worse one.
+      function scopedSeenNames() {
+        var scope = activeScope(), seed = window.__SEED_BIRDLIST__;
+        if (scope.level === 'subregion') {
+          var page = firstYearRead(scope.effectiveRegion, scope.year);
+          return ((page && page.rows) || []).map(function (row) { return row.name; });
+        }
+        var rep = seed && seed.seenByReport && seed.seenByReport[getReportSlug()];
+        if (usesBundledSeed() && rep && String(seed.year) === String(scope.year)) {
+          return Array.isArray(rep.names) ? rep.names : [];
+        }
+        var meta = getSeenMeta();
+        if (meta && meta.region === scope.effectiveRegion
+            && String(meta.year) === String(scope.year)) {
+          try {
+            var names = JSON.parse(localStorage.getItem('ebird_year_names') || '[]');
+            return Array.isArray(names) ? names : [];
+          } catch (e) { dbg('warn', 'Scoped year names are unreadable.'); }
+        }
+        return [];
+      }
       function isSpeciesSeen(code, name, parentOf) {
-        var seen = getReportSeen(), field = getField();
+        var seen = getReportSeen();
+        if (code && _taxonomyModel
+            && !Object.prototype.hasOwnProperty.call(_taxonomyModel.byCode, String(code).toLowerCase())) return false;
+        if (code && _taxonomyUnresolved[String(code).toLowerCase()]) return false;
         if (code) {
           if (seen[String(code).toLowerCase()]) return true;
           var parent = resolveSpecies(code, parentOf);
@@ -24148,23 +24900,26 @@
           var w = watchCodes();
           if (w[String(code).toLowerCase()]) return false;
           if (parent && w[String(parent).toLowerCase()]) return false;
+          // Code-backed negatives cannot be overridden by names. Name-backed
+          // imports require the explicitly scoped year evidence below.
+          if (getField() === 'speciesCode'
+              && (!name || baseSpeciesName(name) === String(name).trim())) return false;
+        }
+        if (code && _taxonomyModel) {
+          var identity = _taxonomyModel.byCode[String(code).toLowerCase()];
+          var previous = _taxonomyPrevious && _taxonomyPrevious.byCode[String(code).toLowerCase()];
+          if (_taxonomyPrevious && (!previous || previous.parent !== identity.parent
+              || previous.category !== identity.category || previous.sci !== identity.sci)) return false;
+          if (getField() === 'sciName'
+              && (!identity.sci || !getSeen()[identity.sci.trim().toLowerCase()])) return false;
+          name = identity.name;
         }
         if (!name) return false;
         var names = [String(name).toLowerCase()], base = baseSpeciesName(name).toLowerCase();
         if (base && names.indexOf(base) < 0) names.push(base);
         try {
-          // THIS REPORT'S OWN year-list names first. The `ebird_year_names` /
-          // `ebird_life_names` pools are a union across every region, so
-          // matching against them reports a Lower 48 bird as seen in
-          // Washington — the same cross-region leak that put a Yellow-headed
-          // Blackbird under "already on your year list". They stay as a
-          // fallback for reports that bundle no name list of their own.
-          var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
-          var rep = seed && seed.seenByReport && seed.seenByReport[slug];
-          var pool = usesBundledSeed() && rep && rep.names && rep.names.length
-            ? rep.names
-            : JSON.parse(localStorage.getItem('ebird_year_names') || '[]')
-                .concat(JSON.parse(localStorage.getItem('ebird_life_names') || '[]'));
+          // Unscoped imported and life names cannot establish regional membership.
+          var pool = scopedSeenNames();
           for (var i = 0; i < pool.length; i++) {
             var have = String(pool[i]).toLowerCase();
             for (var k = 0; k < names.length; k++) {
@@ -32839,6 +33594,7 @@
       function firstYearWrite(region, year, page) {
         var value = {
           day: todayStr(), region: region, year: year,
+          taxonomyEdition: _taxonomyModel ? taxonomyEdition() : '',
           declared: page.declared, evidenceComplete: page.evidenceComplete !== false,
           rows: page.rows
         };
@@ -34327,6 +35083,7 @@
           var migration = row.getAttribute('data-alert-kind') === 'migration';
           var locId = row.getAttribute('data-hsloc') || '';
           var locName = row.getAttribute('data-hslocname') || '';
+          if (row.getAttribute('data-alert-kind') === 'mass' && !locId) return;
           var code = row.getAttribute('data-species-code') || '';
           var speciesName = row.getAttribute('data-species-name') || code;
           var megaView = row.getAttribute('data-mega-view') || '';
@@ -35145,6 +35902,12 @@
         });
 
         massRows.forEach(function (flock) {
+          var destination = flock.locId
+            ? { locId: flock.locId, locName: flock.locName }
+            : (flock.locations || []).filter(function (place) { return !!place.locId; })
+              .slice().sort(function (a, b) {
+                return String(a.locId).localeCompare(String(b.locId));
+              })[0];
           var range = flock.minCount === flock.maxCount
             ? String(flock.maxCount)
             : flock.minCount + '\u2013' + flock.maxCount;
@@ -35183,10 +35946,14 @@
             time: flock.time,
             checklistId: flock.checklistId || '',
             extra: esc(surgeDistanceText(flock.distanceMi))
+              + (!destination ? ' · Patch destination unavailable; see retained checklist evidence.' : '')
               + (flock.supportingLowRows ? ' · lower nearby counts retained as coverage evidence' : '')
               + (moreEyes ? ' · <b>More eyes on this flock</b>: increased observer activity'
                 + ' may reveal associated birds (Patagonia-effect potential).' : ''),
-            data: {}
+            data: destination ? {
+              hsloc: destination.locId,
+              hslocname: destination.locName || destination.locId
+            } : {},
           });
         });
 
@@ -35362,6 +36129,145 @@
         };
       }
 
+      var REPORTING_NS = 'bc_reporting_v1:';
+      var _reportingGeneration = 0, _reportingDays = 1;
+      function reportingDates(now, report, days) {
+        if (days !== 1 && days !== 7) throw new Error('Choose one or seven completed days.');
+        if (!report || typeof report.tzStdOffset !== 'number'
+            || !isFinite(report.tzStdOffset)) {
+          throw new Error('The selected region has no configured regional timezone.');
+        }
+        var parts = reportLocalParts(now, report);
+        var base = Date.UTC(parts.year, parts.month - 1, parts.day);
+        return Array.from({ length: days }, function (_, index) {
+          var day = new Date(base - (index + 1) * 86400000);
+          return {
+            year: day.getUTCFullYear(), month: day.getUTCMonth() + 1,
+            day: day.getUTCDate(), date: day.toISOString().slice(0, 10)
+          };
+        });
+      }
+      function validReportingStats(value) {
+        return !!value && ['numChecklists', 'numContributors', 'numSpecies'].every(function (key) {
+          return typeof value[key] === 'number' && Number.isInteger(value[key]) && value[key] >= 0;
+        });
+      }
+      function reportingDay(scope, day, force, work) {
+        var key = REPORTING_NS + scope.effectiveRegion + ':' + day.date;
+        var cached = null;
+        try {
+          var candidate = JSON.parse(localStorage.getItem(key) || 'null');
+          if (candidate && candidate.region === scope.effectiveRegion
+              && candidate.date === day.date && validReportingStats(candidate.counts)
+              && Number(candidate.at) > 0 && Number(candidate.at) <= Date.now()) {
+            cached = candidate;
+          }
+        } catch (error) { dbg('warn', 'Reporting cache could not be read: ' + netErr(error)); }
+        if (!force && cached && Date.now() - cached.at < 86400000) {
+          return Promise.resolve({ day: day, counts: cached.counts,
+            cachedAt: cached.at, offline: navigator.onLine === false });
+        }
+        var path = 'product/stats/' + encodeURIComponent(scope.effectiveRegion)
+          + '/' + day.year + '/' + day.month + '/' + day.day;
+        var request = getKey() ? ebird(path, true, !!force, !!force, work)
+          : Promise.reject(new Error('Add your eBird API key to load reporting activity.'));
+        return request.then(function (counts) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          if (!validReportingStats(counts)) {
+            delete _ebCache[path];
+            throw new Error('Unreadable reporting counts.');
+          }
+          var clean = {
+            numChecklists: counts.numChecklists, numContributors: counts.numContributors,
+            numSpecies: counts.numSpecies
+          };
+          try {
+            localStorage.setItem(key, JSON.stringify({
+              region: scope.effectiveRegion, date: day.date, at: Date.now(), counts: clean
+            }));
+          } catch (error) { dbg('warn', 'Reporting cache could not be saved: ' + netErr(error)); }
+          return { day: day, counts: clean };
+        }).catch(function (error) {
+          if (error && error.queueCancelled) throw error;
+          var message = error && error.message || netErr(error);
+          dbg('warn', 'Regional reporting activity: ' + message);
+          return cached
+            ? { day: day, counts: cached.counts, cachedAt: cached.at, offline: true,
+                error: 'Live refresh unavailable: ' + message }
+            : { day: day, error: 'Unavailable: ' + message };
+        });
+      }
+      function loadReportingActivity(days, force, scope) {
+        days = days == null ? _reportingDays : days;
+        scope = scope || activeScope();
+        var generation = ++_reportingGeneration, report = Object.assign({}, getReport());
+        var dayIdentity = '';
+        var work = cancellableWork('Regional reporting activity', 'sec-surgeBtn');
+        work.current = function () {
+          return generation === _reportingGeneration && scopeCurrent(scope)
+            && work.cancelGeneration === _workCancelGeneration
+            && (!dayIdentity || reportingDates(new Date(), report, days)[0].date === dayIdentity);
+        };
+        var st = $('reportingStatus'), host = $('reportingRows');
+        host.innerHTML = '';
+        if (!/^[A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(scope.effectiveRegion)) {
+          st.textContent = 'Reporting activity is unsupported for this meta-region or scope.';
+          return Promise.resolve([]);
+        }
+        var dates;
+        try { dates = reportingDates(new Date(), report, days); }
+        catch (error) {
+          st.textContent = 'Reporting activity unavailable: ' + (error && error.message || netErr(error));
+          return Promise.resolve([]);
+        }
+        _reportingDays = days;
+        dayIdentity = dates[0].date;
+        $('reportingDay').setAttribute('aria-pressed', String(days === 1));
+        $('reportingWeek').setAttribute('aria-pressed', String(days === 7));
+        st.textContent = 'Loading ' + scope.label + ' reporting activity…';
+        host.setAttribute('aria-busy', 'true');
+        var rows = [], chain = Promise.resolve();
+        dates.forEach(function (day) {
+          chain = chain.then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            return reportingDay(scope, day, force, work).then(function (row) { rows.push(row); });
+          });
+        });
+        return chain.then(function () {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          host.innerHTML = rows.map(function (row) {
+            var counts = row.counts;
+            return '<div class="reportingday"><b>' + esc(row.day.date) + '</b> · '
+              + (counts
+                ? counts.numChecklists + ' checklists · ' + counts.numContributors
+                  + ' contributors · ' + counts.numSpecies + ' species reported'
+                : esc(row.error))
+              + (row.cachedAt ? '<div class="hint">'
+                  + (row.offline ? 'Offline / live unavailable. ' : '')
+                  + 'Dated cached counts, saved ' + esc(new Date(row.cachedAt).toLocaleString())
+                  + (row.error ? ' · ' + esc(row.error) : '') + '</div>' : '')
+              + '</div>';
+          }).join('');
+          st.textContent = scope.label + ' · completed regional calendar day'
+            + (days === 7 ? 's; species are per-day counts, not a weekly total.' : '.')
+            + ' Dates use the configured region timezone, not the device timezone.';
+          host.removeAttribute('aria-busy');
+          return rows;
+        }).catch(function (error) {
+          if (!workCurrent(work)) {
+            if (generation === _reportingGeneration && scopeCurrent(scope)
+                && work.cancelGeneration === _workCancelGeneration) {
+              st.textContent = 'Regional day changed. Refresh reporting activity for the new completed day.';
+              host.removeAttribute('aria-busy');
+            }
+            return [];
+          }
+          st.textContent = 'Reporting activity unavailable: ' + (error && error.message || netErr(error));
+          host.removeAttribute('aria-busy');
+          return [];
+        });
+      }
+
       function loadSurge() {
         if (!getHome()) {
           $('surgeStatus').hidden = false;
@@ -35378,6 +36284,7 @@
         var force = takeForce();
         var generation = ++_surgeLoadGeneration;
         var loadScope = activeScope(), loadContext = surgeSourceContext();
+        loadReportingActivity(null, force, loadScope);
         _surgeAllFlocks = false;
         _surgeHotspotRetry = null;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
@@ -36907,7 +37814,7 @@
         cklBtn:     { fn: loadChecklists,   needsKey: true, scopeTransition: 'observations' },
         recentBtn:  { fn: loadRecentChecklists, needsKey: true, scopeTransition: 'observations' },
         convoyBtn:  { fn: loadConvoys,      needsKey: true, scopeTransition: 'observations' },
-        favResults: { fn: loadFavs, needsKey: true, scopeTransition: 'observations' },
+        favResults: { fn: loadFavs, needsKey: false, scopeTransition: 'observations' },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true, scopeTransition: 'year-list' },
         nvResults:  { fn: renderWatch, scopeTransition: 'year-list' },
         bcBody:     { fn: loadUnifiedMigration, needsHome: true, reachability: true, scopeTransition: 'year-list' },
@@ -36944,6 +37851,11 @@
       }
       function applyScopeTransitionPending(scope) {
         if (!scope || typeof LOADERS !== 'object') return;
+        if ($('reportingRows')) {
+          $('reportingRows').innerHTML = '';
+          $('reportingRows').removeAttribute('aria-busy');
+          $('reportingStatus').textContent = 'Reporting activity for ' + scope.label + ' is not loaded.';
+        }
         _autoLoaded = {};
         Object.keys(LOADERS).forEach(function (at) {
           var spec = LOADERS[at];
@@ -39071,6 +39983,13 @@
         var det = $('menuScope');
         if (det) det.open = false;
       }
+      function longLoadNotice(at, compact) {
+        if (at !== 'excBtn' && at !== 'surgeBtn') return '';
+        return compact ? 'Cold scan: 30s+; may take several minutes.'
+          : 'Slow loading: fresh scans may take 30 seconds or more; broad scans can '
+            + 'take several minutes. Cached results can appear sooner. Useful results '
+            + 'remain visible while more evidence loads.';
+      }
       function renderMenuList() {
         // Rebuilding the list DESTROYS the region <select>, because the cell is
         // part of the grid now. Re-binding is therefore the last thing this
@@ -39084,6 +40003,9 @@
       function _renderMenuListInner() {
         var list = $('menuList'); if (!list) return;
         list.innerHTML = '';
+        document.querySelectorAll('[data-long-load]').forEach(function (notice) {
+          notice.textContent = longLoadNotice(notice.getAttribute('data-long-load'), false);
+        });
         renderJargonTip(list);
         var shown = _sections.filter(function (sec) {
           return menuApplies({ at: sec._at, needs: sec._needs, enabled: sec._enabled });
@@ -39158,6 +40080,15 @@
             sb.className = 'tilesub';
             sb.textContent = subTxt;
             a.appendChild(sb);
+          }
+          var loadNotice = longLoadNotice(sec._at, true);
+          if (loadNotice) {
+            var ln = document.createElement('span');
+            ln.className = 'tilesub';
+            ln.id = 'menuLoadNotice-' + sec._at;
+            ln.textContent = loadNotice;
+            a.appendChild(ln);
+            a.setAttribute('aria-describedby', ln.id);
           }
           // F134: only if the section has something to say. Reads cache only.
           var bh = menuBadgeHTML(menuBadge(sec._at, sec.id));
@@ -40668,7 +41599,7 @@
       var RESET_ON_REPORT_CHANGE = ['results', 'targetResults', 'destResults', 'excResults',
         'tripResults', 'activeResults', 'myYearList', 'rankResults', 'rankSummary',
         'lastNewList', 'convoyResults', 'cklResults', 'hotResults', 'coldResults', 'favResults',
-        'migFirstResults'];
+        'migFirstResults', 'reportingRows'];
       function setActiveReport(slug) {
         slug = String(slug || '').trim().toLowerCase();
         var valid = !!(slug && ((BL && BL.REPORTS && BL.REPORTS[slug])
@@ -41931,6 +42862,7 @@
       });
       if ($('chaseMiReset')) $('chaseMiReset').addEventListener('click', resetChaseMi);
       $('favSearchBtn').addEventListener('click', runFavSearch);
+      $('favLoadBtn').addEventListener('click', loadFavs);
       $('favSearchClear').addEventListener('click', clearFavSearch);
       $('favSearch').addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') { ev.preventDefault(); runFavSearch(); }
@@ -42212,6 +43144,8 @@
       $('spLookupFound').addEventListener('click', pickSpeciesFromRow);
       if ($('spCodesList')) $('spCodesList').addEventListener('click', pickSpeciesFromRow);
       $('surgeBtn').addEventListener('click', loadSurge);
+      $('reportingDay').addEventListener('click', function () { loadReportingActivity(1); });
+      $('reportingWeek').addEventListener('click', function () { loadReportingActivity(7); });
       $('hotBtn').addEventListener('click', loadHotspots);
       $('coldBtn').addEventListener('click', loadColdspots);
       $('migBtn').addEventListener('click', migBootstrap);
@@ -42471,7 +43405,15 @@
         var fav = ev.target.closest('.favlink');
         if (fav) {
           ev.preventDefault();
-          var nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
+          var nowFav;
+          try {
+            nowFav = toggleFav({ locId: fav.getAttribute('data-locid'), locName: fav.getAttribute('data-locname'), lat: parseFloat(fav.getAttribute('data-lat')), lng: parseFloat(fav.getAttribute('data-lng')) });
+          } catch (e) {
+            dbg('error', 'Favorite save failed: ' + netErr(e));
+            showExcludedSheet('favorite-save-failed', 'Favorite not saved',
+              'Storage rejected the change. Your saved patches are unchanged.', '<p>' + esc(netErr(e)) + '</p>');
+            return;
+          }
           var fullFavLabel = fav.getAttribute('data-fav-label') === 'full';
           fav.textContent = fullFavLabel
             ? (nowFav ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
@@ -42499,29 +43441,32 @@
         if (favBtn) {
           ev.preventDefault();
           if (favBtn.classList.contains('favadd')) {
-            addFav({
+            if (favBtn.getAttribute('data-region') !== getRegion()) {
+              $('favStatus').textContent = 'Region changed. Search again before saving this patch.';
+              return;
+            }
+            var location = {
               locId: favBtn.getAttribute('data-locid'), locName: favBtn.getAttribute('data-locname'),
               lat: parseFloat(favBtn.getAttribute('data-lat')), lng: parseFloat(favBtn.getAttribute('data-lng'))
-            });
+            };
+            var added;
+            try {
+              added = addFav(location);
+              if (!isFav(favId(location))) throw new Error('Favorite was not persisted.');
+            } catch (e) {
+              $('favStatus').textContent = 'Favorite not saved: ' + netErr(e) + '. Existing patches are unchanged.';
+              dbg('error', 'Favorite search save failed: ' + netErr(e));
+              return;
+            }
             favBtn.textContent = '★'; favBtn.disabled = true;
+            favBtn.setAttribute('aria-label', 'Saved: ' + location.locName);
             renderFavs();
+            $('favStatus').textContent += added ? ' New patch saved.' : ' Patch was already saved.';
             return;
           }
           var idx = parseInt(favBtn.getAttribute('data-i'), 10);
           if (favBtn.classList.contains('favdel')) removeFavAt(idx);
           else moveFav(idx, favBtn.classList.contains('favup') ? -1 : 1);
-          return;
-        }
-        var rec = ev.target.closest('.recentlink');
-        if (rec) {
-          // The detail this used to load on tap now renders inline with the
-          // report's filter applied, so the link only survives as a way to
-          // refresh one row.
-          ev.preventDefault();
-          if (!getKey()) { showSettings(true); return; }
-          var li = rec.closest('li'), idx = +rec.getAttribute('data-i');
-          var entry = favoriteEntriesForRegion(getRegion())[idx];
-          if (li && entry) loadFavDetail(entry.favorite, li.querySelector('.recentbox'), favRarityCodes(), true);
           return;
         }
       });
@@ -42556,13 +43501,15 @@
         Promise.all([
           spuhCacheClear(),
           clearEbirdWebSession(),
-          _audit ? _audit.clear() : Promise.resolve(true)
+          _audit ? _audit.clear() : Promise.resolve(true),
+          taxonomyCacheClear()
         ]).then(function (cleared) {
-          if (!cleared[0] || !cleared[1] || !cleared[2]) {
+          if (!cleared[0] || !cleared[1] || !cleared[2] || !cleared[3]) {
             var failed = [];
             if (!cleared[0]) failed.push('taxonomy cache');
             if (!cleared[1]) failed.push('eBird browser session');
             if (!cleared[2]) failed.push('diagnostic log');
+            if (!cleared[3]) failed.push('taxonomy editions and naming cache');
             $('scrubStatus').textContent = 'The local items were erased, but the '
               + failed.join(' and ') + ' could not be cleared. The app was not reloaded.';
             return;
@@ -42572,6 +43519,9 @@
           setTimeout(function () { location.reload(); }, 600);
         });
       });
+      $('taxonomyCheckBtn').addEventListener('click', function () { checkTaxonomyEdition(true); });
+      $('namingLocalesBtn').addEventListener('click', function () { loadNamingLocales(true); });
+      $('namingLocale').addEventListener('change', function () { selectNamingLocale(this.value); });
       $('geocodeBtn').addEventListener('click', function () {
         var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus'), btn = this;
         if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
@@ -42736,6 +43686,7 @@
         // The whole scheduling decision, exposed so 300 calls can be DRIVEN
         // through it with a synthetic clock instead of argued about.
         fgSchedule: fgSchedule,
+        fgNoteOk: fgNoteOk,
         fgSchedReset: function (t) {
           _fgStarts.length = 0; _fgNextAt = 0;
           _fgTokens = FG_BUCKET; _fgTokenAt = t; _fgGap = FG_MIN_GAP_MS;
@@ -42910,6 +43861,8 @@
         openRegionChooser: openRegionChooser, renderRegionChooser: renderRegionChooser,
         openSetupSheet: openSetupSheet, renderSetupSheet: renderSetupSheet,
         favoritePatchAlerts: favoritePatchAlerts,
+        reportingDates: reportingDates, validReportingStats: validReportingStats,
+        loadReportingActivity: loadReportingActivity,
         massFlockAlerts: massFlockAlerts,
         loadMassFlockAlertSource: loadMassFlockAlertSource,
         loadFavoritePatchAlertSource: loadFavoritePatchAlertSource,
@@ -43206,6 +44159,7 @@
           promise._geoNotableKm = BL.geoNotableDistKm(profile);
           _chasePhase2[slug] = promise;
         },
+        stateRbaRecord: stateRbaRecord,
         stateRbaRecords: stateRbaRecords, mergeRarityRecords: mergeRarityRecords,
         getChase: getChase, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
@@ -43257,7 +44211,17 @@
         moveWatch: moveWatch, removeWatchAt: removeWatchAt, renderWatch: renderWatch,
         watchCodes: watchCodes, watchlistMarkdown: watchlistMarkdown,
         searchSpecies: searchSpecies, runNvSearch: runNvSearch, clearNvSearch: clearNvSearch,
+        checkTaxonomyEdition: checkTaxonomyEdition, taxonomyEdition: taxonomyEdition,
+        createLoadingEstimate: createLoadingEstimate, loadingEstimateText: loadingEstimateText,
+        getLoadingStage: function () { return _stage; },
+        getChaseAll: getChaseAll,
+        canonicalParents: canonicalParents,
+        taxonomyStore: taxonomyStore, taxonomyCacheClear: taxonomyCacheClear,
+        restoreTaxonomyNames: restoreTaxonomyNames, loadNamingLocales: loadNamingLocales,
+        selectNamingLocale: selectNamingLocale, renderSpeciesNameHtml: renderSpeciesNameHtml,
+        speciesCacheKey: speciesCacheKey,
         getReportSeen: getReportSeen, getReportSeenScope: getReportSeenScope,
+        seenDecisionContext: seenDecisionContext,
         finishReportSeenScope: finishReportSeenScope, WATCH_KEY: WATCH_KEY,
         abaArchiveAdd: abaArchiveAdd, abaArchiveFor: abaArchiveFor,
         abaArchiveSince: abaArchiveSince, ABA_ARCHIVE_KEY: ABA_ARCHIVE_KEY,
@@ -43282,6 +44246,8 @@
       initPullToRefresh();
       if ($('ver')) $('ver').textContent = 'Bird Chaser · v' + APP_VERSION + ' · tap 5× for 🐞 debug';
       if (!bootBeta.expired) loadSettings();
+      SpeciesCards.setNameRenderer(renderSpeciesNameHtml);
+      if (!bootBeta.expired) restoreTaxonomyNames();
       if (!getReportSlug()
           && localStorage.getItem('bc_setup_dismissed_v1') !== '1') {
         setTimeout(openSetupSheet, 0);

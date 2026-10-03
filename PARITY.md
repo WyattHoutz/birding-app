@@ -42,6 +42,14 @@ gets planned. A section that exists only in the app is simply ahead.
 
 **App-only sections today**
 
+F743 also adds an app-only numbered **Favorite patches map** (`favMap`) inside
+the shared Favorite section. `report-contract.json` declares it as `appMap`
+with a reason; the report's `map` contract remains unchanged. It uses only
+device-owned saved coordinates and order, not a broad scan or report fetch.
+F735/F736's checked taxonomy editions and optional common-name presentation are
+likewise device-side additions: canonical codes, scientific identity and source
+evidence stay unchanged, and no locale taxonomy is redistributed in the bundle.
+
 | section | why it cannot be a report section |
 |---|---|
 | 🦉 Stakeout Birds *(includes Spuh finder)* | F358. A Markdown report cannot take a bird/spuh query, candidate selection or comparison set, and printing every bird's places and hierarchy paths for a region is a phone book, not a section. The app builds the candidate-set DAG on the device from the reader's direct eBird taxonomy call and caches the compact model in IndexedDB; no taxonomy bundle is redistributed in the public repository. |

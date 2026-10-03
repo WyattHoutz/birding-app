@@ -37,6 +37,33 @@ test('the checked-in public tree satisfies the release bundle contract', () => {
   assert.doesNotThrow(() => verifyBundle(PUBLIC_ROOT, version, contract));
 });
 
+test('F735 the packaged taxonomy module and script binding are mandatory', () => {
+  const { verifyBundle, withVersion } = require(bundleVerifierPath);
+  const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  const version = require(path.join(ROOT, 'package.json')).version;
+  const marker = '<script src="taxonomy.js"></script>';
+  assert.ok(contract.requiredFiles.includes('taxonomy.js'));
+  assert.ok(contract.requiredText['index.html'].includes(marker));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'birdchaser-taxonomy-bundle-'));
+  try {
+    for (const relative of contract.requiredFiles) {
+      const file = path.join(root, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, (contract.requiredText[relative] || [])
+        .map((text) => withVersion(text, version)).join('\n'));
+    }
+    assert.doesNotThrow(() => verifyBundle(root, version, contract));
+    fs.rmSync(path.join(root, 'taxonomy.js'));
+    assert.throws(() => verifyBundle(root, version, contract), /required file.*taxonomy\.js/i);
+    fs.writeFileSync(path.join(root, 'taxonomy.js'), '');
+    const index = path.join(root, 'index.html');
+    fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace(marker, ''));
+    assert.throws(() => verifyBundle(root, version, contract), /required text.*taxonomy\.js/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('F340 the extracted release bundle contract fails closed on exact mutations', () => {
   assert.ok(fs.existsSync(bundleVerifierPath),
     'the release bundle verifier is missing');

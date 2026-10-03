@@ -575,11 +575,14 @@
         if (isNotable) { notableIds[id] = 1; if (r.speciesCode) notableCodes[r.speciesCode] = 1; }
         var ex = byObs[id];
         if (!ex) {
-          byObs[id] = { row: r, sources: [feed.src] };
+          byObs[id] = { row: Object.assign({}, r), sources: [feed.src] };
           if (isSpecies) fromSpecies[id] = 1;
           order.push(id);
-        } else if (ex.sources.indexOf(feed.src) < 0) {
-          ex.sources.push(feed.src);
+        } else {
+          if (ex.sources.indexOf(feed.src) < 0) ex.sources.push(feed.src);
+          if (r.locationPrivate === true) ex.row.locationPrivate = true;
+          if (r.hasComments === true) ex.row.hasComments = true;
+          if (!ex.row.locId && r.locId) ex.row.locId = r.locId;
         }
       });
     });
@@ -628,7 +631,7 @@
         //
         // Present on every feed including detail=simple, so this costs nothing.
         reviewState: reviewState(r),
-        location_private: !!r.locationPrivate,
+        location_private: typeof r.locationPrivate === 'boolean' ? r.locationPrivate : null,
         // Evidence attached to the observation, straight off the notable feed
         // — no checklist lookup, so this costs NOTHING. 'P' photo, 'A' audio,
         // 'V' video; 'None' is normalised to '' so absence reads as absence.
@@ -832,7 +835,7 @@
   function deriveCountyScope(home, counties, edgeMi) {
     var cap = Number(edgeMi);
     if (!home || !isFinite(Number(home.lat)) || !isFinite(Number(home.lng))
-        || !isFinite(cap) || cap < 0) return [];
+        || (!isFinite(cap) && cap !== Infinity) || cap < 0) return [];
     return (counties || []).map(function (row) {
       var code = String((row && row.code) || '').trim().toUpperCase();
       var dist = countyEdgeMi(home, row && row.bounds);

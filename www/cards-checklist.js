@@ -111,6 +111,8 @@
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span.ckwho {',
     '  display: inline-block; max-width: min(100%, 18em); overflow: hidden;',
     '  text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }',
+    '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta > span.cktargets {',
+    '  white-space: normal; }',
     '.cknote { align-self: center; white-space: nowrap; }',
     '.cknote .cknote-pending { color: var(--muted);',
     '  font-size: calc(22px * var(--s)); font-weight: 800; }',
