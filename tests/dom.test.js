@@ -31407,7 +31407,7 @@ test('F475 the main menu shows one cached Birder Jargon definition above Buzz', 
   assert.equal(tip.querySelector('.jargondef').textContent,
     jargonDoc.terms[term].definition,
   'the displayed definition did not come from the JSON dictionary');
-  assert.match(entry.textContent, new RegExp(`^${term} \u2014 `),
+  assert.ok(entry.textContent.startsWith(`${term} \u2014 `),
     'the dictionary paragraph does not join the term and definition with an em dash');
   const cacheKey = Object.keys(app.window.localStorage)
     .find((key) => key.startsWith('bc_birder_jargon_v1:'));
