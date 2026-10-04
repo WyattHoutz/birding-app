@@ -550,21 +550,95 @@ const AUDIT = `<script>
       };
     }
     var favoriteMap = null;
+    var favoriteHeaders = [];
     if (label === 'sec-favResults') {
       var fm = document.getElementById('favMap'), fr = fm && fm.getBoundingClientRect();
       favoriteMap = {
         width: fr && fr.width, height: fr && fr.height,
         pins: fm ? fm.querySelectorAll('.leaflet-marker-icon').length : 0,
         controls: [].map.call(document.querySelectorAll('#favResults .favoritecard'), function (card) {
-          var button = card.querySelector('.favdel'), name = card.querySelector('.ntext');
-          var br = button && button.getBoundingClientRect(), nr = name && name.getBoundingClientRect();
-          return !!(br && nr && br.width >= 44 && br.height >= 44
-            && br.left >= nr.right && br.right <= card.getBoundingClientRect().right);
+          var button = card.querySelector('.favdel');
+          var br = button && button.getBoundingClientRect();
+          var detail = card.querySelector('.recentbox').getBoundingClientRect();
+          var row = card.querySelector('.favspp > li:first-child > .name');
+          var rowBox = row && row.getBoundingClientRect();
+          var photo = row && row.querySelector('.thumb').getBoundingClientRect();
+          var text = row && row.querySelector('.ntext').getBoundingClientRect();
+          var textBelow = row && getComputedStyle(row.querySelector('.ntext')).gridRowStart === '2';
+          var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
+          var photoSize = Math.min(128 * scale, innerWidth * 0.28);
+          var fallback = card.querySelector('.favremove');
+          return !!(br && br.width >= 44 && br.height >= 44
+            && (rowBox ? Math.abs(br.top - rowBox.top) <= 1
+              && Math.abs(photo.top - rowBox.top) <= 1
+              && (textBelow ? text.top >= Math.max(photo.bottom, br.bottom)
+                : Math.abs(text.top - rowBox.top) <= 1 && text.right <= br.left)
+              && Math.abs(photo.width - photoSize) <= 0.5 && Math.abs(photo.height - photoSize) <= 0.5
+              && Math.abs(br.right - rowBox.right) <= 1
+              : fallback && br.top >= detail.top)
+            && br.right <= card.getBoundingClientRect().right);
         })
       };
+      favoriteHeaders = [].map.call(document.querySelectorAll('#favResults .favoritecard'), function (card) {
+        var title = card.querySelector('.ntext'), distance = card.querySelector('.hsdist');
+        var number = card.querySelector('.hsnum'), facts = card.querySelector('.recentbox');
+        var actualHeight = facts.getBoundingClientRect().top - number.getBoundingClientRect().top;
+        var reference = card.cloneNode(true), action = reference.querySelector('.favctl');
+        var referenceDistance = reference.querySelector('.hsdist');
+        reference.querySelector('.name').appendChild(referenceDistance);
+        if (action) action.remove();
+        card.parentElement.appendChild(reference);
+        var referenceHeight = reference.querySelector('.recentbox').getBoundingClientRect().top
+          - reference.querySelector('.hsnum').getBoundingClientRect().top;
+        reference.remove();
+        return {
+          height: actualHeight, reference: referenceHeight,
+          distanceInHeader: distance.parentElement === card.querySelector('.name'),
+          removalBelowDetails: !!card.querySelector('.recentbox .favdel'),
+          birdRows: facts.querySelectorAll('.favspp li').length,
+          namesFit: [].every.call(facts.querySelectorAll('.favspp .ntext'), function (name) {
+            var title = name.querySelector('a');
+            if (!title) return false;
+            var measure = document.createElement('canvas').getContext('2d');
+            measure.font = getComputedStyle(title).font;
+            return title.textContent.trim().split(/\\s+/).every(function (word) {
+              return measure.measureText(word).width <= name.getBoundingClientRect().width + 0.5;
+            });
+          }),
+          spacing: (function () {
+            if (!facts.querySelector('.favspp > li')) return null;
+            function geometry(c) {
+              var text = c.querySelector('.name > .ntext').getBoundingClientRect();
+              var meta = c.querySelector('.favmeta, .meta:not(:empty)').getBoundingClientRect();
+              var first = c.querySelector('.sppl > li').getBoundingClientRect();
+              var last = c.querySelector('.sppl > li:last-child').getBoundingClientRect();
+              return {headerToFacts: meta.top - text.bottom,
+                factsToBird: first.top - meta.bottom,
+                birdToEnd: c.getBoundingClientRect().bottom - last.bottom,
+                rowPadding: getComputedStyle(c.querySelector('.sppl > li')).paddingTop};
+            }
+            var favorite = geometry(card), control = card.cloneNode(true);
+            var detail = control.querySelector('.recentbox');
+            var meta = detail.querySelector('.favmeta'), list = detail.querySelector('.sppl');
+            control.querySelector(':scope > .meta').innerHTML = meta.innerHTML;
+            control.querySelector('.hslists').appendChild(list);
+            list.classList.remove('favspp');
+            detail.remove();
+            card.parentElement.appendChild(control);
+            var shared = geometry(control);
+            control.remove();
+            return {favorite: favorite, shared: shared};
+          })(),
+          titleTop: title.getBoundingClientRect().top - number.getBoundingClientRect().top,
+          removalOnly: card.querySelectorAll('.favdel').length === 1
+            && !!facts.querySelector('.favdel') && !card.querySelector('.hsact')
+            && !/Open in Maps|Open in eBird/.test(card.textContent)
+        };
+      });
     }
     var menuWarnings = [];
     var watchNames = [];
+    var watchPhotos = [];
     if (label === 'sec-nvResults') {
       var measure = document.createElement('canvas').getContext('2d');
       watchNames = [].map.call(document.querySelectorAll('#nvResults .nvrow .ntext'), function (name) {
@@ -575,6 +649,60 @@ const AUDIT = `<script>
             return measure.measureText(word).width;
           }))
         };
+      });
+      watchPhotos = [].map.call(document.querySelectorAll('#nvResults .nvrow .thumb'), function (photo) {
+        var box = photo.getBoundingClientRect();
+        var row = photo.closest('.nvrow'), top = row.getBoundingClientRect().top;
+        var button = row.querySelector('.nvdel'), action = button.getBoundingClientRect();
+        var main = row.querySelector('.favmain'), text = main.getBoundingClientRect();
+        var textBelow = getComputedStyle(row).display === 'grid'
+          && getComputedStyle(main).gridRowStart === '2';
+        var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
+        return {width: box.width, height: box.height,
+          maximum: Math.min(128 * scale, innerWidth * 0.28),
+          topAligned: Math.abs(box.top - top) <= 1 && Math.abs(action.top - top) <= 1
+            && (textBelow ? text.top >= Math.max(box.bottom, action.bottom)
+              : Math.abs(text.top - top) <= 1 && text.right <= action.left),
+          usableRemove: button.textContent === 'Remove' && action.width >= 44 && action.height >= 44};
+      });
+    }
+    var savedSearch = [];
+    if (label === 'sec-favResults' || label === 'sec-nvResults') {
+      var prefix = label === 'sec-favResults' ? 'fav' : 'nv';
+      var input = document.getElementById(prefix + 'Search');
+      var search = document.getElementById(prefix + 'SearchBtn');
+      var close = document.getElementById(prefix + 'SearchClear'), hidden = close.hidden;
+      [true, false].forEach(function (closed) {
+        close.hidden = closed;
+        var ir = input.getBoundingClientRect(), br = search.getBoundingClientRect();
+        savedSearch.push({closeHidden: closed, sameLine: Math.abs(
+          (ir.top + ir.bottom) / 2 - (br.top + br.bottom) / 2) <= 1,
+          afterInput: br.left >= ir.right, inputWidth: ir.width,
+          right: br.right, width: br.width, height: br.height});
+      });
+      close.hidden = hidden;
+    }
+    var migrationWords = [];
+    if (label === 'sec-surgeBtn' || label === 'sec-bcBody') {
+      var measureWord = document.createElement('canvas').getContext('2d');
+      [].forEach.call(document.querySelectorAll('section.panel:not([hidden]) .birdcast-flight-label'), function (word) {
+        var style = getComputedStyle(word), box = word.getBoundingClientRect();
+        var range = document.createRange(); range.selectNodeContents(word);
+        var lines = {};
+        [].forEach.call(range.getClientRects(), function (rect) {
+          if (rect.width) lines[Math.round(rect.top)] = true;
+        });
+        measureWord.font = style.font;
+        var text = word.textContent.trim();
+        var graphic = word.closest('.birdcast-alert-icon, .surgebirdcastthumb');
+        var graphicStyle = getComputedStyle(graphic), graphicBox = graphic.getBoundingClientRect();
+        var available = graphicBox.width - parseFloat(graphicStyle.borderLeftWidth)
+          - parseFloat(graphicStyle.borderRightWidth);
+        migrationWords.push({text: text, lines: Object.keys(lines).length,
+          width: Math.min(box.width, available)
+            - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          required: measureWord.measureText(text).width
+            + (parseFloat(style.letterSpacing) || 0) * text.length});
       });
     }
     if (label === '(contents menu)') {
@@ -632,7 +760,11 @@ const AUDIT = `<script>
       sharedControls: sharedControls.slice(0, 12),
       menuWarnings: menuWarnings,
       favoriteMap: favoriteMap,
+      favoriteHeaders: favoriteHeaders,
       watchNames: watchNames,
+      watchPhotos: watchPhotos,
+      savedSearch: savedSearch,
+      migrationWords: migrationWords,
       watchRows: label === 'sec-nvResults'
         ? document.querySelectorAll('#nvResults .nvrow').length : 0,
       hydratedMetadata: metadata,
@@ -737,6 +869,7 @@ const AUDIT = `<script>
             var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
             var stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1)
               + '-' + pad(now.getDate()) + ' 00:01';
+            A.setBirdcastSnapshot({forecast: {level: 'Medium'}, count: null});
             A.renderSurge([], [], [], [], [], {
               observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
               favorites: 'partial', mass: 'partial',
@@ -818,7 +951,47 @@ const AUDIT = `<script>
         var locale = scan('(F736 long localized names)');
         locale.localeFixture = list.textContent;
         out.push(locale);
-        finish(out);
+        A.showSection('sec-favResults');
+        return A.loadFavs().then(function () {
+          var favorite = scan('sec-favResults');
+          favorite.populatedFixture = true;
+          out.push(favorite);
+          var profile = A.chaseProfile();
+          A.seedChase(profile.slug, {
+            t: Date.now(), rarity: false,
+            fetchBaseKey: A.chaseFetchBaseKey(profile),
+            geoNotableKm: window.BirdLogic.geoNotableDistKm(profile),
+            speciesCodes: ['baisan', 'amerob'],
+            rows: {'king-notable.json': [
+              { speciesCode: 'baisan', comName: "Baird's Sandpiper",
+                locName: 'Marymoor Park--Audubon Bird Loop', locId: 'L2',
+                lat: 47.658, lng: -122.118, howMany: 2,
+                obsDt: new Date().toISOString().slice(0, 10) + ' 08:00', subId: 'SAUDIT' },
+              { speciesCode: 'amerob', comName: 'American Robin',
+                locName: 'Long Favorite patch name for the visible map control', locId: 'L-F1',
+                lat: 47.65, lng: -122.29, howMany: 1,
+                obsDt: new Date().toISOString().slice(0, 10) + ' 07:00', subId: 'SAUDIT2' }
+            ]}
+          });
+          A.showSection('sec-nvResults');
+          return A.LOADERS.nvResults.fn();
+        }).then(function (ready) {
+          if (!ready || !/Marymoor Park/.test(document.getElementById('nvResults').textContent)) {
+            throw new Error('Populated Watch fixture did not acquire actual details.');
+          }
+          var watch = scan('sec-nvResults');
+          watch.populatedFixture = true;
+          out.push(watch);
+          A.showSection('sec-bcBody');
+          ['None', 'Low', 'Medium', 'High', ''].forEach(function (level) {
+            A.renderBirdcast(new Date('2026-09-10T19:00:00Z'),
+              {forecast: level ? {level: level} : null, count: null});
+            var migration = scan('sec-bcBody');
+            migration.expectedMigrationWord = level ? level.toUpperCase() : 'LOADING';
+            out.push(migration);
+          });
+          finish(out);
+        });
       }).catch(function (error) {
         out.push({ label: 'Required locale fixture failed', fixtureError: error.message });
         finish(out);
@@ -1069,12 +1242,60 @@ server.listen(0, '127.0.0.1', () => {
           bad++;
           console.log('   FAVORITE MAP NOT VISIBLE  ' + JSON.stringify(r.favoriteMap));
         }
+        console.log('   FAVORITE HEADER HEIGHTS  ' + JSON.stringify(r.favoriteHeaders));
+        if (!r.favoriteHeaders.length || r.favoriteHeaders.some((header) =>
+          !header.distanceInHeader || !header.removalBelowDetails
+            || Math.abs(header.height - header.reference) > 0.5
+            || !header.namesFit || r.populatedFixture && !header.birdRows)) {
+          bad++;
+          console.log('   FAVORITE HEADER STRETCHED  ' + JSON.stringify(r.favoriteHeaders));
+        }
+        if (r.favoriteHeaders.some((header) => !header.removalOnly)) {
+          bad++;
+          console.log('   FAVORITE REMOVAL FOOTER INCORRECT  ' + JSON.stringify(r.favoriteHeaders));
+        }
+        if (r.populatedFixture && r.favoriteHeaders.some((header) =>
+          !header.spacing || ['headerToFacts', 'factsToBird', 'birdToEnd'].some((gap) =>
+            header.spacing.favorite[gap] > header.spacing.shared[gap] + 0.5)
+            || header.spacing.favorite.rowPadding !== header.spacing.shared.rowPadding)) {
+          bad++;
+          console.log('   FAVORITE EXTRA SPACING  ' + JSON.stringify(r.favoriteHeaders));
+        }
       }
       if (r.label === 'sec-nvResults') {
         console.log('   WATCH NAME WIDTHS  ' + JSON.stringify(r.watchNames));
         if (!r.watchNames.length || r.watchNames.some((name) => name.width + 0.5 < name.required)) {
           bad++;
           console.log('   WATCH NAME CLIPPED  ' + JSON.stringify(r.watchNames));
+        }
+        console.log('   WATCH PHOTO SIZES  ' + JSON.stringify(r.watchPhotos));
+        if (!r.watchPhotos.length || r.watchPhotos.some((photo) =>
+          Math.abs(photo.width - photo.maximum) > 0.5 || Math.abs(photo.height - photo.maximum) > 0.5
+            || !photo.topAligned || !photo.usableRemove)) {
+          bad++;
+          console.log('   WATCH PHOTO OVERSIZED  ' + JSON.stringify(r.watchPhotos));
+        }
+      }
+      if (r.label === 'sec-favResults' || r.label === 'sec-nvResults') {
+        if (r.savedSearch.length !== 2 || r.savedSearch.some((search) =>
+          !search.sameLine || !search.afterInput || search.inputWidth <= 0
+            || search.right > r.vw || search.width < 44 || search.height < 44)) {
+          bad++;
+          console.log('   SAVED SEARCH WRAPPED  ' + JSON.stringify(r.savedSearch));
+        }
+      }
+      if (r.label === 'sec-surgeBtn' || r.label === 'sec-bcBody') {
+        console.log('   MIGRATION WORD FIT  ' + JSON.stringify(r.migrationWords));
+        if (!r.migrationWords.length || r.migrationWords.some((word) =>
+          word.lines !== 1 || word.required > word.width + 0.5)
+            || r.label === 'sec-surgeBtn' && !r.migrationWords.some((word) => word.text === 'MEDIUM')) {
+          bad++;
+          console.log('   MIGRATION WORD CLIPPED  ' + JSON.stringify(r.migrationWords));
+        }
+        if (r.expectedMigrationWord
+            && !r.migrationWords.some((word) => word.text === r.expectedMigrationWord)) {
+          bad++;
+          console.log('   MIGRATION WORD FIXTURE MISSING  ' + r.expectedMigrationWord);
         }
       }
       // F251. The number in the command and the viewport measured inside the

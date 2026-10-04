@@ -3388,7 +3388,8 @@ test('F765 Favorite display sorting preserves saved identity, scope and map sele
   app.window.localStorage.removeItem(A.homeKey('lng'));
   A.renderFavs();
   assert.deepEqual(ids(), ['L-UNKNOWN', 'L-FAR', 'L-TIE-B', 'L-NEAR']);
-  assert.match(app.$('favStatus').textContent, /alphabetical; set Home/);
+  assert.match(app.$('favStatus').textContent, /1 saved patch has no valid coordinates/);
+  assert.doesNotMatch(app.$('favStatus').textContent, /alphabetical; set Home/);
   app.window.close();
 });
 
@@ -3595,20 +3596,16 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
 test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  // 128px, matching `.nvrow` in Needs-verification. Asked for by name: "i like
-  // the large photos in the needs verification and smaller bird titles, can i
-  // use this in the medium species card?" It was 84px.
-  //
-  // Asserts the NUMBER shared with .nvrow rather than one hard-coded literal,
-  // so the two cannot drift apart silently — which is the whole point of the
-  // request.
-  const nv = HTML.match(/\.nvrow > \.thumb \{[^}]*?width: calc\((\d+)px/);
-  assert.ok(nv, 'the Needs-verification thumb rule moved — this guard is looking in the wrong place');
+  const savedPhotos = HTML.match(/\.nvrow > \.thumb, \.favoritecard \.favspp > li > \.name > \.thumb \{[^}]*?width: ([^;]+);[^}]*?height: ([^;]+);/);
+  assert.ok(savedPhotos, 'Watch and Favorite photos share one scoped sizing rule');
+  const small = CARDS_SPECIES.match(/\.obs\.card-sm \.thumb[^]*?width: calc\((\d+)px/);
+  assert.ok(small, 'the shared small-card photo rule moved');
   const med = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\((\d+)px/);
   assert.ok(med, 'the medium card thumb rule moved');
-  assert.equal(med[1], nv[1],
-    `the medium card photo is ${med[1]}px and Needs-verification is ${nv[1]}px — they were asked to match`);
-  assert.ok(Number(med[1]) > 56,
+  const mediumDimensions = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: ([^;]+);[^]*?height: ([^;]+);/);
+  assert.deepEqual(savedPhotos.slice(1), mediumDimensions.slice(1),
+    'Watch and Favorite photos must match ungrouped Twitches in both dimensions');
+  assert.ok(Number(med[1]) > Number(small[1]),
     'the rarity thumbnail is larger than the 56px seed-sized default, and scales with the text-size setting');
   // ...and it must YIELD on a narrow screen. A flat 128px * 1.75 is 224px of a
   // 320px phone, which blew the row 55.6px past the viewport — caught by the
@@ -6584,7 +6581,9 @@ test('F743 favorites share Today patch title, numbering and distance treatment',
   }
   assert.equal(favorite.querySelector('.ntext').textContent, 'Synthetic long Favorite patch title');
   assert.ok(favorite.querySelector('.ntext .hslink'));
-  assert.ok(favorite.querySelector('.hsact .maplink'));
+  assert.equal(favorite.querySelector('.hsact .maplink'), null,
+    'F776 removes the separate Maps footer, not the linked distance or patch title');
+  assert.ok(favorite.querySelector('.hsdist.maplink'));
   assert.equal(favorite.querySelector('.recentlink'), null);
   app.window.close();
 });
@@ -9628,15 +9627,469 @@ test('F765 removal reuses the existing right-side control style without reorder 
   A.renderFavs();
   const card = app.$('favResults').firstElementChild;
   const controls = card.querySelector('.favctl');
-  assert.equal(controls.parentElement, card.querySelector('.name'));
+  assert.equal(controls.parentElement, card.querySelector('.favremove'));
+  assert.equal(card.querySelector('.hsdist').parentElement, card.querySelector('.name'),
+    'removal must not stretch the shared distance header');
   assert.equal(card.querySelector('.favup, .favdown'), null);
-  for (const [selector, label] of [['.favdel', '✕']]) {
+  for (const [selector, label] of [['.favdel', 'Remove']]) {
     const button = controls.querySelector(selector);
     assert.equal(button.textContent, label);
     assert.ok(parseFloat(app.window.getComputedStyle(button).minHeight) >= 44);
   }
   app.window.close();
 });
+test('F776 Favorite removal is top-aligned beside both bird text rows without external footer links', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.setFavs([
+    { id: 'LFAR', locId: 'LFAR', locName: 'Far patch', lat: 48.3, lng: -122.3, region: 'US-WA' },
+    { id: 'LNEAR', locId: 'LNEAR', locName: 'Near patch', lat: 47.65, lng: -122.2, region: 'US-WA' },
+  ]);
+  const rows = [
+    { speciesCode: 'fixturebird1', comName: 'First fixture bird', howMany: 2, obsDt: recentObsStamp() },
+    { speciesCode: 'fixturebird2', comName: 'Second fixture bird', howMany: 1, obsDt: recentObsStamp() },
+  ];
+  A.seedFavDetail('LNEAR', rows);
+  A.seedFavDetail('LFAR', []);
+  A.renderFavs();
+  const near = app.$('favResults').querySelector('[data-favorite-id="LNEAR"]');
+  const names = near.querySelectorAll('.favspp > li > .name');
+  assert.equal(names.length, 2);
+  assert.equal(names[0].children.length, 3);
+  assert.ok(names[0].children[0].classList.contains('thumb'));
+  assert.ok(names[0].children[1].classList.contains('ntext'));
+  assert.equal(near.querySelectorAll('.favdel').length, 1);
+  assert.equal(names[0].querySelector('.favctl .favdel').textContent, 'Remove');
+  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).backgroundColor,
+    'rgb(194, 51, 31)');
+  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).color,
+    'rgb(255, 255, 255)');
+  assert.equal(names[1].querySelector('.favdel'), null);
+  assert.equal(near.querySelector(':scope > .name .favdel'), null);
+  assert.equal(near.querySelector('.hsact'), null);
+  assert.doesNotMatch(near.textContent, /Open in Maps|Open in eBird/);
+  assert.equal(app.window.getComputedStyle(names[0]).alignItems, 'start');
+  assert.equal(app.window.getComputedStyle(names[0].querySelector('.favctl')).justifySelf, 'end');
+  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).padding, '8px');
+  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).minHeight, '44px');
+  const far = app.$('favResults').querySelector('[data-favorite-id="LFAR"]');
+  assert.equal(far.querySelectorAll('.favdel').length, 1);
+  assert.ok(far.querySelector('.favremove .favdel'), 'checked-empty patches retain removal');
+  app.click(near.querySelector('.favdel'));
+  assert.deepEqual(arr(A.getFavs(), (favorite) => favorite.id), ['LFAR']);
+  assert.equal(app.$('favResults').querySelectorAll('.favoritecard').length, 1);
+  app.window.close();
+});
+test('F781 deprecated custom-region Settings controls are absent without deleting saved data', async () => {
+  const regions = JSON.stringify([{
+    slug: 'u-michigan-test', label: 'Michigan test', place: 'Michigan',
+    lat: 42.31, lng: -84.02, stateCode: 'US-MI', tideStation: '',
+    tzStdOffset: -5, tzObservesDst: true,
+  }]);
+  const app = await boot({ storage: {
+    ebird_custom_regions: regions,
+    'ebird_home_lat:u-michigan-test': '42.31',
+    'ebird_home_lng:u-michigan-test': '-84.02',
+    'ebird_home_place:u-michigan-test': 'Saved Home',
+  } });
+  app.open(/Settings/);
+  const settings = app.$('settingsPanel');
+  for (const id of ['myRegions', 'tripName', 'tripPlace', 'addTripBtn']) {
+    assert.equal(settings.querySelector('#' + id), null);
+  }
+  assert.doesNotMatch(settings.textContent, /My regions|Add your own region|chase from its center/);
+  assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
+  app.window.__app.setActiveReport('u-michigan-test');
+  assert.equal(app.window.__app.getReportSlug(), 'u-michigan-test');
+  assert.equal(app.$('homePlace').value, 'Saved Home');
+  app.click(app.$('clearHomeBtn'));
+  assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan-test'), null);
+  assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
+  const help = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs.settingsPanel;
+  assert.match(help.how.join(' '), /deprecated.*preserved/);
+  assert.doesNotMatch(help.how.join(' '), /You can add your own regions/);
+  app.window.close();
+});
+
+test('F780 Clear Home clears only the active report and permits a coordinate reset', async () => {
+  const app = await boot({ storage: {
+    'ebird_home_lat:wa': '51.49', 'ebird_home_lng:wa': '-0.12',
+    'ebird_home_place:wa': 'Wrong namesake',
+    'ebird_home_lat:hi': '19.7', 'ebird_home_lng:hi': '-155.1',
+    'ebird_home_place:hi': 'Other Home',
+  } });
+  app.open(/Settings/);
+  app.$('tideStation').value = 'unsaved draft';
+  const storedTide = app.window.localStorage.getItem('ebird_tide_station:wa');
+  app.click(app.$('clearHomeBtn'));
+  assert.equal(app.window.localStorage.getItem('ebird_tide_station:wa'), storedTide);
+  for (const field of ['lat', 'lng', 'place']) {
+    assert.equal(app.window.localStorage.getItem('ebird_home_' + field + ':wa'), null);
+  }
+  assert.equal(app.window.localStorage.getItem('ebird_home_place:hi'), 'Other Home');
+  for (const field of ['homePlace', 'homeLat', 'homeLng']) assert.equal(app.$(field).value, '');
+  assert.match(app.$('geocodeStatus').textContent, /Home cleared.*Other regions are unchanged/);
+  assert.equal(app.document.activeElement, app.$('homePlace'));
+  app.$('homePlace').value = '42.31, -84.02';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => app.window.localStorage.getItem('ebird_home_lat:wa') === '42.31',
+    'new coordinate Home');
+  assert.equal(app.window.localStorage.getItem('ebird_home_lng:wa'), '-84.02');
+  assert.equal(app.window.localStorage.getItem('ebird_home_lat:hi'), '19.7');
+  app.window.close();
+});
+
+test('F782 Twitches refetches Michigan rarities when Home changes during an older lookup', async () => {
+  let resolveOld;
+  const regions = JSON.stringify([{
+    slug: 'u-michigan', label: 'Michigan', lat: 43, lng: -84, stateCode: 'US-MI',
+    tzStdOffset: -5, tzObservesDst: true,
+  }]);
+  const nearby = {
+    speciesCode: 'sursco', comName: 'Surf Scoter', lat: 43.05, lng: -84,
+    locId: 'LMI', locName: 'Michigan fixture', subId: 'SMI', obsDt: '2026-10-03 10:00',
+    howMany: 1, obsReviewed: true,
+  };
+  const app = await boot({ storage: {
+    ebird_custom_regions: regions, ebird_report: 'u-michigan',
+    'ebird_home_lat:u-michigan': '51.5', 'ebird_home_lng:u-michigan': '-0.1',
+    ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'near' }),
+  }, fetch(url) {
+    if (/geo\/recent\/notable/.test(url)) {
+      if (/lat=51\.5/.test(url)) return new Promise((resolve) => { resolveOld = resolve; });
+      return [nearby];
+    }
+    return null;
+  } });
+  const A = app.window.__app;
+  A.refresh();
+  await waitFor(() => !!resolveOld, 'old Home rarity request');
+  app.open(/Settings/);
+  app.click(app.$('clearHomeBtn'));
+  app.$('homePlace').value = '43, -84';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => app.window.localStorage.getItem('ebird_home_lat:u-michigan') === '43',
+    'corrected fixture Home');
+  A.refresh();
+  resolveOld([]);
+  await waitFor(() => app.state.fetches.some((url) =>
+    /geo\/recent\/notable/.test(url) && /lat=43(?:&|\.)/.test(url)), 'new Home rarity request');
+  await waitFor(() => /Michigan fixture/.test(app.$('results').textContent), 'Michigan nearby result');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.match(app.$('results').textContent, /Michigan fixture/);
+  assert.doesNotMatch(app.$('status').textContent, /No rarity reports/);
+  app.window.close();
+});
+
+test('F780 Clear Home rejects late explicit and automatic geocoder responses', async () => {
+  for (const automatic of [false, true]) {
+    let resolveSearch;
+    const app = await boot({ fetch: (url) => {
+      if (/photon\.komoot\.io\/api/.test(url)) {
+        return new Promise((resolve) => { resolveSearch = resolve; });
+      }
+      return new Promise(() => {});
+    } });
+    app.open(/Settings/);
+    app.$('homeLat').value = '';
+    app.$('homeLng').value = '';
+    app.$('homePlace').value = 'Ambiguous place';
+    if (automatic) app.$('homePlace').dispatchEvent(new app.window.Event('change'));
+    else app.click(app.$('geocodeBtn'));
+    await waitFor(() => !!resolveSearch, 'held Home geocoder');
+    app.click(app.$('clearHomeBtn'));
+    resolveSearch({ features: [{
+      geometry: { coordinates: [-0.12, 51.49] },
+      properties: { name: 'Obsolete namesake', state: 'England', country: 'United Kingdom' },
+    }] });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(app.window.localStorage.getItem('ebird_home_lat:wa'), null);
+    assert.equal(app.$('homePlace').value, '');
+    assert.match(app.$('geocodeStatus').textContent, /Home cleared/);
+    assert.equal(app.$('geocodeBtn').disabled, false);
+    app.window.close();
+  }
+});
+
+test('F769 Favorite normal explanatory prose moves to help without hiding actionable states', async () => {
+  const app = await boot({ storage: { ebird_api_key: '' } });
+  const A = app.window.__app;
+  A.setFavs([
+    { id: 'L1', locId: 'L1', locName: 'Marymoor Park', lat: 47.65, lng: -122.12, region: 'US-WA' },
+    { id: 'L2', locId: 'L2', locName: 'Unknown coordinates', region: 'US-WA' },
+    ...Array.from({ length: 5 }, (_, i) => ({
+      id: `LF${i}`, locId: `LF${i}`, locName: `Other saved patch ${i}`,
+      lat: 47.7 + i / 100, lng: -122.2, region: 'US-WA',
+    })),
+  ]);
+  A.renderFavs();
+  assert.doesNotMatch(app.$('favStatus').textContent, /saved Washington|nearest to Home|Showing last|Already-seen/);
+  assert.match(app.$('favStatus').textContent, /1 saved patch has no valid coordinates/);
+  await A.LOADERS.favResults.fn();
+  assert.match(app.$('favStatus').textContent, /API key/);
+  assert.equal(app.$('favResults').querySelectorAll('.favoritecard').length, 7);
+  const docs = JSON.parse(fs.readFileSync(wwwFixture('section-docs.json'), 'utf8')).docs.favResults;
+  const prose = JSON.stringify(docs);
+  assert.match(prose, /nearest to Home|nearest.*Home/i);
+  assert.match(prose, /without Home.*alphabetical/i);
+  assert.match(prose, /last 7 days/);
+  assert.match(prose, /watchlist verifications/);
+  assert.match(prose, /Already-seen birds/);
+  assert.doesNotMatch(prose, /in your own order|up\/down controls/);
+  app.open(/Favorite patches/);
+  app.click(app.document.querySelector('#sec-favResults .docbtn'));
+  await waitFor(() => /nearest to Home/.test(
+    app.document.querySelector('#sec-favResults .sectiondoc').textContent), 'Favorite help prose');
+  assert.match(app.document.querySelector('#sec-favResults .sectiondoc').textContent, /last 7 days/);
+  A.setFavs([]);
+  A.renderFavs();
+  assert.match(app.$('favStatus').textContent, /Search above/);
+  app.window.close();
+});
+
+test('F771 Watch menu automatically acquires details and distinguishes pending from checked-empty', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' },
+  ]) } });
+  const A = app.window.__app;
+  const profile = A.chaseProfile();
+  A.seedChase(profile.slug, null);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
+    app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  assert.equal(app.$('nvResults').querySelectorAll('.nvrow').length, 2);
+  assert.match(app.$('nvStatus').textContent, /Checking recent reports/);
+  assert.doesNotMatch(app.$('nvResults').textContent, /No report in range/);
+  const reading = A.LOADERS.nvResults.fn();
+  assert.equal(app.$('nvResults').getAttribute('aria-busy'), 'true');
+  release({ profile, rarity: false, cv: { merged: [
+    { code: 'amerob', loc: 'Marymoor Park', locId: 'L1', distMi: 6.6,
+      lat: 47.65, lon: -122.12, dateStr: recentObsStamp(), subId: 'S1' },
+  ] } });
+  assert.equal(await reading, true);
+  assert.match(app.$('nvResults').textContent, /Marymoor Park/);
+  assert.match(app.$('nvResults').textContent, /6\.6 mi/);
+  assert.match(app.$('nvResults').textContent, /No report in range/);
+  assert.equal(app.$('nvResults').hasAttribute('aria-busy'), false);
+  assert.equal(app.$('nvBtn').disabled, false);
+  assert.equal(A.getWatchlist().length, 2);
+  app.window.close();
+});
+
+test('F771 Watch failure and missing credentials never masquerade as an empty successful check', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app, profile = A.chaseProfile();
+  A.seedChase(profile.slug, null);
+  let rejectRead;
+  const pending = new Promise((resolve, reject) => { rejectRead = reject; });
+  A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
+    app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  const reading = A.LOADERS.nvResults.fn();
+  rejectRead(new Error('Synthetic Watch feed unavailable'));
+  assert.equal(await reading, false);
+  assert.match(app.$('nvStatus').textContent, /could not be checked/);
+  assert.match(app.$('nvResults').textContent, /Recent reports unavailable/);
+  assert.doesNotMatch(app.$('nvResults').textContent, /No report in range/);
+  app.window.localStorage.removeItem('ebird_api_key');
+  assert.equal(await A.LOADERS.nvResults.fn(), false);
+  assert.match(app.$('nvStatus').textContent, /API key/);
+  assert.equal(app.document.querySelector('section.panel:not([hidden])').id, 'sec-nvResults',
+    'opening without credentials must not force Settings navigation');
+  app.window.close();
+});
+
+test('F771 Watch ownership rejects old Home evidence without releasing the newer loading state', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app;
+  function deferred() {
+    const profile = A.chaseProfile();
+    A.seedChase(profile.slug, null);
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
+      app.window.BirdLogic.geoNotableDistKm(profile));
+    return { profile, release };
+  }
+  function result(flight, loc) {
+    return { profile: flight.profile, rarity: false, cv: { merged: [
+      { code: 'amerob', loc, distMi: 1, lat: 47.6, lon: -122.3, dateStr: recentObsStamp() },
+    ] } };
+  }
+  const old = deferred();
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  const oldRead = A.LOADERS.nvResults.fn();
+  app.window.localStorage.setItem(A.homeKey('lat'), '48.3');
+  const latest = deferred(), latestRead = A.LOADERS.nvResults.fn();
+  old.release(result(old, 'Obsolete Home Park'));
+  assert.equal(await oldRead, false);
+  assert.doesNotMatch(app.$('nvResults').textContent, /Obsolete Home Park|No report in range/);
+  assert.equal(app.$('nvResults').getAttribute('aria-busy'), 'true');
+  assert.equal(app.$('nvBtn').disabled, true);
+  latest.release(result(latest, 'Current Home Park'));
+  assert.equal(await latestRead, true);
+  assert.match(app.$('nvResults').textContent, /Current Home Park/);
+  assert.equal(app.$('nvResults').hasAttribute('aria-busy'), false);
+  assert.equal(app.$('nvBtn').disabled, false);
+  app.window.close();
+});
+
+test('F771 leaving Watch cancels its paint and reopening retries automatically', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app, profile = A.chaseProfile();
+  A.seedChase(profile.slug, null);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
+    app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  const reading = A.LOADERS.nvResults.fn();
+  app.open(/Favorite patches/);
+  release({ profile, rarity: false, cv: { merged: [
+    { code: 'amerob', loc: 'Canceled Park', distMi: 1, dateStr: recentObsStamp() },
+  ] } });
+  assert.equal(await reading, false);
+  assert.doesNotMatch(app.$('nvResults').textContent, /Canceled Park|No report in range/);
+  assert.equal(app.$('nvBtn').disabled, false);
+  A.setChaseInflight(profile.slug, Promise.resolve({ profile, rarity: false, cv: { merged: [
+    { code: 'amerob', loc: 'Reopened Park', distMi: 2, dateStr: recentObsStamp() },
+  ] } }), A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  await waitFor(() => /Reopened Park/.test(app.$('nvResults').textContent), 'automatic Watch reopen');
+  app.window.close();
+});
+
+test('F771 both Watch refresh controls bypass a warm answer and failed refresh retains good details', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app;
+  seedRarityChase(app, [
+    { code: 'amerob', name: 'American Robin', loc: 'Warm Park', locId: 'LWARM',
+      distMi: 4, lat: 47.6, lon: -122.3, dateStr: recentObsStamp() },
+  ]);
+  const profile = A.chaseProfile();
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  assert.equal(await A.LOADERS.nvResults.fn(), true);
+  assert.match(app.$('nvResults').textContent, /Warm Park/);
+  for (const [selector, place] of [['#nvBtn', 'Manual Fresh Park'],
+    ['#sec-nvResults .refreshbtn', 'Header Fresh Park']]) {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
+      app.window.BirdLogic.geoNotableDistKm(profile));
+    app.click(app.document.querySelector(selector));
+    assert.equal(app.$('nvResults').getAttribute('aria-busy'), 'true',
+      'the pressed control must start the owned refresh before any test reentry');
+    const reading = A.LOADERS.nvResults.fn();
+    release({ profile, rarity: false, cv: { merged: [
+      { code: 'amerob', loc: place, distMi: 2, dateStr: recentObsStamp() },
+    ] } });
+    assert.equal(await reading, true);
+    assert.match(app.$('nvResults').textContent, new RegExp(place));
+  }
+  let reject;
+  A.setChaseInflight(profile.slug, new Promise((resolve, fail) => { reject = fail; }),
+    A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
+  app.click(app.$('nvBtn'));
+  const failed = A.LOADERS.nvResults.fn();
+  reject(new Error('Synthetic refresh outage'));
+  assert.equal(await failed, false);
+  assert.match(app.$('nvResults').textContent, /Header Fresh Park/);
+  assert.match(app.$('nvStatus').textContent, /could not be checked/);
+  assert.equal(app.$('nvBtn').disabled, false);
+  app.window.close();
+});
+
+test('F771 editing the visible Watch membership automatically reacquires its scoped details', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app;
+  seedRarityChase(app, [
+    { code: 'amerob', name: 'American Robin', loc: 'Robin Park', locId: 'LR',
+      distMi: 4, dateStr: recentObsStamp() },
+    { code: 'chispa', name: 'Chipping Sparrow', loc: 'Sparrow Park', locId: 'LS',
+      distMi: 5, dateStr: recentObsStamp() },
+  ]);
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  assert.equal(await A.LOADERS.nvResults.fn(), true);
+  assert.match(app.$('nvResults').textContent, /Robin Park/);
+  const profile = A.chaseProfile();
+  A.setChaseInflight(profile.slug, Promise.resolve({ profile, rarity: false, cv: { merged: [
+    { code: 'amerob', loc: 'Robin Park', distMi: 4, dateStr: recentObsStamp() },
+    { code: 'chispa', loc: 'Sparrow Park', distMi: 5, dateStr: recentObsStamp() },
+  ] } }), A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
+  A.addWatch('chispa', 'Chipping Sparrow');
+  assert.match(app.$('nvStatus').textContent, /Checking recent reports/);
+  await waitFor(() => /Sparrow Park/.test(app.$('nvResults').textContent), 'automatic added Watch details');
+  assert.equal(A.getWatchlist().length, 2);
+  const robin = [...app.$('nvResults').querySelectorAll('.nvrow')]
+    .find((row) => /American Robin/.test(row.textContent));
+  app.click(robin.querySelector('.nvdel'));
+  await waitFor(() => !app.$('nvResults').hasAttribute('aria-busy'), 'automatic remaining Watch details');
+  assert.match(app.$('nvResults').textContent, /Sparrow Park/);
+  assert.doesNotMatch(app.$('nvResults').textContent, /Robin Park|No report in range/);
+  assert.equal(A.getWatchlist().length, 1);
+  app.window.close();
+});
+
+test('F771 removing the last watched bird releases pending controls and rejects obsolete completion', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app, profile = A.chaseProfile();
+  A.seedChase(profile.slug, null);
+  let release;
+  A.setChaseInflight(profile.slug, new Promise((resolve) => { release = resolve; }),
+    A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  const reading = A.LOADERS.nvResults.fn();
+  assert.equal(app.$('nvBtn').disabled, true);
+  A.removeWatchAt(0);
+  assert.equal(app.$('nvResults').hasAttribute('aria-busy'), false);
+  assert.equal(app.$('nvBtn').disabled, false);
+  assert.equal(app.document.querySelector('#sec-nvResults .refreshbtn').disabled, false);
+  assert.match(app.$('nvStatus').textContent, /Nothing is awaiting verification/);
+  release({ profile, rarity: false, cv: { merged: [] } });
+  assert.equal(await reading, false);
+  assert.equal(app.$('nvResults').children.length, 0);
+  assert.match(app.$('nvStatus').textContent, /Nothing is awaiting verification/);
+  app.window.close();
+});
+
+test('F771 unavailable scope evidence is not a successful empty Watch check', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'amerob', name: 'American Robin' },
+  ]) } });
+  const A = app.window.__app, profile = A.chaseProfile();
+  A.seedChase(profile.slug, null);
+  A.setChaseInflight(profile.slug, Promise.resolve({
+    profile, rarity: true, cv: { merged: [] },
+  }), A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  assert.equal(await A.LOADERS.nvResults.fn(), false);
+  assert.match(app.$('nvResults').textContent, /Recent reports unavailable/);
+  assert.match(app.$('nvStatus').textContent, /could not be checked/);
+  assert.doesNotMatch(app.$('nvResults').textContent, /No report in range/);
+  app.window.close();
+});
+
 // bundled seed is 60px wide and `photoSlot` deliberately stops there rather
 // than paying for a network rendition — so at the medium card's 92px it is
 // upscaled 1.5x. Last 7-Days looked crisp in the SAME 92px card because its
@@ -10471,6 +10924,16 @@ test('F765 Watch list sorts alphabetically without rewriting storage or misdirec
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   const buttons = () => [...app.$('nvResults').querySelectorAll('.nvdel')];
   assert.deepEqual(buttons().map((button) => button.dataset.i), ['2', '3', '1', '0']);
+  assert.equal(app.window.getComputedStyle(app.$('nvResults').querySelector('.nvrow')).alignItems,
+    'start');
+  for (const button of buttons()) {
+    assert.equal(button.textContent, 'Remove');
+    const style = app.window.getComputedStyle(button);
+    assert.equal(style.backgroundColor, 'rgb(194, 51, 31)');
+    assert.equal(style.color, 'rgb(255, 255, 255)');
+    assert.equal(style.padding, '8px');
+    assert.equal(style.minHeight, '44px');
+  }
   assert.equal(JSON.stringify(A.getWatchlist()), JSON.stringify(saved));
   assert.equal(app.$('nvResults').querySelector('.nvup, .nvdown'), null);
   app.click(buttons()[0]);
@@ -15354,9 +15817,11 @@ test('the flexible tracks that carry text can actually shrink', () => {
   assert.match(css, /\.tileicon\s*\{[^}]*font-size:\s*min\(/,
     'the icon is capped so it cannot consume the tile at large text');
 
-  // The photo yields before the touch targets do.
-  assert.match(css, /\.nvrow > \.thumb\s*\{[^}]*flex:\s*0 1 auto/,
-    'the needs-verification thumb shrinks so the ▲▼✕ column stays on screen');
+  // F778 bounds the photo by viewport width; larger text moves below it.
+  assert.match(css, /\.nvrow > \.thumb, \.favoritecard \.favspp > li > \.name > \.thumb\s*\{[^}]*width:\s*min\(/,
+    'saved-list photos are viewport-bounded, not an unrestricted scaled width');
+  assert.match(css, /\.nvrow > \.favmain\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*grid-row:\s*2/,
+    'responsive Watch details use the full width below photo and removal');
 
   // Hostnames and alert ids are single unbreakable tokens.
   assert.match(css, /\.hint code\s*\{[^}]*overflow-wrap:\s*anywhere/,

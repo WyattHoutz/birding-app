@@ -1421,14 +1421,15 @@
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .birdcast-alert {
-      display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px;
+      display: grid; grid-template-columns: calc(72px * var(--s)) minmax(0, 1fr); gap: 12px;
       align-items: center; margin: 4px 0 12px; padding: 13px;
       border: 2px solid var(--safe-blue); border-radius: 14px;
       background: color-mix(in srgb, var(--safe-blue) 8%, var(--card));
       color: var(--ink);
     }
     .birdcast-alert-icon {
-      display: grid; place-items: center; width: 68px; min-height: 68px;
+      display: grid; grid-template-columns: minmax(0, 1fr); place-items: center;
+      width: calc(68px * var(--s)); min-height: calc(68px * var(--s));
       padding: 0; box-sizing: border-box; overflow: visible;
       border: 2px solid currentColor; border-radius: 14px;
       font-size: calc(14px * var(--s)); font-weight: 900; line-height: 1;
@@ -1436,7 +1437,7 @@
     }
     .birdcast-flight {
       --migration-art: none;
-      position: relative; display: grid; place-items: end center;
+      position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: end center;
       width: 100%; height: 100%; min-height: 64px; overflow: hidden;
       color: #fff; isolation: isolate;
       background:
@@ -1467,13 +1468,16 @@
       background: rgba(2, 12, 30, .84); color: #fff;
       font-size: calc(16px * var(--s)); font-weight: 900;
       letter-spacing: .06em; line-height: 1; text-align: center;
-      overflow-wrap: anywhere;
+      white-space: nowrap; overflow-wrap: normal;
     }
     .birdcast-flight-low .birdcast-flight-label {
       font-size: calc(19px * var(--s)); letter-spacing: .12em;
     }
     .birdcast-flight-medium .birdcast-flight-label {
       font-size: calc(12px * var(--s)); letter-spacing: .025em;
+    }
+    .birdcast-flight-loading .birdcast-flight-label {
+      font-size: calc(11px * var(--s));
     }
     .birdcast-flight-high .birdcast-flight-label {
       font-size: calc(17px * var(--s)); letter-spacing: .08em;
@@ -1496,7 +1500,13 @@
     @media (prefers-reduced-motion: reduce) {
       .birdcast-flight-spinner { animation: none; }
     }
-    .birdcast-alert-copy { display: grid; gap: 2px; min-width: 0; }
+    .birdcast-alert-copy { display: grid; grid-template-columns: minmax(0, 1fr);
+      gap: 2px; min-width: 0; }
+    @media (max-width: 390px) {
+      html[data-display="high-visibility"] .birdcast-alert {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
     .birdcast-alert-code { max-width: 100%; overflow-wrap: anywhere;
       font-size: calc(22px * var(--s)); font-weight: 900;
       letter-spacing: .03em; line-height: 1; }
@@ -2311,6 +2321,10 @@
       font-size: calc(14px * var(--s)); letter-spacing: .025em; }
     .surgebirdcastthumb .birdcast-flight-low .birdcast-flight-label {
       font-size: calc(15px * var(--s)); letter-spacing: .04em; }
+    .surgebirdcastthumb .birdcast-flight-medium .birdcast-flight-label {
+      font-size: calc(11px * var(--s)); letter-spacing: 0; }
+    .surgebirdcastthumb .birdcast-flight-loading .birdcast-flight-label {
+      font-size: calc(10px * var(--s)); letter-spacing: 0; }
     .surgebirdcastthumb.birdcast-count-tile .birdcast-flight-label {
       font-size: calc(13px * var(--s)); letter-spacing: .02em; }
     .surgeheld { margin: 11px 0 0; padding-top: 10px; border-top: 2px solid var(--line);
@@ -2384,28 +2398,39 @@
       border: 1px solid var(--line); width: 100%; font-size: calc(16px * var(--s));
       font-weight: 600; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
     .favmeta { color: var(--muted); font-size: calc(14px * var(--s)); margin: 4px 0; line-height: 1.4; }
-    .favspp { margin: 4px 0 6px; }
-    .favspp li { padding: 5px 0; border: none; }
+    .favoritecard > .meta:empty, .favoritecard > .hslists:empty { display: none; }
+    .favoritecard .recentbox > .favmeta { margin: 2px 0 0; line-height: 1.35; font-weight: 500; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
     .favctl .favbtn { min-width: 44px; min-height: 44px; }
-    .favoritecard > .name > .favctl { grid-column: 3; grid-row: 1; align-items: flex-end; }
-    /* The ▲▼✕ column is three 40px targets tall, so an NV row is ~128px however
-       little it carries — a 46px thumb and a 16px name left two thirds of that
-       height blank. The photo grows to the full height of the controls beside
-       it and the name is sized to be recognised, not merely labelled. Favorite
-       hotspots keeps the compact row: a place has no photo and already fills
-       the height with its species line and two links. */
-    .nvrow { align-items: center; gap: 12px; min-height: calc(128px * var(--s)); }
-    /* The photo yields, the buttons never do. At the largest text scale on the
-       narrowest phone a 128px thumb wants 224px, which ran the ▲▼✕ column off
-       the screen — the one thing in the row you have to be able to hit.
-       `flex-shrink: 1` + `min-width: 0` lets the thumb give up width instead,
-       and `.birdpic` is `object-fit: cover`, so a narrower slot crops the
-       photo rather than distorting it. */
-    .nvrow > .thumb { float: none; flex: 0 1 auto; min-width: 0; margin: 0; border-radius: 12px;
-                      width: calc(128px * var(--s)); height: calc(128px * var(--s)); }
+    .favoritecard .favremove { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .favoritecard .favspp > li > .name {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start;
+    }
+    .favoritecard .favspp > li:first-child > .name > .favctl { justify-self: end; }
+    html[data-display="large"] .favoritecard .favspp > li > .name > .ntext,
+    html[data-display="high-visibility"] .favoritecard .favspp > li > .name > .ntext {
+      grid-column: 1 / -1; grid-row: 2;
+    }
+    html[data-display="large"] .favoritecard .favspp > li:first-child > .name > .favctl,
+    html[data-display="high-visibility"] .favoritecard .favspp > li:first-child > .name > .favctl {
+      grid-column: 3; grid-row: 1;
+    }
+    @media (max-width: 360px) {
+      .favoritecard .favspp > li > .name > .ntext { grid-column: 1 / -1; grid-row: 2; }
+      .favoritecard .favspp > li:first-child > .name > .favctl { grid-column: 3; grid-row: 1; }
+    }
+    .savedsearch { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    .savedsearch input { min-width: 0; min-height: 44px; box-sizing: border-box; }
+    .savedsearch > button { min-height: 44px; }
+    .savedsearch > .searchclear { grid-column: 1 / -1; justify-self: end; }
+    .nvrow { align-items: start; gap: 12px; min-height: calc(56px * var(--s)); }
+    .nvrow > .thumb { float: none; flex: 0 0 auto; min-width: 0; margin: 0; border-radius: 12px; }
+    .nvrow > .thumb, .favoritecard .favspp > li > .name > .thumb {
+      width: min(calc(128px * var(--s)), 28vw);
+      height: min(calc(128px * var(--s)), 28vw); border-radius: 12px;
+    }
     .nvrow .name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
-                   font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.25; }
+                   font-size: calc(17px * var(--s)); font-weight: 800; line-height: 1.25; }
     .nvrow .ntext { min-width: 0; overflow-wrap: anywhere; }
     .nvrow .meta { font-size: calc(15px * var(--s)); margin-top: 6px; }
     html[data-display="large"] .nvrow,
@@ -2425,6 +2450,11 @@
               color: var(--ink); cursor: pointer; }
     .favbtn[disabled] { opacity: .35; cursor: default; }
     .favbtn.del { color: #c2331f; }
+    .favoritecard .favbtn.favdel, .nvrow .favbtn.nvdel {
+      width: auto; height: auto; padding: 8px;
+      font-size: calc(12px * var(--s)); font-weight: 800; white-space: nowrap;
+      background: #c2331f; border-color: #c2331f; color: #fff;
+    }
     /* F170: the record-scope switcher. Every box here is sized in `--s` for the
        same reason .favbtn is — a fixed box around scaling text clips at exactly
        the setting a low-vision reader would choose, and there is a CSS-wide
@@ -3608,10 +3638,10 @@
     <section class="panel">
       <h2>⭐ Favorite patches</h2>
       <div class="row"><button id="favLoadBtn" type="button">Refresh Favorite patches</button></div>
-      <div class="row">
+      <div class="row savedsearch">
         <input id="favSearch" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="favSearchBtn" class="secondary">Search</button>
-        <button id="favSearchClear" class="secondary" type="button" hidden>✕ Close</button>
+        <button id="favSearchClear" class="secondary searchclear" type="button" hidden>✕ Close</button>
       </div>
       <ul id="favFound" class="obs picklist"></ul>
       <div id="favStatus" class="status">Search above, or save hotspots from the other lists to pin them here.</div>
@@ -3621,10 +3651,10 @@
 
     <section class="panel">
       <h2>❓ Watch List <span class="dim" id="nvRegionLabel"></span></h2>
-      <div class="row">
+      <div class="row savedsearch">
         <input id="nvSearch" type="search" placeholder="Find a species by name…" autocomplete="off" />
         <button id="nvSearchBtn" class="secondary">Search</button>
-        <button id="nvSearchClear" class="secondary" type="button" hidden>✕ Close</button>
+        <button id="nvSearchClear" class="secondary searchclear" type="button" hidden>✕ Close</button>
       </div>
       <ul id="nvFound" class="obs picklist"></ul>
       <div class="row">
@@ -3955,16 +3985,6 @@
       <label for="namingLocale">Common-name language / regional names</label>
       <select id="namingLocale"><option value="en">English (default)</option></select>
       <p id="namingStatus" class="hint" role="status">Names only; species identity, seen/watch membership and ranking do not change.</p>
-      <label for="tripName">My regions</label>
-      <div id="myRegions"></div>
-      <div class="row">
-        <div style="flex:1 1 auto"><input id="tripName" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Victoria BC" /></div>
-      </div>
-      <div class="row">
-        <div style="flex:1 1 auto"><input id="tripPlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Region center or home base" /></div>
-        <button id="addTripBtn" class="secondary" type="button">Add</button>
-      </div>
-      <p class="hint" id="tripStatus">Add your own region and chase from its center. Type a name and a place &mdash; the coordinate, region code and time zone are worked out from it. A new region starts with an <strong>empty</strong> seen list until its year list is imported.</p>
       <label for="region">Region code</label>
       <output id="region" class="settingvalue" aria-live="polite"></output>
       <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
@@ -3979,6 +3999,7 @@
       <div class="row">
         <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
+        <button id="clearHomeBtn" class="secondary" type="button">Clear Home</button>
       </div>
       <p class="hint" id="geocodeStatus">Type a city, address, or waypoint (or paste &ldquo;lat, lng&rdquo;) and tap Find to fill in the coordinates below.</p>
       <div class="row">
@@ -4659,7 +4680,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.134.0';
+      var APP_VERSION = '1.134.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10386,6 +10407,7 @@
         });
       }
 
+      var _twitchRefreshGeneration = 0;
       function refresh() {
         // Your own new checklists, read without being asked, once per session.
         // Hung off the wave rather than off boot: refresh() is the thing that
@@ -10394,6 +10416,12 @@
         scheduleOwnHarvest();
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
+        var refreshId = ++_twitchRefreshGeneration, chaseGeneration = _chaseGeneration;
+        var reportSlug = getReportSlug(), fetchKey = chaseFetchBaseKey(chaseProfile());
+        function current() {
+          return refreshId === _twitchRefreshGeneration && chaseGeneration === _chaseGeneration
+            && reportSlug === getReportSlug() && fetchKey === chaseFetchBaseKey(chaseProfile());
+        }
         btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading rarity reports for ' + label + '\u2026';
         // Was a raw notable-feed read: eBird's default 14-day window, deduped by
         // species+location and left in feed order. That is a different section
@@ -10411,6 +10439,7 @@
           getChaseRarity(force ? 'notable' : false),
           stateRba
         ]).then(function (loaded) {
+          if (!current()) return false;
           var c = loaded[0], stateSource = loaded[1] || { rows: [], complete: false };
           if (c.rarity) { rarityRedirect(st); return true; }
           // Start from EVERY rarity the shared rarity wave has in hand. This
@@ -10824,8 +10853,8 @@
           // Marked only now that they are on screen. Everything in the list,
           // not just the near half, or the far ones would read as new forever.
           markRaritySeen(all.map(rarityRowId));
-        }).catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
+        }).catch(function (e) { if (current()) st.textContent = netErr(e); })
+          .finally(function () { if (refreshId === _twitchRefreshGeneration) btn.disabled = false; });
       }
 
       // Closest spots: one row per unseen species, at the NEAREST place it has
@@ -15991,6 +16020,12 @@
         var slug = getReport().slug;
         var full = _chase[slug];
         var profile = chaseProfile();
+        var generation = _chaseGeneration, fetchBaseKey = chaseFetchBaseKey(profile);
+        var geoNotableKm = BL.geoNotableDistKm(profile);
+        function current() {
+          return generation === _chaseGeneration && slug === getReportSlug()
+            && fetchBaseKey === chaseFetchBaseKey(chaseProfile());
+        }
         function coversRarity(value) {
           return value && value.rows
             && value.fetchBaseKey === chaseFetchBaseKey(profile)
@@ -16029,10 +16064,14 @@
           return Promise.resolve(countyView(full));
         }
         var p = _chaseRarity[slug];
-        if (!force && p && (Date.now() - p.t) < CHASE_TTL_MS) {
-          return Promise.resolve(countyView(p));
+        if (!force && coversRarity(p) && (Date.now() - p.t) < CHASE_TTL_MS) {
+          return Promise.resolve(countyView(projectChaseResult(p, profile, slug)));
         }
-        if (_chaseRarityInflight[slug]) return _chaseRarityInflight[slug];
+        if (_chaseRarityInflight[slug]
+            && _chaseRarityInflight[slug].fetchBaseKey === fetchBaseKey
+            && _chaseRarityInflight[slug].geoNotableKm >= geoNotableKm) {
+          return _chaseRarityInflight[slug];
+        }
         if (force) {
           ebClearMatching(FORCE_NOTABLE_RE);
           delete _chaseRarity[slug];
@@ -16047,6 +16086,7 @@
         }
         var run = (force ? Promise.resolve(null) : loadChaseSnapshot(slug))
           .then(function (snap) {
+            if (!current()) throw queueCancelledError(null, 'Twitch rarity Home changed');
             if (coversRarity(snap) && (Date.now() - snap.t) < CHASE_TTL_MS) {
               feedsStarted();
               var saved = snapshotResult(snap);
@@ -16062,6 +16102,7 @@
             }
             var rowsByFile = {};
             var work = cancellableWork('Twitch rarity feeds');
+            work.current = current;
             progressStage('Rare sightings near you', feeds.length, 1, 1);
             var requests = feeds.map(function (feed) {
               return ebird(BL.requestUrl(feed), false, false, false, work)
@@ -16072,9 +16113,13 @@
             });
             feedsStarted();
             return Promise.all(requests).then(function () {
+              if (!current()) throw queueCancelledError(work, 'Twitch rarity Home changed');
               var res = {
                 t: Date.now(),
                 profile: profile,
+                fetchBaseKey: fetchBaseKey,
+                geoNotableKm: geoNotableKm,
+                rows: rowsByFile,
                 cv: computeChaseRows(profile, slug, rowsByFile, null),
                 rarity: false
               };
@@ -16091,6 +16136,8 @@
             delete _chaseRarityStarted[slug];
           }
         });
+        run.fetchBaseKey = fetchBaseKey;
+        run.geoNotableKm = geoNotableKm;
         _chaseRarityInflight[slug] = run;
         return run;
       }
@@ -16208,6 +16255,7 @@
             fgCancelObsolete();
           }
           _chaseInflight = {};
+          _chaseRarityInflight = {};
           _chaseRefresh = {};
           _chasePhase2 = {};
           _chasePhase2Owner = {};
@@ -16928,6 +16976,7 @@
         if (!seenOnly) {
           _chaseGeneration++;
           _chaseInflight = {};
+          _chaseRarityInflight = {};
           _chaseRefresh = {};
           _chasePhase2 = {};
           Object.keys(_chasePhase2Owner).forEach(function (key) {
@@ -18681,6 +18730,11 @@
       // tap-to-load dump of every species including the ones you've seen, which
       // is the opposite filter.
       var FAV_BACK_DAYS = 7, FAV_ROWS = 12;
+      function favoriteRemoval(f) {
+        return '<div class="favctl"><button class="favbtn del favdel" data-favorite-id="'
+          + esc(f.id) + '" aria-label="Remove ' + esc(f.locName || 'hotspot')
+          + ' from favorites">Remove</button></div>';
+      }
       function favInteresting(obs, rarityCodes) {
         var byCode = {}, nv = watchCodes(), n = 0;
         var own = String(getDisplayName() || '').trim().toLowerCase();
@@ -18721,17 +18775,19 @@
                          : 'no reports in last 24h') + '</div>';
         if (!res.rows.length) {
           return head + '<div class="favmeta">No watchlist hits or ' +
-            'unseen-this-year species in the last week.</div>';
+            'unseen-this-year species in the last week.</div>'
+            + '<div class="favremove">' + favoriteRemoval(f) + '</div>';
         }
         // The one small-card builder, not a hand-rolled copy of it. Favorites
         // ranks by tier then newest — that is its report's order, so it keeps
         // its own sort — and its report legend is EXCLUSIVE (⭐ or 🔍, never
         // both), so each row overrides the default accumulating flags.
-        var rows = res.rows.slice(0, FAV_ROWS).map(function (r) {
+        var rows = res.rows.slice(0, FAV_ROWS).map(function (r, i) {
           var o = r.o, name = o.comName || r.code;
           return {
             comName: name, code: r.code, rare: r.rare ? 1 : 0,
             tag: r.rare ? ' ⭐' : (r.watch ? ' 🔍' : ''),
+            right: i === 0 ? favoriteRemoval(f) : '',
             // Count, time and checklist are evidence for the name above them,
             // not part of it — on one line they out-shouted the hotspot title
             // and the bird name lost the row it was the subject of.
@@ -18751,14 +18807,14 @@
       var _favDetail = {};
       function loadFavDetail(f, box, rarityCodes, force, work) {
         if (!box) return Promise.resolve();
-        if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div>'; return Promise.resolve(); }
+        if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div><div class="favremove">' + favoriteRemoval(f) + '</div>'; return Promise.resolve(); }
         var hit = _favDetail[f.locId];
         if (hit && !force && (Date.now() - hit.t) < 600000) {
           box.innerHTML = favDetailHtml(f, hit.obs, rarityCodes);
           hydratePhotos(box);
           return Promise.resolve();
         }
-        box.innerHTML = '<div class="favmeta">Loading recent reports…</div>';
+        box.innerHTML = '<div class="favmeta">Loading recent reports…</div><div class="favremove">' + favoriteRemoval(f) + '</div>';
         return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS,
           false, !!force, !!force, work)
           .then(function (obs) {
@@ -18771,7 +18827,7 @@
           })
           .catch(function (e) {
             if (e && e.queueCancelled) return false;
-            if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div>';
+            if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div><div class="favremove">' + favoriteRemoval(f) + '</div>';
             dbg('warn', 'Favorite patch detail unavailable: ' + netErr(e));
             return false;
           });
@@ -18863,34 +18919,19 @@
           return;
         }
         var home = getHome();
-        st.textContent = favs.length + ' saved ' + (getReport().label || getRegion())
-          + ' hotspot' + (favs.length === 1 ? '' : 's') +
-          (home ? ' · nearest to Home first; unknown distances sorted by name.'
-            : ' · alphabetical; set Home for distance ordering.') + ' Showing last ' + FAV_BACK_DAYS +
-          '-day reports there: unseen species and watchlist verifications (🔍), ' +
-          'with rarities (⭐) ranked first. Already-seen birds are skipped unless watchlisted.';
+        st.textContent = '';
         var mapPoints = [];
         favs.forEach(function (f, i) {
           var point = favoriteCoordinates(f);
           var d = home && point ? haversineMi(home.lat, home.lng, point.lat, point.lng) : null;
-          var controls = '<div class="favctl"><button class="favbtn del favdel" data-favorite-id="'
-            + esc(f.id) + '" aria-label="Remove ' + esc(f.locName || 'hotspot')
-            + ' from favorites">✕</button></div>';
           el.insertAdjacentHTML('beforeend', HotspotCards.medium({
             cls: 'favoritecard', num: i + 1,
             name: f.locId ? stakeHotspotLink(f.locId, f.locName || f.id) : esc(f.locName || f.id),
             distance: d, distQ: point ? distQ(point.lat, point.lng) : '',
             sub: d == null ? 'Distance unavailable: set Home and valid saved coordinates.' : '',
-            below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div></div>',
-            actions: '<div class="hsact">'
-              + (point ? '<a class="maplink" data-q="' + esc(point.lat + ',' + point.lng) + '">🗺 Open in Maps ↗</a>' : '')
-              + (f.locId ? ebirdHotspotA(f.locId) : '') + '</div>',
+            below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div><div class="favremove">' + favoriteRemoval(f) + '</div></div>',
             data: { 'favorite-id': f.id }
           }));
-          var card = el.lastElementChild;
-          card.querySelector('.name').insertAdjacentHTML('beforeend', controls);
-          var distance = card.querySelector('.hsdist');
-          if (distance) card.querySelector('.favctl').prepend(distance);
           if (point) mapPoints.push({
             lat: point.lat, lng: point.lng, num: i + 1, locName: f.locName || f.id,
             onSelect: function () { selectFavoriteCard(f.id); }
@@ -19162,6 +19203,7 @@
         clearChaseCache(true);   // F260: the seen axis moved, not the fetch centre
         _autoLoaded = {};
         renderWatch();
+        if (visibleSectionId() === 'sec-nvResults') loadWatchlist();
       }
       function addWatch(code, name) {
         var c = String(code || '').toLowerCase(), list = getWatchlist();
@@ -19827,9 +19869,25 @@
           hydratePhotos(out);
         }).catch(function (e) { st.textContent = netErr(e); });
       }
-      // Nearest recent report per tracked species, kept across re-renders so a
-      // reorder doesn't throw away data that cost a network round trip.
+      // Keep nearest reports across display changes, but never across scope,
+      // Home, or membership changes.
       var _watchRecs = {};
+      var _watchRecsKey = '', _watchReadState = 'unchecked', _watchReadError = '';
+      var _watchLoadGeneration = 0, _watchLoad = null;
+      function watchEvidenceKey() {
+        return activeScope().cacheIdentity + '|' + chaseFetchBaseKey(chaseProfile())
+          + '|' + getWatchlist().map(function (entry) { return entry.code || entry.name; }).sort().join(',');
+      }
+      function syncWatchEvidence() {
+        var key = watchEvidenceKey();
+        if (key !== _watchRecsKey) {
+          _watchRecsKey = key;
+          _watchRecs = {};
+          _watchReadState = 'unchecked';
+          _watchReadError = '';
+        }
+        return key;
+      }
       var _watchScope = 'region';
       function watchScopeControl() {
         return ToggleControls.pressed({
@@ -19888,6 +19946,7 @@
         });
       }
       function renderWatch() {
+        syncWatchEvidence();
         var all = getWatchlist(), scoped = watchlistForScope().slice().sort(function (a, b) {
           return String(speciesDisplayName(a.entry.name, a.entry.code))
             .localeCompare(String(speciesDisplayName(b.entry.name, b.entry.code)))
@@ -19920,12 +19979,6 @@
             '<div class="favrow nvrow">' + photoSlot(e.name || e.code, e.code) +
             '<div class="favmain">' +
               '<div class="name">' +
-              // NO RANK NUMBER. "needs verification doesnt need the numbers":
-              // the ▲▼ controls beside each row already say the order is
-              // yours and let you change it, so the badge was restating what
-              // the position on screen already shows. Favorite hotspots keeps
-              // its numbers because they tie each row to a numbered map pin;
-              // this list has no map.
               '<span class="ntext">' + speciesLink(e.name || e.code, e.code) + '</span></div>' +
               (r
                 ? '<div class="meta">closest <b>' +
@@ -19934,10 +19987,14 @@
                     ' · ' + esc(fmtDateTime(r.dateStr)) +
                     (r.valid === false ? ' <span class="dim">UNCONF</span>' : '') +
                     (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>'
-                : '<div class="meta dim">' + (e.code ? 'No report in range' : 'Not resolved to an eBird species code') + '</div>') +
+                : '<div class="meta dim">' + (!e.code ? 'Not resolved to an eBird species code'
+                  : _watchReadState === 'ready' ? 'No report in range'
+                  : _watchReadState === 'loading' ? 'Checking recent reports…'
+                  : _watchReadState === 'failed' ? 'Recent reports unavailable'
+                  : 'Recent reports not checked') + '</div>') +
             '</div><div class="favctl">' +
               '<button class="favbtn del nvdel" data-i="' + sourceIndex + '" aria-label="Stop tracking ' +
-                esc(e.name || e.code) + '">✕</button>' +
+                esc(e.name || e.code) + '">Remove</button>' +
             '</div></div>';
           el.appendChild(li);
         });
@@ -19946,21 +20003,50 @@
           + ' species awaiting verification · '
           + (_watchScope === 'region' ? 'This region' : 'All watched birds')
           + ' · alphabetical · ' +
-          (withRec ? withRec + ' reported in range' : 'tap “Check for recent reports” to see where they are being seen') + '.';
+          (withRec ? withRec + ' reported in range' : _watchReadState === 'ready'
+            ? 'No recent reports in range' : 'Recent reports not checked') + '.';
+        if (_watchReadState === 'loading') st.textContent += ' Checking recent reports…';
+        if (_watchReadError) st.textContent += ' ' + _watchReadError;
         hydratePhotos(el);
       }
-      function loadWatchlist() {
-        var st = $('nvStatus');
-        if (!getKey()) { st.textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
-        var btn = $('nvBtn'), list = getWatchlist();
+      function loadWatchlist(explicit) {
+        var force = takeForce() || explicit === true, key = syncWatchEvidence();
+        var st = $('nvStatus'), btn = $('nvBtn'), list = getWatchlist();
+        var section = btn && btn.closest('section'), header = section && section.querySelector('.refreshbtn');
         renderWatch();
-        if (!list.length) return;
-        btn.disabled = true;
-        st.textContent = 'Looking for recent reports of your ' + list.length + ' tracked species…';
-        getChase().then(function (c) {
-          if (c.rarity) { rarityRedirect(st); return; }
+        if (!list.length || !getKey()) {
+          ++_watchLoadGeneration;
+          _watchLoad = null;
+          if (btn) btn.disabled = false;
+          if (header) header.disabled = false;
+          $('nvResults').removeAttribute('aria-busy');
+          if (_watchReadState === 'loading') _watchReadState = 'unchecked';
+          if (!list.length) return Promise.resolve(true);
+          _watchReadError = 'Add your eBird API key in Settings to check recent reports; saved birds remain available.';
+          renderWatch();
+          return Promise.resolve(false);
+        }
+        if (_watchLoad && _watchLoad.key === key && workCurrent(_watchLoad.work)) {
+          return _watchLoad.promise;
+        }
+        var generation = ++_watchLoadGeneration, scope = activeScope(), work = navWork('Watch recent reports');
+        function current() {
+          return generation === _watchLoadGeneration && scopeCurrent(scope)
+            && workCurrent(work) && key === watchEvidenceKey();
+        }
+        _watchReadState = 'loading';
+        _watchReadError = '';
+        renderWatch();
+        if (btn) btn.disabled = true;
+        if (header) header.disabled = true;
+        $('nvResults').setAttribute('aria-busy', 'true');
+        var promise = getChaseAll(force ? 'obs' : false, null, work).then(countyView).then(function (c) {
+          if (!current()) return false;
+          if (c.rarity || !c.cv || !Array.isArray(c.cv.merged)) {
+            throw new Error('Recent Watch reports are unavailable for this scope.');
+          }
           var w = watchCodes(), by = {};
-          (c.cv.merged || []).forEach(function (r) {
+          c.cv.merged.forEach(function (r) {
             var k = String(r.code || '').toLowerCase();
             if (!k || !w[k]) return;
             var cur = by[k];
@@ -19969,9 +20055,29 @@
             if (!cur || d < cd) by[k] = r;
           });
           _watchRecs = by;
+          _watchReadState = 'ready';
           renderWatch();
-        }).catch(function (e) { st.textContent = netErr(e); })
-          .then(function () { btn.disabled = false; });
+          return true;
+        }).catch(function (e) {
+          if (!current() || e && e.queueCancelled) return false;
+          _watchReadState = 'failed';
+          _watchReadError = 'Recent reports could not be checked: ' + netErr(e) + '. Refresh to retry.';
+          dbg('warn', _watchReadError);
+          renderWatch();
+          return false;
+        }).finally(function () {
+          if (generation !== _watchLoadGeneration) return;
+          _watchLoad = null;
+          if (btn) btn.disabled = false;
+          if (header) header.disabled = false;
+          $('nvResults').removeAttribute('aria-busy');
+          if (!current() && key === watchEvidenceKey() && _watchReadState === 'loading') {
+            _watchReadState = 'unchecked';
+            renderWatch();
+          }
+        });
+        _watchLoad = { key: key, work: work, promise: promise };
+        return promise;
       }
 
       // BL.toRenderDest is the parity-tested display projection; it intentionally
@@ -20135,7 +20241,8 @@
               count: x.count,
               when: fmtWhenShort(x.dateStr),
               whenHtml: href ? extA(href, fmtWhenShort(x.dateStr)) : '',
-              sub: x.sub || ''
+              sub: x.sub || '',
+              right: x.right || ''
             });
           });
         return SpeciesCards.list('small', lis, 'sppl' + (opts.cls ? ' ' + opts.cls : ''));
@@ -38087,7 +38194,7 @@
         convoyBtn:  { fn: loadConvoys,      needsKey: true, scopeTransition: 'observations' },
         favResults: { fn: loadFavs, needsKey: false, scopeTransition: 'observations' },
         easyBtn:    { fn: loadEasyMisses,  needsKey: true, retryOnFailure: true, scopeTransition: 'year-list' },
-        nvResults:  { fn: renderWatch, scopeTransition: 'year-list' },
+        nvResults:  { fn: loadWatchlist, retryOnFailure: true, scopeTransition: 'year-list' },
         bcBody:     { fn: loadUnifiedMigration, needsHome: true, reachability: true, scopeTransition: 'year-list' },
         todBtn:     { fn: loadTimeOfDay,    needsKey: true, scopeTransition: 'observations' },
         myYearBody: { fn: loadMyYear, scopeTransition: 'year-list' },
@@ -41156,54 +41263,8 @@
         }, { passive: true });
       }
       function populateReportSelect() {
-        renderMyRegions();
       }
 
-      // The list of the user's own regions, each with a delete control.
-      // Built-ins are deliberately absent: they are not deletable, and showing
-      // them with a disabled button would only invite the tap.
-      function renderMyRegions() {
-        var host = $('myRegions');
-        if (!host) return;
-        var mine = getCustomRegions();
-        host.innerHTML = '';
-        if (!mine.length) {
-            var p = document.createElement('p');
-            p.className = 'hint';
-            p.textContent = 'No regions of your own yet.';
-            host.appendChild(p);
-            return;
-        }
-        mine.forEach(function (r) {
-            var row = document.createElement('div');
-            row.className = 'row';
-            var t = document.createElement('div');
-            t.style.cssText = 'flex:1 1 auto;min-width:0';
-            t.innerHTML = '<strong></strong><br><span class="hint"></span>';
-            t.querySelector('strong').textContent = r.label;
-            t.querySelector('.hint').textContent =
-                (r.place || (r.lat.toFixed(3) + ', ' + r.lng.toFixed(3))) +
-                (r.stateCode ? ' · ' + r.stateCode : '');
-            var del = document.createElement('button');
-            del.className = 'secondary';
-            del.type = 'button';
-            del.textContent = 'Delete';
-            del.setAttribute('data-slug', r.slug);
-            del.addEventListener('click', function () {
-                if (!confirmAction('delete-region',
-                  'Delete "' + r.label + '"? Its home, tides and cached chases go with it.')) return;
-                var n = deleteCustomRegion(r.slug);
-                renderMyRegions();
-                syncRegionNav();
-                renderRegionChooser();
-                var st = $('tripStatus');
-                if (st) st.textContent = 'Deleted "' + r.label + '" and swept ' + n + ' stored value' + (n === 1 ? '' : 's') + '.';
-            });
-            row.appendChild(t);
-            row.appendChild(del);
-            host.appendChild(row);
-        });
-      }
 
       // First-run region discovery has to run BEFORE the eBird key exists.
       // Measured 2026-09-09: eBird's hotspot and region-reference endpoints
@@ -41873,6 +41934,7 @@
           || isCustomSlug(slug)));
         if (!valid) slug = '';
         if (slug && slug === getReportSlug()) { syncRegionNav(); return; }
+        cancelHomeLookup();
         if (slug) localStorage.setItem(K.report, slug);
         else localStorage.removeItem(K.report);
         beginScopeTransition();
@@ -42886,53 +42948,6 @@
         if (field) field.addEventListener('change', validateAndPersistSettings);
       });
       if ($('bcProfileSel')) $('bcProfileSel').addEventListener('change', validateAndPersistSettings);
-      $('addTripBtn').addEventListener('click', function () {
-        var label = ($('tripName').value || '').trim();
-        var place = ($('tripPlace').value || '').trim();
-        var st = $('tripStatus'), btn = this;
-        if (!label) { st.textContent = 'Give the region a name first.'; return; }
-        if (!place) { st.textContent = 'Type where you\u2019ll be staying \u2014 a city, address, or "lat, lng".'; return; }
-        btn.disabled = true;
-        st.textContent = 'Looking up \u201c' + place + '\u201d\u2026';
-        geocodePlace(place).then(function (res) {
-          st.textContent = 'Found ' + res.label + ' \u2014 working out the eBird region\u2026';
-          return deriveRegionCode(res.lat, res.lng).then(function (region) {
-            var tz = tzFromLng(res.lng);
-            var rec = {
-              slug: slugifyRegion(label), label: label, place: res.label,
-              lat: res.lat, lng: res.lng, stateCode: region.code, tideStation: '',
-              tzStdOffset: tz.tzStdOffset, tzObservesDst: tz.tzObservesDst
-            };
-            var list = getCustomRegions();
-            list.push(rec);
-            saveCustomRegions(list);
-            $('tripName').value = ''; $('tripPlace').value = '';
-            setActiveReport(rec.slug);
-            renderMyRegions();
-            var where = ' in ' + region.code;
-            st.textContent = 'Added \u201c' + label + '\u201d' + where
-              + '. Set Home next; the region center is not used as your Home.';
-            // Warm it now, while nobody is waiting. GBIF has no per-key budget
-            // and the species index is ~7 cached calls, so this costs the
-            // rarity feeds nothing. Deliberately not awaited: adding a region
-            // should return immediately whether or not the warm-up finishes.
-            warmRegion(rec, function (r) {
-              if (!r) {
-                st.textContent = 'Added \u201c' + label + '\u201d' + where
-                  + '. Its data will load the first time you open a section.';
-                return;
-              }
-              st.textContent = 'Added \u201c' + label + '\u201d' + where + '. '
-                + (r.species ? r.species + ' species' : 'No species list yet')
-                + (r.arrivals ? ' \u00b7 ' + r.arrivals + ' arrival dates read from GBIF'
-                              : ' \u00b7 arrival history already covered')
-                + '. Set Home before opening location-ranked sections.';
-            });
-          });
-        }).catch(function (e) {
-          st.textContent = (e && e.message) ? e.message : 'Could not find that place.';
-        }).finally(function () { btn.disabled = false; });
-      });
       $('displayProfile').addEventListener('change', function () {
         setDisplayProfile(this.value);
       });
@@ -43141,7 +43156,7 @@
         if (ev.key === 'Enter') { ev.preventDefault(); runNvSearch(); }
         if (ev.key === 'Escape') { ev.preventDefault(); clearNvSearch(); }
       });
-      $('nvBtn').addEventListener('click', loadWatchlist);
+      $('nvBtn').addEventListener('click', function () { loadWatchlist(true); });
       $('nvCopyBtn').addEventListener('click', function () {
         var md = watchlistMarkdown(), st = $('nvStatus');
         var say = function (ok) {
@@ -43794,18 +43809,54 @@
       $('taxonomyCheckBtn').addEventListener('click', function () { checkTaxonomyEdition(true); });
       $('namingLocalesBtn').addEventListener('click', function () { loadNamingLocales(true); });
       $('namingLocale').addEventListener('change', function () { selectNamingLocale(this.value); });
-      $('geocodeBtn').addEventListener('click', function () {
-        var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus'), btn = this;
-        if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
+      var _homeLookupGeneration = 0;
+      function cancelHomeLookup() {
+        ++_homeLookupGeneration;
+        $('geocodeBtn').disabled = false;
+      }
+      ['homePlace', 'homeLat', 'homeLng'].forEach(function (id) {
+        $(id).addEventListener('input', cancelHomeLookup);
+      });
+      function lookupSettingsHome(q) {
+        var typed = ($('apiKey').value || '').trim(), wrong = typed ? keyLooksWrong(typed) : '';
+        if (wrong) {
+          setKeyStatus('Not saved: that key ' + wrong + '. Fix it, or tap Get a key.', 'bad');
+          return Promise.resolve(false);
+        }
+        var generation = ++_homeLookupGeneration, report = getReportSlug();
+        var st = $('geocodeStatus'), btn = $('geocodeBtn');
+        function current() {
+          return generation === _homeLookupGeneration && report === getReportSlug();
+        }
         btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
-        geocodePlace(q).then(function (res) {
+        return geocodePlace(q).then(function (res) {
+          if (!current()) return false;
           $('homeLat').value = res.lat.toFixed(5);
           $('homeLng').value = res.lng.toFixed(5);
           $('homePlace').value = res.label;
+          persistSettings();
           st.textContent = '\ud83d\udccd ' + res.label + ' \u2192 ' + res.lat.toFixed(4) + ', ' + res.lng.toFixed(4) + '. Saved automatically.';
-          validateAndPersistSettings();
-        }).catch(function (e) { st.textContent = (e && e.message) ? e.message : 'Lookup failed.'; })
-          .finally(function () { btn.disabled = false; });
+          return true;
+        }).catch(function (e) {
+          if (!current()) return false;
+          st.textContent = ((e && e.message) ? e.message : 'Lookup failed.') + ' Fix it or clear Home, then try again.';
+          dbg('warn', 'Home lookup failed: ' + netErr(e));
+          return false;
+        }).finally(function () { if (current()) btn.disabled = false; });
+      }
+      $('clearHomeBtn').addEventListener('click', function () {
+        cancelHomeLookup();
+        $('homePlace').value = ''; $('homeLat').value = ''; $('homeLng').value = '';
+        ['lat', 'lng', 'place'].forEach(function (field) { localStorage.removeItem(homeKey(field)); });
+        invalidateSettingsEvidence('home-clear');
+        $('geocodeStatus').textContent = 'Home cleared for ' + getReport().label
+          + '. Enter a new place or coordinates to reset it. Other regions are unchanged.';
+        $('homePlace').focus();
+      });
+      $('geocodeBtn').addEventListener('click', function () {
+        var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus');
+        if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
+        lookupSettingsHome(q);
       });
 
       function persistSettings() {
@@ -43834,6 +43885,9 @@
         // Switch profiles without persisting an editable identity label.
         var wantP = $('bcProfileSel') ? ($('bcProfileSel').value || '') : bcProfile();
         if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
+        invalidateSettingsEvidence('settings-save');
+      }
+      function invalidateSettingsEvidence(reason) {
         clearChaseCache();
         _autoLoaded = {};
         renderKeyBanner();
@@ -43844,7 +43898,7 @@
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open && open.id !== 'settingsPanel') autoLoad(open);
-        auditSettingsChanged('settings-save');
+        auditSettingsChanged(reason);
       }
       function validateAndPersistSettings() {
         // A malformed key is stored just as happily as a good one, and the
@@ -43859,15 +43913,8 @@
         var place = ($('homePlace').value || '').trim();
         var haveCoords = isFinite(parseFloat($('homeLat').value)) && isFinite(parseFloat($('homeLng').value));
         if (place && !haveCoords) {
-          $('geocodeStatus').textContent = 'Looking up \u201c' + place + '\u201d\u2026';
-          geocodePlace(place).then(function (res) {
-            $('homeLat').value = res.lat.toFixed(5); $('homeLng').value = res.lng.toFixed(5); $('homePlace').value = res.label;
-            $('geocodeStatus').textContent = 'Saved automatically.';
-            persistSettings();
-          }).catch(function (e) {
-            $('geocodeStatus').textContent = ((e && e.message) ? e.message : 'Lookup failed.') + ' Fix it or clear the box, then try again.';
-          });
-        } else { persistSettings(); }
+          lookupSettingsHome(place);
+        } else { cancelHomeLookup(); persistSettings(); }
       }
 
       // Runtime badge — confirms the native Capacitor bridge once sideloaded.
@@ -44243,7 +44290,7 @@
       getCustomRegions: getCustomRegions, saveCustomRegions: saveCustomRegions,
       deleteCustomRegion: deleteCustomRegion, slugifyRegion: slugifyRegion,
       customProfile: customProfile, allReportsList: allReportsList,
-      renderMyRegions: renderMyRegions, tzFromLng: tzFromLng,
+      tzFromLng: tzFromLng,
         splitLabel: splitLabel, buildAllUnseen: buildAllUnseen,
         buildBirdReportGroups: buildBirdReportGroups,
         birdReportMetric: birdReportMetric,
@@ -44473,6 +44520,7 @@
         moveFavoriteInRegion: moveFavoriteInRegion,
         deleteFavoriteInRegion: deleteFavoriteInRegion,
         moveFav: moveFav, removeFavAt: removeFavAt, renderFavs: renderFavs, loadFavs: loadFavs,
+        seedFavDetail: function (id, obs) { _favDetail[id] = { t: Date.now(), obs: obs }; },
         searchHotspots: searchHotspots, runFavSearch: runFavSearch,
         clearFavSearch: clearFavSearch,
         getMapProvider: getMapProvider, setMapProvider: setMapProvider,

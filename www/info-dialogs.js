@@ -318,11 +318,6 @@
       name: 'Find an anchor',
       reason: 'Interactive fallback place-entry workflow, not an informational help sheet.'
     },
-    'delete-region': {
-      surface: 'confirmation',
-      name: 'Delete a custom region',
-      reason: 'Destructive native confirmation.'
-    },
     'add-region': {
       surface: 'confirmation',
       name: 'Add a custom region',

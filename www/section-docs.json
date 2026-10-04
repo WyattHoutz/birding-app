@@ -411,7 +411,7 @@
     },
     "favResults": {
       "report": "## ⭐ Favorite patches — Saved hotspots",
-      "summary": "Your own pinned hotspots, in your own order, each showing what is worth driving for right now.",
+      "summary": "Your saved hotspots for the active region, showing what is worth driving for right now.",
       "inputs": [
         "the region's hotspot reference list, cached on device for a day",
         "the last 7 days of reports at each pinned hotspot",
@@ -421,7 +421,9 @@
         "Search matches on word starts across the hotspot name, requires every term to match, and ranks by all-time species count.",
         "Each new pin stores the active eBird region. Only pins for the active report region are rendered or fetched; pins from other regions stay saved and return when that region is opened.",
         "Legacy hotspot-id pins are assigned only when they match the already-cached active-region hotspot directory. Coordinate-only legacy pins remain unresolved rather than being guessed into a region.",
-        "Order is yours within the active region: each visible pin has up/down controls that skip preserved rows from other regions.",
+        "Favorites are nearest to Home first, with name and identity breaking ties. Unknown distances follow known distances in name order; without Home all favorites are alphabetical. Display sorting does not rewrite saved order.",
+        "The map numbers match the displayed patches. One red Remove button sits to the right of the first bird's name and evidence, top-aligned with its photo; when there are no birds it sits below the detail status. The compact number, patch name and distance header stays separate. The separate Open in Maps and Open in eBird footer links are not shown.",
+        "Recent reports cover the last 7 days at each saved hotspot. The saved count and region are contextual facts, not a fixed seven-hotspot Washington limit.",
         "Each pin lists species you have not logged this year and watchlist verifications (🔍), ranking eligible rarities (⭐) first, then watchlist birds, then other unseen birds; newest first within each tier.",
         "Already-seen birds are dropped unless explicitly watchlisted. A rarity flag never bypasses the seen filter, including for imported CSV lists.",
         "Cached observations are reclassified against the current seen list and watchlist on every repaint. Refresh bypasses both hotspot-detail and eBird response caches for that visible pin.",
@@ -430,7 +432,7 @@
       ],
       "limits": [
         "Stored on this device only — pins do not sync.",
-        "One hotspot feed per active-region pin, loaded serially when the section opens; reordering or deleting a pin repaints from cache rather than refetching.",
+        "One hotspot feed per active-region pin, loaded serially when the section opens; sorting or deleting a pin repaints from cache rather than refetching.",
         "An unresolved coordinate-only legacy favorite remains saved but hidden until it can be assigned safely; the app never infers a region from coordinates."
       ]
     },
@@ -555,9 +557,10 @@
       "how": [
         "Each name is resolved to an eBird species code against your birdlists first, then against the full eBird taxonomy, so a bird you have never recorded anywhere still resolves. A name that resolves to nothing is reported rather than dropped.",
         "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Nemesis birds, Common birds and everywhere else - it is deliberately not counted as seen.",
-        "This region is the default display: it intersects the global watchlist with the active report's merged year list. All reveals every stored watched bird. Switching scope is local, deletes nothing, and visible Up/Down controls reorder adjacent visible birds inside the same global list.",
+        "This region is the default display: it intersects the global watchlist with the active report's merged year list. All reveals every stored watched bird. Switching scope is local and deletes nothing. Birds are alphabetical by their displayed names; there are no manual reorder controls.",
         "The scope control filters this screen only. Every watched code, including a bird absent from the current region's year list, remains an unseen patch/chase input at the established quarter weight.",
-        "The section then shows the nearest report of each visible tracked species in the current window, closest first, with the checklist it came from. Species with no report in range are still listed, so the selected scope is a complete inventory rather than only the ones that happen to be showing."
+        "Opening paints saved birds immediately, then automatically checks shared recent-report evidence. Refresh requests a fresh check. Pending, failed and not-checked reads are distinct from a successful check with no report in range.",
+        "Each visible tracked species shows its nearest recent report and checklist while the birds remain alphabetical. Species with no report in range are still listed, so the selected scope is a complete inventory rather than only the ones that happen to be showing."
       ],
       "limits": [
         "The list is authored in the private pipeline repo. The app bundles it at build time and edits made in the app are stored on the device only - the app has no runtime GitHub dependency and cannot write the file back. Use the copy button and paste over birdlist-needsverification.md to make an edit stick in the Markdown report.",
@@ -677,9 +680,10 @@
         "Main and Test 2–4 are isolated local storage slots, not eBird accounts discovered by the app. Imported or signed-in identity labels the selected slot automatically.",
         "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
+        "Clear Home removes only the selected region's saved Home place and coordinates. It cancels pending Home lookups; enter a new place or coordinates and use Find to reset Home. Other regions and unrelated settings are unchanged.",
         "All 65 ABA jurisdictions are selectable before API-key setup: 50 US states, DC, 13 Canadian provinces/territories and Saint Pierre and Miquelon. Choosing one reuses an existing region or creates a local profile; its reference point never becomes your Home.",
         "Refresh region names optionally checks US and Canadian names against eBird. Saved and bundled choices remain usable if it fails. County names load on demand without fetching every county boundary; Saint Pierre and Miquelon legitimately has no county subdivisions.",
-        "You can add your own regions. They live only in the app because the Markdown report's regions are compiled into it, and each new region starts with an empty seen list until its year list is imported."
+        "Custom-region creation and management are deprecated and no longer appear in Settings. Existing region profiles and their stored data are preserved; use the region chooser to select a jurisdiction."
       ],
       "limits": [
         "Jurisdiction selection does not make the county view an app-wide filter; personal year-list and other report scopes retain their existing rules.",

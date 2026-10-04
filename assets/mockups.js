@@ -1493,13 +1493,13 @@ const BOOTSTRAP = `
             speciesCode: 'nazboo1', comName: 'Nazca Booby',
             obsDt: '2026-08-25 15:00', locName: 'Smith Island',
             locId: 'L7706326', subId: 'S386937523',
-            lat: 48.318233, lng: -122.8410187
+            lat: 48.318233, lng: -122.8410187, howMany: 3
           },
           'nazboo1|S388997009': {
             speciesCode: 'nazboo1', comName: 'Nazca Booby',
             obsDt: '2026-09-01 17:50', locName: 'Smith Island',
             locId: 'L7706326', subId: 'S388997009',
-            lat: 48.318233, lng: -122.8410187
+            lat: 48.318233, lng: -122.8410187, howMany: 1
           },
           'ruff|S364231306': {
             speciesCode: 'ruff', comName: 'Ruff',
@@ -1527,7 +1527,7 @@ const BOOTSTRAP = `
           { speciesCode: 'nazboo1', comName: 'Nazca Booby',
             obsDt: '2026-09-01 17:50', locName: 'Smith Island',
             locId: 'L7706326', subId: 'S388997009',
-            lat: 48.318233, lng: -122.8410187 },
+            lat: 48.318233, lng: -122.8410187, howMany: 1 },
           { speciesCode: 'ruff', comName: 'Ruff',
             obsDt: '2026-08-28 15:50', locName: 'Hoquiam STP',
             locId: 'L264861', subId: 'S387782679',
@@ -1912,6 +1912,19 @@ const BOOTSTRAP = `
           lat: 47.66, lng: -122.42, region: 'US-WA' }
       ]);
       A.renderFavs();
+      A.setWatchlist([{code: 'baisan', name: "Baird's Sandpiper"}]);
+      ['L-FIXTURE-1', 'L-FIXTURE-2'].forEach(function (id) {
+        A.seedFavDetail(id, [
+          { speciesCode: 'baisan', comName: "Baird's Sandpiper", howMany: 2,
+            obsDt: mockObservationDate(2), subId: 'SFAVMOCK1' },
+          { speciesCode: 'solsan', comName: 'Solitary Sandpiper', howMany: 1,
+            obsDt: mockObservationDate(24), subId: 'SFAVMOCK2' }
+        ]);
+      });
+      await A.loadFavs();
+      if (document.querySelectorAll('#favResults .favspp li').length < 2) {
+        throw new Error('Favorite mockup did not load populated bird details');
+      }
       markHost(host, label);
     } else if (spec.kind === 'hotspot-search') {
       var place = "Pu'u Lā'au, Palila Discovery Trail and Ka'ohe GMA";
@@ -1966,6 +1979,22 @@ const BOOTSTRAP = `
           { code: 'hawama', name: 'Hawaii Amakihi' }
         ]));
         A.renderWatch();
+        var watchProfile = A.chaseProfile();
+        A.seedChase(watchProfile.slug, {
+          t: Date.now(), rarity: false,
+          fetchBaseKey: A.chaseFetchBaseKey(watchProfile),
+          geoNotableKm: document.defaultView.BirdLogic.geoNotableDistKm(watchProfile),
+          speciesCodes: ['baisan'],
+          rows: {'king-notable.json': [
+            { speciesCode: 'baisan', comName: "Baird's Sandpiper",
+              locName: 'Marymoor Park--Audubon Bird Loop', locId: 'L2',
+              lat: 47.658, lng: -122.118, howMany: 2,
+              obsDt: mockObservationDate(2), subId: 'SWATCHMOCK' }
+          ]}
+        });
+        if (!await A.LOADERS.nvResults.fn() || !/Marymoor Park/.test(host.textContent)) {
+          throw new Error('Watch mockup did not automatically acquire bird details');
+        }
         var scopeButtons = document.querySelectorAll('#nvScope .nvscopebtn');
         var scopeLabel = scopeButtons[0]
           && scopeButtons[0].querySelector('.presslabel');
