@@ -155,8 +155,15 @@ npm test                 # unit + syntax + DOM suites (jsdom)
 npm run test:layout      # six viewport/text combos in real Chrome
 npm run mockups          # local static-UI preview; CI attaches all three release device variants
 npm run info-catalog     # rebuild docs/info-dialogs.html from the app's prose sources
+node assets\build-menu.js # embed www/menu.json in index.html for synchronous offline startup
 # open www/index.html in a browser to preview the UI
 ```
+
+`www/menu.json` owns each menu's icon, title, subtitle, order and applicability.
+Its generated `application/json` block in `index.html` is the production input,
+not another hand-maintained definition. The DOM suite checks exact agreement
+and report-contract parity. Top 100's scope/year subtitle is an explicit dynamic
+variant; static loading explanations belong in info dialogs, not menu buttons.
 
 Open [`docs/info-dialogs.html`](docs/info-dialogs.html) directly to search and
 review every informational popup without running the app. Section explanations

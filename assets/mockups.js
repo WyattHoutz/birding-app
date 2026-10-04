@@ -133,11 +133,12 @@ const STUB_SPEC = {
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
-  favResults:     { kind: 'hotspot',       host: 'favResults' },
+  favResults:     { kind: 'favorites', host: 'favResults', map: 'favMap', minControls: 2,
+    expects: ['#favMap .leaflet-marker-icon', '#favResults .favoritecard .favdel'] },
   allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults',
-    allowDisabled: ['.nvup', '.nvdown'] },
+    allowDisabled: [] },
   bcBody:         { kind: 'birdcast',      host: 'bcBody' },
   todBtn:         { kind: 'bird',          host: 'todResults' },
   myYearBody:     { kind: 'bird',          host: 'myYearList' },
@@ -438,7 +439,7 @@ const REVIEW_SHOTS = [
   { id: 'favoritesregion', at: 'favResults',
     title: 'Favorite patches — current region only',
     host: 'favResults',
-    allowDisabled: ['.favup', '.favdown'],
+    allowDisabled: [],
     prep: `FIX.before('favResults', A, document);
            var spec = ${JSON.stringify(STUB_SPEC.favResults)};
            var host = document.getElementById('favResults');
@@ -1903,6 +1904,15 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       fillSpeciesHost(host, document.defaultView, label, at);
+    } else if (spec.kind === 'favorites') {
+      A.setFavs([
+        { id: 'L-FIXTURE-1', locId: 'L-FIXTURE-1', locName: 'Union Bay Natural Area',
+          lat: 47.65, lng: -122.29, region: 'US-WA' },
+        { id: 'L-FIXTURE-2', locId: 'L-FIXTURE-2', locName: 'Discovery Park — South Beach',
+          lat: 47.66, lng: -122.42, region: 'US-WA' }
+      ]);
+      A.renderFavs();
+      markHost(host, label);
     } else if (spec.kind === 'hotspot-search') {
       var place = "Pu'u Lā'au, Palila Discovery Trail and Ka'ohe GMA";
       var recent = [
@@ -1992,7 +2002,11 @@ const BOOTSTRAP = `
       sec.querySelector('.status').textContent =
         'Recent checklist check complete · newly harvested birds included';
     }
-    fillMapHost(spec.map ? document.getElementById(spec.map) : null, label);
+    if (spec.kind === 'favorites') {
+      document.getElementById(spec.map).setAttribute('data-mock-map', 'true');
+    } else {
+      fillMapHost(spec.map ? document.getElementById(spec.map) : null, label);
+    }
     if (A.fgProgressReset) A.fgProgressReset();
     else if (A.progressEnd) A.progressEnd();
     await wait(25);

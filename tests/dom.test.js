@@ -2203,11 +2203,8 @@ test('Contents menu matches the report section contract (labels + order)', async
   // MENU array. That is a real property — it catches a group being dropped,
   // a tile escaping its group, or the render loop re-sorting — and it is the
   // order a reader actually sees.
-  const authored = [];
-  for (const m of HTML.matchAll(
-      /\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']+)'[^\n]*group: '([^']+)'/g)) {
-    authored.push({ at: m[1], group: m[3] });
-  }
+  const authored = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+  assert.ok(authored.length > 20, 'the canonical menu must be populated');
   const groupsInOrder = [];
   for (const g of authored.map((a) => a.group)) {
     if (!groupsInOrder.includes(g)) groupsInOrder.push(g);
@@ -2627,7 +2624,8 @@ test('Bird gen is wired and renders every alert source it detects', async () => 
 
   const txt = app.$('surgeResults').textContent;
   assert.match(txt, /Tufted Puffin/, 'the species drawing the crowd');
-  assert.match(txt, /x20/, 'the second line carries the crowd report count');
+  assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="crowd"] .surgecountvalue'), null,
+    'the number of reports is not a measured bird count');
   assert.match(txt, /CROWD.*Multiple independent reports with no trailing baseline!/s,
     'the third line explains the crowd signal');
   assert.match(txt, /Terek Sandpiper/, 'the leaderboard cascade');
@@ -3221,7 +3219,7 @@ test('favorites can be searched for, reordered and removed', async () => {
   app.window.close();
 });
 
-test('every saved hotspot carries its own move and delete controls', async () => {
+test('F765 saved hotspots retain removal but no manual ordering controls', async () => {
   const app = await boot();
   const A = app.window.__app;
   A.setFavs([]);
@@ -3232,7 +3230,7 @@ test('every saved hotspot carries its own move and delete controls', async () =>
   const rows = [...app.$('favResults').querySelectorAll('li')];
   assert.equal(rows.length, 3);
   rows.forEach((li, i) => {
-    for (const cls of ['favup', 'favdown', 'favdel']) {
+    for (const cls of ['favdel']) {
       const b = li.querySelector('.' + cls);
       assert.ok(b, 'row ' + i + ' has a .' + cls);
       // The control has to say which hotspot it acts on: three identical "▲"
@@ -3240,14 +3238,11 @@ test('every saved hotspot carries its own move and delete controls', async () =>
       assert.match(b.getAttribute('aria-label') || '', /A Park|B Marsh|C Point/);
     }
   });
-  assert.ok(rows[0].querySelector('.favup').disabled, 'the first row cannot move up');
-  assert.ok(rows[2].querySelector('.favdown').disabled, 'the last row cannot move down');
-  assert.ok(!rows[1].querySelector('.favup').disabled);
+  assert.equal(app.$('favResults').querySelector('.favup, .favdown'), null);
   // Clicking is the path the user actually takes, so drive it through the DOM.
-  app.click(rows[2].querySelector('.favup'));
-  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['A Park', 'C Point', 'B Marsh']);
+  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['A Park', 'B Marsh', 'C Point']);
   app.click(app.$('favResults').querySelectorAll('li')[0].querySelector('.favdel'));
-  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['C Point', 'B Marsh']);
+  assert.deepEqual(arr(A.getFavs(), (f) => f.locName), ['A Park', 'C Point']);
   app.window.close();
 });
 
@@ -3334,16 +3329,15 @@ test('F743 Favorite map/card numbering, distance and single bounded refresh stay
   const cards = () => [...app.$('favResults').children];
   assert.deepEqual(cards().map((card) => card.querySelector('.hsnum').textContent),
     ['1', '2', '3', '4', '5', '6', '7']);
-  assert.ok(cards()[6].querySelector('.hsdist'), 'distant Favorite keeps visible distance');
-  assert.match(cards()[5].textContent, /Distance unavailable/);
+  assert.ok(cards()[5].querySelector('.hsdist'), 'distant Favorite keeps visible distance');
+  assert.match(cards()[6].textContent, /Distance unavailable/);
   assert.match(app.$('favStatus').textContent, /1 saved patch has no valid coordinates/);
   const pins = [...app.$('favMap').querySelectorAll('.leaflet-marker-icon')]
     .filter((pin) => /^\d+:/.test(pin.title));
   assert.equal(pins.length, 6);
-  assert.match(pins[5].title, /^7:.*location 6$/);
+  assert.match(pins[5].title, /^6:.*location 6$/);
   app.click(pins[5]);
-  assert.equal(cards()[6].getAttribute('aria-current'), 'location');
-  app.click(cards()[6].querySelector('.favup'));
+  assert.equal(cards()[5].getAttribute('aria-current'), 'location');
   assert.equal(cards()[5].getAttribute('data-favorite-id'), 'L-F6');
   assert.equal(cards()[5].getAttribute('aria-current'), 'location');
   const before = app.state.fetches.filter((url) => /data\/obs\/L-F/.test(url)).length;
@@ -3351,11 +3345,50 @@ test('F743 Favorite map/card numbering, distance and single bounded refresh stay
   await waitFor(() => !app.$('favLoadBtn').disabled, 'Favorite list refresh');
   assert.equal(app.state.fetches.filter((url) => /data\/obs\/L-F/.test(url)).length - before, 7,
     'forced refresh costs one serial hotspot request per saved ID');
-  assert.deepEqual(arr(A.getFavs(), (f) => f.id), ['L-F0', 'L-F1', 'L-F2', 'L-F3', 'L-F4', 'L-F6', 'L-F5']);
+  assert.deepEqual(arr(A.getFavs(), (f) => f.id), favorites.map((f) => f.id));
   app.window.localStorage.removeItem(A.homeKey('lat'));
   app.window.localStorage.removeItem(A.homeKey('lng'));
   A.renderFavs();
   assert.ok(cards().every((card) => /Distance unavailable/.test(card.textContent)));
+  app.window.close();
+});
+
+test('F765 Favorite display sorting preserves saved identity, scope and map selection', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const favorites = [
+    { id: 'L-FAR', locName: 'Alpha distant', lat: 47.9, lng: -122.16, region: 'US-WA' },
+    { id: 'L-HI', locName: 'Hawaii preserved', lat: 20, lng: -155, region: 'US-HI' },
+    { id: 'L-TIE-B', locName: 'Same nearby', lat: 47.751, lng: -122.16, region: 'US-WA' },
+    { id: 'L-UNKNOWN', locName: 'A missing coordinate', lat: null, lng: null, region: 'US-WA' },
+    { id: 'L-TIE-A', locName: 'Same nearby', lat: 47.751, lng: -122.16, region: 'US-WA' },
+    { id: 'L-NEAR', locName: 'Zulu nearest', lat: 47.75, lng: -122.16, region: 'US-WA' },
+  ];
+  A.setFavs(favorites);
+  const stored = JSON.stringify(A.getFavs());
+  A.renderFavs();
+  const cards = () => [...app.$('favResults').children];
+  const ids = () => cards().map((card) => card.dataset.favoriteId);
+  assert.deepEqual(ids(), ['L-NEAR', 'L-TIE-A', 'L-TIE-B', 'L-FAR', 'L-UNKNOWN']);
+  assert.equal(JSON.stringify(A.getFavs()), stored, 'sorting must not rewrite saved order');
+  const pins = () => [...app.$('favMap').querySelectorAll('.leaflet-marker-icon')]
+    .filter((pin) => /^\d+:/.test(pin.title));
+  assert.deepEqual(pins().map((pin) => pin.title),
+    ['1: Zulu nearest', '2: Same nearby', '3: Same nearby', '4: Alpha distant']);
+  app.click(pins()[2]);
+  assert.equal(cards()[2].getAttribute('aria-current'), 'location');
+  app.click(cards()[1].querySelector('.favdel'));
+  assert.deepEqual(arr(A.getFavs(), (favorite) => favorite.id),
+    ['L-FAR', 'L-HI', 'L-TIE-B', 'L-UNKNOWN', 'L-NEAR']);
+  assert.deepEqual(ids(), ['L-NEAR', 'L-TIE-B', 'L-FAR', 'L-UNKNOWN']);
+  assert.equal(cards()[1].getAttribute('aria-current'), 'location');
+  app.click(pins()[2]);
+  assert.equal(cards()[2].getAttribute('aria-current'), 'location');
+  app.window.localStorage.removeItem(A.homeKey('lat'));
+  app.window.localStorage.removeItem(A.homeKey('lng'));
+  A.renderFavs();
+  assert.deepEqual(ids(), ['L-UNKNOWN', 'L-FAR', 'L-TIE-B', 'L-NEAR']);
+  assert.match(app.$('favStatus').textContent, /alphabetical; set Home/);
   app.window.close();
 });
 
@@ -3408,11 +3441,10 @@ test('the hotspot list is fetched once per region per day, then searched offline
 
 test('F351 Favorite patches renders and loads only the active report region', async () => {
   const app = await boot({
-    key: null,
     report: 'wa',
     fetch(url) {
-      if (/\/recent\/LWA/.test(url)) return [];
-      if (/\/recent\/LHI/.test(url)) return [];
+      if (/\/data\/obs\/LWA\/recent/.test(url)) return [];
+      if (/\/data\/obs\/LHI\/recent/.test(url)) return [];
       return null;
     },
     storage: {
@@ -3434,8 +3466,11 @@ test('F351 Favorite patches renders and loads only the active report region', as
   assert.match(app.$('favResults').textContent, /Washington Patch/);
   assert.doesNotMatch(app.$('favResults').textContent, /Hawaii Patch/,
     'a favorite saved under another report leaked into the active region');
-  assert.match(String(A.loadFavs), /favoriteEntriesForRegion\(getRegion\(\)\)/,
-    'Favorite patches does not build its network plan from the active-region view');
+  await A.loadFavs();
+  assert.ok(app.state.fetches.some((url) => /\/data\/obs\/LWA\/recent/.test(url)),
+    'the active Favorite must have its recent feed loaded');
+  assert.ok(!app.state.fetches.some((url) => /\/data\/obs\/LHI\/recent/.test(url)),
+    'the network plan must not include Favorites from another region');
   app.window.close();
 });
 
@@ -5084,6 +5119,92 @@ test('fetchRank rejects a leaderboard for the wrong region', async () => {
     'the error names the board eBird returned, so the failure is diagnosable on device');
   const tried = app.state.fetches.filter((u) => /top100/.test(u));
   assert.ok(tried.length > 1, 'the alternate URL forms are tried before giving up');
+  app.window.close();
+});
+
+test('F764 actual Top 100 refresh bypasses a warm cache and retains data on failure', async () => {
+  let html = FIX('top100-wa.html'), hold = false, release, fail = false;
+  const app = await boot({ fetch: (url) => {
+    if (!/top100/.test(url)) return [];
+    if (fail) return { ok: false, status: 400, text: async () => '' };
+    if (hold) return new Promise((resolve) => { release = () => resolve(html); });
+    return html;
+  } });
+  app.open(/Top 100/);
+  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').textContent.includes('sally frandsen'),
+    'initial leaderboard');
+  const count = () => app.state.fetches.filter((url) => /top100/.test(url)).length;
+  const before = count();
+  html = html.replaceAll('sally frandsen', 'Changed control birder');
+  hold = true;
+  const button = app.$('rankResults').closest('section').querySelector('h2 .refreshbtn');
+  app.click(button);
+  await assert.doesNotReject(waitFor(() => release, 'fresh request'),
+    'the refresh control must bypass the warm cache and request a fresh board');
+  assert.match(app.$('rankStatus').textContent, /Refreshing/);
+  assert.match(app.$('rankResults').textContent, /sally frandsen/);
+  assert.ok(count() > before, 'refresh must issue a network read despite the warm cache');
+  hold = false; release();
+  await waitFor(() => !app.$('rankBtn').disabled, 'fresh result');
+  assert.match(app.$('rankResults').textContent, /Changed control birder/);
+  app.click(button);
+  await waitFor(() => !app.$('rankBtn').disabled, 'unchanged read');
+  assert.match(app.$('rankStatus').textContent, /Checked.*unchanged/);
+  fail = true;
+  app.click(button);
+  await waitFor(() => !app.$('rankBtn').disabled, 'failed refresh');
+  assert.match(app.$('rankStatus').textContent, /Could not refresh/);
+  assert.match(app.$('rankResults').textContent, /Changed control birder/);
+  app.window.close();
+});
+
+test('F764 repeated refresh and scope changes cannot paint an obsolete leaderboard', async () => {
+  const pending = [];
+  let hold = false;
+  const base = FIX('top100-wa.html');
+  const app = await boot({ fetch: (url) => {
+    if (!/top100/.test(url)) return [];
+    if (!hold) return base;
+    return new Promise((resolve) => pending.push({ url, resolve }));
+  } });
+  const A = app.window.__app;
+  app.open(/Top 100/);
+  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').textContent.includes('sally frandsen'),
+    'initial board');
+  const button = app.$('rankResults').closest('section').querySelector('h2 .refreshbtn');
+  hold = true;
+  app.click(button);
+  await waitFor(() => pending.length === 1, 'first refresh');
+  app.click(button);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(pending.length, 1, 'repeated taps must not duplicate an active refresh');
+  A.setActiveReport('hi');
+  app.open(/Top 100/);
+  const region = A.getRankScope().region;
+  assert.equal(region, 'US-HI', 'the control must exercise another offered report board');
+  await waitFor(() => pending.length === 2, 'new scope request');
+  assert.equal(app.$('rankResults').textContent, '',
+    'a retained board must never appear under a different scope heading');
+  pending[0].resolve(base.replaceAll('sally frandsen', 'Wrong scope control'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(app.$('rankResults').textContent, '');
+  assert.equal(app.$('rankBtn').disabled, true);
+  const scoped = base.replaceAll('US-WA', region);
+  pending[1].resolve(scoped.replaceAll('sally frandsen', 'Current scope control'));
+  await waitFor(() => !app.$('rankBtn').disabled, 'current scope result');
+  assert.match(app.$('rankResults').textContent, /Current scope control/);
+  assert.doesNotMatch(app.$('rankResults').textContent, /Wrong scope control/);
+  const current = A.getRankScope(), year = new Date().getFullYear(), name = A.getDisplayName();
+  const older = A.fetchRank(current, year, name, true);
+  const newer = A.fetchRank(current, year, name, true);
+  await waitFor(() => pending.length === 4, 'two overlapping source reads');
+  pending[3].resolve(scoped.replaceAll('sally frandsen', 'Newest refresh control'));
+  await newer;
+  pending[2].resolve(scoped.replaceAll('sally frandsen', 'Obsolete refresh control'));
+  await older;
+  const cached = await A.fetchRank(current, year, name);
+  assert.equal(cached.rows[0].name, 'Newest refresh control',
+    'a late obsolete response must not poison the next warm-cache read');
   app.window.close();
 });
 
@@ -9030,18 +9151,12 @@ test('grouped sections offer each other as modes of one report', async () => {
 // The chain is: contract -> app tiles (here) -> report headings (parity).
 // Break any link and one of the two guards fails.
 test('every tile title and subtitle comes from the contract, and the report heading is derived from them', () => {
-  const subOf = {};
-  const block = HTML.slice(HTML.indexOf('var MENU_SUB'));
-  const stop = block.indexOf('};');
-  const re = /(\w+):\s*'([^']*)'/g;
-  let m;
-  while ((m = re.exec(block.slice(0, stop)))) subOf[m[1]] = m[2];
+  const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+  const subOf = Object.fromEntries(menu.map((item) => [item.at, item.subtitle]));
   assert.ok(Object.keys(subOf).length > 20,
     'MENU_SUB parsed (got ' + Object.keys(subOf).length + ')');
 
-  const labelOf = {};
-  const lre = /\{ at: '([A-Za-z0-9_]+)',\s*label: '([^']*)'/g;
-  while ((m = lre.exec(HTML))) labelOf[m[1]] = m[2];
+  const labelOf = Object.fromEntries(menu.map((item) => [item.at, item.icon + ' ' + item.title]));
   assert.ok(Object.keys(labelOf).length > 20,
     'MENU parsed (got ' + Object.keys(labelOf).length + ')');
 
@@ -9505,19 +9620,17 @@ test('the feed-cap caveat lives behind the ℹ button, in every section that has
 // min-content width, so as soon as the card could not get narrower the
 // controls — the one thing in the row you have to be able to hit — went with
 // it. There is no second line to escape to now.
-test('F743 favorite controls are visible full-width actions, not a title-squeezing column', async () => {
+test('F765 removal reuses the existing right-side control style without reorder arrows', async () => {
   const app = await boot();
   const A = app.window.__app;
   A.setFavs([]);
   A.addFav({ locId: 'L-CTL', locName: 'Synthetic controls patch', lat: 47.6, lng: -122.3 });
   A.renderFavs();
   const card = app.$('favResults').firstElementChild;
-  assert.equal(card.querySelector('.favctl'), null);
-  const controls = card.querySelector('.favcontrols');
-  assert.equal(controls.parentElement, card);
-  const style = app.window.getComputedStyle(controls);
-  assert.equal(style.flexWrap, 'wrap');
-  for (const [selector, label] of [['.favup', 'Move up'], ['.favdown', 'Move down'], ['.favdel', 'Remove']]) {
+  const controls = card.querySelector('.favctl');
+  assert.equal(controls.parentElement, card.querySelector('.name'));
+  assert.equal(card.querySelector('.favup, .favdown'), null);
+  for (const [selector, label] of [['.favdel', '✕']]) {
     const button = controls.querySelector(selector);
     assert.equal(button.textContent, label);
     assert.ok(parseFloat(app.window.getComputedStyle(button).minHeight) >= 44);
@@ -10333,17 +10446,11 @@ test('the Needs-verification section renders the tracked list with controls', as
   // A name that resolves to no eBird code still ships, because silently
   // dropping it hides a typo in the authored file forever.
   assert.match(rows[2].textContent, /Not resolved to an eBird species code/);
-  assert.equal(app.$('nvResults').querySelectorAll('.nvup').length, 3);
-  assert.equal(app.$('nvResults').querySelectorAll('.nvdown').length, 3);
+  assert.equal(app.$('nvResults').querySelectorAll('.nvup').length, 0);
+  assert.equal(app.$('nvResults').querySelectorAll('.nvdown').length, 0);
   assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 3);
-  assert.equal(rows[0].querySelector('.nvup').disabled, true, 'the first row cannot move up');
-  assert.equal(rows[2].querySelector('.nvdown').disabled, true, 'the last row cannot move down');
-
-  app.click(rows[0].querySelector('.nvdown'));
-  assert.deepEqual(arr(app.window.__app.getWatchlist(), (e) => e.code), ['bbb', 'aaa', ''],
-    'the reorder button really reorders the stored list');
   app.click([...app.$('nvResults').querySelectorAll('.nvdel')][0]);
-  assert.deepEqual(arr(app.window.__app.getWatchlist(), (e) => e.code), ['aaa', ''],
+  assert.deepEqual(arr(app.window.__app.getWatchlist(), (e) => e.code), ['bbb', ''],
     'and delete really deletes');
   app.window.close();
 });
@@ -10351,6 +10458,58 @@ test('the Needs-verification section renders the tracked list with controls', as
 // Word-prefix, the same rule the hotspot picker uses: typing "black th" has to
 // find "Black-throated Gray Warbler" without matching every name that happens
 // to contain those letters mid-word.
+test('F765 Watch list sorts alphabetically without rewriting storage or misdirecting removal', async () => {
+  const saved = [
+    { code: 'zzz', name: 'Zulu Bird' },
+    { code: 'beta2', name: 'Beta Bird' },
+    { code: 'aaa', name: 'Alpha Bird' },
+    { code: 'beta1', name: 'Beta Bird' },
+  ];
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify(saved) } });
+  const A = app.window.__app;
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  const buttons = () => [...app.$('nvResults').querySelectorAll('.nvdel')];
+  assert.deepEqual(buttons().map((button) => button.dataset.i), ['2', '3', '1', '0']);
+  assert.equal(JSON.stringify(A.getWatchlist()), JSON.stringify(saved));
+  assert.equal(app.$('nvResults').querySelector('.nvup, .nvdown'), null);
+  app.click(buttons()[0]);
+  assert.deepEqual(arr(A.getWatchlist(), (entry) => entry.code), ['zzz', 'beta2', 'beta1']);
+  assert.deepEqual(buttons().map((button) => button.dataset.i), ['2', '1', '0']);
+  app.window.close();
+});
+
+test('F765 Watch list alphabetizes the displayed locale names, not stored English labels', async () => {
+  const saved = [{ code: 'stable', name: 'Alpha stored' }, { code: 'rename', name: 'Zulu stored' }];
+  const app = await boot({
+    indexedDB: new IDBFactory(),
+    storage: { ebird_watchlist_v1: JSON.stringify(saved) },
+    fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2024, latest: true }];
+      if (/ref\/taxa-locales/.test(url)) return [{ code: 'en', name: 'English' }, { code: 'fr', name: 'French' }];
+      if (/ref\/taxonomy\/ebird/.test(url)) {
+        const query = new URL(url).searchParams;
+        const rows = syntheticEditionRows(query.get('version'));
+        return query.get('locale') === 'fr' ? rows.map((row) => ({
+          ...row, comName: row.speciesCode === 'stable' ? 'Zulu translated' : 'Alpha translated',
+        })) : rows;
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  assert.equal(await A.checkTaxonomyEdition(true), true);
+  await A.loadNamingLocales();
+  assert.equal(await A.selectNamingLocale('fr'), true);
+  app.open(/Watch List/);
+  app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+  assert.deepEqual([...app.$('nvResults').querySelectorAll('.nvdel')].map((button) => button.dataset.i), ['1', '0']);
+  const names = [...app.$('nvResults').querySelectorAll('.ntext a')].map((name) => name.textContent);
+  assert.deepEqual(names, ['Alpha translated', 'Zulu translated']);
+  assert.equal(JSON.stringify(A.getWatchlist()), JSON.stringify(saved));
+  app.window.close();
+});
+
 test('species search matches on word prefixes, not substrings', async () => {
   const app = await boot();
   const rows = [
@@ -11258,8 +11417,8 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
       assert.match(summary.textContent, /BIRDCAST.*migration alert.*\d{1,2}\/\d{1,2}/s,
         'migration does not identify BirdCast, the Home location, and the current date');
     } else {
-      assert.match(summary.textContent, /x\d+.* - .+ - \d{1,2}\/\d{1,2}/s,
-        `${kind} does not place count, location and date on the second line`);
+      assert.match(summary.textContent, /.+ - \d{1,2}\/\d{1,2}/s,
+        `${kind} does not place location and date on the second line`);
     }
     assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
       `${kind} still spends the compact line on mileage`);
@@ -11315,7 +11474,7 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
     rows: [
       { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(45),
         locName: 'Smith Island', locId: 'LMEGA', subId: 'SM2',
-        lat: 48.31, lng: -122.84 },
+        lat: 48.31, lng: -122.84, howMany: 1 },
     ],
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
@@ -12026,8 +12185,10 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
   let box = app.$('surgeResults');
   assert.match(box.textContent, /Baird's Sandpiper/,
     'a failed leaderboard source erased rows from a successful observation source');
-  assert.match(box.querySelector('.surgesourcewarn').textContent, /Top 100 leaderboard failed/,
+  assert.match(box.querySelector('.surgesourceprogress').textContent, /Top 100 leaderboard failed/,
     'the warning does not name the unavailable source');
+  assert.equal(box.querySelector('.surgesourcewarn'), null);
+  assert.doesNotMatch(box.textContent, /Incomplete feed/);
   assert.equal(box.dataset.sourceLeaderboard, 'failed',
     'the failed state was flattened into an empty source');
   assert.doesNotMatch(box.textContent, /Nothing you need has been reported/,
@@ -12055,10 +12216,10 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
   app.window.localStorage.removeItem('ebird_mega_snapshot_v1');
   A.renderSurge([], [], [], [], [], loadedSources);
   box = app.$('surgeResults');
-  assert.doesNotMatch(box.querySelector('.surgesourcewarn').textContent,
+  assert.doesNotMatch(box.querySelector('.surgesourceprogress').textContent,
     /open Mega rarities/i,
     'Bird Gen told the user to open another section even though it owns the lazy refresh');
-  assert.match(box.querySelector('.surgesourcewarn').textContent,
+  assert.match(box.querySelector('.surgesourceprogress').textContent,
     /Mega snapshot not loaded yet/i,
     'a missing mega snapshot is being reported as zero megas');
   assert.match(box.textContent, /No alerts are available from the sources that loaded/,
@@ -12960,10 +13121,10 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
     'the compact tuple still mixes nearest-place text with the newest date');
   assert.match(row.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/);
   const facts = row.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
-  assert.match(facts, /x4 - Newest Pond - /,
-    'the CELEBRITY line does not keep qualifying sightings with the newest place/date');
-  assert.doesNotMatch(facts, /\d+(?:\.\d+)?mi\b|x7|x2/i,
-    'removed mileage or per-checklist counts leaked into the compact fact line');
+  assert.match(facts, /x7 - Newest Pond - /,
+    'the CELEBRITY line does not keep the latest count with its place/date');
+  assert.doesNotMatch(facts, /\d+(?:\.\d+)?mi\b|x2/i,
+    'mileage or the older checklist count leaked into the compact fact line');
 
   app.window.__app.renderSurge([], [], [], [{
     code: 'amgplo', name: 'American Golden-Plover', sightings: 4, nPlaces: 2,
@@ -12979,8 +13140,8 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
   const missingCount = app.document.querySelector('[data-alert-kind="need"] .surgefacts');
-  assert.match(missingCount.textContent, /x4/,
-    'the qualifying sighting count disappeared when the newest checklist count was absent');
+  assert.equal(missingCount.querySelector('.surgecountvalue'), null,
+    'an unknown latest bird count must not become the number of sightings');
   assert.doesNotMatch(missingCount.textContent, /x7/,
     'a missing newest count borrows the nearest older checklist count');
   app.window.close();
@@ -13108,7 +13269,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
   assert.equal(progress.getAttribute('aria-valuenow'), '5');
   assert.equal(progress.getAttribute('aria-valuemax'), '6');
-  assert.match(progress.textContent, /5 of 6 complete/i);
+  assert.match(progress.textContent, /5 of 6 settled/i);
   assert.equal(app.$('loadBar').hidden, false,
     'the shared loading bar disappeared while Bird Gen still owns the held Mega refresh');
   assert.match(app.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/,
@@ -13118,8 +13279,12 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   await waitFor(() => box.dataset.sourceMega === 'ok',
     'the completed Mega snapshot to repaint Bird Gen');
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
-  assert.equal(box.querySelector('.surgesourceprogress'), null,
-    'the completed Bird Gen load retained a stale progress bar');
+  const settled = box.querySelector('.surgesourceprogress');
+  assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
+  assert.equal(settled.getAttribute('aria-valuenow'), '6');
+  assert.match(settled.textContent, /Top 100 leaderboard failed/);
+  assert.doesNotMatch(settled.textContent, /Loading Bird Gen sources/,
+    'settled failure disclosure must not pretend work is still loading');
   await waitFor(() => app.$('loadBar').hidden,
     'the shared loading bar to settle after the last Bird Gen source completes');
   app.window.close();
@@ -16068,7 +16233,7 @@ test('F502 Today’s Patches keeps mileage in the hotspot title row right column
     /<div class="name">[\s\S]*Marymoor Park[\s\S]*class="hsdist maplink"/,
     'mileage is not beside the hotspot name');
   assert.match(HotspotCards.css,
-    /\.hscard-md > \.name > \.hsdist \{[\s\S]*grid-column: 3; grid-row: 1;[\s\S]*justify-self: end;/,
+    /\.hscard-md > \.name \.hsdist \{[\s\S]*grid-column: 3; grid-row: 1;[\s\S]*justify-self: end;/,
     'mileage is not right-aligned in the title row');
   const destinationRenderer = HTML.slice(HTML.indexOf('function renderDestinations('),
     HTML.indexOf('function rarityRedirect('));
@@ -19433,7 +19598,7 @@ test('the hotspot medium card is three cells over a full-width sub-header', () =
   assert.match(name, /grid-column: 2;/, 'the name is column 2');
   assert.match(name, /grid-row: 1;/, 'of row 1');
 
-  const dist = rule('.hscard-md > .name > .hsdist');
+  const dist = rule('.hscard-md > .name .hsdist');
   assert.match(dist, /grid-column: 3;/, 'the distance is column 3');
   assert.match(dist, /grid-row: 1;/, 'of row 1, and it no longer spans rows');
 
@@ -26028,27 +26193,89 @@ test('F749 production species batches count down while publishing useful partial
   app.window.close();
 });
 
-test('F750 warns about cold 30s+ loads before opening Bird Gen or any Day trip band', async () => {
+test('F758 bundled JSON is the production authority for menu icons, titles and subtitles', async () => {
+  childProcess.execFileSync(process.execPath, [path.join(__dirname, '..', 'assets', 'build-menu.js'), '--check']);
+  const app = await boot();
+  const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+  const embedded = JSON.parse(app.$('menu-definition').textContent);
+  assert.deepEqual(embedded, menu);
+  assert.ok(app.document.querySelectorAll('#menuList [data-at]').length > 20,
+    'the production menu must be populated before checking its metadata');
+  for (const item of menu) {
+    const tile = app.document.querySelector('#menuList [data-at="' + item.at + '"]');
+    if (!tile) continue;
+    assert.equal(tile.querySelector('.tileicon').textContent, item.icon);
+    assert.equal(tile.querySelector('.tilelabel').textContent, item.title);
+    if (!item.dynamicSubtitle) {
+      assert.ok(tile.querySelector('.tilesub').textContent.startsWith(item.subtitle));
+    }
+  }
+  assert.equal(app.state.errors.length, 0);
+  app.window.close();
+});
+
+test('F763 latest checklist supplies MEGA count; unknown counts and held explanations are omitted', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [1, 3, 2].map((howMany, i) => ({
+    speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', howMany,
+    obsDt: new Date(Date.now() - (3 - i) * 60000).toISOString().slice(0, 16).replace('T', ' '),
+    locId: 'L-COUNT', locName: 'Count control', subId: 'S-' + i,
+    lat: 47.6, lng: -122.3,
+  }));
+  function paint(records) {
+    app.window.localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489', rows: records,
+    }));
+    A.renderSurge([], [], [], [], []);
+    return app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
+  }
+  const card = paint([rows[2], rows[0], rows[1]]);
+  assert.ok(card);
+  assert.equal(card.querySelector('.surgecountvalue').textContent, 'x2');
+  assert.ok(card.querySelector('[data-subid="S-2"]') || card.textContent.includes('Count control'));
+  for (const record of rows) record.howMany = 1;
+  assert.equal(paint(rows).querySelector('.surgecountvalue').textContent, 'x1');
+  rows[2].howMany = null;
+  assert.equal(paint(rows).querySelector('.surgecountvalue'), null);
+  assert.equal(app.$('surgeResults').querySelector('.surgeheld'), null);
+  app.window.close();
+});
+
+test('F761 Bird Gen includes Medium and High forecasts, never Low forecasts', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date('2026-09-28T18:00:00Z');
+  for (const level of ['Medium', 'High']) {
+    const rows = A.birdcastSurgeRows(now, { forecast: { level } });
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight<'));
+    assert.match(rows[0].noteHeader, level === 'High' ? /Heavy/ : /Moderate/);
+    assert.match(rows[0].name, /data-sec="sec-bcBody"/);
+  }
+  assert.equal(A.birdcastSurgeRows(now, { forecast: { level: 'Low' } }).length, 0);
+  app.window.close();
+});
+
+test('F757/F759 keep slow-load explanations off menu buttons and Bird Gen report', async () => {
   const app = await boot();
   for (const [at, noticeId] of [
-    ['surgeBtn', 'birdGenLoadNotice'], ['excBtn', 'dayTripLoadNotice'],
+    ['surgeBtn', null], ['excBtn', 'dayTripLoadNotice'],
   ]) {
     const menu = app.document.querySelector('#menuList button[data-at="' + at + '"]');
     assert.ok(menu, 'known slow report must be present in the menu');
-    const description = app.$(menu.getAttribute('aria-describedby'));
-    assert.ok(description && menu.contains(description),
-      'the warning must be readable and associated with its menu button before opening');
-    assert.match(description.textContent, /Cold scan: 30s\+.*several minutes/);
-    const notice = app.$(noticeId);
-    assert.equal(notice.hidden, false);
-    assert.equal(notice.getAttribute('role'), 'note');
-    assert.match(notice.textContent, /fresh scans.*30 seconds.*several minutes/);
-    assert.match(notice.textContent, /Cached results can appear sooner/);
+    assert.doesNotMatch(menu.textContent, /Cold scan|30s\+|several minutes/);
+    assert.equal(menu.hasAttribute('aria-describedby'), false);
+    if (noticeId) assert.match(app.$(noticeId).textContent, /fresh scans.*30 seconds/);
   }
   app.window.__app.setDayTripRange('under3');
   assert.match(app.$('dayTripLoadNotice').textContent, /30 seconds/,
     'the general cold-load warning must not disappear with the 8h+ warning');
   assert.equal(app.$('dayTripWarning').hidden, true);
+  assert.equal(app.$('birdGenLoadNotice'), null);
+  const info = app.window.BirdInfoDialogs.laneDocs(app.window.BirdLogic).feed.body;
+  assert.match(info, /Slow loading: fresh scans/);
+  assert.match(info, /Some megas are not news today/);
   const unrelated = app.document.querySelector('#menuList button[data-at="refreshBtn"]');
   assert.ok(unrelated);
   assert.equal(unrelated.hasAttribute('aria-describedby'), false,
@@ -26056,7 +26283,7 @@ test('F750 warns about cold 30s+ loads before opening Bird Gen or any Day trip b
   app.window.close();
 });
 
-test('F752 menu loading warnings keep both original subtitles in a separate row', async () => {
+test('F757 original menu titles/subtitles have no added cold-scan warning', async () => {
   const app = await boot();
   for (const [at, subtitle] of [
     ['surgeBtn', 'Talk and news'],
@@ -26067,14 +26294,10 @@ test('F752 menu loading warnings keep both original subtitles in a separate row'
     const warning = tile.querySelector(':scope > .tileextras > .tileloadnotice');
     assert.ok(original, at + ' lost its original subtitle');
     assert.equal(original.textContent, subtitle);
-    assert.ok(warning, at + ' has no separate cold-load warning');
-    assert.match(warning.textContent, /Cold scan: 30s\+.*several minutes/);
-    assert.equal(tile.getAttribute('aria-describedby'), warning.id,
-      at + ' is not accessibly associated with its warning');
-    assert.ok(original.compareDocumentPosition(warning)
-      & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-    at + ' warning must follow, not replace, the subtitle');
-    assert.strictEqual(warning.parentElement, tile.querySelector('.tileextras'));
+    assert.equal(warning, null);
+    assert.equal(tile.hasAttribute('aria-describedby'), false);
+    assert.equal(tile.querySelector('.tilelabel').textContent,
+      at === 'surgeBtn' ? 'Bird Gen' : 'Day trip patches');
   }
   app.window.close();
 });
@@ -27864,8 +28087,8 @@ test('there is ONE menu ordering, not two', () => {
     .filter(Boolean);
 
   const used = [];
-  for (const r of HTML.matchAll(/\{ at: '[A-Za-z0-9_]+',[^\n]*group: '([^']+)'/g)) {
-    if (!used.includes(r[1])) used.push(r[1]);
+  for (const item of JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'))) {
+    if (!used.includes(item.group)) used.push(item.group);
   }
   assert.deepEqual(used, groups,
     'every group the MENU rows name appears in MENU_GROUPS, in the same order '
@@ -30390,7 +30613,7 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
     region: 'US-WA', sid: 'SN10489',
     rows: [{ speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(15),
       locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM1',
-      lat: 47.76, lng: -122.17 }],
+      lat: 47.76, lng: -122.17, howMany: 1 }],
   });
   const watched = JSON.stringify({
     'US-WA': {
@@ -32735,26 +32958,11 @@ test('every menu tile carries a definition under its jargon', () => {
   // MORE technical than "Mega rarities", and that is the point. The header is
   // the word a birder says; the line under it is what the section actually
   // selects on. A vaguer paraphrase teaches nothing and costs a line.
-  const tbl = HTML.slice(HTML.indexOf('var MENU_SUB = {'),
-    HTML.indexOf('};', HTML.indexOf('var MENU_SUB = {')));
-  assert.ok(tbl, 'MENU_SUB not found');
-
-  // Keyed by section id, not label, so a rename cannot orphan one - and every
-  // enabled tile must have one, or the menu reads inconsistently.
-  const menu = HTML.slice(HTML.indexOf('var MENU = ['), HTML.indexOf('];', HTML.indexOf('var MENU = [')));
-  const ids = [...menu.matchAll(/at:\s*'([^']+)'/g)].map((m) => m[1]);
-  const enabled = [...menu.matchAll(/at:\s*'([^']+)'[^\n]*/g)]
-    .filter((m) => !/enabled:\s*false/.test(m[0])).map((m) => m[1]);
-  const missing = enabled.filter((id) => !new RegExp(`\\b${id}:`).test(tbl));
-  assert.deepEqual(missing, [], `tiles with no sub-line: ${missing.join(', ')}`);
-
-  // And no sub-line may be orphaned by a tile that no longer exists.
-  const subIds = [...tbl.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
-  const orphans = subIds.filter((id) => !ids.includes(id));
-  assert.deepEqual(orphans, [], `sub-lines for tiles that are gone: ${orphans.join(', ')}`);
-
-  // The one the request named, verbatim.
-  assert.match(tbl, /abaBtn:\s*'ABA Code 3\+/, 'Mega rarities does not state its criterion');
+  const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+  assert.ok(menu.length > 20);
+  assert.equal(new Set(menu.map((item) => item.at)).size, menu.length);
+  assert.ok(menu.filter((item) => item.enabled !== false).every((item) => item.subtitle));
+  assert.match(menu.find((item) => item.at === 'abaBtn').subtitle, /ABA Code 3\+/);
 });
 
 test('the Stakeout map is rendered by the function that owns its data', () => {
@@ -33522,9 +33730,10 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
   assert.match(txt, /Sharp-tailed Sandpiper/, 'the far + new mega did not render');
   assert.doesNotMatch(txt, /White Wagtail/,
     'the far, seen, not-new White Wagtail rendered despite F275');
-  assert.match(txt, /1 more mega is not news today/,
-    'the filtered feed no longer discloses its held-back mega');
-  assert.match(txt, /Mega rarities/, 'the disclosure no longer says where the held-back bird remains');
+  assert.doesNotMatch(txt, /more mega is not news today/);
+  const help = app.window.BirdInfoDialogs.laneDocs(app.window.BirdLogic).feed.body;
+  assert.match(help, /Some megas are not news today/);
+  assert.match(help, /Mega rarities/);
   assert.match([...feed.children].map((row) => row.dataset.surgeReasonText).join(' '),
     /outside your chase radius/,
     'the far + new mega renders as though it were local');
@@ -33768,7 +33977,7 @@ test('mega newness follows a four-mile species locality instead of hotspot ids o
   app.window.close();
 });
 
-test('a repeated mega hotspot owns the compact place, date and checklist tuple', async () => {
+test('F763 latest mega checklist owns the compact tuple while repeated-hotspot evidence remains explicit', async () => {
   const now = Date.now();
   const stamp = (mins) => {
     const d = new Date(now - mins * 60000);
@@ -33786,7 +33995,7 @@ test('a repeated mega hotspot owns the compact place, date and checklist tuple',
         subId: 'SRB', lat: 47.75, lng: -122.16 },
       { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
         obsDt: stamp(5), locName: 'Nearby Newer Pin', locId: 'LNEARBY',
-        subId: 'SNEWER', lat: 47.77, lng: -122.16 },
+        subId: 'SNEWER', lat: 47.77, lng: -122.16, howMany: 1 },
     ],
   };
   const archive = { 'US-WA': {
@@ -33802,16 +34011,15 @@ test('a repeated mega hotspot owns the compact place, date and checklist tuple',
   app.window.__app.renderSurge([], [], [], []);
   const row = app.document.querySelector('[data-alert-kind="mega"]');
   const summary = row.querySelector('.surgefacts');
-  assert.match(summary.textContent, /Repeated Hotspot/);
-  assert.doesNotMatch(summary.textContent, /Nearby Newer Pin/,
-    'the repeated-hotspot reason points somewhere other than the compact tuple');
-  assert.match(summary.querySelector('.surgeabsolute a').getAttribute('data-href'), /SRB/,
-    'the date does not open the newest checklist at the repeated hotspot');
-  assert.equal(summary.querySelector('.hslink').getAttribute('data-loc'), 'LREPEAT',
-    'the exact-hotspot tuple is not an actionable Stakeout-hotspot link');
+  assert.match(summary.textContent, /x1 - Nearby Newer Pin/);
+  assert.doesNotMatch(summary.textContent, /Repeated Hotspot/);
+  assert.match(summary.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEWER/,
+    'the date must open the latest qualifying checklist, not an older repeated report');
+  assert.equal(summary.querySelector('.hslink').getAttribute('data-loc'), 'LNEARBY',
+    'the latest-checklist location must remain actionable');
   assert.match(row.dataset.surgeReasonText, /Repeated Hotspot/);
   assert.doesNotMatch(row.dataset.surgeReasonText, /Nearby Newer Pin/,
-    'the retained qualifier reason names a different pin than the compact tuple');
+    'the latest report must not replace the explicitly named supporting-hotspot evidence');
   app.window.close();
 });
 
@@ -33853,10 +34061,10 @@ test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', 
   const row = app.document.querySelector('[data-alert-kind="mega"]');
   const facts = row.querySelector('.surgefacts');
   assert.match(facts.textContent.replace(/\s+/g, ' ').trim(),
-    /^NABO x1 - Smith Island - /,
-    'equal-time evidence changed the MEGA report count or split the tuple');
-  assert.doesNotMatch(facts.textContent, /x7/,
-    'the removed per-checklist bird count leaked into the compact line');
+    /^NABO x7 - Smith Island - /,
+    'the same checklist can fill its unknown bird count without splitting the tuple');
+  assert.doesNotMatch(facts.textContent, /x1|x4/,
+    'a report or sighting count must not become a bird multiplier');
   assert.match(facts.querySelector('.surgeabsolute a').getAttribute('data-href'), /SAME/,
     'the coherent tuple lost the newest checklist link');
   assert.equal([...app.$('surgeFeed').children]
@@ -35396,7 +35604,7 @@ test('a hotspot card is about the place, not the mileage', () => {
     return parseFloat(m[1]);
   };
   const name = px("'.hscard-md > .name > .ntext {'");
-  const dist = px("'.hscard-md > .name > .hsdist {'");
+  const dist = px("'.hscard-md > .name .hsdist {'");
   assert.ok(dist <= name,
     'the distance (' + dist + 'px) must not be set larger than the place it '
     + 'describes (' + name + 'px) - the number outranking the subject is why '
@@ -35404,7 +35612,7 @@ test('a hotspot card is about the place, not the mileage', () => {
 
   // It stays scannable by weight and alignment rather than by size, which is
   // what makes shrinking it safe.
-  const distAt = src.indexOf("'.hscard-md > .name > .hsdist {'");
+  const distAt = src.indexOf("'.hscard-md > .name .hsdist {'");
   const distEnd = src.indexOf("'.hscard", distAt + 32);
   const distRule = src.slice(distAt, distEnd > -1 ? distEnd : src.length);
   assert.match(distRule, /font-weight:\s*800/,

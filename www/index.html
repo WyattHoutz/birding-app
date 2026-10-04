@@ -1415,9 +1415,9 @@
     .bignum { font-size: calc(30px * var(--s)); font-weight: 800; letter-spacing: -0.02em; }
     .bignum small { font-size: calc(13px * var(--s)); font-weight: 600; color: var(--muted); }
     .map { width: 100%; height: auto; aspect-ratio: 8 / 5; display: block; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; color: var(--ink); }
-    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap, #stakeHsMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
+    #destMap, #excMap, #tripMap, #hotMap, #coldMap, #cklMap, #closeMap, #quickMap, #spLookupMap, #stakeHsMap, #favMap { width: 100%; height: auto; aspect-ratio: 8 / 5; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0 10px; overflow: hidden; background: #e8ecea; }
     #spLookupMap { aspect-ratio: 16 / 7; }
-    #spLookupMap:empty, #stakeHsMap:empty, #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty { display: none; }
+    #spLookupMap:empty, #stakeHsMap:empty, #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty, #favMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
     .birdcast-alert {
@@ -2387,6 +2387,8 @@
     .favspp { margin: 4px 0 6px; }
     .favspp li { padding: 5px 0; border: none; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+    .favctl .favbtn { min-width: 44px; min-height: 44px; }
+    .favoritecard > .name > .favctl { grid-column: 3; grid-row: 1; align-items: flex-end; }
     /* The ▲▼✕ column is three 40px targets tall, so an NV row is ~128px however
        little it carries — a 46px thumb and a 16px name left two thirds of that
        height blank. The photo grows to the full height of the controls beside
@@ -2406,6 +2408,16 @@
                    font-size: calc(21px * var(--s)); font-weight: 800; line-height: 1.25; }
     .nvrow .ntext { min-width: 0; overflow-wrap: anywhere; }
     .nvrow .meta { font-size: calc(15px * var(--s)); margin-top: 6px; }
+    html[data-display="large"] .nvrow,
+    html[data-display="high-visibility"] .nvrow {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    }
+    @media (max-width: 360px) {
+      .nvrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    }
+    .nvrow > .thumb { grid-column: 1; grid-row: 1; max-width: 100%; }
+    .nvrow > .favmain { grid-column: 1 / -1; grid-row: 2; }
+    .nvrow > .favctl { grid-column: 2; grid-row: 1; }
     /* 40px is the smallest comfortable touch target, and this app is used
        one-handed with binoculars in the other hand. */
     .favbtn { width: calc(40px * var(--s)); height: calc(40px * var(--s)); padding: 0; font-size: calc(17px * var(--s)); line-height: 1;
@@ -3626,7 +3638,6 @@
 
     <section class="panel">
       <h2>🔔 Bird Gen <span class="dim" id="surgeRegionLabel"></span></h2>
-      <p id="birdGenLoadNotice" class="hint" role="note" data-long-load="surgeBtn"></p>
       <div class="row">
         <button id="surgeBtn">Check for twitches</button>
       </div>
@@ -4161,6 +4172,244 @@
        and has to answer with the phone in a canyon, and a file the parser has
        already run cannot be half-loaded when a renderer asks for it. -->
   <script src="choice-patches.js"></script>
+  <script type="application/json" id="menu-definition">
+[
+  {
+    "at": "surgeBtn",
+    "icon": "🔔",
+    "title": "Bird Gen",
+    "subtitle": "Talk and news",
+    "needs": "geo",
+    "group": "Buzz - Celebrity and Rare Bird News"
+  },
+  {
+    "at": "refreshBtn",
+    "icon": "🚨",
+    "title": "Twitches",
+    "subtitle": "Rare Bird Alerts (RBA)",
+    "needs": "geo",
+    "group": "Buzz - Celebrity and Rare Bird News"
+  },
+  {
+    "at": "allUnseenBtn",
+    "icon": "🦅",
+    "title": "Nemesis birds",
+    "subtitle": "Closest unseen birds reported now",
+    "needs": "county",
+    "group": "Buzz - Celebrity and Rare Bird News"
+  },
+  {
+    "at": "activeBtn",
+    "icon": "🚨",
+    "title": "Twitches this week",
+    "subtitle": "Rarities this week",
+    "group": "Buzz - Celebrity and Rare Bird News",
+    "enabled": false
+  },
+  {
+    "at": "abaBtn",
+    "icon": "🦤",
+    "title": "Mega rarities",
+    "subtitle": "ABA Code 3+ alert",
+    "needs": "geo",
+    "group": "Buzz - Celebrity and Rare Bird News"
+  },
+  {
+    "at": "destBtn",
+    "icon": "🏞",
+    "title": "Today’s patches",
+    "subtitle": "Top hotspots to visit",
+    "needs": "geo",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "quickBtn",
+    "icon": "🚶",
+    "title": "Nearby Patches",
+    "subtitle": "Local hotspots and unseen targets",
+    "needs": "geo",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "excBtn",
+    "icon": "🚗",
+    "title": "Day trip patches",
+    "subtitle": "Hotspot excursions",
+    "needs": "geo",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "iconicBtn",
+    "icon": "🖼",
+    "title": "Iconic Patches",
+    "subtitle": "Hotspot specialities",
+    "needs": "geo",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "coldBtn",
+    "icon": "🥶",
+    "title": "Cold patches",
+    "subtitle": "Overlooked gems nobody watches",
+    "needs": "county",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "hotBtn",
+    "icon": "🔥",
+    "title": "Hot patches",
+    "subtitle": "Hotspots with recent surges",
+    "needs": "county",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "favResults",
+    "icon": "⭐",
+    "title": "Favorite patches",
+    "subtitle": "Saved hotspots",
+    "needs": "geo",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "tripBtn",
+    "icon": "🧭",
+    "title": "Trip planner",
+    "subtitle": "",
+    "needs": "geo",
+    "group": "Patches - Go birding",
+    "enabled": false
+  },
+  {
+    "at": "spLookupBtn",
+    "icon": "🦉",
+    "title": "Stakeout Birds",
+    "subtitle": "Lookup birds & spuhs",
+    "group": "Stakeouts - Birds and Hotspots"
+  },
+  {
+    "at": "stakeHsBtn",
+    "icon": "🏜️",
+    "title": "Stakeout Patches",
+    "subtitle": "Look up hotspot",
+    "group": "Stakeouts - Birds and Hotspots"
+  },
+  {
+    "at": "wxBtn",
+    "icon": "🌤",
+    "title": "Twitch weather",
+    "subtitle": "Is today worth chasing",
+    "needs": "geo",
+    "group": "Birding Tools"
+  },
+  {
+    "at": "bcBody",
+    "icon": "🌙",
+    "title": "Migration",
+    "subtitle": "Tonight, arrivals, and departures",
+    "needs": "county",
+    "group": "Birding Tools"
+  },
+  {
+    "at": "todBtn",
+    "icon": "🌄",
+    "title": "Dawn and dusk",
+    "subtitle": "Time-of-day specialists",
+    "needs": "county",
+    "group": "Birding Tools"
+  },
+  {
+    "at": "recordBody",
+    "icon": "🏅",
+    "title": "Break a record",
+    "subtitle": "Overdue megararities",
+    "group": "Birding Tools"
+  },
+  {
+    "at": "easyBtn",
+    "icon": "🐦",
+    "title": "Common birds",
+    "subtitle": "Common birds you still need",
+    "needs": "county",
+    "group": "Birding Tools"
+  },
+  {
+    "at": "lastNewBtn",
+    "icon": "☑️",
+    "title": "Leaderboard Ticks",
+    "subtitle": "Newest on the board",
+    "needs": "geo",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "rankBtn",
+    "icon": "🏆",
+    "title": "Top 100",
+    "subtitle": "Leaderboard",
+    "dynamicSubtitle": "leaderboard-scope",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "patchBtn",
+    "icon": "💪",
+    "title": "Pro patches",
+    "subtitle": "Where the top 100 actually bird",
+    "needs": "county",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "cklBtn",
+    "icon": "🦜",
+    "title": "Big days",
+    "subtitle": "Biggest day lists",
+    "needs": "county",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "recentBtn",
+    "icon": "📋",
+    "title": "Recent checklists",
+    "subtitle": "All recent county checklists",
+    "needs": "county",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "convoyBtn",
+    "icon": "👥",
+    "title": "Convoys",
+    "subtitle": "Groups birding together",
+    "needs": "county",
+    "group": "Leader Board / Ranking"
+  },
+  {
+    "at": "myYearBody",
+    "icon": "📅",
+    "title": "My Year List",
+    "subtitle": "Your seen bird list this year",
+    "group": "My Bird List"
+  },
+  {
+    "at": "nvResults",
+    "icon": "❓",
+    "title": "Watch List",
+    "subtitle": "Birds considered unseen",
+    "group": "My Bird List"
+  },
+  {
+    "at": "settingsPanel",
+    "icon": "⚙️",
+    "title": "Settings",
+    "subtitle": "Region, display, data",
+    "group": "Settings & Doc"
+  },
+  {
+    "at": "helpBody",
+    "icon": "📘",
+    "title": "How each section works",
+    "subtitle": "What every button does",
+    "group": "Settings & Doc"
+  }
+]
+  </script>
   <script>
     (function () {
       // ── F177: SEVERAL eBIRD ACCOUNTS ON ONE PHONE ───────────────────────
@@ -4410,7 +4659,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.133.1';
+      var APP_VERSION = '1.134.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9534,7 +9783,7 @@
                   || (hit.n === spot.n && String(hit.latest.obsDt || '').localeCompare(
                     String((spot.latest && spot.latest.obsDt) || '')) > 0)) spot = hit;
             });
-            var r = spot && spot.n >= MEGA_MULTI_REPORTS ? spot.latest : newest;
+            var r = newest;
             var na = null;
             if (r && r.lat != null && r.lng != null) {
               na = BL.nearestAnchor(anchors, r.lat, r.lng);
@@ -9542,7 +9791,7 @@
             var m = {
               code: c, name: r.comName, obsDt: r.obsDt, locName: r.locName,
               locId: r.locId, subId: r.subId, lat: r.lat, lng: r.lng,
-              reports: currentEvidence.length, mi: na ? na.dist : null,
+              reports: currentEvidence.length, count: r.howMany, mi: na ? na.dist : null,
               anchor: na ? na.name : null,
               spotReports: spot ? spot.n : 0,
               spotName: spot ? spot.locName : '',
@@ -18531,6 +18780,21 @@
       // shares, so this runs serially and only when the section is opened —
       // never on a reorder, which is a repaint, not new information.
       var _favLoadGeneration = 0, _favSelectedId = '';
+      function displayedFavorites() {
+        var home = getHome();
+        return favoriteEntriesForRegion(getRegion()).map(function (entry) {
+          return entry.favorite;
+        }).sort(function (a, b) {
+          function distance(f) {
+            var point = favoriteCoordinates(f);
+            return home && point ? haversineMi(home.lat, home.lng, point.lat, point.lng) : Infinity;
+          }
+          var da = distance(a), db = distance(b);
+          return (da === db ? 0 : da < db ? -1 : 1)
+            || String(a.locName || '').localeCompare(String(b.locName || ''))
+            || String(a.id).localeCompare(String(b.id));
+        });
+      }
       function loadFavs() {
         var generation = ++_favLoadGeneration, force = takeForce();
         var work = navWork('favorite patches'), scope = activeScope(), profile = bcProfile();
@@ -18542,9 +18806,7 @@
         }
         var el = $('favResults');
         if (!el) return Promise.resolve();
-        var favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
-          return entry.favorite;
-        });
+        var favs = displayedFavorites();
         var rc = favRarityCodes(), boxes = el.querySelectorAll('.recentbox');
         var chain = Promise.resolve(), failed = 0;
         if (button) button.disabled = true;
@@ -18588,9 +18850,7 @@
         });
       }
       function renderFavs() {
-        var all = getFavs(), favs = favoriteEntriesForRegion(getRegion()).map(function (entry) {
-          return entry.favorite;
-        });
+        var all = getFavs(), favs = displayedFavorites();
         var el = $('favResults'), st = $('favStatus');
         if (!el) return;
         el.innerHTML = '';
@@ -18602,34 +18862,35 @@
             : 'Search above, or save hotspots from the other lists to pin them here.';
           return;
         }
+        var home = getHome();
         st.textContent = favs.length + ' saved ' + (getReport().label || getRegion())
           + ' hotspot' + (favs.length === 1 ? '' : 's') +
-          ' · in your order, first to last. Showing last ' + FAV_BACK_DAYS +
+          (home ? ' · nearest to Home first; unknown distances sorted by name.'
+            : ' · alphabetical; set Home for distance ordering.') + ' Showing last ' + FAV_BACK_DAYS +
           '-day reports there: unseen species and watchlist verifications (🔍), ' +
           'with rarities (⭐) ranked first. Already-seen birds are skipped unless watchlisted.';
-        var home = getHome();
         var mapPoints = [];
         favs.forEach(function (f, i) {
           var point = favoriteCoordinates(f);
           var d = home && point ? haversineMi(home.lat, home.lng, point.lat, point.lng) : null;
-          var controls = '<div class="favcontrols">' +
-              '<button class="favbtn favup" data-i="' + i + '" aria-label="Move ' +
-                esc(f.locName || 'hotspot') + ' up"' + (i === 0 ? ' disabled' : '') + '>Move up</button>' +
-              '<button class="favbtn favdown" data-i="' + i + '" aria-label="Move ' +
-                esc(f.locName || 'hotspot') + ' down"' + (i === favs.length - 1 ? ' disabled' : '') + '>Move down</button>' +
-              '<button class="favbtn del favdel" data-i="' + i + '" aria-label="Remove ' +
-                esc(f.locName || 'hotspot') + ' from favorites">Remove</button></div>';
+          var controls = '<div class="favctl"><button class="favbtn del favdel" data-favorite-id="'
+            + esc(f.id) + '" aria-label="Remove ' + esc(f.locName || 'hotspot')
+            + ' from favorites">✕</button></div>';
           el.insertAdjacentHTML('beforeend', HotspotCards.medium({
             cls: 'favoritecard', num: i + 1,
             name: f.locId ? stakeHotspotLink(f.locId, f.locName || f.id) : esc(f.locName || f.id),
             distance: d, distQ: point ? distQ(point.lat, point.lng) : '',
             sub: d == null ? 'Distance unavailable: set Home and valid saved coordinates.' : '',
             below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div></div>',
-            actions: controls + '<div class="hsact">'
+            actions: '<div class="hsact">'
               + (point ? '<a class="maplink" data-q="' + esc(point.lat + ',' + point.lng) + '">🗺 Open in Maps ↗</a>' : '')
               + (f.locId ? ebirdHotspotA(f.locId) : '') + '</div>',
             data: { 'favorite-id': f.id }
           }));
+          var card = el.lastElementChild;
+          card.querySelector('.name').insertAdjacentHTML('beforeend', controls);
+          var distance = card.querySelector('.hsdist');
+          if (distance) card.querySelector('.favctl').prepend(distance);
           if (point) mapPoints.push({
             lat: point.lat, lng: point.lng, num: i + 1, locName: f.locName || f.id,
             onSelect: function () { selectFavoriteCard(f.id); }
@@ -19211,6 +19472,11 @@
           return false;
         });
       }
+      function speciesDisplayName(name, code) {
+        var canonical = _taxonomyModel && _taxonomyModel.byCode[code];
+        var localized = _namingLocale === 'en' ? canonical && canonical.name : _namingNames[code];
+        return localized || canonical && canonical.name || name || code;
+      }
       function renderSpeciesNameHtml(html, code) {
         if (!code || !_taxonomyModel) return html;
         if (/data-naming-locale=/.test(html || '')) return html;
@@ -19219,7 +19485,7 @@
         var node = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT).nextNode();
         var canonical = _taxonomyModel.byCode[code];
         var localized = _namingLocale === 'en' ? canonical && canonical.name : _namingNames[code];
-        var displayName = localized || canonical && canonical.name;
+        var displayName = speciesDisplayName(node && node.nodeValue, code);
         if (node && displayName) node.nodeValue = displayName;
         holder.setAttribute('data-naming-locale', _namingLocale);
         if (localized) holder.setAttribute('lang', _namingLocale.replace(/_/g, '-'));
@@ -19622,7 +19888,11 @@
         });
       }
       function renderWatch() {
-        var all = getWatchlist(), scoped = watchlistForScope();
+        var all = getWatchlist(), scoped = watchlistForScope().slice().sort(function (a, b) {
+          return String(speciesDisplayName(a.entry.name, a.entry.code))
+            .localeCompare(String(speciesDisplayName(b.entry.name, b.entry.code)))
+            || String(a.entry.code || '').localeCompare(String(b.entry.code || ''));
+        });
         var list = scoped.map(function (item) { return item.entry; });
         var el = $('nvResults'), st = $('nvStatus');
         if (!el) return;
@@ -19666,10 +19936,6 @@
                     (r.subId ? ' · ' + checklistLink(r.subId, r.subId) : '') + '</div>'
                 : '<div class="meta dim">' + (e.code ? 'No report in range' : 'Not resolved to an eBird species code') + '</div>') +
             '</div><div class="favctl">' +
-              '<button class="favbtn nvup" data-i="' + sourceIndex + '" aria-label="Move ' +
-                esc(e.name || e.code) + ' up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
-              '<button class="favbtn nvdown" data-i="' + sourceIndex + '" aria-label="Move ' +
-                esc(e.name || e.code) + ' down"' + (i === list.length - 1 ? ' disabled' : '') + '>▼</button>' +
               '<button class="favbtn del nvdel" data-i="' + sourceIndex + '" aria-label="Stop tracking ' +
                 esc(e.name || e.code) + '">✕</button>' +
             '</div></div>';
@@ -19679,7 +19945,7 @@
           + (_watchScope === 'region' ? ' of ' + all.length : '')
           + ' species awaiting verification · '
           + (_watchScope === 'region' ? 'This region' : 'All watched birds')
-          + ' · in your order · ' +
+          + ' · alphabetical · ' +
           (withRec ? withRec + ' reported in range' : 'tap “Check for recent reports” to see where they are being seen') + '.';
         hydratePhotos(el);
       }
@@ -26189,18 +26455,21 @@
         }
         return urls;
       }
-      function fetchRank(rr, year, name) {
+      var _rankFetchGeneration = {};
+      function fetchRank(rr, year, name, force) {
         // Key by region (not just URL) so the key states what the rows must BE,
         // and re-check the stored region on read: a cache entry that disagrees
         // with the request is treated as a miss instead of silently rendering
         // the wrong leaderboard under the right heading.
         var ck = String(rr.region) + '|' + year + '|' + (rr.max || 500) + '|' + name;
         var hit = rankCacheGet(ck);
-        if (hit && rankRegionMatches(rr.region, hit.region)) return Promise.resolve(hit);
+        if (!force && hit && rankRegionMatches(rr.region, hit.region)) return Promise.resolve(hit);
+        var generation = (_rankFetchGeneration[ck] || 0) + 1;
+        _rankFetchGeneration[ck] = generation;
         var urls = rankingsUrlVariants(rr.region, year, rr.max), lastErr = null;
         function attempt(i) {
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
-          return fetchPublicHTML(urls[i]).then(function (html) {
+          return fetchPublicHTML(urls[i], force).then(function (html) {
             var data = parseRankingsHTML(html, name) || {};
             if (!data.rows || !data.rows.length) throw new Error('empty leaderboard');
             if (!rankRegionMatches(rr.region, data.region)) {
@@ -26209,7 +26478,7 @@
               throw new Error('eBird returned the ' + got + ' leaderboard instead of ' + rankRegionName(rr.region) + '.');
             }
             data.url = urls[i];
-            rankCachePut(ck, data);
+            if (_rankFetchGeneration[ck] === generation) rankCachePut(ck, data);
             // ⚠️ F256. REPAINT THE HEADER, or the rank never appears today.
             //
             // Reported from the device: *"my regional rank is gone from the
@@ -26746,7 +27015,10 @@
         return { rank: ahead + 1 };
       }
 
-      function loadRankings() {
+      var _rankLoadGeneration = 0;
+      function loadRankings(explicit) {
+        var force = takeForce() || explicit === true;
+        var generation = ++_rankLoadGeneration;
         // F152: the SCOPE, not the report's primary board. Everything
         // downstream — the URL, the cache key, the region check, the rank
         // history and the board history — is already keyed by region code, so
@@ -26763,19 +27035,27 @@
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var btn = $('rankBtn'), st = $('rankStatus');
-        btn.disabled = true; $('rankResults').innerHTML = ''; $('rankSummary').innerHTML = ''; st.textContent = 'Loading the leaderboard…';
+        var boardKey = region + '|' + year + '|' + name;
+        if ($('rankResults').dataset.boardKey !== boardKey) {
+          $('rankResults').innerHTML = ''; $('rankSummary').innerHTML = '';
+        }
+        var previous = $('rankResults').textContent;
+        btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
         // rankings.py reads ebird.org/top100 unauthenticated, so try that first
         // and only fall back to the in-app login flow if the public page can't
         // be read. Goes through fetchRank so the day-cache is shared with the
         // multi-region summary below and the same page is never fetched twice.
-        fetchRank({ key: rr.key, region: region, max: max }, year, name)
+        return fetchRank({ key: rr.key, region: region, max: max }, year, name, force)
           .catch(function (e) {
             dbg('warn', 'rankings direct read failed (' + (e && e.message) + ') — trying in-app login');
             if (!ibAvail()) throw e;
             st.textContent = 'Opening eBird… log in if prompted.';
-            return captureEbird({ url: url, buildInject: function () { return buildRankInject(name, region); }, onStatus: function (m) { st.textContent = m; } });
+            return captureEbird({ url: url, buildInject: function () { return buildRankInject(name, region); }, onStatus: function (m) {
+              if (generation === _rankLoadGeneration && getRankScope().region === region) st.textContent = m;
+            } });
           })
           .then(function (data) {
+            if (generation !== _rankLoadGeneration || getRankScope().region !== region) return;
             // Last line of defence before painting: the captured page bypasses
             // fetchRank's check, and rendering the wrong board under the right
             // heading is worse than showing nothing.
@@ -26783,10 +27063,17 @@
               throw new Error('eBird returned the ' + (rankRegionName(data.region) || 'wrong') +
                 ' leaderboard instead of ' + rankRegionName(region) + '.');
             }
-            renderRankings(data, region, url, name); st.textContent = 'Updated ' + nowTime();
+            renderRankings(data, region, url, name);
+            $('rankResults').dataset.boardKey = boardKey;
+            st.textContent = (force && previous === $('rankResults').textContent
+              ? 'Checked — leaderboard unchanged · ' : force ? 'Refreshed ' : 'Loaded ') + nowTime();
           })
-          .catch(function (e) { st.innerHTML = esc(e.message || 'Could not load rankings.') + ' ' + extA(url, 'View on eBird'); })
-          .finally(function () { btn.disabled = false; });
+          .catch(function (e) {
+            if (generation !== _rankLoadGeneration || getRankScope().region !== region) return;
+            st.innerHTML = 'Could not refresh leaderboard: ' + esc(e.message || 'Read failed.')
+              + ' ' + extA(url, 'View on eBird');
+          })
+          .finally(function () { if (generation === _rankLoadGeneration) btn.disabled = false; });
       }
 
       function renderRankings(data, region, url, name) {
@@ -30351,11 +30638,13 @@
         var rows = [];
         var county = birdcastCountCounty(snapshot.count);
         if (county === 'your county') county = countyLabelStr();
-        if (snapshot.forecast && snapshot.forecast.level === 'High') {
+        if (snapshot.forecast && ['Medium', 'High'].indexOf(snapshot.forecast.level) >= 0) {
+          var level = snapshot.forecast.level;
+          var intensity = level === 'High' ? 'Heavy' : 'Moderate';
           rows.push({
             kind: 'migration',
             icon: birdcastLevelTile(snapshot),
-            name: '<a class="seclink" data-sec="sec-bcBody">High migration tonight</a>',
+            name: '<a class="seclink" data-sec="sec-bcBody">' + level + ' migration tonight</a>',
             alpha: '',
             where: '<a class="seclink" data-sec="sec-bcBody">'
               + esc(county) + ' Birdcast Alert · '
@@ -30364,8 +30653,8 @@
             time: now.getTime(),
             ageTime: now.getTime(),
             omitWhen: true,
-            noteHeader: 'MIGRATION: Heavy migration expected tonight',
-            why: '<b>High migration tonight</b>',
+            noteHeader: 'MIGRATION: ' + intensity + ' migration expected tonight',
+            why: '<b>' + level + ' migration tonight</b>',
             extra: snapshot.forecastError
               ? '<span class="dim">⚠️ ' + esc(snapshot.forecastError) + '.</span>'
               : '<span class="dim">Open Migration for forecast details.</span>'
@@ -34778,8 +35067,7 @@
           }
         });
         if (!unavailable.length) return '';
-        return '<div class="surgesourcewarn" role="status">⚠️ <b>Incomplete feed.</b> '
-          + esc(unavailable.join('; ')) + '. Results use only sources that loaded.</div>';
+        return unavailable.length ? esc(unavailable.join('; ')) : '';
       }
 
       function surgeSourceProgress(states) {
@@ -34789,15 +35077,19 @@
             .indexOf(states[key]) >= 0
             && !(states[key] === 'partial' && (key === 'mass' || key === 'favorites'));
         });
-        if (!pending.length) return '';
+        var status = surgeSourceWarning(states);
+        if (!pending.length && !status) return '';
         var done = keys.length - pending.length;
         var pct = Math.round(done * 100 / keys.length);
+        var label = pending.length ? 'Loading Bird Gen sources' : 'Bird Gen sources';
         return '<div class="surgesourceprogress" role="progressbar"'
-          + ' aria-label="Loading Bird Gen sources" aria-valuemin="0"'
+          + ' aria-label="' + label + '" aria-valuemin="0"'
           + ' aria-valuemax="' + keys.length + '" aria-valuenow="' + done + '">'
           + '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>'
-          + '<div class="label">Loading Bird Gen sources · ' + done + ' of '
-          + keys.length + ' complete</div></div>';
+          + '<div class="label">' + label + ' · ' + done + ' of '
+          + keys.length + ' settled</div>'
+          + (status ? '<div class="label">' + status + '</div>' : '')
+          + '</div>';
       }
 
       function markSurgeSourceStates(box, states) {
@@ -34842,10 +35134,11 @@
       }
 
       function surgeFactsHtml(a) {
-        var count = Number(a.count);
+        var value = Object.prototype.hasOwnProperty.call(a, 'eventCount') ? a.eventCount : a.count;
+        var count = typeof value === 'number' ? value : NaN;
         var lead = [
           a.alpha ? '<span class="spalpha">' + esc(a.alpha) + '</span>' : '',
-          a.count != null && isFinite(count) && count >= 0
+          isFinite(count) && count >= 0
             ? '<span class="surgecountvalue">x' + Math.floor(count) + '</span>' : ''
         ].filter(Boolean).join(' ');
         var bits = [
@@ -35769,7 +36062,7 @@
         var migrationNow = new Date();
         var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
           .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot));
-        var sourceWarning = surgeSourceWarning(sourceStates);
+        var sourceWarning = '';
         var sourceProgress = surgeSourceProgress(sourceStates);
         var sampleCoverage = sourceState && sourceState.massCoverage
           ? '<div class="hint">Mass flock sample: ' + esc(sourceState.massCoverage)
@@ -35827,7 +36120,8 @@
             code: m.code,
             alpha: m.alpha || alphaFor(m.code),
             noteHeader: surgeMegaNoteHeader(m),
-            count: m.reports,
+            count: typeof m.count === 'number' && isFinite(m.count) ? m.count : null,
+            eventCount: typeof m.count === 'number' && isFinite(m.count) ? m.count : null,
             sub: m.reports === 1 ? '1 report' : m.reports + ' recent reports',
             distance: surgeDistanceText(m.mi),
             why: why || 'ABA Code 3+ rarity meeting today’s alert rules',
@@ -35858,7 +36152,7 @@
             alpha: e.alpha || alphaFor(e.code),
             rare: true,
             noteHeader: 'CELEBRITY: An unseen rarity has multiple sightings!',
-            count: obs || 0,
+            count: hasLatestTuple ? e.latestCount : e.count,
             sub: [
               obs ? obs + ' sighting' + (obs === 1 ? '' : 's') : '',
               e.nPlaces ? e.nPlaces + ' loc' + (e.nPlaces === 1 ? '' : 's') : ''
@@ -35887,7 +36181,8 @@
             noteHeader: e.novel
               ? 'CROWD: Multiple independent reports with no trailing baseline'
               : 'CROWD: Many birders are reporting it above normal',
-            count: e.checklists || e.observers || 0,
+            count: null,
+            eventCount: null,
             sub: e.observers + ' birder' + (e.observers === 1 ? '' : 's')
               + (e.checklists > e.observers ? ' · ' + e.checklists + ' lists' : ''),
             distance: surgeDistanceText(e.distMi),
@@ -35924,7 +36219,8 @@
             rare: isRareBird(c.code, c.species),
             noteHeader: 'CASCADE: Multiple top birders added it within '
               + BL.CASCADE.WINDOW_DAYS + ' days',
-            count: c.birders.length,
+            count: newest && newest.howMany,
+            eventCount: newest && newest.howMany,
             sub: c.birders.length + ' of the top 100',
             distance: surgeDistanceText(near),
             why: '<b>' + c.birders.length + ' of the top 100 added it within '
@@ -36042,7 +36338,7 @@
               ? 'Busier than usual'
               : (c.ratio == null ? 'New against its norm'
                 : Math.round(c.ratio) + '× this hotspot’s own norm')),
-            count: c.observers || 0,
+            count: null,
             why: c.observers + ' birders · <b>'
               + (c.reason === 'crowd' ? 'busier than usual'
                 : (c.ratio == null ? 'new against its norm'
@@ -36125,12 +36421,7 @@
                 + 'through the leaderboard, or making a hotspot outdraw its own norm.</div>'
               : '<div class="status">No bird alerts are available from the sources that loaded.</div>')
             : '')
-          + (mega && mega.held
-              ? '<div class="surgeheld">⚠️ <b>' + mega.held + ' more '
-                + (mega.held === 1 ? 'mega is' : 'megas are')
-                + ' not news today.</b> They are too far and not new, already seen, '
-                + 'or supported by only one report. All remain in <b>Mega rarities</b>.</div>'
-              : '');
+          ;
         box.innerHTML = html + sampleCoverage;
         if (allFlocks.length > 3 && !_surgeAllFlocks) {
           var more = document.createElement('button');
@@ -37703,43 +37994,14 @@
       //   - say what the section ANSWERS, not what it reads
       //   - no jargon in the translation, or it has translated nothing
       //   - short enough for one line at 320px with text at 1.75x
-      var MENU_SUB = {
-        surgeBtn:      'Talk and news',
-        wxBtn:         'Is today worth chasing',
-        rankBtn:       'Leaderboard',
-        patchBtn:      'Where the top 100 actually bird',
-        destBtn:       'Top hotspots to visit',
-        excBtn:        'Hotspot excursions',
-        quickBtn:      'Local hotspots and unseen targets',
-        spLookupBtn:   'Lookup birds & spuhs',
-        iconicBtn:     'Hotspot specialities',
-        stakeHsBtn:    'Look up hotspot',
-        refreshBtn:    'Rare Bird Alerts (RBA)',
-        activeBtn:     'Rarities this week',
-        abaBtn:        'ABA Code 3+ alert',
-        lastNewBtn:    'Newest on the board',
-        hotBtn:        'Hotspots with recent surges',
-        coldBtn:       'Overlooked gems nobody watches',
-        cklBtn:        'Biggest day lists',
-        recentBtn:     'All recent county checklists',
-        convoyBtn:     'Groups birding together',
-        favResults:    'Saved hotspots',
-        allUnseenBtn:  'Closest unseen birds reported now',
-        easyBtn:       'Common birds you still need',
-        nvResults:     'Birds considered unseen',
-        bcBody:        'Tonight, arrivals, and departures',
-        todBtn:        'Time-of-day specialists',
-        myYearBody:    'Your seen bird list this year',
-        recordBody:    'Overdue megararities',
-        settingsPanel: 'Region, display, data',
-        helpBody:      'What every button does'
-      };
       function rankMenuHeading() {
         var scope = getRankScope();
         return 'Leaderboard - ' + scope.label + ' ' + new Date().getFullYear();
       }
       function menuSubText(at) {
-        return at === 'rankBtn' ? rankMenuHeading() : (MENU_SUB[at] || '');
+        var item = MENU.find(function (m) { return m.at === at; });
+        if (!item) throw new Error('Missing menu definition: ' + at);
+        return item.dynamicSubtitle === 'leaderboard-scope' ? rankMenuHeading() : item.subtitle;
       }
 
       // F201. THE ORDER AND THE GROUPS ARE AUTHORED, not inherited.
@@ -37749,43 +38011,13 @@
       // scoreboard, then your own list -- which is not the order report.py
       // emits its sections in, and no longer tries to be. See F201 for why
       // that coupling was cut rather than satisfied.
-      var MENU = [
-        { at: 'surgeBtn',      label: '🔔 Bird Gen', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'refreshBtn',    label: '🚨 Twitches', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'allUnseenBtn',  label: '🦅 Nemesis birds', needs: 'county', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'activeBtn',     label: '🚨 Twitches this week', group: 'Buzz - Celebrity and Rare Bird News', enabled: false },
-        { at: 'abaBtn',        label: '🦤 Mega rarities', needs: 'geo', group: 'Buzz - Celebrity and Rare Bird News' },
-        { at: 'destBtn',       label: '🏞 Today’s patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'quickBtn',      label: '🚶 Nearby Patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'excBtn',        label: '🚗 Day trip patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'iconicBtn',     label: '🖼 Iconic Patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'coldBtn',       label: '🥶 Cold patches', needs: 'county', group: 'Patches - Go birding' },
-        { at: 'hotBtn',        label: '🔥 Hot patches', needs: 'county', group: 'Patches - Go birding' },
-        { at: 'favResults',    label: '⭐ Favorite patches', needs: 'geo', group: 'Patches - Go birding' },
-        { at: 'tripBtn',      label: '🧭 Trip planner', needs: 'geo', group: 'Patches - Go birding', enabled: false },
-        { at: 'spLookupBtn',   label: '🦉 Stakeout Birds', group: 'Stakeouts - Birds and Hotspots' },
-        { at: 'stakeHsBtn',    label: '🏜️ Stakeout Patches', group: 'Stakeouts - Birds and Hotspots' },
-        { at: 'wxBtn',         label: '🌤 Twitch weather', needs: 'geo', group: 'Birding Tools' },
-        { at: 'bcBody',        label: '🌙 Migration', needs: 'county', group: 'Birding Tools' },
-        { at: 'todBtn',        label: '🌄 Dawn and dusk', needs: 'county', group: 'Birding Tools' },
-        { at: 'recordBody',    label: '🏅 Break a record', group: 'Birding Tools' },
-        // ⚠️ OFF, not deleted, and it must stay off. `enabled: false` was lost
-        // in the F201 reorder and both tiles came back — caught by the contract
-        // guard, which lists them in `menuOmittedAts`. Trip planner is off
-        // pending a redesign.
-        //
-        { at: 'easyBtn',      label: '🐦 Common birds', needs: 'county', group: 'Birding Tools' },
-        { at: 'lastNewBtn',    label: '☑️ Leaderboard Ticks', needs: 'geo', group: 'Leader Board / Ranking' },
-        { at: 'rankBtn',       label: '🏆 Top 100', group: 'Leader Board / Ranking' },
-        { at: 'patchBtn',      label: '💪 Pro patches', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'cklBtn',        label: '🦜 Big days', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'recentBtn',     label: '📋 Recent checklists', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'convoyBtn',     label: '👥 Convoys', needs: 'county', group: 'Leader Board / Ranking' },
-        { at: 'myYearBody',    label: '📅 My Year List', group: 'My Bird List' },
-        { at: 'nvResults',     label: '❓ Watch List', group: 'My Bird List' },
-        { at: 'settingsPanel', label: '⚙️ Settings', group: 'Settings & Doc' },
-        { at: 'helpBody',      label: '📘 How each section works', group: 'Settings & Doc' },
-      ];
+      var MENU = JSON.parse($('menu-definition').textContent).map(function (item) {
+        if (!item.at || !item.icon || !item.title || typeof item.subtitle !== 'string') {
+          throw new Error('Invalid menu definition');
+        }
+        item.label = item.icon + ' ' + item.title;
+        return item;
+      });
       function menuApplies(m) {
         // A section can be switched OFF without being deleted. `enabled: false`
         // keeps the code, the panel and the loader intact while taking it out
@@ -40120,20 +40352,11 @@
             sb.textContent = subTxt;
             a.appendChild(sb);
           }
-          var loadNotice = longLoadNotice(sec._at, true);
           // F134: only if the section has something to say. Reads cache only.
           var bh = menuBadgeHTML(menuBadge(sec._at, sec.id));
-          if (loadNotice || bh) {
+          if (bh) {
             var extras = document.createElement('span');
             extras.className = 'tileextras';
-            if (loadNotice) {
-              var ln = document.createElement('span');
-              ln.className = 'tilesub tileloadnotice';
-              ln.id = 'menuLoadNotice-' + sec._at;
-              ln.textContent = loadNotice;
-              extras.appendChild(ln);
-              a.setAttribute('aria-describedby', ln.id);
-            }
             if (bh) {
               var bw = document.createElement('span');
               bw.innerHTML = bh;
@@ -42963,7 +43186,7 @@
         if (ev.key === 'Enter') { ev.preventDefault(); quickFindPlace(); }
       });
       $('wxBtn').addEventListener('click', loadConditions);
-      $('rankBtn').addEventListener('click', loadRankings);
+      $('rankBtn').addEventListener('click', function () { loadRankings(true); });
       $('patchBtn').addEventListener('click', loadChoicePatches);
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
@@ -43509,7 +43732,12 @@
             return;
           }
           var idx = parseInt(favBtn.getAttribute('data-i'), 10);
-          if (favBtn.classList.contains('favdel')) removeFavAt(idx);
+          if (favBtn.classList.contains('favdel')) {
+            var id = favBtn.getAttribute('data-favorite-id');
+            var entries = favoriteEntriesForRegion(getRegion());
+            var visibleIndex = entries.findIndex(function (entry) { return entry.favorite.id === id; });
+            if (visibleIndex >= 0) removeFavAt(visibleIndex);
+          }
           else moveFav(idx, favBtn.classList.contains('favup') ? -1 : 1);
           return;
         }

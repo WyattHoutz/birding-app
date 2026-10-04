@@ -272,7 +272,7 @@
        figures, weight 800, its own right-hand column — rather than by size,
        which is what it should have been doing all along. It must never again
        be set larger than `.ntext` above it; there is a guard. */
-    '.hscard-md > .name > .hsdist {',
+    '.hscard-md > .name .hsdist {',
     '  grid-column: 3; grid-row: 1; align-self: start; justify-self: end;',
     '  text-align: right; white-space: nowrap;',
     /* A COLUMN, not just a right-aligned cell. Every card is an INDEPENDENT
@@ -291,12 +291,12 @@
     /* The linked distance keeps the column's typography and takes the accent
        colour to read as tappable; `.maplink`'s 8px top margin is undone
        because it is meant for an action link on its own line. */
-    '.hscard-md > .name > a.hsdist { margin-top: 0; color: var(--accent);',
+    '.hscard-md > .name a.hsdist { margin-top: 0; color: var(--accent);',
     '                               text-decoration: none; }',
-    '.hscard-md > .name > .hsdist small {',
+    '.hscard-md > .name .hsdist small {',
     '  display: block; font-size: calc(12px * var(--s)); font-weight: 600;',
     '  color: var(--muted); letter-spacing: .02em; }',
-    '.hscard-md > .name > .hsdist .hsdisttop {',
+    '.hscard-md > .name .hsdist .hsdisttop {',
     '  display: block; margin-bottom: 3px; font-size: calc(10px * var(--s));',
     '  font-weight: 800; line-height: 1.1; color: #D55E00;',
     '  letter-spacing: 0; white-space: nowrap; }',

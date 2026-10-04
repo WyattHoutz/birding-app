@@ -240,8 +240,8 @@ const AUDIT = `<script>
     for (var q = 0; q < acts.length; q++) {
       var ae = acts[q], ar = ae.getBoundingClientRect();
       if (ar.width === 0 && ar.height === 0) continue;
-      var label = (ae.getAttribute('aria-label') || '').trim();
-      if (label) continue;                       // explicitly named: fine
+      var accessibleName = (ae.getAttribute('aria-label') || '').trim();
+      if (accessibleName) continue;
       if (ae.getAttribute('aria-hidden') === 'true') continue;
       var txt = (ae.textContent || '').trim();
       var stripped = txt.replace(EMOJI, '').replace(/\s+/g, ' ').trim();
@@ -549,7 +549,34 @@ const AUDIT = `<script>
         whiteSpace: getComputedStyle(hydrated).whiteSpace
       };
     }
+    var favoriteMap = null;
+    if (label === 'sec-favResults') {
+      var fm = document.getElementById('favMap'), fr = fm && fm.getBoundingClientRect();
+      favoriteMap = {
+        width: fr && fr.width, height: fr && fr.height,
+        pins: fm ? fm.querySelectorAll('.leaflet-marker-icon').length : 0,
+        controls: [].map.call(document.querySelectorAll('#favResults .favoritecard'), function (card) {
+          var button = card.querySelector('.favdel'), name = card.querySelector('.ntext');
+          var br = button && button.getBoundingClientRect(), nr = name && name.getBoundingClientRect();
+          return !!(br && nr && br.width >= 44 && br.height >= 44
+            && br.left >= nr.right && br.right <= card.getBoundingClientRect().right);
+        })
+      };
+    }
     var menuWarnings = [];
+    var watchNames = [];
+    if (label === 'sec-nvResults') {
+      var measure = document.createElement('canvas').getContext('2d');
+      watchNames = [].map.call(document.querySelectorAll('#nvResults .nvrow .ntext'), function (name) {
+        measure.font = getComputedStyle(name).font;
+        return {
+          width: name.getBoundingClientRect().width,
+          required: Math.max.apply(null, name.textContent.trim().split(/\\s+/).map(function (word) {
+            return measure.measureText(word).width;
+          }))
+        };
+      });
+    }
     if (label === '(contents menu)') {
       ['surgeBtn', 'excBtn'].forEach(function (at) {
         var tile = document.querySelector('#menuList .toclink[data-at="' + at + '"]');
@@ -571,9 +598,8 @@ const AUDIT = `<script>
           at: at,
           subtitle: subtitle && subtitle.textContent.trim(),
           warning: warning && warning.textContent.trim(),
-          subtitleBeforeWarning: !!(sr.length && wr.length
-            && subtitleBottom <= warningTop + 0.5),
-          withinTile: !!(tr && sr.length && wr.length
+          title: tile && tile.querySelector('.tilelabel').textContent.trim(),
+          withinTile: !!(tr && sr.length
             && sr.every(function (r) {
               return r.left >= tr.left && r.right <= tr.right
                 && r.top >= tr.top && r.bottom <= tr.bottom;
@@ -581,7 +607,7 @@ const AUDIT = `<script>
               return r.left >= tr.left && r.right <= tr.right
                 && r.top >= tr.top && r.bottom <= tr.bottom;
             })),
-          withinViewportWidth: !!(sr.length && wr.length
+          withinViewportWidth: !!(sr.length
             && sr.concat(wr).every(function (r) {
               return r.left >= 0 && r.right <= vw;
             }))
@@ -605,6 +631,10 @@ const AUDIT = `<script>
       controlRows: controlRows,
       sharedControls: sharedControls.slice(0, 12),
       menuWarnings: menuWarnings,
+      favoriteMap: favoriteMap,
+      watchNames: watchNames,
+      watchRows: label === 'sec-nvResults'
+        ? document.querySelectorAll('#nvResults .nvrow').length : 0,
       hydratedMetadata: metadata,
       releaseLayout: releaseLayoutChecks()
     };
@@ -677,6 +707,24 @@ const AUDIT = `<script>
         var at = TICKS[k], prev = k ? TICKS[k - 1] : 0;
         k++;
         setTimeout(function () {
+          if (id === 'sec-favResults') {
+            A.setFavs([
+              { id: 'L-F1', locId: 'L-F1', locName: 'Long Favorite patch name for the visible map control',
+                lat: 47.65, lng: -122.29, region: 'US-WA' },
+              { id: 'L-F2', locId: 'L-F2', locName: 'Distant Favorite patch',
+                lat: 47.66, lng: -122.42, region: 'US-WA' }
+            ]);
+            A.renderFavs();
+          }
+          if (id === 'sec-nvResults') {
+            A.setWatchlist([
+              { code: 'baisan', name: "Baird's Sandpiper" },
+              { code: 'amerob', name: 'American Robin' }
+            ]);
+            A.renderWatch();
+            var regionToggle = document.querySelector('#nvScope .nvscopebtn[aria-pressed="true"]');
+            if (regionToggle) regionToggle.click();
+          }
           if (id === 'sec-rankBtn') {
             A.renderRankings({ rows: [
               { rank: 1, name: 'Leaderboard fixture one', species: 301,
@@ -982,6 +1030,14 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F736 FIXTURE missing translated names and labelled fallback');
     }
+    if (!report.some((r) => r.label === 'sec-favResults' && r.favoriteMap)) {
+      bad++;
+      console.log('   F765 FIXTURE missing the rendered Favorite map');
+    }
+    if (!report.some((r) => r.label === 'sec-nvResults' && r.watchRows > 0)) {
+      bad++;
+      console.log('   F765 FIXTURE missing rendered Watch list cards');
+    }
     console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
       + ' (' + SCALE + 'x)\n');
     report.forEach((r) => {
@@ -996,12 +1052,29 @@ server.listen(0, '127.0.0.1', () => {
       if (r.label === '(contents menu)') {
         var menuWarnings = r.menuWarnings || [];
         if (menuWarnings.length !== 2 || menuWarnings.some(function (warning) {
-          return !warning.subtitle || !warning.warning
-            || !warning.subtitleBeforeWarning || !warning.withinTile
+          return warning.subtitle !== (warning.at === 'surgeBtn' ? 'Talk and news' : 'Hotspot excursions')
+            || warning.title !== (warning.at === 'surgeBtn' ? 'Bird Gen' : 'Day trip patches')
+            || warning.warning || !warning.withinTile
             || !warning.withinViewportWidth;
         })) {
           bad++;
           console.log('   LOADING WARNING LAYOUT  ' + JSON.stringify(menuWarnings));
+        }
+      }
+      if (r.label === 'sec-favResults') {
+        console.log('   FAVORITE MAP  ' + JSON.stringify(r.favoriteMap));
+        if (!r.favoriteMap || !(r.favoriteMap.width > 0)
+            || !(r.favoriteMap.height >= r.favoriteMap.width / 2) || r.favoriteMap.pins < 2
+            || r.favoriteMap.controls.length !== 2 || r.favoriteMap.controls.some((visible) => !visible)) {
+          bad++;
+          console.log('   FAVORITE MAP NOT VISIBLE  ' + JSON.stringify(r.favoriteMap));
+        }
+      }
+      if (r.label === 'sec-nvResults') {
+        console.log('   WATCH NAME WIDTHS  ' + JSON.stringify(r.watchNames));
+        if (!r.watchNames.length || r.watchNames.some((name) => name.width + 0.5 < name.required)) {
+          bad++;
+          console.log('   WATCH NAME CLIPPED  ' + JSON.stringify(r.watchNames));
         }
       }
       // F251. The number in the command and the viewport measured inside the

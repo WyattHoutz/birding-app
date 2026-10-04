@@ -100,7 +100,7 @@ test('every menu section declares representative fixture data or an intentional 
     'a new menu entry must choose a stub kind before the release gallery passes');
 
   const allowed = new Set([
-    'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'species-search',
+    'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'favorites', 'species-search',
     'hotspot-search', 'stakeout-merged', 'mega-index', 'patches',
     'checklists', 'birdcast', 'help', 'migration', 'static',
   ]);
@@ -404,8 +404,8 @@ test('F384/F385 release mockups expose row actions and regional watch scope', ()
     'the release fixture does not reject a cross-region bird leaking into the default view');
   assert.match(scope, /1 of 2 species awaiting verification/,
     'the default Needs proof screenshot no longer discloses its hidden stored row');
-  assert.deepEqual(mockups.STUB_SPEC.nvResults.allowDisabled, ['.nvup', '.nvdown'],
-    'legitimate first/last reorder boundaries make the release shot look unfinished');
+  assert.deepEqual(mockups.STUB_SPEC.nvResults.allowDisabled, [],
+    'Watch list no longer contains reorder controls');
 });
 
 test('F372 review mockups prove empty Hawaii stays empty on both reported surfaces', () => {
