@@ -41,7 +41,7 @@
   function group(spec) {
     spec = spec || {};
     var options = spec.options || [];
-    var base = options.length === 2 ? 'sortpick twopill' : 'sortpick';
+    var base = options.length === 2 && !spec.fullWidth ? 'sortpick twopill' : 'sortpick';
     var out = '<span class="' + attrEsc(classNames(base, spec.cls)) + '"';
     if (spec.id) out += ' id="' + attrEsc(spec.id) + '"';
     out += ' role="group" aria-label="' + attrEsc(spec.label || 'Options') + '">';

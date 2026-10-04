@@ -3514,7 +3514,7 @@
       <div class="row">
         <input id="scoutPlace" type="search" placeholder="Yakima, Nisqually, or &ldquo;lat, lng&rdquo;&hellip;" autocomplete="off" />
         <button id="scoutBtn" class="secondary">Scout</button>
-        <button id="scoutClear" class="secondary" type="button" hidden>✕ Clear</button>
+        <button id="scoutClear" class="secondary" type="button">✕ Clear place and results</button>
       </div>
       <div id="scoutStatus" class="status">A temporary home. Fetches what is actually being reported around somewhere else — <b>3 calls</b>, whatever the distance — so you can see a county your report never covers. One slot: scouting somewhere new replaces it, and your own report is never touched.</div>
       <div id="scoutResults"></div>
@@ -3629,6 +3629,7 @@
       <div class="row" id="quickHereRow" hidden>
         <div style="flex:1 1 auto"><input id="quickHerePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="quickHereFind" class="secondary" type="button">Find</button>
+        <button id="quickFindCancel" class="secondary" type="button">Cancel Find</button>
       </div>
       <div id="quickStatus" class="status">The richest active eBird hotspots within 5 mi of Home (needs Home set).</div>
       <div id="quickMap"></div>
@@ -3999,6 +4000,8 @@
       <div class="row">
         <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
+        <button id="homeFindCancel" class="secondary" type="button">Cancel lookup</button>
+        <button id="homeOutsideSave" class="secondary" type="button" hidden>Save this out-of-region Home</button>
         <button id="clearHomeBtn" class="secondary" type="button">Clear Home</button>
       </div>
       <p class="hint" id="geocodeStatus">Type a city, address, or waypoint (or paste &ldquo;lat, lng&rdquo;) and tap Find to fill in the coordinates below.</p>
@@ -4680,7 +4683,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.134.1';
+      var APP_VERSION = '1.135.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10535,7 +10538,7 @@
           // section is CALCULATED and is authored once and shipped to both
           // repos byte-identically. Putting a runtime sentence in it would
           // make one of those two copies dynamic. Recorded rather than done.
-          st.innerHTML = '<div class="twitchhead"><b>' + rows.length + '</b>'
+          var twitchSummary = '<div class="twitchhead"><b>' + rows.length + '</b>'
             + '<small>' + (rows.length === 1 ? 'rarity report' : 'rarity reports')
             + '</small>'
             + (rows.length ? '<span class="twitchtime">updated ' + esc(dataTime(c))
@@ -10547,8 +10550,8 @@
                 : '')) + '</div>'
             + (fresh.length
                ? ' <span class="newcount">' + fresh.length + ' new since you last looked</span>'
-               : '')
-            + rarityControls('today', { view: true });
+               : '');
+          st.innerHTML = rarityControls('today', { view: true, summary: twitchSummary });
           wireRarityControls('today', refresh);
           // SMALL cards, not medium: this section is the DAY'S LIST of rare-bird
           // reports — one row per checklist — so it is scanned, not read. It
@@ -10812,10 +10815,11 @@
                     Math.min(batch, rows.length - shown), rows.length - shown))
                 + '</span></button></li>'
               : '';
-            out.className = 'obs big xl';
+            out.className = grouped ? 'cards card-lg twitchgroups' : 'obs big xl';
             var rowCard = grouped
               ? function (row) {
                   return birdReportGroupCard(row, {
+                    large: true,
                     need: filters.year === 'unseen', rare: true, cls: 'twitchcard'
                   });
                 }
@@ -11562,10 +11566,12 @@
           + reviewFlag({ reviewState: anyConfirmed ? 'confirmed' : 'pending' });
         var below = '<div class="birdreportplaces">' + places + '</div>';
         var representative = groupRows[0] || {};
-        return SpeciesCards.medium({
+        var card = opts.large ? SpeciesCards.large : SpeciesCards.medium;
+        return card({
           cls: opts.cls || '',
           sci: sciFor(group.sci || group.code),
-          icon: photoSlot(group.name, group.code, megaView ? null : { stakeout: true }),
+          icon: opts.large ? heroSlot(group.name, group.code)
+            : photoSlot(group.name, group.code, megaView ? null : { stakeout: true }),
           name: megaView
             ? '<a class="megajump" href="#" data-mega-code="' + esc(group.code)
               + '" data-mega-view="' + esc(megaView) + '">' + esc(group.name) + '</a>'
@@ -11573,7 +11579,8 @@
           code: group.code,
           alpha: alphaFor(group.code),
           codeInSci: true,
-          tags: tags,
+          tags: opts.large ? '' : tags,
+          statusLine: opts.large ? tags : '',
           primary: birdReportMetric(representative, opts.sortMode),
           sub: '',
           below: below,
@@ -13423,9 +13430,10 @@
       }
       function clearScout() {
         try { localStorage.removeItem(SCOUT_KEY); } catch (e) {}
-        _scoutRun++;
+        resetTransientAnchor();
+        $('scoutPlace').value = '';
+        $('scoutBtn').disabled = false;
         $('scoutResults').innerHTML = '';
-        $('scoutClear').hidden = true;
         $('scoutStatus').textContent = 'Cleared. Look up a place to fetch what is '
           + 'being reported around it.';
       }
@@ -13540,7 +13548,13 @@
       // implementation: there is still exactly one geo fetch, one distance,
       // one back-window and one slot. "temporary is the feature."
       function scoutAtPlace(place, run, hosts) {
-        function alive() { return _scoutRun === run; }
+        var report = getReportSlug(), work = navWork('Find scouting');
+        function alive() {
+          return _scoutRun === run && report === getReportSlug()
+            && work.navGeneration === _navGeneration
+            && work.cancelGeneration === _workCancelGeneration;
+        }
+        work.current = alive;
         hosts = hosts || {};
         var st = hosts.st || $('scoutStatus');
         var w = hosts.host || $('scoutResults');
@@ -13601,10 +13615,10 @@
           return o.join('&');
         };
         return Promise.all([
-          ebird('data/obs/geo/recent?' + qs(['includeProvisional=true'])).catch(function () { return []; }),
-          ebird('data/obs/geo/recent/notable?' + qs()).catch(function () { return []; }),
+          ebird('data/obs/geo/recent?' + qs(['includeProvisional=true']), false, false, false, work),
+          ebird('data/obs/geo/recent/notable?' + qs(), false, false, false, work),
           ebird('ref/hotspot/geo?lat=' + p.lat + '&lng=' + p.lng + '&dist=' + p.dist
-                + '&back=30&fmt=json').catch(function () { return []; })
+                + '&back=30&fmt=json', false, false, false, work)
         ]).then(function (r) {
           if (!alive()) return null;
           var recent = r[0] || [], notable = r[1] || [], hotspots = r[2] || [];
@@ -13649,7 +13663,9 @@
           box = document.createElement('div');
           box.className = 'scoutinline';
           box.innerHTML = '<h3 class="lanehead">🧭 Around <span class="scoutinplace"></span></h3>'
-            + '<div class="status scoutinstatus"></div><div class="scoutinbody"></div>';
+            + '<button type="button" class="secondary scoutinlineclose">Close Find · restore Home</button>'
+            + '<div class="status scoutinstatus" role="status"></div><div class="scoutinbody"></div>';
+          box.querySelector('.scoutinlineclose').addEventListener('click', closeTemporaryFind);
           // F191: AT THE TOP, not appended to the end.
           //
           // Reported as "yakima still doesnt show any nearby hotspots". It had
@@ -13681,6 +13697,7 @@
         hosts.host.innerHTML = '';
         var run = ++_scoutRun;
         return scoutAtPlace(place, run, hosts).catch(function (e) {
+          if (run !== _scoutRun || !box.isConnected) return null;
           hosts.st.textContent = (e && e.message) || netErr(e);
           return null;
         });
@@ -13688,6 +13705,8 @@
       // Leaving a place behind must take its scouted results with it, or the
       // next search reads its predecessor's rows as its own.
       function clearInlineScout() {
+        ++_scoutRun;
+        fgCancelObsolete();
         var boxes = document.querySelectorAll('.scoutinline');
         for (var i = 0; i < boxes.length; i++) {
           boxes[i].parentNode.removeChild(boxes[i]);
@@ -13725,7 +13744,7 @@
                  + 'which is read here on the phone and needs no lookup.';
           }
           st.textContent = msg;
-        }).finally(function () { btn.disabled = false; });
+        }).finally(function () { if (alive()) btn.disabled = false; });
       }
 
       // ---- 📆 Due back soon: the section ------------------------------------
@@ -14456,9 +14475,8 @@
                     + '" data-place="' + esc(where) + '" data-lat="' + esc(p.lat)
                     + '" data-lng="' + esc(p.lon != null ? p.lon : p.lng)
                     + '" data-current="' + esc(c.subId || '') + '">'
-                    + '<button type="button" class="secondary stakeoutLoadHistory">'
-                    + 'Search up to ' + Math.max(0, STAKEOUT_HISTORY_SCAN - cks.length)
-                    + ' older checklists</button></div>'
+                    + '<div class="stakeoutHistoryStatus" role="status">'
+                    + 'Older-checklist matches not checked yet.</div></div>'
                     : '')
                   : '<div class="hint">No public hotspot history link is available for this evidence.</div>'))
               : '')
@@ -14552,7 +14570,7 @@
         });
         var visible = parseInt(list.getAttribute('data-visible-count'), 10);
         if (!isFinite(visible) || visible < STAKEOUT_CHECKLIST_INITIAL) {
-          visible = STAKEOUT_CHECKLIST_INITIAL;
+          visible = STAKEOUT_CHECKLIST_INITIAL + STAKEOUT_CHECKLIST_BATCH;
         }
         visible = Math.min(visible, rows.length);
         list.setAttribute('data-visible-count', String(visible));
@@ -14582,6 +14600,10 @@
         list.parentNode.insertBefore(button, list.nextSibling);
       }
 
+      var _stakeoutHistoryCache = {};
+      var _stakeoutHistoryTail = Promise.resolve();
+      var _stakeoutHistoryOwner = '';
+      var _stakeoutHistoryObserver = null;
       function loadStakeoutPlaceHistory(slot, bird) {
         if (!slot || slot.getAttribute('data-loading') || slot.getAttribute('data-done')) {
           return Promise.resolve();
@@ -14589,16 +14611,34 @@
         var locId = slot.getAttribute('data-loc') || '';
         var code = slot.getAttribute('data-code') || (bird && bird.code) || '';
         if (!locId || !code) return Promise.resolve();
+        var generation = _spLookupGeneration, report = getReportSlug();
+        var work = navWork('Stakeout older checklists');
+        function current() {
+          return slot.isConnected && generation === _spLookupGeneration
+            && report === getReportSlug() && work.navGeneration === _navGeneration
+            && work.cancelGeneration === _workCancelGeneration;
+        }
+        work.current = current;
+        var cacheKey = report + ':' + code + ':' + locId;
+        var cached = _stakeoutHistoryCache[cacheKey];
         slot.setAttribute('data-loading', '1');
         slot.innerHTML = '<div class="stakeoutHistoryStatus">Checking recent checklists…</div>';
-        return ebird('product/lists/' + encodeURIComponent(locId) + '?maxResults=12')
+        var acquisition = cached && Date.now() - cached.at < EB_CACHE_MS
+          ? Promise.resolve(cached.result)
+          : ebird('product/lists/' + encodeURIComponent(locId) + '?maxResults=12',
+              true, false, false, work)
           .then(function (rows) {
+            if (!current()) throw queueCancelledError(work);
+            if (!Array.isArray(rows)) throw new Error('Checklist summaries are unavailable.');
             rows = (rows || []).slice(0, STAKEOUT_HISTORY_SCAN);
-            var matches = [];
+            var matches = [], failure = null;
             return pool(rows, 3, function (row) {
+              if (!current()) throw queueCancelledError(work);
               var sub = row.subId || row.subID || '';
-              if (!sub) return;
-              return checklistView(sub, false).then(function (d) {
+              if (!sub) { failure = new Error('Checklist summary has no identity.'); return; }
+              return checklistView(sub, true, work).then(function (d) {
+                if (!current()) throw queueCancelledError(work);
+                if (!d || !Array.isArray(d.obs)) throw new Error('Checklist could not be read.');
                 var ob = ((d && d.obs) || []).filter(function (x) {
                   return x && x.speciesCode === code;
                 })[0];
@@ -14611,10 +14651,16 @@
                   durationHrs: d && d.durationHrs,
                   ob: ob
                 });
-              });
-            }).then(function () { return { checked: rows.length, matches: matches }; });
-          })
-          .then(function (result) {
+              }).catch(function (error) { failure = error; });
+            }).then(function () {
+              if (failure) throw failure;
+              if (!current()) throw queueCancelledError(work);
+              return { checked: rows.length, matches: matches };
+            });
+          });
+        return acquisition.then(function (result) {
+            if (!current()) return;
+            _stakeoutHistoryCache[cacheKey] = { at: Date.now(), result: result };
             var seen = {}, allMatches = (result.matches || []).filter(function (r) {
               if (!r.subId || seen[r.subId]) return false;
               seen[r.subId] = 1; return true;
@@ -14634,35 +14680,63 @@
               [].forEach.call(list.querySelectorAll('[data-ev-sub]'), function (row) {
                 existing[row.getAttribute('data-ev-sub')] = 1;
               });
+              var added = 0;
               allMatches.forEach(function (match) {
                 if (existing[match.subId]) return;
                 var holder = document.createElement('ul');
                 holder.innerHTML = stakeoutChecklistRow(match, place, bird, 0);
                 var row = holder.firstElementChild;
-                if (row) list.appendChild(row);
+                if (row) { list.appendChild(row); added++; }
                 existing[match.subId] = 1;
               });
               [].slice.call(list.children).sort(function (a, b) {
                 return String(b.getAttribute('data-ev-sort') || '')
                   .localeCompare(String(a.getAttribute('data-ev-sort') || ''));
               }).forEach(function (row) { list.appendChild(row); });
+              list.setAttribute('data-visible-count', String(Math.max(
+                parseInt(list.getAttribute('data-visible-count'), 10) || 0,
+                Math.min(list.children.length, STAKEOUT_CHECKLIST_INITIAL + STAKEOUT_CHECKLIST_BATCH))));
               limitStakeoutChecklistRows(list);
             }
-            slot.innerHTML = '';
-            slot.hidden = true;
+            slot.innerHTML = '<div class="stakeoutHistoryStatus" role="status">'
+              + (added || 0) + ' additional matching report' + (added === 1 ? '' : 's')
+              + ' · checked ' + result.checked + ' recent checklist'
+              + (result.checked === 1 ? '' : 's') + ' (up to '
+              + STAKEOUT_HISTORY_SCAN + ').</div>';
             slot.setAttribute('data-done', '1');
             slot.removeAttribute('data-loading');
             hydrateStakeoutChecklistFacts(slot);
           })
-          .catch(function () {
+          .catch(function (error) {
+            if (!current()) return;
+            dbg('warn', 'Stakeout history: ' + netErr(error));
             slot.innerHTML = '<div class="stakeoutHistoryStatus">Checklist history could '
               + 'not be loaded. This is not evidence that no other reports exist.</div>'
               + '<button type="button" class="secondary stakeoutLoadHistory">'
               + 'Retry checklist history</button>';
             slot.removeAttribute('data-loading');
+            slot.querySelector('.stakeoutLoadHistory').addEventListener('click', function () {
+              queueStakeoutHistory(slot, bird);
+            });
           });
       }
 
+      function queueStakeoutHistory(slot, bird) {
+        if (!slot.isConnected || slot.getAttribute('data-queued')
+            || slot.getAttribute('data-done') || slot.getAttribute('data-loading')) return;
+        slot.setAttribute('data-queued', '1');
+        var generation = _spLookupGeneration, nav = _navGeneration;
+        var owner = generation + ':' + nav;
+        if (owner !== _stakeoutHistoryOwner) {
+          _stakeoutHistoryOwner = owner;
+          _stakeoutHistoryTail = Promise.resolve();
+        }
+        _stakeoutHistoryTail = _stakeoutHistoryTail.then(function () {
+          slot.removeAttribute('data-queued');
+          if (!slot.isConnected || generation !== _spLookupGeneration || nav !== _navGeneration) return;
+          return loadStakeoutPlaceHistory(slot, bird);
+        });
+      }
       function hydrateStakeoutPlaceHistories(root, bird) {
         if (!root || !speciesLookupDetails()) return Promise.resolve();
         [].forEach.call(root.querySelectorAll('.stakeoutPlaceChecklists'),
@@ -14670,12 +14744,23 @@
         var slots = [].slice.call(root.querySelectorAll(
           '.stakeoutPlaceHistory[data-loc]:not([data-done]):not([data-loading])'));
         slots.forEach(function (slot) {
-          var button = slot.querySelector('.stakeoutLoadHistory');
-          if (button && !button.getAttribute('data-wired')) {
-            button.setAttribute('data-wired', '1');
-            button.addEventListener('click', function () {
-              loadStakeoutPlaceHistory(slot, bird);
-            });
+          slot._historyBird = bird;
+          var loc = slot.getAttribute('data-loc'), code = slot.getAttribute('data-code');
+          if (_stakeoutHistoryCache[getReportSlug() + ':' + code + ':' + loc]) {
+            queueStakeoutHistory(slot, bird);
+          } else if (typeof IntersectionObserver === 'function') {
+            if (!_stakeoutHistoryObserver) {
+              _stakeoutHistoryObserver = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                  if (!entry.isIntersecting) return;
+                  _stakeoutHistoryObserver.unobserve(entry.target);
+                  queueStakeoutHistory(entry.target, entry.target._historyBird);
+                });
+              }, { rootMargin: '250px 0px' });
+            }
+            _stakeoutHistoryObserver.observe(slot);
+          } else {
+            queueStakeoutHistory(slot, bird);
           }
         });
         return Promise.resolve();
@@ -15364,6 +15449,15 @@
         // being crushed, because six 44px tap targets cannot fit 233px however
         // they are styled.
         return '<div class="raritycontrols" id="' + prefix + 'Controls">'
+          + (prefix === 'today' && opts.view ? ToggleControls.group({
+              id: prefix + 'View', cls: 'daytripranges twitchviewbar', fullWidth: true,
+              label: 'Twitches display',
+              options: [
+                { label: 'List', data: { twitchview: 'list' }, pressed: twitchView() === 'list' },
+                { label: 'Group', data: { twitchview: 'grouped' }, pressed: twitchView() === 'grouped' }
+              ]
+            }) : '')
+          + (opts.summary || '')
           + '<div class="raritycontrolrow rarityfilterrow raritysortrow" id="'
             + prefix + 'Filters">'
           + raritySortControl(prefix + 'Sort')
@@ -15385,7 +15479,7 @@
             data: { notes: rarityNotes() ? 'off' : 'on' },
             pressed: rarityNotes()
           })
-          + (opts.view ? ToggleControls.pressed({
+          + (opts.view && prefix !== 'today' ? ToggleControls.pressed({
             id: prefix + 'View',
             cls: 'twitchviewbtn',
             icon: '\u25A6',
@@ -15398,6 +15492,15 @@
       }
       function wireRarityControls(prefix, reload) {
         wireRaritySort(prefix + 'Sort', reload);
+        if (prefix === 'today') {
+          var viewBar = document.getElementById(prefix + 'View');
+          if (viewBar) viewBar.addEventListener('click', function (event) {
+            var button = event.target.closest('[data-twitchview]');
+            if (!button) return;
+            setTwitchView(button.getAttribute('data-twitchview'));
+            reload();
+          });
+        }
         var host = document.getElementById(prefix + 'Filters');
         if (!host) return;
         host.addEventListener('click', function (ev) {
@@ -17242,14 +17345,15 @@
       // `limit=1` could not have produced — and because every extra candidate
       // is paid for in bytes on a phone for a preference, not a filter.
       var GEOCODER_LIMIT = 5;
-      function geocodePlace(q) {
+      function geocodePlace(q, options) {
+        options = options || {};
         q = (q || '').trim();
         if (!q) return Promise.reject(new Error('Enter a city, address, or "lat, lng" first.'));
         var m = q.match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
         if (m) {
           var la = parseFloat(m[1]), lo = parseFloat(m[2]);
           if (isFinite(la) && isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180)
-            return Promise.resolve({ lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5) });
+            return Promise.resolve({ lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5), manualCoordinates: true });
         }
         // GEOCODER: photon.komoot.io. Search was reported dead on device —
         // "i tried searching for everett in top destinations and it didnt work"
@@ -17281,9 +17385,18 @@
         //
         // The lat/lon BIAS is what makes a one-word query land on the Everett
         // you meant instead of the one in England.
-        var near = quickAnchor(quickOrigin) || getHome();
+        var report = getReport(), wantState = BL.stateNameFor(report) || '';
+        var reportCode = String((report && report.stateCode) || '');
+        var countryCode = reportCode.split('-')[0].toLowerCase();
+        if (options.home && !wantState && /^[A-Z]{2}-/.test(reportCode)) {
+          wantState = rankRegionName(reportCode) || report.label || '';
+        }
+        var countryName = { us: 'United States', ca: 'Canada', pm: 'Saint Pierre and Miquelon' }[countryCode] || '';
+        var near = options.home ? regionWaypoint() : (quickAnchor(quickOrigin) || getHome());
+        var query = options.home && wantState
+          ? [q, wantState, countryName].filter(Boolean).join(', ') : q;
         var url = 'https://' + GEOCODER_HOST + '/api/?limit=' + GEOCODER_LIMIT
-          + '&q=' + encodeURIComponent(q)
+          + '&q=' + encodeURIComponent(query)
           + (near && isFinite(near.lat) && isFinite(near.lng)
              ? '&lat=' + near.lat.toFixed(4) + '&lon=' + near.lng.toFixed(4) : '');
         dbg('net', 'geocode ' + q);
@@ -17311,10 +17424,27 @@
             // are equally good, which is exactly the ambiguous case.
             var feats = (j.features || []).filter(function (f) {
               var c = (f.geometry || {}).coordinates || [];
-              return isFinite(c[0]) && isFinite(c[1]);
+              return c.length >= 2 && c[0] != null && c[1] != null
+                && isFinite(c[0]) && isFinite(c[1])
+                && Math.abs(Number(c[0])) <= 180 && Math.abs(Number(c[1])) <= 90;
             });
-            var want = (BL.stateNameFor(getReport()) || '').toLowerCase();
-            if (want && feats.length > 1) {
+            if (!feats.length) throw new Error('Geocoder returned no valid coordinates.');
+            top = feats[0];
+            function inHomeRegion(feature) {
+              var properties = feature.properties || {};
+              var country = String(properties.countrycode || properties.country || '').toLowerCase();
+              var countryMatches = country === countryCode
+                || (countryName && country === countryName.toLowerCase())
+                || (countryCode === 'us' && /^(usa|united states of america)$/.test(country));
+              if (wantState) return countryMatches
+                && String(properties.state || '').toLowerCase() === wantState.toLowerCase();
+              return countryMatches && !!countryName;
+            }
+            if (options.home) {
+              top = feats.filter(inHomeRegion)[0] || top;
+            }
+            var want = wantState.toLowerCase();
+            if (!options.home && want && feats.length > 1) {
               var best = String(((feats[0].properties || {}).name || '')).toLowerCase();
               for (var fi = 0; fi < feats.length; fi++) {
                 var fp = feats[fi].properties || {};
@@ -17338,7 +17468,8 @@
             // the bias picked.
             var label = [p.name, p.state || p.city || p.county, p.country]
               .filter(Boolean).join(', ');
-            return { lat: la, lng: lo, label: label || q, state: p.state || '' };
+            return { lat: la, lng: lo, label: label || q, state: p.state || '',
+              regionMatch: inHomeRegion(top) };
           });
       }
 
@@ -24408,12 +24539,25 @@
       }
 
       function resetTransientAnchor() {
+        clearInlineScout();
+        ++_quickLoadGeneration;
         quickOrigin = 'home';
         quickFound = null;
         _anchorResolveGeneration++;
         _anchorResolvePromise = null;
         syncQuickButtons();
         syncAnchorSwitches();
+      }
+
+      function closeTemporaryFind() {
+        resetTransientAnchor();
+        hideSheet(true);
+        $('quickHereRow').hidden = true;
+        $('quickHerePlace').value = '';
+        var open = _sections.filter(function (section) { return !section.hidden; })[0];
+        if (open) { _autoLoaded[open.id] = false; autoLoad(open); }
+        $('quickStatus').textContent = 'Find closed. Ranking from saved Home; Home is unchanged.';
+        $('status').textContent = 'Find closed. Ranking from saved Home; Home is unchanged.';
       }
 
       function regionWaypoint() {
@@ -24438,7 +24582,10 @@
 
       function findRequiredAnchor(generation) {
         return new Promise(function (resolve) {
-          function fallback() { resolve(useRegionWaypoint(generation)); }
+          function fallback() {
+            ++_anchorResolveGeneration;
+            resolve(useRegionWaypoint(_anchorResolveGeneration));
+          }
           showExcludedSheet('find-anchor-required', 'Find a place',
             'Home is not set. Name where these results should be ranked from.',
             '<input id="requiredAnchorFind" type="search" '
@@ -24457,6 +24604,9 @@
               var name = found.label || q;
               $('requiredAnchorMsg').innerHTML = '<b>' + esc(name) + '</b><br>'
                 + Number(found.lat).toFixed(5) + ', ' + Number(found.lng).toFixed(5)
+                + (found.regionMatch !== true && !found.manualCoordinates
+                  ? '<br><strong>Warning: outside ' + esc(getReport().label)
+                    + ' or region not verified.</strong>' : '')
                 + '<br>Choose whether this place is temporary or your saved Home.';
               var old = $('requiredAnchorGo');
               if (old) {
@@ -24483,6 +24633,7 @@
                 resolve(quickAnchor('home'));
               });
             }).catch(function () {
+              if (generation !== _anchorResolveGeneration) return resolve(null);
               hideSheet(true);
               fallback();
             });
@@ -24688,7 +24839,11 @@
         });
       }
       function resolveFound(q) {
+        var generation = _anchorResolveGeneration, report = getReportSlug();
         return geocodePlace(q).then(function (r) {
+          if (generation !== _anchorResolveGeneration || report !== getReportSlug()) {
+            throw queueCancelledError(null, 'Find lookup was cancelled.');
+          }
           // A typed place is NOT "here". Keeping them apart means the label
           // says where you actually asked about, and a later tap on Current
           // location still means the device's position rather than the last
@@ -24699,12 +24854,14 @@
           // judged against the right list. Dropping it here made every scouted
           // place look in-region.
           quickFound = { lat: r.lat, lng: r.lng, label: (r.label || q).split(',')[0],
-                         state: r.state || '' };
+                         state: r.state || '', regionMatch: r.regionMatch,
+                         manualCoordinates: r.manualCoordinates };
           return quickFound;
         });
       }
 
       function quickUseHere() {
+        resetTransientAnchor();
         $('quickStatus').textContent = 'Asking for your location\u2026';
         resolveHere().then(function () {
           $('quickHereRow').hidden = true;
@@ -24715,16 +24872,20 @@
       }
 
       function quickFindPlace() {
+        var generation = ++_anchorResolveGeneration;
         var q = ($('quickHerePlace').value || '').trim();
         $('quickStatus').textContent = 'Looking up \u201C' + q + '\u201D\u2026';
         resolveFound(q).then(function (found) {
+          if (generation !== _anchorResolveGeneration) return;
           $('quickHereRow').hidden = true;
           clearInlineScout();
           loadQuickOuting('find');
           // Same reason as the Find… sheet: re-ranking cannot show you a bird
           // that was never fetched. Scout the place you actually named.
           autoScoutForAnchor(found);
-        }).catch(function (e) { $('quickStatus').textContent = e.message || String(e); });
+        }).catch(function (e) {
+          if (generation === _anchorResolveGeneration) $('quickStatus').textContent = e.message || String(e);
+        });
       }
 
       function loadQuickOuting(which) {
@@ -43048,6 +43209,7 @@
         // not geocode. Quick outing already owns those flows, so they are
         // reused rather than reimplemented three more times.
         if (which === 'here') {
+          clearInlineScout();
           var hereGeneration = ++_anchorResolveGeneration;
           _anchorResolvePromise = null;
           hideSheet(true);
@@ -43078,7 +43240,13 @@
             '<input id="anchorFind" type="search" placeholder="Name a place\u2026" '
             + 'autocomplete="off" style="width:100%;box-sizing:border-box" />'
             + '<p class="hint" id="anchorFindMsg"></p>'
-            + '<button id="anchorFindGo" type="button">Rank from here</button>');
+            + '<button id="anchorFindGo" type="button">Rank from here</button>',
+            function () {
+              if (findGeneration === _anchorResolveGeneration) {
+                ++_anchorResolveGeneration;
+                _anchorResolvePromise = null;
+              }
+            });
           try { $('anchorFind').focus(); } catch (e) {}
           var go = function () {
             var q = ($('anchorFind').value || '').trim();
@@ -43092,7 +43260,7 @@
               // disagreeing with its own rows that this app keeps hitting,
               // and the reason a 124-mile list looked like a local one.
               syncAnchorSwitches();
-              hideSheet();
+              hideSheet(true);
               clearInlineScout();
               reload();
               // ...and RANKING IS NOT ENOUGH. The rows above are still the
@@ -43101,6 +43269,7 @@
               // every keystroke.
               autoScoutForAnchor(found);
             }).catch(function (e) {
+              if (findGeneration !== _anchorResolveGeneration || !$('anchorFindMsg')) return;
               $('anchorFindMsg').textContent = (e && e.message) || String(e);
             });
           };
@@ -43110,8 +43279,7 @@
           });
           return;
         }
-        ++_anchorResolveGeneration;
-        _anchorResolvePromise = null;
+        resetTransientAnchor();
         hideSheet(true);
         quickOrigin = 'home';
         syncAnchorSwitches();
@@ -43194,7 +43362,8 @@
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadChecklists);
       $('recentBtn').addEventListener('click', loadRecentChecklists);
-      $('quickBtn').addEventListener('click', function () { loadQuickOuting('home'); });
+      $('quickBtn').addEventListener('click', function () { resetTransientAnchor(); loadQuickOuting('home'); });
+      $('quickFindCancel').addEventListener('click', closeTemporaryFind);
       $('quickHereBtn').addEventListener('click', quickUseHere);
       $('quickHereFind').addEventListener('click', quickFindPlace);
       $('quickHerePlace').addEventListener('keydown', function (ev) {
@@ -43812,8 +43981,15 @@
       var _homeLookupGeneration = 0;
       function cancelHomeLookup() {
         ++_homeLookupGeneration;
+        _homeOutsideCandidate = null;
+        $('homeOutsideSave').hidden = true;
         $('geocodeBtn').disabled = false;
       }
+      var _homeOutsideCandidate = null;
+      $('homeFindCancel').addEventListener('click', function () {
+        cancelHomeLookup();
+        $('geocodeStatus').textContent = 'Lookup cancelled. Saved Home is unchanged.';
+      });
       ['homePlace', 'homeLat', 'homeLng'].forEach(function (id) {
         $(id).addEventListener('input', cancelHomeLookup);
       });
@@ -43829,8 +44005,19 @@
           return generation === _homeLookupGeneration && report === getReportSlug();
         }
         btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
-        return geocodePlace(q).then(function (res) {
+        _homeOutsideCandidate = null;
+        $('homeOutsideSave').hidden = true;
+        return geocodePlace(q, { home: true }).then(function (res) {
           if (!current()) return false;
+          if (res.regionMatch !== true && !res.manualCoordinates) {
+            _homeOutsideCandidate = { result: res, generation: generation, report: report };
+            $('homeOutsideSave').hidden = false;
+            st.textContent = 'Warning: ' + res.label + ' (' + res.lat.toFixed(4)
+              + ', ' + res.lng.toFixed(4) + ') is outside ' + getReport().label
+              + ' or its region could not be verified. Home was not saved. '
+              + 'Qualify the search, enter coordinates, or explicitly save this out-of-region Home.';
+            return false;
+          }
           $('homeLat').value = res.lat.toFixed(5);
           $('homeLng').value = res.lng.toFixed(5);
           $('homePlace').value = res.label;
@@ -43844,6 +44031,18 @@
           return false;
         }).finally(function () { if (current()) btn.disabled = false; });
       }
+      $('homeOutsideSave').addEventListener('click', function () {
+        var candidate = _homeOutsideCandidate;
+        if (!candidate || candidate.generation !== _homeLookupGeneration
+            || candidate.report !== getReportSlug()) return;
+        var res = candidate.result;
+        $('homeLat').value = res.lat.toFixed(5);
+        $('homeLng').value = res.lng.toFixed(5);
+        $('homePlace').value = res.label;
+        cancelHomeLookup();
+        persistSettings();
+        $('geocodeStatus').textContent = 'Explicitly saved out-of-region Home: ' + res.label + '.';
+      });
       $('clearHomeBtn').addEventListener('click', function () {
         cancelHomeLookup();
         $('homePlace').value = ''; $('homeLat').value = ''; $('homeLng').value = '';
@@ -43888,6 +44087,7 @@
         invalidateSettingsEvidence('settings-save');
       }
       function invalidateSettingsEvidence(reason) {
+        resetTransientAnchor();
         clearChaseCache();
         _autoLoaded = {};
         renderKeyBanner();

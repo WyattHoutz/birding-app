@@ -990,7 +990,65 @@ const AUDIT = `<script>
             migration.expectedMigrationWord = level ? level.toUpperCase() : 'LOADING';
             out.push(migration);
           });
-          finish(out);
+          var profile = A.chaseProfile();
+          A.seedChase(profile.slug, {
+            t: Date.now(), rarity: false,
+            fetchBaseKey: A.chaseFetchBaseKey(profile),
+            geoNotableKm: window.BirdLogic.geoNotableDistKm(profile),
+            speciesCodes: ['shtsan', 'solsan'],
+            rows: {'king-notable.json': [
+              { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+                sciName: 'Calidris acuminata', locName: 'Long numbered hotspot name',
+                locId: 'L-TWITCH', lat: 47.7, lng: -122.2, howMany: 2,
+                obsDt: new Date().toISOString().slice(0, 10) + ' 08:00',
+                subId: 'S-TWITCH', obsReviewed: false, obsValid: false },
+              { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+                locName: 'Second hotspot', locId: 'L-TWITCH2', lat: 47.7, lng: -122.2,
+                obsDt: new Date().toISOString().slice(0, 10) + ' 09:00',
+                subId: 'S-TWITCH2', obsReviewed: true }
+            ]}
+          });
+          localStorage.setItem('ebird_rarity_filters_v1', JSON.stringify({year:'all',distance:'near'}));
+          localStorage.setItem('ebird_twitch_view_v1', 'grouped');
+          A.showSection('sec-refreshBtn');
+          A.refresh();
+          return new Promise(function (resolve) { setTimeout(resolve, 1000); }).then(function () {
+            var twitch = scan('(F785 F786 production grouped Twitches)');
+            var controls = document.getElementById('todayControls');
+            var bar = document.getElementById('todayView');
+            var cards = [].slice.call(document.querySelectorAll('#results > li'));
+            twitch.twitchGeometry = {
+              large: document.getElementById('results').classList.contains('card-lg'),
+              fullWidth: bar && Math.abs(bar.getBoundingClientRect().width
+                - controls.getBoundingClientRect().width) <= 1,
+              topBar: bar && bar.parentElement.firstElementChild === bar
+                && bar.getBoundingClientRect().bottom
+                  <= document.querySelector('.twitchhead').getBoundingClientRect().top,
+              cards: cards.map(function (card) {
+                var name = card.querySelector('.bcname');
+                var hotspot = card.querySelector('.hscard-sm .ntext');
+                var heading = card.querySelector('.bcheading');
+                var primary = card.querySelector('.bcheading > .spprimary');
+                var status = card.querySelector('.bcstatus');
+                var places = card.querySelector('.birdreportplaces');
+                var first = places && places.querySelector('.hscard-sm');
+                return {
+                  birdFont: name && parseFloat(getComputedStyle(name).fontSize),
+                  hotspotFont: hotspot && parseFloat(getComputedStyle(hotspot).fontSize),
+                  metricAligned: !!primary && Math.abs(primary.getBoundingClientRect().top
+                    - heading.getBoundingClientRect().top) <= 1,
+                  lowerStatus: !!status && /RARE/.test(status.textContent)
+                    && status.getBoundingClientRect().top >= heading.getBoundingClientRect().bottom,
+                  emptySub: !!card.querySelector('.bcsub:empty'),
+                  gap: first && status ? first.getBoundingClientRect().top
+                    - status.getBoundingClientRect().bottom : null,
+                  rhythm: places ? parseFloat(getComputedStyle(places).marginTop) : 0
+                };
+              })
+            };
+            out.push(twitch);
+            finish(out);
+          });
         });
       }).catch(function (error) {
         out.push({ label: 'Required locale fixture failed', fixtureError: error.message });
@@ -1387,6 +1445,18 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.twitchGeometry) {
+        var geometry = r.twitchGeometry;
+        console.log('   F785 F786 GEOMETRY ' + JSON.stringify(geometry));
+        if (!geometry.large || !geometry.fullWidth || !geometry.topBar
+            || !geometry.cards.length || geometry.cards.some((card) =>
+              !(card.birdFont > card.hotspotFont) || !card.metricAligned
+              || !card.lowerStatus || card.emptySub || card.gap == null
+              || card.gap > 9)) {
+          bad++;
+          console.log('   F785 F786 grouped hierarchy, metric, spacing or top-bar contract failed');
+        }
+      }
       if (r.sectionId === 'sec-excBtn') {
         var meta = r.hydratedMetadata;
         if (!meta) {

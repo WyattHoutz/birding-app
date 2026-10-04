@@ -109,7 +109,8 @@
         "Recent and notable observations within 50 km (eBird's own cap on a geo feed), over the last 7 days.",
         "Every eBird hotspot within the same 50 km, in ONE call - 246 of them around Yakima.",
         "Birds you still need lead the list, closest first, one row per species with its nearest place. Distances are from the scouted point, not from home.",
-        "One slot: scouting somewhere new replaces it. It survives a relaunch, because three calls should not be spent twice on the same answer."
+        "One slot: scouting somewhere new replaces it. It survives a relaunch, because three calls should not be spent twice on the same answer.",
+        "Clear place and results cancels pending scouting and removes that saved snapshot, not Home. Inline Close Find restores Home ranking; report, Home and anchor transitions cancel obsolete acquisition and remove inline results."
       ],
       "inputs": [
         "a geocoder (keyless) to turn typed text into a point",
@@ -174,11 +175,12 @@
       ],
       "how": [
         "List mode keeps one row per checklist across the available rarity wave; Grouped mode combines the same evidence by bird and place.",
-        "Newest and Nearest, Unseen and All, chase-radius and Statewide are independent persisted controls. Reports always use the full medium card; Group only changes whether matching checklists are collected beneath each bird and hotspot.",
+        "The full-width top List | Group bar defaults to List when no preference is saved, and preserves deliberate selection. Newest and Nearest, Unseen and All, chase-radius and Statewide remain independent persisted controls.",
+        "List keeps the full medium card. Group uses the shared large species card with a high-quality photo, scientific name and codes, mileage/age beside the bird identity, and New/Rare/review status together below. Numbered hotspots and checklists follow without empty reserved rows.",
         "Statewide merges the state's public RBA with the geographic rarity feeds; if that RBA is unavailable, the screen says coverage is incomplete rather than pretending the nearby feed is statewide.",
         "Every checklist row carries its clock time — a rarity is chased within hours, so a bare date decides nothing.",
         "The bird name and photo open Species Stakeout. The linked date and Newest age metric open the exact supporting checklist; the public hotspot name opens Stakeout hotspot; the primary distance opens Maps.",
-        "NEW and RARE are printed after the bird name. Review state is a confirmed checkmark or pending warning icon; pending means not reviewed yet, never denied."
+        "NEW and RARE retain text labels. Group places them together with Confirmed or Unconfirmed on its lower status line; pending means not reviewed yet, never denied."
       ],
       "limits": [
         "\"Notable\" is eBird's own review flag for the region; a bird that is rare to YOU but common locally will not appear here."
@@ -487,7 +489,8 @@
         "Selecting a candidate replaces the search field with that bird's name and removes the now-redundant spuh result before painting the bird's normal map, recent-hotspot evidence and bird hierarchy. Clicking the source-spuh chip in the concise hierarchy reopens the candidate result when a different bird is needed.",
         "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
         "Reachable shows only physically reachable places: inside the chase radius, in the report's target counties, public, and not pelagic, offshore, open-water or a named ocean basin. It sorts those places newest first. Distance sorts every regional place from nearest to farthest, including evidence hidden from Reachable. The loaded sightings summary names the active view inside the selected bird card immediately after its year-list state.",
-        "The first 25 places paint immediately. Show more places appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
+        "The first five places paint immediately. Show more places appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
+        "Viewport-near public hotspots automatically check up to six recent checklist summaries for this bird, one place at a time through shared background pacing. Known matching reports appear without a tap, with zero/one/multiple additional-match counts and the checked budget. Private locations are excluded; failed reads remain explicit and retryable, never absence. Cached successful evidence is reused and obsolete navigation cannot append.",
         "A Mega-launched lookup still renders exactly one medium species card. Mega evidence is prepended inside that card while the ordinary place list, map, date/distance/iconic controls, arrival note and unwatched-place lane continue below it.",
         "An honestly empty active-region sightings result keeps the Mega evidence visible rather than replacing it with an empty-state message.",
         "Back returns to the source Mega list only if its report/region/SID/scope/generation key is still current; otherwise it returns to Contents.",
@@ -681,6 +684,7 @@
         "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
         "Clear Home removes only the selected region's saved Home place and coordinates. It cancels pending Home lookups; enter a new place or coordinates and use Find to reset Home. Other regions and unrelated settings are unchanged.",
+        "Home Find ranks candidates against the selected region and uses its waypoint, not an invalid saved Home or temporary search, as its bias. Outside or unverified candidates show identity, coordinates and a warning and are not saved without an explicit save-outside-region action. Cancel lookup preserves saved Home; manual coordinates remain available.",
         "All 65 ABA jurisdictions are selectable before API-key setup: 50 US states, DC, 13 Canadian provinces/territories and Saint Pierre and Miquelon. Choosing one reuses an existing region or creates a local profile; its reference point never becomes your Home.",
         "Refresh region names optionally checks US and Canadian names against eBird. Saved and bundled choices remain usable if it fails. County names load on demand without fetching every county boundary; Saint Pierre and Miquelon legitimately has no county subdivisions.",
         "Custom-region creation and management are deprecated and no longer appear in Settings. Existing region profiles and their stored data are preserved; use the region chooser to select a jurisdiction."

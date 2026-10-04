@@ -16107,19 +16107,18 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   const controls = doc.getElementById('todayControls');
   const controlRows = controls.querySelectorAll('.raritycontrolrow');
   assert.equal(controlRows.length, 1,
-    'all four chip pairs share ONE row now. MEASURED in real Chrome: three '
-    + 'pairs wanted 311.9px in 314px at 393px/scale 1 (one line), and 288px '
-    + 'in 233px at 320px/Easy read, where they wrap rather than crush. '
-    + '⚠️ F215 added a FOURTH pair, so the row now wraps at every width — '
-    + 'that is the accepted cost of the notes toggle, and the layout audit '
-    + 'is what proves wrapping never becomes overflow');
+    'sort, year, distance and Notes share one wrapping filter row; '
+    + 'F786 gives the view choice its own full-width bar above the summary');
   assert.deepEqual(
     [...controlRows[0].querySelectorAll('button')].map((b) => {
       const label = b.querySelector('.presslabel');
       return label ? label.textContent : b.textContent.trim();
     }),
-    ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All', 'Notes', 'Group'],
-    'the one row does not use the approved pill and positive-toggle inventory');
+    ['Newest', 'Nearest', 'Unseen', `${R}mi`, 'All', 'Notes'],
+    'the filter row does not use the approved pill and positive-toggle inventory');
+  assert.deepEqual([...doc.querySelectorAll('#todayView button')]
+    .map((button) => button.textContent.trim()), ['List', 'Group'],
+    'the view choices must remain separate from the shared filter row');
   assert.equal(doc.querySelector('#todayYear').getAttribute('aria-pressed'),
     'true', 'Unseen is the default');
   assert.equal(doc.querySelector('#todayDistance [data-value="near"]').getAttribute('aria-pressed'),
@@ -16342,8 +16341,14 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
 
   A.refresh();
   await waitFor(() => doc.getElementById('todayControls'), 'unified twitch controls');
-  assert.equal(doc.querySelector('#todayView').getAttribute('aria-pressed'), 'false',
+  assert.equal(doc.querySelector('#todayView [data-twitchview="list"]').getAttribute('aria-pressed'), 'true',
     'the unified Twitches report does not default to List');
+  assert.equal(doc.querySelector('#todayView').parentElement.firstElementChild.id, 'todayView');
+  assert.ok(doc.querySelector('#todayView').compareDocumentPosition(doc.querySelector('.twitchhead'))
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'the view bar must precede the runtime summary');
+  assert.ok(doc.querySelector('#todayView').classList.contains('daytripranges'));
+  assert.ok(!doc.querySelector('#todayView').classList.contains('twopill'));
+  assert.equal(doc.querySelector('#todayFilters .twitchviewbtn'), null);
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/,
     'List view is still limited to the last day instead of all available rarity rows');
   assert.equal(doc.querySelectorAll('#results details.ckall').length, 0,
@@ -16362,12 +16367,18 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
     /\.cknote \.evidbtn \{[\s\S]*width: 44px;[\s\S]*height: 44px;/,
     'Twitches Notes actions do not use the shared large target');
 
-  doc.querySelector('#todayView').click();
-  await waitFor(() => doc.querySelector('#todayView')
+  doc.querySelector('#todayView [data-twitchview="grouped"]').click();
+  await waitFor(() => doc.querySelector('#todayView [data-twitchview="grouped"]')
     .getAttribute('aria-pressed') === 'true', 'grouped twitch view');
   assert.match(doc.getElementById('results').textContent, /Older Rare Bird/);
   assert.ok(doc.querySelector('#results .birdreportplaces .hscard-sm .cklcard-sm'),
     'Grouped view is not bird → numbered hotspot → checklist');
+  assert.ok(doc.querySelector('#results.card-lg .bcheading > .spprimary'));
+  assert.ok(doc.querySelector('#results .bchero[data-hero="1"]'),
+    'grouped large photos bypass the high-quality hero pipeline');
+  assert.equal(doc.querySelector('#results .bcsub:empty'), null);
+  assert.ok(doc.querySelector('#results .bcstatus .rareflag'));
+  assert.equal(doc.querySelector('#results .bcname .rareflag'), null);
   noteButton = doc.querySelector(
     '#results .birdreportplaces .hscard-sm .cklcard-sm .cknote-pending');
   assert.ok(noteButton,
@@ -16376,6 +16387,16 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
     'grouped Twitches shows an ellipsis instead of the expected Notes control');
   assert.equal(noteButton.textContent.trim(), '📋',
     'grouped Twitches does not show the Notes icon before hydration');
+  const filters = JSON.stringify(A.rarityFilters()), sort = A.raritySort();
+  app.open(/Favorite patches/);
+  app.open(/Twitches/);
+  await waitFor(() => doc.querySelector('#todayView [data-twitchview="grouped"]')
+    ?.getAttribute('aria-pressed') === 'true', 'persisted Group after navigation');
+  doc.querySelector('#todayView [data-twitchview="list"]').click();
+  await waitFor(() => doc.querySelector('#results.xl > li > .name'), 'List renderer restored');
+  assert.equal(JSON.stringify(A.rarityFilters()), filters);
+  assert.equal(A.raritySort(), sort);
+  assert.equal(app.window.localStorage.getItem('ebird_twitch_view_v1'), 'list');
   app.window.close();
 });
 
@@ -18792,7 +18813,7 @@ test('F501-F510 Stakeout always shows details, merges history, and keeps Notes i
   assert.doesNotMatch(hydrate, /!hasCommentButton/);
 });
 
-test('F554 Stakeout prompts before scanning checklist history for each place', async () => {
+test('F779 Stakeout automatically checks only rendered places within the unchanged history budget', async () => {
   const listCalls = [];
   const places = Array.from({ length: 18 }, (_, i) => ({
     speciesCode: 'amepip',
@@ -18822,6 +18843,8 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
         listCalls.push(path);
         return [];
       }
+      if (/product\/checklist\/view\//.test(path)) return { obs: [] };
+      if (/api\.ebird\.org/.test(path)) return [];
       return null;
     },
   });
@@ -18829,50 +18852,361 @@ test('F554 Stakeout prompts before scanning checklist history for each place', a
   await app.window.__app.lookupSpecies('amepip', 'American Pipit');
   await new Promise((resolve) => setTimeout(resolve, 50));
 
-  const visiblePlaces = app.document.querySelectorAll(
+  let visiblePlaces = app.document.querySelectorAll(
     '#spLookupRecent .spLookupPlaceList > .hscard-md');
   assert.equal(visiblePlaces.length, 5,
     'Stakeout did not stop at the requested initial five-place batch');
-  assert.equal(listCalls.length, 0,
-    'rendering places automatically launched one checklist-history request per hotspot');
-  const prompts = app.document.querySelectorAll(
-    '#spLookupRecent .stakeoutLoadHistory');
-  assert.equal(prompts.length, 4,
-    'only places below the six-known-checklist scan cap offer history actions');
+  await waitFor(() => app.document.querySelectorAll(
+    '#spLookupRecent .stakeoutPlaceHistory[data-done]').length === 4, 'four eligible rendered-place scans', 110000);
+  visiblePlaces = app.document.querySelectorAll('#spLookupRecent .spLookupPlaceList > .hscard-md');
   assert.doesNotMatch(visiblePlaces[0].textContent, /Private-location evidence/,
     'a public hotspot with enough known checklists is mislabeled private');
-  assert.equal(prompts[0].getAttribute('data-wired'), '1',
-    'the visible history action was not wired');
+  assert.equal(app.document.querySelectorAll('#spLookupRecent .stakeoutLoadHistory').length, 0);
+  assert.match(visiblePlaces[1].textContent, /0 additional matching reports/);
 
   const firstChecklistList = visiblePlaces[0].querySelector('.stakeoutPlaceChecklists');
-  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 1,
-    'a hotspot exposed more than its newest checklist before its load-more action');
+  assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 9,
+    'a small known checklist set still requires a load-more action');
   const moreChecklists = visiblePlaces[0].querySelector('.stakeoutChecklistMore');
-  assert.match(moreChecklists.textContent, /Load 8 more checklists/);
-  moreChecklists.click();
+  assert.equal(moreChecklists, null, 'nine known checklists are unnecessarily limited');
   assert.equal(firstChecklistList.querySelectorAll(':scope > li:not([hidden])').length, 9,
     'one per-hotspot action did not reveal the remaining eight checklists');
   assert.equal(visiblePlaces[0].querySelector('.stakeoutChecklistMore'), null,
     'a fully revealed nine-checklist hotspot still asks for another batch');
-  assert.equal(listCalls.length, 0,
+  assert.equal(listCalls.length, 4,
     'revealing fetched checklist rows unnecessarily contacted eBird');
 
   app.document.querySelector('#spLookupRecent .spLookupMore').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(app.document.querySelectorAll(
     '#spLookupRecent .spLookupPlaceList > .hscard-md').length, 10);
-  assert.equal(listCalls.length, 0,
-    'loading more places automatically launched their checklist-history scans');
-  const selectedSlot = prompts[0].closest('.stakeoutPlaceHistory');
-  prompts[0].click();
-  assert.equal(selectedSlot.getAttribute('data-loading'), '1',
-    'the explicit history action did not enter its loading state');
-  assert.equal(app.document.querySelectorAll(
-    '#spLookupRecent .stakeoutPlaceHistory[data-loading]').length, 1,
-    'one explicit history action started scans for more than its selected hotspot');
+  await waitFor(() => listCalls.length === 9, 'five newly rendered-place scans', 110000);
+  assert.equal(new Set(listCalls).size, 9, 'successful checks were reacquired on append');
   assert.match(HTML, /var STAKEOUT_HISTORY_SCAN = 6;/);
   assert.match(HTML, /rows = \(rows \|\| \[\]\)\.slice\(0, STAKEOUT_HISTORY_SCAN\);/,
     'the selected hotspot scan is not bounded by the same six-candidate limit as its action');
+  app.window.close();
+});
+
+test('F779 automatic history exposes zero one and multiple matches, deduplicates, caches and preserves privacy', async () => {
+  const calls = [];
+  const held = [];
+  let holdSummaries = false;
+  const today = todayFixtureDate();
+  const app = await boot({ fetch(url) {
+    if (/recent\/amepip/.test(url)) return ['ZERO', 'ONE', 'MANY', 'PRIVATE'].map((id, i) => ({
+      speciesCode: 'amepip', comName: 'American Pipit', locName: id, locId: `L-${id}`,
+      lat: 47.7 + i * 0.03, lng: -122.2, obsDt: `${today} 09:00`, subId: `S-${id}-current`,
+      obsValid: true, locationPrivate: id === 'PRIVATE',
+    }));
+    const summaries = url.match(/product\/lists\/L-(ZERO|ONE|MANY)/);
+    if (summaries) {
+      calls.push(url);
+      if (holdSummaries) return new Promise((resolve) => { held.push({ url, resolve }); });
+      return ['current', 'a', 'b', 'c', 'd', 'e', 'beyond-budget'].map((suffix) => ({
+        subId: `S-${summaries[1]}-${suffix}`, obsDt: `${today} 08:00`,
+      }));
+    }
+    const checklist = url.match(/product\/checklist\/view\/S-(ZERO|ONE|MANY)-([^?]+)/);
+    if (checklist) {
+      calls.push(url);
+      const [, id, suffix] = checklist;
+      const match = suffix === 'current' || (id === 'ONE' && suffix === 'a')
+        || (id === 'MANY' && ['a', 'b'].includes(suffix));
+      return { obsDt: `${today} 08:00`, obs: match ? [{ speciesCode: 'amepip' }] : [] };
+    }
+    if (/product\/checklist\/view\//.test(url)) return { obs: [] };
+    if (/api\.ebird\.org/.test(url)) return [];
+    return null;
+  } });
+  installSpuhFixture(app);
+  for (const id of ['ZERO', 'ONE', 'MANY']) {
+    const rows = ['current', 'a', 'b', 'c', 'd', 'e', 'beyond-budget'].map((suffix) => ({
+      subId: `S-${id}-${suffix}`, obsDt: `${today} 08:00`,
+    }));
+    app.window.__app.seedEbirdCache(`product/lists/L-${id}?maxResults=12`, rows);
+    for (const row of rows) {
+      const suffix = row.subId.split('-').at(-1);
+      const match = suffix === 'current' || (id === 'ONE' && suffix === 'a')
+        || (id === 'MANY' && ['a', 'b'].includes(suffix));
+      app.window.__app.seedEbirdCache(`product/checklist/view/${row.subId}`, {
+        obsDt: `${today} 08:00`, obs: match ? [{ speciesCode: 'amepip' }] : [],
+      });
+    }
+  }
+  await app.window.__app.lookupSpecies('amepip', 'American Pipit');
+  app.click(app.$('spLookupStatewide'));
+  await waitFor(() => app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]').length === 3,
+    'bounded automatic histories');
+  const places = [...app.document.querySelectorAll('.spLookupPlaceList > li')];
+  for (const [id, count] of [['ZERO', 0], ['ONE', 1], ['MANY', 2]]) {
+    const place = places.find((row) => row.textContent.includes(id));
+    assert.match(place.textContent, new RegExp(`${count} additional matching report`));
+    assert.match(place.textContent, /checked 6 recent checklists/);
+    const rows = [...place.querySelectorAll('.stakeoutPlaceChecklists > li')];
+    assert.equal(rows.length, count + 1);
+    assert.equal(new Set(rows.map((row) => row.dataset.evSub)).size, rows.length);
+    assert.equal(rows.filter((row) => !row.hidden).length, count + 1);
+  }
+  assert.equal(calls.filter((url) => /product\/lists/.test(url)).length, 0,
+    'warm checklist summaries contacted the network');
+  assert.ok(!calls.some((url) => /PRIVATE|beyond-budget/.test(url)));
+  assert.ok(!app.state.fetches.some((url) => /product\/lists\/L-PRIVATE/.test(url)),
+    'private location entered public hotspot acquisition');
+  const count = calls.length;
+  app.window.__app.renderSpeciesLookup();
+  await waitFor(() => app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]').length === 3,
+    'cached histories immediately repaint');
+  assert.equal(calls.length, count, 'warm results reacquired checklist evidence');
+  holdSummaries = true;
+  const realNow = app.window.Date.now.bind(app.window.Date);
+  app.window.Date.now = () => realNow() + 31 * 60 * 1000;
+  app.window.__app.renderSpeciesLookup();
+  await waitFor(() => held.length, 'first expired history recheck');
+  assert.equal(held.length, 1, 'expired cache bypassed serialized place acquisition');
+  assert.equal(app.document.querySelectorAll('.stakeoutPlaceHistory[data-loading]').length, 1,
+    'expired cache started multiple place acquisitions before the first completed');
+  for (let i = 0; i < 3; i++) {
+    await waitFor(() => held.length === i + 1, 'next serialized expired history');
+    held[i].resolve([]);
+  }
+  await waitFor(() => app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]').length === 3,
+    'expired history rechecks complete');
+  app.window.close();
+});
+
+test('F779 only large known checklist sets require progressive disclosure', async () => {
+  const app = await boot({ fetch(url) {
+    if (/recent\/amepip/.test(url)) return Array.from({ length: 20 }, (_, i) => ({
+      speciesCode: 'amepip', comName: 'American Pipit', locName: 'Many reports park',
+      locId: 'L-MANYKNOWN', lat: 47.7, lng: -122.2, howMany: 1, obsValid: true,
+      subId: `S-KNOWN-${i}`, obsDt: `${todayFixtureDate()} 08:${String(i).padStart(2, '0')}`,
+    }));
+    if (/product\/checklist\/view/.test(url)) return { obs: [] };
+    if (/api\.ebird/.test(url)) return [];
+    return null;
+  } });
+  installSpuhFixture(app);
+  await app.window.__app.lookupSpecies('amepip', 'American Pipit');
+  const count = () => app.document.querySelectorAll('.stakeoutPlaceChecklists > li:not([hidden])').length;
+  assert.equal(count(), 9);
+  assert.match(app.document.querySelector('.stakeoutChecklistMore').textContent, /Load 8 more of 11/);
+  app.click(app.document.querySelector('.stakeoutChecklistMore'));
+  assert.equal(count(), 17);
+  app.click(app.document.querySelector('.stakeoutChecklistMore'));
+  assert.equal(count(), 20);
+  assert.equal(app.document.querySelector('.stakeoutChecklistMore'), null);
+  app.window.close();
+});
+
+test('F779 failed checklist read stays honest and retryable; obsolete bird cannot append', async () => {
+  let fail = true, release;
+  const app = await boot({ fetch(url) {
+    if (/recent\/amepip/.test(url)) return [{
+      speciesCode: 'amepip', comName: 'American Pipit', locName: 'History Park',
+      locId: 'L-HISTORY', lat: 47.7, lng: -122.2,
+      obsDt: `${todayFixtureDate()} 09:00`, subId: 'S-CURRENT', obsValid: true,
+    }];
+    if (/product\/lists\/L-HISTORY/.test(url)) return [{ subId: 'S-HISTORY' }];
+    if (/product\/checklist\/view\/S-HISTORY/.test(url)) {
+      if (fail) return { __status: 403 };
+      return new Promise((resolve) => { release = resolve; });
+    }
+    if (/product\/checklist\/view\//.test(url)) return { obs: [] };
+    if (/api\.ebird\.org/.test(url)) return [];
+    return null;
+  } });
+  installSpuhFixture(app);
+  const A = app.window.__app;
+  await A.lookupSpecies('amepip', 'American Pipit');
+  await waitFor(() => app.document.querySelector('.stakeoutLoadHistory'), 'honest failure');
+  assert.match(app.$('spLookupRecent').textContent, /not evidence that no other reports exist/);
+  assert.equal(app.document.querySelector('.stakeoutPlaceHistory[data-done]'), null);
+  fail = false;
+  app.click(app.document.querySelector('.stakeoutLoadHistory'));
+  await waitFor(() => release, 'history retry');
+  const old = app.document.querySelector('.stakeoutPlaceChecklists');
+  const next = A.lookupSpecies('solsan', 'Solitary Sandpiper');
+  release({ obs: [{ speciesCode: 'amepip' }] });
+  await next;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(old.children.length, 1, 'obsolete history appended after changing birds');
+  assert.doesNotMatch(app.$('spLookupRecent').textContent, /History Park/);
+  app.window.close();
+});
+
+test('F780 Home ranks Michigan independently of invalid Home and warns before saving outside or unknown regions', async () => {
+  const region = michiganRuntimeRegion();
+  let outside = false;
+  const queries = [];
+  const england = { geometry: { coordinates: [-0.12, 51.49] },
+    properties: { name: 'Chelsea', state: 'England', countrycode: 'GB', country: 'United Kingdom' } };
+  const michigan = { geometry: { coordinates: [-84.02, 42.32] },
+    properties: { name: 'Chelsea', state: 'Michigan', countrycode: 'US', country: 'United States' } };
+  const app = await boot({ report: region.slug, home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]),
+      [`ebird_home_lat:${region.slug}`]: '51.49', [`ebird_home_lng:${region.slug}`]: '-0.12' },
+    fetch(url) {
+      if (/photon/.test(url)) {
+        queries.push(new URL(url));
+        return { features: outside === 'unknown'
+          ? [{ ...michigan, properties: { name: 'Unverified Chelsea' } }]
+          : outside ? [england] : [england, michigan] };
+      }
+      if (/api\.ebird/.test(url)) return [];
+      return null;
+    } });
+  app.open(/Settings/);
+  app.$('homePlace').value = 'Chelsea';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => /Saved automatically/.test(app.$('geocodeStatus').textContent), 'Michigan Home');
+  assert.equal(app.window.__app.getHome().lat, 42.32);
+  assert.match(queries[0].searchParams.get('q'), /Michigan/);
+  assert.notEqual(queries[0].searchParams.get('lat'), '51.4900');
+  outside = true;
+  app.$('homePlace').value = 'Chelsea';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => /Warning:/.test(app.$('geocodeStatus').textContent), 'outside warning');
+  assert.equal(app.window.__app.getHome().lat, 42.32, 'overseas namesake silently replaced Home');
+  assert.equal(app.$('homeOutsideSave').hidden, false);
+  app.$('homePlace').dispatchEvent(new app.window.Event('input'));
+  assert.equal(app.$('homeOutsideSave').hidden, true, 'edited candidate remained saveable');
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => !app.$('homeOutsideSave').hidden, 'explicit outside candidate');
+  app.click(app.$('homeOutsideSave'));
+  assert.equal(app.window.__app.getHome().lat, 51.49, 'explicit save outside did not save named candidate');
+  outside = 'unknown';
+  app.$('homePlace').value = 'Unknown region';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => /region could not be verified/.test(app.$('geocodeStatus').textContent), 'missing region metadata');
+  assert.equal(app.window.__app.getHome().lat, 51.49);
+  app.$('homePlace').value = '45, -85';
+  app.click(app.$('geocodeBtn'));
+  await waitFor(() => app.window.__app.getHome().lat === 45, 'pasted coordinates');
+  assert.equal(queries.length, 4, 'coordinate entry contacted geocoder');
+  app.window.close();
+});
+
+test('F783 F784 inline Close and report Home transitions reject late overseas scouting without changing saved Home', async () => {
+  const held = [];
+  let hold = true;
+  const app = await boot({ fetch(url) {
+    if (/data\/obs\/geo|ref\/hotspot\/geo/.test(url)) return hold
+      ? new Promise((resolve) => held.push(resolve)) : [];
+    if (/api\.ebird/.test(url)) return [];
+    return null;
+  } });
+  const A = app.window.__app;
+  app.open(/Today.s patches/);
+  const home = JSON.stringify(A.getHome());
+  const pending = A.autoScoutForAnchor({ lat: 51.49, lng: -0.12, label: 'Overseas test', state: 'England' });
+  await waitFor(() => held.length, 'held scouting request');
+  const close = app.document.querySelector('.scoutinlineclose');
+  assert.match(close.textContent, /restore Home/);
+  app.click(close);
+  held.splice(0).forEach((resolve) => resolve([]));
+  await pending;
+  assert.equal(app.document.querySelector('.scoutinline'), null);
+  assert.equal(app.window.localStorage.getItem('bc_scout_v1'), null,
+    'cancelled inline acquisition persisted obsolete scouting');
+  assert.equal(JSON.stringify(A.getHome()), home);
+  assert.equal(A.anchorLabel(), 'home');
+  hold = false;
+  await A.autoScoutForAnchor({ lat: 51.49, lng: -0.12, label: 'Completed overseas' });
+  A.setActiveReport('mo');
+  A.setActiveReport('wa');
+  assert.equal(app.document.querySelector('.scoutinline'), null);
+  assert.equal(JSON.stringify(A.getHome()), home);
+  hold = true;
+  app.open(/Today.s patches/);
+  const obsolete = A.autoScoutForAnchor({ lat: 51.5, lng: -0.13, label: 'Held report switch' });
+  await waitFor(() => held.length, 'scouting held across report switch');
+  A.setActiveReport('mo'); A.setActiveReport('wa');
+  held.splice(0).forEach((resolve) => resolve([]));
+  await obsolete;
+  assert.equal(app.document.querySelector('.scoutinline'), null);
+  assert.equal(JSON.stringify(A.getHome()), home);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  app.window.close();
+});
+
+test('F784 Close Find sheet, Quick Cancel, Scout Clear and Home Cancel invalidate pending work', async () => {
+  let release;
+  const app = await boot({ fetch(url) {
+    if (/photon/.test(url)) return new Promise((resolve) => { release = resolve; });
+    if (/api\.ebird/.test(url)) return [];
+    return null;
+  } });
+  const A = app.window.__app, home = JSON.stringify(A.getHome());
+  for (const surface of ['anchor', 'quick', 'scout', 'home']) {
+    release = null;
+    if (surface === 'home') {
+      app.open(/Settings/); app.$('homePlace').value = 'Held place'; app.click(app.$('geocodeBtn'));
+    } else if (surface === 'scout') {
+      A.showSection('sec-scoutBtn'); app.$('scoutPlace').value = 'Held place'; app.click(app.$('scoutBtn'));
+    } else if (surface === 'quick') {
+      A.showSection('sec-quickBtn'); app.$('quickHerePlace').value = 'Held place'; app.click(app.$('quickHereFind'));
+    } else {
+      app.open(/Today.s patches/);
+      app.click(app.document.querySelector('section:not([hidden]) [data-anchor="find"]'));
+      app.$('anchorFind').value = 'Held place'; app.click(app.$('anchorFindGo'));
+    }
+    await waitFor(() => release, `held ${surface} lookup`);
+    const button = surface === 'anchor' ? app.document.querySelector('.sheetclose')
+      : app.$({ quick: 'quickFindCancel', scout: 'scoutClear', home: 'homeFindCancel' }[surface]);
+    app.click(button); app.click(button);
+    release({ features: [{ geometry: { coordinates: [-0.12, 51.49] },
+      properties: { name: 'Cancelled overseas', state: 'England', countrycode: 'GB' } }] });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(JSON.stringify(A.getHome()), home);
+    assert.equal(app.document.querySelector('.scoutinline'), null);
+    assert.notEqual(A.anchorLabel(), 'Cancelled overseas');
+    if (surface === 'scout') {
+      assert.doesNotMatch(app.$('scoutResults').textContent, /Cancelled overseas/);
+      assert.match(app.$('scoutStatus').textContent, /Cleared/);
+      assert.equal(app.$('scoutPlace').value, '');
+      assert.equal(app.$('scoutBtn').disabled, false);
+      assert.equal(app.window.localStorage.getItem('bc_scout_v1'), null);
+    }
+    if (surface === 'home') {
+      assert.match(app.$('geocodeStatus').textContent, /Lookup cancelled/);
+      assert.equal(app.$('homeOutsideSave').hidden, true);
+    }
+  }
+  app.window.close();
+});
+
+test('F784 Escape cancels missing-Home Find without saving a late candidate', async () => {
+  const region = michiganRuntimeRegion();
+  let release;
+  const app = await boot({ report: region.slug, home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch(url) {
+      if (/photon/.test(url)) return new Promise((resolve) => { release = resolve; });
+      if (/api\.ebird/.test(url)) return [];
+      return null;
+    } });
+  const A = app.window.__app;
+  const pending = A.ensureActiveAnchor();
+  app.click(app.$('anchorUseFind'));
+  app.$('requiredAnchorFind').value = 'Held place';
+  app.click(app.$('requiredAnchorGo'));
+  await waitFor(() => release, 'missing-Home lookup');
+  app.document.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await pending;
+  const getElementById = app.document.getElementById.bind(app.document);
+  let latePaints = 0;
+  app.document.getElementById = function (id) {
+    if (id === 'requiredAnchorMsg') latePaints++;
+    return getElementById(id);
+  };
+  release({ features: [{ geometry: { coordinates: [-0.12, 51.49] },
+    properties: { name: 'Cancelled overseas', state: 'England', countrycode: 'GB' } }] });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(A.getHome(), null);
+  assert.equal(A.anchorLabel(), 'Michigan waypoint');
+  assert.equal(latePaints, 0, 'a cancelled lookup attempted to paint the dismissed Find sheet');
+  assert.equal(app.$('appSheet').hidden, true);
   app.window.close();
 });
 
@@ -18954,10 +19288,9 @@ test('F634 Stakeout separates privacy, reveals nine checklists once, and paints 
     '#spLookupRecent .spLookupPlaceList > .hscard-md')]
     .find((place) => /Union Bay/.test(place.textContent));
   const list = currentUnion.querySelector('.stakeoutPlaceChecklists');
-  assert.equal(list.querySelectorAll(':scope > li:not([hidden])').length, 1);
+  assert.equal(list.querySelectorAll(':scope > li:not([hidden])').length, 9);
   const more = currentUnion.querySelector('.stakeoutChecklistMore');
-  assert.match(more.textContent, /Load 8 more checklists/);
-  more.click();
+  assert.equal(more, null, 'small public-checklist set requires a redundant tap');
   assert.equal(list.querySelectorAll(':scope > li:not([hidden])').length, 9,
     'one click did not reveal all nine known Union Bay checklists');
   assert.equal(currentUnion.querySelector('.stakeoutChecklistMore'), null);

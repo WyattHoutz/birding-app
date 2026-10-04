@@ -176,6 +176,15 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
 });
 
 const EXTRA_SHOTS = [
+  { id: 'twitchesgroup', at: 'refreshBtn', title: 'Twitches — Group, large species cards',
+    host: 'results', fullPage: true, freshApp: true,
+    expects: ['#todayView [data-twitchview="grouped"][aria-pressed="true"]',
+      '#results.card-lg .bcheading .spprimary', '#results .bcstatus',
+      '#results .birdreportplaces .cklcard-sm'],
+    prep: `FIX.before('refreshBtn', A, document);
+           var sec = document.getElementById('refreshBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareTwitches(A, document, sec, true);` },
   { id: 'spuhcompare', at: 'spLookupBtn',
     title: 'Stakeout bird — compare possible birds',
     host: 'sec-spLookupBtn',
@@ -1539,6 +1548,56 @@ const BOOTSTRAP = `
   function wait(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
+  async function prepareTwitches(A, document, sec, grouped) {
+    var profile = A.chaseProfile();
+    var twitchRows = [
+        { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+          sciName: 'Calidris acuminata', locName: 'Marymoor Park--Audubon Bird Loop',
+          locId: 'L2', lat: 47.658, lng: -122.118, howMany: 2,
+          obsDt: mockObservationDate(2), subId: 'S-TWITCH-1',
+          userDisplayName: 'Representative observer', obsReviewed: false, obsValid: false },
+        { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+          sciName: 'Calidris acuminata', locName: 'Discovery Park',
+          locId: 'L3', lat: 47.66, lng: -122.42, howMany: 1,
+          obsDt: mockObservationDate(4), subId: 'S-TWITCH-2',
+          userDisplayName: 'Representative observer', obsReviewed: false, obsValid: false },
+        { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+          sciName: 'Tringa solitaria', locName: 'Union Bay Natural Area',
+          locId: 'L4', lat: 47.65, lng: -122.29, howMany: 3,
+          obsDt: mockObservationDate(11), subId: 'S-TWITCH-3',
+          userDisplayName: 'Representative observer', obsReviewed: true }
+    ];
+    A.seedChase(profile.slug, {
+      t: Date.now(), rarity: false, fetchBaseKey: A.chaseFetchBaseKey(profile),
+      geoNotableKm: document.defaultView.BirdLogic.geoNotableDistKm(profile),
+      speciesCodes: ['shtsan', 'solsan'],
+      rows: {'king-notable.json': twitchRows}
+    });
+    twitchRows.forEach(function (row) {
+      A.seedEbirdCache('product/checklist/view/' + row.subId, Object.assign({}, row, {
+        comments: 'Representative checklist evidence.', obs: [row]
+      }));
+    });
+    await Promise.all(twitchRows.map(function (row) { return A.checklistView(row.subId); }));
+    localStorage.setItem('ebird_rarity_filters_v1', JSON.stringify({year:'all',distance:'near'}));
+    localStorage.setItem('ebird_twitch_view_v1', grouped ? 'grouped' : 'list');
+    await A.refresh();
+    await waitFor(function () { return document.querySelector('#results > li'); },
+      'production Twitches cards');
+    await A.hydrateChecklistEvidence(document.getElementById('results'));
+    await Promise.all([].map.call(document.querySelectorAll('#results .thumb[data-code]'), async function (slot) {
+      var img = document.createElement('img');
+      img.className = 'birdpic';
+      img.alt = slot.getAttribute('data-bird') || '';
+      img.src = fixtureIconPath(slot.getAttribute('data-code'), BIRD_ICON_EXT);
+      slot.replaceChildren(img);
+      await img.decode();
+    }));
+    markHost(document.getElementById('results'), 'REPRESENTATIVE STUB DATA');
+    sec.dataset.mockAt = 'refreshBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
+  }
   async function waitFor(find, label, attempts) {
     attempts = attempts || 50;
     for (var i = 0; i < attempts; i++) {
@@ -1903,7 +1962,8 @@ const BOOTSTRAP = `
       }, 'On passage exact event countdown');
       markHost(host, label);
     } else if (spec.kind === 'bird') {
-      fillSpeciesHost(host, document.defaultView, label, at);
+      if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
+      else fillSpeciesHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'favorites') {
       A.setFavs([
         { id: 'L-FIXTURE-1', locId: 'L-FIXTURE-1', locName: 'Union Bay Natural Area',
@@ -2700,6 +2760,7 @@ const BOOTSTRAP = `
   window.FIX = {
     before: fixtureBefore,
     prepare: fixturePrepare,
+    prepareTwitches: prepareTwitches,
     prepareF629Nightly: prepareF629Nightly,
     prepareF629BirdGen: prepareF629BirdGen,
     prepareCompare: prepareCompare,

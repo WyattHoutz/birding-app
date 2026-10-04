@@ -60,10 +60,10 @@
     '<li class="{{cls}}"{{attrs}}>',
     '  {{icon}}',
     '  <div class="bcbody">',
-    '    <div class="bcname">{{name}}{{tags}}{{actions}}{{count}}</div>',
-    '    {{sci}}',
-    '    <div class="bcmeta">{{code}}{{dist}}{{when}}{{conf}}</div>',
-    '    <div class="bcsub">{{sub}}</div>',
+    '    <div class="bcheading"><div class="bcidentity">',
+    '      <div class="bcname">{{name}}{{tags}}{{actions}}{{count}}</div>{{sci}}',
+    '    </div>{{primary}}</div>',
+    '    {{largemeta}}{{largesub}}{{statusline}}',
     '    {{below}}',
     '  </div>',
     '</li>'
@@ -448,6 +448,10 @@
     '          color: var(--accent); margin: 0; overflow-wrap: anywhere; }',
     '.bcname .needflag, .bcname .stakeflag, .bcname .seenflag { font-size: calc(13px * var(--s)); vertical-align: middle; }',
     '.bcsub { font-size: calc(14px * var(--s)); color: var(--muted); margin-top: 4px; }',
+    '.bcheading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; }',
+    '.bcidentity { min-width: 0; }',
+    '.bcheading > .spprimary { align-self: start; min-width: 0; }',
+    '.bcstatus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }',
     ''
   ].join('\n');
 
@@ -779,12 +783,18 @@
   function build(tpl, v, cls) {
     v = v || {};
     var identifierLine = tpl === SMALL && !!v.identifierLine;
+    var largeMeta = codeHtml(v, tpl) + distHtml(v, tpl)
+      + whenHtml(v, tpl) + confHtml(v, tpl);
+    var largeSub = subHtml(v, false);
     return fill(tpl, {
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' ').trim(),
       icon: v.icon || '',
       name: nameRenderer(v.name || '', codeText(v.code)),
       tags: v.tags || '',
       sub: identifierLine ? identifierLineHtml(v) : subHtml(v, tpl === SMALL),
+      largemeta: largeMeta ? '<div class="bcmeta">' + largeMeta + '</div>' : '',
+      largesub: largeSub ? '<div class="bcsub">' + largeSub + '</div>' : '',
+      statusline: v.statusLine ? '<div class="bcstatus">' + v.statusLine + '</div>' : '',
       dist: distHtml(v, tpl),
       // The eBird species code, on MEDIUM cards only.
       //
