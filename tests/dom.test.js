@@ -550,6 +550,109 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
   app.window.close();
 });
 
+test('F798 cached Mega controls repaint while live refresh is pending or failed', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  try {
+    app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      rows: [
+        { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+          obsDt: '2026-09-25 10:00', locName: 'Far Estuary', locId: 'L-FAR',
+          subId: 'S-FAR', lat: 46.6, lng: -124.1 },
+        { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+          obsDt: '2026-09-24 10:00', locName: 'Near Estuary', locId: 'L-NEAR',
+          subId: 'S-NEAR', lat: 47.76, lng: -122.15 },
+      ],
+    }));
+    let rejectFetch;
+    app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+    const load = A.loadAbaAlert();
+    app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+    assert.equal(app.document.querySelector(
+      '#abaViewPick [data-megaview="grouped"]').getAttribute('aria-pressed'), 'true',
+    'cached Group tap must actually repaint, not just store its preference');
+    assert.ok(app.document.querySelector('#abaReportResults.card-lg .birdreportplaces'));
+    app.document.querySelector('#abaViewPick [data-megaview="list"]').click();
+    assert.equal(app.document.querySelector(
+      '#abaViewPick [data-megaview="list"]').getAttribute('aria-pressed'), 'true');
+    app.document.querySelector('#abaSortPick [data-abasort="distance"]').click();
+    assert.equal(app.document.querySelector(
+      '#abaReportResults > li').getAttribute('data-mega-code'), 'solsan',
+    'cached Nearest must change report order before the network settles');
+    app.document.querySelector('#abaSortPick [data-abasort="date"]').click();
+    assert.equal(app.document.querySelector(
+      '#abaReportResults > li').getAttribute('data-mega-code'), 'shtsan');
+    app.document.querySelector('#abaScopePick').click();
+    assert.equal(app.document.querySelector('#abaScopePick').getAttribute('aria-pressed'), 'false');
+    assert.match(app.$('abaStatus').textContent, /ABA-wide.*pending.*cached.*region/i,
+      'a regional snapshot must not be claimed as a complete continent-wide answer');
+    rejectFetch(new Error('offline fixture'));
+    await load;
+    app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+    assert.equal(app.document.querySelector(
+      '#abaViewPick [data-megaview="grouped"]').getAttribute('aria-pressed'), 'true');
+    assert.match(app.$('abaStatus').textContent, /live refresh failed/i,
+      'local interaction must not erase the refresh error');
+    assert.equal(app.$('abaBtn').disabled, false);
+  } finally { app.window.close(); }
+});
+
+test('F799 report transitions preserve the Mega status and control wrapper', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  try {
+    const controls = app.$('abaControls');
+    const status = app.$('abaStatus');
+    A.setActiveReport('hi');
+    A.setActiveReport('wa');
+    assert.equal(app.$('abaControls'), controls,
+      'report-switch pending status must not delete the persistent Mega wrapper');
+    assert.equal(app.$('abaStatus'), status);
+    A.renderAbaAlert([], 'https://ebird.org/alert/summary?sid=X', true, false,
+      () => {});
+    assert.ok(app.$('abaViewPick'));
+  } finally { app.window.close(); }
+});
+
+test('F798 Mega header refresh restarts a pending cached read and ignores its old result', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  try {
+    app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      rows: [{ speciesCode: 'shtsan', comName: 'Cached Sandpiper',
+        obsDt: '2026-09-25 10:00', locName: 'Cached Estuary',
+        locId: 'L-CACHED', subId: 'S-CACHED', lat: 47.7, lng: -122.2 }],
+    }));
+    const requests = [];
+    app.window.fetch = (url, options) => new Promise((resolve, reject) => {
+      requests.push({ resolve, reject, signal: options.signal });
+    });
+    const original = A.loadAbaAlert();
+    assert.equal(app.$('abaBtn').disabled, false,
+      'cached refresh must allow restarting a stalled request');
+    const section = app.$('abaBtn').closest('section');
+    section.querySelector('.refreshbtn').click();
+    assert.equal(requests.length, 2, 'the actual header refresh must start a new read');
+    assert.equal(requests[0].signal.aborted, true,
+      'restart must abort the old transport instead of accumulating live requests');
+    assert.equal(requests[1].signal.aborted, false);
+    requests[0].reject(new Error('old request cancelled'));
+    await original;
+    assert.doesNotMatch(app.$('abaStatus').textContent, /old request cancelled/);
+    requests[1].reject(new Error('new request failed'));
+    await waitFor(() => /new request failed/.test(app.$('abaStatus').textContent),
+      'current Mega refresh failure');
+    assert.equal(app.$('abaBtn').disabled, false);
+    section.querySelector('.refreshbtn').click();
+    assert.equal(requests.length, 3, 'refresh must remain usable after failure');
+    requests[2].reject(new Error('retry failed'));
+    await waitFor(() => /retry failed/.test(app.$('abaStatus').textContent),
+      'Mega retry failure');
+  } finally { app.window.close(); }
+});
+
 // ---------------------------------------------------------------------------
 // F317 — the authenticated eBird page carries the current account in the
 // header's My Account accessibility label. The public web key

@@ -4694,7 +4694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.137.1';
+      var APP_VERSION = '1.137.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -18830,11 +18830,12 @@
         });
       }
 
-      function fetchPublicHTML(url, noStore) {
+      function fetchPublicHTML(url, noStore, signal) {
         dbg('net', 'GET(html) ' + url);
         return fetch(url, {
           cache: noStore ? 'no-store' : 'default',
-          headers: { 'Accept': 'text/html,application/xhtml+xml' }
+          headers: { 'Accept': 'text/html,application/xhtml+xml' },
+          signal: signal
         })
           .then(function (r) {
             if (!r.ok) { dbg('error', 'html HTTP ' + r.status + ' · ' + url); throw new Error('HTTP ' + r.status); }
@@ -29169,6 +29170,8 @@
         }
       }
       function invalidateMegaViews() {
+        if (_abaAbortController) _abaAbortController.abort();
+        _abaAbortController = null;
         _abaLoadGeneration++;
         _megaViews = {};
         _megaViewKey = '';
@@ -29769,6 +29772,7 @@
         megaHydrateWikipedia(entry, generation);
       }
 
+      var _abaAbortController = null;
       function loadAbaAlert() {
         // Newest first, the pair the reader quoted. This is the one alert URL the
         // app has a sid for, so it is the one place the exact form applies.
@@ -29793,28 +29797,39 @@
           + '&sortBy=obsDt&o=desc';
         var btn = $('abaBtn'), st = $('abaStatus');
         btn.disabled = true;
-        var cached = null, cachedPainted = false;
+        var controller = typeof AbortController === 'function' ? new AbortController() : null;
+        _abaAbortController = controller;
+        var cached = null, cachedPainted = false, cachedFailure = '';
         try { cached = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null'); }
         catch (e) { cached = null; }
         if (cached && cached.region === startRegion && cached.sid === startSid
             && Array.isArray(cached.rows) && cached.rows.length) {
           var cachedAgeH = Math.max(0, (Date.now() - Number(cached.at || 0)) / 3600000);
-          renderAbaAlert(cached.rows, url, startScoped, false, {
-            generation: loadGeneration,
-            reportSlug: startSlug,
-            region: startRegion,
-            sid: startSid,
-            scope: 'state',
-            reportLabel: startReport.label || startRegion,
-            stateName: BL.stateNameFor(startReport),
-            country: String(startRegion).split('-')[0] || 'US',
-            stateRows: cached.rows
-          }, function () {});
+          function paintCached() {
+            if (!stillCurrent()) return;
+            renderAbaAlert(cached.rows, url, startScoped, false, {
+              generation: loadGeneration,
+              reportSlug: startSlug,
+              region: startRegion,
+              sid: startSid,
+              scope: 'state',
+              reportLabel: startReport.label || startRegion,
+              stateName: BL.stateNameFor(startReport),
+              country: String(startRegion).split('-')[0] || 'US',
+              stateRows: cached.rows
+            }, paintCached);
+            st.textContent = 'Cached ABA rarities shown · '
+              + (cachedAgeH < 1 ? Math.max(1, Math.round(cachedAgeH * 60)) + ' min'
+                : Math.round(cachedAgeH) + ' hr')
+              + ' old · ' + (cachedFailure
+                ? 'live refresh failed: ' + cachedFailure
+                : 'refreshing the alert… Tap refresh to restart.')
+              + (abaScope() === 'aba'
+                ? ' ABA-wide alert pending; only cached region reports are shown.' : '');
+          }
+          paintCached();
           cachedPainted = true;
-          st.textContent = 'Cached ABA rarities shown · '
-            + (cachedAgeH < 1 ? Math.max(1, Math.round(cachedAgeH * 60)) + ' min'
-              : Math.round(cachedAgeH) + ' hr')
-            + ' old · refreshing the alert…';
+          btn.disabled = false;
         } else {
           $('abaControls').querySelectorAll('.twitchviewbar, .abascoperow').forEach(function (control) {
             control.remove();
@@ -29828,7 +29843,7 @@
         // summary is public. Read it directly (native fetch, no CORS) so the
         // section shows what the report shows without an eBird login; fall back
         // to the in-app login flow only if the direct read fails.
-        return fetchPublicHTML(url)
+        return fetchPublicHTML(url, false, controller && controller.signal)
           .then(function (html) {
             var list = parseAlertHTML(html);
             if (!list.length && !/class="Observation"/.test(html)) throw new Error('alert page not readable');
@@ -29942,13 +29957,17 @@
           })
           .catch(function (e) {
             if (!stillCurrent() || (e && e.abaSuperseded)) return;
+            cachedFailure = e.message || 'Could not load the alert.';
             st.innerHTML = (cachedPainted
               ? 'Cached alert remains visible — live refresh failed. '
               : '') + esc(e.message || 'Could not load the alert.') + ' '
               + extA(url, 'View on eBird');
           })
           .finally(function () {
-            if (loadGeneration === _abaLoadGeneration) btn.disabled = false;
+            if (loadGeneration === _abaLoadGeneration) {
+              btn.disabled = false;
+              if (_abaAbortController === controller) _abaAbortController = null;
+            }
           });
       }
 
@@ -38472,7 +38491,8 @@
         records: 'records'
       };
       function scopeTransitionStatus(at, section) {
-        var status = section && section.querySelector('.status');
+        var status = section && (section.querySelector('#abaStatus')
+          || section.querySelector('.status'));
         if (status) return status;
         var anchor = $(at);
         return anchor && anchor.tagName !== 'BUTTON' ? anchor : null;
