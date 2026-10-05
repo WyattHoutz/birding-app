@@ -292,6 +292,43 @@ test('F551 Mega rarity mockups exercise the current direct photo slot and contro
     'the Nearest review needs a genuinely closer, older row so its order visibly changes');
 });
 
+test('F797 Mega fixture status updates preserve its persistent control wrapper', () => {
+  const helper = source.slice(source.indexOf('function fixtureStatus('),
+    source.indexOf('function markHost('));
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(indexSource);
+  try {
+    const document = dom.window.document;
+    const controls = document.getElementById('abaControls');
+    const status = document.getElementById('abaStatus');
+    const section = controls.closest('section');
+    const button = document.getElementById('abaBtn');
+    button.disabled = true;
+    status.setAttribute('aria-busy', 'true');
+    const update = new Function(helper + '; return fixtureStatus;')();
+    update(section, 'Mega');
+    assert.equal(document.getElementById('abaControls'), controls,
+      'fixture status updates must preserve the production persistent wrapper');
+    assert.equal(document.getElementById('abaStatus'), status);
+    assert.match(status.textContent, /REPRESENTATIVE STUB DATA.*Mega/);
+    assert.equal(status.hasAttribute('aria-busy'), false);
+    assert.equal(button.disabled, false);
+
+    const ordinary = document.createElement('section');
+    ordinary.innerHTML = '<div class="status" hidden aria-busy="true">Loading</div>';
+    update(ordinary, 'Other report');
+    assert.match(ordinary.textContent, /REPRESENTATIVE STUB DATA.*Other report/);
+    assert.equal(ordinary.querySelector('.status').hidden, false);
+    assert.equal(ordinary.querySelector('.status').hasAttribute('aria-busy'), false);
+  } finally {
+    dom.window.close();
+  }
+  const preparation = source.slice(source.indexOf("} else if (spec.kind === 'mega-index')"),
+    source.indexOf("} else if (spec.kind === 'stakeout-merged')"));
+  assert.match(preparation, /await fillFixturePhotos\(host, document\)/,
+    'the section capture must await its bundled photos, not just the extra shots');
+});
+
 test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   assert.equal(mockups.STUB_SPEC.destBtn.report, 'hi');
   assert.equal(mockups.STUB_SPEC.excBtn.report, 'hi');

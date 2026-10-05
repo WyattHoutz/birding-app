@@ -871,8 +871,11 @@ const BOOTSTRAP = `
     var status = sec.querySelector('.status');
     if (status) {
       status.hidden = false;
-      status.textContent = 'REPRESENTATIVE STUB DATA · ' + label;
+      var message = status.querySelector('#abaStatus') || status;
+      message.hidden = false;
+      message.textContent = 'REPRESENTATIVE STUB DATA · ' + label;
       status.removeAttribute('aria-busy');
+      message.removeAttribute('aria-busy');
     }
     [].forEach.call(sec.querySelectorAll('button:disabled'), function (button) {
       button.disabled = false;
@@ -1971,6 +1974,7 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'mega-index') {
       fillMegaIndex(A, document, label);
+      await fillFixturePhotos(host, document);
     } else if (spec.kind === 'stakeout-merged') {
       await prepareStakeoutSpts(A, document, sec, false);
     } else if (spec.kind === 'migration') {
