@@ -123,19 +123,24 @@ const STUB_SPEC = {
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
   refreshBtn:     { kind: 'bird',          host: 'results' },
   abaBtn:         { kind: 'mega-index',    host: 'abaResults',
-    expects: ['#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
+    expects: ['#abaControls.raritycontrols > #abaViewPick.twitchviewbar',
+      '#abaViewPick + #abaStatus', '#abaStatus + .abascoperow',
+      '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
       '#abaScopePick.pressbtn[data-abascope]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
-      '#abaResults li[data-mega-code] > .name > .thumb', '#abaResults .megajump',
+      '#abaResults li[data-mega-code] .thumb', '#abaResults .megajump',
       '#abaResults .spmetric-age', '#abaResults .spmetric-distance'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
   favResults:     { kind: 'favorites', host: 'favResults', map: 'favMap', minControls: 2,
-    expects: ['#favMap .leaflet-marker-icon', '#favResults .favoritecard .favdel'] },
+    expects: ['#favMap .leaflet-marker-icon',
+      '#favResults .favoritecard > .name > .ntext',
+      '#favResults .favoritecard > .name > .favctl > .favdel',
+      '#favResults .favoritecard > .name > .favctl + .hsdist'] },
   allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults',
@@ -201,6 +206,49 @@ const EXTRA_SHOTS = [
            var sec = document.getElementById('refreshBtn').closest('section');
            A.showSection(sec.id);
            return FIX.prepareTwitches(A, document, sec, true);` },
+  { id: 'megalist', at: 'abaBtn',
+    title: 'Mega — List, ' + (SCALE > 1.3 ? 'Huge text, large cards'
+      : SCALE > 1 ? 'Large text, medium cards' : 'Standard text, medium cards'),
+    host: 'abaResults', fullPage: true, freshApp: true,
+    expects: ['#abaViewPick [data-megaview="list"][aria-pressed="true"]',
+      '#abaReportResults > li[data-mega-code] .megajump',
+      '#abaReportResults > li[data-mega-code] .spmetricstack',
+      '#abaReportResults > li[data-mega-code] .rarewhere'],
+    prep: `FIX.before('abaBtn', A, document);
+           var sec = document.getElementById('abaBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepare('abaBtn', ${JSON.stringify(STUB_SPEC.abaBtn)},
+             A, document, sec, ${JSON.stringify(SCALE)}).then(async function () {
+               var host = document.getElementById('abaReportResults');
+               await FIX.fillFixturePhotos(host, document);
+               var rows = host.querySelectorAll(':scope > li[data-mega-code]');
+               var huge = A.getDisplayProfile() === 'high-visibility';
+               if (!rows.length || host.classList.contains('card-lg') !== huge
+                   || host.querySelectorAll(':scope > li > .hero').length !== (huge ? rows.length : 0)
+                   || host.querySelectorAll(':scope > li .megajump').length !== rows.length) {
+                 throw new Error('Mega List profile, hero or separate-report contract failed');
+               }
+             });` },
+  { id: 'twitcheslist', at: 'refreshBtn',
+    title: 'Twitches — List, ' + (SCALE > 1.3 ? 'Huge text, large cards'
+      : SCALE > 1 ? 'Large text, medium cards' : 'Standard text, medium cards'),
+    host: 'results', fullPage: true, freshApp: true,
+    expects: ['#todayView [data-twitchview="list"][aria-pressed="true"]',
+      '#results > li.twitchcard .spmetricstack'],
+    prep: `FIX.before('refreshBtn', A, document);
+           var sec = document.getElementById('refreshBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareTwitches(A, document, sec, false).then(function () {
+             var host = document.getElementById('results');
+             var rows = host.querySelectorAll(':scope > li.twitchcard');
+             var huge = A.getDisplayProfile() === 'high-visibility';
+             if (!rows.length || host.classList.contains('card-lg') !== huge
+                 || host.querySelectorAll(':scope > li > .hero').length !== (huge ? rows.length : 0)
+                 || document.querySelector('#todayView [data-twitchview="list"]')
+                   .getAttribute('aria-pressed') !== 'true') {
+               throw new Error('Twitches List profile, hero or mode contract failed');
+             }
+           });` },
   { id: 'spuhcompare', at: 'spLookupBtn',
     title: 'Stakeout bird — compare possible birds',
     host: 'sec-spLookupBtn',
@@ -2004,6 +2052,24 @@ const BOOTSTRAP = `
       await A.loadFavs();
       if (document.querySelectorAll('#favResults .favspp li').length < 2) {
         throw new Error('Favorite mockup did not load populated bird details');
+      }
+      var cards = host.querySelectorAll('.favoritecard');
+      if (!cards.length || Array.prototype.some.call(cards, function (card) {
+        var heading = card.querySelector(':scope > .name');
+        var title = heading && heading.querySelector(':scope > .ntext');
+        var controls = heading && heading.querySelector(':scope > .favctl');
+        var remove = controls && controls.querySelector(':scope > .favdel');
+        var distance = heading && heading.querySelector(':scope > .hsdist');
+        var style = remove && document.defaultView.getComputedStyle(remove);
+        return !title || !remove || !distance || controls.nextElementSibling !== distance
+          || !(title.compareDocumentPosition(remove)
+            & document.defaultView.Node.DOCUMENT_POSITION_FOLLOWING)
+          || !(remove.compareDocumentPosition(distance)
+            & document.defaultView.Node.DOCUMENT_POSITION_FOLLOWING)
+          || style.minHeight !== '44px' || style.paddingTop !== '0px'
+          || style.paddingBottom !== '0px';
+      })) {
+        throw new Error('Favorite Remove position or touch-target contract failed');
       }
       markHost(host, label);
     } else if (spec.kind === 'hotspot-search') {

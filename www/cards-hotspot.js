@@ -65,7 +65,7 @@
 
   var MEDIUM = [
     '<li class="{{cls}}"{{data}}>',
-    '  <div class="name">{{marker}}<span class="ntext">{{name}}</span>{{dist}}</div>',
+    '  <div class="name">{{marker}}<span class="ntext">{{name}}</span>{{headingaction}}{{dist}}</div>',
     '  <div class="meta">{{sub}}{{qr}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
@@ -131,6 +131,12 @@
        below), so the floor went with the span. */
     '.hscard-md .hsnum { width: calc(28px * var(--s)); height: calc(28px * var(--s));',
     '                    font-size: calc(14px * var(--s)); }',
+    '@media (max-width: 360px) {',
+    '  .favoritecard.hscard-md > .name > .hsnum {',
+    '    width: min(calc(28px * var(--s)), 44px);',
+    '    height: min(calc(28px * var(--s)), 44px);',
+    '    font-size: min(calc(14px * var(--s)), 16px); }',
+    '}',
     '.hscard-lg .hsnum { width: calc(56px * var(--s)); height: calc(56px * var(--s));',
     '                    font-size: calc(23px * var(--s)); }',
     /* Home keeps the green it has on the map. */
@@ -482,6 +488,7 @@
       data: dataHtml(v),
       marker: markerHtml(v),
       name: v.name || '',
+      headingaction: isMedium ? v.headingAction || '' : '',
       sub: subHtml(v, tpl === SMALL, isMedium),
       dist: isMedium ? distHtml(v) : '',
       unseen: unseenHtml(v),

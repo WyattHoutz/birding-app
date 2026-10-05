@@ -537,12 +537,16 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
     'opening Mega blanked the durable snapshot while waiting for the network');
   assert.match(app.$('abaStatus').textContent, /Cached ABA rarities shown.*20 min old.*refreshing/s,
     'the cached paint does not identify its age and live refresh');
+  assert.ok(app.$('abaControls').querySelector('#abaViewPick'),
+    'the cached List/Group bar survives the live-refresh loading status');
   rejectFetch(new Error('offline fixture'));
   await load;
   assert.match(app.$('abaResults').textContent, /Cached Sharp-tailed Sandpiper/,
     'a failed alert refresh erased the useful cached answer');
   assert.match(app.$('abaStatus').textContent, /Cached alert remains visible/i,
     'the failed later phase does not say what remains usable');
+  assert.ok(app.$('abaControls').querySelector('#abaViewPick'),
+    'a recoverable network error leaves the cached controls available');
   app.window.close();
 });
 
@@ -3590,23 +3594,32 @@ test('rarity/tick lists that render a .cklrows grid must clear the thumb float',
     'nor may the labelled variant — same wrapped place name, same overflow');
 });
 
-// The bird photo is the answer to "what IS that", so the rarity list sizes it to
-// be identified. The name and its badges must stay in ONE grid cell, or a long
-// name wraps into the sub-header's row and the two rows collide.
-test('Last 7-Days rarity rows use the shared medium card, not a lookalike', () => {
+test('F795 Favorite photos inherit small-card sizing while Watch keeps medium photos', () => {
   assert.match(HTML, /<ul id="activeResults" class="[^"]*\bxl\b/,
     'the rarity list opts into the enlarged treatment');
-  const savedPhotos = HTML.match(/\.nvrow > \.thumb, \.favoritecard \.favspp > li > \.name > \.thumb \{[^}]*?width: ([^;]+);[^}]*?height: ([^;]+);/);
-  assert.ok(savedPhotos, 'Watch and Favorite photos share one scoped sizing rule');
+  const watchPhotos = HTML.match(/\.nvrow > \.thumb \{[^}]*?width: ([^;]+);[^}]*?height: ([^;]+);/);
+  assert.ok(watchPhotos, 'Watch retains its dedicated medium-photo sizing rule');
   const small = CARDS_SPECIES.match(/\.obs\.card-sm \.thumb[^]*?width: calc\((\d+)px/);
   assert.ok(small, 'the shared small-card photo rule moved');
   const med = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: min\(calc\((\d+)px/);
   assert.ok(med, 'the medium card thumb rule moved');
   const mediumDimensions = CARDS_SPECIES.match(/\.obs\.xl > li > \.name > \.thumb \{ width: ([^;]+);[^]*?height: ([^;]+);/);
-  assert.deepEqual(savedPhotos.slice(1), mediumDimensions.slice(1),
-    'Watch and Favorite photos must match ungrouped Twitches in both dimensions');
+  assert.deepEqual(watchPhotos.slice(1), mediumDimensions.slice(1),
+    'Watch photos continue to match ungrouped Twitches in both dimensions');
   assert.ok(Number(med[1]) > Number(small[1]),
-    'the rarity thumbnail is larger than the 56px seed-sized default, and scales with the text-size setting');
+    'the rarity thumbnail is larger than the shared 56px small-card photo');
+  assert.doesNotMatch(HTML,
+    /\.favoritecard[^}]*\.favspp[^}]*\.thumb\s*\{/,
+    'Favorite must not add a competing photo size override');
+  const listStart = HTML.indexOf('function speciesListHtml(');
+  const list = HTML.slice(listStart, HTML.indexOf('\n      function ', listStart + 20));
+  assert.match(list, /SpeciesCards\.small\(/,
+    'Favorite continues to use the shared small species template');
+  const favoriteStart = HTML.indexOf('function favDetailHtml(');
+  const favorite = HTML.slice(favoriteStart,
+    HTML.indexOf('\n      function ', favoriteStart + 20));
+  assert.match(favorite, /speciesListHtml\(/,
+    'Favorite keeps its existing shared small-list builder');
   // ...and it must YIELD on a narrow screen. A flat 128px * 1.75 is 224px of a
   // 320px phone, which blew the row 55.6px past the viewport — caught by the
   // CI layout audit, not by any unit test.
@@ -9619,26 +9632,32 @@ test('the feed-cap caveat lives behind the ℹ button, in every section that has
 // min-content width, so as soon as the card could not get narrower the
 // controls — the one thing in the row you have to be able to hit — went with
 // it. There is no second line to escape to now.
-test('F765 removal reuses the existing right-side control style without reorder arrows', async () => {
+test('F795 Favorite Remove sits between its hotspot name and unchanged distance', async () => {
   const app = await boot();
   const A = app.window.__app;
   A.setFavs([]);
-  A.addFav({ locId: 'L-CTL', locName: 'Synthetic controls patch', lat: 47.6, lng: -122.3 });
+  A.addFav({ id: 'L-CTL', locId: 'L-CTL', locName: 'Synthetic controls patch', lat: 47.6, lng: -122.3 });
   A.renderFavs();
   const card = app.$('favResults').firstElementChild;
   const controls = card.querySelector('.favctl');
-  assert.equal(controls.parentElement, card.querySelector('.favremove'));
-  assert.equal(card.querySelector('.hsdist').parentElement, card.querySelector('.name'),
-    'removal must not stretch the shared distance header');
+  const heading = card.querySelector(':scope > .name');
+  const distance = heading.querySelector(':scope > .hsdist');
+  assert.ok(controls, 'Favorite Remove is missing beside the hotspot name');
+  assert.equal(controls.parentElement, heading);
+  assert.equal(controls.nextElementSibling, distance,
+    'Remove is immediately left of the original top-right distance');
+  assert.ok(heading.querySelector(':scope > .ntext').textContent.includes('Synthetic controls patch'));
+  assert.equal(controls.querySelector('.favdel').getAttribute('data-favorite-id'), 'L-CTL',
+    'the action keeps the exact patch identity');
   assert.equal(card.querySelector('.favup, .favdown'), null);
-  for (const [selector, label] of [['.favdel', 'Remove']]) {
-    const button = controls.querySelector(selector);
-    assert.equal(button.textContent, label);
-    assert.ok(parseFloat(app.window.getComputedStyle(button).minHeight) >= 44);
-  }
+  const button = controls.querySelector('.favdel');
+  assert.equal(button.textContent, 'Remove');
+  assert.equal(app.window.getComputedStyle(button).paddingTop, '0px');
+  assert.equal(app.window.getComputedStyle(button).paddingBottom, '0px');
+  assert.ok(parseFloat(app.window.getComputedStyle(button).minHeight) >= 44);
   app.window.close();
 });
-test('F776 Favorite removal is top-aligned beside both bird text rows without external footer links', async () => {
+test('F795 Favorite Remove stays out of species rows and remains available when empty', async () => {
   const app = await boot();
   const A = app.window.__app;
   A.setFavs([
@@ -9652,29 +9671,40 @@ test('F776 Favorite removal is top-aligned beside both bird text rows without ex
   A.seedFavDetail('LNEAR', rows);
   A.seedFavDetail('LFAR', []);
   A.renderFavs();
-  const near = app.$('favResults').querySelector('[data-favorite-id="LNEAR"]');
+  const near = [...app.$('favResults').querySelectorAll('.favoritecard')]
+    .find((card) => card.querySelector('.favdel[data-favorite-id="LNEAR"]'));
   const names = near.querySelectorAll('.favspp > li > .name');
   assert.equal(names.length, 2);
-  assert.equal(names[0].children.length, 3);
+  assert.equal(names[0].children.length, 2);
   assert.ok(names[0].children[0].classList.contains('thumb'));
   assert.ok(names[0].children[1].classList.contains('ntext'));
   assert.equal(near.querySelectorAll('.favdel').length, 1);
-  assert.equal(names[0].querySelector('.favctl .favdel').textContent, 'Remove');
+  const heading = near.querySelector(':scope > .name');
+  const remove = heading.querySelector('.favctl .favdel');
+  const distance = heading.querySelector(':scope > .hsdist');
+  assert.equal(remove.textContent, 'Remove');
+  assert.equal(remove.getAttribute('data-favorite-id'), 'LNEAR');
+  assert.equal(remove.parentElement.classList.contains('favctl'), true);
+  assert.equal(remove.parentElement.parentElement, heading);
+  assert.ok(remove.compareDocumentPosition(distance)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  'Remove precedes the unchanged distance in the hotspot heading');
   assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).backgroundColor,
     'rgb(194, 51, 31)');
   assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).color,
     'rgb(255, 255, 255)');
-  assert.equal(names[1].querySelector('.favdel'), null);
-  assert.equal(near.querySelector(':scope > .name .favdel'), null);
+  assert.equal(near.querySelector('.favspp .favdel'), null);
   assert.equal(near.querySelector('.hsact'), null);
   assert.doesNotMatch(near.textContent, /Open in Maps|Open in eBird/);
   assert.equal(app.window.getComputedStyle(names[0]).alignItems, 'start');
-  assert.equal(app.window.getComputedStyle(names[0].querySelector('.favctl')).justifySelf, 'end');
-  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).padding, '8px');
+  assert.equal(app.window.getComputedStyle(remove).paddingTop, '0px');
+  assert.equal(app.window.getComputedStyle(remove).paddingBottom, '0px');
   assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).minHeight, '44px');
-  const far = app.$('favResults').querySelector('[data-favorite-id="LFAR"]');
+  const far = [...app.$('favResults').querySelectorAll('.favoritecard')]
+    .find((card) => card.querySelector('.favdel[data-favorite-id="LFAR"]'));
   assert.equal(far.querySelectorAll('.favdel').length, 1);
-  assert.ok(far.querySelector('.favremove .favdel'), 'checked-empty patches retain removal');
+  assert.ok(far.querySelector(':scope > .name .favdel'),
+    'checked-empty patches retain removal beside the hotspot name');
   app.click(near.querySelector('.favdel'));
   assert.deepEqual(arr(A.getFavs(), (favorite) => favorite.id), ['LFAR']);
   assert.equal(app.$('favResults').querySelectorAll('.favoritecard').length, 1);
@@ -15830,9 +15860,13 @@ test('the flexible tracks that carry text can actually shrink', () => {
   assert.match(css, /\.tileicon\s*\{[^}]*font-size:\s*min\(/,
     'the icon is capped so it cannot consume the tile at large text');
 
-  // F778 bounds the photo by viewport width; larger text moves below it.
-  assert.match(css, /\.nvrow > \.thumb, \.favoritecard \.favspp > li > \.name > \.thumb\s*\{[^}]*width:\s*min\(/,
-    'saved-list photos are viewport-bounded, not an unrestricted scaled width');
+  // F778 bounds Watch photos by viewport width. Favorite uses the shared
+  // small-card size and must not add its own competing photo rule.
+  assert.match(css, /\.nvrow > \.thumb\s*\{[^}]*width:\s*min\(/,
+    'Watch photos are viewport-bounded, not an unrestricted scaled width');
+  assert.doesNotMatch(css,
+    /\.favoritecard \.favspp > li > \.name > \.thumb\s*\{[^}]*width:/,
+    'Favorite photos inherit the shared small-card size');
   assert.match(css, /\.nvrow > \.favmain\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*grid-row:\s*2/,
     'responsive Watch details use the full width below photo and removal');
 
@@ -20645,9 +20679,12 @@ test('the hotspot medium card is three cells over a full-width sub-header', () =
     .join(__dirname, '..', 'www', 'cards-hotspot.js')).css;
 
   const rule = (sel) => {
-    const i = css.indexOf(sel + ' {');
-    assert.ok(i >= 0, 'missing rule for ' + sel);
-    return css.slice(i, css.indexOf('}', i));
+    const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = css.match(new RegExp(
+      '(?:^|\\n)[\\t ]*' + escaped + '[\\t ]*\\{[^}]*\\}'
+    ));
+    assert.ok(match, 'missing exact rule for ' + sel);
+    return match[0];
   };
 
   assert.match(css, /grid-template-columns: auto minmax\(0, 1fr\) auto/,
@@ -24934,6 +24971,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
       text: () => Promise.resolve(JSON.stringify(body)),
       json: () => Promise.resolve(body),
     });
+    if (/product\/lists\/L-CAPE\?/.test(u)) return response([]);
     if (/data\/obs\/US-WA\/recent\/whiwag/.test(u)) {
       return new Promise((resolve) => {
         settleSightings = () => resolve({
@@ -25983,7 +26021,7 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   app.window.close();
 });
 
-test('F790 Mega shares Twitches cards and full-width controls with an independent mode', async () => {
+test('F791/F794 Mega keeps persistent controls and shared cards across Huge display', async () => {
   const app = await boot();
   const A = app.window.__app;
   const rows = [
@@ -26005,6 +26043,7 @@ test('F790 Mega shares Twitches cards and full-width controls with an independen
   }
 
   A.setTwitchView('list');
+  app.window.localStorage.setItem('ebird_mega_view_v1', 'list');
   paint();
   let cards = [...app.document.querySelectorAll('#abaReportResults > li')];
   assert.equal(cards.length, 3, 'List does not show one shared medium card per Mega report');
@@ -26018,11 +26057,49 @@ test('F790 Mega shares Twitches cards and full-width controls with an independen
   const group = app.document.querySelector('#abaViewPick');
   assert.ok(group.classList.contains('twitchviewbar'));
   assert.equal(group.classList.contains('twopill'), false, 'Mega view bar is not full-width');
+  const controls = app.$('abaControls');
+  assert.ok(controls.classList.contains('raritycontrols'),
+    'Mega wraps the bar and its following summary/filter rows in Twitches spacing');
+  assert.equal(group.parentElement, controls);
+  assert.equal(group.nextElementSibling, app.$('abaStatus'),
+    'the bar is immediately above the Mega summary');
+  assert.ok(app.$('abaStatus').nextElementSibling.classList.contains('abascoperow'),
+    'scope and sort stay below the summary');
   assert.deepEqual([...group.querySelectorAll('button')].map((b) => b.textContent.trim()),
     ['List', 'Group']);
-  assert.equal(group.parentElement.firstElementChild, group, 'view bar is not above filters');
   assert.equal(group.closest('.abascoperow'), null);
   assert.equal(group.querySelector('[data-megaview="list"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(app.window.getComputedStyle(controls).gap, '6px');
+  assert.equal(app.window.getComputedStyle(controls).marginTop, '9px');
+  const standardOrder = cards.map((card) => ({
+    code: card.getAttribute('data-mega-code'),
+    name: card.querySelector('.megajump').textContent,
+    evidence: card.querySelector('.rarewhere').textContent.trim(),
+  }));
+  A.setDisplayProfile('high-visibility');
+  cards = [...app.document.querySelectorAll('#abaReportResults > li[data-mega-code]')];
+  assert.equal(cards.length, 3, 'Huge List keeps repeated reports separate');
+  assert.ok(app.$('abaReportResults').classList.contains('card-lg'));
+  assert.ok(cards.every((card) => card.querySelector(':scope > .hero')),
+    'Huge List uses the shared large-card hero');
+  assert.ok(cards.every((card) => card.querySelector('.bcheading .spprimary')
+    && card.querySelector('.bcstatus') && card.querySelector('.spmetricstack')
+    && card.querySelector('.rarewhere') && card.querySelector('.cknote-pending')),
+  'Huge cards preserve identity, metrics, status, evidence and checklist actions');
+  assert.deepEqual(cards.map((card) => ({
+    code: card.getAttribute('data-mega-code'),
+    name: card.querySelector('.megajump').textContent,
+    evidence: card.querySelector('.rarewhere').textContent.trim(),
+  })), standardOrder,
+    'changing display size does not reorder or combine reports');
+  assert.equal(app.window.localStorage.getItem('ebird_mega_view_v1'), 'list');
+  assert.equal(A.twitchView(), 'list', 'Huge Mega does not change Twitches mode');
+  A.setDisplayProfile('large');
+  assert.ok(!app.$('abaReportResults').classList.contains('card-lg'),
+    'the Large profile retains the medium List presentation');
+  A.setDisplayProfile('high-visibility');
+  cards = [...app.document.querySelectorAll('#abaReportResults > li[data-mega-code]')];
+  assert.equal(cards.length, 3, 'repainting after another profile switch keeps every report');
   app.click(group.querySelector('[data-megaview="grouped"]'));
   assert.equal(paints, 2, 'Group refetched instead of repainting rows already in hand');
   assert.equal(A.twitchView(), 'list', 'Mega changed Twitches mode');
@@ -26046,6 +26123,7 @@ test('F790 Mega shares Twitches cards and full-width controls with an independen
   app.click(app.document.querySelector('#abaViewPick [data-megaview="list"]'));
   assert.equal(app.$('abaReportResults').children.length, 3);
   assert.equal(A.twitchView(), 'grouped', 'Mega List changed Twitches preference');
+  A.setDisplayProfile('standard');
   const twig = app.document.createElement('ul');
   twig.innerHTML = A.birdReportListCard({
     code: 'tersan', name: 'Terek Sandpiper', sci: 'Xenus cinereus', dateStr: rows[0].obsDt,
@@ -26057,6 +26135,73 @@ test('F790 Mega shares Twitches cards and full-width controls with an independen
     assert.ok(megaList.querySelector(selector), 'Mega lacks shared List contract ' + selector);
     assert.ok(twig.firstElementChild.querySelector(selector), 'Twitches lacks ' + selector);
   }
+  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', false, false);
+  assert.equal(app.$('abaViewPick'), null, 'flat rarity trackers do not retain Mega controls');
+  assert.equal(app.$('abaScopePick'), null, 'flat rarity trackers do not retain scoped filters');
+  const flatRows = app.$('abaResults').querySelectorAll(':scope > li');
+  assert.equal(flatRows.length, rows.length + 1, 'flat tracker rows remain ungrouped');
+  A.setDisplayProfile('standard');
+  assert.equal(app.$('abaViewPick'), null,
+    'a later display-profile switch cannot repaint stale Mega controls or rows');
+  app.window.close();
+});
+
+test('F794 Huge-text Twitches List uses large cards without changing its data or preferences', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const rows = [
+    { code: 'tersan', name: 'Terek Sandpiper', distMi: 7, dateStr: '2026-10-05 10:00',
+      loc: 'North Marsh', locId: 'L1', subId: 'S1', observer: 'A Birder',
+      count: 2, evidence: 'P' },
+    { code: 'tersan', name: 'Terek Sandpiper', distMi: 9, dateStr: '2026-10-05 09:00',
+      loc: 'South Marsh', locId: 'L2', subId: 'S2', observer: 'B Birder',
+      count: 1, evidence: 'P' },
+    { code: 'whiwag', name: 'White Wagtail', distMi: 12, dateStr: '2026-10-05 08:00',
+      loc: 'Jetty', locId: 'L3', subId: 'S3', observer: 'C Birder',
+      count: 1, evidence: 'P' },
+  ];
+  seedRarityChase(app, rows);
+  app.window.localStorage.setItem('ebird_rarity_filters_v1',
+    JSON.stringify({ year: 'all', distance: 'near' }));
+  A.setTwitchView('list');
+  A.refresh();
+  await waitFor(() => app.$('results').querySelectorAll('.twitchcard').length === 3,
+    'three separate Twitches List reports');
+
+  const reportNames = () => [...app.$('results').querySelectorAll('.twitchcard')]
+    .map((card) => (card.querySelector('.bcname a, .name .ntext a') || {}).textContent.trim());
+  const standardOrder = reportNames();
+  assert.deepEqual(standardOrder, [
+    'Terek Sandpiper', 'Terek Sandpiper', 'White Wagtail'
+  ]);
+  assert.ok(app.$('results').querySelector('.twitchcard > .name > .thumb'),
+    'Standard List remains the shared medium species card');
+  assert.equal(app.window.localStorage.getItem('ebird_twitch_view_v1'), 'list');
+  const filters = JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1'));
+
+  A.setDisplayProfile('high-visibility');
+  assert.ok(app.$('results').classList.contains('card-lg'));
+  assert.equal(app.document.querySelector('#todayView [data-twitchview="list"]')
+    .getAttribute('aria-pressed'), 'true');
+  assert.equal(app.document.querySelector('#todayView [data-twitchview="grouped"]')
+    .getAttribute('aria-pressed'), 'false');
+  const hugeCards = [...app.$('results').querySelectorAll(':scope > li.twitchcard')];
+  assert.equal(hugeCards.length, 3, 'Huge List still renders one card per report');
+  assert.ok(hugeCards.every((card) => card.querySelector(':scope > .hero')
+    && card.querySelector('.bcheading .spprimary') && card.querySelector('.bcstatus')
+    && card.querySelector('.bcsub .rarewhere') && card.querySelector('.cknote-pending')),
+  'Huge List preserves hero, identity/metrics, status, evidence and checklist actions');
+  assert.deepEqual(reportNames(), standardOrder, 'Huge text preserves the original report order');
+  assert.equal(hugeCards.filter((card) => /Terek Sandpiper/.test(card.textContent)).length, 2,
+    'repeated species at separate observations are not grouped');
+  assert.equal(A.twitchView(), 'list');
+  assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), filters,
+    'profile switching preserves the shared year/distance filters');
+
+  A.setDisplayProfile('large');
+  assert.ok(!app.$('results').classList.contains('card-lg'),
+    'Large text, unlike Huge, remains on medium List cards');
+  assert.deepEqual(reportNames(), standardOrder);
   app.window.close();
 });
 

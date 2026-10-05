@@ -2402,22 +2402,22 @@
     .favoritecard .recentbox > .favmeta { margin: 2px 0 0; line-height: 1.35; font-weight: 500; }
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
     .favctl .favbtn { min-width: 44px; min-height: 44px; }
-    .favoritecard .favremove { display: flex; justify-content: flex-end; margin-top: 10px; }
-    .favoritecard .favspp > li > .name {
-      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start;
+    .favoritecard.hscard-md { grid-template-columns: auto minmax(0, 1fr) auto auto;
+      column-gap: 10px; }
+    .favoritecard.hscard-md > .name > .ntext { align-self: start; }
+    .favoritecard.hscard-md > .name > .favctl {
+      grid-column: 3; grid-row: 1; justify-self: end; }
+    .favoritecard.hscard-md > .name > .hsdist {
+      grid-column: 4; grid-row: 1; justify-self: end; }
+    .favoritecard .favspp > li > .name { display: flex; align-items: start; }
+    .favoritecard .favspp > li > .name > .ntext { flex: 1; min-width: 0; }
+    html[data-display="large"] .favoritecard .favspp > li > .name,
+    html[data-display="high-visibility"] .favoritecard .favspp > li > .name {
+      flex-wrap: wrap;
     }
-    .favoritecard .favspp > li:first-child > .name > .favctl { justify-self: end; }
     html[data-display="large"] .favoritecard .favspp > li > .name > .ntext,
     html[data-display="high-visibility"] .favoritecard .favspp > li > .name > .ntext {
-      grid-column: 1 / -1; grid-row: 2;
-    }
-    html[data-display="large"] .favoritecard .favspp > li:first-child > .name > .favctl,
-    html[data-display="high-visibility"] .favoritecard .favspp > li:first-child > .name > .favctl {
-      grid-column: 3; grid-row: 1;
-    }
-    @media (max-width: 360px) {
-      .favoritecard .favspp > li > .name > .ntext { grid-column: 1 / -1; grid-row: 2; }
-      .favoritecard .favspp > li:first-child > .name > .favctl { grid-column: 3; grid-row: 1; }
+      flex-basis: 100%;
     }
     .savedsearch { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
     .savedsearch input { min-width: 0; min-height: 44px; box-sizing: border-box; }
@@ -2425,7 +2425,7 @@
     .savedsearch > .searchclear { grid-column: 1 / -1; justify-self: end; }
     .nvrow { align-items: start; gap: 12px; min-height: calc(56px * var(--s)); }
     .nvrow > .thumb { float: none; flex: 0 0 auto; min-width: 0; margin: 0; border-radius: 12px; }
-    .nvrow > .thumb, .favoritecard .favspp > li > .name > .thumb {
+    .nvrow > .thumb {
       width: min(calc(128px * var(--s)), 28vw);
       height: min(calc(128px * var(--s)), 28vw); border-radius: 12px;
     }
@@ -2454,6 +2454,15 @@
       width: auto; height: auto; padding: 8px;
       font-size: calc(12px * var(--s)); font-weight: 800; white-space: nowrap;
       background: #c2331f; border-color: #c2331f; color: #fff;
+    }
+    .favoritecard .favbtn.favdel { padding: 0 8px; }
+    @media (max-width: 360px) {
+      .favoritecard.hscard-md { column-gap: 4px; }
+      .favoritecard .favbtn.favdel {
+        font-size: min(calc(12px * var(--s)), 16px);
+        padding-right: 4px;
+        padding-left: 4px;
+      }
     }
     /* F170: the record-scope switcher. Every box here is sized in `--s` for the
        same reason .favbtn is — a fixed box around scaling text clips at exactly
@@ -3778,7 +3787,9 @@
       <div class="row">
         <button id="abaBtn">Load mega rarities</button>
       </div>
-      <div id="abaStatus" class="status">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
+      <div class="status"><div id="abaControls" class="raritycontrols">
+        <div id="abaStatus" class="twitchhead">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
+      </div></div>
       <div id="abaCapWarn" hidden></div>
       <ul id="abaResults" class="obs"></ul>
     </section>
@@ -4683,7 +4694,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.136.0';
+      var APP_VERSION = '1.137.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5483,6 +5494,9 @@
         if (!DISPLAY_PROFILES[name]) name = 'standard';
         localStorage.setItem(DISPLAY_KEY, name);
         applyDisplayProfile(name);
+        Object.keys(_birdReportDisplayRefresh).forEach(function (key) {
+          _birdReportDisplayRefresh[key]();
+        });
         if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
         if ($('menuScopeHost')) renderMenuIdentity();
         return name;
@@ -10815,7 +10829,8 @@
                     Math.min(batch, rows.length - shown), rows.length - shown))
                 + '</span></button></li>'
               : '';
-            out.className = grouped ? 'cards card-lg twitchgroups' : 'obs big xl';
+            out.className = grouped || largeBirdReportList({ cls: 'twitchcard' })
+              ? 'cards card-lg twitchgroups' : 'obs big xl';
             var rowCard = grouped
               ? function (row) {
                   return birdReportGroupCard(row, {
@@ -10843,6 +10858,10 @@
           }
           if (rows.length) paintTodayBatch(batch);
           else out.innerHTML = tailRows.join('');
+          var displayControls = $('todayControls');
+          _birdReportDisplayRefresh.today = function () {
+            if ($('todayControls') === displayControls && out.children.length) paintTodayBatch(0);
+          };
           // F219(a). The notes, only when asked for.
           //
           // ⚠️ GATED, and the gate is the whole cost control: with the toggle
@@ -11463,6 +11482,10 @@
         return '<span class="spmetricstack" data-primary="' + (newest ? 'age' : 'distance') + '">'
           + (newest ? ageHtml + distHtml : distHtml + ageHtml) + '</span>';
       }
+      var _birdReportDisplayRefresh = {};
+      function largeBirdReportList(opts) {
+        return opts && opts.cls === 'twitchcard' && getDisplayProfile() === 'high-visibility';
+      }
       function birdReportListCard(r, opts) {
         opts = opts || {};
         var megaView = opts.megaView || r.megaView || '';
@@ -11481,19 +11504,24 @@
         var evidence = birdReportEvidence(r, {
           rare: opts.rare
         });
-        return SpeciesCards.medium({
+        var large = largeBirdReportList(opts);
+        var tags = birdReportTags([r], opts.rare) + reviewFlag(r)
+          + (opts.rare ? rarityAccessTag(r) : '');
+        var note = data ? ChecklistCards.pendingNoteAction(data['ev-notes-expected'] === '1') : '';
+        return (large ? SpeciesCards.large : SpeciesCards.medium)({
           cls: opts.cls || '',
           code: r.code,
           alpha: alphaFor(r.code),
           sci: sciFor(r.sci || r.code),
-          icon: photoSlot(r.name, r.code, megaView ? null : { stakeout: true }),
+          icon: large ? heroSlot(r.name, r.code)
+            : photoSlot(r.name, r.code, megaView ? null : { stakeout: true }),
           name: common,
-          tags: birdReportTags([r], opts.rare) + reviewFlag(r)
-            + (opts.rare ? rarityAccessTag(r) : ''),
+          tags: large ? '' : tags,
+          statusLine: large ? tags : '',
           primary: birdReportMetric(r, opts.sortMode),
-          sub: evidence,
-          metaAction: data
-            ? ChecklistCards.pendingNoteAction(data['ev-notes-expected'] === '1') : '',
+          sub: large ? '' : evidence,
+          below: large ? '<div class="bcsub">' + evidence + '</div>' + note : '',
+          metaAction: large ? '' : note,
           data: data
         });
       }
@@ -11594,6 +11622,17 @@
       function renderBirdReportProgress(host, rows, opts) {
         opts = opts || {};
         var grouped = !!opts.grouped;
+        if (opts.id === 'abaReportResults') {
+          _birdReportDisplayRefresh.mega = function () {
+            if (!host.isConnected || opts.isCurrent && !opts.isCurrent()) return;
+            var current = $(opts.id);
+            renderBirdReportProgress(host, rows, Object.assign({}, opts, {
+              initialCount: current
+                ? current.querySelectorAll(':scope > li[data-mega-code]').length
+                : opts.initialCount
+            }));
+          };
+        }
         return ProgressiveList.mount({
           host: host,
           id: opts.id,
@@ -11601,7 +11640,8 @@
           initialCount: opts.initialCount || 10,
           batchSize: opts.batchSize || 10,
           noun: grouped ? 'birds' : 'reports',
-          listClass: grouped && opts.large ? 'cards card-lg twitchgroups' : 'obs big xl',
+          listClass: grouped && opts.large || !grouped && largeBirdReportList(opts)
+            ? 'cards card-lg twitchgroups' : 'obs big xl',
           buttonClass: opts.buttonClass || 'birdReportMore',
           renderItem: function (row) {
             return grouped
@@ -18913,8 +18953,7 @@
                          : 'no reports in last 24h') + '</div>';
         if (!res.rows.length) {
           return head + '<div class="favmeta">No watchlist hits or ' +
-            'unseen-this-year species in the last week.</div>'
-            + '<div class="favremove">' + favoriteRemoval(f) + '</div>';
+            'unseen-this-year species in the last week.</div>';
         }
         // The one small-card builder, not a hand-rolled copy of it. Favorites
         // ranks by tier then newest — that is its report's order, so it keeps
@@ -18925,7 +18964,6 @@
           return {
             comName: name, code: r.code, rare: r.rare ? 1 : 0,
             tag: r.rare ? ' ⭐' : (r.watch ? ' 🔍' : ''),
-            right: i === 0 ? favoriteRemoval(f) : '',
             // Count, time and checklist are evidence for the name above them,
             // not part of it — on one line they out-shouted the hotspot title
             // and the bird name lost the row it was the subject of.
@@ -18945,14 +18983,14 @@
       var _favDetail = {};
       function loadFavDetail(f, box, rarityCodes, force, work) {
         if (!box) return Promise.resolve();
-        if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div><div class="favremove">' + favoriteRemoval(f) + '</div>'; return Promise.resolve(); }
+        if (!f.locId) { box.innerHTML = '<div class="favmeta">Saved by coordinates, so there is no hotspot feed to read.</div>'; return Promise.resolve(); }
         var hit = _favDetail[f.locId];
         if (hit && !force && (Date.now() - hit.t) < 600000) {
           box.innerHTML = favDetailHtml(f, hit.obs, rarityCodes);
           hydratePhotos(box);
           return Promise.resolve();
         }
-        box.innerHTML = '<div class="favmeta">Loading recent reports…</div><div class="favremove">' + favoriteRemoval(f) + '</div>';
+        box.innerHTML = '<div class="favmeta">Loading recent reports…</div>';
         return ebird('data/obs/' + encodeURIComponent(f.locId) + '/recent?detail=full&back=' + FAV_BACK_DAYS,
           false, !!force, !!force, work)
           .then(function (obs) {
@@ -18965,7 +19003,7 @@
           })
           .catch(function (e) {
             if (e && e.queueCancelled) return false;
-            if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div><div class="favremove">' + favoriteRemoval(f) + '</div>';
+            if (box.isConnected !== false) box.innerHTML = '<div class="favmeta">' + esc(netErr(e)) + '</div>';
             dbg('warn', 'Favorite patch detail unavailable: ' + netErr(e));
             return false;
           });
@@ -19065,9 +19103,10 @@
           el.insertAdjacentHTML('beforeend', HotspotCards.medium({
             cls: 'favoritecard', num: i + 1,
             name: f.locId ? stakeHotspotLink(f.locId, f.locName || f.id) : esc(f.locName || f.id),
+            headingAction: favoriteRemoval(f),
             distance: d, distQ: point ? distQ(point.lat, point.lng) : '',
             sub: d == null ? 'Distance unavailable: set Home and valid saved coordinates.' : '',
-            below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div><div class="favremove">' + favoriteRemoval(f) + '</div></div>',
+            below: '<div class="recentbox"><div class="favmeta">Recent reports pending; use Refresh to load.</div></div>',
             data: { 'favorite-id': f.id }
           }));
           if (point) mapPoints.push({
@@ -29777,6 +29816,10 @@
               : Math.round(cachedAgeH) + ' hr')
             + ' old · refreshing the alert…';
         } else {
+          $('abaControls').querySelectorAll('.twitchviewbar, .abascoperow').forEach(function (control) {
+            control.remove();
+          });
+          delete _birdReportDisplayRefresh.mega;
           $('abaResults').innerHTML = '';
           st.innerHTML = '<b>Loading the ABA rarities alert'
             + '<span class="loadingdots" aria-hidden="true">\u2026</span></b>';
@@ -30071,12 +30114,12 @@
         });
         var el = $('abaResults');
         el.className = 'obs';
-        el.innerHTML = megaViewControl('abaViewPick')
-          + '<div class="raritycontrolrow abascoperow">'
+        $('abaStatus').insertAdjacentHTML('beforebegin', megaViewControl('abaViewPick'));
+        $('abaStatus').insertAdjacentHTML('afterend', '<div class="raritycontrolrow abascoperow">'
           + abaScopeControl('abaScopePick')
           + abaSortControl('abaSortPick')
-          + '</div>'
-          + '<div id="abaProgress"></div>';
+          + '</div>');
+        el.innerHTML = '<div id="abaProgress"></div>';
         renderBirdReportProgress($('abaProgress'), rows, {
           id: 'abaReportResults',
           grouped: grouped,
@@ -30116,6 +30159,10 @@
         return view;
       }
       function renderAbaAlert(list, url, grouped, wide, meta, repaint) {
+        $('abaControls').querySelectorAll('.twitchviewbar, .abascoperow').forEach(function (control) {
+          control.remove();
+        });
+        if (!grouped) delete _birdReportDisplayRefresh.mega;
         if (typeof meta === 'function') {
           repaint = meta;
           meta = null;

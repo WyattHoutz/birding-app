@@ -265,12 +265,15 @@ test('F504-F509 release fixtures show the current Twitches and Nemesis card cont
 test('F551 Mega rarity mockups exercise the current direct photo slot and controls', () => {
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
-    '#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
+    '#abaControls.raritycontrols > #abaViewPick.twitchviewbar',
+    '#abaViewPick + #abaStatus',
+    '#abaStatus + .abascoperow',
+    '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
     '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
-    '#abaResults li[data-mega-code] > .name > .thumb',
+    '#abaResults li[data-mega-code] .thumb',
     '#abaResults .megajump',
     '#abaResults .spmetric-age',
     '#abaResults .spmetric-distance',
@@ -696,18 +699,45 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
 
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
-    '#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
+    '#abaControls.raritycontrols > #abaViewPick.twitchviewbar',
+    '#abaViewPick + #abaStatus',
+    '#abaStatus + .abascoperow',
+    '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
     '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
-    '#abaResults li[data-mega-code] > .name > .thumb',
+    '#abaResults li[data-mega-code] .thumb',
     '#abaResults .megajump',
     '#abaResults .spmetric-age',
     '#abaResults .spmetric-distance',
   ]);
   assert.match(source, /fillMegaIndex[\s\S]*A\.renderAbaAlert\(/,
     'the Mega release shot must use the production list renderer');
+  for (const id of ['megalist', 'twitcheslist']) {
+    const shot = mockups.EXTRA_SHOTS.find((item) => item.id === id);
+    assert.ok(shot, id + ' profile comparison is absent from the release gallery');
+    assert.match(shot.prep, /high-visibility/);
+    assert.match(shot.prep, /\.hero/);
+  }
+});
+
+test('F795 Favorite mockup guards Remove placement and its 44px hit target', () => {
+  assert.deepEqual(mockups.STUB_SPEC.favResults.expects, [
+    '#favMap .leaflet-marker-icon',
+    '#favResults .favoritecard > .name > .ntext',
+    '#favResults .favoritecard > .name > .favctl > .favdel',
+    '#favResults .favoritecard > .name > .favctl + .hsdist',
+  ]);
+  const preparation = source.slice(
+    source.indexOf("} else if (spec.kind === 'favorites')"),
+    source.indexOf("} else if (spec.kind === 'hotspot-search')")
+  );
+  assert.match(preparation, /controls\.nextElementSibling !== distance/);
+  assert.match(preparation, /DOCUMENT_POSITION_FOLLOWING/);
+  assert.match(preparation, /style\.minHeight !== '44px'/);
+  assert.match(preparation, /style\.paddingTop !== '0px'/);
+  assert.match(preparation, /style\.paddingBottom !== '0px'/);
 });
 
 test('Stakeout checklist mockup uses the unified shared small-card list', () => {

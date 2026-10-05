@@ -553,32 +553,68 @@ const AUDIT = `<script>
     var favoriteHeaders = [];
     if (label === 'sec-favResults') {
       var fm = document.getElementById('favMap'), fr = fm && fm.getBoundingClientRect();
+      var smallReference = document.createElement('ul');
+      smallReference.className = 'obs card-sm';
+      smallReference.style.cssText = 'position:absolute;left:-10000px;visibility:hidden';
+      smallReference.innerHTML = window.SpeciesCards.small({
+        icon: '<span class="thumb"></span>',
+        name: 'Shared small-card size reference'
+      });
+      document.body.appendChild(smallReference);
+      var sharedSmallPhoto = smallReference.querySelector('.thumb').getBoundingClientRect();
       favoriteMap = {
         width: fr && fr.width, height: fr && fr.height,
         pins: fm ? fm.querySelectorAll('.leaflet-marker-icon').length : 0,
         controls: [].map.call(document.querySelectorAll('#favResults .favoritecard'), function (card) {
-          var button = card.querySelector('.favdel');
+          var heading = card.querySelector(':scope > .name');
+          var title = heading && heading.querySelector(':scope > .ntext');
+          var button = heading && heading.querySelector(':scope > .favctl .favdel');
+          var distance = heading && heading.querySelector(':scope > .hsdist');
           var br = button && button.getBoundingClientRect();
-          var detail = card.querySelector('.recentbox').getBoundingClientRect();
+          var dr = distance && distance.getBoundingClientRect();
           var row = card.querySelector('.favspp > li:first-child > .name');
-          var rowBox = row && row.getBoundingClientRect();
-          var photo = row && row.querySelector('.thumb').getBoundingClientRect();
-          var text = row && row.querySelector('.ntext').getBoundingClientRect();
-          var textBelow = row && getComputedStyle(row.querySelector('.ntext')).gridRowStart === '2';
-          var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
-          var photoSize = Math.min(128 * scale, innerWidth * 0.28);
-          var fallback = card.querySelector('.favremove');
-          return !!(br && br.width >= 44 && br.height >= 44
-            && (rowBox ? Math.abs(br.top - rowBox.top) <= 1
-              && Math.abs(photo.top - rowBox.top) <= 1
-              && (textBelow ? text.top >= Math.max(photo.bottom, br.bottom)
-                : Math.abs(text.top - rowBox.top) <= 1 && text.right <= br.left)
-              && Math.abs(photo.width - photoSize) <= 0.5 && Math.abs(photo.height - photoSize) <= 0.5
-              && Math.abs(br.right - rowBox.right) <= 1
-              : fallback && br.top >= detail.top)
-            && br.right <= card.getBoundingClientRect().right);
+          var photo = row && row.querySelector('.thumb');
+          var photoBox = photo && photo.getBoundingClientRect();
+          var cardBox = card.getBoundingClientRect();
+          var cardStyle = getComputedStyle(card);
+          var expectedRight = cardBox.right - parseFloat(cardStyle.paddingRight)
+            - parseFloat(cardStyle.borderRightWidth);
+          var buttonStyle = button && getComputedStyle(button);
+          return {
+            inHeader: !!(button && button.closest('.name') === heading),
+            geometry: {
+              cardWidth: cardBox.width,
+              titleClientWidth: title && title.clientWidth,
+              titleScrollWidth: title && title.scrollWidth,
+              buttonLeft: br && +br.left.toFixed(1),
+              buttonRight: br && +br.right.toFixed(1),
+              distanceLeft: dr && +dr.left.toFixed(1),
+              distanceRight: dr && +dr.right.toFixed(1),
+              expectedRight: +expectedRight.toFixed(1)
+            },
+            betweenNameAndDistance: !!(title && br && dr
+              && title.getBoundingClientRect().right <= br.left + 1
+              && br.right <= dr.left + 1
+              && (button.compareDocumentPosition(distance)
+                & Node.DOCUMENT_POSITION_FOLLOWING)),
+            distanceRight: !!(dr && Math.abs(dr.right - expectedRight) <= 1),
+            distanceAligned: !!(br && dr && Math.abs(br.top - dr.top) <= 1),
+            nameReadable: !!(title && title.clientWidth > 0
+              && title.scrollWidth <= title.clientWidth + 1),
+            exactPatch: !!(button && button.getAttribute('data-favorite-id')
+              === card.getAttribute('data-favorite-id')),
+            touchTarget: !!(br && br.width >= 44 && br.height >= 44),
+            noVerticalPadding: !!(buttonStyle
+              && parseFloat(buttonStyle.paddingTop) <= 0.5
+              && parseFloat(buttonStyle.paddingBottom) <= 0.5),
+            photoMatchesSharedSmall: !photoBox || (
+              Math.abs(photoBox.width - sharedSmallPhoto.width) <= 0.5
+              && Math.abs(photoBox.height - sharedSmallPhoto.height) <= 0.5),
+            noSpeciesRemoval: !card.querySelector('.favspp .favdel')
+          };
         })
       };
+      smallReference.remove();
       favoriteHeaders = [].map.call(document.querySelectorAll('#favResults .favoritecard'), function (card) {
         var title = card.querySelector('.ntext'), distance = card.querySelector('.hsdist');
         var number = card.querySelector('.hsnum'), facts = card.querySelector('.recentbox');
@@ -594,7 +630,8 @@ const AUDIT = `<script>
         return {
           height: actualHeight, reference: referenceHeight,
           distanceInHeader: distance.parentElement === card.querySelector('.name'),
-          removalBelowDetails: !!card.querySelector('.recentbox .favdel'),
+          removalInHeader: !!card.querySelector(':scope > .name > .favctl .favdel')
+            && !facts.querySelector('.favdel'),
           birdRows: facts.querySelectorAll('.favspp li').length,
           namesFit: [].every.call(facts.querySelectorAll('.favspp .ntext'), function (name) {
             var title = name.querySelector('a');
@@ -631,7 +668,8 @@ const AUDIT = `<script>
           })(),
           titleTop: title.getBoundingClientRect().top - number.getBoundingClientRect().top,
           removalOnly: card.querySelectorAll('.favdel').length === 1
-            && !!facts.querySelector('.favdel') && !card.querySelector('.hsact')
+            && !!card.querySelector(':scope > .name > .favctl .favdel')
+            && !facts.querySelector('.favdel') && !card.querySelector('.hsact')
             && !/Open in Maps|Open in eBird/.test(card.textContent)
         };
       });
@@ -1005,7 +1043,12 @@ const AUDIT = `<script>
               { speciesCode: 'solsan', comName: 'Solitary Sandpiper',
                 locName: 'Second hotspot', locId: 'L-TWITCH2', lat: 47.7, lng: -122.2,
                 obsDt: new Date().toISOString().slice(0, 10) + ' 09:00',
-                subId: 'S-TWITCH2', obsReviewed: true }
+                subId: 'S-TWITCH2', obsReviewed: true },
+              { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+                sciName: 'Calidris acuminata', locName: 'Third hotspot',
+                locId: 'L-TWITCH3', lat: 47.71, lng: -122.21, howMany: 1,
+                obsDt: new Date().toISOString().slice(0, 10) + ' 10:00',
+                subId: 'S-TWITCH3', obsReviewed: true, obsValid: true }
             ]}
           });
           localStorage.setItem('ebird_rarity_filters_v1', JSON.stringify({year:'all',distance:'near'}));
@@ -1046,7 +1089,21 @@ const AUDIT = `<script>
                 };
               })
             };
+            var todayBarRect = bar && bar.getBoundingClientRect();
+            var todaySummary = controls && controls.querySelector('.twitchhead');
+            var todaySummaryRect = todaySummary && todaySummary.getBoundingClientRect();
+            var todayStyle = controls && getComputedStyle(controls);
+            twitch.twitchControlGeometry = {
+              barHeight: todayBarRect && todayBarRect.height,
+              summaryGap: todayBarRect && todaySummaryRect
+                ? todaySummaryRect.top - todayBarRect.bottom : null,
+              marginTop: todayStyle ? parseFloat(todayStyle.marginTop) : null,
+              flexGap: todayStyle ? parseFloat(todayStyle.gap) : null
+            };
             out.push(twitch);
+            A.setTwitchView('list');
+            A.refresh();
+            return new Promise(function (resolve) { setTimeout(resolve, 1000); }).then(function () {
             var megaRows = [
               { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
                 obsDt: '2026-09-24 10:00', locName: 'Long numbered hotspot name',
@@ -1063,24 +1120,133 @@ const AUDIT = `<script>
                 true, false, paintMega);
             }
             paintMega();
-            out.push(scan('(F790 production Mega List)'));
+            var megaListAudit = scan('(F790 production Mega List)');
+            var megaBar = document.getElementById('abaViewPick');
+            var megaList = document.getElementById('abaReportResults');
+            var megaControls = document.getElementById('abaControls');
+            var megaSummary = document.getElementById('abaStatus');
+            var megaFilters = megaSummary && megaSummary.nextElementSibling;
+            var megaStyle = getComputedStyle(megaControls);
+            var megaBarRect = megaBar.getBoundingClientRect();
+            var megaSummaryRect = megaSummary.getBoundingClientRect();
+            var twitchControlGeometry = twitch.twitchControlGeometry;
+            megaListAudit.megaControlGeometry = {
+              insideRarityControls: megaBar.parentElement === megaControls
+                && megaControls.classList.contains('raritycontrols'),
+              beforeSummary: megaBar.nextElementSibling === megaSummary,
+              summaryBeforeFilters: !!(megaFilters
+                && megaFilters.classList.contains('abascoperow')),
+              barHeight: megaBarRect.height,
+              twitchBarHeight: twitchControlGeometry.barHeight,
+              summaryGap: megaSummaryRect.top - megaBarRect.bottom,
+              twitchSummaryGap: twitchControlGeometry.summaryGap,
+              marginTop: parseFloat(megaStyle.marginTop),
+              twitchMarginTop: twitchControlGeometry.marginTop,
+              flexGap: parseFloat(megaStyle.gap),
+              twitchFlexGap: twitchControlGeometry.flexGap,
+              listSelected: !!megaBar.querySelector(
+                '[data-megaview="list"][aria-pressed="true"]')
+            };
+            function listSnapshot(list, selector, codeAttr) {
+              return [].map.call(list.querySelectorAll(selector), function (card) {
+                var name = card.querySelector('.megajump, .name .ntext a, .bcname a');
+                var metric = card.querySelector('.spmetricstack');
+                var evidence = card.querySelector('.spmetric-age');
+                var alpha = card.querySelector('.spalpha');
+                var megaCode = card.querySelector('[data-mega-code]');
+                return {
+                  code: card.getAttribute(codeAttr)
+                    || card.getAttribute('data-ev-code')
+                    || (megaCode && megaCode.getAttribute('data-mega-code'))
+                    || (alpha && alpha.textContent.trim()) || '',
+                  name: (name && name.textContent || '').replace(/\s+/g, ' ').trim(),
+                  metric: (metric && metric.textContent || '').replace(/\s+/g, ' ').trim(),
+                  evidence: evidence && (evidence.getAttribute('href')
+                    || evidence.textContent.replace(/\s+/g, ' ').trim())
+                };
+              });
+            }
+            var originalProfile = A.getDisplayProfile();
+            var profiles = ['standard', 'large', 'high-visibility'];
+            A.setDisplayProfile('standard');
+            megaList = document.getElementById('abaReportResults');
+            var twitchList = document.getElementById('results');
+            var twitchBaseline = listSnapshot(twitchList, ':scope > li.twitchcard',
+              'data-species-code');
+            var megaBaseline = listSnapshot(megaList, ':scope > li[data-mega-code]',
+              'data-mega-code');
+            var preferenceBaseline = JSON.stringify({
+              twitch: localStorage.getItem('ebird_twitch_view_v1'),
+              mega: localStorage.getItem('ebird_mega_view_v1'),
+              filters: localStorage.getItem('ebird_rarity_filters_v1'),
+              scope: A.abaScope(), sort: A.abaSort()
+            });
+            function profileGeometry(kind, list, selector, codeAttr, baseline, expectedCount) {
+              var cards = list.querySelectorAll(selector);
+              var snapshot = listSnapshot(list, selector, codeAttr);
+              var codes = snapshot.map(function (item) { return item.code; });
+              var repeatedCode = codes.some(function (code, index) {
+                return codes.indexOf(code) !== index;
+              });
+              var preferencesUnchanged = preferenceBaseline === JSON.stringify({
+                twitch: localStorage.getItem('ebird_twitch_view_v1'),
+                mega: localStorage.getItem('ebird_mega_view_v1'),
+                filters: localStorage.getItem('ebird_rarity_filters_v1'),
+                scope: A.abaScope(), sort: A.abaSort()
+              });
+              return {
+                profile: A.getDisplayProfile(),
+                largeExpected: A.getDisplayProfile() === 'high-visibility',
+                large: list.classList.contains('card-lg'),
+                reportCount: cards.length,
+                expectedReportCount: expectedCount,
+                heroCount: list.querySelectorAll(':scope > li > .hero').length,
+                listSelected: kind === 'mega'
+                  ? !!document.querySelector(
+                    '#abaViewPick [data-megaview="list"][aria-pressed="true"]')
+                  : !!document.querySelector(
+                    '#todayView [data-twitchview="list"][aria-pressed="true"]')
+                    && A.twitchView() === 'list',
+                separateReports: cards.length === expectedCount && repeatedCode,
+                identityAndEvidence: snapshot.length > 0 && snapshot.every(function (item) {
+                  return !!item.code && !!item.name && !!item.metric && !!item.evidence;
+                }),
+                profileSwitchPreserved: JSON.stringify(snapshot) === JSON.stringify(baseline)
+                  && preferencesUnchanged
+              };
+            }
+            var megaListGeometry = [], twitchListGeometry = [];
+            profiles.forEach(function (profileName) {
+              A.setDisplayProfile(profileName);
+              megaList = document.getElementById('abaReportResults');
+              megaListGeometry.push(profileGeometry('mega', megaList,
+                ':scope > li[data-mega-code]', 'data-mega-code', megaBaseline, megaRows.length));
+              twitchListGeometry.push(profileGeometry('twitch', twitchList,
+                ':scope > li.twitchcard', 'data-species-code', twitchBaseline, 3));
+            });
+            A.setDisplayProfile(originalProfile);
+            megaList = document.getElementById('abaReportResults');
+            megaListAudit.megaListGeometry = megaListGeometry;
+            megaListAudit.twitchListGeometry = twitchListGeometry;
+            out.push(megaListAudit);
             document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
             var mega = scan('(F790 production Mega Group)');
-            var megaBar = document.getElementById('abaViewPick');
-            var megaHost = document.getElementById('abaResults');
-            var megaList = document.getElementById('abaReportResults');
+            megaList = document.getElementById('abaReportResults');
+            var megaHost = document.getElementById('abaControls');
+            megaBar = document.getElementById('abaViewPick');
             mega.megaGeometry = {
               large: megaList.classList.contains('card-lg'),
               hero: !!megaList.querySelector(':scope > li > .hero'),
               fullWidth: Math.abs(megaBar.getBoundingClientRect().width
                 - megaHost.getBoundingClientRect().width) <= 1,
               topBar: megaHost.firstElementChild === megaBar,
-              groupCount: megaList.children.length,
+              groupCount: megaList.querySelectorAll(':scope > li[data-mega-code]').length,
               checklists: megaList.querySelectorAll('.cklcard-sm').length,
               independentMode: A.twitchView() === 'list'
             };
             out.push(mega);
             finish(out);
+            });
           });
         });
       }).catch(function (error) {
@@ -1212,7 +1378,7 @@ server.listen(0, '127.0.0.1', () => {
       const until = Date.now() + ms;
       while (Date.now() < until) { /* deliberate: no async left at exit */ }
     };
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 50; i++) {
       try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
       if (!fs.existsSync(profile)) return true;
       wait(200);
@@ -1329,17 +1495,20 @@ server.listen(0, '127.0.0.1', () => {
         console.log('   FAVORITE MAP  ' + JSON.stringify(r.favoriteMap));
         if (!r.favoriteMap || !(r.favoriteMap.width > 0)
             || !(r.favoriteMap.height >= r.favoriteMap.width / 2) || r.favoriteMap.pins < 2
-            || r.favoriteMap.controls.length !== 2 || r.favoriteMap.controls.some((visible) => !visible)) {
+            || r.favoriteMap.controls.length !== 2 || r.favoriteMap.controls.some((control) =>
+              !control.inHeader || !control.betweenNameAndDistance || !control.distanceRight
+                || !control.distanceAligned || !control.nameReadable || !control.exactPatch
+                || !control.touchTarget || !control.noVerticalPadding
+                || !control.photoMatchesSharedSmall || !control.noSpeciesRemoval)) {
           bad++;
-          console.log('   FAVORITE MAP NOT VISIBLE  ' + JSON.stringify(r.favoriteMap));
+          console.log('   F795 FAVORITE LAYOUT CONTRACT FAILED  ' + JSON.stringify(r.favoriteMap));
         }
         console.log('   FAVORITE HEADER HEIGHTS  ' + JSON.stringify(r.favoriteHeaders));
         if (!r.favoriteHeaders.length || r.favoriteHeaders.some((header) =>
-          !header.distanceInHeader || !header.removalBelowDetails
-            || Math.abs(header.height - header.reference) > 0.5
+          !header.distanceInHeader || !header.removalInHeader
             || !header.namesFit || r.populatedFixture && !header.birdRows)) {
           bad++;
-          console.log('   FAVORITE HEADER STRETCHED  ' + JSON.stringify(r.favoriteHeaders));
+          console.log('   FAVORITE HEADER CONTENT FAILED  ' + JSON.stringify(r.favoriteHeaders));
         }
         if (r.favoriteHeaders.some((header) => !header.removalOnly)) {
           bad++;
@@ -1478,6 +1647,48 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.megaControlGeometry) {
+        var megaControlGeometry = r.megaControlGeometry;
+        console.log('   F791 CONTROL GEOMETRY ' + JSON.stringify(megaControlGeometry));
+        if (!megaControlGeometry.insideRarityControls || !megaControlGeometry.beforeSummary
+            || !megaControlGeometry.summaryBeforeFilters
+            || Math.abs(megaControlGeometry.barHeight - megaControlGeometry.twitchBarHeight) > 0.5
+            || Math.abs(megaControlGeometry.summaryGap - megaControlGeometry.twitchSummaryGap) > 0.5
+            || megaControlGeometry.marginTop !== megaControlGeometry.twitchMarginTop
+            || megaControlGeometry.flexGap !== megaControlGeometry.twitchFlexGap
+            || !megaControlGeometry.listSelected) {
+          bad++;
+          console.log('   F791 Mega List/Group outer spacing differs from Twitches');
+        }
+      }
+      if (r.megaListGeometry) {
+        var megaListGeometry = r.megaListGeometry;
+        console.log('   F794 MEGA LIST GEOMETRY ' + JSON.stringify(megaListGeometry));
+        if (megaListGeometry.length !== 3 || megaListGeometry.some(function (profile) {
+          return profile.large !== profile.largeExpected
+            || profile.heroCount !== (profile.largeExpected ? profile.reportCount : 0)
+            || profile.reportCount !== profile.expectedReportCount
+            || !profile.listSelected || !profile.separateReports
+            || !profile.identityAndEvidence || !profile.profileSwitchPreserved;
+        })) {
+          bad++;
+          console.log('   F794 Mega List profile/card/state contract failed');
+        }
+      }
+      if (r.twitchListGeometry) {
+        var twitchListGeometry = r.twitchListGeometry;
+        console.log('   F794 TWITCHES LIST GEOMETRY ' + JSON.stringify(twitchListGeometry));
+        if (twitchListGeometry.length !== 3 || twitchListGeometry.some(function (profile) {
+          return profile.large !== profile.largeExpected
+            || profile.heroCount !== (profile.largeExpected ? profile.reportCount : 0)
+            || profile.reportCount !== profile.expectedReportCount
+            || !profile.listSelected || !profile.separateReports
+            || !profile.identityAndEvidence || !profile.profileSwitchPreserved;
+        })) {
+          bad++;
+          console.log('   F794 Twitches List profile/card/state contract failed');
+        }
+      }
       if (r.megaGeometry) {
         var megaGeometry = r.megaGeometry;
         console.log('   F790 GEOMETRY ' + JSON.stringify(megaGeometry));
