@@ -74,9 +74,10 @@ function renderGallery(version, releaseUrl, galleries) {
   const rows = first.entries.map((entry, index) => {
     const versions = galleries.map((gallery) => gallery.entries[index]);
     for (const other of versions.slice(1)) {
-      if (entry.title !== other.title) {
+      if (entry.file.replace(/-\d+px\.png$/, '.png')
+          !== other.file.replace(/-\d+px\.png$/, '.png')) {
         throw new Error(`gallery order differs at ${index + 1}: `
-          + `${entry.title} / ${other.title}`);
+          + `${entry.file} / ${other.file}`);
       }
     }
     const search = versions.map((item) => `${item.title} ${item.alt}`).join(' ')
@@ -84,7 +85,7 @@ function renderGallery(version, releaseUrl, galleries) {
     const figures = galleries.map((gallery, galleryIndex) => {
       const item = versions[galleryIndex];
       return `    <figure>
-      <figcaption><strong>${esc(gallery.label)}</strong><span>${esc(gallery.detail)}</span></figcaption>
+      <figcaption><strong>${esc(gallery.label)}</strong><span>${esc(gallery.detail)}</span><span>${esc(item.title)}</span></figcaption>
       <a href="${esc(gallery.id)}/${esc(item.file)}"><img loading="lazy" src="${esc(gallery.id)}/${esc(item.file)}" alt="${esc(item.alt)} on ${esc(gallery.label)}, ${esc(gallery.detail)}"></a>
     </figure>`;
     }).join('\n');

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  VARIANTS, parseReadme, buildGallery,
+  VARIANTS, parseReadme, renderGallery, buildGallery,
 } = require('../assets/build-mockup-gallery.js');
 
 test('mockup gallery parser keeps authored titles and image order', () => {
@@ -22,6 +22,35 @@ test('mockup gallery parser keeps authored titles and image order', () => {
     { title: 'Nemesis — Group on', alt: 'Nemesis grouped',
       file: 'section-todayBtn-393px.png' },
   ]);
+});
+
+test('F800 gallery matches screenshot identity while retaining profile-specific titles', () => {
+  const galleries = VARIANTS.map((variant) => ({
+    ...variant,
+    entries: [{
+      title: `Mega — List, ${variant.profile} text`,
+      alt: `Mega List in ${variant.profile}`,
+      file: `extra-aba-list-${variant.width}px.png`,
+    }],
+  }));
+  const html = renderGallery('v1.137.3', 'https://example.test/release', galleries);
+  for (const variant of VARIANTS) {
+    assert.ok(html.includes(`<span>Mega — List, ${variant.profile} text</span>`),
+      'each figure must retain its own authored profile-specific title');
+    assert.ok(html.includes(`${variant.id}/extra-aba-list-${variant.width}px.png`));
+  }
+});
+
+test('F800 gallery rejects reordered screenshot identities even with matching titles', () => {
+  const galleries = VARIANTS.map((variant) => ({
+    ...variant,
+    entries: ['extra-aba-list', 'extra-aba-group'].map((id) => ({
+      title: 'Mega', alt: 'Mega', file: `${id}-${variant.width}px.png`,
+    })),
+  }));
+  galleries[1].entries.reverse();
+  assert.throws(() => renderGallery('v1.137.3', 'https://example.test/release', galleries),
+    /gallery order differs at 1/);
 });
 
 test('F630 mockup gallery builds every Display profile for every report', () => {
