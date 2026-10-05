@@ -1047,6 +1047,39 @@ const AUDIT = `<script>
               })
             };
             out.push(twitch);
+            var megaRows = [
+              { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
+                obsDt: '2026-09-24 10:00', locName: 'Long numbered hotspot name',
+                locId: 'L-MEGA', lat: 47.7, lng: -122.2, subId: 'S-MEGA', howMany: 2 },
+              { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
+                obsDt: '2026-09-23 09:00', locName: 'Second hotspot',
+                locId: 'L-MEGA2', lat: 47.6, lng: -122.3, subId: 'S-MEGA2', howMany: 1 }
+            ];
+            A.setTwitchView('list');
+            localStorage.setItem('ebird_mega_view_v1', 'list');
+            A.showSection('sec-abaBtn');
+            function paintMega() {
+              A.renderAbaAlert(megaRows, 'https://ebird.org/alert/summary?sid=X',
+                true, false, paintMega);
+            }
+            paintMega();
+            out.push(scan('(F790 production Mega List)'));
+            document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+            var mega = scan('(F790 production Mega Group)');
+            var megaBar = document.getElementById('abaViewPick');
+            var megaHost = document.getElementById('abaResults');
+            var megaList = document.getElementById('abaReportResults');
+            mega.megaGeometry = {
+              large: megaList.classList.contains('card-lg'),
+              hero: !!megaList.querySelector(':scope > li > .hero'),
+              fullWidth: Math.abs(megaBar.getBoundingClientRect().width
+                - megaHost.getBoundingClientRect().width) <= 1,
+              topBar: megaHost.firstElementChild === megaBar,
+              groupCount: megaList.children.length,
+              checklists: megaList.querySelectorAll('.cklcard-sm').length,
+              independentMode: A.twitchView() === 'list'
+            };
+            out.push(mega);
             finish(out);
           });
         });
@@ -1445,6 +1478,16 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.megaGeometry) {
+        var megaGeometry = r.megaGeometry;
+        console.log('   F790 GEOMETRY ' + JSON.stringify(megaGeometry));
+        if (!megaGeometry.large || !megaGeometry.hero || !megaGeometry.fullWidth
+            || !megaGeometry.topBar || !megaGeometry.independentMode
+            || megaGeometry.groupCount !== 1 || megaGeometry.checklists !== 2) {
+          bad++;
+          console.log('   F790 shared Mega Group/card/top-bar contract failed');
+        }
+      }
       if (r.twitchGeometry) {
         var geometry = r.twitchGeometry;
         console.log('   F785 F786 GEOMETRY ' + JSON.stringify(geometry));

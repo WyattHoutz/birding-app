@@ -22,7 +22,7 @@
   "docs": {
     "surgeBtn": {
       "report": "## 🔔 Bird Gen — Talk and news",
-      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Buzz ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
+      "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Chronology-first ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
       "summary": "One ranked feed of fresh megas, celebrity birds, crowd attention, leaderboard cascades, unusually busy hotspots and high-yield top patches.",
       "inputs": [
         "the region's ABA Code 3+ snapshot, refreshed lazily by Bird Gen after its first useful observation paint",
@@ -32,10 +32,11 @@
       ],
       "how": [
         "One SpeciesCards.small feed runs over data other sections already pay for.",
-        "Buzz is the only order: MEGA, CELEBRITY, CROWD, CASCADE, HOTSPOT, TOP PATCH, with newest report first inside each category.",
+        "Every category sorts by newest observation/event datetime first, including incremental paints. Category priority and stable bird/place/checklist identity break equal-time ties. Missing or invalid dates go last; date-only evidence labels unavailable time. Forecast validity and completed-night events are not made newer by refreshing.",
         "Every alert is one always-visible three-line card. The name cell contains two lines: the name alone, then a flush-left four-letter code, xN, linked place and linked compact date. The category badge begins a separate full-width explanation row below the headline cell, followed by the bold reason without a repeated written category prefix. The alert icon and relative age remain at the right.",
-        "Unseen is the default view. All reveals species already counted in the active report; switching either filter is local and never fetches.",
-        "Seen status is resolved once after duplicate species and their reasons are merged. An explicitly empty per-report year list is authoritative: birds seen in another region do not become seen here. Species-blind HOTSPOT alerts remain visible in both views because a place has no single bird to mark seen.",
+        "There is no feed-wide Unseen filter or ordering toggle. Personal Favorite Patch eligibility is retained; flock and place news remain useful for seen species.",
+        "Seen status is resolved once after duplicate species and their reasons are merged. An explicitly empty per-report year list is authoritative: birds seen in another region do not become seen here. Species-blind HOTSPOT alerts are not marked seen or unseen because a place has no single bird to mark seen.",
+        "Custom reports resolve the existing county acquisition scope before planning hotspot checklist feeds and cache keys. Independent observation results can paint while scope loads. Failed scope resolution is explicit, not not-applicable or known-empty, and county hydration does not cancel independent Mass/Favorite work.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
         "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. While any source remains pending, Bird Gen shows a labelled and accessible N-of-4 progress bar; colour is not the only progress signal. Bird Gen starts its one coalesced Mega refresh immediately after the first useful observation paint, labels that source as loading without directing the reader to another section, and repaints when it settles. Successful rows and retained snapshot rows remain visible when another live feed fails, and the feed only claims nothing is happening when every applicable source succeeded with current data. A complete stale chase snapshot can still supply TOP PATCH alerts while live data refreshes; partial and failed destination views cannot.",
         "The whole headline strip - image, common name or hotspot, alert icon and age - is one keyboard-actionable route to Stakeout bird or Stakeout hotspot. Bird Gen displays no rarity R marker. The four-letter code begins line two flush with the name; xN, linked place and linked newest-checklist date follow. The category badge lives only in the full-width explanation row. Bird Gen does not show the eBird species code, mileage, a Notes toggle or category destination links. Word, glyph, underline and distinct border style carry meaning without relying on colour.",

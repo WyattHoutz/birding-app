@@ -123,7 +123,8 @@ const STUB_SPEC = {
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
   refreshBtn:     { kind: 'bird',          host: 'results' },
   abaBtn:         { kind: 'mega-index',    host: 'abaResults',
-    expects: ['#abaScopePick.pressbtn[data-abascope]',
+    expects: ['#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
+      '#abaScopePick.pressbtn[data-abascope]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
@@ -176,6 +177,21 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
 });
 
 const EXTRA_SHOTS = [
+  { id: 'megagroup', at: 'abaBtn', title: 'Mega — Group, shared large species cards',
+    host: 'abaResults', fullPage: true, freshApp: true,
+    expects: ['#abaViewPick [data-megaview="grouped"][aria-pressed="true"]',
+      '#abaReportResults.card-lg > li > .hero',
+      '#abaReportResults.card-lg > li > .hero img.birdpic',
+      '#abaReportResults .bcheading .spprimary', '#abaReportResults .bcstatus',
+      '#abaReportResults .birdreportplaces .cklcard-sm'],
+    prep: `FIX.before('abaBtn', A, document);
+           var sec = document.getElementById('abaBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepare('abaBtn', ${JSON.stringify(STUB_SPEC.abaBtn)},
+             A, document, sec, ${JSON.stringify(SCALE)}).then(async function () {
+               document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+               await FIX.fillFixturePhotos(document.getElementById('abaReportResults'), document);
+             });` },
   { id: 'twitchesgroup', at: 'refreshBtn', title: 'Twitches — Group, large species cards',
     host: 'results', fullPage: true, freshApp: true,
     expects: ['#todayView [data-twitchview="grouped"][aria-pressed="true"]',
@@ -1305,6 +1321,7 @@ const BOOTSTRAP = `
     A.abaArchiveAdd(f.region, second.stateRows);
     A.setAbaScope('state');
     A.setAbaSort('date');
+    localStorage.setItem('ebird_mega_view_v1', 'list');
     function repaint() {
       A.renderAbaAlert(alertRows, url, true, A.abaScope() === 'aba', meta, repaint);
       markHost(document.getElementById('abaResults'), label);
@@ -1548,6 +1565,16 @@ const BOOTSTRAP = `
   function wait(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
+  async function fillFixturePhotos(host, document) {
+    await Promise.all([].map.call(host.querySelectorAll('.thumb[data-code]'), async function (slot) {
+      var img = document.createElement('img');
+      img.className = 'birdpic';
+      img.alt = slot.getAttribute('data-bird') || '';
+      img.src = fixtureIconPath(slot.getAttribute('data-code'), BIRD_ICON_EXT);
+      slot.replaceChildren(img);
+      await img.decode();
+    }));
+  }
   async function prepareTwitches(A, document, sec, grouped) {
     var profile = A.chaseProfile();
     var twitchRows = [
@@ -1585,14 +1612,7 @@ const BOOTSTRAP = `
     await waitFor(function () { return document.querySelector('#results > li'); },
       'production Twitches cards');
     await A.hydrateChecklistEvidence(document.getElementById('results'));
-    await Promise.all([].map.call(document.querySelectorAll('#results .thumb[data-code]'), async function (slot) {
-      var img = document.createElement('img');
-      img.className = 'birdpic';
-      img.alt = slot.getAttribute('data-bird') || '';
-      img.src = fixtureIconPath(slot.getAttribute('data-code'), BIRD_ICON_EXT);
-      slot.replaceChildren(img);
-      await img.decode();
-    }));
+    await fillFixturePhotos(document.getElementById('results'), document);
     markHost(document.getElementById('results'), 'REPRESENTATIVE STUB DATA');
     sec.dataset.mockAt = 'refreshBtn';
     sec.dataset.mockReady = 'true';
@@ -1706,7 +1726,7 @@ const BOOTSTRAP = `
       var hiddenCodes = alertRows.filter(function (row) {
         return row.hidden;
       }).map(function (row) { return row.getAttribute('data-species-code'); });
-      if (visibleCodes.join(',') !== 'nazboo1,baisan,amgplo,vesspa,comter'
+      if (visibleCodes.join(',') !== 'comter,baisan,nazboo1,amgplo,vesspa'
           || hiddenCodes.length) {
         throw new Error('Bird Gen fixture species/filter state drifted: visible='
           + visibleCodes.join(',') + ' hidden=' + hiddenCodes.join(','));
@@ -2761,6 +2781,8 @@ const BOOTSTRAP = `
     before: fixtureBefore,
     prepare: fixturePrepare,
     prepareTwitches: prepareTwitches,
+    fillFixturePhotos: fillFixturePhotos,
+    fillMegaIndex: fillMegaIndex,
     prepareF629Nightly: prepareF629Nightly,
     prepareF629BirdGen: prepareF629BirdGen,
     prepareCompare: prepareCompare,

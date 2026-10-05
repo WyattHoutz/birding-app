@@ -265,6 +265,7 @@ test('F504-F509 release fixtures show the current Twitches and Nemesis card cont
 test('F551 Mega rarity mockups exercise the current direct photo slot and controls', () => {
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
     '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
@@ -506,7 +507,7 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release fixture no longer renders in the Washington timezone');
   assert.match(source, /Bird Gen fixture age drifted[\s\S]{0,120}24hr ago/,
     'the release renderer does not behaviorally guard its approved relative age');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,baisan,amgplo,vesspa,comter'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa'/,
     'the release gate does not assert its exact visible Bird Gen species');
   assert.match(source, /\|\| hiddenCodes\.length/,
     'the release gate no longer proves that Bird Gen hides no species');
@@ -533,7 +534,7 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
     'the release fixture does not pin the bird code flush-left');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,
     'the release fixture does not fail if a report drawer returns');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'nazboo1,baisan,amgplo,vesspa,comter'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa'/,
     'the release gate does not assert the new Cascade row');
   assert.match(paint, /still links to All Mega rarities/,
     'the release fixture does not fail if the removed Mega link returns');
@@ -695,6 +696,7 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
 
   assert.equal(mockups.STUB_SPEC.abaBtn.kind, 'mega-index');
   assert.deepEqual(mockups.STUB_SPEC.abaBtn.expects, [
+    '#abaViewPick.twitchviewbar [data-megaview="list"][aria-pressed="true"]',
     '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',

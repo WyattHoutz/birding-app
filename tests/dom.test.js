@@ -10096,15 +10096,28 @@ test('F771 unavailable scope evidence is not a successful empty Watch check', as
 // birds are rare: most have no bundled seed, miss tier 1, and fall through to
 // a full-size network photo. The seed size is the real constraint, so the card
 // that shows seeds is sized to it.
-test('F506 Nemesis always renders the shared medium card', () => {
+test('F506 Nemesis always renders the shared medium card', async () => {
   const src = HTML.slice(HTML.indexOf('function renderBirdReportProgress('),
     HTML.indexOf('function distQ(', HTML.indexOf('function renderBirdReportProgress(')));
-  assert.match(src, /listClass: 'obs big xl'/,
-    'Nemesis does not always use the shared medium-card wrapper');
   assert.doesNotMatch(src, /details|birdreportcompact/,
     'the removed Compact presentation branch remains in the shared renderer');
   assert.match(src, /birdReportListCard\(/,
     'Nemesis bypasses the shared bird-first report renderer');
+  const app = await boot();
+  const A = app.window.__app;
+  const place = { loc: 'Marsh', locId: 'L1', lat: 47.7, lon: -122.2,
+    dateStr: '2026-09-24 08:00', distMi: 4, nReports: 1,
+    checklists: [{ subId: 'S1', dateStr: '2026-09-24 08:00' }] };
+  for (const mode of ['list', 'grouped']) {
+    A.setTwitchView(mode);
+    A.renderAllUnseenCards([{ code: 'tersan', name: 'Terek Sandpiper',
+      ...place, subId: 'S1', near: [place], places: [place] }]);
+    assert.ok(app.$('allUnseenResults').matches('.obs.big.xl'),
+      `${mode} Nemesis lost its medium-card wrapper`);
+    assert.equal(app.$('allUnseenResults').querySelector('.hero'), null,
+      `${mode} Nemesis unexpectedly acquired the Mega/Twitches hero card`);
+  }
+  app.window.close();
 });
 
 test('F519 Nemesis shares the right-edge pending Notes action in both views', async () => {
@@ -10191,13 +10204,13 @@ test('F541-F545 Mega uses the shared report cards in both views', async () => {
   assert.equal(card.querySelectorAll('.spmetric').length, 2,
     'ungrouped Mega omits the relative-age or distance metric');
 
-  app.window.localStorage.setItem('ebird_twitch_view_v1', 'grouped');
+  app.window.localStorage.setItem('ebird_mega_view_v1', 'grouped');
   A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=SN10489',
     true, false, meta);
   card = app.document.querySelector('#abaReportResults > li');
   const checklist = card.querySelector('.birdreportplaces .cklcard-sm');
-  assert.ok(card.querySelector(':scope > .name > .thumb'),
-    'grouped Mega does not use the shared medium-card thumbnail path');
+  assert.ok(card.querySelector(':scope > .hero'),
+    'F790 grouped Mega does not use the shared large-card hero path');
   assert.ok(checklist, 'grouped Mega does not use the shared small checklist card');
   assert.match(checklist.textContent, /9\/24 3:49p/i);
   assert.match(checklist.textContent, /Scott Ramos/);
@@ -11128,8 +11141,8 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   assert.ok(help, 'the moved explanation has no info-button destination');
   app.click(help);
   const sheet = app.document.querySelector('#appSheet');
-  assert.match(sheet.textContent, /Buzz.*Mass flocks.*Favorite Patch birds.*Hotspots unusually busy/s);
-  assert.doesNotMatch(sheet.textContent, /Newest/);
+  assert.match(sheet.textContent, /newest observation or event.*Mass flocks.*Favorite Patch birds.*Hotspots unusually busy/s);
+  assert.doesNotMatch(sheet.textContent, /Buzz.*order/);
   assert.match(sheet.textContent, /Mega snapshot/i,
     'the dynamic source context was not moved into the info sheet');
   assert.ok(results.compareDocumentPosition(app.$('surgeStatus'))
@@ -11847,8 +11860,8 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
 
   const rows = [...feed.children];
   assert.deepEqual(rows.map((row) => row.dataset.alertKind),
-    ['mega', 'need', 'crowd', 'cascade', 'hotspot'],
-    'Priority must order category severity first, then recency');
+    ['crowd', 'hotspot', 'mega', 'cascade', 'need'],
+    'F787 chronology must order all categories by their event time');
   assert.equal(rows.length, 5,
     'a non-qualifying migration placeholder returned or a loaded alert disappeared');
   const expected = {
@@ -13823,8 +13836,8 @@ test('Happening now merges populated signals without burying the hotspot', async
   const feed = boxEl.querySelector('#surgeFeed[data-unified-alert-feed="true"]');
   assert.ok(feed, 'the populated signals are not inside the unified feed');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['crowd', 'cascade', 'hotspot'],
-    'the hotspot must remain visible after crowd and cascade in Priority order');
+    ['cascade', 'crowd', 'hotspot'],
+    'dated cascade comes first; undated crowd and hotspot remain visible with deterministic ties');
   const box = d.getElementById('surgeResults').innerHTML;
   assert.match(box, /class="ckgo"|class="extlink"/,
     'the cascade alert became actionable');
@@ -13832,10 +13845,10 @@ test('Happening now merges populated signals without burying the hotspot', async
   assert.match(box, /S9/, 'and a checklist to cite');
   const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
   const how = (docs.docs.surgeBtn.how || []).join(' ');
-  assert.match(how, /Buzz/,
-    'the section help does not explain the fixed feed order');
-  assert.doesNotMatch(how, /Newest/,
-    'the section help still advertises the removed alternate order');
+  assert.match(how, /newest observation\/event datetime first/,
+    'the section help does not explain the chronology-first feed');
+  assert.doesNotMatch(how, /Buzz is the only order/,
+    'the section help still advertises category-first ordering');
   assert.doesNotMatch(how, /independent lanes/i,
     'the section help still describes the removed visual lanes');
   assert.match(how, /CASCADE: 2\+ of the region's top 100/,
@@ -19032,6 +19045,258 @@ test('F779 failed checklist read stays honest and retryable; obsolete bird canno
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(old.children.length, 1, 'obsolete history appended after changing birds');
   assert.doesNotMatch(app.$('spLookupRecent').textContent, /History Park/);
+  app.window.close();
+});
+
+test('F787 chronology handles date-only, invalid, deterministic ties and late mass/favorite rows', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const crowd = (code, latest) => ({
+    code, name: code, latest, loc: 'Public fixture marsh', locId: 'L-' + code,
+    observers: 8, checklists: 8, ratio: 5, distMi: 1, subId: 'S-' + code
+  });
+  const base = [crowd('z-tie', '2026-10-03 10:00'), crowd('a-tie', '2026-10-03 10:00'),
+    crowd('invalid', '2026-02-30 12:00'), crowd('missing', ''),
+    crowd('date-only', '2026-10-03')];
+  const paint = (events, favorites = [], mass = []) => A.renderSurge(
+    events, [], [], [{ code: 'old-need', name: 'old-need', whenStr: '2026-10-02 22:00',
+      sightings: 4, distMi: 1 }], [], {}, [], favorites, mass);
+  const order = () => [...app.$('surgeFeed').children].map((row) => row.dataset.speciesCode);
+  paint(base);
+  assert.deepEqual(order(), ['a-tie', 'z-tie', 'date-only', 'old-need', 'invalid', 'missing']);
+  assert.match(app.$('surgeFeed').querySelector('[data-species-code="invalid"]').textContent,
+    /Date\/time unavailable/);
+  assert.match(app.$('surgeFeed').querySelector('[data-species-code="date-only"]').textContent,
+    /time unavailable/);
+  paint(base.slice().reverse());
+  assert.deepEqual(order(), ['a-tie', 'z-tie', 'date-only', 'old-need', 'invalid', 'missing'],
+    'equal-time source order changed deterministic ties');
+  const flock = (code, when) => ({
+    code, name: code, when, time: Date.now(), minCount: 100, maxCount: 100,
+    evidenceCount: 2, locId: 'L-' + code, locName: 'Public fixture marsh',
+    lat: 47.75, lng: -122.16, distanceMi: 1, insideChase: true, locations: []
+  });
+  paint(base, [{ code: 'favorite', name: 'favorite', when: '2026-10-04 11:00',
+    time: 1, count: 1, locId: 'L-F', locName: 'Fixture favorite', lat: 47.75, lng: -122.16 }],
+  [flock('old-mass', '2026-10-03 09:00'), flock('new-mass', '2026-10-04 12:00')]);
+  assert.deepEqual(order().slice(0, 3), ['new-mass', 'favorite', 'a-tie'],
+    'late-arriving sources or stored fetch times defeated event chronology');
+  assert.equal(order().length, 9, 'chronology dropped qualifying rows');
+  paint([crowd('second-old', '2026-10-04 12:00:01'),
+    crowd('second-new', '2026-10-04 12:00:02'),
+    crowd('invalid-time', '2026-10-04 12:00:99')]);
+  assert.deepEqual(order(), ['second-new', 'second-old', 'old-need', 'invalid-time'],
+    'seconds or invalid time precision was silently discarded');
+  assert.equal(Number(app.document.querySelector('[data-species-code="second-new"]').dataset.surgeLatest)
+    - Number(app.document.querySelector('[data-species-code="second-old"]').dataset.surgeLatest), 1000,
+  'sortable event timestamps must retain their measured one-second separation');
+  A.setActiveReport('hi');
+  paint([crowd('new-report', '2026-10-04 13:00')]);
+  assert.deepEqual(order(), ['new-report', 'old-need'], 'previous report rows survived');
+  app.window.close();
+});
+
+test('F787 migration ordering uses validity dates and completed-night events, not render time', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const now = new Date('2026-10-04T20:00:00Z');
+  const snapshot = { forecast: { level: 'High' },
+    count: { high: true, birds: 1000000, countyLabel: 'Fixture County',
+      nightEndedAt: Date.parse('2026-10-04T14:00:00Z') } };
+  const first = arr(A.birdcastSurgeRows(now, snapshot), (row) => row.when);
+  const later = arr(A.birdcastSurgeRows(new Date(now.getTime() + 60000), snapshot), (row) => row.when);
+  assert.deepEqual(first, ['2026-10-04', '2026-10-04T14:00:00.000Z']);
+  assert.deepEqual(later, first, 'a repaint invented a newer migration event');
+  app.window.close();
+});
+
+test('F788 measured Photon candidates retain Michigan qualification and distinguish bare acquisition', async () => {
+  const region = michiganRuntimeRegion();
+  const shape = (state, countrycode, coordinates) => ({
+    geometry: { coordinates }, properties: { name: 'Chelsea', state, countrycode,
+      country: countrycode === 'US' ? 'United States' : 'United Kingdom' }
+  });
+  const england = shape('England', 'GB', [-0.1653781, 51.4888554]);
+  const michigan = shape('Michigan', 'US', [-84.020224, 42.3180163]);
+  const requests = [];
+  const app = await boot({ report: region.slug, home: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]) },
+    fetch(url) {
+      if (/photon/.test(url)) {
+        const u = new URL(url);
+        requests.push(u);
+        return { features: /Michigan|, MI/.test(u.searchParams.get('q'))
+          ? [michigan, shape('Michigan', 'US', [-84.0025051, 42.3111507])]
+          : [england, shape('New York', 'US', [-74.0015283, 40.7464906]),
+            shape('Massachusetts', 'US', [-71.0369301, 42.3912241]),
+            shape('Iowa', 'US', [-92.3942415, 41.9187423]),
+            shape('Alabama', 'US', [-86.6302625, 33.3401108])] };
+      }
+      if (/api\.ebird/.test(url)) return [];
+      return null;
+    } });
+  const A = app.window.__app;
+  const bare = await A.geocodePlace('Chelsea');
+  assert.equal(bare.regionMatch, false, 'bare query fabricated an absent Michigan candidate');
+  const home = await A.geocodePlace('Chelsea', { home: true });
+  assert.equal(home.regionMatch, true);
+  assert.equal(home.lat, 42.3180163);
+  assert.equal(requests[1].searchParams.get('q'), 'Chelsea, Michigan, United States');
+  assert.equal(requests[1].searchParams.get('lat'), '42.7300');
+  assert.equal(requests[1].searchParams.get('lon'), '-84.5600');
+  assert.equal(requests[1].searchParams.get('limit'), '5', 'unmeasured candidate budget increase');
+  app.window.close();
+});
+
+test('F789 cold Michigan Bird Gen resolves county feeds and renders a qualifying hotspot without another section', async () => {
+  const region = michiganRuntimeRegion();
+  const lists = [];
+  for (let d = 2; d < 14; d++) lists.push({
+    locId: 'L-F789', locName: 'Public fixture marsh', userDisplayName: 'fixture regular',
+    subId: 'S-BASE-' + d, isoObsDate: recentObsStamp(d)
+  });
+  for (let i = 0; i < 8; i++) lists.push({
+    locId: 'L-F789', locName: 'Public fixture marsh', userDisplayName: 'fixture visitor ' + i,
+    subId: 'S-HOT-' + i, isoObsDate: recentObsStamp(0, i + 1)
+  });
+  let hold;
+  const app = await boot({ report: region.slug, home: false, sample: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]),
+      [`ebird_home_lat:${region.slug}`]: '42.3180163',
+      [`ebird_home_lng:${region.slug}`]: '-84.020224' },
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) {
+        return new Promise((resolve) => { hold = resolve; });
+      }
+      if (/ref\/hotspot\/US-MI/.test(url)) return [{
+        locId: 'L-F789', locName: 'Public fixture marsh', lat: 42.32, lng: -84.02,
+        subnational2Code: 'US-MI-161'
+      }];
+      if (/product\/lists\/US-MI-161/.test(url)) return lists;
+      if (/api\.ebird/.test(url)) return [];
+      if (/ebird\.org/.test(url)) return '';
+      if (/birdcast/.test(url)) return '';
+      return null;
+    } });
+  const A = app.window.__app;
+  assert.equal(A.getCounties().length, 0, 'fixture accidentally prewarmed county scope');
+  const pending = A.loadSurge();
+  await waitFor(() => hold, 'cold county acquisition');
+  await waitFor(() => app.$('surgeResults').dataset.sourceObservations === 'ok',
+    'independent observation source before county metadata');
+  assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'loading');
+  hold([{ code: 'US-MI-161', name: 'Washtenaw' }]);
+  await pending;
+  await waitFor(() => app.$('surgeResults').dataset.sourceMass === 'ok',
+    'county hydration must not cancel independent Mass Flock sources');
+  assert.equal(A.getCounties()[0].code, 'US-MI-161');
+  assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'ok');
+  assert.ok(app.document.querySelector('#surgeFeed [data-alert-kind="hotspot"]'),
+    'a qualifying cold-scope hotspot disappeared');
+  const feeds = app.state.fetches.filter((url) => /product\/lists\/US-MI-161/.test(url));
+  assert.equal(feeds.length, 1, 'scope hydration duplicated checklist requests');
+  assert.match(feeds[0], /maxResults=1200/);
+  const metadata = app.state.fetches.filter((url) => /ref\/region\/list\/subnational2\/US-MI|ref\/hotspot\/US-MI/.test(url));
+  assert.equal(metadata.length, 2, 'cold helper cost changed');
+  await A.loadSurge();
+  assert.equal(app.state.fetches.filter((url) => /product\/lists\/US-MI-161/.test(url)).length, 1,
+    'warm source repeated the county feed');
+  app.window.close();
+});
+
+test('F789 independent Mass and Favorite jobs survive county-plan hydration', async () => {
+  for (const kind of ['favorite', 'mass']) {
+    const region = michiganRuntimeRegion();
+    let release, held = false;
+    const app = await boot({ report: region.slug, home: false, sample: false,
+      storage: { ebird_custom_regions: JSON.stringify([region]),
+        [`ebird_home_lat:${region.slug}`]: '42.3180163',
+        [`ebird_home_lng:${region.slug}`]: '-84.020224',
+        ebird_favs: JSON.stringify([{ id: 'L-FAVORITE', locId: 'L-FAVORITE',
+          locName: 'Public fixture favorite', region: 'US-MI', lat: 42.32, lng: -84.02 }]) },
+      fetch(url) {
+        const selected = kind === 'favorite' ? /data\/obs\/L-FAVORITE\/recent/.test(url)
+          : /data\/obs\/US-MI\/historic/.test(url);
+        if (selected && !held) {
+          held = true;
+          return new Promise((resolve) => { release = resolve; });
+        }
+        if (/api\.ebird/.test(url)) return [];
+        if (/ebird\.org|birdcast/.test(url)) return '';
+        return null;
+      } });
+    const A = app.window.__app;
+    A.setCountySeed({ 'US-MI': { 'US-MI-161': {
+      name: 'Washtenaw', bounds: { minX: -84.2, maxX: -83.8, minY: 42.2, maxY: 42.4 }
+    } } });
+    const context = A.surgeSourceContext();
+    const pending = kind === 'favorite'
+      ? A.loadFavoritePatchAlertSource(false, A.activeScope())
+      : A.loadMassFlockAlertSource(false, A.activeScope());
+    await waitFor(() => release, 'held ' + kind + ' source');
+    await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
+    assert.notEqual(A.surgeSourceContext(), context, 'fixture did not change the county plan');
+    release(kind === 'mass' ? [] : [{
+      speciesCode: 'amepip', comName: 'American Pipit', howMany: 1,
+      locId: 'L-FAVORITE', locName: 'Public fixture favorite', lat: 42.32, lng: -84.02,
+      obsDt: recentObsStamp(0), subId: 'S-FAVORITE', subnational1Code: 'US-MI'
+    }]);
+    const source = await pending;
+    assert.equal(source.state, 'ok', kind + ' was cancelled by unrelated county metadata');
+    assert.equal(source.rows.length, kind === 'mass' ? 0 : 1);
+    app.window.close();
+  }
+});
+
+test('F789 obsolete Michigan county discovery cannot publish after changing reports', async () => {
+  const region = michiganRuntimeRegion();
+  let release;
+  const app = await boot({ report: region.slug, home: false, sample: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]),
+      [`ebird_home_lat:${region.slug}`]: '42.3180163',
+      [`ebird_home_lng:${region.slug}`]: '-84.020224' },
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) {
+        return new Promise((resolve) => { release = resolve; });
+      }
+      if (/ref\/hotspot\/US-MI/.test(url)) return [{
+        locId: 'L-F789', locName: 'Public fixture marsh', lat: 42.32, lng: -84.02,
+        subnational2Code: 'US-MI-161'
+      }];
+      if (/api\.ebird/.test(url)) return [];
+      if (/ebird\.org|birdcast/.test(url)) return '';
+      return null;
+    } });
+  const A = app.window.__app;
+  const pending = A.loadSurge();
+  await waitFor(() => release, 'held Michigan discovery');
+  A.setActiveReport('hi');
+  const before = app.$('surgeResults').innerHTML;
+  release([{ code: 'US-MI-161', name: 'Washtenaw' }]);
+  await pending;
+  assert.equal(app.$('surgeResults').innerHTML, before, 'obsolete sources repainted another report');
+  assert.ok(A.getCounties().every((county) => !county.code.startsWith('US-MI')));
+  assert.equal(app.state.fetches.filter((url) => /product\/lists\/US-MI/.test(url)).length, 0,
+    'obsolete county discovery started checklist feeds');
+  app.window.close();
+});
+
+test('F789 unavailable custom county acquisition is failed, not not-applicable or known-empty', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({ report: region.slug, home: false, sample: false,
+    storage: { ebird_custom_regions: JSON.stringify([region]),
+      [`ebird_home_lat:${region.slug}`]: '42.3180163',
+      [`ebird_home_lng:${region.slug}`]: '-84.020224' },
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) return { __status: 403 };
+      if (/api\.ebird/.test(url)) return [];
+      if (/ebird\.org|birdcast/.test(url)) return '';
+      return null;
+    } });
+  await app.window.__app.loadSurge();
+  assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'failed');
+  assert.match(app.$('surgeResults').textContent, /Hotspot activity feeds failed/);
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Nothing you need has been reported/);
   app.window.close();
 });
 
@@ -25718,14 +25983,14 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   app.window.close();
 });
 
-test('F524 Mega rarities uses the Twitches and Nemesis List/Group report display', async () => {
+test('F790 Mega shares Twitches cards and full-width controls with an independent mode', async () => {
   const app = await boot();
   const A = app.window.__app;
   const rows = [
-    { speciesCode: 'tersan', comName: 'Terek Sandpiper',
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
       obsDt: '2026-09-24 10:00', locName: 'North Marsh', locId: 'L1',
       lat: 47.8, lng: -122.2, subId: 'S1', howMany: 2, userDisplayName: 'A Birder' },
-    { speciesCode: 'tersan', comName: 'Terek Sandpiper',
+    { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
       obsDt: '2026-09-23 09:00', locName: 'South Marsh', locId: 'L2',
       lat: 47.6, lng: -122.3, subId: 'S2', howMany: 1, userDisplayName: 'B Birder' },
     { speciesCode: 'whiwag', comName: 'White Wagtail',
@@ -25751,10 +26016,17 @@ test('F524 Mega rarities uses the Twitches and Nemesis List/Group report display
     'Mega List lost exact-code Stakeout routing');
 
   const group = app.document.querySelector('#abaViewPick');
-  assert.equal(group.getAttribute('aria-pressed'), 'false');
-  app.click(group);
+  assert.ok(group.classList.contains('twitchviewbar'));
+  assert.equal(group.classList.contains('twopill'), false, 'Mega view bar is not full-width');
+  assert.deepEqual([...group.querySelectorAll('button')].map((b) => b.textContent.trim()),
+    ['List', 'Group']);
+  assert.equal(group.parentElement.firstElementChild, group, 'view bar is not above filters');
+  assert.equal(group.closest('.abascoperow'), null);
+  assert.equal(group.querySelector('[data-megaview="list"]').getAttribute('aria-pressed'), 'true');
+  app.click(group.querySelector('[data-megaview="grouped"]'));
   assert.equal(paints, 2, 'Group refetched instead of repainting rows already in hand');
-  assert.equal(A.twitchView(), 'grouped');
+  assert.equal(A.twitchView(), 'list', 'Mega changed Twitches mode');
+  assert.equal(app.window.localStorage.getItem('ebird_mega_view_v1'), 'grouped');
   cards = [...app.document.querySelectorAll('#abaReportResults > li')];
   assert.equal(cards.length, 2, 'Group does not collapse Mega reports by bird');
   const terek = cards.find((card) => /Terek Sandpiper/.test(card.textContent));
@@ -25762,7 +26034,29 @@ test('F524 Mega rarities uses the Twitches and Nemesis List/Group report display
     'Mega Group does not use the shared bird → place → checklist hierarchy');
   assert.equal(terek.querySelectorAll('.cklcard-sm').length, 2,
     'Mega Group dropped one of the bird’s supporting checklists');
-  assert.equal(app.document.querySelector('#abaViewPick').getAttribute('aria-pressed'), 'true');
+  assert.ok(terek.querySelector(':scope > .hero'), 'Mega Group lost the shared large image');
+  assert.ok(terek.querySelector('.bcheading .spprimary'));
+  assert.ok(terek.querySelector('.bcstatus'), 'review and rarity status not below identity');
+  assert.ok(app.$('abaReportResults').classList.contains('card-lg'));
+  assert.equal(app.document.querySelector('#abaViewPick [data-megaview="grouped"]')
+    .getAttribute('aria-pressed'), 'true');
+  A.setTwitchView('grouped');
+  paint();
+  assert.equal(app.$('abaReportResults').children.length, 2, 'late repaint lost Mega preference');
+  app.click(app.document.querySelector('#abaViewPick [data-megaview="list"]'));
+  assert.equal(app.$('abaReportResults').children.length, 3);
+  assert.equal(A.twitchView(), 'grouped', 'Mega List changed Twitches preference');
+  const twig = app.document.createElement('ul');
+  twig.innerHTML = A.birdReportListCard({
+    code: 'tersan', name: 'Terek Sandpiper', sci: 'Xenus cinereus', dateStr: rows[0].obsDt,
+    subId: 'S1', lat: 47.8, lon: -122.2, loc: 'North Marsh', locId: 'L1'
+  }, { rare: true, cls: 'twitchcard' });
+  const megaList = app.$('abaReportResults').firstElementChild;
+  for (const selector of [':scope > .name > .thumb', '.ntext .spsci',
+    '.spmetricstack', '.rarewhere']) {
+    assert.ok(megaList.querySelector(selector), 'Mega lacks shared List contract ' + selector);
+    assert.ok(twig.firstElementChild.querySelector(selector), 'Twitches lacks ' + selector);
+  }
   app.window.close();
 });
 
@@ -31347,7 +31641,7 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
     'a bird whose distance never resolved was offered as somewhere to drive tonight');
 });
 
-test('F526 Bird Gen always uses Buzz ordering and renders no sort control', async () => {
+test('F787 supersedes F526 with newest event first and no sort control', async () => {
   const localStamp = (minsAgo) => {
     const d = new Date(Date.now() - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
@@ -31380,16 +31674,16 @@ test('F526 Bird Gen always uses Buzz ordering and renders no sort control', asyn
     const link = row.querySelector('.ntext a');
     return (link || row.querySelector('.ntext')).textContent.trim().split(/\s{2,}/)[0];
   });
-  assert.deepEqual(order(), ['need', 'crowd', 'crowd', 'cascade'],
-    'Buzz must rank category severity before report time');
-  assert.match(names()[1], /Baird's Sandpiper/);
+  assert.deepEqual(order(), ['crowd', 'cascade', 'crowd', 'need'],
+    'event chronology must outrank category severity');
+  assert.match(names()[0], /Baird's Sandpiper/);
   assert.match(names()[2], /Ruff/,
-    'Priority did not use recency as the tiebreak inside the CROWD category');
+    'recency did not order both CROWD observations');
   const before = app.state.fetches.length;
   assert.equal(app.document.querySelector('[data-surge-sort], .surgesortrow'), null,
     'Bird Gen still offers an alternate ordering');
   assert.equal(app.state.fetches.length, before,
-    'rendering the in-memory Buzz order must not refetch');
+    'rendering the in-memory chronological order must not refetch');
 
   const observedAt = HTML.indexOf('function surgeObservedResult');
   const observed = HTML.slice(observedAt,
@@ -31460,7 +31754,7 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
   assert.equal(app.document.querySelector('.surgefilterbtn'), null,
     'Bird Gen still renders an Unseen filter');
   assert.deepEqual(visibleKinds(),
-    ['mega', 'need', 'crowd', 'crowd', 'cascade', 'hotspot'],
+    ['crowd', 'mega', 'crowd', 'hotspot', 'cascade', 'need'],
     'Bird Gen hides seen alerts instead of showing the complete report');
   assert.equal(feed.querySelector('[data-alert-kind="mega"]').dataset.surgeSeen, 'seen',
     'a newly discovered mega was not rechecked against the active report after merging');
@@ -31546,12 +31840,12 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
   assert.match(hot.querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
     'the hotspot Notes date does not open the newest hot checklist');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['crowd', 'hotspot'],
-    'Priority order should still put CROWD ahead of HOTSPOT');
+    ['hotspot', 'crowd'],
+    'F787 must put the newer HOTSPOT checklist ahead of CROWD');
   assert.equal(app.document.querySelector('[data-surge-sort]'), null);
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
-    ['crowd', 'hotspot'],
-    'the fixed Buzz order changed after rendering hotspot timing');
+    ['hotspot', 'crowd'],
+    'chronology changed after rendering hotspot timing');
   app.window.close();
 });
 
