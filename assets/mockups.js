@@ -1441,7 +1441,8 @@ const BOOTSTRAP = `
     }));
     var snapshot = {
       fetchedAt: Date.now(),
-      forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
+      forecast: { level: 'High', date: A.todayStr(),
+        traffic: 8200, trafficMin: 8000, trafficMax: null },
       count: {
         birds: 1825700,
         label: 'Birds crossed King County last night (est.)',
@@ -1549,7 +1550,8 @@ const BOOTSTRAP = `
     if (at === 'surgeBtn') {
       A.setBirdcastSnapshot({
         fetchedAt: Date.now(),
-        forecast: { level: 'High', traffic: 8200, trafficMin: 8000, trafficMax: null },
+        forecast: { level: 'High', date: A.todayStr(),
+          traffic: 8200, trafficMin: 8000, trafficMax: null },
         count: {
           birds: 1825700,
           label: 'Birds crossed King County last night (est.)',

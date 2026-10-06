@@ -908,7 +908,9 @@ const AUDIT = `<script>
             var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
             var stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1)
               + '-' + pad(now.getDate()) + ' 00:01';
-            A.setBirdcastSnapshot({forecast: {level: 'Medium'}, count: null});
+            A.setBirdcastSnapshot({
+              forecast: {level: 'Medium', date: stamp.slice(0, 10)}, count: null
+            });
             A.renderSurge([], [], [], [], [], {
               observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
               favorites: 'partial', mass: 'partial',

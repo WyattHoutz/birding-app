@@ -11402,15 +11402,11 @@ test('F801 stale retained alerts paint immediately and reapply observation age, 
   const A = app.window.__app;
   seedSeen(app, []);
   const stamp = Date.now();
-  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+  await A.saveSurgeRetainedPart('favorite', { state: 'ok', retainedAt: stamp - 2 * 3600000, rows: [
     { code: 'margod', name: 'Marbled Godwit', time: stamp, when: f801Day() + ' 00:01',
       locId: 'LF801', locName: 'Public marsh', checklistId: 'SF801' },
     { code: 'old', name: 'Expired control', time: stamp - 10 * 86400000 },
   ] });
-  const key = Object.keys(app.window.localStorage).find((value) => value.startsWith('ebird_surge_retained_v1:'));
-  const saved = JSON.parse(app.window.localStorage.getItem(key));
-  saved.parts.favorite.at = stamp - 2 * 3600000;
-  app.window.localStorage.setItem(key, JSON.stringify(saved));
   A.loadSurge();
   assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
   assert.doesNotMatch(app.$('surgeResults').textContent, /Expired control/);
@@ -11534,7 +11530,7 @@ test('F801 a failed refresh keeps retained cards and a successful empty refresh 
   } });
   const A = app.window.__app;
   seedSeen(app, []);
-  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+  await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
       locId: 'LF801KEEP', locName: 'Retained marsh', checklistId: 'SF801KEEP' },
   ] });
@@ -11556,7 +11552,7 @@ test('F801 a failed refresh keeps retained cards and a successful empty refresh 
 test('F801 durable retained results survive reopen without an API response', async () => {
   const first = await boot();
   seedSeen(first, []);
-  first.window.__app.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+  await first.window.__app.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
       locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
   ] });
@@ -11567,6 +11563,8 @@ test('F801 durable retained results survive reopen without an API response', asy
   const second = await boot({ storage });
   seedSeen(second, []);
   second.window.__app.loadSurge();
+  await waitFor(() => second.$('surgeResults').textContent.includes('Marbled Godwit'),
+    'decompressed retained result');
   assert.match(second.$('surgeResults').textContent, /Marbled Godwit/);
   assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'stale');
   second.window.close();
@@ -11577,7 +11575,7 @@ test('F801 a changed Home supersedes active work and retained cards reapply seen
   const A = app.window.__app;
   seedSeen(app, []);
   app.window.requestAnimationFrame = () => 1;
-  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+  await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
       locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
   ] });
@@ -11599,12 +11597,170 @@ test('F801 a changed Home supersedes active work and retained cards reapply seen
 test('F801 retained alerts participate in personal-data erasure', async () => {
   const app = await boot();
   const A = app.window.__app;
-  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+  await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
   const keys = () => Object.keys(app.window.localStorage)
     .filter((key) => key.includes('surge_retained_v1:'));
   assert.equal(keys().length, 1, 'the control did not persist retained source data');
   A.scrubPersonalData();
   assert.equal(keys().length, 0, 'erasing personal data left the Home-scoped retained model behind');
+  app.window.close();
+});
+
+test('F807 retained results use compression and report source-safe write measurements', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.CompressionStream = CompressionStream;
+  app.window.DecompressionStream = DecompressionStream;
+  app.window.Response = Response;
+  const rows = Array.from({ length: 48 }, (_, i) => ({
+    code: 'f807bird' + i, name: 'Representative retained species ' + i,
+    time: Date.now(), when: f801Day() + ' 00:01', locId: 'LF807',
+    evidence: 'repeated source evidence '.repeat(12),
+  }));
+  await A.saveSurgeRetainedPart('mass', {
+    state: 'partial', evidenceRows: rows, rows: rows.slice(0, 8),
+  });
+  const key = Object.keys(app.window.localStorage)
+    .find((value) => value.startsWith('ebird_surge_retained_v1:'));
+  const raw = app.window.localStorage.getItem(key);
+  assert.match(raw, /^z:/, 'large retained model was not gzip packed');
+  const decoded = await A.unpackJson(raw);
+  assert.equal(decoded.parts.mass.value.evidenceRows.length, 48);
+  assert.ok(raw.length < JSON.stringify(decoded).length,
+    'packed retained model did not reduce the stored payload');
+
+  const log = app.window.__dbg.buf.map((row) => row.msg).join('\n');
+  assert.match(log, /Bird Gen retained mass persistence stored: raw \d+ chars; packed \d+ chars \(gzip\); reclaimed 0 chars; retry not needed/);
+  assert.doesNotMatch(log, /LF807|f807bird|Representative retained species/,
+    'retained diagnostics leaked evidence values');
+  app.window.close();
+});
+
+test('F807 quota failure keeps the durable snapshot, serves memory, and recovers', async () => {
+  const app = await boot({
+    storage: { ebird_favs: JSON.stringify([
+      { id: 'keep', locId: 'LF807', locName: 'Retained marsh', region: 'US-WA' },
+    ]) },
+    fetch(url) {
+      return /data\/obs\/LF807/.test(url) ? { unreadable: true } : [];
+    },
+  });
+  const A = app.window.__app, W = app.window;
+  seedSeen(app, []);
+  W.CompressionStream = CompressionStream;
+  W.DecompressionStream = DecompressionStream;
+  W.Response = Response;
+  await A.saveSurgeRetainedPart('favorite', {
+    state: 'ok', rows: [{
+      code: 'oldbird', name: 'Last good bird', time: Date.now(),
+      when: f801Day() + ' 00:01', locId: 'LF807', checklistId: 'SF807OLD',
+    }],
+  });
+  const key = Object.keys(W.localStorage)
+    .find((value) => value.startsWith('ebird_surge_retained_v1:'));
+  const durableBefore = W.localStorage.getItem(key);
+  W.localStorage.setItem('ebird_photos_neg_v1:f807', 'x'.repeat(256));
+  const storageProto = Object.getPrototypeOf(W.localStorage);
+  const originalSet = storageProto.setItem;
+  let rejected = 0;
+  storageProto.setItem = function (target, value) {
+    if (target === key && String(value).length > durableBefore.length + 20) {
+      rejected++;
+      throw new W.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return originalSet.call(this, target, value);
+  };
+  W.localStorage.setItem('small-write-control', 'still writable');
+  assert.equal(await A.zcPut('bc_surge_sources_v1:f807-small', { small: true }), true,
+    'a small source-cache write did not succeed under the retained-write pressure');
+  assert.ok(W.localStorage.getItem('bc_surge_sources_v1:f807-small'));
+  const replacement = Array.from({ length: 50 }, (_, i) => ({
+    code: 'newbird' + i, name: 'Replacement bird ' + i, time: Date.now(),
+    when: f801Day() + ' 00:01', locId: 'LF807', checklistId: 'SF807NEW',
+    evidence: 'quota fixture '.repeat(16),
+  }));
+  const stored = await A.saveSurgeRetainedPart('favorite', {
+    state: 'ok', rows: replacement,
+  });
+
+  assert.equal(stored, false, 'quota failure was reported as durable success');
+  assert.ok(rejected >= 2, 'the write and reclaim retry did not both hit quota');
+  assert.equal(W.localStorage.getItem('small-write-control'), 'still writable',
+    'the small control write unexpectedly failed');
+  assert.equal(W.localStorage.getItem(key), durableBefore,
+    'a failed replacement damaged the previous durable snapshot');
+  assert.equal(A.loadSurgeRetained().favorite.rows.length, 50,
+    'usable in-memory results were lost after the durable write failed');
+  assert.match(A.storeReport().join('\n'),
+    /demonstrated write pressure: .*retry failed/,
+    'the shared storage-pressure diagnostic missed the retained failure');
+  const failure = W.__dbg.buf.map((row) => row.msg).join('\n');
+  assert.match(failure,
+    /Bird Gen retained favorite persistence memory only: raw \d+ chars; packed \d+ chars \(gzip\); reclaimed \d+ chars; retry failed/);
+  assert.doesNotMatch(failure, /SF807|newbird\d|Replacement bird/,
+    'retained failure logging leaked evidence values');
+
+  A.LOADERS.surgeBtn.reachability = false;
+  A.loadSurge();
+  assert.ok(app.$('surgeResults').querySelector('[data-surge-retention-warning]'),
+    'the failed snapshot write was not shown in Bird Gen');
+  await waitFor(() => app.$('surgeResults').dataset.sourceFavorites === 'failed',
+    'failed Favorite refresh preserving its retained rows');
+  assert.ok(app.$('surgeResults').querySelector('[data-surge-retention-warning]'),
+    'the refresh hid its still-current retention warning');
+  assert.match(app.$('surgeResults').textContent, /Replacement bird 0/,
+    'the usable in-memory retained rows disappeared during refresh');
+  assert.match(app.$('surgeResults').textContent, /available in this session/,
+    'the UI did not distinguish memory-only results from durable data');
+
+  storageProto.setItem = originalSet;
+  assert.equal(await A.saveSurgeRetainedPart('mass', { state: 'ok', rows: [] }), true,
+    'later durable write did not recover');
+  assert.equal(app.$('surgeResults').querySelector('[data-surge-retention-warning]'), null,
+    'a successful durable snapshot did not clear the stale warning');
+  const recovered = await A.unpackJson(W.localStorage.getItem(key));
+  assert.equal(recovered.parts.favorite.value.rows.length, 50,
+    'recovery discarded the usable in-memory source result');
+  assert.equal(recovered.parts.mass.value.rows.length, 0);
+  app.window.close();
+});
+
+test('F807 retained snapshots remain readable from legacy plain JSON', async () => {
+  const first = await boot();
+  const A = first.window.__app;
+  first.window.CompressionStream = CompressionStream;
+  first.window.DecompressionStream = DecompressionStream;
+  first.window.Response = Response;
+  await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+    { code: 'legacybird', name: 'Legacy bird', time: Date.now(),
+      when: f801Day() + ' 00:01', locId: 'LF807LEGACY' },
+  ] });
+  const key = Object.keys(first.window.localStorage)
+    .find((value) => value.startsWith('ebird_surge_retained_v1:'));
+  const legacyJson = JSON.stringify(await A.unpackJson(first.window.localStorage.getItem(key)));
+  first.window.close();
+
+  const second = await boot({ storage: { [key]: legacyJson } });
+  assert.equal(second.window.__app.loadSurgeRetained().favorite.rows[0].name, 'Legacy bird',
+    'the synchronous legacy-JSON path no longer hydrates old retained data');
+  second.window.close();
+});
+
+test('F807 erasure cancels queued retained writes and clears their memory copy', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const pending = A.saveSurgeRetainedPart('favorite', {
+    state: 'ok', rows: Array.from({ length: 48 }, (_, i) => ({
+      code: 'erasebird' + i, name: 'Erasure fixture ' + i, time: Date.now(),
+      evidence: 'queued compression '.repeat(12),
+    })),
+  });
+  A.scrubPersonalData();
+  assert.equal(await pending, false, 'a queued retained write survived erasure');
+  assert.equal(Object.keys(app.window.localStorage)
+    .some((key) => key.startsWith('ebird_surge_retained_v1:')), false,
+  'erasure left or recreated the retained snapshot');
+  assert.equal(A.loadSurgeRetained(), null, 'erasure left a retained in-memory copy');
   app.window.close();
 });
 
@@ -12063,6 +12219,22 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
     'routine resident crow concentrations became Mass Flock noise');
   assert.ok(!events.some((event) => event.code === 'brant'),
     'one uncorroborated extreme count became a Mass Flock alert');
+  const gateCounts = {};
+  A.massFlockAlerts([
+    { ...rows[0], subnational1Code: 'US-OR', subId: 'SCOPE' },
+    { ...rows[0], locName: 'Private residence', subId: 'PRIVATE-NAME' },
+    { ...rows[0], locationPrivate: true, locId: 'PRIVATE-PIN', subId: 'PRIVATE-PIN' },
+    { ...rows[0], lat: null, subId: 'INVALID' },
+    { ...rows[0], howMany: 300, subId: 'LOW' },
+    { ...rows[0], subId: 'ONLY-VISIT' },
+  ], {
+    region: 'US-WA', now, home: { lat: 48.25, lng: -122.38 }, maxMi: 35,
+    diagnostics: gateCounts,
+  });
+  assert.ok(gateCounts.scope > 0 && gateCounts.location > 0
+    && gateCounts.invalidEvidence > 0 && gateCounts.belowCount > 0
+    && gateCounts.independentVisitClusters > 0,
+  'diagnostics did not count the production scope, privacy, evidence, count, and corroboration gates');
   const classify = (input, options = {}) => A.massFlockAlerts(input, {
     region: 'US-WA', now, home: { lat: 48.25, lng: -122.38 }, maxMi: 35,
     allowedPrivateLocIds: { LPUBLICPIN: 1 }, ...options,
@@ -12184,6 +12356,14 @@ test('F730 live source combines dated evidence with scoped species rows and reje
     'missing species-feed county fields or same-pin dated evidence lost the real event');
   assert.equal(result.rows[0].minCount, 600);
   assert.equal(result.rows[0].maxCount, 650);
+  const verdict = app.window.__dbg.buf.map((row) => row.msg)
+    .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+  assert.match(verdict, /qualifying flocks; dated samples 7\/7 succeeded/);
+  assert.match(verdict, /candidate species 1; species checks 1\/1 \(1 succeeded, 0 failed\)/);
+  assert.match(verdict, /dated API 0 requests .* species API 1 requests .* queue \d+ms, transport \d+ms/);
+  assert.match(verdict, /public-location directory not needed;.*qualifying flocks 1/);
+  assert.doesNotMatch(verdict, /margod|Marbled Godwit|LTOKE|SOLDER|SNEW|46\.707|-123\.974/,
+    'the aggregate source verdict exposed observation or location details');
   assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 0);
   assert.equal(app.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 1);
   const refreshed = await A.loadMassFlockAlertSource(true, A.activeScope());
@@ -12214,6 +12394,11 @@ test('F730 live source combines dated evidence with scoped species rows and reje
   assert.equal(bounded.rows.length, 13, 'valid dated evidence was lost on species failure');
   assert.equal(capped.state.fetches.filter((url) => /recent\/budget/.test(url)).length, 12,
     'the source exceeded its explicit species follow-up budget');
+  const partialVerdict = capped.window.__dbg.buf.map((row) => row.msg)
+    .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+  assert.match(partialVerdict, /qualifying flocks; incomplete coverage/);
+  assert.match(partialVerdict, /species checks 12\/12 \(11 succeeded, 1 failed\); capped yes/);
+  assert.match(partialVerdict, /queue \d+ms, transport \d+ms/);
   capped.window.close();
 
   let release;
@@ -12227,6 +12412,9 @@ test('F730 live source combines dated evidence with scoped species rows and reje
   B.setCountyView('US-WA-033');
   release([observation(1, 600, 'SLATE')]);
   assert.equal((await loading).state, 'failed');
+  const cancelledVerdict = pending.window.__dbg.buf.map((row) => row.msg)
+    .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+  assert.match(cancelledVerdict, /verdict: cancelled/);
   assert.equal(pending.state.fetches.filter((url) => /\/historic\//.test(url)).length, 1,
     'obsolete scope launched the remaining dated sweep');
   assert.equal(pending.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 0);
@@ -12234,6 +12422,73 @@ test('F730 live source combines dated evidence with scoped species rows and reje
     .filter((key) => key.startsWith('bc_mass_day_v1:')).length, 0,
   'an obsolete response poisoned the next scope cache');
   pending.window.close();
+});
+
+test('F808 total Mass Flock acquisition failure is logged as failed coverage', async () => {
+  const app = await boot({ fetch: () => ({ unreadable: true }) });
+  const A = app.window.__app;
+  const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+  assert.equal(result.state, 'failed');
+  const verdict = app.window.__dbg.buf.map((row) => row.msg)
+    .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+  assert.match(verdict, /source failed; dated samples 0\/7 succeeded, 7 failed/);
+  assert.match(verdict, /candidate species 0; species checks 0\/0/);
+  assert.match(verdict, /qualifying flocks 0; rejected scope 0/);
+  app.window.close();
+});
+
+test('F808 empty and partial dated coverage have different final verdicts', async () => {
+  for (const partial of [false, true]) {
+    const storage = f801Days();
+    if (partial) delete storage['bc_mass_day_v1:US-WA:' + f801Day()];
+    const app = await boot({ storage, fetch: () => ({ unreadable: true }) });
+    const A = app.window.__app;
+    const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(result.state, partial ? 'partial' : 'ok');
+    const verdicts = app.window.__dbg.buf.map((row) => row.msg)
+      .filter((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+    assert.equal(verdicts.length, 1, 'final verdict is missing or emitted more than once');
+    assert.match(verdicts[0], partial
+      ? /incomplete coverage; no qualifying sampled flocks; dated samples 6\/7 succeeded, 1 failed/
+      : /verdict: no qualifying sampled flocks; dated samples 7\/7 succeeded, 0 failed/);
+    assert.match(verdicts[0], /candidate species 0; species checks 0\/0/);
+    app.window.close();
+  }
+});
+
+test('F808 public-directory failure is separate from successful species corroboration', async () => {
+  const rows = [1, 2].map((ago) => ({
+    speciesCode: 'flocktest', comName: 'Synthetic flock bird', howMany: 600,
+    obsDt: f801Day(ago) + ' 08:00', subId: 'SECRET-VISIT-' + ago,
+    locId: 'SECRET-PIN', locName: 'Synthetic public marsh',
+    lat: 47.75, lng: -122.16, locationPrivate: true,
+    subnational1Code: 'US-WA',
+  }));
+  for (const failed of [false, true]) {
+    const app = await boot({ storage: f801Days(rows), fetch(url) {
+      if (/ref\/hotspot\//.test(url)) {
+        return failed ? { unreadable: true } : [{
+          locId: 'PUBLIC-HOTSPOT', locName: 'Synthetic public marsh',
+          lat: 47.75, lng: -122.16,
+        }];
+      }
+      return [];
+    } });
+    const A = app.window.__app;
+    const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(result.state, failed ? 'partial' : 'ok');
+    assert.equal(result.rows.length, failed ? 0 : 1,
+      'private evidence bypassed public-location resolution or valid resolution was discarded');
+    const verdict = app.window.__dbg.buf.map((row) => row.msg)
+      .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
+    assert.match(verdict, /species checks 1\/1 \(1 succeeded, 0 failed\)/);
+    assert.match(verdict, failed
+      ? /public-location directory failed/ : /public-location directory loaded/);
+    assert.match(verdict, failed ? /location\/privacy 2/ : /location\/privacy 0/);
+    assert.match(verdict, /directory API 1 requests .*queue \d+ms, transport \d+ms/);
+    assert.doesNotMatch(verdict, /SECRET|flocktest|Synthetic|47\.75|-122\.16/);
+    app.window.close();
+  }
 });
 
 test('F732 latest-bird icons preserve per-row identity and omit unavailable evidence', async () => {
@@ -19603,12 +19858,12 @@ test('F787 migration ordering uses validity dates and completed-night events, no
   const app = await boot();
   const A = app.window.__app;
   const now = new Date('2026-10-04T20:00:00Z');
-  const snapshot = { forecast: { level: 'High' },
+  const snapshot = { forecast: { level: 'High', date: '2026-10-04' },
     count: { high: true, birds: 1000000, countyLabel: 'Fixture County',
       nightEndedAt: Date.parse('2026-10-04T14:00:00Z') } };
   const first = arr(A.birdcastSurgeRows(now, snapshot), (row) => row.when);
   const later = arr(A.birdcastSurgeRows(new Date(now.getTime() + 60000), snapshot), (row) => row.when);
-  assert.deepEqual(first, ['2026-10-04', '2026-10-04T14:00:00.000Z']);
+  assert.deepEqual(first, ['2026-10-05T04:00:00.000Z', '2026-10-04T14:00:00.000Z']);
   assert.deepEqual(later, first, 'a repaint invented a newer migration event');
   app.window.close();
 });
@@ -21123,7 +21378,7 @@ test('a failed feed is evicted from the memo, so it can be retried', () => {
   // the rest of the session. Asserted on the source rather than by driving a
   // real failure: the retry path deliberately waits out a 20 s cooldown, so
   // exercising it here would make the suite take minutes.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, noMemoryCache, work)');
+  const ebirdAt = HTML.indexOf('function ebird(');
   const ebirdEnd = HTML.indexOf('function ebirdBg(', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
@@ -23379,6 +23634,8 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.ok(beforeSunrise.endedAt < new Date('2026-09-29T07:32:00Z').getTime(),
     'the completed-night age did not begin at the ending sunrise');
   const snapshot = await A.renderBirdcast(daytime);
+  assert.equal(snapshot.forecast.date, '2026-09-28',
+    'the validated forecast lost the date its night refers to');
   const body = app.$('bcBody');
   assert.match(body.textContent, /HIGH/);
   assert.match(body.textContent, /Heavy migration expected tonight/);
@@ -23446,6 +23703,11 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
   assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
+  assert.match(rows[0].where, /9 pm local reference/);
+  assert.match(rows[0].noteHeader, /9 pm local reference time/);
+  assert.match(rows[0].extra, /app-selected reference time, not a BirdCast event time/);
+  assert.equal(rows[0].time, Date.parse('2026-09-29T04:00:00.000Z'),
+    'the Pacific-time reference is not 9 pm on the validated forecast date');
   assert.equal(rows[0].omitWhen, true,
     'the forecast source line still appends Bird Chaser’s render time');
   assert.match(rows[0].noteHeader, /Heavy migration expected tonight/);
@@ -27232,7 +27494,7 @@ test('the debug log reports what each section cost', async () => {
     assert.ok(rep[i - 1].calls >= rep[i].calls, 'most expensive first');
   }
   // ebird() must actually feed it, or the ledger stays empty in real use.
-  const ebirdAt = HTML.indexOf('function ebird(path, bg, noRefCache, noMemoryCache, work)');
+  const ebirdAt = HTML.indexOf('function ebird(');
   const ebirdEnd = HTML.indexOf('function ebirdBg(', ebirdAt);
   assert.ok(ebirdAt > 0 && ebirdEnd > ebirdAt,
     'the ebird request wrapper is found by named boundaries');
@@ -27953,13 +28215,59 @@ test('F761 Bird Gen includes Medium and High forecasts, never Low forecasts', as
   const A = app.window.__app;
   const now = new Date('2026-09-28T18:00:00Z');
   for (const level of ['Medium', 'High']) {
-    const rows = A.birdcastSurgeRows(now, { forecast: { level } });
+    const rows = A.birdcastSurgeRows(now, {
+      forecast: { level, date: '2026-09-28' },
+    });
     assert.equal(rows.length, 1);
     assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight<'));
     assert.match(rows[0].noteHeader, level === 'High' ? /Heavy/ : /Moderate/);
     assert.match(rows[0].name, /data-sec="sec-bcBody"/);
   }
-  assert.equal(A.birdcastSurgeRows(now, { forecast: { level: 'Low' } }).length, 0);
+  assert.equal(A.birdcastSurgeRows(now, {
+    forecast: { level: 'Low', date: '2026-09-28' },
+  }).length, 0);
+  app.window.close();
+});
+
+test('F806 tonight forecast uses its validated local 9 pm reference across midnight and DST', async () => {
+  const app = await boot({ report: 'wa' });
+  const A = app.window.__app;
+  const beforeMidnight = new Date('2026-10-05T06:50:00Z');
+  const oldForecast = { forecast: { level: 'Medium', date: '2026-10-04' } };
+  const oldRow = A.birdcastSurgeRows(beforeMidnight, oldForecast)[0];
+  assert.equal(oldRow.time, Date.parse('2026-10-05T04:00:00.000Z'));
+  assert.match(oldRow.where, /10\/4-5 · 9 pm local reference/);
+  A.setBirdcastSnapshot(oldForecast);
+  A.renderSurge([], [], [], [], []);
+  const forecastCard = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
+  assert.ok(forecastCard, 'the forecast reference never reached the rendered Bird Gen feed');
+  assert.equal(forecastCard.querySelector('.surgeage').textContent, '9 pm ref');
+  assert.doesNotMatch(forecastCard.textContent, /Time unknown/);
+  assert.match(forecastCard.textContent, /app-selected reference time, not a BirdCast event time/);
+  const afterMidnight = new Date('2026-10-05T08:00:00Z');
+  const stillOld = A.birdcastSurgeRows(afterMidnight, oldForecast)[0];
+  assert.equal(stillOld.time, oldRow.time,
+    'repainting after midnight moved yesterday’s forecast to tonight');
+  assert.match(stillOld.where, /10\/4-5/);
+  const refreshed = A.birdcastSurgeRows(afterMidnight, {
+    forecast: { level: 'High', date: '2026-10-05' },
+  })[0];
+  assert.equal(refreshed.time, Date.parse('2026-10-06T04:00:00.000Z'),
+    'a refreshed forecast did not use 9 pm PDT for its own validated date');
+
+  const beforeDst = A.birdcastSurgeRows(new Date('2026-11-01T02:00:00Z'), {
+    forecast: { level: 'High', date: '2026-10-31' },
+  })[0];
+  const afterDst = A.birdcastSurgeRows(new Date('2026-11-02T08:00:00Z'), {
+    forecast: { level: 'High', date: '2026-11-01' },
+  })[0];
+  assert.equal(beforeDst.time, Date.parse('2026-11-01T04:00:00.000Z'),
+    'the pre-DST local reference did not use daylight time');
+  assert.equal(afterDst.time, Date.parse('2026-11-02T05:00:00.000Z'),
+    'the post-DST local reference did not use standard time');
+  assert.equal(A.birdcastSurgeRows(afterMidnight, {
+    forecast: { level: 'High' },
+  }).length, 0, 'a forecast without its validated source date invented a reference');
   app.window.close();
 });
 
