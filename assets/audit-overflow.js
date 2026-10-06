@@ -111,6 +111,7 @@ const BOOTSTRAP = `<script>
   window.fetch = function (url) {
     var u = String(url);
     if (/^https?:\\/\\/(localhost|127\\.)/.test(u) || /^[./]/.test(u)) return realFetch.apply(this, arguments);
+    window.__auditExternalCalls = (window.__auditExternalCalls || 0) + 1;
     var body = [];
     if (/ref\\/taxonomy/.test(u)) body = SPP;
     else if (/product\\/spplist/.test(u)) body = SPP.map(function (s) { return s.speciesCode; });
@@ -1254,7 +1255,25 @@ const AUDIT = `<script>
         finish(out);
       });
     }
-    step();
+    var beforeBirdGen = window.__auditExternalCalls || 0;
+    A.showSection('sec-surgeBtn');
+    var shell = document.querySelector('#surgeResults .surgesourceprogress');
+    requestAnimationFrame(function () {
+      var rect = shell && shell.getBoundingClientRect();
+      var firstFrame = !!(rect && rect.width > 0 && rect.height > 0
+        && !document.getElementById('sec-surgeBtn').hidden);
+      var noEarlyRequests = (window.__auditExternalCalls || 0) === beforeBirdGen;
+      requestAnimationFrame(function () {
+        var frameCheck = scan('(F801 initial Bird Gen render frame)');
+        frameCheck.birdGenFrame = { visibleShell: firstFrame, noEarlyRequests: noEarlyRequests };
+        if (!firstFrame || !noEarlyRequests) {
+          frameCheck.fixtureError = 'Bird Gen did not give its visible shell a frame before acquisition';
+        }
+        out.push(frameCheck);
+        document.getElementById('navBack').click();
+        step();
+      });
+    });
   }
   function finish(out) {
     try {
@@ -1451,6 +1470,11 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (!report.some((r) => r.birdGenFrame && r.birdGenFrame.visibleShell
+        && r.birdGenFrame.noEarlyRequests)) {
+      bad++;
+      console.log('   F801 FIXTURE missing the visible pre-acquisition Bird Gen frame');
+    }
     if (!report.some((r) => /Estimated time remaining for this stage/.test(r.etaFixture || ''))) {
       bad++;
       console.log('   F749 FIXTURE missing a real estimated loader');

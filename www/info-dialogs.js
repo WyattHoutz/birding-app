@@ -123,13 +123,19 @@
           + 'One alert per species and patch keeps the newest evidence. The bird photo '
           + 'identifies the species; the headline opens the patch. County scope requires '
           + 'the exact county year list and matching patch/observation ownership. '
-          + 'Failed sibling feeds are named while successful results remain visible.</p>'
+          + 'Each patch publishes as it arrives, without waiting for later patches. '
+          + 'Failed sibling feeds are named while successful and still-relevant retained '
+          + 'results remain visible.</p>'
       },
       mass: {
         title: '🪶 Mass flocks',
         body: '<p>Seven dated regional samples find species with counts of 250 or more; '
           + 'at most 12 species feeds are then checked. Dated evidence and species feeds '
           + 'are combined, not substituted. This is a bounded sample, not an exhaustive census.</p>'
+          + '<p>Checked species appear while later feeds are still loading. Private pins '
+          + 'remain withheld until public-location checks finish. Ordinary refresh reuses '
+          + 'valid older daily samples; <b>Recheck 7-day flock history</b> rereads all seven. '
+          + 'A refresh timer does not remove still-relevant retained alerts.</p>'
           + '<p>Two distinct checklist visits with counts of at least 500 must agree '
           + 'within the existing one-kilometre place grouping. Same-minute shared submissions '
           + 'do not corroborate each other. Lower counts do not erase the high-count range; '

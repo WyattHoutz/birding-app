@@ -89,6 +89,21 @@ test('F623 concurrent sections attribute request costs by loadId, not visible or
   assert.equal(birdGenSample.network_ms, 70);
 });
 
+test('F801 source settlement remains attributable without prematurely completing a load', () => {
+  let now = 0;
+  const rows = [];
+  const tracker = Performance.create({ clock: () => now, emit: eventSink(rows) });
+  const id = tracker.start({ sectionId: 'sec-surgeBtn', reason: 'refresh' });
+  now = 1800;
+  tracker.source(id, { source: 'mass', state: 'partial' });
+  assert.equal(tracker.active(id), true);
+  assert.equal(rows[1].attrs.elapsed_ms, 1800);
+  assert.equal(rows[1].attrs.load_id, id);
+  assert.equal(rows[1].attrs.source, 'mass');
+  tracker.finish(id, { completion_scope: 'source_data; viewport-lazy photos excluded' });
+  assert.equal(tracker.source(id, { source: 'late' }), null);
+});
+
 test('F623 analyzer separates cache modes and labels a measured regression', () => {
   const rows = [];
   function sample(version, id, primary, cacheMode, outcome = 'ok') {

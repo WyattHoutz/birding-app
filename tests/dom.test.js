@@ -4022,7 +4022,7 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
   assert.match(phaseTwo, /!phase2Cancel\.cancelled/,
     'F696 a replacement generation cannot stop superseded phase-two work');
 
-  const converge = between('var pConverge =', 'return Promise.all([pObserved');
+  const converge = between('var pConverge =', 'function cascadeSpots(');
   assert.match(converge,
     /current\.state === 'loading' && current\.promise[\s\S]*return current\.promise/,
     'F695 duplicate Bird Gen callers no longer join the active source promise');
@@ -11284,11 +11284,367 @@ test('Bird Gen separates its menu title from the Talk and news subtitle', async 
   app.window.close();
 });
 
+function f801Day(ago = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() - ago);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    + `-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function f801Days(rows = []) {
+  return Object.fromEntries(Array.from({ length: 7 }, (_, ago) => [
+    'bc_mass_day_v1:US-WA:' + f801Day(ago),
+    JSON.stringify({ at: Date.now(), complete: true,
+      rows: rows.filter((row) => row.obsDt.startsWith(f801Day(ago))) }),
+  ]));
+}
+
+test('F801 cold shell precedes both render frames and all source requests', async () => {
+  const app = await boot({ storage: f801Days(), fetch: () => [] });
+  assert.equal(app.state.fetches.filter((url) => /birdcast\.org/.test(url)).length, 0,
+    'settings boot prefetched a hidden BirdCast report');
+  const frames = [];
+  app.window.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+  const before = app.state.fetches.length;
+  const load = app.window.__app.loadSurge();
+  assert.ok(app.$('surgeResults').querySelector('[role="progressbar"]'));
+  assert.equal(app.$('surgeResults').dataset.sourceObservations, 'loading');
+  assert.equal(app.state.fetches.length, before);
+  assert.equal(frames.length, 1);
+  frames.shift()();
+  await Promise.resolve();
+  assert.equal(app.state.fetches.length, before, 'acquisition started before the paint opportunity');
+  frames.shift()();
+  await load;
+  assert.ok(app.state.fetches.length > before, 'the frame gate never released acquisition');
+  app.window.close();
+});
+
+test('F801 favorites publish each patch while later patches remain pending', async () => {
+  let release;
+  const favorites = [
+    { id: 'one', locId: 'LF801A', locName: 'First marsh', region: 'US-WA' },
+    { id: 'two', locId: 'LF801B', locName: 'Second marsh', region: 'US-WA' },
+  ];
+  const app = await boot({ sample: false, storage: {
+    ebird_favs: JSON.stringify(favorites),
+  }, fetch(url) {
+    if (/data\/obs\/LF801B/.test(url)) return new Promise((resolve) => { release = resolve; });
+    if (/data\/obs\/LF801A/.test(url)) return [{
+      speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801A',
+      obsDt: f801Day() + ' 00:01', subId: 'SF801', howMany: 2,
+    }];
+    return [];
+  } });
+  seedSeen(app, []);
+  const updates = [];
+  const A = app.window.__app;
+  const pending = A.loadFavoritePatchAlertSource(false, A.activeScope(), (value) => updates.push(value));
+  await waitFor(() => release, 'second Favorite request');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].state, 'loading');
+  assert.deepEqual(arr(updates[0].rows, (row) => row.code), ['margod']);
+  release([]);
+  const final = await pending;
+  assert.equal(final.state, 'ok');
+  assert.deepEqual(arr(final.rows, (row) => row.code), ['margod']);
+  assert.equal(app.state.fetches.filter((url) => /data\/obs\/LF801/.test(url)).length, 2);
+  app.window.close();
+});
+
+test('F801 mass publishes checked species before later corroboration without exposing private pins', async () => {
+  let release;
+  const rows = ['margod', 'snogoo'].flatMap((speciesCode, index) => [0, 1].map((ago) => ({
+    speciesCode, comName: speciesCode, howMany: 800 - index * 100,
+    obsDt: f801Day(ago) + ' 00:01', subId: speciesCode + ago,
+    locId: 'LF801', locName: 'Public marsh', lat: 47.75, lng: -122.16,
+    locationPrivate: false,
+  })));
+  const privateRows = rows.filter((row) => row.speciesCode === 'margod')
+    .map((row) => ({ ...row, lat: 48.5, locId: 'PRIVATE801',
+      subId: row.subId + 'private', locationPrivate: true }));
+  const app = await boot({ storage: f801Days(rows.concat(privateRows)), fetch(url) {
+    if (/recent\/snogoo/.test(url)) return new Promise((resolve) => { release = resolve; });
+    return [];
+  } });
+  const A = app.window.__app, updates = [];
+  const pending = A.loadMassFlockAlertSource(false, A.activeScope(), (value) => updates.push(value));
+  await waitFor(() => release, 'second Mass corroboration request');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].state, 'loading');
+  assert.deepEqual(arr(updates[0].rows, (row) => row.code), ['margod']);
+  assert.ok(updates[0].rows.every((row) => row.locId !== 'PRIVATE801'));
+  release([]);
+  const final = await pending;
+  assert.equal(final.state, 'ok');
+  assert.deepEqual(arr(final.rows, (row) => row.code).sort(), ['margod', 'snogoo']);
+  assert.equal(app.state.fetches.filter((url) => /recent\/(?:margod|snogoo)/.test(url)).length, 2);
+  app.window.close();
+});
+
+test('F801 ordinary flock refresh reuses valid history and preserves another region cache', async () => {
+  const other = 'bc_mass_day_v1:US-OR:' + f801Day(1);
+  const app = await boot({ storage: {
+    ...f801Days(), [other]: JSON.stringify({ at: Date.now(), complete: true, rows: [] }),
+  }, fetch: () => [] });
+  const A = app.window.__app;
+  await A.loadMassFlockAlertSource(true, A.activeScope(), null, false);
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 1);
+  assert.ok(app.window.localStorage.getItem(other), 'changing region purged reusable dated evidence');
+  await A.loadMassFlockAlertSource(true, A.activeScope(), null, true);
+  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 8,
+    'explicit deep history did not reread all seven dates');
+  app.window.close();
+});
+
+test('F801 stale retained alerts paint immediately and reapply observation age, seen and scope', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  seedSeen(app, []);
+  const stamp = Date.now();
+  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+    { code: 'margod', name: 'Marbled Godwit', time: stamp, when: f801Day() + ' 00:01',
+      locId: 'LF801', locName: 'Public marsh', checklistId: 'SF801' },
+    { code: 'old', name: 'Expired control', time: stamp - 10 * 86400000 },
+  ] });
+  const key = Object.keys(app.window.localStorage).find((value) => value.startsWith('ebird_surge_retained_v1:'));
+  const saved = JSON.parse(app.window.localStorage.getItem(key));
+  saved.parts.favorite.at = stamp - 2 * 3600000;
+  app.window.localStorage.setItem(key, JSON.stringify(saved));
+  A.loadSurge();
+  assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Expired control/);
+  assert.ok(app.$('surgeResults').querySelector('[data-surge-retained]'));
+  seedSeen(app, ['margod']);
+  assert.equal(A.loadSurgeRetained().favorite.rows.length, 0, 'newly seen Favorite stayed eligible');
+  A.setCountyView('US-WA-033');
+  assert.equal(A.loadSurgeRetained(), null, 'parent alerts leaked into a county snapshot');
+  app.window.close();
+});
+
+test('F801 completed sources publish around held Favorites and telemetry owns the optional tail', async () => {
+  let releaseFavorite, releaseMega;
+  const app = await boot({ storage: { ...f801Days(), ebird_favs: JSON.stringify([
+    { id: 'hold', locId: 'LF801HOLD', locName: 'Held marsh', region: 'US-WA' },
+  ]) }, fetch(url) {
+    if (/data\/obs\/LF801HOLD/.test(url)) return new Promise((resolve) => { releaseFavorite = resolve; });
+    if (/alert\/summary/.test(url)) return new Promise((resolve) => { releaseMega = resolve; });
+    if (/top100/.test(url)) return fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
+    return [];
+  } });
+  const A = app.window.__app;
+  await A.saveSurgeSourceCache({
+    convergence: { state: 'ok', rows: [] },
+  });
+  A.LOADERS.surgeBtn.reachability = false;
+  app.open(/Bird Gen/);
+  await waitFor(() => releaseFavorite && releaseMega, 'held optional sources');
+  await waitFor(() => app.$('surgeResults').dataset.sourceLeaderboard === 'ok',
+    'live leaderboard publication while Favorites remains held');
+  assert.equal(app.$('surgeResults').dataset.sourceLeaderboard, 'ok');
+  assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'ok');
+  releaseFavorite([]);
+  await waitFor(() => app.window.__audit.events()
+    .filter((row) => row.event === 'report_source_settled' && row.attrs.source !== 'mega')
+    .length === 6, 'all non-Mega source settlements');
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  let samples = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples;
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].outcome, 'incomplete', 'DOM quiet ended an owned pending load');
+  assert.notEqual(samples[0].primary_ready_ms, null);
+  releaseMega('<div class="Observation"></div>');
+  await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0].outcome === 'ok', 'complete owned lifecycle');
+  const firstId = samples[0].load_id;
+  const sourceEvents = app.window.__audit.events()
+    .filter((row) => row.event === 'report_source_settled' && row.attrs.load_id === firstId);
+  assert.deepEqual(Array.from(sourceEvents, (row) => row.attrs.source).sort(),
+    ['birdcast', 'favorites', 'hotspots', 'leaderboard', 'mass', 'mega', 'observations']);
+  const finished = app.window.__audit.events()
+    .find((row) => row.event === 'report_load_complete' && row.attrs.load_id === firstId);
+  assert.match(finished.attrs.completion_scope, /photos excluded/);
+  assert.ok(finished.attrs.live_requests >= 5, 'late Mega transport escaped the load sample');
+  app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+  samples = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples;
+  assert.equal(samples.length, 2, 'heading refresh did not start another sample');
+  assert.notEqual(samples[1].load_id, firstId);
+  app.click(app.$('navBack'));
+  assert.equal(A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples[1].outcome, 'cancelled');
+  app.window.close();
+});
+
+test('F801 leaving before the deferred frame does not start sources', async () => {
+  const app = await boot({ fetch: () => [] });
+  const frames = [];
+  app.window.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+  app.window.__app.LOADERS.surgeBtn.reachability = false;
+  app.open(/Bird Gen/);
+  app.click(app.$('navBack'));
+  const before = app.state.fetches.length;
+  while (frames.length) frames.shift()();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(app.state.fetches.length, before, 'detached render started network work');
+  assert.equal(app.window.__app.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0].outcome, 'cancelled');
+  app.window.close();
+});
+
+test('F801 request accounting includes Home fallback but excludes bundled resources', async () => {
+  const app = await boot({ fetch: () => [] });
+  const A = app.window.__app;
+  app.window.requestAnimationFrame = () => 1;
+  A.LOADERS.surgeBtn.reachability = false;
+  app.open(/Bird Gen/);
+  const before = app.state.fetches.length;
+  await A.choicePatchHomeCounty();
+  const remote = app.state.fetches.slice(before).filter((url) => /^https?:\/\//.test(url));
+  assert.ok(remote.some((url) => /ref\/hotspot\/US-WA/.test(url)),
+    'the control did not exercise the Home hotspot fallback');
+  await app.window.fetch('section-docs.json');
+  await app.window.fetch(app.window.location.origin + '/section-docs.json');
+  assert.equal(A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0].live_requests, remote.length,
+  'bundled reads or unowned fallback requests distorted the transport count');
+  app.window.close();
+});
+
+test('F801 repeated refresh joins existing work instead of spending another query budget', async () => {
+  const app = await boot({ storage: f801Days() });
+  const A = app.window.__app;
+  A.LOADERS.surgeBtn.reachability = false;
+  app.open(/Bird Gen/);
+  const pending = A.loadSurge();
+  assert.equal(A.loadSurge(), pending);
+  const before = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples.length;
+  app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+  assert.equal(A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples.length, before);
+  app.window.close();
+});
+
+test('F801 a failed refresh keeps retained cards and a successful empty refresh removes them', async () => {
+  let failing = true;
+  const app = await boot({ storage: {
+    ...f801Days(), ebird_favs: JSON.stringify([
+      { id: 'keep', locId: 'LF801KEEP', locName: 'Retained marsh', region: 'US-WA' },
+    ]),
+  }, fetch(url) {
+    if (/data\/obs\/LF801KEEP/.test(url)) return failing ? { unreadable: true } : [];
+    return [];
+  } });
+  const A = app.window.__app;
+  seedSeen(app, []);
+  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+    { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
+      locId: 'LF801KEEP', locName: 'Retained marsh', checklistId: 'SF801KEEP' },
+  ] });
+  await A.loadSurge();
+  assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'failed');
+  assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
+  assert.equal(A.loadSurgeRetained().favorite.rows.length, 1, 'failure overwrote the durable last-good result');
+  await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0].outcome === 'ok', 'failed sources settled');
+  failing = false;
+  app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+  await waitFor(() => app.$('surgeResults').dataset.sourceFavorites === 'ok', 'successful empty replacement');
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/);
+  assert.equal(A.loadSurgeRetained().favorite.rows.length, 0,
+    'append-only retention ignored a successful empty source');
+  app.window.close();
+});
+
+test('F801 durable retained results survive reopen without an API response', async () => {
+  const first = await boot();
+  seedSeen(first, []);
+  first.window.__app.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+    { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
+      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
+  ] });
+  const storage = Object.fromEntries(Object.keys(first.window.localStorage)
+    .filter((key) => key.startsWith('ebird_surge_retained_v1:'))
+    .map((key) => [key, first.window.localStorage.getItem(key)]));
+  first.window.close();
+  const second = await boot({ storage });
+  seedSeen(second, []);
+  second.window.__app.loadSurge();
+  assert.match(second.$('surgeResults').textContent, /Marbled Godwit/);
+  assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'stale');
+  second.window.close();
+});
+
+test('F801 a changed Home supersedes active work and retained cards reapply seen eligibility', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  seedSeen(app, []);
+  app.window.requestAnimationFrame = () => 1;
+  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
+    { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
+      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
+  ] });
+  const first = A.loadSurge();
+  assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
+  const home = app.window.localStorage.getItem(A.homeKey('lat'));
+  app.window.localStorage.setItem(A.homeKey('lat'), String(Number(home) + 1));
+  assert.notEqual(A.loadSurge(), first, 'a new Home joined the previous Home work owner');
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
+    'the old Home DOM survived the new context first frame');
+  app.window.localStorage.setItem(A.homeKey('lat'), home);
+  seedSeen(app, ['margod']);
+  A.loadSurge();
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
+    'retained DOM bypassed current seen eligibility');
+  app.window.close();
+});
+
+test('F801 retained alerts participate in personal-data erasure', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+  const keys = () => Object.keys(app.window.localStorage)
+    .filter((key) => key.includes('surge_retained_v1:'));
+  assert.equal(keys().length, 1, 'the control did not persist retained source data');
+  A.scrubPersonalData();
+  assert.equal(keys().length, 0, 'erasing personal data left the Home-scoped retained model behind');
+  app.window.close();
+});
+
+test('F801 reopening reapplies eligibility without repeating fresh HTTP requests', async () => {
+  const app = await boot({ storage: { ...f801Days(), ebird_favs: JSON.stringify([
+    { id: 'reopen', locId: 'LF801REOPEN', locName: 'Retained marsh', region: 'US-WA' },
+  ]) }, fetch(url) {
+    if (/top100/.test(url)) return fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
+    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    return /data\/obs\/LF801REOPEN/.test(url) ? [{
+      speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801REOPEN',
+      obsDt: f801Day() + ' 00:01', subId: 'SF801REOPEN', howMany: 2,
+    }] : [];
+  } });
+  const A = app.window.__app;
+  A.LOADERS.surgeBtn.reachability = false;
+  seedSeen(app, []);
+  app.open(/Bird Gen/);
+  await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0]?.outcome === 'ok', 'initial Bird Gen settlement');
+  assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
+  const requests = app.state.fetches.length;
+  app.click(app.$('navBack'));
+  seedSeen(app, ['margod']);
+  app.open(/Bird Gen/);
+  assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
+    'reopening kept an ineligible card from the previous DOM');
+  await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[1]?.outcome === 'ok', 'warm reopen settlement');
+  assert.equal(app.state.fetches.length, requests,
+    'warm reopen repeated fresh source requests: ' + JSON.stringify(app.state.fetches.slice(requests)));
+  app.window.close();
+});
+
 test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active county', async () => {
   const app = await boot();
   const A = app.window.__app;
   const source = HTML;
-  assert.match(source, /loadFavoritePatchAlertSource\(force,\s*activeScope\(\)\)/,
+  assert.match(source, /loadFavoritePatchAlertSource\(force,\s*activeScope\(\),/,
     'the live Bird Gen load does not start the Favorite patch source');
   assert.match(source, /favorites:\s*surgeModel\.favorite\.state/,
     'the Favorite patch source state is absent from the live source model');
@@ -11548,7 +11904,7 @@ test('F753 Bird Gen does not automatically request or display regional reporting
   const A = app.window.__app;
   assert.equal(app.$('reportingActivity').hidden, true,
     'the reporting summary is still visible at the bottom of Bird Gen');
-  const start = HTML.indexOf('function loadSurge()');
+  const start = HTML.indexOf('function loadSurge(');
   assert.ok(start >= 0, 'loadSurge moved');
   const end = HTML.indexOf('\n      function ', start + 1);
   assert.ok(end > start, 'could not isolate the Bird Gen loader');
@@ -11636,7 +11992,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   const app = await boot();
   const A = app.window.__app;
   const source = HTML;
-  assert.match(source, /loadMassFlockAlertSource\(force,\s*activeScope\(\)\)/,
+  assert.match(source, /loadMassFlockAlertSource\(force,\s*activeScope\(\),/,
     'the live Bird Gen load does not start the Mass Flock source');
   assert.match(source, /BL\.publicPersonalLocids/,
     'Mass Flock does not reuse the established safe custom-pin ownership rule');
@@ -13303,8 +13659,9 @@ test('F379 Bird Gen reuses its successful cascade and hotspot sources on first p
   await waitFor(() => /Cached Cascade Bird/.test(app.$('surgeResults').textContent)
       && /Cached Busy Hotspot/.test(app.$('surgeResults').textContent),
   'the retained Bird Gen sources to paint');
-  assert.equal(app.state.fetches.length, before,
-    'a fresh same-day Bird Gen cache still repeated its optional network calls');
+  assert.equal(app.state.fetches.slice(before)
+    .filter((url) => /top100|product\/lists/.test(url)).length, 0,
+  'fresh cascade/hotspot caches repeated their network calls; BirdCast now starts on demand');
   assert.equal(app.$('surgeResults').dataset.sourceLeaderboard, 'ok');
   assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'ok');
   app.window.close();
@@ -13800,22 +14157,31 @@ test('a hidden Bird Gen consumes the full phase-one repaint when reopened', asyn
 });
 
 test('F309 refreshing Bird Gen preserves current cards while feeds update', async () => {
-  const app = await boot();
+  const app = await boot({ storage: { ...f801Days(), ebird_favs: JSON.stringify([
+    { id: 'refresh', locId: 'LF309', locName: 'Jefferson Park', region: 'US-WA' },
+  ]) }, fetch(url) {
+    if (/top100/.test(url)) return fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
+    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    return /data\/obs\/LF309/.test(url) ? [{
+      speciesCode: 'vesspa', comName: 'Vesper Sparrow', locId: 'LF309',
+      obsDt: f801Day() + ' 00:01', subId: 'SF309', howMany: 2,
+    }] : [];
+  } });
   const A = app.window.__app;
-  A.renderSurge([{
-    code: 'vesspa', alpha: 'VESP', name: 'Vesper Sparrow',
-    observers: 5, checklists: 5, ratio: 4,
-    loc: 'Jefferson Park', locId: 'L1',
-    latest: '2026-09-03 16:12', subId: 'S1',
-  }], [], [], [], []);
-  const before = app.$('surgeFeed');
-  assert.match(before.textContent, /Vesper Sparrow/);
-  assert.equal(typeof A.loadSurge, 'function',
-    'the regression cannot drive the real Bird Gen reload path');
-  A.loadSurge();
-  assert.equal(app.$('surgeFeed'), before,
-    'refresh clears the useful feed before replacement data is ready');
+  seedSeen(app, []);
+  A.LOADERS.surgeBtn.reachability = false;
+  app.open(/Bird Gen/);
+  await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
+    .samples[0]?.outcome === 'ok', 'the first F309 live feed');
   assert.match(app.$('surgeFeed').textContent, /Vesper Sparrow/);
+  const requests = app.state.fetches.length;
+  app.window.requestAnimationFrame = () => 1;
+  app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+  assert.ok(app.$('surgeFeed'), 'refresh removed the useful retained feed');
+  assert.match(app.$('surgeFeed').textContent, /Vesper Sparrow/);
+  assert.equal(app.state.fetches.length, requests,
+    'refresh acquired replacement data before showing retained cards');
   app.window.close();
 });
 
@@ -16109,7 +16475,7 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   // Phase 2 fills in WHERE unseen birds are. The needs lane stopped asking
   // that when it became notable-only, and everything it now shows comes from
   // the three `notable` feeds that land in phase 1.
-  const at = HTML.indexOf('function loadSurge()');
+  const at = HTML.indexOf('function loadSurge(');
   assert.ok(at > 0, 'loadSurge not found');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
   assert.match(src, /getChaseRarity\(/,
@@ -16143,7 +16509,7 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   assert.match(src, /generation !== _surgeLoadGeneration/,
     'an older partial paint can overwrite the later complete paint');
   assert.match(src,
-    /var pObservedStarted = chaseRarityStarted\(\)/,
+    /var pObservedStarted = afterPaint\.then\(function \(\) \{ return chaseRarityStarted\(\); \}\)/,
     'Bird Gen has no signal for when its priority observation requests are queued');
   assert.match(src,
     /var pConverge = Promise\.all\(\[pCachedSources, pObservedStarted\]\)\.then/,
@@ -18016,12 +18382,12 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.ok(fullView.compareDocumentPosition(candidateHeading)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'Detailed view is not between the hierarchy and candidate birds');
-  assert.equal(candidateHeading.textContent.trim(),
-    'Birds under peep sp.',
-  'the compact spuh card does not label the candidate list');
   await waitFor(() => heroCard.querySelector(
     ':scope > .spuhcandidatelane .spuhcandidatecards'),
   'the spuh candidate cards');
+  assert.equal(candidateHeading.textContent.trim(),
+    'Recently reported birds under peep sp.',
+  'the settled compact spuh card does not label its recent candidate list');
   const compactCandidates = heroCard.querySelector(
     ':scope > .spuhcandidatelane .spuhcandidatecards');
   assert.ok(compactCandidates,
@@ -35437,14 +35803,14 @@ test('F720 publishing Mega evidence repaints an already-loaded Bird Gen model', 
   assert.match(save,
     /localStorage\.setItem\(MEGA_SNAP_KEY[\s\S]*typeof _surgeRepaint === 'function'[\s\S]*_surgeRepaint\(\)/,
     'Mega can update its archive and snapshot while loaded Bird Gen stays stale');
-  const loadAt = HTML.indexOf('function loadSurge()');
+  const loadAt = HTML.indexOf('function loadSurge(');
   const load = HTML.slice(loadAt, HTML.indexOf('\n      function ', loadAt + 1));
   assert.match(load, /_surgeRepaint = paintSurgeModel/,
     'Bird Gen does not publish its current in-memory model for Mega updates');
 });
 
 test('F721 Bird Gen starts independent hotspot work without waiting for observations', () => {
-  const at = HTML.indexOf('function loadSurge()');
+  const at = HTML.indexOf('function loadSurge(');
   const source = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
   assert.match(source,
     /var pConverge = Promise\.all\(\[pCachedSources, pObservedStarted\]\)\.then/,

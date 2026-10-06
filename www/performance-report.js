@@ -140,6 +140,10 @@
       start: start,
       mark: mark,
       network: network,
+      source: function (loadId, attrs) {
+        var load = active[loadId];
+        return load ? event('report_source_settled', load, attrs) : null;
+      },
       finish: finish,
       cancel: function (loadId, attrs) { return end(loadId, 'cancelled', attrs); },
       fail: function (loadId, attrs) { return end(loadId, 'failed', attrs); },

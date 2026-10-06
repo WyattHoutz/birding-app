@@ -246,6 +246,8 @@
             } catch (auditError) {}
             try {
               if (window.__performanceNetwork
+                  && /^https?:\/\//i.test(String(url))
+                  && (new URL(String(url), location.href)).origin !== location.origin
                   && !/api\.ebird\.org/i.test(String(url))) {
                 window.__performanceNetwork(performanceLoadId, {
                   host: (new URL(String(url), location.href)).hostname,
@@ -273,6 +275,8 @@
             } catch (auditError) {}
             try {
               if (window.__performanceNetwork
+                  && /^https?:\/\//i.test(String(url))
+                  && (new URL(String(url), location.href)).origin !== location.origin
                   && !/api\.ebird\.org/i.test(String(url))) {
                 window.__performanceNetwork(performanceLoadId, {
                   host: (new URL(String(url), location.href)).hostname,
@@ -4694,7 +4698,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.137.3';
+      var APP_VERSION = '1.138.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -27724,7 +27728,7 @@
               if (matched) return [countyLookupResult(matched, 'gbif')];
             }
             if (getKey()) {
-              return loadHotspotIndex(parent).then(function (hotspots) {
+              return loadHotspotIndex(parent, work).then(function (hotspots) {
                 if (!workCurrent(work)) throw queueCancelledError(work);
                 var nearest = (hotspots || []).filter(function (spot) {
                   return spot.co && isFinite(Number(spot.lat)) && isFinite(Number(spot.lng));
@@ -30864,7 +30868,7 @@
           + ' \u00b7 one list, ordered by current evidence \u00b7 '
           + 'observations and predictions remain labelled.</div></div>';
       }
-      function renderBirdcast(now, suppliedSnapshot) {
+      function renderBirdcast(now, suppliedSnapshot, localOnly) {
         var el = $('bcBody'); if (!el) return;
         now = now == null ? new Date() : now;
         var report = getReport();
@@ -30918,7 +30922,7 @@
         hydratePhotos(el);
         }
         paint(suppliedSnapshot || _birdcastSnapshot);
-        if (!s.active) return Promise.resolve(null);
+        if (!s.active || localOnly) return Promise.resolve(null);
         if (suppliedSnapshot) return Promise.resolve(suppliedSnapshot);
         return loadBirdcastSnapshot(now).then(function (snapshot) {
           paint(snapshot);
@@ -30928,7 +30932,7 @@
       function refreshUnifiedMigration() {
         var el = $('bcBody');
         if (!el) return;
-        renderBirdcast(new Date(), _birdcastSnapshot);
+        renderBirdcast(new Date(), _birdcastSnapshot, true);
       }
       function loadUnifiedMigration() {
         var birdcast = Promise.resolve(renderBirdcast());
@@ -35258,6 +35262,7 @@
       var _surgeHotspotRetry = null;
       var _surgeRepaint = null;
       var _surgeLoadGeneration = 0;
+      var _surgeActiveLoad = null;
       var _surgeAllFlocks = false;
       var _appUnloading = false;
       window.addEventListener('unload', function () {
@@ -35268,6 +35273,84 @@
         _surgeRepaint = null;
       });
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
+      var SURGE_RETAINED_NS = 'ebird_surge_retained_v1:';
+      function surgeRetainedKey() {
+        return SURGE_RETAINED_NS + activeScope().cacheIdentity;
+      }
+      function surgeRetainedContext() {
+        return [surgeSourceContext(false), chaseMaxMi(), getDisplayName(),
+          favoriteEntriesForRegion(getRegion()).map(function (entry) {
+            return entry.favorite.locId;
+          }).sort().join('|')].join('||');
+      }
+      function loadSurgeRetained() {
+        var cache;
+        try { cache = JSON.parse(localStorage.getItem(surgeRetainedKey()) || 'null'); }
+        catch (error) {
+          dbg('warn', 'Bird Gen retained results unreadable: ' + netErr(error));
+          return null;
+        }
+        if (!cache || cache.context !== surgeRetainedContext() || !cache.parts) return null;
+        var now = Date.now(), scope = activeScope(), model = {};
+        Object.keys(cache.parts).forEach(function (key) {
+          var part = cache.parts[key];
+          if (!part || !(part.at > 0) || part.at > now) return;
+          var value = part.value;
+          if (!value || !Array.isArray(key === 'observed' ? value.merged : value.rows)) return;
+          var next = Object.assign({}, value, { state: 'stale', retainedAt: part.at });
+          if (key === 'observed') {
+            next = Object.assign(surgeObservedResult({
+              stale: true,
+              partial: value.state !== 'ok',
+              rows: value.evidenceRows,
+              cv: value.evidenceRows
+                ? computeChaseRows(chaseProfile(), getReportSlug(), value.evidenceRows, null)
+                : { merged: value.merged }
+            }, now), { retainedAt: part.at });
+          } else if (key === 'favorite') {
+            next.rows = value.rows.filter(function (row) {
+              return row.time >= now - BL.FRESH_HOURS * 3600000
+                && !isSpeciesSeen(row.code, row.name);
+            });
+          } else if (key === 'mass') {
+            next.rows = massFlockAlerts(value.evidenceRows || [], {
+              now: now, region: scope.parentRegion,
+              countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
+              home: anchorPoint(), maxMi: chaseMaxMi(),
+              allowedPrivateLocIds: value.allowedPrivateLocIds || {}
+            });
+          } else if (key === 'cascades') {
+            next.rows = value.rows.filter(function (row) {
+              var board = (row.birders || []).map(function (birder) {
+                return { name: birder.name, rank: birder.rank, recent: birder.date };
+              });
+              return BL.tickCascades(board, function (date) {
+                return { species: row.species, date: date };
+              }, { nowMs: now }).length > 0;
+            });
+          } else if (key === 'convergence') {
+            next.rows = value.rows.filter(function (row) {
+              return surgeTimeValue(row.latest) >= now - BL.SURGE.WINDOW_H * 3600000;
+            });
+          } else return;
+          model[key] = next;
+        });
+        return model;
+      }
+      function saveSurgeRetainedPart(key, value) {
+        if (!value || ['ok', 'notApplicable', 'partial'].indexOf(value.state) < 0) return;
+        try {
+          var storageKey = surgeRetainedKey(), context = surgeRetainedContext();
+          var cache = JSON.parse(localStorage.getItem(storageKey) || 'null');
+          if (!cache || cache.context !== context || !cache.parts) {
+            cache = { context: context, parts: {} };
+          }
+          cache.parts[key] = { at: value.retainedAt || Date.now(), value: value };
+          localStorage.setItem(storageKey, JSON.stringify(cache));
+        } catch (error) {
+          dbg('warn', 'Bird Gen retained results could not be saved: ' + netErr(error));
+        }
+      }
       function surgeConvoyProfile() {
         return Object.assign({}, getReport(), {
           counties: (getCounties() || []).slice()
@@ -35313,11 +35396,13 @@
         };
       }
       function saveSurgeSourceCache(model) {
-        return loadSurgeSourceCache().then(function (old) {
+        var key = surgeSourceCacheKey(), context = surgeSourceContext();
+        return zcGet(key).then(function (old) {
+          if (old && old.context !== context) old = null;
           var now = Date.now();
           var next = {
             v: 1,
-            context: surgeSourceContext(),
+            context: context,
             cascades: old && old.cascades || null,
             convergence: old && old.convergence || null
           };
@@ -35328,19 +35413,7 @@
             }
           });
           if (!next.cascades && !next.convergence) return false;
-          try {
-            var keep = surgeSourceCacheKey(), drop = [];
-            for (var i = 0; i < localStorage.length; i++) {
-              var storedKey = localStorage.key(i);
-              if (storedKey && storedKey.indexOf(SURGE_SOURCE_NS) === 0
-                  && storedKey !== keep) drop.push(storedKey);
-            }
-            drop.forEach(function (key) {
-              localStorage.removeItem(key);
-              zcForget(key);
-            });
-          } catch (e) {}
-          return zcPut(surgeSourceCacheKey(), next);
+          return zcPut(key, next);
         });
       }
       var SURGE_SOURCE_LABELS = {
@@ -35825,6 +35898,8 @@
       function wireSurgeControls() {
         applySurgeSort();
         wireSurgeHeadlines();
+        var deep = $('surgeResults').querySelector('[data-surge-deep-history]');
+        if (deep) deep.addEventListener('click', function () { loadSurge(null, true); });
       }
 
       function surgePlaceTile() {
@@ -36138,13 +36213,14 @@
         });
       }
 
-      function loadMassFlockAlertSource(force, scope) {
+      function loadMassFlockAlertSource(force, scope, onProgress, deepHistory) {
         scope = scope || activeScope();
         var work = cancellableWork('Bird Gen mass flock', 'sec-surgeBtn');
-        var generation = _surgeLoadGeneration;
+        var generation = _surgeLoadGeneration, navigation = _navGeneration;
         var context = surgeSourceContext(false);
         work.current = function () {
           return scopeCurrent(scope) && generation === _surgeLoadGeneration
+            && navigation === _navGeneration
             && work.cancelGeneration === _workCancelGeneration
             && context === surgeSourceContext(false);
         };
@@ -36162,8 +36238,9 @@
               + '-' + String(date.getDate()).padStart(2, '0'));
         });
         try {
+          var keepDates = keepKeys.map(function (key) { return key.slice(-10); });
           storeKeys(MASS_DAY_CACHE_NS).filter(function (key) {
-            return keepKeys.indexOf(key) < 0;
+            return keepDates.indexOf(key.slice(-10)) < 0;
           }).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
         function scopedRows(rows) {
@@ -36179,9 +36256,10 @@
           });
         }
         var chain = Promise.resolve();
-        dates.forEach(function (date) {
+        dates.forEach(function (date, index) {
           chain = chain.then(function () {
-            return massDayRows(scope, date, force, work)
+            return massDayRows(scope, date,
+              force && (deepHistory !== false || index === 0), work)
               .then(function (rows) {
                 sourceTruncated = sourceTruncated || !!rows.truncated;
                 dayRows.push.apply(dayRows, scopedRows(rows));
@@ -36208,7 +36286,27 @@
               rows: []
             };
           }
-          var allRows = dayRows.slice(), speciesFailures = 0;
+          var allRows = dayRows.slice(), speciesFailures = 0, checkedCodes = [];
+          function resultFor(rows, allowedPrivate, pending) {
+            return {
+              state: pending ? 'loading'
+                : dayFailures || speciesFailures || truncated ? 'partial' : 'ok',
+              coverage: (pending ? checkedCodes.length + ' checked; ' : '')
+                + bounded.length + ' of ' + candidates.length + ' candidate species; '
+                + (dates.length - dayFailures) + ' of ' + dates.length + ' daily samples'
+                + (speciesFailures ? '; some corroboration sources failed' : '')
+                + (truncated ? '; capped coverage' : ''),
+              checkedCodes: checkedCodes.slice(),
+              evidenceRows: rows,
+              allowedPrivateLocIds: allowedPrivate,
+              rows: massFlockAlerts(rows, {
+                region: scope.parentRegion,
+                countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
+                home: anchorPoint(), maxMi: chaseMaxMi(),
+                allowedPrivateLocIds: allowedPrivate
+              })
+            };
+          }
           var speciesChain = Promise.resolve();
           bounded.forEach(function (candidate) {
             speciesChain = speciesChain.then(function () {
@@ -36226,6 +36324,14 @@
                 speciesFailures++;
                 dbg('warn', 'Bird gen mass species source · ' + candidate.code + ': '
                   + ((error && error.message) || error));
+              }).then(function () {
+                if (!workCurrent(work)) throw queueCancelledError(work);
+                checkedCodes.push(candidate.code);
+                if (onProgress) {
+                  onProgress(resultFor(allRows.filter(function (row) {
+                    return checkedCodes.indexOf(row.speciesCode || row.code) >= 0;
+                  }), {}, true));
+                }
               });
             });
           });
@@ -36242,20 +36348,7 @@
             }).then(function (hotspots) {
               if (!workCurrent(work)) throw queueCancelledError(work);
               var allowedPrivate = BL.publicPersonalLocids(allRows, hotspots);
-              return {
-                state: dayFailures || speciesFailures || truncated ? 'partial' : 'ok',
-                coverage: bounded.length + ' of ' + candidates.length + ' candidate species; '
-                  + (dates.length - dayFailures) + ' of ' + dates.length + ' daily samples'
-                  + (speciesFailures ? '; some corroboration sources failed' : '')
-                  + (truncated ? '; capped coverage' : ''),
-                rows: massFlockAlerts(allRows, {
-                  region: scope.parentRegion,
-                  countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
-                  home: anchorPoint(),
-                  maxMi: chaseMaxMi(),
-                  allowedPrivateLocIds: allowedPrivate
-                })
-              };
+              return resultFor(allRows, allowedPrivate, false);
             });
           });
         }).catch(function (error) {
@@ -36266,12 +36359,14 @@
         });
       }
 
-      function loadFavoritePatchAlertSource(force, scope) {
+      function loadFavoritePatchAlertSource(force, scope, onProgress) {
         scope = scope || activeScope();
         var work = cancellableWork('Bird Gen favorite patches', 'sec-surgeBtn');
         var generation = _surgeLoadGeneration, context = surgeSourceContext(false);
+        var navigation = _navGeneration;
         work.current = function () {
           return scopeCurrent(scope) && generation === _surgeLoadGeneration
+            && navigation === _navGeneration
             && context === surgeSourceContext(false)
             && work.cancelGeneration === _workCancelGeneration;
         };
@@ -36308,6 +36403,18 @@
           if (failure) return failure;
           if (!scopeCurrent(scope)) return { state: 'failed', rows: [] };
           var feeds = {};
+          function result(pending) {
+            var value = favoritePatchAlerts(favorites, feeds, {
+              region: scope.parentRegion,
+              countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
+              now: Date.now(), seen: isSpeciesSeen
+            });
+            value.refreshedLocIds = Object.keys(feeds).filter(function (key) {
+              return feeds[key].state === 'ok';
+            });
+            if (pending) value.state = 'loading';
+            return value;
+          }
           var chain = Promise.resolve();
           favorites.forEach(function (favorite) {
             chain = chain.then(function () {
@@ -36337,16 +36444,14 @@
                     + ((error && error.message) || error));
                   feeds[favorite.locId] = { state: 'failed', rows: [] };
                 });
+            }).then(function () {
+              if (!workCurrent(work)) throw queueCancelledError(work);
+              if (onProgress) onProgress(result(true));
             });
           });
           return chain.then(function () {
             if (!workCurrent(work)) return { state: 'failed', rows: [] };
-            return favoritePatchAlerts(favorites, feeds, {
-              region: scope.parentRegion,
-              countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
-              now: Date.now(),
-              seen: isSpeciesSeen
-            });
+            return result(false);
           });
         }).catch(function (error) {
           if (!(error && error.queueCancelled)) {
@@ -36435,6 +36540,8 @@
             + '. Latest-per-species sampling is not exhaustive; large counts do not'
             + ' by themselves establish seasonal rarity.</div>'
           : '';
+        sampleCoverage += '<button type="button" class="secondary" data-surge-deep-history>'
+          + 'Recheck 7-day flock history</button>';
         markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length && !topPatches.length
@@ -36803,7 +36910,7 @@
           box.appendChild(more);
         }
         wireSurgeControls();
-        hydratePhotos(box);
+        if (!(sourceState && sourceState.deferPhotos)) hydratePhotos(box);
         return rows.length;
       }
 
@@ -36815,6 +36922,7 @@
         }).map(function (r) { return r.code; });
         return {
           state: chaseAlertSourceState(res),
+          evidenceRows: res.rows || null,
           merged: merged,
           events: BL.surgeEvents(merged, {
             now: now, seen: getReportSeen(), excludeCodes: rareCodes
@@ -36966,7 +37074,7 @@
         });
       }
 
-      function loadSurge() {
+      function loadSurge(performanceLoadId, deepHistory) {
         if (!getHome()) {
           $('surgeStatus').hidden = false;
           showHomeRequired($('surgeStatus'), birdGenHomeRequired(), false,
@@ -36979,9 +37087,30 @@
           showSettings(true);
           return;
         }
-        var force = takeForce();
+        var force = takeForce() || deepHistory === true;
+        if (_surgeActiveLoad && _surgeActiveLoad.current()
+            && (!deepHistory || _surgeActiveLoad.deepHistory)) {
+          dbg('net', 'Joining the active Bird Gen source update');
+          return _surgeActiveLoad.primary;
+        }
         var generation = ++_surgeLoadGeneration;
         var loadScope = activeScope(), loadContext = surgeSourceContext();
+        var loadRetainedContext = surgeRetainedContext();
+        var loadNavigation = _navGeneration, loadCancellation = _workCancelGeneration;
+        var stopped = false, autoload = typeof performanceLoadId === 'string';
+        var section = $('sec-surgeBtn');
+        if (typeof performanceLoadId !== 'string') {
+          performanceLoadId = performanceStart(section, deepHistory ? 'deep-history' : 'refresh');
+        }
+        var releasePerformance = performanceHold(section, performanceLoadId);
+        function current() {
+          return !stopped && !_appUnloading && generation === _surgeLoadGeneration
+            && scopeCurrent(loadScope) && loadNavigation === _navGeneration
+            && loadRetainedContext === surgeRetainedContext()
+            && loadCancellation === _workCancelGeneration;
+        }
+        var activeLoad = { current: current, deepHistory: deepHistory === true, primary: null };
+        _surgeActiveLoad = activeLoad;
         _surgeAllFlocks = false;
         _surgeHotspotRetry = null;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
@@ -36996,12 +37125,36 @@
         // Every source returns rows AND state. A failed source is not an empty
         // source: successful rows still paint, and the UI names what is
         // unavailable instead of turning a partial answer into "nothing".
-        var _merged = [], surgeModel = null, megaRefreshStarted = false;
+        var _merged = [], surgeModel = null, renderReady = false;
+        var paintFrame = window.requestAnimationFrame || function (fn) { setTimeout(fn, 0); };
+        // The second frame gives the shell/retained cards a paint opportunity
+        // before even a warm promise chain can begin acquisition and repaint.
+        var afterPaint = new Promise(function (resolve) {
+          paintFrame(function () { paintFrame(resolve); });
+        }).then(function () {
+          if (!current()) throw queueCancelledError({ label: 'Bird Gen render' });
+          renderReady = true;
+          hydratePhotos(resultsBox);
+          if (!autoload || !LOADERS.surgeBtn.reachability) return;
+          return ensureRegionReachability(chaseMaxMi(), navWork('Bird Gen reachability'))
+            .then(function (result) {
+              if (!current()) throw queueCancelledError({ label: 'Bird Gen reachability' });
+              if (showUnreachable(st, result)) {
+                stopped = true;
+                st.hidden = false;
+                _autoLoaded[section.id] = false;
+                if (_performance) _performance.fail(performanceLoadId, { reason: 'unreachable' });
+                throw queueCancelledError({ label: 'Bird Gen outside reach' });
+              }
+            });
+        });
         var countyState = getReport().custom ? 'loading'
           : hasCounties() ? 'ok' : 'notApplicable';
-        var pCountyScope = ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi())
+        var pCountyScope = afterPaint.then(function () {
+          return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi());
+        })
           .then(function (counties) {
-            if (generation !== _surgeLoadGeneration || !scopeCurrent(loadScope)) {
+            if (!current()) {
               return 'cancelled';
             }
             loadContext = surgeSourceContext();
@@ -37020,8 +37173,33 @@
         var favoriteSource = { state: 'loading', rows: [] };
         var massSource = { state: 'loading', rows: [] };
         var cachedCascades = null, cachedConvergence = null;
+        var retained = loadSurgeRetained() || {};
+        function publishSource(key, result) {
+          if (!current() || !surgeModel) return result;
+          var previous = surgeModel[key];
+          if (result.state === 'failed' && previous) {
+            result = Object.assign({}, previous, { state: 'failed' });
+          } else if ((result.state === 'loading' || result.state === 'partial')
+              && previous && Array.isArray(previous.rows)) {
+            var fresh = result.rows || [];
+            var keep = previous.rows.filter(function (row) {
+              if (key === 'favorite') return (result.refreshedLocIds || []).indexOf(row.locId) < 0;
+              if (key === 'mass') return !fresh.some(function (next) { return next.code === row.code; });
+              return false;
+            });
+            result = Object.assign({}, result, {
+              rows: fresh.concat(keep), retainedAt: keep.length ? previous.retainedAt : null
+            });
+          }
+          surgeModel[key] = result;
+          if (key === 'favorite') favoriteSource = result;
+          if (key === 'mass') massSource = result;
+          saveSurgeRetainedPart(key, result);
+          paintSurgeModel();
+          return result;
+        }
         function paintSurgeModel() {
-          if (generation !== _surgeLoadGeneration || !scopeCurrent(loadScope)
+          if (!current()
               || loadContext !== surgeSourceContext() || !surgeModel) return 0;
           var states = {
             mega: megaAlertSourceState(megaLane(getAnchors())),
@@ -37037,12 +37215,23 @@
             surgeModel.convergence.rows,
             surgeModel.observed.needs,
             _merged,
-            Object.assign({}, states, { massCoverage: surgeModel.mass.coverage }),
+            Object.assign({}, states, {
+              massCoverage: surgeModel.mass.coverage, deferPhotos: !renderReady
+            }),
             surgeModel.observed.patches,
             surgeModel.favorite.rows,
             surgeModel.mass.rows
           );
           var complete = surgeSourcesComplete(states);
+          var retainedDates = Object.keys(surgeModel).map(function (key) {
+            return surgeModel[key].retainedAt;
+          }).filter(Boolean);
+          if (retainedDates.length) {
+            resultsBox.insertAdjacentHTML('beforeend', '<div class="hint" data-surge-retained>'
+              + 'Earlier results retained from '
+              + esc(new Date(Math.min.apply(Math, retainedDates)).toLocaleString())
+              + '. Source status is shown above; failed sources keep their last-good results.</div>');
+          }
           st.textContent = (n
             ? n + ' active alert' + (n === 1 ? '' : 's')
               + (complete ? '' : ' · incomplete')
@@ -37053,37 +37242,47 @@
           return n;
         }
         _surgeRepaint = paintSurgeModel;
-        function beginMegaRefresh() {
-          if (megaRefreshStarted || !surgeModel) return;
-          megaRefreshStarted = true;
-          lazyRefreshMegaSnapshot(function () {
-            paintSurgeModel();
-          });
-          // lazyRefreshMegaSnapshot registers the in-flight request
-          // synchronously. Repaint now so "not loaded" becomes "loading"
-          // without waiting for that request to finish.
-          paintSurgeModel();
-        }
         function paintObserved(observed) {
-          if (generation !== _surgeLoadGeneration) return observed;
+          if (!current()) return observed;
+          if (observed.state === 'failed' && surgeModel && surgeModel.observed) {
+            observed = Object.assign({}, surgeModel.observed, { state: 'failed' });
+          } else if (observed.state === 'partial' && surgeModel && surgeModel.observed) {
+            var freshKeys = {};
+            observed.merged.forEach(function (row) { freshKeys[BL.obsDedupKey(row)] = true; });
+            var earlier = surgeModel.observed.merged.filter(function (row) {
+              var key = BL.obsDedupKey(row);
+              return key && !freshKeys[key];
+            });
+            if (earlier.length) observed = Object.assign(surgeObservedResult({
+              partial: true, cv: { merged: observed.merged.concat(earlier) }
+            }, now), { retainedAt: surgeModel.observed.retainedAt });
+          }
           _merged = observed.merged || [];
           surgeModel = {
             observed: observed,
-            cascades: cachedCascades || { state: 'loading', rows: [] },
-            convergence: cachedConvergence || {
+            cascades: surgeModel && surgeModel.cascades
+              || cachedCascades || { state: 'loading', rows: [] },
+            convergence: surgeModel && surgeModel.convergence || cachedConvergence || {
               state: countyState === 'notApplicable' ? 'notApplicable' : 'loading',
               rows: []
             },
             favorite: favoriteSource,
             mass: massSource
           };
+          saveSurgeRetainedPart('observed', observed);
           paintSurgeModel();
-          beginMegaRefresh();
           return observed;
         }
-        loadBirdcastSnapshot(new Date(now)).then(function () {
-          paintSurgeModel();
-        });
+        surgeModel = Object.assign({
+          observed: { state: 'loading', merged: [], events: [], needs: [], patches: [] },
+          cascades: { state: 'loading', rows: [] },
+          convergence: { state: countyState === 'notApplicable' ? 'notApplicable' : 'loading', rows: [] },
+          favorite: favoriteSource, mass: massSource
+        }, retained);
+        favoriteSource = surgeModel.favorite;
+        massSource = surgeModel.mass;
+        _merged = surgeModel.observed.merged || [];
+        paintSurgeModel();
         _surgeEarlyPaint = function (res) {
           if (generation !== _surgeLoadGeneration) return;
           try {
@@ -37096,25 +37295,17 @@
           return force || state === 'cancelled' || state === 'failed'
             ? null : loadSurgeSourceCache();
         }).then(function (cache) {
-              if (generation !== _surgeLoadGeneration || !cache) return cache;
+              if (!current() || !cache) return cache;
               cachedCascades = surgeCachedSource(cache, 'cascades');
               cachedConvergence = surgeCachedSource(cache, 'convergence');
               if (!cachedCascades && !cachedConvergence) return cache;
               var observed = surgeModel && surgeModel.observed || {
                 state: 'loading', merged: [], events: [], needs: [], patches: []
               };
-              surgeModel = {
-                observed: observed,
-                cascades: cachedCascades || { state: 'loading', rows: [] },
-                convergence: cachedConvergence || {
-                  state: countyState === 'notApplicable' ? 'notApplicable' : 'loading',
-                  rows: []
-                },
-                favorite: favoriteSource,
-                mass: massSource
-              };
+              surgeModel.observed = observed;
+              if (cachedCascades) surgeModel.cascades = cachedCascades;
+              if (cachedConvergence) surgeModel.convergence = cachedConvergence;
               paintSurgeModel();
-              beginMegaRefresh();
               return cache;
             });
         // getChaseRarity, NOT getChase. A device log measured this section
@@ -37131,33 +37322,51 @@
         // The wave keeps running underneath and onRarityEarly repaints when it
         // completes, so the crowd lane still gets the full merged set; it just
         // arrives after the screen is useful instead of before.
-        var pObserved = getChaseRarity(force ? 'notable' : false).then(function (res) {
+        var pObserved = afterPaint.then(function () {
+          return getChaseRarity(force ? 'notable' : false);
+        }).then(function (res) {
           return surgeObservedResult(res, now);
         }).catch(function (e) {
           dbg('warn', 'Bird gen recent/notable source: ' + ((e && e.message) || e));
           return { state: 'failed', merged: [], events: [], needs: [], patches: [] };
-        }).then(paintObserved);
-        var pObservedStarted = chaseRarityStarted();
-        var pFavorites = loadFavoritePatchAlertSource(force, activeScope())
-          .then(function (result) {
-            favoriteSource = result;
-            if (generation === _surgeLoadGeneration && surgeModel) {
-              surgeModel.favorite = result;
-              paintSurgeModel();
-            }
-            return result;
-          });
-        loadMassFlockAlertSource(force, activeScope()).then(function (result) {
-          massSource = result;
-          if (generation === _surgeLoadGeneration && surgeModel) {
-            surgeModel.mass = result;
-            paintSurgeModel();
-          }
+        }).then(paintObserved).then(function (result) {
+          if (current()) performancePrimary(section, performanceLoadId, true);
           return result;
+        });
+        var pObservedStarted = afterPaint.then(function () { return chaseRarityStarted(); });
+        var pMega = pObservedStarted.then(function () {
+          if (!current()) return false;
+          var result = lazyRefreshMegaSnapshot(paintSurgeModel);
+          paintSurgeModel();
+          return result;
+        });
+        var pBirdcast = pObservedStarted.then(function () {
+          if (!current()) return null;
+          return loadBirdcastSnapshot(new Date(now)).then(function (snapshot) {
+            paintSurgeModel();
+            return snapshot;
+          });
+        });
+        var pFavorites = pObservedStarted.then(function () {
+          if (!current()) return { state: 'cancelled', rows: [] };
+          return loadFavoritePatchAlertSource(force, activeScope(), function (result) {
+            publishSource('favorite', result);
+          });
+        })
+          .then(function (result) {
+            return publishSource('favorite', result);
+          });
+        var pMass = pObservedStarted.then(function () {
+          if (!current()) return { state: 'cancelled', rows: [] };
+          return loadMassFlockAlertSource(force, activeScope(), function (result) {
+            publishSource('mass', result);
+          }, deepHistory === true);
+        }).then(function (result) {
+          return publishSource('mass', result);
         });
         var rr = rankPrimaryRegion();
         var pCascades = pCachedSources.then(function () {
-          if (generation !== _surgeLoadGeneration) {
+          if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
           if (cachedCascades && cachedCascades.state === 'ok') return cachedCascades;
@@ -37182,9 +37391,14 @@
               dbg('warn', 'Bird gen cascade source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
             });
+        }).then(function (result) {
+          if (current()) {
+            publishSource('cascades', surgeSourceFallback(result, cachedCascades));
+          }
+          return result;
         });
         var pConverge = Promise.all([pCachedSources, pObservedStarted]).then(function () {
-          if (generation !== _surgeLoadGeneration) {
+          if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
           if (cachedConvergence && cachedConvergence.state === 'ok') {
@@ -37273,7 +37487,7 @@
               };
           }
           _surgeHotspotRetry = function (path) {
-            if (generation !== _surgeLoadGeneration) return Promise.resolve(false);
+            if (!current()) return Promise.resolve(false);
             var feed = feeds.filter(function (f) {
               return BL.requestUrl(f) === path;
             })[0];
@@ -37291,7 +37505,7 @@
             st.textContent = 'Retrying the failed Bird Gen hotspot source…';
             dbg('net', 'retrying only Bird Gen hotspot source · ' + path);
             return fetchConvergenceFeed(feed).then(function () {
-              if (generation !== _surgeLoadGeneration || !surgeModel) return false;
+              if (!current() || !surgeModel) return false;
               var live = convergenceResult();
               surgeModel.convergence = surgeSourceFallback(live, cachedConvergence);
               paintSurgeModel();
@@ -37303,22 +37517,61 @@
         }).catch(function (e) {
               dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
+            }).then(function (result) {
+              if (current()) {
+                publishSource('convergence', surgeSourceFallback(result, cachedConvergence));
+              }
+              return result;
             });
-        return Promise.all([pObserved, pCascades, pConverge, pFavorites]).then(function (r) {
-          if (generation !== _surgeLoadGeneration) return;
-          var cascades = surgeSourceFallback(r[1], cachedCascades);
-          var convergence = surgeSourceFallback(r[2], cachedConvergence);
-          surgeModel = {
-            observed: r[0], cascades: cascades, convergence: convergence,
-            favorite: r[3], mass: massSource
-          };
-          paintSurgeModel();
+        Promise.allSettled([
+          ['observations', pObserved], ['leaderboard', pCascades],
+          ['hotspots', pConverge], ['favorites', pFavorites],
+          ['mass', pMass], ['mega', pMega], ['birdcast', pBirdcast]
+        ].map(function (source) {
+          return source[1].then(function (result) {
+            if (_performance && current()) {
+              var state = result && result.state || 'settled';
+              if (source[0] === 'mega') state = megaAlertSourceState(megaLane(getAnchors()));
+              if (source[0] === 'birdcast' && result
+                  && (result.forecastError || result.countError || result.migrantsError)) state = 'partial';
+              _performance.source(performanceLoadId, { source: source[0], state: state });
+            }
+            return result;
+          }, function (error) {
+            if (!(error && error.queueCancelled)) {
+              dbg('warn', 'Bird Gen ' + source[0] + ' lifecycle: ' + netErr(error));
+            }
+            if (_performance && current()) _performance.source(performanceLoadId, {
+              source: source[0], state: error && error.queueCancelled ? 'cancelled' : 'failed'
+            });
+          });
+        })).then(function () {
+          if (current()) {
+            if (_performance && !performanceHasContent(section)) {
+              _performance.mark(performanceLoadId, 'report_first_content', {
+                completeness: surgeSourcesComplete(surgeSourceStates(
+                  megaLane(getAnchors()), {
+                    observations: surgeModel.observed.state,
+                    leaderboard: surgeModel.cascades.state,
+                    hotspots: surgeModel.convergence.state,
+                    favorites: surgeModel.favorite.state, mass: surgeModel.mass.state
+                  })) ? 'empty' : 'unavailable'
+              });
+            }
+          }
+          releasePerformance();
+          if (_surgeActiveLoad === activeLoad) _surgeActiveLoad = null;
+          });
+        activeLoad.primary = Promise.all([pObserved, pCascades, pConverge, pFavorites]).then(function (r) {
+          if (!current()) return;
           saveSurgeSourceCache({
             cascades: r[1],
             convergence: r[2]
-          }).catch(function () {});
+          }).catch(function (error) {
+            dbg('warn', 'Bird Gen source cache save: ' + netErr(error));
+          });
         }).catch(function (e) {
-          if (generation === _surgeLoadGeneration) {
+          if (current()) {
             st.hidden = false;
             st.textContent = netErr(e);
           }
@@ -37328,6 +37581,7 @@
             _surgeEarlyPaint = null;
           }
         });
+        return activeLoad.primary;
       }
       // The leaderboard says a bird is gettable and never says where — it
       // carries a species name, a date, and nothing else. That makes the lane
@@ -38447,7 +38701,7 @@
         stakeHsBtn:   { needsKey: true, scopeTransition: 'none' },
         allUnseenBtn: { fn: loadAllUnseen,  needsKey: true, needsAnchor: true, needsCountyScope: true, fromChase: true, countyView: true, scopeTransition: 'year-list' },
         surgeBtn:   {
-          fn: loadSurge,
+          fn: loadSurge, stagedPerformance: true,
           needsKey: true,
           needsHome: true,
           homeDetail: birdGenHomeRequired,
@@ -38616,7 +38870,7 @@
               spec.homeButton ? spec.homeButton() : null);
             return;
           }
-          if (spec.reachability) {
+          if (spec.reachability && !spec.stagedPerformance) {
             return ensureRegionReachability(chaseMaxMi(), navWork('Home reachability'))
               .then(function (result) {
                 if (_appUnloading || !window.document
@@ -38667,7 +38921,7 @@
         var performanceLoadId = performanceStart(sec, 'autoload');
         var result;
         var loadScope = activeScope();
-        try { result = spec.fn(); }
+        try { result = spec.stagedPerformance ? spec.fn(performanceLoadId) : spec.fn(); }
         catch (e) {
           if (spec.retryOnFailure) _autoLoaded[sec.id] = false;
           try { dbg('error', 'autoload ' + sec.id + ': ' + (e && e.message || e)); } catch (_) {}
@@ -38747,10 +39001,7 @@
       }
       function performanceStart(sec, reason) {
         if (!_performance || !sec) return null;
-        var old = _performanceLoads[sec.id];
-        if (old && _performance.active(old)) {
-          _performance.cancel(old, { reason: 'superseded' });
-        }
+        performanceCancelSection(sec.id, 'superseded');
         var loadId = _performance.start({
           sectionId: sec.id,
           sectionLabel: sec._label || sec.id,
@@ -38785,14 +39036,30 @@
         if (observer) {
           observer.observe(sec, { childList: true, subtree: true, characterData: true });
         }
-        _performanceObservers[sec.id] = { observer: observer, timer: null, loadId: loadId };
+        _performanceObservers[sec.id] = {
+          observer: observer, timer: null, loadId: loadId, primaryReady: false, pending: 0
+        };
         return loadId;
+      }
+      function performanceHold(sec, loadId) {
+        var state = sec && _performanceObservers[sec.id];
+        if (!state || state.loadId !== loadId) return function () {};
+        state.pending++;
+        var released = false;
+        return function () {
+          if (released) return;
+          released = true;
+          state.pending--;
+          performanceSettle(sec, loadId);
+        };
       }
       function performanceSettle(sec, loadId) {
         var state = _performanceObservers[sec.id];
         if (!state || state.loadId !== loadId) return;
         if (state.timer) clearTimeout(state.timer);
+        if (!state.primaryReady || state.pending) return;
         state.timer = setTimeout(function () {
+          if (_performanceObservers[sec.id] !== state || state.pending) return;
           if (typeof document === 'undefined' || !document.documentElement
               || !_performance || !_performance.active(loadId)) {
             if (state.observer) state.observer.disconnect();
@@ -38805,6 +39072,8 @@
             row_count: pdRows(sec).length,
             species_count: visible.length,
             hotspot_count: hotspots.length,
+            completion_scope: sec.id === 'sec-surgeBtn'
+              ? 'source_data; viewport-lazy photos excluded' : 'render',
             completeness: inferCoverageState(sec, true)
           });
           if (state.observer) state.observer.disconnect();
@@ -38818,6 +39087,9 @@
           _performance.fail(loadId, { reason: 'loader_returned_false' });
           return;
         }
+        var state = _performanceObservers[sec.id];
+        if (!state || state.loadId !== loadId) return;
+        state.primaryReady = true;
         _performance.mark(loadId, 'report_primary_ready', {
           row_count: pdRows(sec).length,
           completeness: inferCoverageState(sec, ok)
@@ -38828,6 +39100,13 @@
         var loadId = performanceLoadIdFor(sectionId);
         if (_performance && loadId && _performance.active(loadId)) {
           _performance.cancel(loadId, { reason: reason || 'navigation' });
+        }
+        if (sectionId === 'sec-surgeBtn' && reason === 'navigation') {
+          _autoLoaded[sectionId] = false;
+          _surgeLoadGeneration++;
+          _surgeEarlyPaint = null;
+          _surgeHotspotRetry = null;
+          _surgeRepaint = null;
         }
         var state = _performanceObservers[sectionId];
         if (state) {
@@ -41228,6 +41507,7 @@
       function showMenu() {
         var from = visibleSectionId();
         if (!menuVisible()) {
+          performanceCancelSection(from, 'navigation');
           _navGeneration++;
           fgCancelObsolete();
         }
@@ -42304,7 +42584,7 @@
         $('abaSid').value = getAbaSid();
         syncRankRegionUI();
         syncRegionNav();
-        renderBirdcast();
+        renderBirdcast(null, null, true);
         renderTimeOfDay();
         renderMigration();
         if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + getReport().label;
@@ -44374,6 +44654,8 @@
         GBIF_REFILL_PER_S: GBIF_REFILL_PER_S,
         loadAbaAlert: loadAbaAlert,
         renderSurge: renderSurge, loadSurge: loadSurge,
+        loadSurgeRetained: loadSurgeRetained,
+        saveSurgeRetainedPart: saveSurgeRetainedPart,
         surgeControls: surgeControls, applySurgeSort: applySurgeSort,
         chaseAlertSourceState: chaseAlertSourceState,
         surgeDestinationsComplete: surgeDestinationsComplete,
