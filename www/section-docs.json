@@ -239,9 +239,10 @@
       ],
       "how": [
         "The 'most recent addition' column is grouped BY SPECIES. When nine of the top hundred share the same newest bird, it is demonstrably findable now.",
-        "Sorted most-shared first, then freshest.",
+        "Newest sorts by the newest returned checklist observation date once resolved, with the board tick date as provisional ordering while acquisition is pending. Nearest sorts by verified nearest-checklist distance; missing evidence is not zero.",
         "One board only — the region's own. Pooling a national board recommends birds you cannot drive to.",
-        "Each species expands to recent in-region checklists: five, or more if there are more inside the 3-day fresh window, capped so a bird everybody refinds cannot emit hundreds of links."
+        "Each clickable bird row opens species Stakeout. Inline Newest and Nearest summaries separately label their own observation date, distance and real linked checklist ID; clicking a checklist does not open the bird row.",
+        "Only Newest / Nearest and chase-distance / All controls remain. The distance restriction uses nearest verified evidence. Rows enrich progressively without rebuilding the entire list; select a sort control to reorder resolved evidence."
       ],
       "limits": [
         "The board updates roughly daily, so a tick can be up to a day old."
@@ -685,6 +686,7 @@
       "inputs": [],
       "how": [
         "Everything here is stored on this device only.",
+        "Advanced / Debug starts collapsed and groups the existing probes, debug log, sample data, beta-only diagnostics, region-name refresh, taxonomy/naming controls and technical region/alert codes. Opening it starts no network work. Personal data and ordinary setup remain outside; expired-beta recovery remains independently reachable. No new cache update or clear actions are added.",
         "Main and Test 2–4 are isolated local storage slots, not eBird accounts discovered by the app. Imported or signed-in identity labels the selected slot automatically.",
         "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",
         "Home and tide station are stored PER REPORT — chasing from Woodinville is meaningless on the Big Island.",
@@ -746,7 +748,8 @@
       "inputs": [
         "eBird ref/hotspot/{region} for the name search and nearest-hotspot lookup, cached",
         "the device's current location when Here is selected",
-        "eBird product/lists/{locId}, one call, which carries every recent checklist header AND its observer"
+        "eBird product/lists/{locId}, one call, which carries recent checklist headers and observers",
+        "The existing rolling 30-day full hotspot observation response; one rate-limited checklist/view read per unique missing ID, reusing verified cached evidence"
       ],
       "how": [
         "The search field and Go action share the primary row. Here lists the nearest public hotspots from the cached regional directory; Close clears the query, choices and selected hotspot and rejects any late result from that cleared lookup.",
@@ -755,11 +758,12 @@
         "The selected place leads with a map and explicit Open in Maps, Open eBird hotspot, QR, and add/remove favorite actions. Favorite changes use the same on-device favorite-hotspot list as Favorite patches.",
         "MEASURED 2026-08-22 at 10:10: three target species returned ZERO reports from that day across the whole state. eBird embargoes checklists for an hour (its hotspot page says so) and people submit hours after the walk.",
         "WHO BIRDS HERE is counted from the same single call, because product/lists carries userDisplayName. The patch-regular list is a different and more useful thing than the county top 100: the person to ask about a place is whoever actually birds it. Cedar River mouth reads Eric Hope 30.",
-        "Checklists are shown newest-first as shared small checklist cards. The linked date opens the checklist; QR is kept once for the hotspot instead of repeated on every evidence row. product/lists ordering was measured at three depths, 5, 50 and 200."
+        "Checklists are shown newest-first as shared small checklist cards. The linked date opens the checklist; QR is kept once for the hotspot instead of repeated on every evidence row. Missing observation-linked IDs are deduplicated, resolved serially and validated against the exact selected hotspot and returned checklist identity/date.",
+        "HIDDEN: A checklist linked from a hotspot observation but absent from eBird's recent-checklist feed. This does not confirm a privacy setting or imply every hidden checklist has been found."
       ],
       "limits": [
-        "It does not enumerate hidden checklists. Both species_recent and /data/obs/{loc}/recent/{code} collapse to ONE row per location - measured across 14 species at two hotspots, including owls, which was the sharpest test because owlers often use custom pins. Only /data/obs/{loc}/historic/{y}/{m}/{d} returns them all, at one call per DAY, and that cost is not spent here.",
-        "Checklist comments are not shown because they are in no eBird endpoint at all - hasComments measured true on ZERO of 2,860 rows."
+        "Discovery is limited to the existing latest-per-species rolling 30-day sample, not exhaustive checklist history. No annual/day scan, per-species fan-out or guessed-ID enumeration is performed. Unavailable or mismatched resolutions are reported separately from successful empty coverage.",
+        "Comments and duration use the documented checklist reader. Source failures do not erase the last good selected-hotspot view."
       ]
     }
   }

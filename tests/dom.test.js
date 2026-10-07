@@ -6221,8 +6221,8 @@ test('a watchlist bird is unseen on the ROW as well as in the heading', async ()
   assert.equal(A.isSpeciesSeen('shbdow', "Short-billed Dowitcher"), false,
     'and so must the ROW. A name match must not undo an explicit '
     + '"I have not confirmed this"');
-  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), /needflag/,
-    'so the marker is actually rendered');
+  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />WATCH<\/span>/,
+    'F818 explains the proven-seen watch exception without changing eligibility');
   app.window.close();
 });
 
@@ -6630,27 +6630,16 @@ test('the checklist id is really bigger than a plain external link', () => {
 // Pinned to the PROPERTY — the waiting state must differ from the settled ones
 // by something other than its wording — rather than to the markup, because a
 // guard that names one class breaks the moment the spinner is restyled.
-test('a section still fetching does not look like a section that found nothing', () => {
-  const card = HTML.slice(HTML.indexOf('function lastNewCard('),
-    HTML.indexOf('\n      // F209.'));
-  assert.ok(card.length > 400, 'lastNewCard is still findable');
-
-  const waiting = /if \(pending\) \{([\s\S]*?)\} else if \(!code\)/.exec(card);
-  assert.ok(waiting, 'the pending branch is still there');
-  const settled = card.slice(card.indexOf('} else if (!code)'));
-
-  assert.match(waiting[1], /<i>/,
-    'the waiting label is italic — a signal that survives with animation off');
-  assert.match(waiting[1], /loadingdots/,
-    'and the ellipsis animates, so the row reads as work in progress');
-  assert.doesNotMatch(settled, /loadingdots/,
-    'a settled answer must NOT animate, or the distinction says nothing');
-  assert.doesNotMatch(settled, /<i>/,
-    'nor share the italic — these two states have to look different');
-  assert.match(HTML, /@keyframes bcdots/,
-    'the animation it names really exists');
-  assert.match(HTML, /prefers-reduced-motion[\s\S]{0,400}animation: none/,
-    'and motion is not the only cue for a reader who has switched it off');
+test('a section still fetching does not look like a section that found nothing', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const g = { birders: [], latest: '' };
+  const pending = A.lastNewCard('Mallard', g, null, 'US-WA', 'mallar3');
+  const settled = A.lastNewCard('Mallard', g, { code: 'mallar3', obs: [] }, 'US-WA');
+  assert.match(pending, /role="status">Finding recent checklists/);
+  assert.doesNotMatch(settled, /Finding recent checklists/);
+  assert.match(settled, /Newest: unavailable/);
+  app.window.close();
 });
 
 test('the three species sections use the large icon + title treatment', () => {
@@ -6726,14 +6715,13 @@ test('Leader Board Ticks: the bird outranks the roster of who added it', () => {
     'and no longer renders as a checklist-style table');
 });
 
-test('Leader Board Ticks: the bird links to its species page and shows fresh lists', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+test('Leader Board Ticks: the bird links to Stakeout and shows inline checklist summaries', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
   assert.match(src, /speciesLink\(sp, code\)/,
     'the bird title is a link to ebird.org/species/<code>/<region>');
-  assert.match(src, /LAST_NEW_FRESH_DAYS/,
-    'checklists inside the fresh window are never hidden behind "and N more"');
-  assert.match(src, /Math\.max\(LAST_NEW_CHECKLISTS, nFresh\)/,
-    'the fresh window only ever ADDS rows to the 5-row floor');
+  assert.match(src, /lastNewSummary\('Newest', evidence\.newest\)/);
+  assert.match(src, /lastNewSummary\('Nearest', evidence\.nearest\)/);
+  assert.doesNotMatch(src, /checklistDetails\(/);
 });
 
 test("today's rarities show the time of the latest report, not just the date", () => {
@@ -9792,9 +9780,9 @@ test('F795 Favorite Remove stays out of species rows and remains available when 
   assert.ok(remove.compareDocumentPosition(distance)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
   'Remove precedes the unchanged distance in the hotspot heading');
-  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).backgroundColor,
+  assert.equal(app.window.getComputedStyle(remove.querySelector('.favRemoveLabel')).backgroundColor,
     'rgb(194, 51, 31)');
-  assert.equal(app.window.getComputedStyle(near.querySelector('.favdel')).color,
+  assert.equal(app.window.getComputedStyle(remove.querySelector('.favRemoveLabel')).color,
     'rgb(255, 255, 255)');
   assert.equal(near.querySelector('.favspp .favdel'), null);
   assert.equal(near.querySelector('.hsact'), null);
@@ -14709,8 +14697,9 @@ test('Leader Board Ticks answers how far away the bird is', async () => {
   // phrase in the sub-header, which is the same convention every other medium
   // card uses — the number is there to be scanned down the edge of a list.
   assert.match(txt, /3\.\d/, 'measures to the closest report, not the latest');
-  const dist = d.querySelector('#lastNewResults .spdist');
-  assert.ok(dist, 'and it is the card distance column, not buried in a sentence');
+  const dist = [...d.querySelectorAll('#lastNewResults .lastNewSummary')]
+    .find((el) => el.textContent.startsWith('Nearest:'));
+  assert.ok(dist, 'the distance belongs to the explicitly labelled nearest evidence');
   assert.match(dist.textContent, /3\.\d/);
 });
 
@@ -14859,7 +14848,7 @@ test('there are exactly three card templates and each one is really used', () =>
   // Favorites and the rarity lists must OPT IN to a size rather than hand-roll
   // one. Favorites builds its list through the shared builder now, so the class
   // is applied at render time — assert the delegation, not a source literal.
-  assert.match(HTML, /speciesListHtml\(rows, \{ presorted: true, cls: 'favspp' \}\)/,
+  assert.match(HTML, /speciesListHtml\(rows, \{ presorted: true, cls: 'favspp', unseen: true \}\)/,
     'favorites use the small template via the one builder');
   assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
   const mega = HTML.slice(HTML.indexOf('function renderMegaIndex('),
@@ -15568,9 +15557,8 @@ test('Leader Board Ticks: names are a list sorted newest first, not a run-on', (
   assert.match(src, /Who added it[\s\S]{0,80}class="wholine"|class="wholine"[\s\S]{0,80}Who added it/,
     'the birders render as ONE labelled sentence — the table was the tallest '
     + 'thing on the card and the least scanned');
-  assert.match(src, /checklistDetails\([\s\S]{0,900}'recent checklist'/,
-    'and the checklists carrying the bird follow as their own shared-card '
-    + 'list, through the helper the other three sections use');
+  assert.match(src, /lastNewSummary\('Newest'/,
+    'checklist evidence is inline rather than an expandable collection');
 });
 
 // The expander mirrors report._rarity_reports_cell: a section whose rows ARE the
@@ -21707,7 +21695,7 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
   assert.match(card, /var pending = !info && !!code;/,
     'a row knows whether its feed has landed — and a species with no code has '
     + 'no feed coming, so it must not wait forever');
-  assert.match(card, /finding recent checklists/, 'and says so while it waits');
+  assert.match(card, /Finding recent checklists/, 'and says so while it waits');
 });
 
 // "I would like the Leader Board Ticks to be split, showing the
@@ -21795,20 +21783,16 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
   assert.equal(doc.querySelector('#lastNewSort [data-sort="distance"]')
     .getAttribute('aria-pressed'), 'true');
 
-  assert.ok(doc.querySelector('#lastNewResults > li .cklcards'),
-    'List view does not expose checklist rows');
+  assert.ok(doc.querySelector('#lastNewResults > li .lastNewSummary'),
+    'inline checklist evidence is missing');
   assert.equal(doc.querySelector('#lastNewResults details.ckall'), null);
-  doc.getElementById('lastNewView').click();
-  assert.equal(doc.getElementById('lastNewView').getAttribute('aria-pressed'), 'true');
-  assert.ok(doc.querySelector('#lastNewResults details.ckall'),
-    'Group click did not replace the visible list with grouped checklist content');
+  assert.equal(doc.getElementById('lastNewView'), null);
 
   assert.equal(doc.querySelector('#lastNewResults .cknote-pending'), null,
     'Notes off shows a busy action even though no request is queued');
   assert.equal(doc.querySelector('#lastNewResults .evnoterow'), null,
     'inline Notes prose is visible before Notes is enabled');
-  doc.getElementById('lastNewNotes').click();
-  assert.equal(doc.getElementById('lastNewNotes').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.getElementById('lastNewNotes'), null);
   assert.equal(doc.querySelector('#lastNewResults .cknote-pending'), null,
     'Notes click invented a busy action before checklist hydration began');
   app.window.close();
@@ -24674,8 +24658,8 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
 
   // 2. ...and the two are distinguishable with NO colour at all: different
   //    words and different glyph shapes (rosette vs egg).
-  assert.ok(conf.includes('\uD83C\uDFF5\uFE0F'), 'confirmed carries the rosette seal');
-  assert.ok(/>\uD83C\uDFF5\uFE0F Confirmed</.test(conf),
+  assert.ok(conf.includes('\uD83D\uDEE1\uFE0F'), 'confirmed carries the shield');
+  assert.ok(/CONFIRMED<\/span>/.test(conf),
     'Confirmed is visible text, not only an accessible-name attribute');
   assert.ok(pend.includes('\uD83E\uDD5A'), 'unconfirmed carries the egg');
   assert.ok(/>\uD83E\uDD5A Unconfirmed</.test(pend),
@@ -24728,17 +24712,17 @@ test('a rarity says whether it is confirmed, and never guesses', async () => {
   app.window.close();
 });
 
-test('F626 individual checklist rows show only the review icon', async () => {
+test('F626 individual checklist rows preserve review criteria with the F819 shield text', async () => {
   const app = await boot();
   const A = app.window.__app;
   const confirmed = A.reviewIcon({ reviewState: 'confirmed' });
   const pending = A.reviewIcon({ reviewState: 'pending' });
-  assert.match(confirmed, />\uD83C\uDFF5\uFE0F<\/span>/,
-    'a confirmed checklist keeps its distinct rosette icon');
+  assert.match(confirmed, />\uD83D\uDEE1\uFE0F<\/span> CONFIRMED/,
+    'a confirmed checklist uses the same shield and explicit text');
   assert.match(pending, />\uD83E\uDD5A<\/span>/,
     'an unconfirmed checklist keeps its distinct egg icon');
-  assert.doesNotMatch(confirmed + pending, />[^<]*(?:Confirmed|Unconfirmed)[^<]*</,
-    'individual checklist rows print review words beside their icons');
+  assert.doesNotMatch(pending, />[^<]*Unconfirmed[^<]*</,
+    'the existing pending icon is unchanged');
   assert.match(confirmed, /aria-label="Confirmed by an eBird reviewer"/);
   assert.match(pending,
     /aria-label="Unconfirmed; no eBird reviewer confirmation available"/);
@@ -36439,6 +36423,334 @@ test('F691 Stakeout Patch hydrates duration and unseen targets with Comments off
   app.window.close();
 });
 
+test('F823 direct hotspot discovery resolves every missing ID and labels only verified omissions', async () => {
+  for (const locId of ['L514231', 'L823OTHER']) {
+    const calls = [];
+    const app = await boot({
+      fetch(url) {
+        if (url.includes('product/lists/')) return [{
+          subId: 'S823PUBLIC', obsDt: '2026-09-27 14:16', numSpecies: 8,
+        }];
+        if (url.includes(`data/obs/${locId}/recent`)) return [
+          { locId, subId: 'S399875288', speciesCode: 'snogoo', comName: 'Snow Goose',
+            howMany: 22, obsDt: '2026-10-06 14:33' },
+          { locId, subId: 'S399875288', speciesCode: 'mallar3', comName: 'Mallard' },
+          { locId, subId: 'S823SECOND', speciesCode: 'baleag', comName: 'Bald Eagle' },
+          { locId, subId: 'S823PUBLIC', speciesCode: 'amecro', comName: 'American Crow' },
+          { locId, subId: 'S823WRONG', speciesCode: 'comrav', comName: 'Common Raven' },
+          { locId, subId: 'S823FAIL', speciesCode: 'rewbla', comName: 'Red-winged Blackbird' },
+        ];
+        if (url.includes('product/checklist/view/')) {
+          const subId = url.split('/').pop().split('?')[0];
+          calls.push(subId);
+          if (subId === 'S823FAIL') return { __status: 400, __body: {} };
+          return {
+            subId, locId: subId === 'S823WRONG' ? 'LWRONG' : locId,
+            obsDt: subId === 'S399875288' ? '2026-10-06 14:33' : '2026-10-01 10:00',
+            obs: [{ speciesCode: 'snogoo', howManyStr: '22' }],
+          };
+        }
+        return null;
+      },
+    });
+    seedSeen(app, []);
+    const link = app.document.createElement('a');
+    link.className = 'hslink';
+    link.dataset.loc = locId;
+    link.dataset.locname = 'Direct hotspot';
+    app.document.body.appendChild(link);
+    app.click(link);
+    await waitFor(() => /4 of 4 resolved/.test(app.$('stakeHsResults').textContent),
+      'all unique supplemental IDs resolved');
+    const root = app.$('stakeHsResults');
+    const rows = [...root.querySelectorAll('.stakeHsChecklistCards > li')];
+    assert.deepEqual(rows.map((r) => r.dataset.evSub),
+      ['S399875288', 'S823SECOND', 'S823PUBLIC']);
+    assert.equal(root.querySelectorAll('[aria-label^="HIDDEN:"]').length, 2);
+    assert.match(rows[0].textContent, /HIDDEN/);
+    assert.match(rows[0].textContent, /×22/);
+    assert.equal(rows[2].querySelector('[aria-label^="HIDDEN:"]'), null);
+    assert.equal(calls.filter((s) => s === 'S399875288').length, 1);
+    assert.equal(calls.includes('S823PUBLIC'), true,
+      'ordinary duration hydration remains independent');
+    assert.match(root.textContent, /2 unavailable or mismatched/);
+    const sec = app.$('sec-stakeHsBtn');
+    app.click(sec.querySelector('.docbtn'));
+    await waitFor(() => /HIDDEN: A checklist/.test(sec.textContent), 'reachable HIDDEN definition');
+    assert.match(sec.textContent, /does not confirm a privacy setting/);
+    app.window.close();
+  }
+});
+
+test('F823 refresh failure retains last-good evidence and obsolete resolution cannot paint', async () => {
+  let fail = false, resolveOld;
+  const app = await boot({
+    fetch(url) {
+      if (url.includes('product/lists/')) return fail
+        ? { __status: 400, __body: {} }
+        : [{ subId: 'S823KEEP', obsDt: '2026-10-01 10:00', numSpecies: 5 }];
+      if (url.includes('data/obs/')) return [{
+        subId: 'S823LATE', locId: 'L823OLD', speciesCode: 'mallar3', comName: 'Mallard',
+      }];
+      if (url.includes('checklist/view/S823LATE')) {
+        return new Promise((resolve) => { resolveOld = resolve; });
+      }
+      if (url.includes('checklist/view/')) return {
+        subId: 'S823KEEP', locId: 'L823OLD', obsDt: '2026-10-01 10:00', obs: [],
+      };
+      return null;
+    },
+  });
+  const A = app.window.__app;
+  await A.stakeHsOpen('L823OLD', 'Old hotspot');
+  await waitFor(() => resolveOld, 'pending supplemental request');
+  app.click(app.$('stakeHsClear'));
+  resolveOld({ subId: 'S823LATE', locId: 'L823OLD',
+    obsDt: '2026-10-06 14:33', obs: [] });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(app.$('stakeHsResults').textContent, '');
+  assert.equal(A.stakeHsRows(), null, 'obsolete resolution republished cleared evidence');
+  await A.stakeHsOpen('L823OLD', 'Old hotspot');
+  await waitFor(() => app.$('stakeHsResults').querySelector('[data-ev-sub="S823KEEP"]'),
+    'last-good ordinary row');
+  fail = true;
+  await A.stakeHsOpen('L823OLD', 'Old hotspot', true);
+  assert.ok(app.$('stakeHsResults').querySelector('[data-ev-sub="S823KEEP"]'));
+  app.window.close();
+});
+
+test('F823 supplemental refresh failure preserves previously verified hidden evidence', async () => {
+  let fail = false;
+  const app = await boot({ fetch(url) {
+    if (url.includes('product/lists/')) return [{
+      subId: 'S823ORDINARY', obsDt: '2026-10-01 10:00', numSpecies: 3,
+    }];
+    if (url.includes('data/obs/L823KEEP/recent')) return [{
+      subId: 'S823HIDDEN', locId: 'L823KEEP', speciesCode: 'snogoo',
+      comName: 'Snow Goose', howMany: 22,
+    }];
+    if (url.includes('checklist/view/')) {
+      if (fail && url.includes('S823HIDDEN')) return { __status: 400, __body: {} };
+      return { subId: url.split('/').pop().split('?')[0], locId: 'L823KEEP',
+        obsDt: '2026-10-06 14:33', obs: [{ speciesCode: 'snogoo', howManyStr: '22' }] };
+    }
+    return null;
+  } });
+  const A = app.window.__app;
+  await A.stakeHsOpen('L823KEEP', 'Retained hotspot');
+  await waitFor(() => /1 of 1 resolved/.test(app.$('stakeHsResults').textContent),
+    'initial hidden resolution');
+  A.seedChecklistView('S823HIDDEN', null);
+  fail = true;
+  await A.stakeHsOpen('L823KEEP', 'Retained hotspot', true);
+  await waitFor(() => /refresh unavailable/.test(app.$('stakeHsResults').textContent),
+    'explicit retained evidence status');
+  const retained = app.$('stakeHsResults').querySelector('[data-ev-sub="S823HIDDEN"]');
+  assert.ok(retained);
+  assert.match(retained.textContent, /HIDDEN/);
+  assert.match(retained.textContent, /×22/);
+  assert.equal(app.$('stakeHsResults').querySelectorAll('[data-ev-sub="S823HIDDEN"]').length, 1);
+  app.window.close();
+});
+
+test('F823 preserves the ordinary presentation bound while showing older supplemental rows', async () => {
+  const app = await boot({ fetch(url) {
+    if (url.includes('product/lists/')) return Array.from({ length: 25 }, (_, i) => ({
+      subId: 'S823O' + i, obsDt: '2026-10-06 12:00', numSpecies: 3,
+    }));
+    if (url.includes('data/obs/L823BOUND/recent')) return [{
+      subId: 'S823OLDER', locId: 'L823BOUND', speciesCode: 'snogoo', comName: 'Snow Goose',
+    }];
+    if (url.includes('checklist/view/')) return {
+      subId: url.split('/').pop().split('?')[0], locId: 'L823BOUND',
+      obsDt: '2026-09-15 10:00', obs: [],
+    };
+    return null;
+  } });
+  await app.window.__app.stakeHsOpen('L823BOUND', 'Bounded hotspot');
+  await waitFor(() => /1 of 1 resolved/.test(app.$('stakeHsResults').textContent),
+    'older supplemental resolution');
+  const rows = app.$('stakeHsResults').querySelectorAll('.stakeHsChecklistCards > li');
+  assert.equal(rows.length, 21);
+  assert.equal(rows[20].dataset.evSub, 'S823OLDER');
+  assert.match(rows[20].textContent, /HIDDEN/);
+  app.window.close();
+});
+
+test('F816 obsolete ownership cannot publish rows, status or completion controls', async () => {
+  let resolveCodes;
+  const app = await boot({ fetch(url) {
+    if (url.includes('data/obs/US-WA/recent')) {
+      if (url.includes('/recent/')) return [];
+      return new Promise((resolve) => { resolveCodes = resolve; });
+    }
+    return null;
+  } });
+  const A = app.window.__app;
+  A.rankCachePut('US-WA|' + new Date().getFullYear() + '|500|' + A.getDisplayName(), {
+    region: 'US-WA', rows: [{ name: 'Synthetic birder', rank: 1,
+      recent: 'Snow Goose (Oct 6, 2026)' }],
+  });
+  const loading = A.loadLastNew();
+  await waitFor(() => resolveCodes, 'pending code index');
+  app.window.localStorage.setItem('ebird_report', 'or');
+  app.$('lastNewStatus').textContent = 'Current owner state';
+  resolveCodes([{ comName: 'Snow Goose', speciesCode: 'snogoo' }]);
+  await loading;
+  assert.equal(app.$('lastNewResults').textContent, '');
+  assert.equal(app.$('lastNewStatus').textContent, 'Current owner state');
+  assert.equal(app.$('lastNewBtn').disabled, true);
+  app.window.close();
+});
+
+test('F810 Advanced disclosure preserves the exact inventory without network or recovery changes', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  A.showSection('settingsPanel');
+  const advanced = app.$('advancedSettings');
+  assert.ok(advanced);
+  assert.equal(advanced.open, false);
+  assert.equal(advanced.querySelector('summary').textContent, 'Advanced / Debug');
+  const moved = ['wallProbeBtn', 'wallProbeStatus', 'lifeProbeBtn', 'lifeProbeStatus',
+    'openDebugBtn', 'loadSeedBtn', 'regionCatalogRefresh', 'regionCatalogStatus',
+    'taxonomyCheckBtn', 'taxonomyStatus', 'namingLocale', 'namingLocalesBtn',
+    'namingStatus', 'region', 'abaSid'];
+  moved.forEach((id) => assert.equal(app.$(id).closest('details'), advanced, id));
+  const ordinary = ['themeMode', 'mapProvider', 'apiKey', 'keyGetBtn', 'keyPasteBtn',
+    'keyTestBtn', 'bcProfileSel', 'setupOpenBtn', 'homePlace', 'homeLat',
+    'homeLng', 'tideStation', 'csvDownloadBtn', 'csvFile', 'clearCsv', 'scrubBtn'];
+  ordinary.forEach((id) => {
+    assert.ok(app.$(id), id);
+    assert.equal(advanced.contains(app.$(id)), false, id);
+  });
+  const before = app.state.fetches.length;
+  advanced.querySelector('summary').click();
+  assert.equal(advanced.open, true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(app.state.fetches.length, before, 'opening disclosure started network work');
+  assert.doesNotMatch(advanced.textContent, /Force cache|Clear cache|Update all caches/i);
+  assert.equal(app.$('betaTools'), null);
+  app.window.__BUILD_INFO__ = {
+    channel: 'sideload', buildId: 'f810',
+    builtAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  };
+  A.initBetaRuntime();
+  A.initBetaTools();
+  assert.ok(advanced.contains(app.$('betaTools')));
+  app.window.__BUILD_INFO__.expiresAt = '2026-01-01T00:00:00Z';
+  A.initBetaRuntime();
+  A.showExpiredBeta();
+  assert.equal(advanced.contains(app.$('betaExpired')), false);
+  assert.ok(app.$('expiredDiagCreate'));
+  app.window.close();
+});
+
+test('F818 WATCH explains proven-seen exceptions in standalone and nested Unseen rows only', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
+    { code: 'mallar3', name: 'Mallard' }, { code: 'baleag', name: 'Bald Eagle' },
+  ]) } });
+  const A = app.window.__app;
+  seedSeen(app, ['mallar3']);
+  const row = { code: 'mallar3', name: 'Mallard', dateStr: recentObsStamp(),
+    subId: 'S818', locId: 'L818', reviewState: 'pending' };
+  assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), false, 'watch eligibility changed');
+  assert.match(A.birdReportListCard(row, { need: true }), /watchflag[^>]*WATCH:/);
+  assert.doesNotMatch(A.birdReportListCard(row, { need: false }), /watchflag/);
+  assert.doesNotMatch(A.birdReportListCard({ ...row, code: 'baleag', name: 'Bald Eagle' },
+    { need: true }), /watchflag/, 'unknown/unseen watch member labelled proven seen');
+  A.renderStakeHs('L818', 'Patch', [], [
+    { speciesCode: 'mallar3', comName: 'Mallard', locId: 'L818' },
+    { speciesCode: 'baleag', comName: 'Bald Eagle', locId: 'L818' },
+  ], {}, false);
+  const watch = app.$('stakeHsResults').querySelector('.hsunseen .watchflag');
+  assert.ok(watch);
+  assert.equal(watch.textContent, 'WATCH');
+  assert.match(watch.getAttribute('aria-label'), /Seen bird shown because it is on your Watch List/);
+  assert.equal(app.$('stakeHsResults').querySelectorAll('.watchflag').length, 1);
+  assert.match(A.favDetailHtml({ id: 'L818' }, [{
+    speciesCode: 'mallar3', comName: 'Mallard', obsDt: recentObsStamp(),
+  }], {}), /watchflag/);
+  app.window.__SEED_BIRDLIST__.year = 1999;
+  assert.doesNotMatch(A.birdReportListCard(row, { need: true }), /watchflag/,
+    'a different period borrowed seen proof');
+  app.window.__SEED_BIRDLIST__.year = new Date().getFullYear();
+  app.window.localStorage.setItem('ebird_watchlist_v1', '[]');
+  assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), true);
+  assert.doesNotMatch(A.birdReportListCard(row, { need: true }), /watchflag/);
+  app.window.close();
+});
+
+test('F819 confirmed presentation consistently uses the standard shield and explicit text', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  for (const render of [A.reviewFlag, A.reviewIcon]) {
+    for (const evidence of [{ reviewState: 'confirmed' }, { reviewState: 'accepted' },
+      { valid: true }]) {
+      const host = app.document.createElement('div');
+      host.innerHTML = render(evidence);
+      assert.match(host.textContent, /🛡️ CONFIRMED/);
+      assert.equal(host.querySelector('[aria-hidden="true"]').textContent, '🛡️');
+      assert.equal(host.querySelector('.revok').getAttribute('aria-label'),
+        'Confirmed by an eBird reviewer');
+    }
+    for (const evidence of [{}, { valid: false }, { reviewState: 'pending', valid: true }]) {
+      assert.doesNotMatch(render(evidence), /CONFIRMED|🛡/);
+    }
+  }
+  app.window.close();
+});
+
+test('F816 clickable birds retain independent Newest and Nearest checklist evidence without collections', async () => {
+  const app = await boot();
+  const A = app.window.__app, doc = app.document;
+  app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
+    JSON.stringify({ year: 'all', distance: 'region' }));
+  const groups = {
+    'Mallard': { latest: '2026-10-05', birders: [{ name: 'A', rank: 1 }] },
+    'Bald Eagle': { latest: '2026-10-06', birders: [{ name: 'B', rank: 2 }] },
+  };
+  const info = {
+    'Mallard': { code: 'mallar3', obs: [
+      { subId: 'S8161', obsDt: '2026-10-06 14:33', lat: 48.6, lng: -122.9 },
+      { subId: 'S8162', obsDt: '2026-10-01 09:00', lat: 47.75, lng: -122.16 },
+      { subId: 'S8161', obsDt: '2026-10-06 14:33', lat: 48.6, lng: -122.9 },
+    ] },
+    'Bald Eagle': { code: 'baleag', obs: [
+      { subId: 'S8163', obsDt: '2026-10-02 10:00', lat: 47.9, lng: -122.3 },
+    ] },
+  };
+  A.renderLastNew(groups, info, 'US-WA', {});
+  const names = () => [...app.$('lastNewResults').children].map((r) => r.dataset.sp).filter(Boolean);
+  assert.deepEqual(names(), ['Mallard', 'Bald Eagle'], 'Newest used board tick rather than observation');
+  assert.deepEqual([...app.$('lastNewControlsHost').querySelectorAll('button')]
+    .map((b) => b.textContent.trim()), ['Newest', 'Nearest', '35mi', 'All']);
+  const row = app.$('lastNewResults').firstElementChild;
+  assert.equal(row.getAttribute('role'), 'link');
+  assert.equal(row.tabIndex, 0);
+  assert.equal(row.querySelector('.cklcards,details,.cknote'), null);
+  const summaries = [...row.querySelectorAll('.lastNewSummary')];
+  assert.equal(summaries.length, 2);
+  assert.match(summaries[0].textContent, /Newest:.*10\/6.*S8161/);
+  assert.match(summaries[1].textContent, /Nearest:.*10\/1.*0\.0 mi.*S8162/);
+  assert.equal(summaries[0].querySelector('a').dataset.href, 'https://ebird.org/checklist/S8161');
+  assert.equal(summaries[1].querySelector('a').dataset.href, 'https://ebird.org/checklist/S8162');
+  app.click(summaries[1].querySelector('a'));
+  assert.notEqual(app.$('spLookup').value, 'Mallard', 'checklist link also opened Stakeout');
+  row.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.equal(app.$('spLookup').value, 'Mallard');
+  app.$('lastNewSort').querySelector('[data-sort="distance"]').click();
+  assert.deepEqual(names(), ['Mallard', 'Bald Eagle']);
+  info.Mallard = { code: 'mallar3', obs: [{ subId: 'S8164',
+    obsDt: '2026-10-07 08:00', lat: 48.6, lng: -122.9 }] };
+  A.lastNewPatch('Mallard', groups.Mallard, info.Mallard, 'US-WA', 'mallar3');
+  assert.match(app.$('lastNewResults').firstElementChild.textContent, /S8164/);
+  assert.equal(app.$('lastNewResults').firstElementChild.tabIndex, 0);
+  app.$('lastNewDistance').querySelector('[data-value="near"]').click();
+  assert.deepEqual(names(), ['Bald Eagle']);
+  app.window.close();
+});
+
 test('F751 Stakeout hotspot renders scoped unseen and already-seen species lists', async () => {
   const app = await boot({
     fetch(url) {
@@ -39981,8 +40293,8 @@ test('Leader Board Ticks: Newest and Nearest actually reorder the list', async (
   // has no entry at all — its per-species checklists have not landed, which is
   // the state ~46 rows are in for the first two minutes.
   const byName = {
-    'Old Near': { code: 'oldn', obs: [{ lat: 47.75, lng: -122.16 }] },
-    'New Far': { code: 'newf', obs: [{ lat: 47.9, lng: -122.3 }] },
+    'Old Near': { code: 'oldn', obs: [{ lat: 47.75, lng: -122.16, obsDt: '2026-08-20' }] },
+    'New Far': { code: 'newf', obs: [{ lat: 47.9, lng: -122.3, obsDt: '2026-08-25' }] },
   };
   A.renderLastNew(groups, byName, 'US-WA', {});
 

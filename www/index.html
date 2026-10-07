@@ -2407,7 +2407,7 @@
     .favctl { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
     .favctl .favbtn { min-width: 44px; min-height: 44px; }
     .favoritecard.hscard-md { grid-template-columns: auto minmax(0, 1fr) auto auto;
-      column-gap: 10px; }
+      column-gap: 6px; }
     .favoritecard.hscard-md > .name > .ntext { align-self: start; }
     .favoritecard.hscard-md > .name > .favctl {
       grid-column: 3; grid-row: 1; justify-self: end; }
@@ -2459,7 +2459,12 @@
       font-size: calc(12px * var(--s)); font-weight: 800; white-space: nowrap;
       background: #c2331f; border-color: #c2331f; color: #fff;
     }
-    .favoritecard .favbtn.favdel { padding: 0 8px; }
+    .favoritecard .favbtn.favdel {
+      padding: 0; background: transparent; border: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .favRemoveLabel { display: block; padding: 5px 8px;
+      border-radius: var(--btn-radius); background: #c2331f; color: #fff; }
     @media (max-width: 360px) {
       .favoritecard.hscard-md { column-gap: 4px; }
       .favoritecard .favbtn.favdel {
@@ -3990,23 +3995,6 @@
         <button id="setupOpenBtn" class="secondary" type="button">Open Setup Bird Chaser</button>
       </div>
       <p class="hint">Region, eBird website connection, personal API key, Home and seen-list readiness are independent setup steps.</p>
-      <button id="regionCatalogRefresh" class="secondary" type="button">Refresh region names</button>
-      <p id="regionCatalogStatus" class="hint" role="status">All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US and Canadian reference names, not observations.</p>
-      <label>Taxonomy edition and common names</label>
-      <div class="row">
-        <button id="taxonomyCheckBtn" class="secondary" type="button">Check official taxonomy edition</button>
-        <button id="namingLocalesBtn" class="secondary" type="button">Load naming languages</button>
-      </div>
-      <p id="taxonomyStatus" class="hint" role="status">Edition not checked. Existing dated evidence is preserved; no automatic split assignments.</p>
-      <label for="namingLocale">Common-name language / regional names</label>
-      <select id="namingLocale"><option value="en">English (default)</option></select>
-      <p id="namingStatus" class="hint" role="status">Names only; species identity, seen/watch membership and ranking do not change.</p>
-      <label for="region">Region code</label>
-      <output id="region" class="settingvalue" aria-live="polite"></output>
-      <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
-      <label for="abaSid">ABA rare-bird alert code</label>
-      <output id="abaSid" class="settingvalue" aria-live="polite"></output>
-      <p class="hint">The fixed eBird alert id used for the “ABA Rarities” needs alert.</p>
       <div class="row" style="margin-top:8px">
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
@@ -4034,7 +4022,6 @@
         <label class="filebtn" for="csvFile">Import eBird data…</label>
         <input id="csvFile" type="file" accept=".zip,.csv,application/zip,text/csv" hidden />
         <button id="clearCsv" class="secondary" type="button">Clear</button>
-        <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
       </div>
       <ol class="hint" id="csvSteps">
         <li>Confirm the Account profile above that should receive the list.</li>
@@ -4054,7 +4041,30 @@
            (ebird_home_, ebird_mig_, ebird_tod_), so a hardcoded list is wrong the
            moment a second region is used and silently leaves data behind — which
            is the one outcome a control called "erase everything" must not have. -->
-      <label style="margin-top:18px">Diagnostics</label>
+      <details id="advancedSettings">
+      <summary>Advanced / Debug</summary>
+      <button id="regionCatalogRefresh" class="secondary" type="button">Refresh region names</button>
+      <p id="regionCatalogStatus" class="hint" role="status">All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US and Canadian reference names, not observations.</p>
+      <label>Taxonomy edition and common names</label>
+      <div class="row">
+        <button id="taxonomyCheckBtn" class="secondary" type="button">Check official taxonomy edition</button>
+        <button id="namingLocalesBtn" class="secondary" type="button">Load naming languages</button>
+      </div>
+      <p id="taxonomyStatus" class="hint" role="status">Edition not checked. Existing dated evidence is preserved; no automatic split assignments.</p>
+      <label for="namingLocale">Common-name language / regional names</label>
+      <select id="namingLocale"><option value="en">English (default)</option></select>
+      <p id="namingStatus" class="hint" role="status">Names only; species identity, seen/watch membership and ranking do not change.</p>
+      <label for="region">Region code</label>
+      <output id="region" class="settingvalue" aria-live="polite"></output>
+      <p class="hint">eBird region for the selected report (set automatically). Rankings/alerts use this scope.</p>
+      <label for="abaSid">ABA rare-bird alert code</label>
+      <output id="abaSid" class="settingvalue" aria-live="polite"></output>
+      <p class="hint">The fixed eBird alert id used for the “ABA Rarities” needs alert.</p>
+      <div class="row">
+        <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
+        <button id="openDebugBtn" class="secondary" type="button">🐞 Debug log</button>
+      </div>
+      <label>Diagnostics</label>
       <div class="row">
         <button id="lifeProbeBtn" class="secondary" type="button">🧪 Test eBird life-list access</button>
       </div>
@@ -4064,6 +4074,7 @@
         <button id="wallProbeBtn" class="secondary" type="button">🧱 Test the Anubis wall</button>
       </div>
       <p class="hint" id="wallProbeStatus">Four features (F2, F8, F11, F19) are parked behind eBird's bot wall. It is a <strong>JavaScript</strong> puzzle, so a real browser view solves it automatically — this opens one, then checks whether the app's own requests get through afterwards. Tap it, wait for the page to finish, then close it.</p>
+      </details>
 
       <label style="margin-top:18px">Your data</label>
       <div class="row">
@@ -4095,9 +4106,6 @@
           Cornell Lab of Ornithology, and stores everything only on your device.</p>
       </div>
 
-      <div class="row" style="margin-top:16px">
-        <button id="openDebugBtn" class="secondary" type="button">🐞 Debug log</button>
-      </div>
     </section>
   </main>
 
@@ -4698,7 +4706,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.140.0';
+      var APP_VERSION = '1.141.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5946,7 +5954,7 @@
       // the Markdown report exactly: each report subtracts its own region's year
       // list (bundled in seed-birdlist.js as seenByReport[slug]). Falls back to
       // the imported CSV / combined seed when a per-report set isn't bundled.
-      function getReportSeenScope() {
+      function getReportSeenScope(ignoreWatch) {
         var seed = window.__SEED_BIRDLIST__, slug = getReportSlug();
         var scope = activeScope();
         if (scope.level === 'subregion') {
@@ -5956,7 +5964,7 @@
             var code = String(row && row.code || '').trim().toLowerCase();
             if (code) exactSet[code] = 1;
           });
-          return finishReportSeenScope(exactSet, watchCodes(), seed);
+          return finishReportSeenScope(exactSet, ignoreWatch ? {} : watchCodes(), seed);
         }
         var rep = seed && seed.seenByReport && seed.seenByReport[slug];
         if (usesBundledSeed() && rep && Array.isArray(rep.codes)
@@ -5969,7 +5977,7 @@
           // set only if this report actually held it back — dropping a bird you
           // never recorded must not invent a tick — and anything you add is
           // held off, which is the entire purpose of the list.
-          var w = watchCodes();
+          var w = ignoreWatch ? {} : watchCodes();
           (rep.watchHeld || []).forEach(function (c) {
             c = String(c).trim().toLowerCase();
             if (c && !w[c]) set[c] = 1;
@@ -5991,8 +5999,9 @@
         var meta = getSeenMeta();
         var mismatched = meta && ((meta.year != null && String(meta.year) !== String(scope.year))
           || (meta.region && meta.region !== scope.effectiveRegion));
-        var base = usesBundledSeed() || mismatched || getField() !== 'speciesCode' ? {} : getSeen();
-        var w2 = watchCodes(), own2 = ownSeenCodes(null, scope.year);
+        var base = usesBundledSeed() || mismatched || getField() !== 'speciesCode'
+          ? {} : Object.assign({}, getSeen());
+        var w2 = ignoreWatch ? {} : watchCodes(), own2 = ownSeenCodes(null, scope.year);
         Object.keys(own2).forEach(function (c) { if (!w2[c]) base[c] = 1; });
         return finishReportSeenScope(base, w2, seed);
       }
@@ -10614,7 +10623,7 @@
             // and dropped off a ten-minute-old bird the moment you glanced at
             // the screen. See BirdLogic.isFresh.
             var isNew = BL.isFresh(r.dateStr);
-            var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name) + flock + stake + warn;
+            var flags = (isNew ? newRarityTag() : '') + needTag(r.code, r.name, null, filters.year === 'unseen') + flock + stake + warn;
             return SpeciesCards.medium({
               cls: 'twitchcard',
               code: r.code,
@@ -10699,7 +10708,7 @@
             var stake = r.stakeDays >= 2
               ? '<span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = reviewFlag(r.closest);
-            var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name) + stake + warn;
+            var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name, null, filters.year === 'unseen') + stake + warn;
             return SpeciesCards.medium({
               cls: 'twitchcard',
               code: r.code,
@@ -11524,6 +11533,7 @@
         });
         var large = largeBirdReportList(opts);
         var tags = birdReportTags([r], opts.rare) + reviewFlag(r)
+          + (opts.need ? watchExceptionTag(r.code, r.name) : '')
           + (opts.rare ? rarityAccessTag(r) : '');
         var note = data ? ChecklistCards.pendingNoteAction(data['ev-notes-expected'] === '1') : '';
         return (large ? SpeciesCards.large : SpeciesCards.medium)({
@@ -11609,6 +11619,7 @@
           return row.reviewState === 'confirmed' || row.valid === true;
         });
         var tags = birdReportTags(groupRows, opts.rare)
+          + (opts.need ? watchExceptionTag(group.code, group.name) : '')
           + reviewFlag({ reviewState: anyConfirmed ? 'confirmed' : 'pending' });
         var below = '<div class="birdreportplaces">' + places + '</div>';
         var representative = groupRows[0] || {};
@@ -15262,7 +15273,7 @@
         if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
         if (s === 'confirmed' || s === 'accepted') {
           return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
-               + ' title="Confirmed by an eBird reviewer">\uD83C\uDFF5\uFE0F Confirmed</span>';
+               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span> CONFIRMED</span>';
         }
         return '<span class="revpend" role="img" aria-label="Unconfirmed; no eBird reviewer confirmation available"'
              + ' title="Unconfirmed; no eBird reviewer confirmation available">'
@@ -15273,7 +15284,7 @@
         if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
         if (s === 'confirmed' || s === 'accepted') {
           return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
-               + ' title="Confirmed by an eBird reviewer">\uD83C\uDFF5\uFE0F</span>';
+               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span> CONFIRMED</span>';
         }
         return '<span class="revpend" role="img" '
              + 'aria-label="Unconfirmed; no eBird reviewer confirmation available"'
@@ -15535,7 +15546,7 @@
           // 44px targets cannot fit 233px however they are styled.
           // Both options are LABELLED: "Notes" alone next to a pressed state
           // says what it is, not what it will do, which is the F189 mistake.
-          + ToggleControls.pressed({
+          + (opts.notes === false ? '' : ToggleControls.pressed({
             id: prefix + 'Notes',
             cls: 'raritynotesbtn',
             icon: '\uD83D\uDCAC',
@@ -15543,7 +15554,7 @@
             ariaLabel: 'Show observer notes',
             data: { notes: rarityNotes() ? 'off' : 'on' },
             pressed: rarityNotes()
-          })
+          }))
           + (opts.view && prefix !== 'today' ? ToggleControls.pressed({
             id: prefix + 'View',
             cls: 'twitchviewbtn',
@@ -17980,12 +17991,19 @@
       // that can never be ticked never earns it — a spuh, a slash or a hybrid
       // is not unseen, it is unfinished. One rule, BL.countableTaxon, shared
       // with computeUnseen, scoutGroups and renderChecklistSplit.
-      function needTag(code, name, parentOf) {
+      function needTag(code, name, parentOf, unseenView) {
         // Only suppress when there IS a name and it proves non-countable. A
         // missing name is not evidence of a spuh, and defaulting to "no
         // marker" there would silently un-flag genuine targets.
         if (name && !BL.countableTaxon(name)) return '';
+        var watch = unseenView === false ? '' : watchExceptionTag(code, name, parentOf);
+        if (watch) return watch;
         return isSpeciesSeen(code, name, parentOf) ? '' : '<span class="needflag">🔍</span>';
+      }
+      function watchExceptionTag(code, name, parentOf) {
+        if (isSpeciesSeen(code, name, parentOf)
+            || !isSpeciesSeen(code, name, parentOf, true)) return '';
+        return '<span class="tag watchflag" aria-label="WATCH: Seen bird shown because it is on your Watch List">WATCH</span>';
       }
       // The RARE badge — a rounded square with an R.
       //
@@ -18930,7 +18948,7 @@
       function favoriteRemoval(f) {
         return '<div class="favctl"><button class="favbtn del favdel" data-favorite-id="'
           + esc(f.id) + '" aria-label="Remove ' + esc(f.locName || 'hotspot')
-          + ' from favorites">Remove</button></div>';
+          + ' from favorites"><span class="favRemoveLabel">Remove</span></button></div>';
       }
       function favInteresting(obs, rarityCodes) {
         var byCode = {}, nv = watchCodes(), n = 0;
@@ -18991,7 +19009,7 @@
               + (o.subId ? ' · ' + checklistLink(o.subId, o.subId) : '')
           };
         });
-        var out = head + speciesListHtml(rows, { presorted: true, cls: 'favspp' });
+        var out = head + speciesListHtml(rows, { presorted: true, cls: 'favspp', unseen: true });
         if (res.rows.length > FAV_ROWS) {
           out += '<div class="favmeta">…and ' + (res.rows.length - FAV_ROWS) + ' more.</div>';
         }
@@ -20398,6 +20416,9 @@
             // this place"; rareBadge() is an R tile that means only the first.
             var tags = (x.tag != null) ? x.tag
               : needTag(x.code, x.comName) + (x.rare ? rareBadge() : '');
+            if (opts.unseen && x.tag != null) {
+              tags += watchExceptionTag(x.code, x.comName);
+            }
             // `pre` is ADDITIVE where `tag` is a replacement. The iconic
             // multiplier is a reason to look, not a substitute for "you have
             // not seen this" or the [R] badge, so it has to sit alongside them
@@ -20608,7 +20629,7 @@
           // ...and it is the thing that takes you there. One line here covers
           // every hotspot list in the app, because they all build through this.
           distQ: distQ(o.lat, o.lng),
-          unseen: unseen.length ? speciesListHtml(unseen, { presorted: o.presorted }) : '',
+          unseen: unseen.length ? speciesListHtml(unseen, { presorted: o.presorted, unseen: true }) : '',
           unseenLabel: unseen.length
             ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
           // The count lives in the summary because it is the only thing you
@@ -21179,7 +21200,7 @@
             var windowLabel = days > LOC_SPECIES_DAYS
               ? ' · last ' + days + ' days' : '';
             slot.innerHTML = HotspotCards.splitLists({
-              unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
+              unseen: unseen.length ? speciesListHtml(unseen, { presorted: true, unseen: true }) : '',
               unseenLabel: unseen.length ? (unseen.length + ' unseen 🔍' + windowLabel) : '',
               seen: seen.length ? speciesListHtml(seen, { presorted: true }) : '',
               seenLabel: seen.length ? (seen.length + ' more species already seen') : ''
@@ -22554,7 +22575,7 @@
         slot.className = 'cklneed' + (unseen.length ? ' hit' : '');
         if (!unseen.length && !seen.length) { slot.innerHTML = ''; return; }
         slot.innerHTML = HotspotCards.splitLists({
-          unseen: unseen.length ? speciesListHtml(unseen, { presorted: true }) : '',
+          unseen: unseen.length ? speciesListHtml(unseen, { presorted: true, unseen: true }) : '',
           unseenLabel: unseen.length
             ? (unseen.length + ' unseen bird' + (unseen.length === 1 ? '' : 's') + ' on this list 🔍')
             : '',
@@ -22773,7 +22794,7 @@
             var stake = r.stakeDays >= 2
               ? '<span class="stakeflag">📍 Day ' + r.stakeDays + '</span>' : '';
             var warn = reviewFlag(r.closest);
-            var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name) + stake + warn;
+            var flags = (r.isNew ? newRarityTag() : '') + needTag(r.code, r.name, null, filters.year === 'unseen') + stake + warn;
             // This used to hand-roll a .name/.meta/.cklrows lookalike of the
             // medium card. That is the same drift Easy misses had before it was
             // unified: two copies of one layout that quietly diverge. It now
@@ -23727,6 +23748,10 @@
           !!bg, false, false, work)
           .then(function (d) {
             var v = {
+              subId: (d && (d.subId || d.subID)) || '',
+              locId: (d && (d.locId || (d.loc && d.loc.locId))) || '',
+              loc: (d && d.loc) || null,
+              numSpecies: d && d.numSpecies,
               userDisplayName: (d && d.userDisplayName) || '',
               obsDt: (d && (d.obsDt || d.isoObsDate)) || '',
               durationHrs: d && isFinite(+d.durationHrs) ? +d.durationHrs : null,
@@ -25551,8 +25576,8 @@
         }
         return [];
       }
-      function isSpeciesSeen(code, name, parentOf) {
-        var seen = getReportSeen();
+      function isSpeciesSeen(code, name, parentOf, ignoreWatch) {
+        var seen = ignoreWatch ? getReportSeenScope(true).species : getReportSeen();
         if (code && _taxonomyModel
             && !Object.prototype.hasOwnProperty.call(_taxonomyModel.byCode, String(code).toLowerCase())) return false;
         if (code && _taxonomyUnresolved[String(code).toLowerCase()]) return false;
@@ -25567,7 +25592,7 @@
           // name one line later. That was the reported card headed "3 unseen
           // 🔍" whose rows carried no marker: Short-billed Dowitcher, Western
           // Sandpiper and Peregrine Falcon are all on the watchlist.
-          var w = watchCodes();
+          var w = ignoreWatch ? {} : watchCodes();
           if (w[String(code).toLowerCase()]) return false;
           if (parent && w[String(parent).toLowerCase()]) return false;
           // Code-backed negatives cannot be overridden by names. Name-backed
@@ -28492,12 +28517,20 @@
         };
       }
 
+      var _lastNewGeneration = 0;
+      function lastNewOwnership() {
+        return JSON.stringify([bcProfile(), getReportSlug(), activeScope(), getHome()]);
+      }
       function loadLastNew() {
         var btn = $('lastNewBtn'), st = $('lastNewStatus');
         var out = $('lastNewResults');
         var year = new Date().getFullYear();
         var rr = rankPrimaryRegion();
         var region = getRegion(), name = getDisplayName();
+        var generation = ++_lastNewGeneration, owner = lastNewOwnership();
+        function current() {
+          return generation === _lastNewGeneration && owner === lastNewOwnership();
+        }
         btn.disabled = true; out.innerHTML = '';
         st.textContent = 'Reading the leaderboard…';
 
@@ -28512,7 +28545,8 @@
             .catch(function (e) { dbg('warn', 'last-new: board ' + b.region + ' failed: ' + (e && e.message)); return { err: e }; });
         });
 
-        Promise.all(jobs).then(function (got) {
+        return Promise.all(jobs).then(function (got) {
+          if (!current()) return;
           var groups = {}, failed = got.filter(function (g) { return g && g.err; });
           got.filter(function (g) { return g && g.data; }).forEach(function (g) {
             var rows = (g.data.rows || []).slice();
@@ -28551,20 +28585,25 @@
           // would migrate between them as the board hydrated.
           st.textContent = 'Resolving ' + species.length + ' birds…';
           return lastNewCodeIndex(region).then(function (codeIdx) {
+            if (!current()) return;
             reconcileLastNewOwnerTicks(groups, codeIdx);
             renderLastNew(groups, {}, region, codeIdx);
             st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
             return lastNewChecklists(species, region, function (done, total) {
+              if (!current()) return;
               st.textContent = 'Matching ' + done + ' of ' + total + ' birds to recent checklists…';
             }, function (sp, info) {
+              if (!current()) return;
               lastNewPatch(sp, groups[sp], info, region, codeIdx[sp.toLowerCase()] || '');
             }).then(function () {
+              if (!current()) return;
               st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
             });
           });
         }).catch(function (e) {
+          if (!current()) return;
           st.textContent = e && e.message ? e.message : 'Could not load the leaderboard.';
-        }).finally(function () { btn.disabled = false; });
+        }).finally(function () { if (current()) btn.disabled = false; });
       }
 
       function reconcileLastNewOwnerTicks(groups, codeIdx) {
@@ -28763,15 +28802,7 @@
       // that an unknown distance is never a reason to hide a row.
       var _lastNewState = null;
       function lastNewNearest(info) {
-        var home = getHome();
-        if (!home || !info) return null;
-        var near = null;
-        (info.obs || []).forEach(function (o) {
-          if (!isFinite(o.lat) || !isFinite(o.lng)) return;
-          var d = haversineMi(home.lat, home.lng, +o.lat, +o.lng);
-          if (near == null || d < near) near = d;
-        });
-        return near;
+        return lastNewEvidence(info).mi;
       }
       function lastNewPasses(sp, info, code) {
         var f = rarityFilters();
@@ -28823,8 +28854,12 @@
         }
         return Object.keys(groups).sort(function (a, b) {
           if (mode === 'distance' && far[a] !== far[b]) return far[a] - far[b];
-          if (groups[a].latest !== groups[b].latest) {
-            return groups[a].latest < groups[b].latest ? 1 : -1;
+          var newestA = lastNewEvidence((byName || {})[a]).newest;
+          var newestB = lastNewEvidence((byName || {})[b]).newest;
+          var dateA = newestA ? newestA.obsDt : (byName || {})[a] ? '' : groups[a].latest;
+          var dateB = newestB ? newestB.obsDt : (byName || {})[b] ? '' : groups[b].latest;
+          if (dateA !== dateB) {
+            return dateA < dateB ? 1 : -1;
           }
           var d = groups[b].birders.length - groups[a].birders.length;
           if (d) return d;
@@ -28859,7 +28894,7 @@
         // lands is a control nobody can reach while they are waiting.
         var chost = $('lastNewControlsHost');
         if (chost && !chost.firstChild) {
-          chost.innerHTML = rarityControls('lastNew', { unseenOnly: true, view: true });
+          chost.innerHTML = rarityControls('lastNew', { unseenOnly: true, notes: false });
           wireRarityControls('lastNew', function () {
             if (_lastNewState) {
               renderLastNew(_lastNewState.groups, _lastNewState.byName,
@@ -28888,8 +28923,7 @@
           order.push(null);
         }
         out.innerHTML = html;
-        out.classList.toggle('report-list-view', twitchView() === 'list');
-        syncReportNotesVisibility(out);
+        out.classList.add('report-list-view');
         // The card markup comes from a shared template, so the species key is
         // stamped on afterwards rather than threaded through the template — the
         // cards module is pure layout and must not learn about this section.
@@ -28899,6 +28933,7 @@
           if (order[i]) out.children[i].setAttribute('data-sp', order[i]);
         }
         hydratePhotos(out);
+        decorateLastNewRows(out);
       }
 
       // Replace ONE row once its own checklist feed lands. Rebuilding the whole
@@ -28927,155 +28962,86 @@
         fresh.setAttribute('data-sp', sp);
         el.parentNode.replaceChild(fresh, el);
         hydratePhotos(fresh.parentNode === out ? fresh : out);
+        decorateLastNewRows(out);
       }
+      function decorateLastNewRows(out) {
+        [].forEach.call(out.querySelectorAll('[data-last-new-code]'), function (row) {
+          row.setAttribute('tabindex', '0');
+          row.setAttribute('role', 'link');
+          row.setAttribute('aria-label', 'Open Stakeout for ' + row.getAttribute('data-last-new-name'));
+        });
+      }
+      function openLastNewRow(event) {
+        var target = event.target;
+        if (!target || !target.closest || target.closest('a,button,input,summary')) return;
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+        var row = target.closest('[data-last-new-code]');
+        if (!row) return;
+        event.preventDefault();
+        openStakeSpecies(row.getAttribute('data-last-new-code'),
+          row.getAttribute('data-last-new-name'));
+      }
+      $('lastNewResults').addEventListener('click', openLastNewRow);
+      $('lastNewResults').addEventListener('keydown', openLastNewRow);
 
       // `info` is null while this bird's checklists are still in flight. The
       // card still carries everything the LEADERBOARD knows — which bird, how
       // many of the top 100 got it, when, and who — which is most of the
       // decision; the checklists tell you where to stand.
+      function lastNewEvidence(info) {
+        var home = getHome(), newest = null, nearest = null, near = null;
+        (info && info.obs || []).forEach(function (o) {
+          if (o.obsDt && (!newest || String(o.obsDt) > String(newest.obsDt)
+              || (o.obsDt === newest.obsDt && String(o.subId || '') < String(newest.subId || '')))) {
+            newest = o;
+          }
+          if (!home || o.lat == null || o.lng == null
+              || !isFinite(+o.lat) || !isFinite(+o.lng)) return;
+          var mi = haversineMi(home.lat, home.lng, +o.lat, +o.lng);
+          if (near == null || mi < near || (mi === near
+              && String(o.subId || '') < String(nearest.subId || ''))) {
+            near = mi; nearest = o;
+          }
+        });
+        return { newest: newest, nearest: nearest, mi: near };
+      }
+      function lastNewSummary(label, row) {
+        if (!row) return '<span class="dim">' + label + ': unavailable</span>';
+        var home = getHome();
+        var mi = home && row.lat != null && row.lng != null
+          && isFinite(+row.lat) && isFinite(+row.lng)
+          ? haversineMi(home.lat, home.lng, +row.lat, +row.lng) : null;
+        var sub = row.subId || row.subID || '';
+        return '<span class="lastNewSummary"><b>' + label + ':</b> '
+          + (row.obsDt ? esc(fmtEvidenceDateTime(row.obsDt)) : 'date unavailable')
+          + ' · ' + (mi == null ? 'distance unavailable' : esc(mi.toFixed(1)) + ' mi')
+          + (sub && /^S[0-9]+$/.test(sub)
+            ? ' · ' + checklistLink(sub, sub) : '') + '</span>';
+      }
       function lastNewCard(sp, g, info, region, code) {
         code = (info && info.code) || code || '';
-        // Only pending if a feed is actually coming. A species the region-wide
-        // index could not resolve to a code is never fetched, so without this
-        // it sat on "finding recent checklists…" forever.
+        var evidence = lastNewEvidence(info);
         var pending = !info && !!code;
-        info = info || {};
-        {
-          // Most recent first: this section is a chase board, and the birder who
-          // ticked it yesterday says more about whether it is still gettable
-          // than the one who happens to sit highest on the leaderboard.
-          var people = g.birders.slice().sort(function (a, b) {
-            var d = String(b.date || '').localeCompare(String(a.date || ''));
-            return d || ((a.rank || 9999) - (b.rank || 9999));
-          });
-          // How far you would have to drive is half the decision, and the
-          // section had every coordinate it needed to answer it. Measured to
-          // the CLOSEST recent report, not the newest, because the nearest one
-          // is the one you would actually go to.
-          var home = getHome(), near = null, nearAt = '';
-          if (home) {
-            (info.obs || []).forEach(function (o) {
-              if (!isFinite(o.lat) || !isFinite(o.lng)) return;
-              var d = haversineMi(home.lat, home.lng, +o.lat, +o.lng);
-              // Keep WHERE the nearest one is, not just how far: the distance
-              // column opens maps, and "8.1 mi" with nowhere to go is half a
-              // fact.
-              if (near == null || d < near) { near = d; nearAt = distQ(o.lat, o.lng); }
-            });
-          }
-          // Who added it, as ONE SENTENCE rather than a row per birder. The
-          // list was the tallest thing on the card and the least scanned — the
-          // decision is "several of the top 100 got this recently", which a
-          // sentence carries in a line and a table spends ten on. Names are
-          // capped because past the first few the answer stops changing.
-          var WHO_SHOWN = 4;
-          var whoTxt = people.slice(0, WHO_SHOWN).map(function (b) {
-            var bits = [];
-            if (b.rank) bits.push('#' + esc(b.rank));
-            if (b.date) bits.push(esc(fmtDate(b.date)));
-            return esc(b.name) + (bits.length ? ' <span class="dim">(' + bits.join(' · ') + ')</span>' : '');
-          }).join(', ');
-          if (people.length > WHO_SHOWN) {
-            whoTxt += ' <span class="dim">and ' + (people.length - WHO_SHOWN) + ' more</span>';
-          }
-          var who = '<div class="wholine"><span class="lbl">Who added it</span> ' + whoTxt + '</div>';
-          var obs = (info.obs || []).slice().sort(function (a, b) {
-            return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
-          });
-          var subs = {}, uniq = [];
-          obs.forEach(function (o) { if (o.subId && subs[o.subId]) return; if (o.subId) subs[o.subId] = 1; uniq.push(o); });
-          var watched = isWatched(code);
-          var seenIt = isSpeciesSeen(code, sp);
-          var ck;
-          if (pending) {
-            // IT HAS TO LOOK LIKE WORK IN PROGRESS. Reported from the device:
-            // this read exactly like a finished result that had found nothing,
-            // because it was set in the same dim body type as "no checklists in
-            // the last N days" one branch below. Three signals, none of them
-            // colour: the wording says it is working, the ellipsis animates,
-            // and the label is italic so it is distinguishable from a settled
-            // answer at a glance and with the animation switched off.
-            ck = '<div class="sp dim ckwait"><i>finding recent checklists</i>'
-              + '<span class="loadingdots" aria-hidden="true">\u2026</span></div>';
-          } else if (!code) {
-            ck = '<div class="sp">no recent reports in ' + esc(region) + '</div>';
-          } else if (!uniq.length) {
-            ck = '<div class="sp">no checklists in the last ' + LAST_NEW_BACK_DAYS + ' days</div>';
-          } else {
-            // Mirrors report._last_new_checklist_cell: at least
-            // LAST_NEW_CHECKLISTS rows, but every checklist from the last
-            // LAST_NEW_FRESH_DAYS days — a bird refound three times in three
-            // days is a different proposition from one seen once.
-            var freshCut = new Date(Date.now() - LAST_NEW_FRESH_DAYS * 86400000)
-              .toISOString().slice(0, 10);
-            var nFresh = uniq.filter(function (o) { return String(o.obsDt || '').slice(0, 10) >= freshCut; }).length;
-            var nShow = Math.min(Math.max(LAST_NEW_CHECKLISTS, nFresh),
-              LAST_NEW_MAX_CHECKLISTS);
-            // COLLAPSED by default, and every field the small card carries is
-            // filled. The list is the EVIDENCE for the row above it — which
-            // bird, how many of the top 100 got it, how far — and the decision
-            // is made from that summary; the checklists are what you open once
-            // you have decided. Left open, ten of these buried the next bird.
-            //
-            // `distMi` and the map pin were simply never passed, so two of the
-            // card's five facts rendered blank on every row here while the
-            // same card filled them elsewhere — the drift a shared template is
-            // supposed to make impossible, hiding in the CALLER.
-            var home = getHome();
-            var mkRow = function (o) {
-              var d = (home && isFinite(o.lat) && isFinite(o.lng))
-                ? haversineMi(home.lat, home.lng, +o.lat, +o.lng) : null;
-              var sub = o.subId || o.subID || '';
-              var checklistHref = sub ? checklistUrl(sub) : '';
-              var publicHotspot = o.locId && !o.locationPrivate;
-              return ChecklistCards.small({
-                place: o.locName || '',
-                placeHtml: publicHotspot
-                  ? stakeHotspotLink(o.locId, o.locName || '') : '',
-                href: publicHotspot ? '' : checklistHref,
-                dateHref: publicHotspot ? checklistHref : '',
-                date: fmtDateTime(o.obsDt),
-                observedAt: o.obsDt,
-                durationHrs: o.durationHrs,
-                durationPending: !!sub && o.durationHrs == null,
-                count: o.howMany,
-                distMi: d,
-                distQ: distQ(o.lat, o.lng),
-                map: mapPin(o.lat, o.lng),
-                who: o.userDisplayName ? esc(o.userDisplayName) : '',
-                data: {
-                  'ev-sub': sub,
-                  'ev-checklist-only': '1'
-                }
-              });
-            };
-            var shownRows = uniq.slice(0, nShow).map(mkRow);
-            var remainingRows = moreDetails(
-              uniq.length - nShow, { one: 'checklist', many: 'checklists' }, function () {
-                return ChecklistCards.list('small', uniq.slice(nShow).map(mkRow));
-              });
-            ck = twitchView() === 'grouped'
-              ? checklistDetails(shownRows, uniq.length, 'recent checklist', '',
-                  remainingRows)
-              : ChecklistCards.list('small', shownRows) + remainingRows;
-          }
-          return SpeciesCards.medium({
-            sci: sciFor(code),
-            icon: photoSlot(sp, code),
-            name: speciesLink(sp, code),
-            code: code,
-            alpha: alphaFor(code),
-            tags: needTag(code, sp),
-            // The drive is now a real column instead of a phrase in the
-            // sub-header. It is measured to the CLOSEST report, not the newest.
-            distMi: near,
-            distQ: nearAt,
-            sub: people.length + ' of the top 100 · newest tick ' + esc(fmtDate(g.latest))
-              + ' · ' + (watched ? 'on your watchlist for verification'
-                : (seenIt ? 'already on your year list' : 'not on your year list')),
-            below: who + ck
-          });
-        }
+        var people = g.birders.slice().sort(function (a, b) {
+          return String(b.date || '').localeCompare(String(a.date || ''))
+            || ((a.rank || 9999) - (b.rank || 9999));
+        });
+        var who = people.slice(0, 4).map(function (b) {
+          return esc(b.name) + (b.rank ? ' #' + esc(b.rank) : '');
+        }).join(', ') + (people.length > 4 ? ' and ' + (people.length - 4) + ' more' : '');
+        var summaries = pending
+          ? '<span class="ckwait" role="status">Finding recent checklists…</span>'
+          : lastNewSummary('Newest', evidence.newest) + '<br>'
+            + lastNewSummary('Nearest', evidence.nearest);
+        return SpeciesCards.medium({
+          sci: sciFor(code), icon: photoSlot(sp, code),
+          name: speciesLink(sp, code), code: code, alpha: alphaFor(code),
+          tags: needTag(code, sp, null, false),
+          sub: summaries,
+          below: (isWatched(code) ? '<div class="hint">On your watchlist for verification</div>' : '')
+            + '<div class="wholine"><span class="lbl">Who added it</span> ' + who + '</div>',
+          data: code ? { 'last-new-code': code, 'last-new-name': sp } : {}
+        });
       }
 
       // F209. "megararities doesnt have feature to show all birds in aba region"
@@ -33251,6 +33217,60 @@
       var _stakeHsRows = null;
       var _stakeHsGeneration = 0;
       var _stakeHsSelected = null;
+      var _stakeHsLastGood = {};
+
+      function supplementStakeHs(locId, state, current, paint) {
+        var known = {}, linked = {};
+        state.lists.forEach(function (r) {
+          if (!r.observationLinked) known[r.subId || r.subID] = true;
+        });
+        state.obs.forEach(function (o) {
+          var sub = o.subId || o.subID;
+          if (o.locId === locId && sub && !known[sub]) linked[sub] = true;
+        });
+        var ids = Object.keys(linked);
+        state.lists = state.lists.filter(function (r) {
+          return !r.observationLinked || linked[r.subId || r.subID];
+        });
+        _stakeHsRows = state.lists;
+        state.supplement = { total: ids.length, done: 0, failed: 0, retained: 0 };
+        paint();
+        return pool(ids, 1, function (sub) {
+          if (!current()) return;
+          return checklistView(sub, true).then(function (d) {
+            if (!current()) return null;
+            // Pre-F823 cache projections did not retain place identity.
+            if (d && !d.locId) {
+              forgetChecklistView(sub);
+              return checklistView(sub, true);
+            }
+            return d;
+          }).then(function (d) {
+            if (!current()) return;
+            state.supplement.done++;
+            if (!d || d.locId !== locId || d.subId !== sub
+                || !isFinite(Date.parse(String(d.obsDt || '').replace(' ', 'T')))) {
+              state.supplement.failed++;
+              if (state.lists.some(function (r) {
+                return r.observationLinked && (r.subId || r.subID) === sub;
+              })) state.supplement.retained++;
+              dbg('warn', 'Stakeout supplemental checklist unavailable or mismatched: ' + sub);
+            } else {
+              state.lists = state.lists.filter(function (r) {
+                return (r.subId || r.subID) !== sub;
+              });
+              state.lists.push(Object.assign({}, d, { observationLinked: true }));
+              state.lists.sort(function (a, b) {
+                return String(b.obsDt || b.isoObsDate || '').localeCompare(
+                  String(a.obsDt || a.isoObsDate || ''))
+                  || String(a.subId || '').localeCompare(String(b.subId || ''));
+              });
+              _stakeHsRows = state.lists;
+            }
+            paint();
+          });
+        });
+      }
 
       // WHY THE BIRD LIST IS `data/obs/{loc}/recent`, NOT `product/spplist`.
       //
@@ -33451,12 +33471,19 @@
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
         var state = {
-          lists: [], obs: [], obsState: 'loading', hrow: null, iconic: undefined
+          lists: [], obs: [], obsState: 'loading', hrow: null, iconic: undefined,
+          supplement: null
         };
         function paint() {
           if (generation !== _stakeHsGeneration) return;
           renderStakeHs(locId, name, state.lists, state.obs, state.hrow,
-            state.iconic, state.obsState);
+            state.iconic, state.obsState, state.supplement);
+          _stakeHsLastGood[locId] = state;
+        }
+        var lastGood = _stakeHsLastGood[locId];
+        if (lastGood) {
+          renderStakeHs(locId, name, lastGood.lists, lastGood.obs, lastGood.hrow,
+            lastGood.iconic, lastGood.obsState, lastGood.supplement);
         }
         // ── PAINT ON THE FIRST ANSWER, FILL IN THE REST ────────────────────
         //
@@ -33480,6 +33507,19 @@
           .then(function (lists) {
             if (generation !== _stakeHsGeneration) return;
             state.lists = Array.isArray(lists) ? lists : [];
+            if (lastGood) {
+              var ordinary = {};
+              state.lists.forEach(function (r) { ordinary[r.subId || r.subID] = true; });
+              state.lists = state.lists.concat(lastGood.lists.filter(function (r) {
+                return r.observationLinked && !ordinary[r.subId || r.subID];
+              }));
+              state.obs = lastGood.obs;
+            }
+            state.lists.sort(function (a, b) {
+              return String(b.obsDt || b.isoObsDate || '').localeCompare(
+                String(a.obsDt || a.isoObsDate || ''))
+                || String(a.subId || '').localeCompare(String(b.subId || ''));
+            });
             _stakeHsRows = state.lists;
             paint();
             if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = false;
@@ -33487,13 +33527,16 @@
               + (state.lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime();
 
             ebird('data/obs/' + encodeURIComponent(locId)
-                  + '/recent?back=' + STAKE_HS_BACK + '&maxResults=10000',
+                  + '/recent?back=' + STAKE_HS_BACK + '&detail=full&maxResults=10000',
                   false, false, !!force)
               .then(function (obs) {
                 if (generation !== _stakeHsGeneration) return;
                 state.obs = Array.isArray(obs) ? obs : [];
                 state.obsState = 'loaded';
                 paint();
+                return supplementStakeHs(locId, state, function () {
+                  return generation === _stakeHsGeneration;
+                }, paint);
               }).catch(function (e) {
                 if (generation !== _stakeHsGeneration) return;
                 state.obsState = 'error';
@@ -33529,7 +33572,7 @@
           });
       }
 
-      function renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState) {
+      function renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement) {
         var box = $('stakeHsResults');
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         lists = lists || []; obs = obs || []; hrow = hrow || {};
@@ -33631,7 +33674,7 @@
             + STAKE_HS_BACK + ' days.</div>';
         } else {
           below += HotspotCards.splitLists({
-            unseen: unseen.length ? speciesListHtml(unseen)
+            unseen: unseen.length ? speciesListHtml(unseen, { unseen: true })
               : '<div class="hint">No unseen birds in these reports.</div>',
             unseenLabel: unseen.length
               ? (unseen.length + ' unseen \ud83d\udd0d') : 'Unseen',
@@ -33642,6 +33685,13 @@
           });
         }
         // ---- recent checklists before historical iconic context
+        if (supplement) {
+          below += '<p class="hint" role="status">Observation-linked checklists: '
+            + supplement.done + ' of ' + supplement.total + ' resolved'
+            + (supplement.failed ? ' · ' + supplement.failed + ' unavailable or mismatched' : '')
+            + (supplement.retained ? ' · ' + supplement.retained + ' last-good checklist retained; refresh unavailable' : '')
+            + '. Discovery samples the last 30 days; not a complete hidden history.</p>';
+        }
         if (lists.length) {
           var stakeTargetsBySub = {};
           obs.forEach(function (o) {
@@ -33682,7 +33732,11 @@
           // the hotspot, so the DATE becomes the link and `who` is printed
           // (the template only shows the observer on a small row when there is
           // no place competing for the width).
-          below += ChecklistCards.list('small', lists.slice(0, 20).map(function (r) {
+          var ordinaryShown = 0;
+          var displayedLists = lists.filter(function (r) {
+            return r.observationLinked || ordinaryShown++ < 20;
+          });
+          below += ChecklistCards.list('small', displayedLists.map(function (r) {
             var sub = r.subId || r.subID || '';
             var targets = stakeTargetsBySub[sub] || [];
             return ChecklistCards.small({
@@ -33692,6 +33746,9 @@
               durationPending: !!r.subId && r.durationHrs == null,
               href: r.subId ? checklistUrl(r.subId) : '',
               who: esc(r.userDisplayName || ''),
+              flag: r.observationLinked
+                ? '<span class="tag" aria-label="HIDDEN: Linked from an observation; not listed in the recent-checklist feed">HIDDEN</span>'
+                : '',
               sp: isFinite(r.numSpecies) ? r.numSpecies : '',
               targets: targets.map(function (target) { return target.label; }).join(', '),
               data: {
@@ -33769,7 +33826,7 @@
         [].slice.call(box.querySelectorAll('.stakeHsNotesBtn')).forEach(function (button) {
           button.addEventListener('click', function () {
             setRarityNotes(button.getAttribute('data-notes') === 'on');
-            renderStakeHs(locId, name, lists, obs, hrow, iconic);
+            renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement);
           });
         });
         hydratePhotos(box);
@@ -39737,7 +39794,7 @@
           tools.id = 'betaTools';
           tools.className = 'betatools';
           tools.innerHTML = '<h3>Beta testing</h3>' + diagnosticMarkup('betaDiag', false);
-          settings.appendChild(tools);
+          $('advancedSettings').appendChild(tools);
           $('betaDiagExpiry').textContent = 'This ' + _betaInfo.channel
             + ' beta expires ' + betaDateText(_betaState.expiresAt) + ' ('
             + _betaState.daysRemaining + ' day'
@@ -44801,6 +44858,7 @@
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
         megaFinderState: megaFinderState,
         stakeHsOpen: stakeHsOpen, stakeHsSearch: stakeHsSearch,
+        stakeHsRows: function () { return _stakeHsRows; },
         // Exposed so the card's four blocks can be RENDER-probed. Whether a
         // block carries a header, and whether there is space between it and
         // the next, is invisible to a regex over source text.
@@ -45045,8 +45103,8 @@
         histLine: histLine, gbifHistory: gbifHistory, cascadeSpots: cascadeSpots,
         recScopes: recScopes, getRecScope: getRecScope,
         stateRecordFile: stateRecordFile, renderRecScope: renderRecScope,
-        renderLastNew: renderLastNew, lastNewChecklists: lastNewChecklists,
-        lastNewPasses: lastNewPasses,
+        renderLastNew: renderLastNew, loadLastNew: loadLastNew, lastNewChecklists: lastNewChecklists,
+        lastNewPasses: lastNewPasses, lastNewCard: lastNewCard, lastNewPatch: lastNewPatch,
       reconcileLastNewOwnerTicks: reconcileLastNewOwnerTicks,
       lastNewKey: lastNewKey, lastNewPick: lastNewPick,
       loadLastNewCache: loadLastNewCache, saveLastNewCache: saveLastNewCache,

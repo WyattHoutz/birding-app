@@ -589,6 +589,9 @@ const AUDIT = `<script>
               titleScrollWidth: title && title.scrollWidth,
               buttonLeft: br && +br.left.toFixed(1),
               buttonRight: br && +br.right.toFixed(1),
+              touchHeight: br && +br.height.toFixed(1),
+              visibleHeight: button && +(button.querySelector('.favRemoveLabel') || button)
+                .getBoundingClientRect().height.toFixed(1),
               distanceLeft: dr && +dr.left.toFixed(1),
               distanceRight: dr && +dr.right.toFixed(1),
               expectedRight: +expectedRight.toFixed(1)
@@ -605,6 +608,9 @@ const AUDIT = `<script>
             exactPatch: !!(button && button.getAttribute('data-favorite-id')
               === card.getAttribute('data-favorite-id')),
             touchTarget: !!(br && br.width >= 44 && br.height >= 44),
+            compactVisible: !!(button && button.querySelector('.favRemoveLabel')
+              && button.querySelector('.favRemoveLabel').getBoundingClientRect().height
+                < br.height - 1),
             noVerticalPadding: !!(buttonStyle
               && parseFloat(buttonStyle.paddingTop) <= 0.5
               && parseFloat(buttonStyle.paddingBottom) <= 0.5),
@@ -1524,7 +1530,7 @@ server.listen(0, '127.0.0.1', () => {
             || r.favoriteMap.controls.length !== 2 || r.favoriteMap.controls.some((control) =>
               !control.inHeader || !control.betweenNameAndDistance || !control.distanceRight
                 || !control.distanceAligned || !control.nameReadable || !control.exactPatch
-                || !control.touchTarget || !control.noVerticalPadding
+                || !control.touchTarget || !control.compactVisible || !control.noVerticalPadding
                 || !control.photoMatchesSharedSmall || !control.noSpeciesRemoval)) {
           bad++;
           console.log('   F795 FAVORITE LAYOUT CONTRACT FAILED  ' + JSON.stringify(r.favoriteMap));
