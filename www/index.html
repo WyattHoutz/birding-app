@@ -4698,7 +4698,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.139.0';
+      var APP_VERSION = '1.140.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -31077,18 +31077,16 @@
             where: '<a class="seclink" data-sec="sec-bcBody">'
               + esc(county) + ' Birdcast Alert · '
               + esc(birdcastTonightRange(forecastParts))
-              + ' · 9 pm local reference</a>',
+              + '</a>',
             when: new Date(referenceTime).toISOString(),
             time: referenceTime,
             ageTime: 0,
-            ageLabel: '9 pm ref',
+            ageLabel: 'Tonight',
             omitWhen: true,
             noteHeader: 'MIGRATION: ' + intensity
-              + ' migration expected tonight · 9 pm local reference time',
+              + ' migration expected between dusk and dawn',
             why: '<b>' + level + ' migration tonight</b>',
-            extra: '<span class="dim">9 pm is an app-selected reference time, '
-              + 'not a BirdCast event time. '
-              + (snapshot.forecastError
+            extra: '<span class="dim">' + (snapshot.forecastError
                 ? '⚠️ ' + esc(snapshot.forecastError) + '.'
                 : 'Open Migration for forecast details.')
               + '</span>'
@@ -35400,7 +35398,8 @@
               now: now, region: scope.parentRegion,
               countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
               home: anchorPoint(), maxMi: chaseMaxMi(),
-              allowedPrivateLocIds: value.allowedPrivateLocIds || {}
+              allowedPrivateLocIds: value.allowedPrivateLocIds || {},
+              singleObservation: value.source === 'highCountPage'
             });
           } else if (key === 'cascades') {
             next.rows = value.rows.filter(function (row) {
@@ -36179,31 +36178,9 @@
         };
       }
 
-      var MASS_SEED_COUNT = 250;
       var MASS_ALERT_COUNT = 500;
       var MASS_WINDOW_DAYS = 7;
-      var MASS_MAX_CANDIDATES = 12;
       var MASS_DAY_CACHE_NS = 'bc_mass_day_v1:';
-
-      function massFlockCandidateCodes(dayRows) {
-        var byCode = {};
-        (dayRows || []).forEach(function (row) {
-          var code = String(row && (row.speciesCode || row.code) || '').trim();
-          var count = Number(row && (row.howMany == null ? row.count : row.howMany));
-          if (!code || !isFinite(count) || count < MASS_SEED_COUNT) return;
-          if (!byCode[code] || count > byCode[code].count) {
-            byCode[code] = {
-              code: code,
-              name: row.comName || row.name || code,
-              count: count
-            };
-          }
-        });
-        return Object.keys(byCode).map(function (code) { return byCode[code]; })
-          .sort(function (a, b) {
-            return b.count - a.count || a.code.localeCompare(b.code);
-          });
-      }
 
       function massFlockAlerts(rows, options) {
         options = options || {};
@@ -36287,7 +36264,7 @@
               if (!times[minute] || times[minute].count > row.count) times[minute] = row;
             });
             var cluster = Object.keys(times).map(function (key) { return times[key]; });
-            if (cluster.length < 2) {
+            if (cluster.length < (options.singleObservation ? 1 : 2)) {
               reject('independentVisitClusters');
               return;
             }
@@ -36310,6 +36287,7 @@
               minCount: Math.min.apply(Math, counts),
               maxCount: Math.max.apply(Math, counts),
               evidenceCount: cluster.length,
+              singleObservation: !!options.singleObservation,
               supportingLowRows: supporting.filter(function (row) {
                 return row.count < MASS_ALERT_COUNT;
               }).length,
@@ -36341,96 +36319,60 @@
         });
       }
 
-      function massDayCacheKey(region, date) {
-        return MASS_DAY_CACHE_NS + region + ':' + date;
-      }
-
-      function massFlockVerdict(result, counts, cancelled) {
-        var state = cancelled ? 'cancelled' : result.state;
-        var verdict = state === 'cancelled' ? 'cancelled'
-          : state === 'failed' ? 'source failed'
-            : result.rows.length ? (state === 'partial'
-              ? 'qualifying flocks; incomplete coverage' : 'qualifying flocks')
-              : state === 'partial' ? 'incomplete coverage; no qualifying sampled flocks'
-                : 'no qualifying sampled flocks';
-        var gates = result.diagnostics || {};
-        function timingText(label, timing) {
-          return '; ' + label + ' API ' + timing.requests + ' requests'
-            + ' (' + timing.cached + ' cached, ' + timing.failed + ' failed)'
-            + ', queue ' + timing.queuedMs + 'ms, transport ' + timing.networkMs
-            + 'ms, suspended ' + timing.suspendedMs + 'ms';
+      function parseMassHighCountPage(text, region) {
+        if (pageKind(text) !== 'OPEN') throw new Error('High-count page needs website access.');
+        var markup = String(text).replace(/<head\b[^>]*>[\s\S]*?<\/head>/i, '')
+          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+        var doc = new DOMParser().parseFromString(markup, 'text/html');
+        var root = doc.querySelector('.BirdList');
+        if (!root || !root.querySelector('.BirdList-list')) {
+          throw new Error('Unreadable high-count bird list.');
         }
-        dbg(state === 'ok' && result.rows.length ? 'net' : 'warn',
-          'Bird Gen Mass Flock verdict: ' + verdict
-          + '; dated samples ' + counts.datedSucceeded + '/' + counts.datedTotal
-          + ' succeeded, ' + counts.datedFailed + ' failed'
-          + ', ' + counts.datedCacheHits + ' retained-cache hits'
-          + '; dated seed rows ' + counts.datedSeedRows
-          + '; candidate species ' + counts.candidates
-          + '; species checks ' + counts.speciesChecked + '/' + counts.speciesCandidates
-          + ' (' + counts.speciesSucceeded + ' succeeded, ' + counts.speciesFailed + ' failed)'
-          + '; capped ' + (counts.capped ? 'yes' : 'no')
-          + '; public-location directory ' + counts.directory
-          + timingText('dated', counts.datedTiming)
-          + timingText('species', counts.speciesTiming)
-          + timingText('directory', counts.directoryTiming)
-          + '; qualifying flocks ' + result.rows.length
-          + '; rejected scope ' + (gates.scope || 0)
-          + ', location/privacy ' + (gates.location || 0)
-          + ', invalid evidence ' + (gates.invalidEvidence || 0)
-          + ', below count ' + (gates.belowCount || 0)
-          + ', independent-visit clusters ' + (gates.independentVisitClusters || 0));
-      }
-
-      function massDayRows(scope, date, force, work, onTiming) {
-        var stamp = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
-          + '-' + String(date.getDate()).padStart(2, '0');
-        var key = massDayCacheKey(scope.effectiveRegion, stamp);
-        if (!workCurrent(work)) return Promise.reject(queueCancelledError(work));
-        if (!force) {
-          try {
-            var hit = JSON.parse(localStorage.getItem(key) || 'null');
-            if (hit && Array.isArray(hit.rows) && hit.complete === true
-                && Date.now() - Number(hit.at || 0) >= 0
-                && Date.now() - Number(hit.at || 0) < CHASE_TTL_MS) {
-              hit.rows.cacheHit = true;
-              return Promise.resolve(hit.rows);
-            }
-          } catch (e) {}
-        }
-        var path = 'data/obs/' + encodeURIComponent(scope.effectiveRegion)
-          + '/historic/' + date.getFullYear() + '/' + (date.getMonth() + 1)
-          + '/' + date.getDate()
-          + '?detail=full&cat=species&includeProvisional=true&maxResults=10000';
-        return ebird(path, true, !!force, !!force, work, onTiming).then(function (rows) {
-          if (!workCurrent(work)) throw queueCancelledError(work);
-          if (!Array.isArray(rows)) throw new Error('Unreadable dated flock source.');
-          var small = rows.filter(function (row) {
-            return Number(row && row.howMany) >= MASS_SEED_COUNT;
-          }).map(function (row) {
-            return {
-              speciesCode: row.speciesCode, comName: row.comName,
-              howMany: row.howMany, obsDt: row.obsDt, subId: row.subId,
-              locId: row.locId, locName: row.locName, lat: row.lat, lng: row.lng,
-              subnational1Code: row.subnational1Code,
-              subnational2Code: row.subnational2Code,
-              locationPrivate: row.locationPrivate,
-              obsReviewed: row.obsReviewed, obsValid: row.obsValid
-            };
-          });
-          if (rows.length >= 10000) small.truncated = true;
-          else {
-            try {
-              localStorage.setItem(key, JSON.stringify({
-                at: Date.now(), complete: true, rows: small
-              }));
-            } catch (e) { dbg('warn', 'Mass flock day cache could not be saved'); }
+        var items = Array.from(root.querySelectorAll('li.BirdList-list-list-item.countable'));
+        var declared = 0, hasSpeciesSection = false;
+        Array.from(root.querySelectorAll('h3')).forEach(function (heading) {
+          var match = /(?:Native and Naturalized|Exotic: Provisional)\s*\((\d+)\)/
+            .exec(heading.textContent);
+          if (match) {
+            hasSpeciesSection = true;
+            declared += Number(match[1]);
           }
-          return small;
+        });
+        if (!hasSpeciesSection || items.length !== declared) {
+          throw new Error('High-count species rows are missing or incomplete.');
+        }
+        return items.map(function (item) {
+          var bird = item.querySelector('.Obs-species a');
+          var count = item.querySelector('.Obs-count');
+          var time = item.querySelector('.Obs-date time[datetime]');
+          var checklist = item.querySelector('.Obs-date a');
+          var location = item.querySelector('.Obs-location-name');
+          var place = location && location.querySelector('a');
+          var speciesMatch = bird && /^https:\/\/ebird\.org\/species\/([a-z0-9]+)\/([^/?#]+)$/
+            .exec(bird.getAttribute('href') || '');
+          var countMatch = count && /Count:\s*([0-9][0-9,]*|X)\s*$/i.exec(count.textContent);
+          var subMatch = checklist && /^https:\/\/ebird\.org\/checklist\/(S[0-9]+)$/
+            .exec(checklist.getAttribute('href') || '');
+          var placeMatch = place && /^https:\/\/ebird\.org\/region\/(L[0-9]+)(?:\?|$)/
+            .exec(place.getAttribute('href') || '');
+          var stamp = time && time.getAttribute('datetime');
+          if (!speciesMatch || speciesMatch[2] !== region || !countMatch
+              || !subMatch || !stamp || !/^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/.test(stamp)
+              || !location) throw new Error('Malformed high-count observation.');
+          return {
+            speciesCode: speciesMatch[1],
+            comName: (bird.querySelector('.Species-common') || bird).textContent.trim(),
+            howMany: countMatch[1].toUpperCase() === 'X' ? null
+              : Number(countMatch[1].replace(/,/g, '')),
+            obsDt: stamp, subId: subMatch[1],
+            locId: placeMatch ? placeMatch[1] : '',
+            locName: place ? place.textContent.trim() : location.textContent.trim(),
+            locationPrivate: !placeMatch
+          };
         });
       }
 
-      function loadMassFlockAlertSource(force, scope, onProgress, deepHistory) {
+      function loadMassFlockAlertSource(force, scope) {
         scope = scope || activeScope();
         var work = cancellableWork('Bird Gen mass flock', 'sec-surgeBtn');
         var generation = _surgeLoadGeneration, navigation = _navGeneration;
@@ -36441,204 +36383,115 @@
             && work.cancelGeneration === _workCancelGeneration
             && context === surgeSourceContext(false);
         };
-        var dates = [];
-        for (var ago = 0; ago < MASS_WINDOW_DAYS; ago++) {
-          var date = new Date();
-          date.setHours(12, 0, 0, 0);
-          date.setDate(date.getDate() - ago);
-          dates.push(date);
-        }
-        function newTiming() {
-          return { requests: 0, cached: 0, failed: 0, queuedMs: 0,
-            networkMs: 0, suspendedMs: 0 };
-        }
-        function recordTiming(total, sample) {
-          total.requests++;
-          if (sample.cached) total.cached++;
-          if (sample.error) total.failed++;
-          total.queuedMs += Number(sample.queued_ms) || 0;
-          total.networkMs += Number(sample.network_ms) || 0;
-          total.suspendedMs += Number(sample.suspended_ms) || 0;
-        }
-        var counts = {
-          datedTotal: dates.length, datedSucceeded: 0, datedFailed: 0,
-          datedCacheHits: 0, datedSeedRows: 0, candidates: 0,
-          speciesCandidates: 0, speciesChecked: 0, speciesSucceeded: 0,
-          speciesFailed: 0, capped: false, directory: 'not needed',
-          datedTiming: newTiming(), speciesTiming: newTiming(),
-          directoryTiming: newTiming()
-        };
-        var dayRows = [], dayFailures = 0, sourceTruncated = false;
-        var diagnostics = {};
-        var directoryFailures = 0;
-        var keepKeys = dates.map(function (date) {
-          return massDayCacheKey(scope.effectiveRegion,
-            date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
-              + '-' + String(date.getDate()).padStart(2, '0'));
-        });
+        var diagnostics = {}, started = Date.now(), pageRows = 0;
+        var directoryState = 'not needed', controller = null;
+        var url = 'https://ebird.org/region/' + encodeURIComponent(scope.effectiveRegion)
+          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
         try {
-          var keepDates = keepKeys.map(function (key) { return key.slice(-10); });
-          storeKeys(MASS_DAY_CACHE_NS).filter(function (key) {
-            return keepDates.indexOf(key.slice(-10)) < 0;
-          }).forEach(function (key) { localStorage.removeItem(key); });
+          storeKeys(MASS_DAY_CACHE_NS).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
-        function scopedRows(rows) {
-          // Species-recent has no detail=full contract. Missing geography is
-          // provenance of the exact endpoint, never a guessed location.
-          return rows.map(function (row) {
-            return Object.assign({
-              subnational1Code: scope.parentRegion,
-              subnational2Code: scope.level === 'subregion' ? scope.effectiveRegion : ''
-            }, Object.fromEntries(Object.entries(row).filter(function (entry) {
-              return entry[1] != null;
-            })));
-          });
-        }
         function finish(result, cancelled) {
-          massFlockVerdict(result, counts, cancelled);
+          dbg(result.state === 'ok' ? 'net' : 'warn',
+            'Bird Gen Mass Flock verdict: ' + (cancelled ? 'cancelled'
+              : result.state === 'failed' ? 'source failed'
+                : result.rows.length ? 'qualifying flocks' : 'no qualifying high-count flocks')
+            + '; high-count page rows ' + pageRows
+            + '; public-location directory ' + directoryState
+            + '; elapsed ' + (Date.now() - started) + 'ms'
+            + '; qualifying flocks ' + result.rows.length
+            + '; rejected ' + JSON.stringify(diagnostics)
+            + (result.coverage ? '; ' + result.coverage : ''));
           return result;
         }
-        var chain = Promise.resolve();
-        dates.forEach(function (date, index) {
-          chain = chain.then(function () {
-            return massDayRows(scope, date,
-              force && (deepHistory !== false || index === 0), work,
-              function (sample) { recordTiming(counts.datedTiming, sample); })
-              .then(function (rows) {
-                counts.datedSucceeded++;
-                if (rows.cacheHit) counts.datedCacheHits++;
-                sourceTruncated = sourceTruncated || !!rows.truncated;
-                var scoped = scopedRows(rows);
-                counts.datedSeedRows += scoped.length;
-                dayRows.push.apply(dayRows, scoped);
-              })
-              .catch(function (error) {
-                if (error && error.queueCancelled) throw error;
-                dayFailures++;
-                counts.datedFailed++;
-                dbg('warn', 'Bird gen mass dated source: '
-                  + ((error && error.message) || error));
-              });
-          });
+        return zcGet(surgeRetainedKey()).then(function (cache) {
+          if (!workCurrent(work)) return finish({
+            state: 'failed', rows: [], diagnostics: diagnostics, coverage: 'Search cancelled'
+          }, true);
+          var part = cache && cache.context === surgeRetainedContext()
+            && cache.parts && cache.parts.mass;
+          var age = part ? Date.now() - Number(part.at) : NaN;
+          if (!force && part && age >= 0 && age < CHASE_TTL_MS
+              && part.value && part.value.source === 'highCountPage'
+              && ['ok', 'partial'].indexOf(part.value.state) >= 0
+              && Array.isArray(part.value.evidenceRows)) {
+            var retained = surgeRetainedModel(cache).mass;
+            return Object.assign({}, retained, { state: part.value.state });
+          }
+          return acquire();
         });
-        return chain.then(function () {
+        function acquire() {
+        return fgSlot(true, work).then(function (job) {
+          controller = typeof AbortController === 'function' ? new AbortController() : null;
+          var stopWatch = controller ? fgWatchActive(url, {}, controller, work) : function () {};
+          _fgActiveAbort = controller
+            ? { controller: controller, job: job, cancelled: false } : null;
+          return fetch(url, {
+            headers: { Accept: 'text/html' }, credentials: 'omit', cache: 'no-store',
+            signal: controller ? controller.signal : undefined
+          }).then(function (response) {
+            if (!response.ok) throw new Error('High-count page returned HTTP ' + response.status);
+            return response.text();
+          }).finally(function () {
+            stopWatch();
+            if (_fgActiveAbort && _fgActiveAbort.job === job) _fgActiveAbort = null;
+            fgRelease(job);
+          });
+        }).then(function (text) {
           if (!workCurrent(work)) throw queueCancelledError(work);
-          if (dayFailures === dates.length) {
-            return finish({ state: 'failed', rows: [], diagnostics: {} });
-          }
-          var candidates = massFlockCandidateCodes(dayRows);
-          var bounded = candidates.slice(0, MASS_MAX_CANDIDATES);
-          var truncated = sourceTruncated || candidates.length > bounded.length;
-          counts.candidates = candidates.length;
-          counts.speciesCandidates = bounded.length;
-          counts.capped = truncated;
-          if (!bounded.length) {
-            var emptyDiagnostics = {};
-            massFlockAlerts(dayRows, {
-              region: scope.parentRegion,
-              countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
-              home: anchorPoint(), maxMi: chaseMaxMi(),
-              diagnostics: emptyDiagnostics
+          var rows = parseMassHighCountPage(text, scope.effectiveRegion);
+          pageRows = rows.length;
+          var now = Date.now();
+          rows = rows.filter(function (row) {
+            return row.howMany >= MASS_ALERT_COUNT
+              && surgeTimeValue(row.obsDt) >= now - MASS_WINDOW_DAYS * 86400000;
+          });
+          directoryState = rows.length ? 'loading' : 'not needed';
+          return (rows.length ? loadHotspotIndex(scope.parentRegion, work, false)
+            : Promise.resolve([])).then(function (hotspots) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            if (rows.length) directoryState = 'loaded';
+            var byId = {};
+            hotspots.forEach(function (hotspot) { byId[hotspot.locId] = hotspot; });
+            var unresolved = 0;
+            var evidence = rows.map(function (row) {
+              var hotspot = byId[row.locId];
+              if (!hotspot) unresolved++;
+              return Object.assign({}, row, {
+                lat: hotspot ? hotspot.lat : null, lng: hotspot ? hotspot.lng : null,
+                subnational1Code: scope.parentRegion,
+                subnational2Code: hotspot && hotspot.co
+                  ? hotspot.co : scope.level === 'subregion' ? scope.effectiveRegion : ''
+              });
             });
-            return finish({
-              state: dayFailures || truncated ? 'partial' : 'ok',
-              coverage: '0 candidate species; ' + (dates.length - dayFailures)
-                + ' of ' + dates.length + ' daily samples',
-              diagnostics: emptyDiagnostics, rows: []
-            });
-          }
-          var allRows = dayRows.slice(), speciesFailures = 0, checkedCodes = [];
-          function resultFor(rows, allowedPrivate, pending) {
-            diagnostics = {};
-            counts.capped = truncated;
-            return {
-              state: pending ? 'loading'
-                : dayFailures || speciesFailures || directoryFailures || truncated
-                  ? 'partial' : 'ok',
-              coverage: (pending ? checkedCodes.length + ' checked; ' : '')
-                + bounded.length + ' of ' + candidates.length + ' candidate species; '
-                + (dates.length - dayFailures) + ' of ' + dates.length + ' daily samples'
-                + (speciesFailures ? '; some corroboration sources failed' : '')
-                + (directoryFailures ? '; public-location directory failed' : '')
-                + (truncated ? '; capped coverage' : ''),
-              checkedCodes: checkedCodes.slice(),
-              evidenceRows: rows,
-              allowedPrivateLocIds: allowedPrivate,
-              rows: massFlockAlerts(rows, {
+            var monthLimited = new Date(now - MASS_WINDOW_DAYS * 86400000).getMonth()
+              !== new Date(now).getMonth();
+            var result = {
+              source: 'highCountPage', state: unresolved || monthLimited ? 'partial' : 'ok',
+              coverage: 'Current-month high counts; single-observation evidence; public hotspots only'
+                + (unresolved ? '; ' + unresolved + ' locations could not be resolved safely' : '')
+                + (monthLimited ? '; previous-month days not covered' : ''),
+              evidenceRows: evidence, diagnostics: diagnostics,
+              rows: massFlockAlerts(evidence, {
                 region: scope.parentRegion,
                 countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
                 home: anchorPoint(), maxMi: chaseMaxMi(),
-                allowedPrivateLocIds: allowedPrivate,
-                diagnostics: diagnostics
-              }),
-              diagnostics: diagnostics
+                singleObservation: true, diagnostics: diagnostics
+              })
             };
-          }
-          var speciesChain = Promise.resolve();
-          bounded.forEach(function (candidate) {
-            speciesChain = speciesChain.then(function () {
-              var path = 'data/obs/' + encodeURIComponent(scope.effectiveRegion)
-                + '/recent/' + encodeURIComponent(candidate.code)
-                + '?back=' + MASS_WINDOW_DAYS
-                + '&includeProvisional=true&maxResults=10000';
-              return ebird(path, true, !!force, !!force, work,
-                function (sample) { recordTiming(counts.speciesTiming, sample); })
-                .then(function (rows) {
-                if (!workCurrent(work)) throw queueCancelledError(work);
-                if (!Array.isArray(rows)) throw new Error('Unreadable flock species source.');
-                if (rows.length >= 10000) truncated = true;
-                var scoped = scopedRows(rows);
-                allRows.push.apply(allRows, scoped);
-                counts.speciesSucceeded++;
-              }).catch(function (error) {
-                if (error && error.queueCancelled) throw error;
-                speciesFailures++;
-                counts.speciesFailed++;
-                dbg('warn', 'Bird gen mass species source · ' + candidate.code + ': '
-                  + ((error && error.message) || error));
-              }).then(function () {
-                if (!workCurrent(work)) throw queueCancelledError(work);
-                checkedCodes.push(candidate.code);
-                counts.speciesChecked = checkedCodes.length;
-                if (onProgress) {
-                  onProgress(resultFor(allRows.filter(function (row) {
-                    return checkedCodes.indexOf(row.speciesCode || row.code) >= 0;
-                  }), {}, true));
-                }
-              });
-            });
-          });
-          return speciesChain.then(function () {
-            if (!workCurrent(work)) throw queueCancelledError(work);
-            var needsDirectory = allRows.some(function (row) { return row.locationPrivate; });
-            counts.directory = needsDirectory ? 'loading' : 'not needed';
-            var directory = needsDirectory
-              ? loadHotspotIndex(scope.parentRegion, work, force,
-                function (sample) { recordTiming(counts.directoryTiming, sample); })
-              : Promise.resolve([]);
-            return directory.then(function (hotspots) {
-              if (needsDirectory) counts.directory = 'loaded';
-              return hotspots;
-            }).catch(function (error) {
-              if (error && error.queueCancelled) throw error;
-              counts.directory = 'failed';
-              directoryFailures++;
-              dbg('warn', 'Bird gen mass hotspot directory: '
-                + ((error && error.message) || error));
-              return [];
-            }).then(function (hotspots) {
-              if (!workCurrent(work)) throw queueCancelledError(work);
-              var allowedPrivate = BL.publicPersonalLocids(allRows, hotspots);
-              return finish(resultFor(allRows, allowedPrivate, false));
-            });
+            return finish(result);
           });
         }).catch(function (error) {
-          var cancelled = !!(error && error.queueCancelled);
+          var cancelled = !!(error && error.queueCancelled)
+            || !!(controller && controller.signal.aborted && !workCurrent(work));
+          if (directoryState === 'loading') directoryState = 'failed';
           if (!cancelled) {
             dbg('warn', 'Bird gen mass source: ' + ((error && error.message) || error));
           }
-          return finish({ state: 'failed', rows: [], diagnostics: diagnostics }, cancelled);
+          return finish({ state: 'failed', rows: [], diagnostics: diagnostics,
+            coverage: cancelled ? 'Search cancelled' : 'High-count page or public-location source failed'
+          }, cancelled);
         });
+        }
       }
 
       function loadFavoritePatchAlertSource(force, scope, onProgress) {
@@ -36819,11 +36672,11 @@
         var sourceProgress = surgeSourceProgress(sourceStates);
         var sampleCoverage = sourceState && sourceState.massCoverage
           ? '<div class="hint">Mass flock sample: ' + esc(sourceState.massCoverage)
-            + '. Latest-per-species sampling is not exhaustive; large counts do not'
+            + '. Regional maxima are not exhaustive and can hide other flocks; large counts do not'
             + ' by themselves establish seasonal rarity.</div>'
           : '';
         sampleCoverage += '<button type="button" class="secondary" data-surge-deep-history>'
-          + 'Recheck 7-day flock history</button>';
+          + 'Refresh high-count flocks</button>';
         markSurgeSourceStates(box, sourceStates);
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length && !topPatches.length
@@ -37026,12 +36879,15 @@
             name: esc(flock.name),
             code: flock.code,
             alpha: flock.alpha || alphaFor(flock.code),
-            noteHeader: 'MASS FLOCK: ' + range + ' birds corroborated across '
-              + flock.evidenceCount + ' visits · ' + chaseText,
+            noteHeader: 'MASS FLOCK: ' + range + (flock.singleObservation
+              ? ' birds reported · single-observation evidence · '
+              : ' birds corroborated across ' + flock.evidenceCount + ' visits · ') + chaseText,
             count: null,
             distance: surgeDistanceText(flock.distanceMi),
             why: '<b>' + esc(range) + ' birds</b> · '
-              + esc(chaseText) + ' · corroborated at nearby public places',
+              + esc(chaseText) + (flock.singleObservation
+                ? ' · one reported high count; flock may have moved'
+                : ' · corroborated at nearby public places'),
             where: links.length ? links.join(' · ') : esc(flock.locName || 'Flock area'),
             when: flock.when,
             time: flock.time,
@@ -45092,6 +44948,7 @@
         reportingDates: reportingDates, validReportingStats: validReportingStats,
         loadReportingActivity: loadReportingActivity,
         massFlockAlerts: massFlockAlerts,
+        parseMassHighCountPage: parseMassHighCountPage,
         loadMassFlockAlertSource: loadMassFlockAlertSource,
         loadFavoritePatchAlertSource: loadFavoritePatchAlertSource,
         loadDestinations: loadDestinations,

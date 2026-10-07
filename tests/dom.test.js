@@ -11352,48 +11352,92 @@ test('F801 favorites publish each patch while later patches remain pending', asy
   app.window.close();
 });
 
-test('F801 mass publishes checked species before later corroboration without exposing private pins', async () => {
+function f821Page(rows = []) {
+  return '<div class="BirdList"><section class="BirdList-list">'
+    + `<h3>Native and Naturalized (${rows.length})</h3><ol>`
+    + rows.map((r, i) => `<li class="BirdList-list-list-item countable"><div class="Obs">
+      <div class="Obs-species"><a href="https://ebird.org/species/${r.code || 'snogoo'}/${r.region || 'US-WA'}"><span class="Species-common">${r.name || 'Snow Goose'}</span></a></div>
+      <div class="Obs-count"># Count: ${r.count ?? 600}</div>
+      <div class="Obs-date"><a href="https://ebird.org/checklist/${r.subId || 'S' + (800 + i)}"><time datetime="${r.date || f801Day() + ' 00:01'}">Observation</time></a></div>
+      <div class="Obs-location"><span class="Obs-location-name"><a href="https://ebird.org/region/${r.locId || 'L821'}">${r.locName || 'Public marsh'}</a></span></div>
+      </div></li>`).join('') + '</ol></section></div>';
+}
+
+function f821Hotspots() {
+  return [{ locId: 'L821', locName: 'Public marsh', lat: 47.75, lng: -122.16,
+    subnational2Code: 'US-WA-061' }];
+}
+
+function f821State() {
+  return new Date(Date.now() - 7 * 86400000).getMonth() !== new Date().getMonth()
+    ? 'partial' : 'ok';
+}
+
+test('F821 reuses fresh evidence, expires it and honors forced refresh without poisoning last-good data', async () => {
+  let fail = false;
+  const app = await boot({ fetch(url) {
+    if (/bird-list/.test(url)) return fail ? '<html>Access denied</html>'
+      : f821Page([{ count: 4000 }]);
+    if (/ref\/hotspot\//.test(url)) return f821Hotspots();
+    return [];
+  } });
+  const A = app.window.__app;
+  const first = await A.loadMassFlockAlertSource(false, A.activeScope());
+  await A.saveSurgeRetainedPart('mass', first);
+  const requests = () => app.state.fetches.filter((url) => /bird-list/.test(url)).length;
+  const warm = await A.loadMassFlockAlertSource(false, A.activeScope());
+  assert.equal(requests(), 1, 'fresh evidence repeated the page request');
+  assert.equal(warm.rows.length, 1);
+  assert.ok(warm.retainedAt > 0, 'reuse must preserve the original acquisition time');
+  await A.saveSurgeRetainedPart('mass', warm);
+  fail = true;
+  const failed = await A.loadMassFlockAlertSource(true, A.activeScope());
+  assert.equal(requests(), 2, 'forced refresh did not bypass fresh evidence');
+  assert.equal(failed.state, 'failed');
+  await A.saveSurgeRetainedPart('mass', failed);
+  assert.equal(A.loadSurgeRetained().mass.rows.length, 1, 'failure erased last-good evidence');
+  fail = false;
+  await A.saveSurgeRetainedPart('mass', {
+    ...first, retainedAt: Date.now() - 86400000,
+  });
+  await A.loadMassFlockAlertSource(false, A.activeScope());
+  assert.equal(requests(), 3, 'stale evidence suppressed reacquisition');
+  app.window.close();
+});
+
+test('F821 mass waits for safe public hotspot coordinates without buying species corroboration', async () => {
   let release;
-  const rows = ['margod', 'snogoo'].flatMap((speciesCode, index) => [0, 1].map((ago) => ({
-    speciesCode, comName: speciesCode, howMany: 800 - index * 100,
-    obsDt: f801Day(ago) + ' 00:01', subId: speciesCode + ago,
-    locId: 'LF801', locName: 'Public marsh', lat: 47.75, lng: -122.16,
-    locationPrivate: false,
-  })));
-  const privateRows = rows.filter((row) => row.speciesCode === 'margod')
-    .map((row) => ({ ...row, lat: 48.5, locId: 'PRIVATE801',
-      subId: row.subId + 'private', locationPrivate: true }));
-  const app = await boot({ storage: f801Days(rows.concat(privateRows)), fetch(url) {
-    if (/recent\/snogoo/.test(url)) return new Promise((resolve) => { release = resolve; });
+  const app = await boot({ fetch(url) {
+    if (/bird-list/.test(url)) return f821Page([{ code: 'snogoo', count: 4000 },
+      { code: 'margod', count: 800, locId: 'L999' }]);
+    if (/ref\/hotspot\//.test(url)) return new Promise((resolve) => { release = resolve; });
     return [];
   } });
   const A = app.window.__app, updates = [];
   const pending = A.loadMassFlockAlertSource(false, A.activeScope(), (value) => updates.push(value));
-  await waitFor(() => release, 'second Mass corroboration request');
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0].state, 'loading');
-  assert.deepEqual(arr(updates[0].rows, (row) => row.code), ['margod']);
-  assert.ok(updates[0].rows.every((row) => row.locId !== 'PRIVATE801'));
-  release([]);
+  await waitFor(() => release, 'public hotspot directory');
+  assert.equal(updates.length, 0, 'unresolved locations must not be published');
+  release(f821Hotspots());
   const final = await pending;
-  assert.equal(final.state, 'ok');
-  assert.deepEqual(arr(final.rows, (row) => row.code).sort(), ['margod', 'snogoo']);
-  assert.equal(app.state.fetches.filter((url) => /recent\/(?:margod|snogoo)/.test(url)).length, 2);
+  assert.equal(final.state, 'partial', 'unresolved high-count evidence is incomplete coverage');
+  assert.deepEqual(arr(final.rows, (row) => row.code), ['snogoo']);
+  assert.equal(app.state.fetches.filter((url) => /\/recent\/|\/historic\//.test(url)).length, 0);
   app.window.close();
 });
 
-test('F801 ordinary flock refresh reuses valid history and preserves another region cache', async () => {
+test('F821 every flock refresh buys one page and retires all daily-cache entries', async () => {
   const other = 'bc_mass_day_v1:US-OR:' + f801Day(1);
   const app = await boot({ storage: {
     ...f801Days(), [other]: JSON.stringify({ at: Date.now(), complete: true, rows: [] }),
-  }, fetch: () => [] });
+  }, fetch: (url) => /bird-list/.test(url) ? f821Page() : [] });
   const A = app.window.__app;
   await A.loadMassFlockAlertSource(true, A.activeScope(), null, false);
-  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 1);
-  assert.ok(app.window.localStorage.getItem(other), 'changing region purged reusable dated evidence');
+  assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
+  assert.equal(Object.keys(app.window.localStorage).filter((key) =>
+    key.startsWith('bc_mass_day_v1:')).length, 0);
   await A.loadMassFlockAlertSource(true, A.activeScope(), null, true);
-  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 8,
-    'explicit deep history did not reread all seven dates');
+  assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 2);
+  assert.equal(app.state.fetches.filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
   app.window.close();
 });
 
@@ -11768,6 +11812,7 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
   const app = await boot({ storage: { ...f801Days(), ebird_favs: JSON.stringify([
     { id: 'reopen', locId: 'LF801REOPEN', locName: 'Retained marsh', region: 'US-WA' },
   ]) }, fetch(url) {
+    if (/bird-list/.test(url)) return f821Page();
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
     if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
@@ -12150,8 +12195,8 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   const source = HTML;
   assert.match(source, /loadMassFlockAlertSource\(force,\s*activeScope\(\),/,
     'the live Bird Gen load does not start the Mass Flock source');
-  assert.match(source, /BL\.publicPersonalLocids/,
-    'Mass Flock does not reuse the established safe custom-pin ownership rule');
+  assert.match(source, /byId\[row\.locId\]/,
+    'high-count geography must come from exact public hotspot IDs');
   const now = Date.now();
   const stamp = (hoursAgo) => {
     const date = new Date(now - hoursAgo * 3600000);
@@ -12326,101 +12371,64 @@ test('F746 two separate qualifying flocks of one species stay separate through f
   app.window.close();
 });
 
-test('F730 live source combines dated evidence with scoped species rows and rejects stale work', async () => {
-  const now = new Date();
-  const day = (ago) => {
-    const d = new Date(now); d.setDate(d.getDate() - ago);
-    const p = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-  };
-  const observation = (ago, count, subId) => ({
-    speciesCode: 'margod', comName: 'Marbled Godwit', howMany: count,
-    obsDt: day(ago) + ' 08:00', locId: 'LTOKE', locName: 'Tokeland marina',
-    lat: 46.707, lng: -123.974, subId, locationPrivate: false,
-  });
-  const storage = {};
-  for (let ago = 0; ago < 7; ago++) {
-    storage['bc_mass_day_v1:US-WA:' + day(ago)] = JSON.stringify({
-      at: Date.now(), complete: true,
-      rows: ago === 1 ? [observation(1, 600, 'SOLDER')] : [],
-    });
-  }
-  const app = await boot({ storage, fetch: (url) => {
-    if (/recent\/margod/.test(url)) return [observation(0, 650, 'SNEW')];
-    return [];
+test('F821 live high-count source admits one observation, preserves retention and rejects stale work', async () => {
+  const app = await boot({ fetch: (url) => {
+    if (/bird-list/.test(url)) return f821Page([{ count: 4000 }]);
+    return /ref\/hotspot\//.test(url) ? f821Hotspots() : [];
   } });
   const A = app.window.__app;
   const result = await A.loadMassFlockAlertSource(false, A.activeScope());
-  assert.equal(result.state, 'ok');
-  assert.equal(result.rows.length, 1,
-    'missing species-feed county fields or same-pin dated evidence lost the real event');
-  assert.equal(result.rows[0].minCount, 600);
-  assert.equal(result.rows[0].maxCount, 650);
+  assert.equal(result.state, f821State());
+  assert.equal(result.rows.length, 1, 'one high-count observation must qualify');
+  assert.equal(result.rows[0].maxCount, 4000);
+  assert.equal(result.rows[0].evidenceCount, 1);
+  assert.equal(result.rows[0].singleObservation, true);
+  assert.equal(result.source, 'highCountPage');
   const verdict = app.window.__dbg.buf.map((row) => row.msg)
     .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
-  assert.match(verdict, /qualifying flocks; dated samples 7\/7 succeeded/);
-  assert.match(verdict, /candidate species 1; species checks 1\/1 \(1 succeeded, 0 failed\)/);
-  assert.match(verdict, /dated API 0 requests .* species API 1 requests .* queue \d+ms, transport \d+ms/);
-  assert.match(verdict, /public-location directory not needed;.*qualifying flocks 1/);
-  assert.doesNotMatch(verdict, /margod|Marbled Godwit|LTOKE|SOLDER|SNEW|46\.707|-123\.974/,
-    'the aggregate source verdict exposed observation or location details');
-  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 0);
-  assert.equal(app.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 1);
+  assert.match(verdict, /qualifying flocks; high-count page rows 1/);
+  assert.match(verdict, /elapsed \d+ms; qualifying flocks 1/);
+  assert.doesNotMatch(verdict, /snogoo|Snow Goose|L821|S800|47\.75|-122\.16/);
+  const pages = app.state.fetches.filter((url) => /bird-list/.test(url));
+  assert.equal(pages.length, 1);
+  const query = new URL(pages[0]).searchParams;
+  assert.equal(query.get('rank'), 'hc');
+  assert.equal(query.get('hs_sortBy'), 'count');
+  assert.equal(query.get('yr'), 'curM');
+  assert.equal(app.state.fetches.filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
+  A.renderSurge([], [], [], [], [], { mass: result.state, massCoverage: result.coverage },
+    [], [], result.rows);
+  assert.match(app.$('surgeFeed').textContent, /single-observation evidence/);
+  assert.doesNotMatch(app.$('surgeFeed').textContent, /corroborated/);
+  await A.saveSurgeRetainedPart('mass', result);
+  const retained = A.loadSurgeRetained();
+  assert.equal(retained.mass.rows.length, 1, 'reopen reintroduced the independent-visit gate');
+  assert.equal(retained.mass.rows[0].singleObservation, true);
   const refreshed = await A.loadMassFlockAlertSource(true, A.activeScope());
-  assert.equal(refreshed.state, 'ok');
-  assert.equal(refreshed.rows.length, 0);
-  assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 7,
-    'force refresh reused the dated source cache');
+  assert.equal(refreshed.rows.length, 1);
+  assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 2);
+  assert.equal(app.state.fetches.filter((url) => /ref\/hotspot\//.test(url)).length, 1,
+    'refresh must reuse the shared hotspot directory');
   app.window.close();
-
-  const cappedStorage = {};
-  for (let ago = 0; ago < 7; ago++) {
-    cappedStorage['bc_mass_day_v1:US-WA:' + day(ago)] = JSON.stringify({
-      at: Date.now(), complete: true,
-      rows: ago < 2 ? Array.from({ length: 13 }, (_, i) => ({
-        ...observation(ago, 700 + i, 'SB-' + ago + '-' + i),
-        speciesCode: 'budget' + i, comName: 'Flock bird ' + i,
-      })) : [],
-    });
-  }
-  const capped = await boot({ storage: cappedStorage, fetch: (url) => {
-    if (/recent\/budget12/.test(url)) return { unreadable: true };
-    return [];
-  } });
-  const bounded = await capped.window.__app.loadMassFlockAlertSource(
-    false, capped.window.__app.activeScope());
-  assert.equal(bounded.state, 'partial', 'cap/failure became a complete empty success');
-  assert.match(bounded.coverage, /12 of 13.*sources failed.*capped coverage/);
-  assert.equal(bounded.rows.length, 13, 'valid dated evidence was lost on species failure');
-  assert.equal(capped.state.fetches.filter((url) => /recent\/budget/.test(url)).length, 12,
-    'the source exceeded its explicit species follow-up budget');
-  const partialVerdict = capped.window.__dbg.buf.map((row) => row.msg)
-    .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
-  assert.match(partialVerdict, /qualifying flocks; incomplete coverage/);
-  assert.match(partialVerdict, /species checks 12\/12 \(11 succeeded, 1 failed\); capped yes/);
-  assert.match(partialVerdict, /queue \d+ms, transport \d+ms/);
-  capped.window.close();
-
   let release;
   const pending = await boot({ fetch: (url) => {
-    if (/\/historic\//.test(url)) return new Promise((resolve) => { release = resolve; });
+    if (/bird-list/.test(url)) return new Promise((resolve) => { release = resolve; });
     return [];
   } });
   const B = pending.window.__app;
   const loading = B.loadMassFlockAlertSource(false, B.activeScope());
-  await waitFor(() => Boolean(release), 'held dated flock request');
+  await waitFor(() => Boolean(release), 'held high-count page');
   B.setCountyView('US-WA-033');
-  release([observation(1, 600, 'SLATE')]);
+  release(f821Page([{ count: 4000 }]));
   assert.equal((await loading).state, 'failed');
   const cancelledVerdict = pending.window.__dbg.buf.map((row) => row.msg)
     .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
   assert.match(cancelledVerdict, /verdict: cancelled/);
-  assert.equal(pending.state.fetches.filter((url) => /\/historic\//.test(url)).length, 1,
-    'obsolete scope launched the remaining dated sweep');
-  assert.equal(pending.state.fetches.filter((url) => /recent\/margod/.test(url)).length, 0);
+  assert.equal(pending.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
+  assert.equal(pending.state.fetches.filter((url) => /ref\/hotspot\//.test(url)).length, 0);
   assert.equal(Object.keys(pending.window.localStorage)
     .filter((key) => key.startsWith('bc_mass_day_v1:')).length, 0,
-  'an obsolete response poisoned the next scope cache');
+  'obsolete work must not create dated-cache entries');
   pending.window.close();
 });
 
@@ -12431,64 +12439,78 @@ test('F808 total Mass Flock acquisition failure is logged as failed coverage', a
   assert.equal(result.state, 'failed');
   const verdict = app.window.__dbg.buf.map((row) => row.msg)
     .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
-  assert.match(verdict, /source failed; dated samples 0\/7 succeeded, 7 failed/);
-  assert.match(verdict, /candidate species 0; species checks 0\/0/);
-  assert.match(verdict, /qualifying flocks 0; rejected scope 0/);
+  assert.match(verdict, /source failed; high-count page rows 0/);
+  assert.match(verdict, /qualifying flocks 0/);
   app.window.close();
 });
 
-test('F808 empty and partial dated coverage have different final verdicts', async () => {
-  for (const partial of [false, true]) {
-    const storage = f801Days();
-    if (partial) delete storage['bc_mass_day_v1:US-WA:' + f801Day()];
-    const app = await boot({ storage, fetch: () => ({ unreadable: true }) });
+test('F821 valid empty pages differ from access walls and malformed pages', async () => {
+  for (const page of [f821Page(), '<html><title>Sign in</title></html>',
+    '<html>anubis_challenge</html>', '<div class="BirdList"></div>']) {
+    const empty = page === f821Page();
+    const app = await boot({ fetch: () => page });
     const A = app.window.__app;
     const result = await A.loadMassFlockAlertSource(false, A.activeScope());
-    assert.equal(result.state, partial ? 'partial' : 'ok');
+    assert.equal(result.state, empty ? f821State() : 'failed');
     const verdicts = app.window.__dbg.buf.map((row) => row.msg)
       .filter((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
     assert.equal(verdicts.length, 1, 'final verdict is missing or emitted more than once');
-    assert.match(verdicts[0], partial
-      ? /incomplete coverage; no qualifying sampled flocks; dated samples 6\/7 succeeded, 1 failed/
-      : /verdict: no qualifying sampled flocks; dated samples 7\/7 succeeded, 0 failed/);
-    assert.match(verdicts[0], /candidate species 0; species checks 0\/0/);
+    assert.match(verdicts[0], empty ? /no qualifying high-count flocks/ : /source failed/);
+    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\/|ref\/hotspot\//.test(url)).length, 0);
     app.window.close();
   }
 });
 
-test('F808 public-directory failure is separate from successful species corroboration', async () => {
-  const rows = [1, 2].map((ago) => ({
-    speciesCode: 'flocktest', comName: 'Synthetic flock bird', howMany: 600,
-    obsDt: f801Day(ago) + ' 08:00', subId: 'SECRET-VISIT-' + ago,
-    locId: 'SECRET-PIN', locName: 'Synthetic public marsh',
-    lat: 47.75, lng: -122.16, locationPrivate: true,
-    subnational1Code: 'US-WA',
-  }));
+test('F821 public-directory failure is visible and never falls back to dated or species sources', async () => {
   for (const failed of [false, true]) {
-    const app = await boot({ storage: f801Days(rows), fetch(url) {
+    const app = await boot({ fetch(url) {
+      if (/bird-list/.test(url)) return f821Page([{}]);
       if (/ref\/hotspot\//.test(url)) {
-        return failed ? { unreadable: true } : [{
-          locId: 'PUBLIC-HOTSPOT', locName: 'Synthetic public marsh',
-          lat: 47.75, lng: -122.16,
-        }];
+        return failed ? { unreadable: true } : f821Hotspots();
       }
       return [];
     } });
     const A = app.window.__app;
     const result = await A.loadMassFlockAlertSource(false, A.activeScope());
-    assert.equal(result.state, failed ? 'partial' : 'ok');
+    assert.equal(result.state, failed ? 'failed' : f821State());
     assert.equal(result.rows.length, failed ? 0 : 1,
-      'private evidence bypassed public-location resolution or valid resolution was discarded');
+      'unresolved geography bypassed public-location resolution');
     const verdict = app.window.__dbg.buf.map((row) => row.msg)
       .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
-    assert.match(verdict, /species checks 1\/1 \(1 succeeded, 0 failed\)/);
     assert.match(verdict, failed
       ? /public-location directory failed/ : /public-location directory loaded/);
-    assert.match(verdict, failed ? /location\/privacy 2/ : /location\/privacy 0/);
-    assert.match(verdict, /directory API 1 requests .*queue \d+ms, transport \d+ms/);
-    assert.doesNotMatch(verdict, /SECRET|flocktest|Synthetic|47\.75|-122\.16/);
+    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+    assert.doesNotMatch(verdict, /snogoo|Snow Goose|L821|47\.75|-122\.16/);
     app.window.close();
   }
+});
+
+test('F821 full-page filtering keeps the exact 500 boundary without a candidate cap', async () => {
+  const rows = [
+    { code: 'snogoo', count: 500 },
+    { code: 'amecro', count: 499 },
+    { code: 'margod', count: 4000, date: f801Day(8) + ' 00:01' },
+    { code: 'brant', count: 4000, date: f801Day(-8) + ' 00:01' },
+    { code: 'mallar3', count: 5000, locName: 'Private residence' },
+    ...Array.from({ length: 13 }, (_, i) => ({ code: 'flock' + i, count: 600 + i })),
+  ];
+  const app = await boot({ fetch: (url) => /bird-list/.test(url)
+    ? f821Page(rows) : /ref\/hotspot\//.test(url) ? f821Hotspots() : [] });
+  const A = app.window.__app;
+  const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+  assert.equal(result.rows.length, 14, 'valid single observations were capped or lost');
+  assert.ok(result.rows.some((row) => row.code === 'snogoo' && row.maxCount === 500));
+  assert.ok(!result.rows.some((row) => ['amecro', 'margod', 'brant', 'mallar3'].includes(row.code)));
+  assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
+  assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+  const bad = f821Page([{}]).replace('Count: 600', 'Count: unavailable');
+  assert.throws(() => A.parseMassHighCountPage(bad, 'US-WA'), /Malformed/);
+  assert.throws(() => A.parseMassHighCountPage(f821Page([{ region: 'US-OR' }]), 'US-WA'),
+    /Malformed/);
+  A.setCountyView('US-WA-033');
+  const county = await A.loadMassFlockAlertSource(true, A.activeScope());
+  assert.equal(county.state, 'failed', 'a wrong-region page must not be trusted under county scope');
+  app.window.close();
 });
 
 test('F732 latest-bird icons preserve per-row identity and omit unavailable evidence', async () => {
@@ -19931,6 +19953,7 @@ test('F789 cold Michigan Bird Gen resolves county feeds and renders a qualifying
         subnational2Code: 'US-MI-161'
       }];
       if (/product\/lists\/US-MI-161/.test(url)) return lists;
+      if (/bird-list/.test(url)) return f821Page();
       if (/api\.ebird/.test(url)) return [];
       if (/ebird\.org/.test(url)) return '';
       if (/birdcast/.test(url)) return '';
@@ -19945,7 +19968,7 @@ test('F789 cold Michigan Bird Gen resolves county feeds and renders a qualifying
   assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'loading');
   hold([{ code: 'US-MI-161', name: 'Washtenaw' }]);
   await pending;
-  await waitFor(() => app.$('surgeResults').dataset.sourceMass === 'ok',
+  await waitFor(() => app.$('surgeResults').dataset.sourceMass === f821State(),
     'county hydration must not cancel independent Mass Flock sources');
   assert.equal(A.getCounties()[0].code, 'US-MI-161');
   assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'ok');
@@ -19974,7 +19997,7 @@ test('F789 independent Mass and Favorite jobs survive county-plan hydration', as
           locName: 'Public fixture favorite', region: 'US-MI', lat: 42.32, lng: -84.02 }]) },
       fetch(url) {
         const selected = kind === 'favorite' ? /data\/obs\/L-FAVORITE\/recent/.test(url)
-          : /data\/obs\/US-MI\/historic/.test(url);
+          : /ebird\.org\/region\/US-MI\/bird-list/.test(url);
         if (selected && !held) {
           held = true;
           return new Promise((resolve) => { release = resolve; });
@@ -19994,13 +20017,14 @@ test('F789 independent Mass and Favorite jobs survive county-plan hydration', as
     await waitFor(() => release, 'held ' + kind + ' source');
     await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
     assert.notEqual(A.surgeSourceContext(), context, 'fixture did not change the county plan');
-    release(kind === 'mass' ? [] : [{
+    release(kind === 'mass' ? f821Page() : [{
       speciesCode: 'amepip', comName: 'American Pipit', howMany: 1,
       locId: 'L-FAVORITE', locName: 'Public fixture favorite', lat: 42.32, lng: -84.02,
       obsDt: recentObsStamp(0), subId: 'S-FAVORITE', subnational1Code: 'US-MI'
     }]);
     const source = await pending;
-    assert.equal(source.state, 'ok', kind + ' was cancelled by unrelated county metadata');
+    assert.equal(source.state, kind === 'mass' ? f821State() : 'ok',
+      kind + ' was cancelled by unrelated county metadata');
     assert.equal(source.rows.length, kind === 'mass' ? 0 : 1);
     app.window.close();
   }
@@ -23703,14 +23727,15 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
   assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
-  assert.match(rows[0].where, /9 pm local reference/);
-  assert.match(rows[0].noteHeader, /9 pm local reference time/);
-  assert.match(rows[0].extra, /app-selected reference time, not a BirdCast event time/);
+  assert.equal(rows[0].ageLabel, 'Tonight');
+  assert.match(rows[0].noteHeader, /migration expected between dusk and dawn/);
+  assert.doesNotMatch(rows[0].where + rows[0].noteHeader + rows[0].extra,
+    /9 pm|app-selected reference time/);
   assert.equal(rows[0].time, Date.parse('2026-09-29T04:00:00.000Z'),
     'the Pacific-time reference is not 9 pm on the validated forecast date');
   assert.equal(rows[0].omitWhen, true,
     'the forecast source line still appends Bird Chaser’s render time');
-  assert.match(rows[0].noteHeader, /Heavy migration expected tonight/);
+  assert.match(rows[0].noteHeader, /Heavy migration expected between dusk and dawn/);
   assert.match(rows[1].name, />1\.8M migration last night</);
   assert.match(rows[1].where, /King County Birdcast Alert · 9\/27-28/);
   assert.match(rows[1].noteHeader,
@@ -28229,21 +28254,50 @@ test('F761 Bird Gen includes Medium and High forecasts, never Low forecasts', as
   app.window.close();
 });
 
-test('F806 tonight forecast uses its validated local 9 pm reference across midnight and DST', async () => {
+test('F817 Medium and High forecast cards say Tonight and dusk to dawn without a visible reference time', async () => {
+  const app = await boot({ report: 'wa' });
+  const A = app.window.__app;
+  const now = new Date('2026-10-05T18:00:00Z');
+  for (const level of ['Medium', 'High']) {
+    for (const forecastError of ['', 'Forecast refresh unavailable']) {
+      const snapshot = { forecast: { level, date: '2026-10-05' }, forecastError };
+      const row = A.birdcastSurgeRows(now, snapshot)[0];
+      const host = app.document.createElement('div');
+      host.innerHTML = A.surgeAlertCard(row, 1);
+      assert.equal(host.querySelector('.surgeage').textContent, 'Tonight');
+      assert.match(host.textContent, /migration expected between dusk and dawn/);
+      assert.doesNotMatch(host.textContent, /9\s*pm|reference time|app-selected/i);
+      assert.match(host.querySelector('[data-birdcast-level]').getAttribute('data-birdcast-level'),
+        new RegExp('^' + level.toUpperCase() + '$'));
+      assert.ok(host.querySelector('.surgefacts [data-sec="sec-bcBody"]'),
+        'the forecast lost its Migration details destination');
+      A.setBirdcastSnapshot(snapshot);
+      A.renderBirdcast(now, snapshot);
+      const official = app.$('bcBody').querySelector('.birdcast-destination');
+      assert.match(official.getAttribute('data-href'), /^https:\/\/alert\.birdcast\.org\/\?/);
+      assert.match(official.textContent, /Alert for your Home/);
+      if (forecastError) assert.match(host.textContent, /Forecast refresh unavailable/);
+    }
+  }
+  app.window.close();
+});
+
+test('F806/F817 tonight forecast keeps its validated internal local reference across midnight and DST', async () => {
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
   const beforeMidnight = new Date('2026-10-05T06:50:00Z');
   const oldForecast = { forecast: { level: 'Medium', date: '2026-10-04' } };
   const oldRow = A.birdcastSurgeRows(beforeMidnight, oldForecast)[0];
   assert.equal(oldRow.time, Date.parse('2026-10-05T04:00:00.000Z'));
-  assert.match(oldRow.where, /10\/4-5 · 9 pm local reference/);
+  assert.match(oldRow.where, /10\/4-5/);
   A.setBirdcastSnapshot(oldForecast);
   A.renderSurge([], [], [], [], []);
   const forecastCard = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
   assert.ok(forecastCard, 'the forecast reference never reached the rendered Bird Gen feed');
-  assert.equal(forecastCard.querySelector('.surgeage').textContent, '9 pm ref');
+  assert.equal(forecastCard.querySelector('.surgeage').textContent, 'Tonight');
   assert.doesNotMatch(forecastCard.textContent, /Time unknown/);
-  assert.match(forecastCard.textContent, /app-selected reference time, not a BirdCast event time/);
+  assert.match(forecastCard.textContent, /migration expected between dusk and dawn/);
+  assert.doesNotMatch(forecastCard.textContent, /9\s*pm|reference time|app-selected/i);
   const afterMidnight = new Date('2026-10-05T08:00:00Z');
   const stillOld = A.birdcastSurgeRows(afterMidnight, oldForecast)[0];
   assert.equal(stillOld.time, oldRow.time,
@@ -28268,6 +28322,13 @@ test('F806 tonight forecast uses its validated local 9 pm reference across midni
   assert.equal(A.birdcastSurgeRows(afterMidnight, {
     forecast: { level: 'High' },
   }).length, 0, 'a forecast without its validated source date invented a reference');
+  assert.equal(A.birdcastSurgeRows(afterMidnight, {
+    forecast: { level: 'High', date: '2026-02-30' },
+  }).length, 0, 'an invalid forecast date reached the feed');
+  assert.throws(() => A.birdcastForecastFromJson({
+    forecastNights: [{ code: 3, total: 100, date: '2026-10-04' }],
+  }, { year: 2026, month: 10, day: 5 }), /forecast for another date/,
+  'a stale source forecast bypassed the report-local date check');
   app.window.close();
 });
 
