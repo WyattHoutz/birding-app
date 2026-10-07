@@ -35,17 +35,17 @@
         "Every category sorts by newest observation/event datetime first, including incremental paints. Category priority and stable bird/place/checklist identity break equal-time ties. Missing or invalid dates go last; date-only evidence labels unavailable time. Forecast validity and completed-night events are not made newer by refreshing.",
         "Every alert is one always-visible three-line card. The name cell contains two lines: the name alone, then a flush-left four-letter code, xN, linked place and linked compact date. The category badge begins a separate full-width explanation row below the headline cell, followed by the bold reason without a repeated written category prefix. The alert icon and relative age remain at the right.",
         "There is no feed-wide Unseen filter or ordering toggle. Personal Favorite Patch eligibility is retained; flock and place news remain useful for seen species.",
-        "Seen status is resolved once after duplicate species and their reasons are merged. An explicitly empty per-report year list is authoritative: birds seen in another region do not become seen here. Species-blind HOTSPOT alerts are not marked seen or unseen because a place has no single bird to mark seen.",
+        "Personal status uses the exact selected Current year or All time list after duplicate species and reasons are merged. Only complete history or an explicit complete zero proves absence. Incomplete positives remain known; unknown history is neutral, not unseen. Species-blind HOTSPOT alerts have no personal status.",
         "Custom reports resolve the existing county acquisition scope before planning hotspot checklist feeds and cache keys. Independent observation results can paint while scope loads. Failed scope resolution is explicit, not not-applicable or known-empty, and county hydration does not cancel independent Mass/Favorite work.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
         "Each source reports whether it succeeded, failed, is still loading, is using an earlier snapshot, or has not been loaded. A labelled N-of-6 source progress bar does not rely on colour alone. Bird Gen renders its shell or retained results before starting acquisition. After priority observation requests are queued, the other sources run independently; one slow Favorite no longer hides completed leaderboard or hotspot results. Mega and BirdCast are owned background sources, not prerequisites for rendering.",
         "Favorite patches publish eligible birds one patch at a time. Mass Flock publishes checked species while later corroboration requests run; private-location rows stay withheld until the existing public-location checks finish. Existing evidence thresholds, candidate caps and final ordering are unchanged.",
         "Still-relevant last-good results survive reopen and refresh-age expiry, with an explicit retained timestamp and source state. Observation dates, current seen status, Home, radius and scope still govern eligibility. A failed refresh does not clear successful cached evidence; a successful response replaces its matching source rather than accumulating obsolete alerts forever. Complete retained chase evidence can supply TOP PATCH alerts; partial and failed destination views cannot.",
-        "Ordinary refresh reuses valid older daily flock samples while checking today. Recheck 7-day flock history explicitly bypasses the dated caches. Other reports' valid daily and source snapshots are not purged just because a report changes. The existing 30-minute revalidation interval is unchanged; it is not a display-expiry timer. Repeated refresh while a matching update is active joins that work.",
+        "Mass Flock reads the current-month regional High Count table and corroborates qualifying current events. It does not perform a daily or annual sweep. Failed, incomplete, verified-empty and retained source states remain distinct. The existing 30-minute revalidation interval is not a display-expiry timer; repeated refresh joins matching work.",
         "Performance samples distinguish first content, primary observation readiness and owned source settlement. A quiet DOM does not finish a pending source. Heading and pull refresh start a new sample unless they join an existing update. Viewport-lazy photos are explicitly excluded from source-complete timing.",
         "The whole headline strip - image, common name or hotspot, alert icon and age - is one keyboard-actionable route to Stakeout bird or Stakeout hotspot. Bird Gen displays no rarity R marker. The four-letter code begins line two flush with the name; xN, linked place and linked newest-checklist date follow. The category badge lives only in the full-width explanation row. Bird Gen does not show the eBird species code, mileage, a Notes toggle or category destination links. Word, glyph, underline and distinct border style carry meaning without relying on colour.",
         "MEGA: newness is scoped to the species within a 4-mile locality cluster, so nearby personal-location labels remain one continuing bird while a distant new site can alert. A new locality inside the covered window is news at any distance. Nearby, multiple-report and single-locality qualifiers require the bird to be within the 55-mile day-trip gate and still unseen. Far + not new or already-seen birds remain in Mega rarities and are disclosed as held back.",
-        "CELEBRITY: an unseen species eBird flags as notable here has 4 or more independent sightings at one hotspot or adjacent walkable hotspots, within chase distance and the last 24 hours plus the shared checklist-start grace.",
+        "CELEBRITY: a species eBird flags as notable here has 4 or more independent sightings at one hotspot or adjacent walkable hotspots, within chase distance and the last 24 hours plus the shared checklist-start grace. This independent news survives both recorded personal membership and unavailable history.",
         "NOTABLE, not merely unseen. Asked for as \"happening now should be things local birders would talk about without having to check ebird\" - and three people reporting a bird that is ordinary here is well corroborated and still nobody mentions it. An unseen-but-ordinary bird belongs in All unseen reports and Closest spots.",
         "CELEBRITY has no one-report rarity exception: one mega can be worth chasing in Twitches today, but this category specifically means four independent sightings at one walkable locality.",
         "Places that read as private - a named residence, a street address, bare coordinates - are never offered as somewhere to drive.",
@@ -139,11 +139,11 @@
         "ebird.org/top100 for the region (public HTML, no API key)"
       ],
       "how": [
-        "The board is fetched for the report's primary region only — one report, one region, one board.",
-        "eBird's default top100 ordering is already by species, so no explicit sort is requested.",
-        "The page self-identifies its region in a canonical link; a board that does not match is rejected and refetched rather than rendered under the wrong heading.",
+        "Species and Checklists are separately fetched official boards for one exact geography and selected Current year or All time period. Returned metric, period and geography must match.",
+        "The full-width Species / Checklists control selects the official metric-owned rank, count, order, personal standing and history without another read. Never infer checklist rank from species counts.",
+        "Rows merge only by stable profile identity, never rank or display name. Without an identity match the other-board rank is n/a. One failed board leaves the other usable with partial coverage; two failures are not a verified empty board.",
         "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle.",
-        "The app records one successful owner-rank snapshot per region per day because eBird cannot re-serve a past board.",
+        "The app records one successful owner-rank snapshot per day, separated by region, period, metric, profile and identity revision because eBird cannot re-serve a past board.",
         "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached."
       ],
       "limits": [
@@ -229,6 +229,28 @@
         "Review status changes; a record shown here may later be reclassified.",
         "The public alert is capped at 500 observations in taxonomic order, so a full page can omit whole species. ABA-wide figures therefore come from the uncapped species feeds and are locations/states, not a claimed report total.",
         "The report archive is device-held history, not an all-time census; the card states when this device began retaining it."
+      ]
+    },
+    "foyBtn": {
+      "report": null,
+      "summary": "The selected region's verified calendar-year first records, newest dated annual firsts first.",
+      "inputs": [
+        "the existing permitted eBird regional bird-list page, with returned This Year and First Observed selections verified",
+        "device-profile, exact-region and calendar-year discovery history"
+      ],
+      "how": [
+        "FOY remains annual in both Current year and All time personal-list modes. Personal need is labelled independently; annual first does not mean first-ever, rarity or current presence.",
+        "One regional page supplies all rows. A same-day verified list is reused; explicit refresh checks the source again. There is no per-species discovery fan-out, guessed endpoint or annual date sweep.",
+        "The initial saved baseline announces no old birds. Later discoveries require a new code, a valid annual-first date no earlier than the previous verified read day, and an advancing non-future publisher timestamp.",
+        "Cumulative known codes suppress historical backfills, repeat refreshes and removed/reintroduced birds. Unknown or withheld dates remain separate and cannot generate fresh alerts.",
+        "Unread discoveries appear in the cache-only FOY menu badge unless report badges are hidden. Opening FOY acknowledges them only after successful rendering and durable read-back.",
+        "Bird Gen adds a distinct FOY reason to an existing matching bird alert rather than adding a duplicate. Independent flock and visit events remain separate.",
+        "Failed acquisition retains dated last-good evidence. Invalid saved history restarts a baseline without announcing old birds; failed persistence explicitly disables new discovery alerts."
+      ],
+      "limits": [
+        "Publisher time and acquisition time are distinct. Neither establishes observation-upload lag, and no arbitrary recent-days threshold is inferred.",
+        "Long gaps are labelled newly learned since the previous verified list, not a current sighting. This is in-app presentation, not OS push.",
+        "Native browser access remains device-dependent; a rejected or unavailable source is not a verified empty list."
       ]
     },
     "lastNewBtn": {
@@ -393,7 +415,7 @@
       ],
       "how": [
         "Rows paint as each county feed settles and remain in one list while later counties append.",
-        "Unseen / All filters by whether a checklist contains a bird still needed in the active year list; the first use checks checklist details and caches the result. All distances / Within chase distance filters by the active chase-radius setting. Distance, Recent and Species count reorder the same retained checklist rows.",
+        "Unseen / All filters by whether a checklist contains a proven target for the exact selected personal list. Unknown history never qualifies as unseen. The first use checks checklist details and caches the result. All distances / Within chase distance filters by the active chase-radius setting. Distance, Recent and Species count reorder the same retained checklist rows.",
         "Numbered map pins follow the selected order. Rows without coordinates remain in All distances and are omitted from the map; they cannot match the chase-distance filter."
       ],
       "limits": [
@@ -494,7 +516,7 @@
         "Candidate birds are split into Recently reported and Other regional candidates. The regional feed proves only recent presence, so rows say RECENT or REGIONAL LIST and never invent per-species report counts or a most-reported ranking.",
         "Selecting a candidate replaces the search field with that bird's name and removes the now-redundant spuh result before painting the bird's normal map, recent-hotspot evidence and bird hierarchy. Clicking the source-spuh chip in the concise hierarchy reopens the candidate result when a different bird is needed.",
         "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
-        "Reachable shows only physically reachable places: inside the chase radius, in the report's target counties, public, and not pelagic, offshore, open-water or a named ocean basin. It sorts those places newest first. Distance sorts every regional place from nearest to farthest, including evidence hidden from Reachable. The loaded sightings summary names the active view inside the selected bird card immediately after its year-list state.",
+        "Reachable shows only physically reachable places: inside the chase radius, in the report's target counties, public, and not pelagic, offshore, open-water or a named ocean basin. It sorts those places newest first. Distance sorts every regional place from nearest to farthest, including evidence hidden from Reachable. The loaded sightings summary names the active view inside the selected bird card after its selected personal-list state, including unknown history.",
         "The first five places paint immediately. Show more places appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
         "Viewport-near public hotspots automatically check up to six recent checklist summaries for this bird, one place at a time through shared background pacing. Known matching reports appear without a tap, with zero/one/multiple additional-match counts and the checked budget. Private locations are excluded; failed reads remain explicit and retryable, never absence. Cached successful evidence is reused and obsolete navigation cannot append.",
         "A Mega-launched lookup still renders exactly one medium species card. Mega evidence is prepended inside that card while the ordinary place list, map, date/distance/iconic controls, arrival note and unwatched-place lane continue below it.",
@@ -544,14 +566,14 @@
         "the accumulated history of daily report snapshots for this region"
       ],
       "how": [
-        "A species qualifies if it appeared on at least 40% of the sampled days and is not already on your year list, ranked by location-days: a bird reported from eight places is one you can go and get, while eight reports from one feeder is one lucky yard.",
+        "A species qualifies if it appeared on at least 40% of the sampled days and is proven absent from the exact selected personal list, or has an explicit Needs proof exception. Rank uses location-days: a bird reported from eight places is one you can go and get, while eight reports from one feeder is one lucky yard.",
         "If fewer than 10 species clear that bar, the bar DROPS - 40%, then 25%, 15%, 8% - rather than print a two-row section. The intro always names the bar actually used, because '>=15% of days' is a materially different claim from '>=40%'.",
-        "Anything already on your year list is removed before the bar is applied, so widening can never resurrect a bird you have.",
+        "Recorded birds are removed before the bar is applied, except explicit Needs proof. Unknown membership is withheld with coverage disclosure, never converted to absence.",
         "Ranked by how many different PLACES reported the bird, not by how many reports there were.",
         "In the app the first run samples a month of checklists in the background; each day is cached, so every later run is instant."
       ],
       "limits": [
-        "This section naturally shrinks as your year list grows, and that is correct: by mid-year you have already got the common birds. The widening ladder exists so a shrinking section degrades into a longer-shot list rather than into nothing.",
+        "This section naturally shrinks as the selected personal list grows. The widening ladder degrades a shrinking section into a longer-shot list rather than nothing; it never compensates for unavailable personal history by guessing targets.",
         "A lower bar means a lower hit rate. A bird reported on 8% of days is a real target, but it is not the near-certainty a 40% bird is - read the stated threshold before driving.",
         "The app and the report measure prevalence over different windows: the report uses every daily snapshot it has committed for the region, the app samples the last 30 days live, so the two can pick different bars on the same day."
       ]
@@ -565,16 +587,16 @@
       ],
       "how": [
         "Each name is resolved to an eBird species code against your birdlists first, then against the full eBird taxonomy, so a bird you have never recorded anywhere still resolves. A name that resolves to nothing is reported rather than dropped.",
-        "Those codes are SUBTRACTED from your seen set: seen = (year list + imported codes) - watchlist. That is why a watchlisted bird keeps appearing as a target in Nemesis birds, Common birds and everywhere else - it is deliberately not counted as seen.",
-        "This region is the default display: it intersects the global watchlist with the active report's merged year list. All reveals every stored watched bird. Switching scope is local and deletes nothing. Birds are alphabetical by their displayed names; there are no manual reorder controls.",
-        "The scope control filters this screen only. Every watched code, including a bird absent from the current region's year list, remains an unseen patch/chase input at the established quarter weight.",
+        "Needs proof is an explicit verification exception to personal targeting, not subtraction from official recorded totals. It remains usable under both list periods and unknown history.",
+        "Region is the default display: complete exact selected personal membership filters the global watchlist without subtracting its verification exceptions. Turn Region off to reveal every watched bird. Unknown or incomplete history disables the Region filter and keeps all watched birds available. Switching scope is local and deletes nothing; birds are alphabetical.",
+        "The scope control filters this screen only. Every watched code, including a bird absent from the selected region's personal list, remains a Needs proof patch/chase input at the established quarter weight.",
         "Opening paints saved birds immediately, then automatically checks shared recent-report evidence. Refresh requests a fresh check. Pending, failed and not-checked reads are distinct from a successful check with no report in range.",
         "Each visible tracked species shows its nearest recent report and checklist while the birds remain alphabetical. Species with no report in range are still listed, so the selected scope is a complete inventory rather than only the ones that happen to be showing."
       ],
       "limits": [
         "The list is authored in the private pipeline repo. The app bundles it at build time and edits made in the app are stored on the device only - the app has no runtime GitHub dependency and cannot write the file back. Use the copy button and paste over birdlist-needsverification.md to make an edit stick in the Markdown report.",
-        "One list is shared by every region. Absence from one region's year list is not evidence that eBird moderation dropped or withdrew the bird; unseen birds may be watched deliberately.",
-        "A species you remove returns to your seen set only in reports whose year list actually contained it.",
+        "One list is shared by every region. Absence from one selected regional personal list is not evidence that eBird moderation dropped or withdrew the bird; unrecorded birds may be watched deliberately.",
+        "Removing a species retires its Needs proof exception; only exact selected personal evidence can then identify it as recorded.",
         "The species lookup searches birds recorded in the active region, so a bird never reported there will not appear in the picker."
       ]
     },
@@ -651,33 +673,30 @@
     },
     "myYearBody": {
       "report": "## 📅 My Year List — Your seen bird list this year",
-      "summary": "Your seen bird list this year.",
+      "summary": "My Year List or My Life List: exact selected personal membership for the active geography.",
       "inputs": [
-        "your eBird year-list export for this region",
-        "recent product/lists feeds for the report's counties",
-        "your matching public checklist bodies and one shared taxonomy-name lookup for newly learned codes",
-        "for the countyless ABA and Lower 48 trackers, your signed-in eBird year-list CSV with the signed-in page as fallback; both use the lower-case report code and the displayed year",
-        "for ABA My Year List, a second US-HI year-list read supplements the species eBird excludes from its ABA reporting region"
+        "Current year: the signed-in exact /lifelist/{region}?time=year page",
+        "All time: the signed-in exact /lifelist/{region} page",
+        "validated official taxonomy, returned account/geography/period/count and optional dates/checklist links"
       ],
       "how": [
         "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
-        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Year List immediately without refetching or removing the year-list row.",
-        "Opening My Year List paints the last known rows immediately and labels them Still updating while it refreshes the source that fits the report: recent county checklists for ordinary regions, or the signed-in year list for the ABA and Lower 48 trackers.",
+        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Year/My Life List immediately without refetching, removing the official row or reducing its count.",
+        "Opening paints matching last-known personal rows immediately while the exact selected list refreshes. Annual imports, public county lists, parent geography and unions never establish complete personal membership.",
         "If Reload cannot run because the API key or account identity is missing, it names that prerequisite and offers the corresponding Settings or Fetch my name action instead of silently returning unchanged.",
-        "The heading's Reload control repeats that owned refresh without using the web view's HTTP cache. Its visible year-list button, CSV request and page fallback all use the same explicit-year eBird query, and the button opens through the installed in-app browser.",
-        "Starting or failing a refresh updates only the status message, leaving the existing cards responsive. An unchanged refresh removes that message without rebuilding and rehydrating the entire list.",
-        "Rows learned from the signed-in year-list are labelled as year-list refresh results, not recent checklist additions. Because that source's date is not established as a first-seen date, those rows never receive a NEW badge; checklist-backed and bundled first-seen rows retain the seven-day rule.",
-        "Fetched year-list rows are reported as learned only after the owned list is durably stored. If the device store is full, My Year List evicts replaceable network caches and retries once; if that still fails, it keeps the prior list and shows the refresh failure instead of claiming the new rows were saved.",
+        "Reload and Open this exact personal list use the same selected-period route. The eBird action opens through the installed browser mechanism.",
+        "Failure retains matching dated complete evidence with disclosure. Incomplete refreshes cannot poison an earlier complete snapshot. Corrected complete lists replace rather than endlessly union deleted records.",
+        "Dates and checklist links are optional: undated species remain recorded. A returned date is not automatically a first-seen date and does not earn a guessed NEW badge.",
+        "Verified personal rows are published only after durable storage. Storage failure keeps the prior list and reports the failure rather than claiming the new rows were saved.",
         "A newly harvested code is named before that owned refresh promise settles, so the first completed answer already includes the new bird instead of silently repainting it seconds later.",
-        "A late signed-in year-list response remains owned by the report that started it, so switching regions cannot put ABA ticks into Hawaii or Washington.",
-        "An explicitly empty regional year list renders as 0 species for that region. It never falls back to the combined bundled sample total.",
-        "A header-only CSV is not accepted as authoritative empty over a non-empty stored or bundled list; My Year List keeps those rows and tries the signed-in page instead.",
+        "Late responses must match profile, identity revision, exact geography, period, taxonomy, schema and privacy generation. Switching owners immediately retires old membership and standing.",
+        "A verified complete zero renders 0 recorded species. Unknown is unavailable, incomplete is a known-positive count, and neither falls back to sample or import totals.",
         "Escapees, hybrids and unresolved Additional taxa render below the numbered total. Every repaint replaces that trailing block instead of appending another copy."
       ],
       "limits": [
-        "The export remains the year-wide baseline for ordinary county reports. Their automatic updates can see only your public checklists in the counties the report scans.",
-        "eBird's county list feed identifies an observer by display name rather than user id. Bird Chaser learns the current name from an imported eBird data file or the signed-in bird-list page and retains prior trusted names as same-profile aliases after a rename.",
-        "The ABA and Lower 48 trackers have no county feed plan. They use the signed-in eBird year-list page instead; ABA also reads US-HI because eBird excludes Hawaii from the ABA reporting region. If that session is unavailable, My Year List keeps the last known rows and names Sign in plus Refresh as the recovery."
+        "Current year is the per-profile default; All time has no historical-year chooser. Ticks, Pro patches, first-of-year facts and effort statistics remain explicitly annual.",
+        "Public regional membership, imported evidence and inferred names cannot substitute for an exact signed-in personal source. Returned authenticated page shapes are synthetic-fixture verified; native Current year/All time source checks remain outstanding.",
+        "Watch List management never changes official recorded totals. Header species count comes from this personal source; checklist count and species rank come independently from the matching official board."
       ]
     },
     "settingsPanel": {
@@ -686,6 +705,8 @@
       "inputs": [],
       "how": [
         "Everything here is stored on this device only.",
+        "Report menu badges can be hidden with a remembered display preference. Badge reads remain cache-only; Bird Gen alerts, report result counts, data loading and history are unchanged.",
+        "The region chooser opens at its top with Close focused, current/recent regions visible and Search available on demand. Reopening resets scroll; Escape closes and focus returns to the opener.",
         "Advanced / Debug starts collapsed and groups the existing probes, debug log, sample data, beta-only diagnostics, region-name refresh, taxonomy/naming controls and technical region/alert codes. Opening it starts no network work. Personal data and ordinary setup remain outside; expired-beta recovery remains independently reachable. No new cache update or clear actions are added.",
         "Main and Test 2–4 are isolated local storage slots, not eBird accounts discovered by the app. Imported or signed-in identity labels the selected slot automatically.",
         "Download my eBird data opens eBird's own export page. Import eBird data accepts either the downloaded ZIP containing MyEBirdData.csv or an extracted CSV; parsing stays on the device and does not require an API key.",

@@ -280,6 +280,9 @@ OVERRIDES = {
 # source-edge feathers and bills visibly clear at the 56px card size without
 # introducing the flat grey bars that originally prompted square assets.
 FIT_OVERRIDES = {
+    # F829. The 250x179 source has its bill near x=45; the automatic square
+    # starts at x=71 and cuts the face off. Keep the complete credited bird.
+    'pygnut.jpg',
     # F529. The portrait source's automatic 250px square leaves the crown too
     # close to the top edge. Preserve the full 250x295 frame over the existing
     # blurred backdrop so the same credited photograph gains deterministic
@@ -319,6 +322,7 @@ FIT_CROP_OVERRIDES = {
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    'pygnut.jpg': 'a02b9d232a5656e6',
     'reshaw.jpg': '0c528c1c259026f4',
     'eskcur.jpg': '2c5423fe92bb7751',
     'leastp2.jpg': 'e2709ff6931a7491',

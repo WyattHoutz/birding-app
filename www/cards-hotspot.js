@@ -47,6 +47,7 @@
      {{below}}     anything else, full width
      {{actions}}   overrides the default Open in Maps / Save row
      {{qr}}        optional QR action, rendered in the card's actions area
+     metricHtml    optional caller-formatted metric column instead of distance
 
    Like the species file this is LAYOUT ONLY — it receives HTML the app has
    already escaped and never touches eBird data.
@@ -452,6 +453,11 @@
     return '<details class="hsseen"><summary>' + label + '</summary>'
       + v.seen + '</details>';
   }
+  function unknownHtml(v) {
+    if (!v.unknown) return '';
+    return '<div class="hsunknown"><div class="hslabel">'
+      + (v.unknownLabel || 'Personal history unknown') + '</div>' + v.unknown + '</div>';
+  }
 
   /* Data hooks on the card's own <li>. The checklist card already accepts
      these; the hotspot card did not, which is why the Stakeout bird list could
@@ -490,8 +496,8 @@
       name: v.name || '',
       headingaction: isMedium ? v.headingAction || '' : '',
       sub: subHtml(v, tpl === SMALL, isMedium),
-      dist: isMedium ? distHtml(v) : '',
-      unseen: unseenHtml(v),
+      dist: isMedium ? v.metricHtml || distHtml(v) : '',
+      unseen: unseenHtml(v) + unknownHtml(v),
       seen: seenHtml(v),
       below: v.below || '',
       // Existing callers own their map + save row and must keep it intact.
@@ -527,7 +533,7 @@
        that I still need?" — a birdiest checklist, for one. Exported rather
        than re-implemented so the rule that unseen is open and seen is
        collapsed has exactly one definition. */
-    splitLists: function (v) { return unseenHtml(v || {}) + seenHtml(v || {}); },
+    splitLists: function (v) { return unseenHtml(v || {}) + unknownHtml(v || {}) + seenHtml(v || {}); },
     list: function (size, items, extraCls) {
       return '<ul class="obs hscards hscards-' + size + (extraCls ? ' ' + extraCls : '') + '">'
         + (items || []).join('') + '</ul>';

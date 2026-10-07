@@ -79,6 +79,17 @@ const BOOTSTRAP = `<script>
     localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_report', 'wa');
     localStorage.setItem('bc_display_profile', '__PROFILE__');
+    // Layout-only, previously validated personal evidence; not a live source claim.
+    var acquired = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
+    var owner = {profile:'', identityRevision:0, region:'US-WA',
+      period:'year:' + acquired.getFullYear(), taxonomy:'2025.0', schema:1};
+    localStorage.setItem('bc_taxonomy_v1', JSON.stringify({edition:'2025.0',checkedAt:Date.now()}));
+    localStorage.setItem('ebird_personal_list_v1:' + JSON.stringify(owner), JSON.stringify({
+      owner:owner, coverage:'complete', declaredCount:1, unresolved:0, paginated:false,
+      codes:['amerob'], rows:[{code:'amerob',name:'American Robin',observedAt:''}],
+      source:'https://ebird.org/lifelist/US-WA?time=year', readAt:acquired.toISOString(),
+      readDate:acquired.getFullYear() + '-' + pad(acquired.getMonth()+1) + '-' + pad(acquired.getDate())
+    }));
   } catch (e) {}
   var realFetch = window.fetch;
   // Realistic-shaped eBird responses so sections actually RENDER. An empty
@@ -816,15 +827,72 @@ const AUDIT = `<script>
       releaseLayout: releaseLayoutChecks()
     };
   }
-  function run() {
+  async function run() {
+    auditStage('run started');
     var A = window.__app, out = [];
+    if (${!!process.env.AUDIT_DIAGNOSTICS}) setInterval(function () {
+      var request = new XMLHttpRequest();
+      request.open('POST', '/__audit-diagnostics', true);
+      request.send(JSON.stringify({queue:A.fgState(), costs:A.costReport()}));
+    }, 10000);
+    // Geometry fixtures use warm synthetic feeds, not real-time API pacing.
+    var profile = A.chaseProfile(), logic = window.BirdLogic;
+    var fixtureFeeds = logic.planFeeds(profile).concat(logic.planConvoyFeeds(profile),
+      logic.planSpeciesFeeds(profile, ['rudtur', 'bktgwa', 'wesgre']));
+    await Promise.all(fixtureFeeds.map(function (feed) {
+      var path = logic.requestUrl(feed);
+      return fetch('https://api.ebird.org/v2/' + path).then(function (response) {
+        return response.json();
+      }).then(function (rows) { A.seedEbirdCache(path, rows); });
+    }));
     A.openSetupSheet();
     out.push(scan('(F727 setup sheet)'));
     document.getElementById('setupSheetClose').click();
     A.openRegionChooser();
-    out.push(scan('(F728 region chooser)'));
+    var chooser = document.getElementById('regionChooser');
+    chooser.scrollTop = 800;
+    document.getElementById('regionChooserClose').click();
+    A.openRegionChooser();
+    var chooserScan = scan('(F728 region chooser)');
+    var current = document.getElementById('regionChooserCurrent').getBoundingClientRect();
+    var recent = document.getElementById('regionChooserRecent').getBoundingClientRect();
+    var header = document.querySelector('#regionChooser .sheethead').getBoundingClientRect();
+    chooserScan.regionOpening = {
+      scrollTop: chooser.scrollTop,
+      focus: document.activeElement.id,
+      headerTop: header.top,
+      currentTop: current.top,
+      recentTop: recent.top,
+      viewportHeight: window.innerHeight
+    };
+    out.push(chooserScan);
     document.getElementById('regionChooserClose').click();
     out.push(scan('(contents menu)'));
+    var savedFavorites = A.getFavs();
+    [false, true].forEach(function (saved) {
+      A.setFavs(saved ? [{ id: 'L828', locId: 'L828', locName: 'Layout hotspot', region: 'US-WA' }] : []);
+      A.showSection('sec-stakeHsBtn');
+      A.renderStakeHs('L828', 'Crescent Lake Wildlife Area--Long wrapped hotspot title and river access',
+        [], [], { lat: 47.7, lng: -122.1 }, undefined, 'loaded');
+      var root = document.getElementById('stakeHsResults');
+      var fav = root.querySelector('.stakeHsFav');
+      var title = root.querySelector('.hscardhead').getBoundingClientRect();
+      var favorite = fav.getBoundingClientRect();
+      var identity = root.querySelector('.stakeHsIdentity').getBoundingClientRect();
+      var facts = root.querySelector('.stakeHsFacts').getBoundingClientRect();
+      var actions = root.querySelector('.stakeHsIntroActions').getBoundingClientRect();
+      var detailScan = scan('(F828 hotspot favorite ' + (saved ? 'Remove' : 'Add') + ')');
+      detailScan.hotspotFavorite = {
+        saved: saved, pressed: fav.getAttribute('aria-pressed'),
+        titleBottom: title.bottom, favoriteTop: favorite.top, favoriteBottom: favorite.bottom,
+        favoriteHeight: favorite.height, favoriteWidth: favorite.width,
+        identityTop: identity.top, summaryBottom: facts.bottom, actionsTop: actions.top,
+        ownRow: !!fav.closest('.stakeHsFavoriteRow'),
+        noNavigation: !fav.parentNode.querySelector('.maplink, .extlink')
+      };
+      out.push(detailScan);
+    });
+    A.setFavs(savedFavorites);
     var secs = [].slice.call(document.querySelectorAll('section.panel'))
       .map(function (s) { return s.id; }).filter(Boolean);
     var i = 0;
@@ -846,6 +914,7 @@ const AUDIT = `<script>
     function step() {
       if (i >= secs.length) return finalFixtures();
       var id = secs[i++];
+      auditStage('section ' + id);
       try { A.showSection(id); } catch (e) { return step(); }
       var fixtureReady = Promise.resolve();
       if (id === 'sec-excBtn') {
@@ -903,12 +972,23 @@ const AUDIT = `<script>
             if (regionToggle) regionToggle.click();
           }
           if (id === 'sec-rankBtn') {
-            A.renderRankings({ rows: [
-              { rank: 1, name: 'Leaderboard fixture one', species: 301,
-                recent: 'Black-throated Gray Warbler (Oct. 1, 2026)' },
-              { rank: 2, name: 'Leaderboard fixture two', species: 300,
-                recent: 'Marbled Godwit (Oct. 1, 2026)' }
-            ] }, 'US-WA', 'https://ebird.org/top100', '');
+            var rankPair = { boards: {
+              spp: {metric:'spp', period:'2026', rows:[
+                {rank:1,profileId:'F811A',name:'Leaderboard fixture one',species:356,checklists:484,
+                  recent:'Black-throated Gray Warbler (Oct. 1, 2026)'},
+                {rank:2,profileId:'F811B',name:'Leaderboard fixture two',species:300,checklists:400}
+              ]},
+              cl: {metric:'cl', period:'2026', rows:[
+                {rank:1,profileId:'F811C',name:'Other board fixture with a long wrapped name',species:200,checklists:800,
+                  recent:'Marbled Godwit (Oct. 1, 2026)'},
+                {rank:2,profileId:'F811A',name:'Leaderboard fixture one',species:356,checklists:484,
+                  recent:'Black-throated Gray Warbler (Oct. 1, 2026)'}
+              ]}
+            },coverage:'Same-scope, same-period verified fixture boards.'};
+            A.renderRankPair(rankPair,'US-WA','2026','');
+            out.push(scan('(F811 Species board)'));
+            document.querySelector('[data-rank-metric="cl"]').click();
+            out.push(scan('(F811 Checklists board)'));
           }
           if (id === 'sec-surgeBtn') {
             var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
@@ -951,6 +1031,51 @@ const AUDIT = `<script>
       tick();
     }
     function finalFixtures() {
+      auditStage('final fixtures');
+      A.showMenu();
+      var savedPeriod = localStorage.getItem(A.PERSONAL_PERIOD_KEY);
+      var savedName = localStorage.getItem('ebird_display_name');
+      var savedRanks = localStorage.getItem(A.RANK_CACHE_KEY);
+      var sampleName = 'Sample Observer with a long display name';
+      localStorage.setItem('ebird_display_name', sampleName);
+      ['current', 'all'].forEach(function (mode) {
+        localStorage.setItem(A.PERSONAL_PERIOD_KEY, mode);
+        var period = A.personalBoardPeriod();
+        ['spp', 'cl'].forEach(function (metric) {
+          var me = {name:sampleName, rank:145, species:mode === 'all' ? 536 : 356,
+            checklists:mode === 'all' ? 34759 : 484};
+          A.rankCachePut('F812-audit-' + mode + '-' + metric, {
+            region:A.activeScope().effectiveRegion, period:period, metric:metric, profile:A.bcProfile(),
+            ownerRevision:A.identityRevision(), me:me, rows:[me]
+          });
+        });
+        A.renderMenuIdentity();
+        var header = scan('(F805/F812 shared header ' + mode + ')');
+        var brand = document.querySelector('header .brand').getBoundingClientRect();
+        var name = document.querySelector('#hdrId .hdrname').getBoundingClientRect();
+        var scope = document.getElementById('hdrScope').getBoundingClientRect();
+        header.personalHeader = {
+          mode:mode, basis:document.getElementById('hdrScope').textContent,
+          twoRows:name.top >= Math.max(brand.bottom, scope.bottom) - 1,
+          nameWidth:name.width,
+          periodFirst:document.querySelector('.quicksettings').children[1].classList.contains('periodpick'),
+          controls:['hdrRankJump','hdrSpeciesJump','hdrChecklistJump'].map(function (id) {
+            var button = document.getElementById(id), box = button.getBoundingClientRect();
+            return {id:id, text:button.textContent, label:button.getAttribute('aria-label'),
+              width:box.width, height:box.height, right:box.right,
+              underlined:getComputedStyle(button).textDecorationLine.indexOf('underline') >= 0};
+          })
+        };
+        out.push(header);
+      });
+      if (savedPeriod == null) localStorage.removeItem(A.PERSONAL_PERIOD_KEY);
+      else localStorage.setItem(A.PERSONAL_PERIOD_KEY, savedPeriod);
+      if (savedName == null) localStorage.removeItem('ebird_display_name');
+      else localStorage.setItem('ebird_display_name', savedName);
+      if (savedRanks == null) localStorage.removeItem(A.RANK_CACHE_KEY);
+      else localStorage.setItem(A.RANK_CACHE_KEY, savedRanks);
+      A.renderMenuIdentity();
+      A.showSection('helpPanel');
       var feeds = window.BirdLogic.planSpeciesFeeds(A.chaseProfile(),
         Array.from({ length: 60 }, function (_, index) { return 'eta' + index; }));
       A.progressStage('Finding where your missing birds are', feeds.length, 2, 2,
@@ -960,11 +1085,21 @@ const AUDIT = `<script>
       countdown.etaFixture = document.getElementById('loadBarText').textContent;
       out.push(countdown);
       A.progressEnd();
-      var rows = Array.from({ length: 8998 }, function (_, index) {
+      var rows = Array.from({ length: 8993 }, function (_, index) {
         return { speciesCode: 'localetax' + index, comName: 'Synthetic bird ' + index,
           sciName: 'Synthetic taxon ' + index, category: 'species' };
       });
       rows.push(
+        { speciesCode: 'rudtur', comName: 'Ruddy Turnstone',
+          sciName: 'Arenaria interpres', category: 'species' },
+        { speciesCode: 'bktgwa', comName: 'Black-throated Gray Warbler',
+          sciName: 'Setophaga nigrescens', category: 'species' },
+        { speciesCode: 'wesgre', comName: 'Western Grebe',
+          sciName: 'Aechmophorus occidentalis', category: 'species' },
+        { speciesCode: 'amerob', comName: 'American Robin',
+          sciName: 'Turdus migratorius', category: 'species' },
+        { speciesCode: 'baisan', comName: "Baird's Sandpiper",
+          sciName: 'Calidris bairdii', category: 'species' },
         { speciesCode: 'localeaudit', comName: 'Synthetic locale bird',
           sciName: 'Synthetic localeaudit', category: 'species' },
         { speciesCode: 'localefallback',
@@ -1254,6 +1389,35 @@ const AUDIT = `<script>
               independentMode: A.twitchView() === 'list'
             };
             out.push(mega);
+            A.showSection('sec-foyBtn');
+            var foyCtx = A.foyContext(), foyNow = new Date();
+            var foyDay = foyNow.getFullYear() + '-'
+              + String(foyNow.getMonth() + 1).padStart(2, '0') + '-'
+              + String(foyNow.getDate()).padStart(2, '0');
+            var foySnapshot = A.firstYearWrite(foyCtx.region, foyCtx.year, {
+              valid:true,declared:3,evidenceComplete:true,
+              source:{kind:'annual-first',region:foyCtx.region,year:foyCtx.year,
+                url:A.firstYearUrl(foyCtx.region),updatedAt:foyNow.toISOString()},
+              rows:[
+                {code:'bktgwa',name:'Black-throated Gray Warbler',sci:'Setophaga nigrescens',
+                  date:foyDay,observedAt:foyDay + ' 08:00',subId:'S-FOY-1',
+                  locName:'Marymoor Park--Audubon Bird Loop',locId:'L2'},
+                {code:'comnig',name:'Common Nighthawk',date:foyDay,subId:'S-FOY-2'},
+                {code:'gyrfal',name:'Gyrfalcon',sensitive:true,date:''}
+              ]
+            });
+            A.renderFoy({snapshot:foySnapshot,record:null,saved:true,initial:true});
+            var foy = scan('(F815 populated annual-first cards)');
+            foy.foyGeometry = {
+              rows:document.querySelectorAll('#foyResults .obs > li').length,
+              mediumLists:document.querySelectorAll('#foyResults .card-md').length,
+              largeLists:document.querySelectorAll('#foyResults .card-lg').length
+            };
+            if (foy.foyGeometry.rows !== 3
+                || !/Date and location withheld/.test(document.getElementById('foyResults').textContent)) {
+              foy.fixtureError = 'FOY layout fixture did not render dated and withheld evidence.';
+            }
+            out.push(foy);
             finish(out);
             });
           });
@@ -1263,19 +1427,25 @@ const AUDIT = `<script>
         finish(out);
       });
     }
-    var beforeBirdGen = window.__auditExternalCalls || 0;
+    function birdGenCalls() {
+      return A.costReport().filter(function (row) {
+        return row.id === 'sec-surgeBtn';
+      }).reduce(function (sum, row) { return sum + row.calls; }, 0);
+    }
+    var beforeBirdGen = birdGenCalls();
     A.showSection('sec-surgeBtn');
     var shell = document.querySelector('#surgeResults .surgesourceprogress');
     requestAnimationFrame(function () {
       var rect = shell && shell.getBoundingClientRect();
       var firstFrame = !!(rect && rect.width > 0 && rect.height > 0
         && !document.getElementById('sec-surgeBtn').hidden);
-      var noEarlyRequests = (window.__auditExternalCalls || 0) === beforeBirdGen;
+      var noEarlyRequests = birdGenCalls() === beforeBirdGen;
       requestAnimationFrame(function () {
         var frameCheck = scan('(F801 initial Bird Gen render frame)');
         frameCheck.birdGenFrame = { visibleShell: firstFrame, noEarlyRequests: noEarlyRequests };
         if (!firstFrame || !noEarlyRequests) {
-          frameCheck.fixtureError = 'Bird Gen did not give its visible shell a frame before acquisition';
+          frameCheck.fixtureError = 'Bird Gen pre-acquisition frame failed: '
+            + JSON.stringify(frameCheck.birdGenFrame);
         }
         out.push(frameCheck);
         document.getElementById('navBack').click();
@@ -1291,12 +1461,53 @@ const AUDIT = `<script>
       x.send(JSON.stringify(out));
     } catch (e) {}
   }
-  window.addEventListener('load', function () { setTimeout(run, 700); });
+  var failed = false;
+  function auditStage(stage) {
+    var request = new XMLHttpRequest();
+    request.open('POST', '/__audit-stage', true);
+    request.send(stage);
+  }
+  function scriptFailure(message) {
+    if (failed) return;
+    failed = true;
+    finish([{label:'(audit script failure)',fixtureError:String(message)}]);
+  }
+  window.addEventListener('error', function (event) {
+    scriptFailure(event.message + ' at ' + event.lineno + ':' + event.colno);
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    scriptFailure(event.reason && event.reason.message || event.reason);
+  });
+  document.addEventListener('DOMContentLoaded', function () { auditStage('DOMContentLoaded'); });
+  window.addEventListener('load', function () {
+    auditStage('window loaded');
+    setTimeout(run, 700);
+  });
 })();
 </script>`;
 
 let onReport = null;
+let auditStage = '';
 const server = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/__audit-diagnostics') {
+    let body = '';
+    req.on('data', (data) => { body += data; });
+    req.on('end', () => {
+      console.error('audit diagnostics: ' + body);
+      res.writeHead(204); res.end();
+    });
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/__audit-stage') {
+    let body = '';
+    req.on('data', (data) => { body += data; });
+    req.on('end', () => {
+      auditStage = body;
+      res.writeHead(204); res.end();
+      if (process.env.AUDIT_DIAGNOSTICS) console.error('audit stage: ' + body);
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/__audit') {
     let body = '';
     req.on('data', (d) => { body += d; });
@@ -1447,6 +1658,7 @@ server.listen(0, '127.0.0.1', () => {
 
   const launch = () => {
     attempt++;
+    auditStage = '';
     profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-audit-'));
     ch = spawn(CHROME, buildArgs(profile), {
       stdio: 'ignore',
@@ -1458,10 +1670,14 @@ server.listen(0, '127.0.0.1', () => {
   };
 
   const onTimeout = () => {
+    if (auditStage) {
+      done([{label:'(audit timeout)',fixtureError:'Audit stalled after ' + auditStage}]);
+      return;
+    }
     teardown();
     if (attempt < MAX_ATTEMPTS) {
       console.error('audit did not report in ' + Math.round(TIMEOUT_MS / 1000)
-        + 's — Chrome start hung; relaunching (attempt ' + (attempt + 1)
+        + 's — browser progress unavailable; relaunching (attempt ' + (attempt + 1)
         + ' of ' + MAX_ATTEMPTS + ')');
       launch();
       return;
@@ -1502,6 +1718,10 @@ server.listen(0, '127.0.0.1', () => {
     }
     console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
       + ' (' + SCALE + 'x)\n');
+    if (report.filter((r) => r.personalHeader).length !== 2) {
+      bad++;
+      console.log('   F805/F812 FIXTURE missing Current year / All time header geometry');
+    }
     report.forEach((r) => {
       if (r.fixtureError) {
         bad++;
@@ -1511,6 +1731,20 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      if (r.personalHeader) {
+        const header = r.personalHeader;
+        if (!header.twoRows || header.nameWidth <= 0 || !header.periodFirst
+            || !header.basis.includes(header.mode === 'all' ? 'Life List' : 'Year List')
+            || header.controls.length !== 3
+            || header.controls.some((control) => control.width < 44 || control.height < 44
+              || control.right > r.vw + 0.5 || !control.underlined || !control.label)
+            || !header.controls[1].text.endsWith('sp.')
+            || !header.controls[2].text.endsWith('cl.')) {
+          bad++;
+          console.log('   F805/F812 HEADER controls, basis or two-row geometry failed: '
+            + JSON.stringify(header));
+        }
+      }
       if (r.label === '(contents menu)') {
         var menuWarnings = r.menuWarnings || [];
         if (menuWarnings.length !== 2 || menuWarnings.some(function (warning) {
@@ -1679,6 +1913,28 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.hotspotFavorite) {
+        var hf = r.hotspotFavorite;
+        console.log('   F828 FAVORITE GEOMETRY ' + JSON.stringify(hf));
+        if (hf.pressed !== String(hf.saved) || !hf.ownRow || !hf.noNavigation
+            || hf.favoriteHeight < 44 || hf.favoriteWidth < 44
+            || hf.favoriteTop < hf.titleBottom || hf.identityTop < hf.favoriteBottom
+            || hf.actionsTop < hf.summaryBottom) {
+          bad++;
+          console.log('   F828 favorite is not separated below title and above metadata');
+        }
+      }
+      if (r.regionOpening) {
+        console.log('   F793 REGION OPENING ' + JSON.stringify(r.regionOpening));
+        if (r.regionOpening.scrollTop !== 0
+            || r.regionOpening.focus !== 'regionChooserClose'
+            || r.regionOpening.headerTop < 16
+            || r.regionOpening.currentTop < r.regionOpening.headerTop
+            || r.regionOpening.recentTop >= r.regionOpening.viewportHeight) {
+          bad++;
+          console.log('   F793 current/recent choices are not discoverable at sheet opening');
+        }
+      }
       if (r.megaControlGeometry) {
         var megaControlGeometry = r.megaControlGeometry;
         console.log('   F791 CONTROL GEOMETRY ' + JSON.stringify(megaControlGeometry));
@@ -1729,6 +1985,9 @@ server.listen(0, '127.0.0.1', () => {
             || megaGeometry.groupCount !== 1 || megaGeometry.checklists !== 2) {
           bad++;
           console.log('   F790 shared Mega Group/card/top-bar contract failed');
+        }
+        if (r.foyGeometry) {
+          console.log('   F815 ADAPTIVE CARDS ' + JSON.stringify(r.foyGeometry));
         }
       }
       if (r.twitchGeometry) {

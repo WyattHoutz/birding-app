@@ -674,7 +674,11 @@
   // excluding the user's own sightings (report: unseen = drop is_own).
   function computeUnseen(records, seen, opts) {
     opts = opts || {};
+    var owned = opts.personalEvidence !== undefined;
+    var evidence = opts.personalEvidence || {};
+    if (owned) seen = evidence.species || {};
     return (records || []).filter(function (r) {
+      if (owned && !evidence.complete && !(evidence.needsProof || {})[r.code]) return false;
       if (!r.code || isSeen(r.code, seen)) return false;
       // A SPUH IS NOT A BIRD YOU CAN GO AND GET. Owner, 2026-08-24: *"i dont
       // think spuh should be highlighted as unseen"*.
@@ -2572,7 +2576,8 @@
                 nStops + ' stop' + (nStops === 1 ? '' : 's')];
     if (nSpecies) {
       bits.push(nSpecies + ' species');
-      bits.push(nUnseen ? '\uD83D\uDD0D ' + nUnseen + ' unseen' : '\u2705 all seen');
+      bits.push(nUnseen == null ? 'personal needs unknown'
+        : nUnseen ? '\uD83D\uDD0D ' + nUnseen + ' unseen' : '\u2705 all seen');
     }
     return bits.join(' \u00B7 ');
   }
@@ -2678,7 +2683,8 @@
   //         home:{lat,lng}|null, dailyDriveMi }
   function computeChaseViews(profile, opts) {
     opts = opts || {};
-    var seen = opts.seen || {};
+    var seen = opts.personalEvidence !== undefined
+      ? (opts.personalEvidence || {}).species || {} : opts.seen || {};
     // F257. The needs-verification codes, so a bird you half-saw cannot anchor
     // a long drive the way a genuine need can. Absent — as in every golden
     // fixture — every weight is 1.0 and scoring is unchanged.
@@ -2702,8 +2708,12 @@
     // behaviour is exactly as before.
     var publicPins = publicPersonalLocids(allRecs, opts.hotspots);
     Object.keys(publicPins).forEach(function (k) { stakeout[k] = 1; });
-    var unseenAll = computeUnseen(allRecs, seen, { excludeOwn: false });
-    var unseen = computeUnseen(allRecs, seen, { excludeOwn: true, ownName: ownName });
+    var unseenAll = computeUnseen(allRecs, seen, {
+      excludeOwn: false, personalEvidence: opts.personalEvidence
+    });
+    var unseen = computeUnseen(allRecs, seen, {
+      excludeOwn: true, ownName: ownName, personalEvidence: opts.personalEvidence
+    });
     var near = unseen.filter(function (r) {
       return inTargetCounties(r, countyLabels, countyCodes);
     });
@@ -2753,7 +2763,8 @@
       annotateDistance(fallbackRecs, home);
       fallbackRecs = computeUnseen(fallbackRecs, seen, {
         excludeOwn: true,
-        ownName: ownName
+        ownName: ownName,
+        personalEvidence: opts.personalEvidence
       }).filter(function (r) {
         var t = recMs(r);
         var oldest = snapMid
@@ -2857,7 +2868,7 @@
     // The live view is a rolling 24 hours; see notableRecent.
     var notable = notableRecent(unseenAll, opts && opts.nowMs);
 
-    return {
+    var view = {
       merged: allRecs, stakeout: stakeout, unseenAll: unseenAll, unseen: unseen,
       near: near, destinations: dest, excursions: exc, fullDay: full,
       dayTrip: dayTrip,
@@ -2865,6 +2876,8 @@
       destinationMinRows: destOpts.minRows,
       notableToday: notable
     };
+    if (opts.personalEvidence !== undefined) view.personalEvidence = opts.personalEvidence;
+    return view;
   }
 
   // Adapt a scored cluster (destinations/excursions) to the app's render shape:
@@ -4006,6 +4019,52 @@
     return { present: present, recent: recent, sensitive: sensitive };
   }
 
+  function foyEvidence(rows, current, baseline) {
+    if (!Array.isArray(rows)) throw new Error('FOY requires parsed annual rows.');
+    var day = String(current && current.day || '');
+    var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+    var today = parts ? new Date(+parts[1], +parts[2] - 1, +parts[3]) : null;
+    if (!today || today.getFullYear() !== +parts[1]
+        || today.getMonth() !== +parts[2] - 1 || today.getDate() !== +parts[3]) {
+      throw new Error('FOY requires a valid calendar day.');
+    }
+    function clock(value) {
+      if (typeof value !== 'string'
+          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return NaN;
+      var at = new Date(value);
+      return isFinite(at.getTime()) && at.toISOString() === value ? at.getTime() : NaN;
+    }
+    var readAt = clock(current.readAt), publishedAt = clock(current.publishedAt);
+    if (!isFinite(readAt)) throw new Error('FOY requires a valid acquisition time.');
+    var validBaseline = !!(baseline && Array.isArray(baseline.knownCodes)
+      && baseline.knownCodes.every(function (code) { return typeof code === 'string' && !!code; })
+      && firstYearEvidence([{ code: 'baseline', date: baseline.readDate }], today, 366).present.baseline);
+    var state = !baseline ? 'initial' : validBaseline ? 'ready' : 'invalid';
+    var known = new Set(validBaseline ? baseline.knownCodes : []);
+    var publishedBefore = clock(validBaseline ? baseline.publishedAt : '');
+    var publisherTimeValid = isFinite(publishedAt) && publishedAt <= readAt;
+    var publicationAdvanced = !!(validBaseline && publisherTimeValid
+      && isFinite(publishedBefore) && publishedAt > publishedBefore);
+    var annual = firstYearEvidence(rows, today, 366);
+    var dated = annual.recent, undated = [], fresh = [];
+    rows.forEach(function (row) {
+      if (!row || !row.code) return;
+      if (!annual.present[row.code]) undated.push(row);
+    });
+    dated.forEach(function (row) {
+      if (publicationAdvanced && !known.has(row.code) && row.date >= baseline.readDate) {
+        fresh.push(row);
+      }
+    });
+    rows.forEach(function (row) { if (row && row.code) known.add(row.code); });
+    undated.sort(function (a, b) {
+      return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+    });
+    return { dated: dated, undated: undated, newRows: fresh,
+      knownCodes: Array.from(known).sort(), baselineState: state,
+      publisherTimeValid: publisherTimeValid, publicationAdvanced: publicationAdvanced };
+  }
+
   // One species can carry TWO kinds of timing without contradiction:
   //
   //   firstReport  factual: first eBird report in the region this year
@@ -4387,6 +4446,100 @@
     { key: 'week', days: 7, label: '7d' },
     { key: 'month', days: 30, label: '30d' }
   ];
+  function resolvePersonalList(snapshot, owner, watch, parentOf) {
+    parentOf = parentOf || {};
+    var held = {}, exact = {}, species = {};
+    function expand(set) {
+      Object.keys(set).forEach(function (code) {
+        set[resolveReportAs(code, parentOf)] = 1;
+      });
+      Object.keys(parentOf).forEach(function (code) {
+        if (set[resolveReportAs(code, parentOf)]) set[code] = 1;
+      });
+    }
+    Object.keys(watch || {}).forEach(function (code) { held[code] = 1; });
+    expand(held);
+    var out = {
+      state: 'unavailable', complete: false, count: null, knownCount: 0,
+      exact: exact, species: species, needsProof: held, stale: false,
+      reason: 'missing'
+    };
+    if (!snapshot || !owner) return out;
+    var keys = ['profile', 'identityRevision', 'region', 'period', 'taxonomy', 'schema'];
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (!snapshot.owner || owner[key] == null || snapshot.owner[key] !== owner[key]) {
+        out.reason = 'owner:' + key;
+        return out;
+      }
+    }
+    if (!owner.region || !owner.period || !owner.taxonomy) {
+      out.reason = 'unqualified';
+      return out;
+    }
+    if (['complete', 'empty', 'incomplete'].indexOf(snapshot.coverage) < 0
+        || !Array.isArray(snapshot.codes)) {
+      out.reason = 'coverage';
+      return out;
+    }
+    var roots = {}, invalid = 0;
+    snapshot.codes.forEach(function (code) {
+      if (typeof code !== 'string' || !/^[a-z0-9]+$/.test(code)) {
+        invalid++;
+        return;
+      }
+      exact[code] = 1;
+      roots[resolveReportAs(code, parentOf)] = 1;
+    });
+    out.knownCount = Object.keys(roots).length;
+    Object.keys(exact).forEach(function (code) { species[code] = 1; });
+    expand(species);
+    Object.keys(held).forEach(function (code) { delete species[code]; });
+    var count = snapshot.declaredCount;
+    var agrees = typeof count === 'number' && isFinite(count)
+      && count >= 0 && Math.floor(count) === count && count === out.knownCount
+      && snapshot.unresolved === 0 && !invalid && !snapshot.paginated;
+    out.complete = agrees && (snapshot.coverage === 'complete' && count > 0
+      || snapshot.coverage === 'empty' && count === 0);
+    out.state = out.complete ? snapshot.coverage : 'incomplete';
+    out.count = out.complete ? count : null;
+    out.stale = !!snapshot.stale;
+    out.reason = out.complete ? '' : 'incomplete';
+    return out;
+  }
+
+  function mergeRankBoards(pair, metric) {
+    var selected = pair.boards[metric], otherMetric = metric === 'cl' ? 'spp' : 'cl';
+    if (!selected) return null;
+    var other = pair.boards[otherMetric], merged = [], profiles = {};
+    function add(board, kind) {
+      (board && board.rows || []).forEach(function (row, index) {
+        if (!row) return;
+        var key = row.profileId ? 'profile:' + row.profileId : kind + ':row:' + index;
+        var entry = profiles[key];
+        if (!entry) {
+          entry = Object.assign({}, row, { rank: null, ranks: {}, sourceMetrics: [] });
+          profiles[key] = entry; merged.push(entry);
+        }
+        entry.ranks[kind] = row.rank;
+        entry.sourceMetrics.push(kind);
+        if (kind === metric) { Object.assign(entry, row); entry.rank = row.rank; }
+      });
+    }
+    add(selected, metric); add(other, otherMetric);
+    var ranked = merged.filter(function (row) { return row.ranks[metric] != null; });
+    function nameKey(row) {
+      return String(row.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    }
+    var absent = merged.filter(function (row) { return row.ranks[metric] == null; })
+      .sort(function (a, b) { var x = nameKey(a), y = nameKey(b); return x < y ? -1 : x > y ? 1 : 0; });
+    return Object.assign({}, selected, {
+      rows: ranked.concat(absent), dual: true, metric: metric,
+      coverage: pair.coverage,
+      identityLimited: merged.some(function (row) { return !row.profileId; })
+    });
+  }
+
   function rankDeltas(hist, nowMs) {
     var out = { day: null, week: null, month: null };
     var rows = (hist || []).filter(function (h) {
@@ -4915,6 +5068,10 @@
     chaseConfidence: chaseConfidence,
     confidenceNote: confidenceNote,
     rankDeltas: rankDeltas,
+    mergeRankBoards: mergeRankBoards,
+    foyEvidence: foyEvidence,
+    resolveReportAs: resolveReportAs,
+    resolvePersonalList: resolvePersonalList,
     rankSeasonBest: rankSeasonBest,
     RANK_WINDOWS: RANK_WINDOWS,
     JARGON: JARGON,

@@ -114,7 +114,7 @@ async function settleMegaEntry(app, code) {
   }
 }
 
-function recentFirstYearFixture(species) {
+function recentFirstYearFixture(species, region = 'US-WA') {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() - 4);
@@ -127,6 +127,7 @@ function recentFirstYearFixture(species) {
     code: 'comnig', name: 'Common Nighthawk', sci: 'Chordeiles minor',
   };
   return FIRST_YEAR_HTML
+    .replaceAll('/region/US-WA/bird-list', '/region/' + region + '/bird-list')
     .replaceAll('2026-05-19', iso)
     .replaceAll('comnig', row.code)
     .replaceAll('Common Nighthawk', row.name)
@@ -169,24 +170,118 @@ const localFiles = requestInterceptor((request) => {
 });
 
 /** Boot the app in jsdom with a seeded key/home. Resolves once scripts ran. */
-// isSpeciesSeen reads getReportSeen(), which prefers the BUNDLED per-report
-// codes over any imported set — the same set the LISTS are built from. A
-// fixture therefore has to drive that set, not localStorage, or it is pinning
-// a path the app does not take. (That gap is the bug this comment exists
-// because of: a card headed "3 unseen" whose rows disagreed with the heading.)
-function seedSeen(app, codes, names) {
-  const rep = app.window.__SEED_BIRDLIST__.seenByReport[app.window.__app.getReportSlug()];
-  rep.codes = codes.slice();
-  rep.watchHeld = [];
-  // The NAME fallback is scoped to this report's own year list too, so a
-  // fixture that relies on it (subspecies forms resolving by base name) has to
-  // supply it here rather than through the cross-region localStorage pools.
-  if (names) rep.names = names.slice();
-  app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+// Explicit owned synthetic evidence, not bundled/imported completeness.
+// Restore the dated taxonomy through the production persistent-cache path.
+let personalFixtureTaxa;
+async function seedSeen(app, codes, names, taxa = []) {
+  const A = app.window.__app, seed = app.window.__SEED_BIRDLIST__;
+  if (!personalFixtureTaxa) {
+    personalFixtureTaxa = new Map();
+    function collect(value) {
+      if (!value || typeof value !== 'object') return;
+      const code = value.speciesCode || value.code;
+      const name = value.comName || value.name;
+      if (/^[a-z0-9]+$/.test(code || '') && typeof name === 'string' && name) {
+        personalFixtureTaxa.set(code,{speciesCode:code,comName:name,
+          sciName:value.sciName || value.sci || '',
+          category:value.category || (BL.countableTaxon(name)?'species':'spuh'),
+          ...(value.reportAs ? {reportAs:value.reportAs} : {})});
+      }
+      Object.values(value).forEach(collect);
+    }
+    const dir = path.join(__dirname,'fixtures');
+    fs.readdirSync(dir).filter(file => file.endsWith('.json'))
+      .forEach(file => collect(JSON.parse(fs.readFileSync(path.join(dir,file),'utf8'))));
+  }
+  const rows = new Map(personalFixtureTaxa);
+  Object.values(seed.seenByReport || {}).forEach(report => {
+    (report.yearList || []).forEach(row => {
+      if (row.code) rows.set(row.code,{speciesCode:row.code,comName:row.name,
+        sciName:row.sci || '',category:'species'});
+    });
+  });
+  const catalogs = Object.keys(app.window.localStorage)
+    .filter(key => key.startsWith('ebird_species_v2:'))
+    .map(key => ({region:key.slice('ebird_species_v2:'.length),
+      value:app.window.localStorage.getItem(key)}));
+  catalogs.forEach(catalog => {
+    const parsed = JSON.parse(catalog.value);
+    (parsed.rows || []).forEach(row => {
+      if (row.code && row.name) rows.set(row.code,{speciesCode:row.code,
+        comName:row.name,sciName:row.sci || '',category:'species'});
+    });
+  });
+  const parents = seed.reportAsParents || {};
+  Object.entries(parents).forEach(([code,parent]) => {
+    if (!rows.has(parent)) rows.set(parent,{speciesCode:parent,
+      comName:'Fixture taxon ' + parent,sciName:'',category:'species'});
+    const known = rows.get(code);
+    rows.set(code,{speciesCode:code,
+      comName:known ? known.comName : 'Fixture form ' + code,
+      sciName:known ? known.sciName : '',category:'issf',reportAs:parent});
+  });
+  [...codes.map((code,index) => ({code,name:names && names[index]})),...taxa]
+    .forEach(row => {
+      const code = row.code || row.speciesCode;
+      const known = rows.get(code);
+      if (!rows.has(code) || row.reportAs
+          || (row.name || row.comName) && /^Fixture (taxon|bird|form) /.test(known.comName)) rows.set(code,{speciesCode:code,
+        comName:row.name || row.comName || 'Fixture bird ' + code,
+        sciName:row.sci || row.sciName || known?.sciName || '',
+        category:row.category || known?.category || 'species',
+        ...((row.reportAs || known?.reportAs) ? {reportAs:row.reportAs || known.reportAs} : {})});
+    });
+  for (let index = 0; rows.size < 9000; index++) {
+    const code = 'fixturetax' + index;
+    rows.set(code,{speciesCode:code,comName:'Fixture taxon ' + index,
+      sciName:'Fixture taxon' + index,category:'species'});
+  }
+  app.window.indexedDB ||= new IDBFactory();
+  const edition = '2026.0';
+  const model = app.window.BirdTaxonomy.create([...rows.values()],edition);
+  await A.taxonomyStore('put','identity:' + edition,model);
+  app.window.localStorage.setItem('bc_taxonomy_v1',JSON.stringify({
+    edition,checkedAt:Date.now(),previousEdition:'',
+  }));
+  assert.equal(await A.restoreTaxonomyNames(),true,'owned fixture taxonomy must restore');
+  catalogs.forEach(catalog => {
+    app.window.localStorage.setItem(A.speciesCacheKey(catalog.region),catalog.value);
+  });
+  seedOwnedSnapshot(app,codes,model);
 }
 
-function seedRarityChase(app, rows) {
+function seedOwnedSnapshot(app,codes,model) {
   const A = app.window.__app;
+  const owner = A.personalListOwner();
+  const roots = new Set(codes.map(code => {
+    while (model.parents[code]) code = model.parents[code];
+    return code;
+  }));
+  app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify({
+    owner,source:A.personalListUrl(owner),readAt:new Date().toISOString(),readDate:A.todayStr(),
+    codes:codes.slice(),rows:codes.map(code => ({code,name:model.byCode[code].name})),
+    declaredCount:roots.size,coverage:codes.length?'complete':'empty',
+    unresolved:0,paginated:false,
+  }));
+  A.getReportSeen();
+  assert.equal(A.personalListEvidence().complete,true,
+    'fixture must prove exact owned completeness: ' + JSON.stringify({owner,
+      state:A.personalListEvidence().state,reason:A.personalListEvidence().reason}));
+}
+
+async function seedCurrentSeen(app,codes) {
+  const A = app.window.__app;
+  const model = await A.taxonomyStore('get','identity:' + A.taxonomyEdition());
+  assert.ok(model,'current-edition fixture requires an already verified taxonomy');
+  seedOwnedSnapshot(app,codes,model);
+}
+
+async function seedRarityChase(app, rows) {
+  const A = app.window.__app;
+  if (A.personalListEvidence().complete) {
+    const source = JSON.parse(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))));
+    await seedSeen(app,source.codes,null,rows);
+  }
   const profile = A.chaseProfile();
   const home = profile.home;
   const raw = rows.map((row, i) => ({
@@ -420,6 +515,332 @@ function stakeoutSurfaceText(app) {
     'spLookupDetailsContent',
   ].map((id) => app.$(id)?.textContent || '').join(' ');
 }
+
+test('F815 annual-first acquisition verifies returned region, year and selected observation meaning before caching', async () => {
+  let body = FIRST_YEAR_HTML;
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
+  const A = app.window.__app, year = new Date().getFullYear();
+  try {
+    const good = await A.firstYearFetch('US-WA');
+    assert.equal(A.firstYearSourceMatches(good, 'US-WA', year), true);
+    assert.equal(good.source.kind, 'annual-first');
+    assert.equal(good.source.updatedAt, '2026-10-07T13:18:47.000Z');
+    assert.equal(good.source.updatedLabel, 'Updated ~3 hours ago');
+    assert.equal(good.rows.find(row => row.sensitive).date, '',
+      'a verified annual table must not invent sensitive dates');
+    for (const rejected of [
+      FIRST_YEAR_HTML.replaceAll('/region/US-WA/bird-list', '/region/US-HI/bird-list'),
+      FIRST_YEAR_HTML.replace('This Year 2026', 'This Year 2025'),
+      FIRST_YEAR_HTML.replace('First Observed', 'Last Observed'),
+      FIRST_YEAR_HTML.replaceAll('&amp;rank=lrec', ''),
+      FIRST_YEAR_HTML.replaceAll('aria-current="true"', ''),
+      FIRST_YEAR_HTML.replace('2026-05-19', '2025-05-19'),
+    ]) {
+      body = rejected;
+      await assert.rejects(A.firstYearFetch('US-WA'), /does not prove.*First Observed/);
+      assert.equal(A.firstYearRead('US-WA', year), null, 'rejected source must not create a cache');
+    }
+    const saved = A.firstYearWrite('US-WA', year, good);
+    assert.equal(A.firstYearSourceMatches(saved, 'US-WA', year), true,
+      'cache retains returned source ownership, not just requested ownership');
+    assert.ok(saved.readAt);
+    assert.equal(A.firstYearSourceMatches({...saved, source:undefined}, 'US-WA', year), false,
+      'legacy unqualified public inventories cannot certify FOY dates');
+  } finally {
+    app.window.close();
+  }
+});
+
+test('F815 rendered annual-first recovery rejects wrong region, year and Last Observed before accepting the same page', async () => {
+  const app = await boot({sample:false, fetch:url =>
+    /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
+  const handlers = {};
+  const pages = [
+    FIRST_YEAR_HTML.replaceAll('/region/US-WA/bird-list', '/region/US-HI/bird-list'),
+    FIRST_YEAR_HTML.replace('This Year 2026', 'This Year 2025'),
+    FIRST_YEAR_HTML.replace('First Observed', 'Last Observed'),
+    FIRST_YEAR_HTML.replaceAll('aria-current="true"', ''),
+    FIRST_YEAR_HTML,
+  ];
+  let browser, opened, injections = 0;
+  const sourceMessages = [];
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(name, fn) {handlers[name] = fn; return {remove(){}};},
+    openWebView(options) {
+      opened = options;
+      browser = new JSDOM(pages[0], {url:options.url,runScripts:'outside-only'});
+      browser.window.mobileApp = {postMessage(message) {
+        handlers.messageFromWebview({id:'foy-window',detail:message.detail});
+      }};
+      setTimeout(() => handlers.browserPageLoaded({id:'foy-window'}), 10);
+      return Promise.resolve({id:'foy-window'});
+    },
+    hide(){}, show(){}, close(){},
+    executeScript({code}) {
+      browser.window.document.open();
+      browser.window.document.write(pages[injections++]);
+      browser.window.document.close();
+      browser.window.eval(code);
+      return Promise.resolve();
+    },
+  }}};
+  try {
+    const page = await app.window.__app.firstYearFetch('US-WA', undefined,
+      message => sourceMessages.push(message));
+    assert.equal(injections, 5, 'unverified rendered selections must not settle the source');
+    assert.equal(page.source.kind, 'annual-first');
+    assert.equal(page.source.region, 'US-WA');
+    assert.equal(opened.url, app.window.__app.firstYearUrl('US-WA'));
+    assert.equal(app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length, 1,
+      'recovery navigates to the same permitted page, not another discovery endpoint');
+    assert.equal(app.state.fetches.some(url => /historic|\/recent\//.test(url)), false);
+    assert.ok(sourceMessages.some(message => /browser session/.test(message)),
+      'rendered recovery must report its real source phase to the requesting surface');
+  } finally {
+    if (browser) browser.window.close();
+    app.window.close();
+  }
+});
+
+function foySourceFixture(publishedAgoHours, addBird = false) {
+  const now = new Date(), year = now.getFullYear();
+  const day = [year, String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')].join('-');
+  const stamp = new Date(now.getTime() - publishedAgoHours * 3600000).toUTCString();
+  let body = FIRST_YEAR_HTML.replaceAll('2026', String(year))
+    .replace('Wed, 07 Oct ' + year + ' 13:18:47 GMT', stamp);
+  if (addBird) {
+    const row = body.match(/<li id="comnig"[\s\S]*?<\/li>/)[0]
+      .replaceAll('comnig', 'newbird').replaceAll('Common Nighthawk', 'New Annual Bird')
+      .replace(year + '-05-19', day);
+    body = body.replace('Native and Naturalized (4)', 'Native and Naturalized (5)')
+      .replace('4 This Year', '5 This Year')
+      .replace('<ol class="BirdList-list-list">', '<ol class="BirdList-list-list">' + row);
+  }
+  return body;
+}
+
+test('F815 FOY saves a silent baseline, discovers once, acknowledges and retains dated last-good evidence', async () => {
+  let body = foySourceFixture(2);
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
+  const A = app.window.__app;
+  try {
+    const initial = await A.ensureFoy(true);
+    assert.equal(initial.saved, true);
+    assert.equal(initial.initial, true);
+    assert.equal(A.foyPendingRows().length, 0, 'initial annual inventory is not news');
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null);
+    body = foySourceFixture(1, true);
+    const discovered = await A.ensureFoy(true);
+    assert.deepEqual(arr(discovered.record.pendingRows, r => r.code), ['newbird']);
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn').n, 1);
+    const before = app.state.fetches.length;
+    A.refreshMenuBadges();
+    assert.equal(app.state.fetches.length, before, 'FOY badges must stay cache-only');
+    app.window.localStorage.setItem('bc_report_menu_badges_v1', 'hide');
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null);
+    app.window.localStorage.removeItem('bc_report_menu_badges_v1');
+    await A.ensureFoy(true);
+    assert.equal(A.foyPendingRows().length, 1, 'repeat refresh cannot duplicate the discovery');
+    await A.loadFoy();
+    assert.match(app.$('foyResults').textContent, /Newly learned since the verified list read/);
+    assert.match(app.$('foyResults').textContent, /not necessarily a current sighting/);
+    assert.match(app.$('foyResults').textContent, /publisher:.*read:/);
+    assert.match(app.$('foyResults').textContent, /Date and location withheld/);
+    assert.equal(A.foyPendingRows().length, 0, 'successful rendering acknowledges saved news');
+    const warmCalls = app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length;
+    await A.ensureFoy(false);
+    assert.equal(app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length, warmCalls);
+    body = body.replace('First Observed', 'Last Observed');
+    await A.loadFoy(true);
+    assert.match(app.$('foyResults').textContent, /refresh failed.*Dated last-good evidence retained/);
+    assert.match(app.$('foyResults').textContent, /New Annual Bird/);
+    const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+    assert.equal(menu.findIndex(item => item.at === 'foyBtn'),
+      menu.findIndex(item => item.at === 'abaBtn') + 1);
+    assert.ok(A.LOADERS.foyBtn.fn);
+  } finally { app.window.close(); }
+});
+
+test('F815 FOY history is annual, exact-owner scoped and corruption never announces the inventory', async () => {
+  const app = await boot({sample:false, fetch:url =>
+    /\/bird-list\?/.test(url) ? foySourceFixture(2) : []});
+  const A = app.window.__app;
+  try {
+    await A.ensureFoy(true);
+    const ctx = A.foyContext(), record = A.foyHistoryRead(ctx);
+    assert.equal(A.foyHistoryRead({...ctx, region:'US-HI'}), null);
+    assert.equal(A.foyHistoryRead({...ctx, year:ctx.year - 1}), null);
+    assert.equal(A.foyHistoryRead({...ctx, profile:'foreign'}), null);
+    await A.setPersonalPeriod('all');
+    assert.equal(A.foyContext().year, ctx.year);
+    assert.equal(A.foyKey(A.foyContext()), A.foyKey(ctx),
+      'personal All time must not switch FOY into lifetime evidence');
+    await A.loadFoy();
+    assert.match(app.$('foyResults').textContent, /selected All time list separately/);
+    app.window.localStorage.setItem(A.bcReal(A.foyKey(ctx)), '{"schema":1}');
+    const repaired = await A.ensureFoy(false);
+    assert.equal(repaired.repaired, true);
+    assert.equal(repaired.saved, true);
+    assert.equal(repaired.record.pendingRows.length, 0);
+    assert.equal(repaired.record.knownCodes.length, record.knownCodes.length);
+  } finally { app.window.close(); }
+});
+
+test('F815 unsaved FOY baseline disables new alerts and privacy cancellation blocks late persistence', async () => {
+  let body = foySourceFixture(2);
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
+  const A = app.window.__app, nativeSet = app.window.Storage.prototype.setItem;
+  try {
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key.includes('ebird_foy_v1:')) throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+      return nativeSet.call(this, key, value);
+    };
+    const initial = await A.ensureFoy(true);
+    assert.equal(initial.saved, false);
+    A.renderFoy(initial);
+    assert.match(app.$('foyResults').textContent, /baseline not saved.*tracking is unavailable/);
+    body = foySourceFixture(1, true);
+    const later = await A.ensureFoy(true);
+    assert.equal(later.saved, false);
+    assert.equal(A.foyPendingRows().length, 0);
+    assert.match(later.error, /no new alerts were created/);
+    app.window.Storage.prototype.setItem = nativeSet;
+  } finally {
+    app.window.Storage.prototype.setItem = nativeSet;
+    app.window.close();
+  }
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const late = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? pending : []});
+  try {
+    const work = late.window.__app.ensureFoy(true);
+    const rejected = assert.rejects(work, error => error.queueCancelled === true);
+    late.window.__app.scrubPersonalData();
+    release(foySourceFixture(2));
+    await rejected;
+    assert.equal(late.window.__app.foyHistoryRead(), null);
+    assert.equal(late.window.__app.firstYearRead('US-WA', new Date().getFullYear()), null);
+  } finally { late.window.close(); }
+});
+
+test('F815 FOY overlaps add one visible reason while distinct flock events survive', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app, date = new Date().toISOString().slice(0, 10);
+    const first = {code:'comnig',name:'Common Nighthawk',date,
+      observedAt:date + ' 08:00',previousReadDate:date,subId:'S300000001'};
+    const rows = [
+      {kind:'mega',code:'comnig',speciesKey:'comnig',time:100,why:'Existing mega'},
+      {kind:'mass',code:'comnig',speciesKey:'comnig',time:200,why:'Independent flock'},
+      {kind:'mass',code:'comnig',speciesKey:'comnig',time:300,why:'Second flock'},
+    ];
+    A.appendFoySurgeReasons(rows, [first]);
+    assert.equal(rows.length, 3, 'FOY cannot duplicate an already represented bird');
+    assert.deepEqual(arr(rows[0].reasons, r => r.kind), ['mega','foy']);
+    assert.match(rows[0].extra, /FOY.*not proof of current presence or rarity/);
+    assert.equal(rows.filter(row => row.kind === 'mass').length, 2);
+    const solitary = [];
+    A.appendFoySurgeReasons(solitary, [first]);
+    assert.equal(solitary.length, 1);
+    assert.equal(solitary[0].kind, 'foy');
+    assert.equal(solitary[0].rare, undefined, 'an annual first is not automatically rare');
+    A.renderSurge([], [], [], [], [], {foy:'ok',foyRows:[first]});
+    assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1);
+    assert.match(app.$('surgeResults').textContent, /Newly learned regional annual first/);
+  } finally { app.window.close(); }
+});
+
+test('F815 background annual-first failure cannot steal another source browser reader', async () => {
+  const app = await boot({sample:false, fetch:url =>
+    /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
+  let opened = 0;
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(){return {remove(){}};},
+    executeScript(){return Promise.resolve();},
+    openWebView(){opened++; throw new Error('unexpected background browser acquisition');},
+    close(){}, hide(){}, show(){},
+  }}};
+  try {
+    const result = await app.window.__app.ensureFoy(true, () => true, null, false);
+    assert.match(result.error, /Annual-first refresh failed/);
+    assert.equal(result.snapshot, null);
+    assert.equal(app.window.__app.foyPendingRows().length, 0);
+    assert.equal(opened, 0, 'Bird Gen FOY failure must settle without occupying the shared native reader');
+  } finally { app.window.close(); }
+});
+
+test('F815 live Bird Gen acquires FOY after primary startup and owns its pending lifecycle', async () => {
+  let releaseFirst;
+  const app = await boot({sample:false, fetch(url) {
+    if (/\/bird-list\?yr=cur&rank=lrec/.test(url)) {
+      return new Promise(resolve => { releaseFirst = resolve; });
+    }
+    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    return [];
+  }});
+  const A = app.window.__app;
+  try {
+    A.LOADERS.surgeBtn.reachability = false;
+    app.open(/Bird Gen/);
+    await waitFor(() => releaseFirst && Number.isFinite(A.performanceReport({sectionId:'sec-surgeBtn'})
+      .samples[0]?.primary_ready_ms), 'primary startup and held annual-first acquisition');
+    await waitFor(() => ['observations','leaderboard','hotspots','favorites','mass','mega']
+      .every(source => app.$('surgeResults').dataset[
+        'source' + source[0].toUpperCase() + source.slice(1)] !== 'loading'),
+    'other Bird Gen source settlements');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    assert.equal(A.performanceReport({sectionId:'sec-surgeBtn'}).samples[0].outcome, 'incomplete',
+      'FOY must participate in the real load lifetime rather than detached acquisition');
+    assert.equal(app.$('surgeResults').dataset.sourceFoy, 'loading');
+    releaseFirst(foySourceFixture(2));
+    await waitFor(() => A.performanceReport({sectionId:'sec-surgeBtn'})
+      .samples[0].outcome === 'ok', 'FOY-owned load completion');
+    assert.equal(app.$('surgeResults').dataset.sourceFoy, 'ok');
+    assert.equal(A.foyHistoryRead().knownCodes.length, 4,
+      'the production Bird Gen loader never saved its verified FOY baseline');
+    assert.equal(A.foyPendingRows().length, 0, 'initial FOY inventory cannot become news');
+    const loadId = A.performanceReport({sectionId:'sec-surgeBtn'}).samples[0].load_id;
+    assert.ok(app.window.__audit.events().some(event =>
+      event.event === 'report_source_settled' && event.attrs.load_id === loadId
+        && event.attrs.source === 'foy'));
+    const annualRequests = () => app.state.fetches
+      .filter(url => /\/bird-list\?yr=cur&rank=lrec/.test(url)).length;
+    assert.equal(annualRequests(), 1);
+    app.click(app.$('navBack'));
+    app.open(/Bird Gen/);
+    await waitFor(() => A.performanceReport({sectionId:'sec-surgeBtn'})
+      .samples[1]?.outcome === 'ok', 'warm FOY-owned reopening');
+    assert.equal(annualRequests(), 1, 'warm baseline reopening must not repeat its regional page read');
+    releaseFirst = null;
+    app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+    await waitFor(() => releaseFirst, 'explicit annual-first refresh');
+    releaseFirst(foySourceFixture(1, true));
+    await waitFor(() => A.performanceReport({sectionId:'sec-surgeBtn'})
+      .samples[2]?.outcome === 'ok', 'refreshed annual-first publication');
+    assert.equal(annualRequests(), 2);
+    assert.deepEqual(arr(A.foyPendingRows(), row => row.code), ['newbird']);
+    assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1,
+      'the live source must publish one discovered annual-first bird into Bird Gen');
+    assert.match(app.$('surgeResults').textContent, /New Annual Bird/);
+  } finally { app.window.close(); }
+});
+
+test('F815 explicit annual zero is verified only with the real empty table and selected source', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    const empty = '<div class="BirdList-controls">'
+      + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">0 This Year '
+      + new Date().getFullYear() + '</a>'
+      + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">First Observed</a></div>'
+      + '<section><h3>Native and Naturalized (0)</h3><ol class="BirdList-list-list"></ol></section>';
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(empty), 'US-WA', new Date().getFullYear()), true);
+    assert.equal(A.parseFirstYearBirdList(empty.replace('<ol class="BirdList-list-list"></ol>', '')).valid, false);
+    assert.equal(A.parseFirstYearBirdList(empty.replaceAll('aria-current="true"', '')).valid, false);
+    assert.equal(A.parseFirstYearBirdList('<html>No observations</html>').valid, false);
+  } finally { app.window.close(); }
+});
 
 test('F268 parses countable first-year rows and preserves eBird withholding', async () => {
   const app = await boot();
@@ -1431,7 +1852,7 @@ test('F268 an old region callback cannot repaint the new On passage section', as
     ok: true, status: 200,
     text: () => Promise.resolve(recentFirstYearFixture({
       code: 'scitfl', name: 'Scissor-tailed Flycatcher', sci: 'Tyrannus forficatus',
-    })),
+    }, 'US-MO')),
   });
   await newLoad;
   pending['US-WA']({
@@ -1475,7 +1896,7 @@ test('F268 a completed first-report request repaints existing forecast context',
     names: { comnig: 'Common Nighthawk' },
     updated: now.toISOString(),
   }));
-  seedSeen(app, ['amecro']);
+  await seedSeen(app, ['amecro']);
   let resolvePage;
   app.window.fetch = (url) => {
     if (/\/bird-list\?/.test(String(url))) {
@@ -1638,7 +2059,7 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
         county: 'King', isPrivate: false,
       }],
     }));
-  seedSeen(app, ['amecro', 'depmig']);
+  await seedSeen(app, ['amecro', 'depmig']);
 
   app.open(/Tonight, arrivals, and departures/);
   await A.loadMigration();
@@ -1664,7 +2085,7 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
     /Expected from local history; not a confirmed departure/,
     'Bird Gen presented a predicted departure as observed');
 
-  seedSeen(app, ['amecro', 'depmig', 'purmar']);
+  await seedSeen(app, ['amecro', 'depmig', 'purmar']);
   await A.loadMigration();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const afterSeen = app.$('migResults').textContent.replace(/\s+/g, ' ');
@@ -1707,7 +2128,7 @@ test('F268 the current load repaints when it joins a pending GBIF source load', 
     at: Date.now(),
     done: { 'Progne subis': { day, records: 840, months: 5 } },
   }));
-  seedSeen(app, ['amecro']);
+  await seedSeen(app, ['amecro']);
 
   A.loadMigration();
   A.loadMigration();
@@ -2569,7 +2990,10 @@ test('F702 completed research lives in feature records, not an app report', asyn
 
 test('opening a section auto-loads its content (no button tap)', async () => {
   const app = await boot();
+  await seedSeen(app,[]);
   app.open(/Today.s patches/);
+  await waitFor(() => /Ranking Washington hotspots/.test(app.$('destStatus').textContent),
+    'automatic hotspot ranking after the exact personal prerequisite');
   assert.match(app.$('destStatus').textContent, /Ranking Washington hotspots/,
     'the section loader ran on first open');
   app.window.close();
@@ -2577,17 +3001,19 @@ test('opening a section auto-loads its content (no button tap)', async () => {
 
 test('F278 a failed Nemesis first-open is retryable, while success stays loaded', async () => {
   const app = await boot();
+  await seedSeen(app,[]);
   const A = app.window.__app;
   const sec = app.$('easyBtn').closest('section');
   let calls = 0;
   sec._loader.fn = () => Promise.resolve(++calls > 1);
+  sec.hidden = false;
 
   assert.equal(await A.autoLoad(sec), false, 'the first load reproduces a failed sample');
   assert.equal(calls, 1);
   assert.equal(await A.autoLoad(sec), true,
     'reopening the same section retries after the failed first load');
   assert.equal(calls, 2);
-  A.autoLoad(sec);
+  await A.autoLoad(sec);
   assert.equal(calls, 2,
     'a successful retry stays loaded and does not restart on every open');
   app.window.close();
@@ -2790,6 +3216,7 @@ test('Leader Board Ticks section is wired and auto-loads from the leaderboard', 
     'the section is the one on screen');
   assert.match(app.$('lastNewStatus').textContent, /leaderboard/i,
     'the loader ran and reported progress');
+  await waitFor(() => app.state.fetches.some((u) => /top100/.test(u)), 'first metric source read');
   assert.ok(app.state.fetches.some((u) => /top100/.test(u)),
     'it reads ebird.org/top100, the same source rankings.py scrapes');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors');
@@ -3101,7 +3528,7 @@ test('F386 bird and hotspot subjects route through Stakeout before external evid
     HTML.indexOf('// --- settings ---'));
   assert.match(ticks, /locId:\s*\(v\.h && v\.i\) \? v\.i : ''/,
     'harvested My Ticks rows discard the stable hotspot id');
-  assert.match(ticks, /stakeHotspotLink\(yearEntryLocId\(e\), where\)/,
+  assert.match(ticks, /return locId \? stakeHotspotLink\(locId, where\) : esc\(where\)/,
     'My Ticks hotspot names still bypass Stakeout');
   assert.match(ticks, /name:\s*speciesLink\(e\.name,\s*e\.code\)/,
     'My Ticks additional-taxa bird names still open a checklist');
@@ -3851,7 +4278,8 @@ test('rankings: the board is scoped to the active report and includes the Top 10
     'and opens on the report\'s own board, not a county');
   const src = HTML.slice(HTML.indexOf('function renderRankings('),
     HTML.indexOf('function loadLastNew('));
-  assert.match(HTML, /return 'Leaderboard - ' \+ scope\.label \+ ' ' \+ new Date\(\)\.getFullYear\(\)/,
+  assert.match(app.$('rankBtn').closest('section').querySelector('h2').textContent,
+    new RegExp('Leaderboard - Washington ' + new Date().getFullYear()),
     'the merged section heading is not derived from its current board scope');
   assert.match(src, /slice\(0, TOP_BOARD_N\)/,
     'the board is capped at TOP_BOARD_N, like rankings.TOP_BOARD_N in the report');
@@ -4304,6 +4732,46 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
   A.openSetupSheet();
   assert.equal(sheet.hidden, false, 'limited setup cannot be resumed');
+  app.window.close();
+});
+
+test('F793 chooser resets to its top without Search focus and returns keyboard focus', async () => {
+  const app = await boot();
+  const doc = app.window.document;
+  const opener = app.$('navRegion');
+  opener.focus();
+  app.window.__app.openRegionChooser();
+  const chooser = app.$('regionChooser');
+  const close = app.$('regionChooserClose');
+  assert.equal(doc.activeElement, close, 'initial focus must not summon the Search keyboard');
+  assert.equal(chooser.scrollTop, 0);
+  assert.ok(app.$('regionChooserCurrent').children.length);
+  chooser.scrollTop = 700;
+  app.click(close);
+  assert.equal(doc.activeElement, opener);
+  app.window.__app.openRegionChooser();
+  assert.equal(chooser.scrollTop, 0, 'reopening must retire stale sheet scroll');
+  assert.equal(doc.activeElement, close);
+  const search = app.$('regionChooserSearch');
+  search.focus();
+  assert.equal(doc.activeElement, search, 'search remains focusable on demand');
+  search.value = 'Michigan';
+  search.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  const visible = [...app.$('regionChooserAll').querySelectorAll('button')]
+    .filter((button) => !button.hidden);
+  assert.equal(visible.length, 1);
+  assert.match(visible[0].textContent, /Michigan/);
+  close.focus();
+  close.dispatchEvent(new app.window.KeyboardEvent('keydown',
+    { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+  assert.equal(doc.activeElement, visible[0], 'reverse Tab stays within visible choices');
+  visible[0].dispatchEvent(new app.window.KeyboardEvent('keydown',
+    { key: 'Tab', bubbles: true, cancelable: true }));
+  assert.equal(doc.activeElement, close);
+  close.dispatchEvent(new app.window.KeyboardEvent('keydown',
+    { key: 'Escape', bubbles: true }));
+  assert.equal(chooser.hidden, true);
+  assert.equal(doc.activeElement, opener);
   app.window.close();
 });
 
@@ -5205,6 +5673,609 @@ test('birder convoys list checklists per stop and never name the members', async
  */
 const FIX = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
 
+function ownedPersonalListFixture({ region = 'US-WA', period = 'year', count = 1,
+  codes = ['stable'], account = 'Sample Observer', paginated = false } = {}) {
+  return '<!doctype html><html><head><title>Personal Life List - eBird</title>'
+    + '<link rel="canonical" href="https://ebird.org/lifelist/' + region + '"></head><body>'
+    + '<header><button aria-label="Birder ' + account + ' (fixture_login)">My Account</button></header>'
+    + '<select name="time"><option value="' + period + '" selected>' + period + '</option></select>'
+    + '<main><h1>Life List</h1><p>Species Total: ' + count + '</p>'
+    + codes.map(code => '<li><a href="/species/' + code + '">' + code + '</a></li>').join('')
+    + (paginated ? '<a rel="next" href="?page=2">Next</a>' : '')
+    + '</main></body></html>';
+}
+
+test('F805 personal source parses owned metadata, explicit zero and date-free membership without promoting partial history', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const page = A.parsePersonalListPage(ownedPersonalListFixture());
+  assert.equal(page.valid, true);
+  assert.equal(page.region, 'US-WA');
+  assert.equal(page.period, 'year:' + new Date().getFullYear());
+  assert.equal(page.rows[0].code, 'stable');
+  assert.equal(page.rows[0].observedAt, '', 'optional dates do not erase membership');
+  assert.equal(page.declaredCount, 1);
+  assert.equal(A.parsePersonalListPage(ownedPersonalListFixture({
+    period: 'all', count: 0, codes: [],
+  })).valid, true);
+  assert.equal(A.parsePersonalListPage(ownedPersonalListFixture({
+    count: 1, codes: [],
+  })).valid, false, 'a failed/empty parser is not a complete zero list');
+  assert.equal(A.parsePersonalListPage(ACCOUNT_LOGIN_HTML).valid, false);
+  const noPeriod = ownedPersonalListFixture().replace(/<select[\s\S]*?<\/select>/, '');
+  assert.equal(A.parsePersonalListPage(noPeriod).valid, false,
+    'the requested URL and life-list title cannot prove returned period');
+  assert.equal(A.parsePersonalListPage(ownedPersonalListFixture({
+    paginated: true,
+  })).paginated, true);
+  const conflict = ownedPersonalListFixture().replace('<main>',
+    '<input name="r" value="US-WA-033"><main>');
+  assert.equal(A.parsePersonalListPage(conflict).valid, false);
+  const owner = A.personalListOwner();
+  assert.equal(A.personalListUrl(owner), 'https://ebird.org/lifelist/US-WA?time=year');
+  assert.equal(A.personalListUrl({...owner, region:'US-WA-033', period:'all'}),
+    'https://ebird.org/lifelist/US-WA-033');
+  let bridged;
+  const native = new JSDOM(ownedPersonalListFixture(), {
+    url: A.personalListUrl(owner), runScripts: 'outside-only',
+  });
+  native.window.mobileApp = { postMessage(value) { bridged = value; } };
+  native.window.eval(A.buildPersonalListInject(owner));
+  assert.equal(bridged.detail.ok, true, 'injected production parser carries every dependency');
+  assert.equal(bridged.detail.data.rows[0].code, 'stable');
+  native.window.eval(A.buildPersonalListInject({...owner, period:'all'}));
+  assert.equal(bridged.detail.ok, false, 'rendered recovery rejects a wrong-period page');
+  delete native.window.mobileApp;
+  native.window.webkit = {messageHandlers:{messageHandler:{postMessage(value) { bridged = value; }}}};
+  native.window.eval(A.buildPersonalListInject(owner));
+  assert.equal(bridged.detail.ok, true, 'native webkit transport carries the same owned result');
+  native.window.close();
+});
+
+test('F805/F812 selected period owns header metrics, personal screen and navigation without repaint reads', async () => {
+  const year = String(new Date().getFullYear());
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'}, fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) {
+        const annual = new URL(url).searchParams.get('time') === 'year';
+        return ownedPersonalListFixture({period:annual?'year':'all',count:annual?1:2,
+          codes:annual?['stable']:['stable','rename']});
+      }
+      if (/top100/.test(url)) {
+        const query = new URL(url).searchParams;
+        const period = query.get('year'), metric = query.get('rankedBy') || 'spp';
+        return dualRankFixture(metric,[{name:'Sample Observer',profileId:'fixture-profile',
+          rank:period==='AAAA'?99:145,species:period==='AAAA'?900:356,
+          checklists:period==='AAAA'?1200:484}], 'US-WA',period);
+      }
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  await A.preparePersonalList(A.activeScope(),true);
+  await A.fetchRankPair({region:'US-WA'},year,'Sample Observer',true);
+  A.headerIdentityRefresh();
+  assert.equal(app.$('hdrRankJump').textContent,'#145');
+  assert.equal(app.$('hdrSpeciesJump').textContent,'1sp.','official personal total is not the board total');
+  assert.equal(app.$('hdrChecklistJump').textContent,'484cl.');
+  const reads = app.state.fetches.length;
+  A.headerIdentityRefresh(); A.renderMenuIdentity();
+  assert.equal(app.state.fetches.length,reads,'header/menu paint remains cache-only');
+  assert.equal(app.$('menuScopeHost').querySelector('.quicksettings').children[1].tagName,'FIELDSET',
+    'Time period is first, above Region');
+  app.click(app.$('menuScopeHost').querySelector('[data-personal-period="all"]'));
+  assert.equal(A.personalBoardPeriod(),'AAAA');
+  assert.equal(app.$('hdrSpeciesJump').textContent,'n/asp.','annual total is retired immediately');
+  assert.equal(A.isSpeciesSeen('rename','New name'),null,'annual absence cannot prove lifetime absence');
+  await A.preparePersonalList(A.activeScope(),true);
+  await A.fetchRankPair({region:'US-WA'},'AAAA','Sample Observer',true);
+  A.headerIdentityRefresh();
+  assert.equal(app.$('hdrRankJump').textContent,'#99');
+  assert.equal(app.$('hdrSpeciesJump').textContent,'2sp.');
+  assert.equal(app.$('hdrChecklistJump').textContent,'1,200cl.');
+  assert.equal(A.isSpeciesSeen('rename','New name'),true);
+  const originalRankCache = app.window.localStorage.getItem(A.RANK_CACHE_KEY);
+  const wrongOwner = JSON.parse(originalRankCache);
+  Object.values(wrongOwner).forEach(entry => { entry.data.ownerRevision++; });
+  app.window.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify(wrongOwner));
+  A.headerIdentityRefresh();
+  assert.equal(app.$('hdrRankJump'),null,'another identity revision cannot supply standing');
+  assert.equal(app.$('hdrChecklistJump').textContent,'n/acl.');
+  assert.equal(app.$('hdrSpeciesJump').textContent,'2sp.','personal total survives independently unavailable boards');
+  app.window.localStorage.setItem(A.RANK_CACHE_KEY,originalRankCache);
+  A.headerIdentityRefresh();
+  assert.match(app.$('hdrRankJump').getAttribute('aria-label'),/Life List/);
+  assert.equal(app.$('menuScopeHost').querySelector('[data-personal-period="all"]').getAttribute('aria-pressed'),'true');
+  for (const id of ['hdrSpeciesJump','hdrChecklistJump']) {
+    app.click(app.$(id));
+    await waitFor(()=>app.$('myYearList').querySelectorAll('.yrnum').length===2,'owned life screen');
+    assert.equal(app.$('sec-myYearBody').hidden,false);
+    assert.match(app.$('myYearBody').closest('section').querySelector('h2').textContent,/My Life List/);
+    assert.match(app.$('myYearList').textContent,/Date not supplied by eBird/);
+  }
+  app.click(app.$('hdrRankJump'));
+  await waitFor(()=>!app.$('rankBtn').disabled && app.$('rankResults').querySelector('.rankmetrics'),'life board');
+  assert.equal(app.$('sec-rankBtn').hidden,false);
+  assert.equal(app.$('rankResults').querySelector('[data-rank-metric="spp"]').getAttribute('aria-pressed'),'true');
+  assert.equal(app.$('rankResults').querySelector('.rankestimate'),null,'life mode never uses an annual estimate');
+});
+
+test('F805 owned personal snapshots replace corrected data, retain dated complete evidence and reject obsolete owners', async () => {
+  let response = ownedPersonalListFixture(), pending = null;
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(),
+    storage: { ebird_display_name:'Sample Observer' }, fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) {
+        return pending ? new Promise(resolve => { pending.resolve = resolve; }) : response;
+      }
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  assert.equal(await A.checkTaxonomyEdition(true), true);
+  const annual = A.personalListOwner();
+  assert.equal(A.personalListEvidence().state, 'unavailable');
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), null,
+    'unknown history is neither proven seen nor proven unseen');
+  assert.equal(A.needTag('stable', 'Stable bird'), '',
+    'an unavailable source cannot manufacture a need marker');
+  await A.ensurePersonalList(A.activeScope(), true);
+  assert.equal(A.personalListEvidence().count, 1);
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), true);
+  assert.equal(A.isSpeciesSeen('rename', 'New name'), false);
+  const captured = A.seenResolver();
+  assert.equal(captured('stable','Stable bird'),true);
+  assert.ok(A.needTag('rename', 'New name').includes('needflag'));
+  assert.equal(A.personalListEvidence().stale, false);
+  const saved = app.window.localStorage.getItem(A.personalListKey(annual));
+  response = ownedPersonalListFixture({ region:'US-WA-033' });
+  await assert.rejects(A.ensurePersonalList(A.activeScope(), true), /another geography or period/);
+  assert.equal(app.window.localStorage.getItem(A.personalListKey(annual)), saved);
+  assert.equal(A.personalListEvidence().stale, true);
+  response = ownedPersonalListFixture({count:2});
+  await A.ensurePersonalList(A.activeScope(), true);
+  assert.equal(app.window.localStorage.getItem(A.personalListKey(annual)), saved,
+    'an incomplete refresh cannot poison the last complete matching snapshot');
+  assert.match(A.personalListEvidence().failure, /incomplete/);
+  response = ownedPersonalListFixture({codes:['rename']});
+  await A.ensurePersonalList(A.activeScope(), true);
+  assert.equal(A.personalListEvidence().species.stable, undefined,
+    'a corrected/deleted observation heals instead of surviving an endless union');
+  assert.equal(A.personalListEvidence().species.rename, 1);
+  assert.equal(captured('stable','Stable bird'),false,
+    'same-owner corrected observations also update a previously captured resolver');
+  app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY, 'all');
+  assert.equal(A.personalListEvidence().state, 'unavailable');
+  response = ownedPersonalListFixture({period:'all',codes:['stable']});
+  await A.ensurePersonalList(A.activeScope(), true);
+  assert.equal(A.personalListEvidence().species.stable, 1);
+  assert.equal(A.personalListEvidence().species.rename, undefined);
+  assert.notEqual(A.personalListKey(A.personalListOwner()), A.personalListKey(annual));
+  pending = {};
+  const obsolete = A.ensurePersonalList(A.activeScope(), true);
+  for (let i=0; i<20 && !pending.resolve; i++) await new Promise(resolve => setTimeout(resolve,5));
+  assert.equal(typeof pending.resolve, 'function');
+  app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY, 'current');
+  pending.resolve(response);
+  await assert.rejects(obsolete, /superseded/);
+  assert.equal(A.personalListEvidence().species.rename, 1);
+  app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY, 'year:2025');
+  assert.equal(A.personalPeriod(), 'year:' + new Date().getFullYear());
+  assert.equal(app.window.localStorage.getItem(A.PERSONAL_PERIOD_KEY), 'current');
+});
+
+test('F805 fresh exact personal lists resolve current-edition forms without public-table borrowing', async () => {
+  let latest = '2024.0', codes = ['form'];
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [
+        {authorityVer:2024,latest:latest === '2024.0'},
+        {authorityVer:2025,latest:latest === '2025.0'},
+      ];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows(latest);
+      if (/ebird\.org\/lifelist\//.test(url)) return ownedPersonalListFixture({codes,count:1});
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  A.setWatchlist([]);
+  await A.preparePersonalList(A.activeScope(),true);
+  assert.equal(A.isSpeciesSeen('form'),true);
+  assert.equal(A.isSpeciesSeen('stable'),true,'the old exact form resolves to the old parent');
+  A.setWatchlist([{code:'form',name:'Synthetic form'}]);
+  latest = '2025.0';
+  await A.checkTaxonomyEdition(true);
+  assert.equal(A.isSpeciesSeen('form',null,null,true),null,'the old edition cannot lend membership');
+  A.firstYearWrite('US-WA',new Date().getFullYear(),{
+    declared:1,evidenceComplete:true,rows:[{code:'form',name:'Synthetic form'}],
+  });
+  assert.equal(A.isSpeciesSeen('form',null,null,true),null,'a public annual table cannot heal a personal owner');
+  const acquired = await A.preparePersonalList(A.activeScope(),true);
+  assert.equal(A.personalListEvidence().complete,true,
+    'fresh owned acquisition is not permanently quarantined: ' + JSON.stringify(acquired));
+  assert.equal(A.isSpeciesSeen('form',null,null,true),true);
+  assert.equal(A.isSpeciesSeen('newparent',null,null,true),true,'the new source uses its current official parent');
+  assert.equal(A.isSpeciesSeen('stable',null,null,true),false,'the prior parent is not manufactured by union');
+  assert.equal(A.isSpeciesSeen('form'),false,'fresh recorded membership never cancels Needs proof');
+  assert.equal(A.canonicalParents({form:'stable'}).form,'newparent');
+  const mySection = app.$('myYearBody').closest('section');
+  assert.ok(mySection.querySelector('.docbtn'),'successful personal paint preserves help');
+  assert.ok(mySection.querySelector('.refreshbtn'),'successful personal paint preserves refresh');
+  app.window.close();
+});
+
+test('F805 independent news paints immediately without waiting for unknown personal history', async () => {
+  const app = await boot({sample:false,fetch:() => []});
+  const A = app.window.__app, frames = [];
+  app.window.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+  assert.equal(A.personalListEvidence().state,'unavailable');
+  const before = app.state.fetches.length;
+  A.showSection('sec-surgeBtn');
+  assert.ok(app.$('surgeResults').querySelector('[role="progressbar"]'),
+    'unknown personal history delayed the independent news shell');
+  assert.equal(app.state.fetches.length,before,'the shell precedes source acquisition');
+  app.window.close();
+});
+
+test('F805 Stakeout and cached target badges use current owned membership and retire period baselines', async () => {
+  let response = ownedPersonalListFixture({count:1,codes:['stable']});
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return response;
+      if (/data\/obs\/.*\/recent\/stable/.test(url)) return [{
+        speciesCode:'stable',comName:'Stable bird',locId:'L1',locName:'Sample marsh',
+        lat:47.7,lng:-122.2,obsDt:f801Day() + ' 08:00',subId:'SF805'
+      }];
+      return [];
+    }
+  });
+  const A = app.window.__app, storage = app.window.localStorage;
+  await A.lookupSpecies('stable','Stable bird');
+  assert.match(app.$('spLookupResults').textContent,/personal history unknown/);
+  assert.equal(app.$('spLookupResults').querySelector('.needflag'),null);
+  await A.preparePersonalList(A.activeScope(),true);
+  A.renderSpeciesLookup();
+  assert.match(app.$('spLookupResults').textContent,/already on your .*Year List/);
+  const profile = A.chaseProfile(), rows = {'king-notable.json':[{
+    speciesCode:'rename',comName:'New name',locId:'L1',locName:'Sample marsh',
+    lat:47.7,lng:-122.2,obsDt:f801Day() + ' 08:00',subId:'SF805'
+  }]};
+  const states = {};
+  app.window.BirdLogic.planFeeds(profile).forEach(feed => {
+    states[feed.file]='ok';
+    if (!rows[feed.file]) rows[feed.file]=[];
+  });
+  await A.saveChaseSnapshot(profile.slug,['stable'],rows,states);
+  A.menuChaseWarm();
+  await new Promise(resolve => setTimeout(resolve,30));
+  const annual = A.menuChaseBadge('sec-allUnseenBtn');
+  assert.deepEqual(arr(annual.ids),['rename'],'badge recomputes targets from raw cached evidence');
+  const annualSnapshot = JSON.parse(storage.getItem(A.personalListKey(A.personalListOwner())));
+  const reads = app.state.fetches.length;
+  A.menuChaseBadge('sec-allUnseenBtn');
+  assert.equal(app.state.fetches.length,reads);
+  storage.setItem(A.PERSONAL_PERIOD_KEY,'all');
+  A.renderSpeciesLookup();
+  assert.match(app.$('spLookupResults').textContent,/personal history unknown.*Life List/);
+  const lifeOwner = A.personalListOwner();
+  storage.setItem(A.personalListKey(lifeOwner),JSON.stringify({
+    ...annualSnapshot,owner:lifeOwner,source:A.personalListUrl(lifeOwner)
+  }));
+  assert.equal(A.menuChaseBadge('sec-allUnseenBtn'),null,'annual badge cannot cross into a lifetime owner');
+  A.menuChaseWarm();
+  await new Promise(resolve => setTimeout(resolve,30));
+  const lifetime = A.menuChaseBadge('sec-allUnseenBtn');
+  assert.deepEqual(arr(lifetime.ids),['rename']);
+  assert.notEqual(lifetime.seenId,annual.seenId,'period baselines are independent');
+  response = ownedPersonalListFixture({period:'all',count:2,codes:['stable','rename']});
+  await A.ensurePersonalList(A.activeScope(),true);
+  assert.equal(A.menuChaseBadge('sec-allUnseenBtn'),null,'a corrected personal snapshot retires a now-seen target');
+  app.window.close();
+});
+
+test('F805 mixed hotspot and checklist lists retain unknown birds without claiming unseen or all seen', async () => {
+  let response = ownedPersonalListFixture({count:2,codes:['stable']});
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return response;
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  const rows = [{code:'stable',comName:'Stable bird'},{code:'rename',comName:'New name'}];
+  const cachedHot = {birds:rows.map(row => ({code:row.code,name:row.comName,unseen:true}))};
+  const scout = {rows:rows.map(row => ({speciesCode:row.code,comName:row.comName,
+    lat:47.7,lng:-122.2,locId:'L1',locName:'Sample marsh',obsDt:f801Day() + ' 08:00'})),
+    hotspots:[],lat:47.7,lng:-122.2,label:'Sample place',at:Date.now()};
+  const newsRows = Array.from({length:4},(_,index) => ({
+    code:'stable',name:'Stable bird',kind:'Rarity',distMi:3,
+    locId:'L1',loc:'Sample marsh',lat:47.7,lon:-122.2,
+    dateStr:recentObsStamp(0,new Date().getHours() - index * 3 - 1,new Date().getMinutes()),
+    subId:'SF805-' + index,who:'Observer ' + index
+  }));
+  const news = {cv:{merged:newsRows,destinations:[]}};
+  const tax = {nameByCode:{stable:'Stable bird',rename:'New name'},parentOf:{}};
+  const slot = app.window.document.createElement('div');
+  A.renderChecklistSplit(slot,['stable','rename'],tax);
+  assert.match(slot.querySelector('.hsunknown').textContent,/2 birds — personal history unknown/);
+  assert.equal(slot.querySelector('.hsunseen'),null,'unknown is not an all-unseen list');
+  assert.equal(slot.querySelector('.hsseen'),null,'unknown is not an all-seen list');
+  assert.equal(slot.querySelector('.needflag'),null);
+  const card = A.hotspotCard({n:1,locName:'Sample public place',species:rows,facts:['2 recent species']});
+  assert.match(card.textContent,/Stable bird/);
+  assert.match(card.textContent,/New name/);
+  assert.match(card.querySelector('.hsunknown').textContent,/2 birds — personal history unknown/);
+  assert.equal(card.querySelector('.hsunseen'),null);
+  assert.equal(A.locSpeciesSplit('',rows).unknown.length,2);
+  assert.equal(A.splitHotspotBirds(cachedHot).unknown.length,2,
+    'cached Hot/Cold unseen flags cannot override unknown current membership');
+  A.renderScout(scout);
+  assert.match(app.$('scoutResults').textContent,/2 birds — personal history unknown/);
+  assert.equal(app.$('scoutResults').querySelector('.needflag'),null);
+  assert.equal(app.$('scoutResults').querySelectorAll('.sppl > li').length,2,
+    'scouting retains public birds even when personal targets are unknown');
+  assert.equal(A.surgeObservedResult(news,Date.now()).needs.length,1,
+    'independent notable news survives unavailable personal history');
+  await A.preparePersonalList(A.activeScope(),true);
+  assert.equal(A.personalListEvidence().state,'incomplete');
+  A.renderChecklistSplit(slot,['stable','rename'],tax);
+  assert.match(slot.querySelector('.hsunknown').textContent,/1 bird — personal history unknown/);
+  assert.match(slot.querySelector('.hsseen').textContent,/Stable bird/);
+  assert.equal(slot.querySelector('.hsunseen'),null,'partial positives do not prove the other bird absent');
+  response = ownedPersonalListFixture({count:1,codes:['stable']});
+  await A.preparePersonalList(A.activeScope(),true);
+  A.renderChecklistSplit(slot,['stable','rename'],tax);
+  assert.equal(slot.querySelector('.hsunknown'),null);
+  assert.match(slot.querySelector('.hsunseen').textContent,/rename/,
+    'the checked 2024 taxonomy owns the display name, not the synthetic input label');
+  assert.match(slot.querySelector('.hsseen').textContent,/Stable bird/);
+  assert.equal(A.locSpeciesSplit('',rows).unseen.length,1);
+  const hot = A.splitHotspotBirds(cachedHot);
+  assert.equal(hot.unknown.length,0);
+  assert.equal(hot.unseen.length,1);
+  assert.equal(hot.seen.length,1);
+  A.renderScout(scout);
+  assert.equal(app.$('scoutResults').querySelectorAll('.needflag').length,1);
+  assert.equal(A.surgeObservedResult(news,Date.now()).needs.length,1,
+    'independent notable news also survives confirmed personal membership');
+  assert.match(BL.convoyTitle('Oct 7',2,3,2,null),/personal needs unknown/);
+  assert.doesNotMatch(BL.convoyTitle('Oct 7',2,3,2,null),/all seen/);
+});
+
+test('F805 rarity controls disable unknown absence, restore exact list filters and keep Mega need counts honest', async () => {
+  let response = ownedPersonalListFixture({count:2,codes:['stable']});
+  const date = new Date().toLocaleDateString('en-US', {
+    month:'short',day:'numeric',year:'numeric',
+  });
+  const alert = ['stable','rename'].map((code,index) =>
+    '<div id="obs-OBS' + (index + 1) + '" class="Observation">'
+    + '<a href="/species/' + code + '/US-WA" data-species-code="' + code + '">'
+    + '<span class="Heading-main">' + (index ? 'New name' : 'Stable bird') + '</span></a>'
+    + '<a href="/checklist/S805' + index + '" title="Checklist">' + date + ' 10:00</a>'
+    + '<a rel="noopener" title="Map: 47.7, -122.2">Sample Marsh, Washington, United States</a></div>'
+  ).join('');
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return response;
+      if (/ebird\.org\/alert\//.test(url)) return alert;
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  const rows = [{code:'stable',name:'Stable bird',kind:'Rarity'},
+    {code:'rename',name:'New name',kind:'Rarity'}];
+  app.window.localStorage.setItem('ebird_mig_' + A.getReportSlug(),JSON.stringify({
+    samples:{['fixture|' + A.todayStr()]:['stable','rename']},
+    names:{stable:'Stable bird',rename:'New name'},
+  }));
+  app.window.localStorage.setItem(A.firstYearKey('US-WA',new Date().getFullYear()),
+    JSON.stringify({day:A.todayStr(),region:'US-WA',year:new Date().getFullYear(),rows:[]}));
+  const host = app.window.document.createElement('div');
+  app.window.document.body.appendChild(host);
+  let reloads = 0;
+  function paint() {
+    host.innerHTML = A.rarityControls('f805Fixture');
+    A.wireRarityControls('f805Fixture',() => { reloads++; });
+    return host.querySelector('#f805FixtureYear');
+  }
+  let button = paint();
+  assert.equal(button.disabled,true,'the actual pressed button, not its group, is disabled');
+  assert.match(button.textContent,/Unseen unavailable/);
+  assert.equal(button.getAttribute('aria-pressed'),'false');
+  button.click();
+  assert.equal(reloads,0,'unknown history cannot enable a personal filter');
+  assert.equal(A.rarityFilters().year,'all');
+  assert.equal(A.rarityFilterRecords(rows,null).length,2,'independent rarities remain visible');
+  assert.equal(A.rarityFilterRecords(rows,null,{year:'unseen',distance:'region'}).length,0,
+    'explicit absence filtering also rejects unknown membership');
+  await A.loadAbaAlert();
+  assert.match(app.$('abaStatus').textContent,/2 birds — personal history unknown/);
+  assert.doesNotMatch(app.$('abaStatus').textContent,/0 you still need/);
+  await A.loadMigration();
+  assert.match(app.$('migResults').textContent,/Stable bird/,'public forecasts survive unknown history');
+  assert.doesNotMatch(app.$('migResults').textContent,/unseen targets|Nothing on your list is departing/);
+  assert.equal(app.$('migResults').querySelector('.needflag'),null);
+  await A.preparePersonalList(A.activeScope(),true);
+  button = paint();
+  assert.equal(button.disabled,true,'partial positives do not establish complete absence');
+  assert.equal(A.rarityFilterRecords(rows,null).length,2);
+  assert.equal(A.rarityFilterRecords(rows,null,{year:'unseen',distance:'region'}).length,0);
+  response = ownedPersonalListFixture({count:1,codes:['stable']});
+  await A.preparePersonalList(A.activeScope(),true);
+  button = paint();
+  assert.equal(button.disabled,false);
+  assert.equal(button.getAttribute('aria-pressed'),'true');
+  assert.deepEqual(arr(A.rarityFilterRecords(rows,null),row => row.code),['rename']);
+  const migrationNews = A.migrationUnifiedRows(null,new Date(),{arrivals:true,departures:true});
+  const recordedNews = migrationNews.find(row => row.code === 'stable');
+  assert.ok(recordedNews && recordedNews.events.some(event => event.kind === 'arrivals'),
+    'independent migration arrivals must not exclude a confirmed personal bird');
+  button.click();
+  assert.equal(reloads,1,'complete evidence restores local filtering');
+  assert.equal(A.rarityFilters().year,'all');
+  A.setPersonalPeriod('all');
+  response = ownedPersonalListFixture({period:'all',count:2,codes:['stable','rename']});
+  await A.preparePersonalList(A.activeScope(),true);
+  button = paint();
+  assert.match(button.getAttribute('aria-label'),/Life List/);
+  A.setRarityFilter('year','unseen');
+  assert.equal(A.rarityFilterRecords(rows,null).length,0,'lifetime membership owns the filter');
+  app.window.close();
+});
+
+test('F805 Watch management stays usable under unknown history and filters by official exact selected membership', async () => {
+  let response = ownedPersonalListFixture({codes:['stable']});
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return response;
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  A.setWatchlist([{code:'stable',name:'Stable bird'},{code:'rename',name:'New name'}]);
+  A.renderWatch();
+  assert.equal(app.$('nvScopePick').disabled,true);
+  assert.match(app.$('nvScopePick').textContent,/Region unavailable/);
+  assert.equal(app.$('nvResults').querySelectorAll('li').length,2,
+    'management cannot hide watched birds behind unavailable personal history');
+  await A.preparePersonalList(A.activeScope(),true);
+  A.renderWatch();
+  assert.equal(app.$('nvScopePick').disabled,false);
+  assert.equal(app.$('nvResults').querySelectorAll('li').length,1);
+  assert.match(app.$('nvResults').textContent,/Stable bird/);
+  assert.equal(A.isSpeciesSeen('stable','Stable bird'),false,'Needs proof remains a targeting exception');
+  assert.equal(A.personalListEvidence().count,1,'Watch never subtracts from the official total');
+  app.window.localStorage.removeItem('ebird_api_key');
+  A.showSection(app.$('nvResults').closest('section').id);
+  response = ownedPersonalListFixture({codes:['rename']});
+  await A.preparePersonalList(A.activeScope(),true);
+  await waitFor(() => !/Stable bird/.test(app.$('nvResults').textContent)
+    && app.$('nvResults').querySelector('[data-sp="rename"]'), 'same-owner visible Watch repaint');
+  assert.equal(app.$('nvResults').querySelectorAll('li').length,1,
+    'a successful refresh repaints the visible derivation, not just next-open caches');
+  A.setPersonalPeriod('all');
+  response = ownedPersonalListFixture({period:'all',codes:['rename']});
+  await A.preparePersonalList(A.activeScope(),true);
+  A.renderWatch();
+  assert.equal(app.$('nvResults').querySelectorAll('li').length,1);
+  assert.match(app.$('nvScopePick').getAttribute('aria-label'),/Life List/);
+  assert.doesNotMatch(app.$('nvResults').textContent,/Stable bird/,
+    'the Watch display filter cannot borrow the old annual/bundled membership');
+  app.window.close();
+});
+
+function dualRankFixture(metric, rows, region = 'US-WA', period = '2026') {
+  return '<link rel="canonical" href="https://ebird.org/top100?locInfo.regionCode=' + region + '">'
+    + '<select name="year"><option value="' + period + '" selected="selected">' + period + '</option></select>'
+    + rows.map((row) => '<div id="rank-' + row.rank + '" class="ResultsStats-index">' + row.rank + '.</div>'
+      + '<h5 id="' + row.name + '" class="u-margin-none">' + row.name + '</h5>'
+      + (row.profileId ? '<a href="/profile/' + row.profileId + '">Profile</a>' : '')
+      + ['checklist', 'species'].map((kind) => '<div class="StatsIcon StatsIcon--highlight '
+        + ((kind === 'checklist') === (metric === 'cl') ? '' : 'StatsIcon--muted') + '">'
+        + '<svg class="Icon Icon--' + kind + '"></svg>'
+        + '<div class="StatsIcon-stat-count">' + (kind === 'species' ? row.species : row.checklists)
+        + '</div></div>').join('')
+      + '<span class="ResultsStats-details-detail">' + (row.recent || '') + '</span>').join('');
+}
+
+test('F811 dual boards validate source ownership, stable identities and cache-only metric switching', async () => {
+  const spp = [
+    { name: 'Shared birder', profileId: 'P1', rank: 1, species: 356, checklists: 484,
+      recent: 'Ruff (Oct. 6, 2026)' },
+    { name: 'Same name', profileId: 'P2', rank: 2, species: 300, checklists: 400 },
+    { name: 'Ambiguous name', rank: 3, species: 290, checklists: 390 },
+  ];
+  const cl = [
+    { name: 'Same name', profileId: 'P3', rank: 1, species: 250, checklists: 900,
+      recent: 'Red Knot (Oct. 6, 2026)' },
+    { ...spp[0], rank: 2 },
+    { ...spp[2], rank: 3 },
+  ];
+  let fail = '', returnedPeriod = '2026';
+  const app = await boot({ storage: {ebird_display_name:'Shared birder'}, fetch: (url) => {
+    if (/data\/obs\/US-WA\/recent\?/.test(url)) {
+      return [{comName:'Ruff',speciesCode:'ruff'},{comName:'Red Knot',speciesCode:'redkno'}];
+    }
+    if (!/top100/.test(url)) return [];
+    const metric = new URL(url).searchParams.get('rankedBy');
+    if (metric === fail || fail === 'both') return { ok: false, status: 400, text: async () => '' };
+    return dualRankFixture(metric, metric === 'cl' ? cl : spp, 'US-WA', returnedPeriod);
+  } });
+  const A = app.window.__app;
+  assert.equal(A.rankPageIdentity(dualRankFixture('cl', cl)).metric, 'cl');
+  assert.equal(A.rankPageIdentity(dualRankFixture('spp', spp)).period, '2026');
+  assert.equal(A.rankPageIdentity(dualRankFixture('cl', cl).replace(/<select[\s\S]*?<\/select>/, '')).period, '',
+    'request period is never substituted for returned period');
+  assert.equal(A.rankPageIdentity(dualRankFixture('cl', cl,'US-WA','AAAA')
+    .replace('selected="selected"','')).period,'AAAA',
+    'eBird All time uses the actual first-option HTML default, not an explicit selected attribute');
+  app.open(/Top 100/);
+  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').querySelector('.rankmetrics'),
+    'verified dual board');
+  const calls = () => app.state.fetches.filter((url) => /top100/.test(url));
+  assert.equal(calls().filter((url) => new URL(url).searchParams.get('rankedBy') === 'cl').length, 1);
+  assert.equal(app.$('rankResults').querySelectorAll('.rankrow').length, 5,
+    'only the stable shared profile merges; same-name and unidentified people stay separate');
+  const clButton = app.$('rankResults').querySelector('[data-rank-metric="cl"]');
+  const before = calls().length;
+  app.click(clButton);
+  assert.equal(calls().length, before, 'switching metric never reacquires boards');
+  const rows = app.$('rankResults').querySelectorAll('.rankrow');
+  assert.match(rows[0].textContent, /Same name/);
+  assert.equal(rows[0].querySelector('.hsnum').textContent, '1');
+  assert.deepEqual(arr(rows[0].querySelectorAll('.spmetric'), (el) => el.textContent), ['900cl.', '250sp.']);
+  assert.equal(rows[0].querySelector('.spmetric').getAttribute('aria-label'), 'checklists: 900');
+  assert.equal(app.$('rankResults').querySelectorAll('.rankna').length, 2);
+  const historyOwner = (metric) => ['US-WA','2026',metric,A.bcProfile(),A.identityRevision(),'Shared birder'].join('|');
+  const ranks = (metric) => JSON.parse(app.window.localStorage.getItem(
+    'ebird_rankhist:' + historyOwner(metric)) || '[]').map((row) => row.rank);
+  assert.deepEqual(ranks('spp'), [1]);
+  assert.deepEqual(ranks('cl'), [2], 'checklist history must not overwrite or copy species history');
+  assert.match(app.$('rankResults').querySelector('.rankcoverage').textContent, /Names alone are not merged/);
+  const pair = await A.fetchRankPair({ region: 'US-WA' }, 2026, '', false);
+  const ticks = A.rankTickGroups(pair);
+  assert.equal(ticks.groups.Ruff.birders.length, 1,
+    'the same stable birder/tick is not counted twice because their ranks differ');
+  assert.deepEqual(arr(ticks.groups.Ruff.birders[0].metrics), ['spp', 'cl']);
+  assert.equal(ticks.groups['Red Knot'].birders.length, 1);
+  assert.equal(Object.keys(ticks.groups).length, 2);
+  assert.equal(A.lastNewSupportCount({birders:[
+    {name:'Unidentified',metric:'spp'}, {name:'Unidentified',metric:'cl'}
+  ]}),1,'unknown cross-board names cannot count as two independent people');
+  const detailCalls = () => app.state.fetches.filter((url) => /data\/obs\/US-WA\/recent\/(?:ruff|redkno)\?/.test(url));
+  await A.lastNewChecklists(['Ruff'],'US-WA');
+  assert.equal(detailCalls().length,1,'species-only control enriches one unique species');
+  const beforeTicks = calls().length;
+  await A.loadLastNew();
+  assert.equal(calls().length,beforeTicks,'annual Ticks reuses both warm same-owner boards');
+  assert.equal(detailCalls().length,2,'dual union adds one species request, not another request for overlapping Ruff');
+  await A.loadLastNew();
+  assert.equal(detailCalls().length,2,'repeated union reuses the shared species cache');
+  returnedPeriod = '2025';
+  await assert.rejects(A.fetchRank({region:'US-WA',metric:'cl'},2026,'',true), /metric\/period/);
+  returnedPeriod = '2026';
+  fail = 'cl';
+  const partial = await A.fetchRankPair({ region: 'US-WA' }, 2026, '', true);
+  assert.ok(partial.boards.spp && partial.boards.cl && partial.stale.cl);
+  assert.match(partial.coverage, /Checklists stale/);
+  fail = 'both';
+  const failed = await A.fetchRankPair({ region: 'US-HI' }, 2026, '', true);
+  assert.equal(Object.keys(failed.boards).length, 0, 'failed source is not verified empty data');
+  assert.equal(Object.keys(failed.failures).length, 2);
+  app.window.close();
+});
+
 test('parseRankingsHTML reports which board eBird actually served', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -5262,7 +6333,9 @@ test('F764 actual Top 100 refresh bypasses a warm cache and retains data on fail
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
   app.click(button);
   await waitFor(() => !app.$('rankBtn').disabled, 'unchanged read');
-  assert.match(app.$('rankStatus').textContent, /Checked.*unchanged/);
+  assert.match(app.$('rankStatus').textContent, /Partial coverage: Checklists unavailable/,
+    'an unchanged successful board must not conceal the other source failure');
+  assert.match(app.$('rankResults').textContent, /Changed control birder/);
   fail = true;
   app.click(button);
   await waitFor(() => !app.$('rankBtn').disabled, 'failed refresh');
@@ -5277,6 +6350,9 @@ test('F764 repeated refresh and scope changes cannot paint an obsolete leaderboa
   const base = FIX('top100-wa.html');
   const app = await boot({ fetch: (url) => {
     if (!/top100/.test(url)) return [];
+    if (new URL(url).searchParams.get('rankedBy') === 'cl') {
+      return { ok: false, status: 400, text: async () => '' };
+    }
     if (!hold) return base;
     return new Promise((resolve) => pending.push({ url, resolve }));
   } });
@@ -5348,11 +6424,14 @@ test('a cached board from the wrong region is treated as a miss', async () => {
   app.window.close();
 });
 
-test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () => {
+test('Leader Board Ticks reads both metrics for ONE geography: the active report', async () => {
   // It used to union this region + Lower 48, so a Washington chase board
   // listed European Goldfinch, Yellow-headed Amazon and Palila - and, when
   // both fetches returned the same board, every birder twice.
-  const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
+  const rows = [{name:'Fixture birder',profileId:'F1',rank:1,species:10,checklists:20,
+    recent:'Ruff (Oct. 6, 2026)'}];
+  const app = await boot({ fetch: (u) => (/top100/.test(u)
+    ? dualRankFixture(new URL(u).searchParams.get('rankedBy'),rows) : null) });
   const A = app.window.__app;
   const src = HTML.slice(HTML.indexOf('function loadLastNew('),
     HTML.indexOf('function lastNewChecklists('));
@@ -5365,8 +6444,9 @@ test('Leader Board Ticks reads ONE leaderboard: the active report\'s', async () 
   app.open(/Leaderboard Ticks/);
   await new Promise((r) => setTimeout(r, 120));
   const boards = app.state.fetches.filter((u) => /top100/.test(u));
-  assert.equal(boards.length, 1, 'exactly one leaderboard is fetched');
-  assert.match(boards[0], /US-WA/, 'and it is the active report\'s region');
+  assert.equal(boards.length, 2, 'exactly one read per metric');
+  assert.ok(boards.every((url) => /US-WA/.test(url)), 'both share the active geography');
+  assert.deepEqual(boards.map((url) => new URL(url).searchParams.get('rankedBy')), ['spp','cl']);
   app.window.close();
 });
 
@@ -5403,10 +6483,10 @@ test('rankings: history is compact above the official Top 100 order', async () =
   assert.match(rows[0].querySelector('.ntext').textContent, /sally frandsen/);
   assert.equal(app.document.querySelector('.ranktable .rankme'), null,
     'an outside-Top-100 YOU row is not prepended to the public board');
-  assert.equal(rows[0].querySelector('.hsdist').textContent.replace(/\s+/g, ''), '337sp',
+  assert.equal(rows[0].querySelector('.hsdist').textContent.replace(/\s+/g, ''), '337sp.464cl.',
     'species standing is not in the shared card metric column');
   assert.equal(rows[0].querySelectorAll('.hsdist').length, 1,
-    'checklists must not return as a second competing numeric column');
+    'checklists share the selected-metric column rather than adding a competing column');
   const named = rows[0].querySelector('.ntext a');
   assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
     'each birder deep-links to their own row on the board, as the report does');
@@ -5468,6 +6548,25 @@ test('F679 Migration uses checked filters and GBIF seasonal departures before co
   assert.deepEqual(arr(rows, (row) => row.code), ['exmigr'],
     'the GBIF fallback either lost a supported departure or admitted sparse evidence');
   assert.equal(rows[0].days, 15);
+  const publicDepartures = A.dueBackGbifDepartureRows({
+    done: {
+      'Example migrant': { day: '03-15', months: 7, records: 120 },
+      'Unknown span': { day: '03-15', records: 120 },
+      'Invalid departure': { departureDay: 'not-a-date', records: 120 },
+      'Today departure': { departureDay: '09-30', records: 120 },
+    },
+  }, [
+    { sci: 'Example migrant', code: 'exmigr', name: 'Example Migrant' },
+    { sci: 'Unknown span', code: 'unkspan', name: 'Unknown Span' },
+    { sci: 'Invalid departure', code: 'invdep', name: 'Invalid Departure' },
+    { sci: 'Today departure', code: 'toddep', name: 'Today Departure' },
+  ],
+  false, new Date('2026-09-30T12:00:00'), []);
+  assert.deepEqual(arr(publicDepartures, row => row.code), ['toddep', 'exmigr'],
+    'independent departure news needs valid timing, not personal membership or a guessed zero');
+  assert.equal(publicDepartures[0].days, 0, 'a real departure today must remain eligible');
+  assert.match(HTML, /dueBackGbifDepartureRows\(_dueBackView\.store, _dueBackView\.rows, false,/,
+    'the unified independent feed must request public rather than personal departures');
   assert.match(HTML,
     /class="migration-filters sortpick checkedpick"/,
     'Migration filters did not adopt the shared checked-button theme');
@@ -5492,7 +6591,9 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   });
   app.open(/Top 100/);
   await new Promise((r) => setTimeout(r, 150));
-  const raw = app.window.localStorage.getItem('ebird_rankhist:US-WA');
+  const owner = ['US-WA', new Date().getFullYear(), 'spp',
+    app.window.__app.bcProfile(), app.window.__app.identityRevision(), 'Birder Wyatt'].join('|');
+  const raw = app.window.localStorage.getItem('ebird_rankhist:' + owner);
   assert.ok(raw, 'reading the board writes a history entry for the region');
   const hist = JSON.parse(raw);
   assert.equal(hist.length, 1, 'one entry per day, not one per render');
@@ -5503,7 +6604,7 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   // its board daily too, so two opens in one afternoon are one data point.
   app.window.__app.renderRankings(
     { rows: [], me: { name: 'Birder Wyatt', rank: 208, species: 199 } }, 'US-WA', '', 'Birder Wyatt');
-  const after = JSON.parse(app.window.localStorage.getItem('ebird_rankhist:US-WA'));
+  const after = JSON.parse(app.window.localStorage.getItem('ebird_rankhist:' + owner));
   assert.equal(after.length, 1, 'still one entry for today');
   assert.equal(after[0].rank, 208, 'and it is the latest read of the day');
   assert.ok(app.document.querySelector('.ranktrend'),
@@ -5528,7 +6629,8 @@ test('F329 rankings show the best season rank and the first date it was reached'
     { rank: 8, date: '2026-08-03' },
     'the later tie or an invalid snapshot replaced the first real season best');
 
-  app.window.localStorage.setItem('ebird_rankhist:US-WA', JSON.stringify(hist));
+  const owner = ['US-WA',new Date().getFullYear(),'spp',A.bcProfile(),A.identityRevision(),'Birder Wyatt'].join('|');
+  app.window.localStorage.setItem('ebird_rankhist:' + owner, JSON.stringify(hist));
   A.renderRankings({
     rows: [],
     me: { name: 'Birder Wyatt', rank: 10, species: 250, checklists: 120 },
@@ -5596,10 +6698,11 @@ test('convoys render one block per convoy: title, map, birds, checklists', () =>
     'nothing in the section collapses - the user asked for plain lists');
   const spp = HTML.slice(HTML.indexOf('function loadConvoySpecies('),
     HTML.indexOf('function loadConvoys('));
-  assert.ok(spp.indexOf('Unseen') > -1 && spp.indexOf('Already seen') > -1,
-    'species are split into an unseen list and a seen list');
-  assert.ok(spp.indexOf('Unseen') < spp.indexOf('Already seen'),
-    'unseen birds come first - they are the reason to chase the route');
+  assert.ok(spp.indexOf('Personal targets') > -1 && spp.indexOf('Already recorded') > -1
+    && spp.indexOf('personal history unknown') > -1,
+    'species are split into proven targets, unknown history and recorded lists');
+  assert.ok(spp.indexOf('Personal targets') < spp.indexOf('Already recorded'),
+    'proven targets come before recorded birds');
   assert.match(spp, /<ul class="convoysppl">/,
     'both are plain lists, not collapsed toggles');
   // "Nothing here for you" is the whole answer for a convoy, so it is sized
@@ -6138,6 +7241,7 @@ test('Nemesis birds ranks against the chosen anchor, with the default matching h
     { speciesCode: 'zzztst1', comName: 'Testable Sparrow', obsDt: '2026-08-20 08:00',
       locId: 'L1', locName: 'Near Home', lat: '47.76', lng: '-122.15' },
   ];
+  await seedSeen(app,[],undefined,obs);
   const rows = A.computeEasyMisses(obs, 7, {});
   assert.equal(rows.length, 1, 'the sample bird is unseen and reported once');
   const spot = rows[0].spots[0];
@@ -6215,13 +7319,14 @@ test('a watchlist bird is unseen on the ROW as well as in the heading', async ()
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
   app.window.localStorage.setItem('ebird_watchlist_v1',
     JSON.stringify([{ code: 'shbdow', name: "Short-billed Dowitcher" }]));
+  await seedSeen(app,['shbdow']);
 
   assert.equal(A.getReportSeen()['shbdow'], undefined,
     'the LIST calls it unseen — that is what the watchlist is for');
   assert.equal(A.isSpeciesSeen('shbdow', "Short-billed Dowitcher"), false,
     'and so must the ROW. A name match must not undo an explicit '
     + '"I have not confirmed this"');
-  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />WATCH<\/span>/,
+  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />Needs proof<\/span>/,
     'F818 explains the proven-seen watch exception without changing eligibility');
   app.window.close();
 });
@@ -6240,10 +7345,12 @@ test('a name match is scoped to the report, not unioned across regions', async (
   // A bird on some OTHER region's list, and on the life list.
   app.window.localStorage.setItem('ebird_life_names',
     JSON.stringify(['Yellow-headed Blackbird']));
-  assert.equal(A.isSpeciesSeen('', 'Yellow-headed Blackbird'), false,
-    'seen somewhere else is not seen here');
-  assert.equal(A.isSpeciesSeen('', 'Dark-eyed Junco'), true,
-    'but this report\u2019s own list still answers');
+  await seedSeen(app,['daejun']);
+  assert.equal(A.isSpeciesSeen('yehbla', 'Yellow-headed Blackbird'), false,
+    'seen somewhere else is not exact owned membership here');
+  assert.equal(A.isSpeciesSeen('', 'Dark-eyed Junco'), null,
+    'a legacy name-only pool is not an exact canonical personal identity');
+  assert.equal(A.isSpeciesSeen('daejun', 'Dark-eyed Junco'), true);
   app.window.close();
 });
 
@@ -6254,14 +7361,16 @@ test('convoys: a subspecies of a bird on your year list is NOT unseen', async ()
   // positive. analyze.py has always followed reportAs; the app now does too.
   const app = await boot({ fetch: () => null });
   const A = app.window.__app;
-  seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
+  await seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
   assert.equal(A.isSpeciesSeen('daejun', 'Dark-eyed Junco'), true, 'the parent itself');
   // Named nothing like the parent, so ONLY the reportAs chain can answer this.
-  seedSeen(app, ['daejun', 'norfli'], ['Dark-eyed Junco']);
+  await seedSeen(app, ['daejun', 'norfli'], ['Dark-eyed Junco'],[
+    {code:'yeflic1',name:'Yellow-shafted Flicker',category:'issf',reportAs:'norfli'},
+  ]);
   assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker', { yeflic1: 'norfli' }),
     true, 'the form resolves to its parent via reportAs');
-  assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker'), false,
-    'and with no taxonomy loaded there is nothing to resolve it to');
+  assert.equal(A.isSpeciesSeen('yeflic1', 'Yellow-shafted Flicker'), true,
+    'the verified taxonomy, not a caller-supplied map, owns the parent chain');
   assert.equal(A.isSpeciesSeen('daejun5', 'Dark-eyed Junco (Oregon)'), true,
     'and falls back to the name with the parenthetical group stripped');
   assert.equal(A.isSpeciesSeen('rebnut', 'Red-breasted Nuthatch'), false,
@@ -6308,6 +7417,7 @@ test('F739 captured RBA inputs survive scoped Unseen ingestion, deduplication an
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,['amerob'],undefined,king.concat(jefferson,control));
   const profile = A.chaseProfile();
   const plan = BL.planFeeds(profile);
   const countyFeed = plan.find((feed) => feed.kind === 'notable'
@@ -6350,7 +7460,7 @@ test('F739 captured RBA inputs survive scoped Unseen ingestion, deduplication an
   assert.equal(await render('unseen'), unseen, 'cached replay retains the same membership');
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false);
   assert.equal(A.isSpeciesSeen('bcnher', 'Black-crowned Night-Heron'), false);
-  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), false, 'unscoped names are not evidence');
+  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), null, 'unscoped names are not canonical evidence');
   const far = { kind: 'Rarity', code: 'snogoo', name: 'Snow Goose',
     lat: 40, lon: -122, dateStr: '2026-10-02 12:00' };
   assert.equal(A.rarityFilterRecords([far], A.getHome(),
@@ -6369,31 +7479,31 @@ test('F739 profile, declared year and regional code evidence never borrow anothe
     ebird_year_names: JSON.stringify(['Snow Goose']),
   } });
   const A = app.window.__app, store = app.window.localStorage;
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false);
-  assert.match(A.seenDecisionContext().evidence, /scope mismatch/);
+  A.setWatchlist([]);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
+  assert.equal(A.seenDecisionContext().evidence, 'unavailable');
   store.setItem('ebird_seen_meta', JSON.stringify({ source: 'personal', region: 'US-WA', year: year - 1 }));
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false);
-  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), false);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
+  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), null);
   store.setItem('ebird_seen_meta', JSON.stringify({ source: 'personal', region: 'US-WA', year }));
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
-  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), true);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,
+    'matching import metadata is not an exact authenticated personal list');
+  assert.equal(A.isSpeciesSeen('', 'Snow Goose'), null);
   assert.equal(store.getItem('ebird_seen'), seen, 'scope rejection must not rewrite personal source evidence');
   store.setItem('ebird_own_seen:wa', JSON.stringify({
     bcnher: { d: `${year - 1}-10-01` }, amerob: { d: `${year}-10-01` },
     tuftpu: { d: `2 Oct ${year}` }, chispa: { d: `2 Oct ${year - 1}` },
     merlin: { d: 'not a date' },
   }));
-  assert.equal(A.isSpeciesSeen('bcnher', 'Black-crowned Night-Heron'), false);
-  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), true);
-  assert.equal(A.isSpeciesSeen('tuftpu', 'Tufted Puffin'), true,
-    'the harvest stores the export-shaped date, not an ISO date');
-  assert.equal(A.isSpeciesSeen('chispa', 'Chipping Sparrow'), false);
-  assert.equal(A.isSpeciesSeen('merlin', 'Merlin'), false, 'an unreadable date is not current-year evidence');
-  seedSeen(app, ['snogoo']);
+  for (const code of ['bcnher','amerob','tuftpu','chispa','merlin']) {
+    assert.equal(A.isSpeciesSeen(code),null,'harvested rows do not prove exact selected membership');
+  }
+  await seedSeen(app, ['snogoo']);
   store.setItem('ebird_seen_meta', JSON.stringify({ source: 'seed', year }));
   app.window.__SEED_BIRDLIST__.year = year - 1;
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false, 'an old bundle is not this year evidence');
-  assert.match(A.seenDecisionContext().evidence, /bundle year mismatch/);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true,
+    'exact owned membership is independent of obsolete bundle metadata');
+  assert.equal(A.seenDecisionContext().evidence, 'complete');
   app.window.__SEED_BIRDLIST__.year = year;
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
   const regionSeed = app.window.__SEED_BIRDLIST__.seenByReport;
@@ -6401,13 +7511,17 @@ test('F739 profile, declared year and regional code evidence never borrow anothe
   regionSeed.lower48.codes = ['snogoo'];
   regionSeed.wa.codes = [];
   A.setActiveReport('aba');
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,'a bundle cannot lend Washington personal evidence to ABA');
+  await seedSeen(app,['snogoo']);
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
   A.setActiveReport('lower48');
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
+  await seedSeen(app,['snogoo']);
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
   A.setActiveReport('wa');
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true,'the exact Washington snapshot remains owned');
   const context = A.seenDecisionContext();
-  assert.deepEqual(Object.keys(context).sort(), ['evidence', 'profile', 'region', 'year']);
+  assert.deepEqual(Object.keys(context).sort(), ['evidence', 'period', 'profile', 'region', 'year']);
   assert.doesNotMatch(JSON.stringify(context), /Snow Goose|snogoo|bcnher/);
   app.window.close();
 
@@ -6418,12 +7532,14 @@ test('F739 profile, declared year and regional code evidence never borrow anothe
     'bcp:other:ebird_seen_field': 'speciesCode',
     'bcp:other:ebird_seen_meta': JSON.stringify({ source: 'personal', region: 'US-WA', year }),
   } });
+  assert.equal(alternate.window.__app.isSpeciesSeen('snogoo', 'Snow Goose'), null);
+  await seedSeen(alternate,['snogoo']);
   assert.equal(alternate.window.__app.isSpeciesSeen('snogoo', 'Snow Goose'), true);
   assert.equal(alternate.window.__app.seenDecisionContext().profile, 'alternate');
   alternate.window.close();
 });
 
-test('F739 explicitly scoped name-backed imports work without overriding code-backed negatives', async () => {
+test('F739 scoped imports cannot replace exact personal evidence or canonical code-backed negatives', async () => {
   const year = new Date().getFullYear();
   const app = await boot({ sample: false, storage: {
     ebird_seen: JSON.stringify({ 'anser caerulescens': 1 }),
@@ -6432,20 +7548,22 @@ test('F739 explicitly scoped name-backed imports work without overriding code-ba
     ebird_year_names: JSON.stringify(['Snow Goose']),
   } });
   const A = app.window.__app, store = app.window.localStorage;
-  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
   for (const meta of [
     { source: 'csv', region: 'US-OR', year },
     { source: 'csv', region: 'US-WA', year: year - 1 },
     { source: 'csv', year },
   ]) {
     store.setItem('ebird_seen_meta', JSON.stringify(meta));
-    assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false,
-      'wrong or unstamped name evidence cannot establish a regional tick');
+    assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,
+      'import metadata cannot establish an exact regional tick');
   }
   store.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', region: 'US-WA', year }));
   store.setItem('ebird_seen_field', 'speciesCode');
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
+  await seedSeen(app,[],null,[{code:'snogoo',name:'Snow Goose'},{code:'ruff',name:'Ruff'}]);
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false,
-    'a negative code-backed source is not overridden by a matching name');
+    'complete canonical absence is not overridden by matching imported names');
   store.setItem('ebird_seen_field', 'sciName');
   store.setItem(A.WATCH_KEY, JSON.stringify([{ code: 'snogoo', name: 'Snow Goose' }]));
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), false, 'an explicit watch still wins');
@@ -6456,32 +7574,39 @@ test('F739 explicitly scoped name-backed imports work without overriding code-ba
   assert.equal(A.isSpeciesSeen('ruff', 'Ruff'), false,
     'an unstamped common name that equals its code is still not code evidence');
   store.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', region: 'US-WA', year }));
-  assert.equal(A.isSpeciesSeen('ruff', 'Ruff'), true, 'the explicit scoped name positive remains usable');
+  assert.equal(A.isSpeciesSeen('ruff', 'Ruff'), false,'even matching metadata cannot replace complete owned absence');
+  await seedSeen(app,['ruff']);
+  assert.equal(A.isSpeciesSeen('ruff', 'Ruff'), true,'the exact owned positive remains usable');
   app.window.close();
 });
 
-test('F739 pending exact county evidence cannot cache a response under a newer county', async () => {
+test('F739 pending exact personal evidence cannot cache a response under a newer county', async () => {
   let release;
   const app = await boot({ sample: false, storage: { ebird_display_name: 'Synthetic observer' },
-    fetch: (url) => /\/bird-list\?/.test(url)
+    fetch: (url) => /\/lifelist\//.test(url)
       ? new Promise((resolve) => { release = resolve; }) : [] });
   const A = app.window.__app;
   A.setCountyView('US-WA-033');
+  await seedSeen(app,[]);
+  app.window.localStorage.removeItem(A.personalListKey(A.personalListOwner()));
   const loading = A.ensureCountySeenEvidence(A.activeScope());
-  await waitFor(() => release, 'held exact county year page');
+  await waitFor(() => release, 'held exact county personal page');
   assert.equal(A.countySeenEvidenceReady(), false);
-  assert.match(A.seenDecisionContext().evidence, /pending/);
+  assert.equal(A.seenDecisionContext().evidence, 'unavailable');
   A.setCountyView('US-WA-061');
-  release(FIRST_YEAR_HTML);
+  release(ownedPersonalListFixture({region:'US-WA-033',codes:['snogoo']}));
   assert.equal(await loading, false);
   assert.equal(A.firstYearRead('US-WA-033', new Date().getFullYear()), null);
   assert.equal(A.countySeenEvidenceReady(), false);
   A.firstYearWrite('US-WA-061', new Date().getFullYear(), {
     declared: 1, rows: [{ code: 'snogoo', name: 'Snow Goose' }],
   });
+  assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,
+    'an annual public regional table never establishes personal membership');
+  await seedSeen(app,['snogoo']);
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), true);
   assert.equal(A.isSpeciesSeen('bcnher', 'Black-crowned Night-Heron'), false);
-  assert.match(A.seenDecisionContext().evidence, /exact county ready/);
+  assert.equal(A.seenDecisionContext().evidence, 'complete');
   app.window.close();
 });
 
@@ -6498,6 +7623,7 @@ test('F747 private RBA access metadata survives overlapping feeds, cache and Not
     },
   });
   const A = app.window.__app, home = A.getHome();
+  await seedSeen(app,[]);
   const raw = {
     speciesCode: 'bcnher', comName: 'Black-crowned Night Heron',
     locName: 'Synthetic personal location', locId: 'L-ACCESS',
@@ -6849,7 +7975,7 @@ test('easy misses: ranked by location-days, excluding birds on your year list', 
   // The bundled seed IS the WA year list, which of course has robins on it —
   // so the fixture replaces both halves of the set, codes and names, or the
   // real list decides the answer instead of the fixture.
-  seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
+  await seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
 
   const obs = [];
   const add = (code, name, day, loc) => obs.push({
@@ -6902,7 +8028,6 @@ test('F414 Nemesis retains qualifiers beyond row 25 and reveals them without ref
   const A = app.window.__app;
   app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
     JSON.stringify({ year: 'all', distance: 'region' }));
-  seedSeen(app, []);
   const obs = [];
   for (let i = 0; i < 30; i++) {
     const code = 'nem' + String(i).padStart(2, '0');
@@ -6915,6 +8040,7 @@ test('F414 Nemesis retains qualifiers beyond row 25 and reveals them without ref
       });
     }
   }
+  await seedSeen(app,[],null,obs);
   const rows = A.computeEasyMisses(obs, 10, {});
   assert.equal(rows.length, 30,
     'the computation still truncates valid qualifiers at the old 25-row display cap');
@@ -6982,6 +8108,9 @@ test('F476 Common birds completes and paints one regional day at a time', async 
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[
+    {code:'zzztst1',name:'Test Robin'},{code:'zzztst2',name:'Test Sparrow'},
+  ]);
   const dates = [
     new Date('2026-07-21T12:00:00'),
     new Date('2026-07-20T12:00:00'),
@@ -7859,7 +8988,8 @@ test('F374 a forced offline patch refresh keeps the last good chase snapshot and
   });
   const A = app.window.__app;
   const W = app.window;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[{code:'f374a',name:'Cached Airplane Bird'},
+    {code:'f374b',name:'Cached Airplane Gull'}]);
   const profile = A.chaseProfile();
   const feeds = W.BirdLogic.planFeeds(profile);
   const rows = {};
@@ -7924,7 +9054,7 @@ test('F374 forced offline tier refreshes retain both Half-day and Full-day snaps
   });
   const A = app.window.__app;
   const W = app.window;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const base = A.chaseProfile();
   const baseFeeds = W.BirdLogic.planFeeds(base);
   const baseRows = {};
@@ -7986,8 +9116,12 @@ test('chase menu badges clear and keep separate baselines when the region change
   const app = await boot();
   const A = app.window.__app;
   const W = app.window;
+  await seedSeen(app,[]);
   const rows = { 'king-recent.json': [{
     speciesCode: 'wessan', comName: 'Western Sandpiper',
+    obsDt: '2026-09-02 08:00', locId: 'L1', locName: 'Marymoor',
+  }, {
+    speciesCode: 'solsan', comName: 'Solitary Sandpiper',
     obsDt: '2026-09-02 08:00', locId: 'L1', locName: 'Marymoor',
   }] };
   const states = {};
@@ -7996,7 +9130,10 @@ test('chase menu badges clear and keep separate baselines when the region change
     if (!rows[feed.file]) rows[feed.file] = [];
   });
   await A.saveChaseSnapshot('wa', ['wessan', 'solsan'], rows, states);
-  W.localStorage.setItem('bc_seen_v1:sec-allUnseenBtn:wa',
+  A.menuChaseWarm();
+  await waitFor(() => A.menuChaseBadge('sec-allUnseenBtn'),'Washington cached badge');
+  const waSeenId = 'bc_seen_v1:' + A.menuChaseBadge('sec-allUnseenBtn').seenId;
+  W.localStorage.setItem(waSeenId,
     JSON.stringify({ ids: ['wessan'] }));
   A.menuChaseWarm();
   await new Promise((r) => setTimeout(r, 20));
@@ -8006,10 +9143,14 @@ test('chase menu badges clear and keep separate baselines when the region change
   A.setActiveReport('az');
   assert.equal(A.menuChaseBadge('sec-allUnseenBtn'), null,
     'Washington targets disappear immediately when Arizona has no snapshot');
+  W.localStorage.setItem(A.homeKey('lat'),'33.45');
+  W.localStorage.setItem(A.homeKey('lng'),'-112.05');
+  await seedSeen(app,[],null,[{code:'gillwo',name:'Gila Woodpecker'}]);
 
   const azRows = { 'geo-recent.json': [{
     speciesCode: 'gillwo', comName: 'Gila Woodpecker',
     obsDt: '2026-09-02 08:00', locId: 'AZ1', locName: 'Papago Park',
+    lat: A.chaseProfile().home.lat, lng: A.chaseProfile().home.lng,
   }] };
   const azStates = {};
   W.BirdLogic.planFeeds(A.chaseProfile()).forEach((feed) => {
@@ -8017,13 +9158,13 @@ test('chase menu badges clear and keep separate baselines when the region change
     if (!azRows[feed.file]) azRows[feed.file] = [];
   });
   await A.saveChaseSnapshot('az', ['gillwo'], azRows, azStates);
-  W.localStorage.setItem('bc_seen_v1:sec-allUnseenBtn:az',
-    JSON.stringify({ ids: [] }));
   A.menuChaseWarm();
-  await new Promise((r) => setTimeout(r, 20));
+  await waitFor(() => A.menuChaseBadge('sec-allUnseenBtn'),'Arizona cached badge');
+  W.localStorage.setItem('bc_seen_v1:' + A.menuChaseBadge('sec-allUnseenBtn').seenId,
+    JSON.stringify({ids:[]}));
   assert.equal(A.menuChaseBadge('sec-allUnseenBtn').n, 1,
     'Arizona uses its own target list and its own last-seen baseline');
-  assert.ok(W.localStorage.getItem('bc_seen_v1:sec-allUnseenBtn:wa'),
+  assert.ok(W.localStorage.getItem(waSeenId),
     'the Washington baseline remains separately stored');
   app.window.close();
 });
@@ -8721,6 +9862,7 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
     'Vagrans misleadingus': { day: '04-18', records: 2 },    // occurrence, not a season
   } };
   rows.push({ code: 'vagmis', name: 'Misleading Vagrant', sci: 'Vagrans misleadingus' });
+  await seedSeen(app,['rufhum'],undefined,rows);
   const now = new Date(2026, 3, 15);            // 15 Apr 2026
   const seen = { rufhum: 1 };                   // already got this one
   const out = a.dueBackRows(store, rows, seen, now);
@@ -8785,7 +9927,8 @@ test('F637/F642 opening Migration loads due-back data without a refresh tap', as
   const cards = [...app.$('bcBody').querySelectorAll('.migration-list > li')];
   assert.deepEqual(cards.map((row) => row.querySelector('.splink').textContent),
     ['Returned Migrant', 'Regional Migrant', 'Next Migrant'],
-    'the arrival timeline is not chronological across today');
+    'the arrival timeline is not chronological across today: '
+      + JSON.stringify(A.migrationUnifiedRows(null, now)));
   assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
     'Arrival window is now, now, expected');
   assert.equal(cards[0].querySelector('.migration-event-icon').textContent, '🛬');
@@ -9301,14 +10444,14 @@ test('F407 calls the seen-year surface My Year List and explains its scope', asy
     .map((node) => node.textContent).join('').trim();
   const tile = [...app.document.querySelectorAll('#menuList .toclink')]
     .find((link) => link.getAttribute('data-at') === 'myYearBody');
-  assert.equal(heading, 'Your seen bird list this year',
-    'the section heading uses the menu subtitle');
+  assert.equal(heading, '📅 My Year List',
+    'the personal section names the selected period and preserves header controls');
   assert.ok(tile, 'the My Year List menu tile rendered');
   assert.equal(tile.getAttribute('aria-label'), '📅 My Year List',
     'the accessible tile name uses the requested title');
-  assert.equal(tile.querySelector('.tilesub').textContent.trim(),
-    'Your seen bird list this year',
-    'the visible tile subtitle states exactly what the list contains');
+  assert.match(tile.querySelector('.tilesub').textContent.trim(),
+    /exact personal current-year list/,
+    'the visible dynamic subtitle names the selected exact basis');
   app.window.close();
 });
 
@@ -9759,6 +10902,7 @@ test('F795 Favorite Remove stays out of species rows and remains available when 
     { speciesCode: 'fixturebird1', comName: 'First fixture bird', howMany: 2, obsDt: recentObsStamp() },
     { speciesCode: 'fixturebird2', comName: 'Second fixture bird', howMany: 1, obsDt: recentObsStamp() },
   ];
+  await seedSeen(app,[],null,rows);
   A.seedFavDetail('LNEAR', rows);
   A.seedFavDetail('LFAR', []);
   A.renderFavs();
@@ -10097,7 +11241,7 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
     { code: 'amerob', name: 'American Robin' },
   ]) } });
   const A = app.window.__app;
-  seedRarityChase(app, [
+  await seedRarityChase(app, [
     { code: 'amerob', name: 'American Robin', loc: 'Warm Park', locId: 'LWARM',
       distMi: 4, lat: 47.6, lon: -122.3, dateStr: recentObsStamp() },
   ]);
@@ -10140,7 +11284,7 @@ test('F771 editing the visible Watch membership automatically reacquires its sco
     { code: 'amerob', name: 'American Robin' },
   ]) } });
   const A = app.window.__app;
-  seedRarityChase(app, [
+  await seedRarityChase(app, [
     { code: 'amerob', name: 'American Robin', loc: 'Robin Park', locId: 'LR',
       distMi: 4, dateStr: recentObsStamp() },
     { code: 'chispa', name: 'Chipping Sparrow', loc: 'Sparrow Park', locId: 'LS',
@@ -10836,6 +11980,7 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
       });
     }
   });
+  await seedSeen(app,[],null,obs);
   const rows = compute(obs, days, {});
   assert.ok(rows.length >= 10,
     'the bar drops until at least ten birds qualify (got ' + rows.length + ')');
@@ -10857,6 +12002,7 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
         locId: 'L' + (d % 4), locName: 'Spot', lat: 47.7, lng: -122.2, subId: 'S' + s + d,
       });
     }
+    await seedSeen(app,[],null,rich);
   }
   assert.equal(compute(rich, days, {}).minFreq, 0.4,
     'the bar only moves when it has to');
@@ -10910,27 +12056,29 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
   ]));
 
   A.setActiveReport('wa');
+  await seedSeen(app,[waOnly]);
   A.renderWatch();
   let buttons = [...app.document.querySelectorAll('#nvScope .nvscopebtn')];
   assert.deepEqual(buttons.map((button) => button.querySelector('.presslabel').textContent),
     ['Region'], 'Needs proof does not use the shared Region toggle');
   assert.deepEqual(buttons.map((button) => button.getAttribute('aria-pressed')),
     ['true'], 'Region is not the default scope');
-  assert.match(app.$('nvResults').textContent, /Washington control/);
-  assert.doesNotMatch(app.$('nvResults').textContent, /Hawaii control/,
+  assert.ok(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`));
+  assert.equal(app.$('nvResults').querySelector(`[data-sp="${hiOnly}"]`),null,
     'the Washington view includes a bird absent from its year list');
 
   app.click(buttons[0]);
-  assert.match(app.$('nvResults').textContent, /Washington control/);
-  assert.match(app.$('nvResults').textContent, /Hawaii control/,
+  assert.ok(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`));
+  assert.ok(app.$('nvResults').querySelector(`[data-sp="${hiOnly}"]`),
     'All does not reveal the retained cross-region watchlist');
 
   buttons = [...app.document.querySelectorAll('#nvScope .nvscopebtn')];
   app.click(buttons[0]);
   A.setActiveReport('hi');
+  await seedSeen(app,[hiOnly]);
   A.renderWatch();
-  assert.match(app.$('nvResults').textContent, /Hawaii control/);
-  assert.doesNotMatch(app.$('nvResults').textContent, /Washington control/,
+  assert.ok(app.$('nvResults').querySelector(`[data-sp="${hiOnly}"]`));
+  assert.equal(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`),null,
     'the Hawaii view includes a bird absent from its year list');
   assert.equal(A.getWatchlist().length, 2,
     'region filtering deleted the hidden report entry from shared storage');
@@ -10961,6 +12109,7 @@ test('editing the watchlist moves species in and out of the seen set', async () 
   // named here: the authored list is user data and a verified bird leaves it.
   assert.ok(held.length >= 2, 'fixture assumption: WA really holds watchlist codes back');
   const tracked = held[0], other = held[1];
+  await seedSeen(app,[tracked]);
 
   assert.equal(A.getReportSeen()[tracked], undefined,
     'a tracked species is deliberately NOT seen — that is what makes it resurface');
@@ -11022,6 +12171,7 @@ test('the Needs-verification section renders the tracked list with controls', as
       { code: '', name: 'Unresolvable Bird' },
     ]) },
   });
+  await seedSeen(app,[],null,[{code:'aaa',name:'Alpha Bird'},{code:'bbb',name:'Beta Bird'}]);
   app.open(/Watch List/);
   assert.equal(app.$('nvResults').querySelectorAll('li:not(.nvdropped)').length, 0,
     'This region hides tracked species absent from the active year list');
@@ -11324,7 +12474,7 @@ test('F801 favorites publish each patch while later patches remain pending', asy
     }];
     return [];
   } });
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const updates = [];
   const A = app.window.__app;
   const pending = A.loadFavoritePatchAlertSource(false, A.activeScope(), (value) => updates.push(value));
@@ -11432,7 +12582,7 @@ test('F821 every flock refresh buys one page and retires all daily-cache entries
 test('F801 stale retained alerts paint immediately and reapply observation age, seen and scope', async () => {
   const app = await boot();
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const stamp = Date.now();
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', retainedAt: stamp - 2 * 3600000, rows: [
     { code: 'margod', name: 'Marbled Godwit', time: stamp, when: f801Day() + ' 00:01',
@@ -11443,7 +12593,7 @@ test('F801 stale retained alerts paint immediately and reapply observation age, 
   assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
   assert.doesNotMatch(app.$('surgeResults').textContent, /Expired control/);
   assert.ok(app.$('surgeResults').querySelector('[data-surge-retained]'));
-  seedSeen(app, ['margod']);
+  await seedSeen(app, ['margod']);
   assert.equal(A.loadSurgeRetained().favorite.rows.length, 0, 'newly seen Favorite stayed eligible');
   A.setCountyView('US-WA-033');
   assert.equal(A.loadSurgeRetained(), null, 'parent alerts leaked into a county snapshot');
@@ -11475,7 +12625,7 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
   releaseFavorite([]);
   await waitFor(() => app.window.__audit.events()
     .filter((row) => row.event === 'report_source_settled' && row.attrs.source !== 'mega')
-    .length === 6, 'all non-Mega source settlements');
+    .length === 7, 'all non-Mega source settlements');
   await new Promise((resolve) => setTimeout(resolve, 1000));
   let samples = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples;
   assert.equal(samples.length, 1);
@@ -11488,7 +12638,7 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
   const sourceEvents = app.window.__audit.events()
     .filter((row) => row.event === 'report_source_settled' && row.attrs.load_id === firstId);
   assert.deepEqual(Array.from(sourceEvents, (row) => row.attrs.source).sort(),
-    ['birdcast', 'favorites', 'hotspots', 'leaderboard', 'mass', 'mega', 'observations']);
+    ['birdcast', 'favorites', 'foy', 'hotspots', 'leaderboard', 'mass', 'mega', 'observations']);
   const finished = app.window.__audit.events()
     .find((row) => row.event === 'report_load_complete' && row.attrs.load_id === firstId);
   assert.match(finished.attrs.completion_scope, /photos excluded/);
@@ -11561,7 +12711,7 @@ test('F801 a failed refresh keeps retained cards and a successful empty refresh 
     return [];
   } });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
       locId: 'LF801KEEP', locName: 'Retained marsh', checklistId: 'SF801KEEP' },
@@ -11583,7 +12733,7 @@ test('F801 a failed refresh keeps retained cards and a successful empty refresh 
 
 test('F801 durable retained results survive reopen without an API response', async () => {
   const first = await boot();
-  seedSeen(first, []);
+  await seedSeen(first, []);
   await first.window.__app.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
       locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
@@ -11593,7 +12743,7 @@ test('F801 durable retained results survive reopen without an API response', asy
     .map((key) => [key, first.window.localStorage.getItem(key)]));
   first.window.close();
   const second = await boot({ storage });
-  seedSeen(second, []);
+  await seedSeen(second, []);
   second.window.__app.loadSurge();
   await waitFor(() => second.$('surgeResults').textContent.includes('Marbled Godwit'),
     'decompressed retained result');
@@ -11605,7 +12755,7 @@ test('F801 durable retained results survive reopen without an API response', asy
 test('F801 a changed Home supersedes active work and retained cards reapply seen eligibility', async () => {
   const app = await boot();
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   app.window.requestAnimationFrame = () => 1;
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
@@ -11619,7 +12769,7 @@ test('F801 a changed Home supersedes active work and retained cards reapply seen
   assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
     'the old Home DOM survived the new context first frame');
   app.window.localStorage.setItem(A.homeKey('lat'), home);
-  seedSeen(app, ['margod']);
+  await seedSeen(app, ['margod']);
   A.loadSurge();
   assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
     'retained DOM bypassed current seen eligibility');
@@ -11678,7 +12828,7 @@ test('F807 quota failure keeps the durable snapshot, serves memory, and recovers
     },
   });
   const A = app.window.__app, W = app.window;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   W.CompressionStream = CompressionStream;
   W.DecompressionStream = DecompressionStream;
   W.Response = Response;
@@ -11711,6 +12861,7 @@ test('F807 quota failure keeps the durable snapshot, serves memory, and recovers
     when: f801Day() + ' 00:01', locId: 'LF807', checklistId: 'SF807NEW',
     evidence: 'quota fixture '.repeat(16),
   }));
+  await seedSeen(app,[],null,replacement);
   const stored = await A.saveSurgeRetainedPart('favorite', {
     state: 'ok', rows: replacement,
   });
@@ -11760,6 +12911,7 @@ test('F807 quota failure keeps the durable snapshot, serves memory, and recovers
 test('F807 retained snapshots remain readable from legacy plain JSON', async () => {
   const first = await boot();
   const A = first.window.__app;
+  await seedSeen(first,[],null,[{code:'legacybird',name:'Legacy bird'}]);
   first.window.CompressionStream = CompressionStream;
   first.window.DecompressionStream = DecompressionStream;
   first.window.Response = Response;
@@ -11773,6 +12925,7 @@ test('F807 retained snapshots remain readable from legacy plain JSON', async () 
   first.window.close();
 
   const second = await boot({ storage: { [key]: legacyJson } });
+  await seedSeen(second,[],null,[{code:'legacybird',name:'Legacy bird'}]);
   assert.equal(second.window.__app.loadSurgeRetained().favorite.rows[0].name, 'Legacy bird',
     'the synchronous legacy-JSON path no longer hydrates old retained data');
   second.window.close();
@@ -11800,6 +12953,7 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
   const app = await boot({ storage: { ...f801Days(), ebird_favs: JSON.stringify([
     { id: 'reopen', locId: 'LF801REOPEN', locName: 'Retained marsh', region: 'US-WA' },
   ]) }, fetch(url) {
+    if (/\/bird-list\?yr=cur&rank=lrec/.test(url)) return foySourceFixture(2);
     if (/bird-list/.test(url)) return f821Page();
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
@@ -11811,14 +12965,14 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
   } });
   const A = app.window.__app;
   A.LOADERS.surgeBtn.reachability = false;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   app.open(/Bird Gen/);
   await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
     .samples[0]?.outcome === 'ok', 'initial Bird Gen settlement');
   assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
   const requests = app.state.fetches.length;
   app.click(app.$('navBack'));
-  seedSeen(app, ['margod']);
+  await seedSeen(app, ['margod']);
   app.open(/Bird Gen/);
   assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/,
     'reopening kept an ineligible card from the previous DOM');
@@ -11909,6 +13063,7 @@ test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active c
   assert.equal(result.rows[0].count, 2,
     'duplicate reports did not retain the newest evidence');
   assert.equal(result.rows[0].checklistId, 'SNEW');
+  await seedSeen(app,['amerob'],null,[{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
 
   A.renderSurge([], [], [], [], [], {
     mega: 'notApplicable', observations: 'ok', leaderboard: 'notApplicable',
@@ -11927,7 +13082,7 @@ test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active c
   assert.match(app.$('surgeResults').textContent, /Favorite patch feeds failed/i,
     'successful rows hid the partial-source failure');
 
-  seedSeen(app, ['shtsan', 'amerob']);
+  await seedSeen(app, ['shtsan', 'amerob']);
   A.renderSurge([], [], [], [], [], {
     mega: 'notApplicable', observations: 'ok', leaderboard: 'notApplicable',
     hotspots: 'notApplicable', favorites: result.state,
@@ -12286,7 +13441,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   assert.equal(classify(rows.map((r) => ({ ...r, locName: 'Private residence',
     locationPrivate: false }))).length, 0, 'privacy names must not trust the pin flag');
   assert.equal(classify(rows.map((r) => ({ ...r, subnational1Code: '' }))).length, 0);
-  seedSeen(app, ['margod', 'snogoo']);
+  await seedSeen(app, ['margod', 'snogoo']);
 
   A.renderSurge([], [], [], [], [], {
     mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
@@ -12317,7 +13472,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
     ...godwit, code: 'flock' + i, name: 'Flock ' + i,
   }));
   A.renderSurge([], [], [], [], [], {
-    mass: 'partial', massCoverage: '12 of 13 candidate species; capped coverage',
+    mass: 'partial', massCoverage: '12 of 13 high-count table rows; capped coverage',
   }, [], [], many);
   assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]').length, 3);
   const showAll = [...app.$('surgeResults').querySelectorAll('button')]
@@ -12326,7 +13481,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   app.click(showAll);
   assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]').length, 5);
   assert.match(app.$('surgeResults').textContent,
-    /12 of 13 candidate species.*not exhaustive/s,
+    /12 of 13 high-count table rows.*not exhaustive/s,
     'Show all removed the sampling/coverage disclosure');
   app.window.close();
 });
@@ -12429,6 +13584,72 @@ test('F808 total Mass Flock acquisition failure is logged as failed coverage', a
     .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
   assert.match(verdict, /source failed; high-count page rows 0/);
   assert.match(verdict, /qualifying flocks 0/);
+  app.window.close();
+});
+
+test('F824 access rejection recovers through the same verified rendered page without source fan-out', async () => {
+  for (const direct of ['<html>anubis_challenge</html>', '<html><title>Sign in</title></html>']) {
+    const app = await boot({ fetch: (url) => /bird-list/.test(url) ? direct : f821Hotspots() });
+    const handlers = {};
+    let opened, browser, injections = 0;
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+      addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+      openWebView(options) {
+        opened = options;
+        browser = new JSDOM(f821Page([{}]), { url: options.url, runScripts: 'outside-only' });
+        browser.window.mobileApp = { postMessage(message) {
+          handlers.messageFromWebview({ id: 'mass-window', detail: message.detail });
+        } };
+        setTimeout(() => handlers.browserPageLoaded({ id: 'mass-window' }), 10);
+        return Promise.resolve({ id: 'mass-window' });
+      },
+      hide() {}, show() {}, close() {},
+      executeScript({ code }) {
+        injections++;
+        if (injections === 1) {
+          browser.window.history.replaceState(null, '', opened.url.replace('yr=curM', 'yr=cur'));
+        } else browser.window.history.replaceState(null, '', opened.url);
+        browser.window.eval(code);
+        return Promise.resolve();
+      },
+    } } };
+    const result = await app.window.__app.loadMassFlockAlertSource(false, app.window.__app.activeScope());
+    assert.equal(result.rows.length, 1, 'valid recovery still uses exact count/place qualification');
+    assert.equal(result.state, f821State());
+    assert.equal(injections, 2, 'wrong period must not resolve the capture');
+    assert.match(opened.url, /yr=curM&rank=hc&hs_sortBy=count&locale=en$/);
+    assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
+    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+    assert.ok(app.window.__dbg.buf.some((row) => /Mass page classification: (ANUBIS|LOGIN)/.test(row.msg)));
+    const A = app.window.__app;
+    await A.saveSurgeRetainedPart('mass', result);
+    app.window.Capacitor.Plugins.CapgoInAppBrowser.openWebView = () =>
+      Promise.reject(new Error('Controlled same-page browser unavailable'));
+    const failed = await A.loadMassFlockAlertSource(true, A.activeScope());
+    assert.equal(failed.state, 'failed', 'failed recovery is not a verified empty source');
+    const retained = A.loadSurgeRetained();
+    assert.equal(retained.mass.rows.length, 1,
+      'a failed rendered recovery replaced the dated last-good flock');
+    assert.equal(retained.mass.rows[0].code, result.rows[0].code);
+    assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 2);
+    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0,
+      'failed recovery must not turn into another discovery source');
+    browser.window.close();
+    app.window.close();
+  }
+});
+
+test('F825 obsolete high-count refresh and legacy sampled coverage are absent in every source state', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  for (const mass of ['ok', 'partial', 'failed', 'loading']) {
+    A.renderSurge([], [], [], [], [], { mass,
+      massCoverage: '5 of 5 candidate species; 7 of 7 daily samples' }, [], [], []);
+    assert.equal(app.$('surgeResults').querySelector('[data-surge-deep-history]'), null);
+    assert.doesNotMatch(app.$('surgeResults').textContent, /Refresh high-count flocks|daily samples|candidate species/);
+    assert.match(app.$('surgeResults').textContent, /older sampled source|current-page coverage not verified/);
+    assert.ok(app.$('surgeBtn'), 'ordinary Bird Gen refresh remains reachable');
+  }
   app.window.close();
 });
 
@@ -12573,7 +13794,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     }),
   } });
   const A = app.window.__app;
-  seedSeen(app, ['zzseencontrol']);
+  await seedSeen(app, ['zzseencontrol']);
   const birders = [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }, { name: 'Bruce', rank: 8 }];
   const hotspotLatest = localStamp(20);
   const merged = [
@@ -12712,7 +13933,7 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
   app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(), JSON.stringify({
     at: Date.now(), rows: [{ code: 'nazboo1', alpha: 'NABO' }],
   }));
-  seedSeen(app, ['zzseencontrol']);
+  await seedSeen(app, ['zzseencontrol']);
   A.renderSurge(
     [{ code: 'tufpuf', name: 'Tufted Puffin', observers: 10, checklists: 11,
       ratio: 10, novel: false, loc: 'Marina Beach Park', locId: 'LCROWD',
@@ -12869,6 +14090,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
       }],
     }),
   } });
+  await seedSeen(app,[],null,rows);
 
   app.window.__app.renderSurge([], [], [], [], []);
   const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
@@ -12919,6 +14141,8 @@ test('F459 Bird Gen labels mega and rare birds beside their names', async () => 
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'nazboo1',name:'Nazca Booby'},
+    {code:'comter',name:'Common Tern'},{code:'amgplo',name:'American Golden-Plover'}]);
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
   A.renderSurge(
     [], [{ species: 'Common Tern', code: 'comter', alpha: 'COTE',
@@ -13065,6 +14289,7 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'nazboo1',name:'Nazca Booby'}]);
   A.renderSurge(
     [{ code: 'nazboo1', name: 'Nazca Booby', observers: 7, checklists: 9,
       ratio: 5, loc: 'Near Home Jetty', locId: 'LM', lat: 47.8, lon: -122.17,
@@ -13355,6 +14580,7 @@ test('the GBIF lookup needs a scientific name and asks for no eBird quota', asyn
 test('F264: an empty lane is silent, but an empty SECTION still explains itself', async () => {
   const app = await boot();
   const A = app.window.__app, d = app.window.document;
+  await seedSeen(app,[],null,[{code:'tuf',name:'Tufted Puffin'}]);
   const allOk = { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' };
 
   // ⚠️ THIS TEST WAS "an empty Celebrity lane says so instead of vanishing"
@@ -13405,6 +14631,7 @@ test('F264: an empty lane is silent, but an empty SECTION still explains itself'
 test('F274 distinguishes failed, successful-empty, and not-loaded alert sources', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,[]);
   const loadedSources = { observations: 'ok', leaderboard: 'ok', hotspots: 'ok' };
 
   A.renderSurge([{
@@ -13645,8 +14872,10 @@ test('all-failed live feeds cannot fall back to a mismatched chase snapshot', as
   const warmAt = HTML.indexOf('function menuChaseWarm()');
   const warmEnd = HTML.indexOf('function menuChaseBadge', warmAt);
   assert.match(HTML.slice(warmAt, warmEnd),
-    /chaseSnapshotCompatible\(snap, chaseProfile\(\)\)/,
+    /chaseSnapshotCompatible\(snap, (?:chaseProfile\(\)|profile)\)/,
     'the menu badge applies the same provenance gate');
+  assert.match(HTML.slice(warmAt, warmEnd), /profile = chaseProfile\(\)/,
+    'the captured badge profile comes from the current chase owner');
   app.window.close();
 });
 
@@ -13709,13 +14938,14 @@ test('a wider chase snapshot is reprojected for a narrower radius without fetchi
   const feeds = BL2.planFeeds(wide);
   const rows = {};
   rows[feeds[0].file] = [
-    { speciesCode: 'zznear', comName: 'Near Test Bird', obsDt: '2026-09-02 07:00',
+    { speciesCode: 'zznear', comName: 'Near Test Bird', obsDt: todayFixtureDate() + ' 07:00',
       locName: 'Near Place', locId: 'L1', lat: 47.76, lng: -122.16, subId: 'S1',
       subnational2Code: 'US-WA-033' },
-    { speciesCode: 'zzfar', comName: 'Far Test Bird', obsDt: '2026-09-02 07:00',
+    { speciesCode: 'zzfar', comName: 'Far Test Bird', obsDt: todayFixtureDate() + ' 07:00',
       locName: 'Far Place', locId: 'L2', lat: 48.40, lng: -122.16, subId: 'S2',
       subnational2Code: 'US-WA-033' },
   ];
+  await seedSeen(app, [], null, rows[feeds[0].file]);
   const states = {};
   feeds.forEach((feed) => { states[feed.file] = 'ok'; });
   await A.saveChaseSnapshot(slug, ['zzfar', 'zznear'], rows, states, null, {
@@ -13972,7 +15202,7 @@ test('F379 MEGA news expires at Bird Gen’s 36-hour now window', async () => {
     }),
   } });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[{code:'freshmega',name:'Fresh Mega'},{code:'oldmega',name:'Old Mega'}]);
   const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
   assert.equal(A.MEGA_NEWS_MAX_AGE_H, 36,
     'MEGA uses a different definition of “now” from Bird Gen’s crowd/hotspot lanes');
@@ -14197,7 +15427,7 @@ test('a seen-list change during phase two replans only the changed target set', 
   });
   const A = app.window.__app;
   const W = app.window;
-  seedSeen(app, ['comloo'], ['Common Loon']);
+  await seedSeen(app, ['comloo'], ['Common Loon']);
   A.setWatchlist([]);
 
   const originalFetch = W.fetch;
@@ -14265,7 +15495,7 @@ test('F320 an unchanged phase-two replan never rereads the same cached species f
   });
   const A = app.window.__app;
   A.setWatchlist([]);
-
+  await seedSeen(app,[],null,[{code:'ftspet',name:'Fork-tailed Storm-Petrel'}]);
   A.clearChaseCache(false);
   await A.getChase();
   const phaseTwo = A.chasePhase2();
@@ -14434,7 +15664,7 @@ test('F309 refreshing Bird Gen preserves current cards while feeds update', asyn
     }] : [];
   } });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   A.LOADERS.surgeBtn.reachability = false;
   app.open(/Bird Gen/);
   await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
@@ -14503,13 +15733,14 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   await waitFor(() => {
     return box.dataset.sourceLeaderboard !== 'loading'
       && box.dataset.sourceHotspots !== 'loading'
-      && box.dataset.sourceMass !== 'loading';
+      && box.dataset.sourceMass !== 'loading'
+      && box.dataset.sourceFoy !== 'loading';
   }, 'the optional Bird Gen sources to settle around the held Mega refresh');
   const progress = box.querySelector('.surgesourceprogress[role="progressbar"]');
   assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
-  assert.equal(progress.getAttribute('aria-valuenow'), '5');
-  assert.equal(progress.getAttribute('aria-valuemax'), '6');
-  assert.match(progress.textContent, /5 of 6 settled/i);
+  assert.equal(progress.getAttribute('aria-valuenow'), '6');
+  assert.equal(progress.getAttribute('aria-valuemax'), '7');
+  assert.match(progress.textContent, /6 of 7 settled/i);
   assert.equal(app.$('loadBar').hidden, false,
     'the shared loading bar disappeared while Bird Gen still owns the held Mega refresh');
   assert.match(app.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/,
@@ -14521,7 +15752,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
   const settled = box.querySelector('.surgesourceprogress');
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
-  assert.equal(settled.getAttribute('aria-valuenow'), '6');
+  assert.equal(settled.getAttribute('aria-valuenow'), '7');
   assert.match(settled.textContent, /Top 100 leaderboard failed/);
   assert.doesNotMatch(settled.textContent, /Loading Bird Gen sources/,
     'settled failure disclosure must not pretend work is still loading');
@@ -14703,7 +15934,7 @@ test('Leader Board Ticks answers how far away the bird is', async () => {
   assert.match(dist.textContent, /3\.\d/);
 });
 
-test('F578 Favorite patches never lets a rarity flag bypass CSV-seen filtering', async () => {
+test('F578 Favorite patches never lets a rarity flag bypass exact personal seen filtering', async () => {
   for (const [field, keys] of [
     ['sciName', FAVORITE_SEEN.seenScientificNames],
     ['comName', FAVORITE_SEEN.seenNames.map((name) => name.toLowerCase())],
@@ -14721,8 +15952,9 @@ test('F578 Favorite patches never lets a rarity flag bypass CSV-seen filtering',
       },
     });
     const A = app.window.__app;
+    await seedSeen(app,FAVORITE_SEEN.seenCodes,null,FAVORITE_SEEN.observations);
     assert.equal(A.isSpeciesSeen('westan', 'Western Tanager'), true,
-      `${field}: control must recognize the imported bird`);
+      `${field}: control must recognize the exact owned bird independently of import field`);
     assert.equal(Boolean(A.watchCodes().westan), false);
     const result = A.favInteresting(FAVORITE_SEEN.observations, FAVORITE_SEEN.rarityCodes);
     assert.deepEqual(arr(result.rows, (row) => row.code), FAVORITE_SEEN.expectedCodes,
@@ -14755,12 +15987,18 @@ test('F578 Favorite patches reclassifies cached observations and Refresh fetches
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,FAVORITE_SEEN.observations.concat([
+    {code:'comnig',name:'Common Nighthawk'},
+  ]));
   await A.loadFavs();
   assert.match(app.$('favResults').textContent, /Western Tanager/);
   const calls = () => app.state.fetches.filter((url) => url.includes('/data/obs/L-CSV/recent?')).length;
   assert.equal(calls(), 1);
   app.window.localStorage.setItem('ebird_seen', JSON.stringify({ 'piranga ludoviciana': 1 }));
   app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['Western Tanager']));
+  await seedSeen(app,['westan'],null,FAVORITE_SEEN.observations.concat([
+    {code:'comnig',name:'Common Nighthawk'},
+  ]));
   A.renderFavs();
   assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager/,
     'a repaint reused HTML classified before the CSV import');
@@ -14803,6 +16041,7 @@ test('Favorite hotspots shows what is worth driving for, not a species dump', as
     { speciesCode: 'ruff', comName: 'Ruff', obsDt: '2026-07-20 08:00', subId: 'S0', userDisplayName: 'Ann' },
     { speciesCode: 'tersan', comName: 'Terek Sandpiper', obsDt: '2026-07-27 08:00', subId: 'S3', userDisplayName: 'Birder Wyatt' },
   ];
+  await seedSeen(app,['amerob'],null,obs);
   app.window.localStorage.setItem('ebird_year_names', JSON.stringify(['American Robin']));
   app.window.localStorage.setItem('ebird_seen_meta',
     JSON.stringify({ source: 'csv', region: 'US-WA', year: new Date().getFullYear() }));
@@ -14817,7 +16056,8 @@ test('Favorite hotspots shows what is worth driving for, not a species dump', as
   assert.match(html, /⭐/, 'and flags the rarity the way the report does');
   assert.match(html, /species in 7d/, 'header states the window it counted');
   const quiet = A.favDetailHtml({ name: 'x' }, [obs[1]], {});
-  assert.match(quiet, /No watchlist hits or unseen/, 'says nothing is here rather than going blank');
+  assert.match(quiet, /No Watch hits or proven personal targets.*Year List/,
+    'says no proven targets for the selected basis rather than going blank');
 });
 test('there are exactly three card templates and each one is really used', () => {
   // The templates are a system, not three coincidences, and they now live in
@@ -14850,7 +16090,8 @@ test('there are exactly three card templates and each one is really used', () =>
   // is applied at render time — assert the delegation, not a source literal.
   assert.match(HTML, /speciesListHtml\(rows, \{ presorted: true, cls: 'favspp', unseen: true \}\)/,
     'favorites use the small template via the one builder');
-  assert.ok(HTML.includes('class="obs big xl"'), 'ticks/rarities use the medium template');
+  assert.match(HTML, /(?:class="obs big xl"|list\.className = 'obs big xl')/,
+    'personal lists use the medium template');
   const mega = HTML.slice(HTML.indexOf('function renderMegaIndex('),
     HTML.indexOf('function renderAbaAlert('));
   assert.match(mega, /renderBirdReportProgress\(/,
@@ -14860,10 +16101,12 @@ test('there are exactly three card templates and each one is really used', () =>
   // index.html must not keep a second copy of any card rule — one definition
   // is the entire point of moving them out.
   for (const rule of ['.obs.card-sm .name {', '.obs.xl > li, .obs.card-md > li {',
-                      '.bchero {', '.hsnum {']) {
+                      '.bchero {']) {
     assert.ok(!HTML.includes(rule),
       'index.html must not redeclare "' + rule + '" — the card files own it');
   }
+  assert.doesNotMatch(HTML,/^\s*\.hsnum\s*\{/m,
+    'index.html must not redeclare the base number rule; scoped leaderboard typography is separate');
 });
 
 // The bug this guards was reported three times against two different sections
@@ -15045,6 +16288,7 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
     ebird_home_lng: '-122.16',
   } });
   const A = app.window.__app;
+  await seedSeen(app,['amecro','sonspa'],null,[{code:'tufpuf',name:'Tufted Puffin'}]);
   const li = A.hotspotCard({
     n: 1, locId: 'L2', locName: 'Edmonds Marsh', lat: 47.8, lng: -122.38,
     facts: ['2.4 mi'],
@@ -15134,6 +16378,7 @@ test('a hotspot card shows the unseen birds and collapses the seen ones', async 
 test('the seen list reaches every hotspot card, not just Hot and Cold', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,['amecro'],null,[{code:'tufpuf',name:'Tufted Puffin'}]);
   // Take a species the ACTIVE report's year list really contains, so this
   // guard cannot quietly pass by finding nothing seen to show.
   const seenCodes = Object.keys(A.getReportSeen() || {});
@@ -15192,7 +16437,7 @@ test('the seen list reaches every hotspot card, not just Hot and Cold', async ()
   app.window.close();
 });
 
-test('Today’s patches treats imported-CSV name matches as seen before ranking', async () => {
+test('Today’s patches treats exact personal membership as seen before ranking', async () => {
   const app = await boot({
     report: 'hi',
     sample: false,
@@ -15207,6 +16452,7 @@ test('Today’s patches treats imported-CSV name matches as seen before ranking'
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,['hawama'],null,[{code:'calqua',name:'California Quail'}]);
   const profile = A.chaseProfile();
   const hawama = {
     obsId: 'hawama-seen', speciesCode: 'hawama', comName: 'Hawaii Amakihi',
@@ -15233,7 +16479,7 @@ test('Today’s patches treats imported-CSV name matches as seen before ranking'
   app.window.close();
 });
 
-test('F571 Stakeout Patch filters imported-CSV birds by common name', async () => {
+test('F571 Stakeout Patch filters exact personally recorded birds', async () => {
   const app = await boot({
     sample: false,
     storage: {
@@ -15245,6 +16491,7 @@ test('F571 Stakeout Patch filters imported-CSV birds by common name', async () =
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,['hawama'],['Hawaii Amakihi'],[{code:'calqua',name:'California Quail'}]);
   A.renderStakeHs('L-CSV', 'CSV Patch', [], [{
     speciesCode: 'hawama', comName: 'Hawaii Amakihi',
   }, {
@@ -15294,6 +16541,7 @@ test('a stale pre-scored hotspot list is re-partitioned against the current seen
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,['hawama'],null,[{code:'calqua',name:'California Quail'}]);
   const split = A.locSpeciesSplit('L-no-index', [
     { code: 'hawama', comName: 'Hawaii Amakihi', tag: '<span class="needflag">🔍</span>' },
     { code: 'calqua', comName: 'California Quail', tag: '<span class="needflag">🔍</span>' },
@@ -15315,6 +16563,7 @@ test('a stale pre-scored hotspot list is re-partitioned against the current seen
 test('a hotspot card never shows seen birds while hiding unseen ones', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'zzzrare',name:'Zzz Rare Bird'}]);
   A.seedChase(A.getReportSlug(), {
     t: Date.now(), rarity: false,
     cv: {
@@ -15351,6 +16600,7 @@ test('a bird ticked in another region is still a target in this report', async (
   const seed = app.window.__SEED_BIRDLIST__;
   const slug = A.getReportSlug();
   const rep = seed.seenByReport[slug];
+  await seedSeen(app, rep.codes);
   const perReport = A.getReportSeen();
 
   // Find a code the COMBINED seed calls seen that THIS report does not. If the
@@ -15409,7 +16659,7 @@ test('a bird ticked in another region is still a target in this report', async (
   app.window.close();
 });
 
-test('F372 an authoritative empty Hawaii list stays empty in My Ticks and Bird Gen', async () => {
+test('F372 an exact empty Hawaii list stays empty in My List and Bird Gen without borrowing bundled ticks', async () => {
   const app = await boot({ report: 'hi' });
   const A = app.window.__app;
   const rep = app.window.__SEED_BIRDLIST__.seenByReport.hi;
@@ -15422,9 +16672,12 @@ test('F372 an authoritative empty Hawaii list stays empty in My Ticks and Bird G
 
   assert.deepEqual(Object.keys(A.getReportSeen()), [],
     'empty Hawaii was treated as missing and replaced by the combined cross-region seen set');
+  assert.equal(A.isSpeciesSeen('sposan', 'Spotted Sandpiper'), null,
+    'an empty bundled sample does not certify personal absence');
+  await seedSeen(app, [], null, [{code:'sposan',name:'Spotted Sandpiper'}]);
   A.updateMyYear();
-  assert.match(app.$('myYearBody').textContent, /0 species in 2026/i,
-    'My Ticks did not present the authoritative empty Hawaii year list');
+  assert.match(app.$('myYearBody').textContent, /0 recorded species/i,
+    'My List did not present the exact empty Hawaii list');
   assert.doesNotMatch(app.$('myYearBody').textContent, /\d+ species logged/i,
     'My Ticks fell back to the combined bundled sample total');
 
@@ -15999,7 +17252,7 @@ test('F315: a clean install stays empty until sample data or a CSV is chosen', a
   assert.ok(A.reportYearList().length > 0);
 });
 
-test('F560: CSV import restores birds and the selected profile identity', async () => {
+test('F560: CSV import retains annual captures and profile identity without certifying exact membership or counts', async () => {
   const app = await boot();
   const A = app.window.__app;
   const csv = [
@@ -16014,22 +17267,34 @@ test('F560: CSV import restores birds and the selected profile identity', async 
     'an imported account list, not the bundled owner sample, is authoritative');
   assert.equal(A.reportYearList().length, 0,
     'the private bundled per-report list is no longer rendered after import');
-  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), false,
+  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), null,
     'a geography-free CSV does not establish a regional tick');
   const scopedImport = A.getSeenMeta();
-  app.window.localStorage.setItem('ebird_seen_meta',
+  app.window.localStorage.setItem(A.bcReal('ebird_seen_meta'),
     JSON.stringify({ ...scopedImport, region: 'US-WA' }));
+  assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), null,
+    'adding geographic import metadata cannot certify exact membership');
+  assert.equal(A.seenCodesForRows({
+    recent: [{ speciesCode: 'amerob', comName: 'American Robin' }],
+  }).amerob, undefined, 'imported names cannot become exact chase membership');
+  A.renderMenuIdentity();
+  assert.match(app.$('hdrId').textContent, /Sample Birder/,
+    'the selected account export supplies its own profile identity');
+  assert.doesNotMatch(app.$('hdrId').textContent, /(?:^|\D)1\s*sp\./,
+    'an imported annual count is not the exact personal total');
+  await seedSeen(app, ['amerob']);
   assert.equal(A.isSpeciesSeen('amerob', 'American Robin'), true,
-    'the explicitly regional current-year import still marks its own bird seen');
+    'fresh exact personal evidence supplies the positive independently');
   assert.equal(A.seenCodesForRows({
     recent: [{ speciesCode: 'amerob', comName: 'American Robin' }],
   }).amerob, 1,
-  'the chase algorithm receives species codes resolved from imported names');
+  'the chase algorithm receives exact personal species codes');
   A.renderMenuIdentity();
   assert.match(app.$('hdrId').textContent, /Sample Birder/,
     'the selected account export supplies the identity used by its own profile');
-  assert.match(app.$('hdrId').textContent, /1sp/,
-    'the imported year-list count remains available');
+  assert.match(app.$('hdrId').textContent, /1\s*sp\./,
+    'the exact personal count remains available');
+  app.window.close();
 });
 
 test('F562: a trusted eBird rename preserves same-profile identity continuity', async () => {
@@ -16171,22 +17436,33 @@ test('F557: profile switches preserve both namespaces and restore a refused sele
   assert.match(app.$('keyStatus').textContent, /Profile was not switched/);
 });
 
-test('F559: My Year Reload names missing prerequisites without making checklist calls', async () => {
+test('F559: exact My List names missing identity and reads without API checklist credentials', async () => {
   const missingName = await boot({ sample: false });
   const nameFetches = missingName.state.fetches.length;
   await missingName.window.__app.loadMyYear();
-  assert.match(missingName.$('myYearBody').textContent,
-    /needs your eBird display name/i);
-  assert.ok(missingName.$('myYearNameBtn'));
-  assert.match(missingName.$('myYearBody').textContent, /importing your complete eBird data/i);
+  const section = missingName.$('myYearBody').closest('section');
+  assert.match(section.textContent, /Fetch your signed-in eBird identity in Settings first/i);
+  assert.ok(section.querySelector('[data-personal-settings]'));
+  assert.match(missingName.$('myYearBody').textContent, /Personal history unavailable/i);
   assert.equal(missingName.state.fetches.length, nameFetches);
+  missingName.window.close();
 
-  const missingKey = await boot({ key: null, sample: false });
+  const missingKey = await boot({ key: null, sample: false,
+    storage: {ebird_display_name:'Synthetic observer'},
+    fetch: url => /\/lifelist\//.test(url)
+      ? ownedPersonalListFixture({codes:['amerob'],account:'Synthetic observer'}) : [] });
+  const A = missingKey.window.__app;
+  await seedSeen(missingKey, []);
+  missingKey.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
   const keyFetches = missingKey.state.fetches.length;
-  await missingKey.window.__app.loadMyYear();
-  assert.match(missingKey.$('myYearBody').textContent, /needs an eBird API key/i);
-  assert.ok(missingKey.$('myYearKeyBtn'));
-  assert.equal(missingKey.state.fetches.length, keyFetches);
+  assert.equal(await A.loadMyYear(), 1, missingKey.$('myYearBody').closest('section').textContent);
+  assert.match(missingKey.$('myYearBody').textContent, /1 recorded species/i);
+  assert.equal(missingKey.state.fetches.slice(keyFetches)
+    .filter(url => /\/lifelist\//.test(url)).length, 1);
+  assert.deepEqual(missingKey.state.fetches.slice(keyFetches)
+    .filter(url => /api\.ebird\.org\/v2\/product\//.test(url)), [],
+    'exact membership must not be reconstructed by scanning checklists');
+  missingKey.window.close();
 });
 
 test('F561: hydrated observer metadata has an effective width bound', () => {
@@ -16219,6 +17495,7 @@ test('F9: getChase makes a SECOND wave of per-species calls', async () => {
       return null;
     }
   });
+  await seedSeen(app,[],null,[{code:'comloo',name:'Common Loon'}]);
   const first = await app.window.__app.getChase();
   // getChase now resolves on PHASE 1 so the screen can come up in seconds
   // rather than minutes; phase 2 fills it in behind. A test that wants the
@@ -16263,6 +17540,7 @@ test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
     }
   });
   const w = app.window;
+  await seedSeen(app,[],null,CODES.map(code => ({code,name:code})));
   const orig = w.fetch;
   let inFlight = 0, peak = 0;
   // A REAL async delay, not a resolved promise: batches are chained through
@@ -16303,6 +17581,7 @@ test('F9: concurrent callers share one wave, not two', async () => {
     }
   });
   const w = app.window;
+  await seedSeen(app,[],null,[{code:'comloo',name:'Common Loon'}]);
   w.__app.clearChaseCache();
   const before = app.state.fetches.length;
   const [a, b] = await Promise.all([w.__app.getChase(), w.__app.getChase()]);
@@ -16347,6 +17626,9 @@ test('birdiest checklists name the unseen birds and collapse the seen ones', asy
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
+  await seedSeen(app,['zzzseen1'],['Already Had It'],[
+    {code:'zzztest1',name:'Zzz Test Bird'},
+  ]);
   const perReport = A.getReportSeen();
   const seenCode = Object.keys(perReport)[0];
   assert.ok(seenCode, 'fixture assumption: the report has birds on its year list');
@@ -16395,7 +17677,7 @@ test('birdiest checklists resolve every name in ONE taxonomy pass', async () => 
       calls.push(u);
       if (/product\/checklist\/view/.test(u)) {
         const sub = u.split('/').pop();
-        return { obs: [{ speciesCode: 'aaa' + sub }, { speciesCode: 'shared1' }] };
+        return { obs: [{ speciesCode: 'aaa' + sub.toLowerCase() }, { speciesCode: 'shared1' }] };
       }
       if (/ref\/taxonomy/.test(u)) {
         const codes = decodeURIComponent(/species=([^&]*)/.exec(u)[1]).split(',');
@@ -16406,6 +17688,8 @@ test('birdiest checklists resolve every name in ONE taxonomy pass', async () => 
   });
   const A = app.window.__app;
   const doc = app.window.document;
+  await seedSeen(app,[],null,['aaas1','aaas2','aaas3','shared1']
+    .map(code => ({code,name:'Name ' + code})));
   const root = doc.createElement('ul');
   ['S1', 'S2', 'S3'].forEach((s) => {
     const li = doc.createElement('li');
@@ -16420,7 +17704,7 @@ test('birdiest checklists resolve every name in ONE taxonomy pass', async () => 
   assert.equal(tax.length, 1,
     `names resolve in one pass over the union, not one per checklist (got ${tax.length})`);
   const asked = decodeURIComponent(/species=([^&]*)/.exec(tax[0])[1]).split(',').sort();
-  assert.deepEqual(asked.join(','), 'aaaS1,aaaS2,aaaS3,shared1',
+  assert.deepEqual(asked.join(','), 'aaas1,aaas2,aaas3,shared1',
     'and the union is de-duplicated before it is asked for');
 
   // Every row got its birds, not just the first.
@@ -16858,7 +18142,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   const A = app.window.__app;
   const doc = app.window.document;
   const R = A.chaseMaxMi();
-  seedSeen(app, ['daejun', 'watchbir'], ['Dark-eyed Junco', 'Watch Bird']);
+  await seedSeen(app, ['daejun', 'watchbir'], ['Dark-eyed Junco', 'Watch Bird']);
   A.setWatchlist([{ code: 'watchbir', name: 'Watch Bird' }]);
 
   const stamp = todayFixtureDate() + ' 14:23';
@@ -16879,7 +18163,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
       distMi: R + 30, dateStr: stamp, loc: 'Far Park', locId: 'L4',
       subId: 'S4', observer: 'D' },
   ];
-  seedRarityChase(app, rows);
+  await seedRarityChase(app, rows);
   A.refresh();
   await waitFor(() => doc.getElementById('todayControls'),
     'Today\u2019s F180 controls to render');
@@ -16951,7 +18235,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
 test('F180 never renders an unexplained empty twitch list', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, ['seenone', 'seentwo'], ['Seen One', 'Seen Two']);
+  await seedSeen(app, ['seenone', 'seentwo'], ['Seen One', 'Seen Two']);
   A.setWatchlist([]);
   const stamp = todayFixtureDate() + ' 14:23';
   const rows = [
@@ -16960,12 +18244,12 @@ test('F180 never renders an unexplained empty twitch list', async () => {
     { kind: 'Rarity', code: 'seentwo', name: 'Seen Two', distMi: 4,
       dateStr: stamp, loc: 'Park B', locId: 'L2', subId: 'S2', observer: 'B' },
   ];
-  seedRarityChase(app, rows);
+  await seedRarityChase(app, rows);
 
   A.refresh();
   await waitFor(() => doc.getElementById('todayControls'), 'Today controls');
   assert.match(doc.getElementById('status').textContent,
-    /All 2 rarity reports within 35 mi are already on your year list/,
+    /All 2 rarity reports within 35 mi are already on your \d{4} Year List/,
     'Today explains why the filtered list is empty');
   assert.ok(doc.getElementById('todayControls'),
     'and keeps the controls available so the filter can be changed');
@@ -16974,7 +18258,7 @@ test('F180 never renders an unexplained empty twitch list', async () => {
   A.loadActiveRarities();
   await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
   assert.match(doc.getElementById('activeStatus').textContent,
-    /All 2 rare bird\/place entries within 35 mi are already on your year list/,
+    /All 2 rare bird\/place entries within 35 mi are already on your \d{4} Year List/,
     'This week explains the same empty state in species units');
   assert.ok(doc.getElementById('activeControls'),
     'and its controls remain available too');
@@ -16985,7 +18269,7 @@ test('F180 never renders an unexplained empty twitch list', async () => {
 test('Twitches this week All immediately surfaces seen rarities', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, ['shtsan'], ['Sharp-tailed Sandpiper']);
+  await seedSeen(app, ['shtsan'], ['Sharp-tailed Sandpiper']);
   const day = todayFixtureDate();
   const rows = [
     { kind: 'Rarity', code: 'needone', name: 'Need One', distMi: 3,
@@ -17004,7 +18288,7 @@ test('Twitches this week All immediately surfaces seen rarities', async () => {
       dateStr: day + ' 14:23', loc: 'League Island--Eide Rd.', locId: 'L-SPTS',
       subId: 'S-SPTS', observer: 'G' },
   ];
-  seedRarityChase(app, rows);
+  await seedRarityChase(app, rows);
 
   A.loadActiveRarities();
   await waitFor(() => doc.getElementById('activeControls'), 'weekly controls');
@@ -17026,7 +18310,7 @@ test('Twitches this week All immediately surfaces seen rarities', async () => {
   app.window.close();
 });
 
-test('F681 Twitches Unseen trusts built-in species codes and restores card details', async () => {
+test('F681 Twitches Unseen trusts exact personal species codes and restores card details', async () => {
   const app = await boot({
     storage: {
       ebird_seen: JSON.stringify({ clcspa: 1 }),
@@ -17035,7 +18319,8 @@ test('F681 Twitches Unseen trusts built-in species codes and restores card detai
     },
   });
   const A = app.window.__app, doc = app.document;
-  seedRarityChase(app, [{
+  await seedSeen(app,['clcspa'],['Clay-colored Sparrow']);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'clcspa', name: 'Clay-colored Sparrow', distMi: 4,
     dateStr: todayFixtureDate() + ' 12:00', loc: 'Test Park', locId: 'L1',
     subId: 'S1', observer: 'Observer',
@@ -17067,10 +18352,10 @@ test('F681 Twitches Unseen trusts built-in species codes and restores card detai
 test('Twitches this week notes toggle preserves the Unseen filter', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, ['seenone'], ['Seen One']);
+  await seedSeen(app, ['seenone'], ['Seen One']);
   A.setWatchlist([]);
   const stamp = todayFixtureDate() + ' 14:23';
-  seedRarityChase(app, [
+  await seedRarityChase(app, [
     { kind: 'Rarity', code: 'seenone', name: 'Seen One', distMi: 3,
       dateStr: stamp, loc: 'Park A', locId: 'L1', subId: 'S1', observer: 'A' },
     { kind: 'Rarity', code: 'newone', name: 'New One', distMi: 4,
@@ -17108,10 +18393,10 @@ test('Unified Twitches switches between checklist list and grouped hotspot view'
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const today = todayFixtureDate();
   const older = '2026-09-01';
-  seedRarityChase(app, [
+  await seedRarityChase(app, [
     { kind: 'Rarity', code: 'oldrare', name: 'Older Rare Bird', distMi: 3,
       dateStr: older + ' 08:00', loc: 'Old Park', locId: 'L-OLD',
       subId: 'S-OLD', observer: 'A' },
@@ -17194,8 +18479,8 @@ test('F511 removes the Recent filter but keeps the shared NEW eligibility predic
 test('F506 Twitches has no Compact control and always renders medium cards', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'rareone', name: 'Rare One', distMi: 3,
     dateStr: new Date().toISOString().slice(0, 16).replace('T', ' '),
     loc: 'Shared Hotspot', locId: 'L-SHARED', subId: 'S1001',
@@ -17228,9 +18513,9 @@ test('F545 ungrouped Twitches keeps count, age, and one media mark', async () =>
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   app.window.localStorage.setItem('ebird_twitch_view_v1', 'list');
-  seedRarityChase(app, [{
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'fieldbird', name: 'Field Bird', distMi: 3,
     lat: 47.6, lon: -122.1, dateStr: new Date(Date.now() - 2 * 3600000)
       .toISOString().slice(0, 16).replace('T', ' '),
@@ -17268,8 +18553,8 @@ test('F546 Twitches status starts directly below its header controls', async () 
 test('F509 Twitches prints NEW and RARE after the bird name and never RECENT or R', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'inside', name: 'Inside Bird', distMi: 3,
     dateStr: new Date().toISOString().slice(0, 16).replace('T', ' '),
     loc: 'Inside Park', locId: 'L1', subId: 'S1',
@@ -17286,8 +18571,8 @@ test('F509 Twitches prints NEW and RARE after the bird name and never RECENT or 
 test('Twitch rows use compact names and a tighter Notes control', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'compact', name: 'Compact Test Sandpiper', distMi: 3,
     dateStr: '2026-09-26 17:27', loc: 'Test Marsh', locId: 'L-COMPACT',
     subId: 'S-COMPACT', observer: 'Test Birder',
@@ -17343,8 +18628,8 @@ test('F507-F508 medium cards always show the selected metric first and link each
     'the Mega metric keeps its number and unit together on one line');
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'metric', name: 'Metric Bird', distMi: 3.2,
     lat: 47.6, lon: -122.1, dateStr: new Date(Date.now() - 45 * 60000)
       .toISOString().slice(0, 16).replace('T', ' '),
@@ -17395,8 +18680,8 @@ test('F494 Twitches evidence leads with time and ends with one combined-comments
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'notebd', name: 'Note Bird', distMi: 3,
     dateStr: '2026-09-23 09:49', loc: 'Bold Hotspot', locId: 'L-NOTE',
     subId: 'S-NOTE', observer: 'Birder One',
@@ -17449,8 +18734,8 @@ test('F510 Notes on renders separately labelled species and checklist blockquote
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [{
+  await seedSeen(app, []);
+  await seedRarityChase(app, [{
     kind: 'Rarity', code: 'inline', name: 'Inline Bird', distMi: 3,
     dateStr: '2026-09-23 09:49', loc: 'Notes Park', locId: 'L-INLINE',
     subId: 'S-INLINE', observer: 'Birder One',
@@ -17550,8 +18835,8 @@ test('Unified Twitches Statewide includes birds found only in the state RBA feed
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [
+  await seedSeen(app, []);
+  await seedRarityChase(app, [
     { kind: 'Rarity', code: 'nearar', name: 'Near Rarity', distMi: 5,
       dateStr: '2026-09-21 15:00', loc: 'Near Park', locId: 'L-NEAR',
       subId: 'S-NEAR', observer: 'Near Birder' },
@@ -17578,8 +18863,8 @@ test('Unified Twitches keeps nearby results and names an unavailable statewide R
     },
   });
   const A = app.window.__app, doc = app.window.document;
-  seedSeen(app, []);
-  seedRarityChase(app, [
+  await seedSeen(app, []);
+  await seedRarityChase(app, [
     { kind: 'Rarity', code: 'nearar', name: 'Near Rarity', distMi: 5,
       dateStr: '2026-09-21 15:00', loc: 'Near Park', locId: 'L-NEAR',
       subId: 'S-NEAR', observer: 'Near Birder' },
@@ -17971,6 +19256,9 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
     },
   });
   const FA = filtered.window.__app;
+  await seedSeen(filtered, ['fixtureseen'], null, [
+    {code:'fixtureseen',name:'Seen Bird'}, {code:'zzzzzz',name:'Mystery Bird'},
+  ]);
   seenCode = Object.keys(FA.getReportSeen() || {})[0];
   assert.ok(seenCode, 'the active report supplies a seen species fixture');
   FA.renderRecentChecklistBatch([
@@ -18533,6 +19821,10 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
       }),
     },
   });
+  await seedSeen(app, ['wes'], null, [
+    {code:'sem',name:'Semipalmated Sandpiper'},
+    {code:'wes',name:'Western Sandpiper',sci:'Calidris mauri'},
+  ]);
   installSpuhFixture(app);
   app.window.__app.setSpuhRandom(() => 0);
   app.window.__app.setSpeciesLookupSort('dist');
@@ -18698,7 +19990,7 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   const stakeoutCard = app.document.querySelector('#spLookupResults > li');
   const stakeoutSummary = app.$('spLookupDetailMain')
     .querySelector('.splookupsummary');
-  assert.match(stakeoutCard && stakeoutCard.textContent, /on your year list/,
+  assert.match(stakeoutCard && stakeoutCard.textContent, /on your \d{4} Year List/,
     'the species card lost the year-list state');
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
     /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by distance/,
@@ -19819,6 +21111,7 @@ test('F779 failed checklist read stays honest and retryable; obsolete bird canno
 test('F787 chronology handles date-only, invalid, deterministic ties and late mass/favorite rows', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app, [], null, [{code:'favorite',name:'favorite'}]);
   const crowd = (code, latest) => ({
     code, name: code, latest, loc: 'Public fixture marsh', locId: 'L-' + code,
     observers: 8, checklists: 8, ratio: 5, distMi: 1, subId: 'S-' + code
@@ -20400,7 +21693,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
     },
   });
   const A = app.window.__app;
-  seedSeen(app, ['sem'], ['Semipalmated Sandpiper']);
+  await seedSeen(app, ['sem'], ['Semipalmated Sandpiper']);
   installSpuhFixture(app);
   await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
 
@@ -20408,7 +21701,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   assert.ok(button, 'the Stakeout species card has no watchlist action');
   assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
-  assert.match(app.$('spLookupResults').textContent, /already on your year list/i);
+  assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i);
   const before = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
 
   app.click(button);
@@ -20427,7 +21720,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
-  assert.match(app.$('spLookupResults').textContent, /already on your year list/i,
+  assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i,
     'removing the hold did not reveal the underlying seen tick');
   const after = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
   assert.equal(after, before,
@@ -20450,7 +21743,7 @@ test('F528 Stakeout never offers Add to Watchlist for a genuinely unseen bird', 
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   installSpuhFixture(app);
   await A.lookupSpecies('ruff', 'Ruff');
   assert.equal(app.document.querySelector('#spLookupResults .spLookupWatchlist'), null,
@@ -20470,6 +21763,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
     storage: { ebird_watchlist_v1: '[]' },
   });
   const A = app.window.__app;
+  await seedSeen(app,['yrone','yrtwo'],['First Bird','Second Bird']);
   A.updateMyYear();
 
   let rows = [...app.$('myYearList').querySelectorAll(':scope > li')];
@@ -20670,8 +21964,11 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     },
   });
   const A = app.window.__app;
+  await seedSeen(app, ['fixtureking'], null, [
+    {code:'fixtureking',name:'Testable Kingbird',sci:'Tyrannus testus'},
+  ]);
   const seenCodes = Object.keys(A.getReportSeen());
-  assert.ok(seenCodes.length > 0, 'the wa report bundles a year list to test against');
+  assert.ok(seenCodes.length > 0, 'the exact Washington fixture contains a positive');
   const code = seenCodes[0];
   app.window.close();
 
@@ -20692,6 +21989,9 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     },
     storage: { ['ebird_species_v2:US-WA']: JSON.stringify({ at: Date.now(), rows: [{ code, name: 'Testable Kingbird', sci: 'Tyrannus testus' }] }) },
   });
+  await seedSeen(app2, [code], null, [
+    {code,name:'Testable Kingbird',sci:'Tyrannus testus'},
+  ]);
   const doc2 = app2.window.document;
   await app2.window.__app.lookupSpecies(code, 'Testable Kingbird');
 
@@ -20708,7 +22008,7 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
   // What must never regress is that a bird you have already seen is still
   // answered AND still marked as seen — the ✅ and the words, both.
   const panel = doc2.getElementById('sec-spLookupBtn').textContent;
-  assert.match(panel, /already on your year list/,
+  assert.match(panel, /already on your \d{4} Year List/,
     'the answer says you have already seen it rather than staying silent');
   assert.match(panel, /✅/, 'and marks it with the same tick the other sections use');
   assert.equal(doc2.querySelectorAll('#spLookupResults > li').length, 1,
@@ -21573,7 +22873,7 @@ test('F379 persists the complete phase-one bird snapshot before detached enrichm
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   A.setChaseSnapshotStoreGate(() => {
     if (snapshotGateEntered) return null;
     snapshotGateEntered = true;
@@ -21674,8 +22974,8 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
   assert.match(order, /raritySort\(\)/,
     'F193: the comparator consults the sort chips — it used to consult neither, '
     + 'so "Newest" and "Nearest" both re-rendered an identical list');
-  assert.match(order, /groups\[b\]\.birders\.length - groups\[a\]\.birders\.length/,
-    'how many of the top 100 added it survives as the tie-break');
+  assert.match(order, /lastNewSupportCount\(groups\[b\]\) - lastNewSupportCount\(groups\[a\]\)/,
+    'the tie-break must not count ambiguous cross-board duplicates as independent people');
   assert.match(order, /Infinity/,
     'a row whose checklists have not landed has no distance and cannot claim '
     + 'to be nearest, so it sorts last rather than as zero');
@@ -21711,15 +23011,13 @@ test('F530 Fresh Ticks renders one combined list without a seen-state control', 
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
-  seedSeen(app, ['zzseen1']);
+  await seedSeen(app, ['zzseen1'], ['Zzz Junco'],[
+    {code:'zzneed1',name:'Zzz Sandpiper'},
+  ]);
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
   app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
     JSON.stringify({ year: 'all', distance: 'region' }));
 
-  // Synthetic species on purpose: every real bird the leaderboard shows is a
-  // WA bird, and isSpeciesSeen also matches against the bundled year-list
-  // NAMES, so a real name would resolve as seen no matter what is in storage.
-  //
   // The SEEN bird deliberately outranks the unseen one on the board (two
   // birders to one). Board order alone would put it first, so this proves the
   // split really regroups rather than the fixture agreeing by accident.
@@ -21798,11 +23096,14 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
   app.window.close();
 });
 
-test('F377 the owner’s resolved Fresh tick updates only this report’s durable seen overlay', async () => {
+test('F377 the owner’s resolved Fresh tick retains annual capture without changing exact personal membership', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   const A = app.window.__app;
   A.setDisplayNameValue('Birder Wyatt', 'manual');
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[
+    {code:'hawama',name:'Hawaii Amakihi'}, {code:'othbir',name:'Other Bird'},
+  ]);
+  const exactBefore = app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner())));
   const groups = {
     'Hawaii Amakihi': {
       birders: [{ name: '  birder wyatt ', rank: 1359, date: '2026-09-11' }],
@@ -21823,10 +23124,13 @@ test('F377 the owner’s resolved Fresh tick updates only this report’s durabl
   }, 'the live tick keeps its known name/date and invents no checklist or place');
   assert.equal(A.ownSeenCodes().othbir, undefined,
     'another birder’s tick contaminated the owner’s year list');
-  assert.equal(A.isSpeciesSeen('hawama', 'Hawaii Amakihi'), true,
-    'the resolved owner tick still renders as unseen');
+  assert.equal(A.isSpeciesSeen('hawama', 'Hawaii Amakihi'), false,
+    'a board tick cannot rewrite exact personal membership');
+  assert.equal(A.personalListEvidence().count,0,'official totals remain owned by the exact source');
+  assert.equal(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))),
+    exactBefore,'annual capture must not rewrite the exact personal snapshot');
   assert.ok(app.window.localStorage.getItem(
-    'ebird_own_seen:' + A.getReportSlug()),
+    A.bcReal('ebird_own_seen:' + A.getReportSlug())),
   'the tick was not persisted under the active report key');
 
   const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
@@ -21841,7 +23145,7 @@ test('F377 a watchlisted owner tick remains chaseable and says why', async () =>
   const app = await boot();
   const A = app.window.__app;
   A.setDisplayNameValue('Birder Wyatt', 'manual');
-  seedSeen(app, []);
+  await seedSeen(app, []);
   A.setWatchlist([{ code: 'hawama', name: 'Hawaii Amakihi' }]);
   const groups = {
     'Hawaii Amakihi': {
@@ -22020,6 +23324,7 @@ test('F553 Today’s patches keeps newest checklist coverage when product lists 
     },
   });
   const doc = app.window.document, A = app.window.__app;
+  await seedSeen(app, [], null, locationRows);
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
@@ -22084,6 +23389,7 @@ test('F579/F582/F583 hotspot Notes default off above the map without hiding evid
     },
   });
   const A = app.window.__app, doc = app.document;
+  await seedSeen(app, [], null, [{code:'sabgul',name:"Sabine's Gull"}]);
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
@@ -22151,6 +23457,9 @@ test('F580 Today’s patches keeps target checklist evidence when a county index
     },
   });
   const A = app.window.__app;
+  await seedSeen(app, [], null, [
+    {code:'sabgul',name:"Sabine's Gull"}, {code:'blksco2',name:'Black Scoter'},
+  ]);
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
@@ -22250,6 +23559,7 @@ test('F223: six checklists are one list, not five plus one', async () => {
     },
   });
   const doc = app.window.document, A = app.window.__app;
+  await seedSeen(app, [], null, [{code:'sp0',name:'Needed Bird'}]);
   A.renderHot({
     hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
             fresh: 2, checklists: n, share: 5, latest: '2026-08-07',
@@ -22385,6 +23695,7 @@ test('a hotspot card shows its recent checklists, and pays nothing extra', async
     },
   });
   const doc = app.window.document;
+  await seedSeen(app, [], null, [{code:'sp0',name:'Bird 0'}]);
   app.window.__app.renderHot({
     hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
             fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
@@ -25057,13 +26368,10 @@ test('a rank move reports the span it actually measured, not the window name', a
     'the day window really did match a 23-day-old snapshot');
 
   const html = A.boardMoveHTML(deltas);
-  assert.match(html, /23d/, 'the row states the span it measured');
+  assert.match(html, /in 23 days/, 'the accessible tooltip states the measured span');
   assert.ok(!/>1d</.test(html) && !/\b1d</.test(html),
     'and never claims a window it did not measure: ' + html);
   assert.match(html, /rankmovearrow[^>]*>▲<\/span>3/, 'three places up');
-  // A duration next to a number reads as two numbers; the preposition is what
-  // makes it a sentence.
-  assert.match(html, /in 23d/, 'reads as "up 3 places in 23 days"');
   // The title carries the long form AND the date, so the claim is checkable.
   assert.match(html, /title="[^"]*23 days[^"]*2026-08-01/,
     'the tooltip states the span in words and the date it started from');
@@ -25071,7 +26379,7 @@ test('a rank move reports the span it actually measured, not the window name', a
   // A genuine one-day move still says 1d, or the fix would just be a rename.
   const dayHist = [{ d: '2026-08-23', rank: 40 }, { d: '2026-08-24', rank: 38 }];
   const d2 = w.BirdLogic.rankDeltas(dayHist, Date.parse('2026-08-24T12:00:00'));
-  assert.match(A.boardMoveHTML(d2), /in 1d/,
+  assert.match(A.boardMoveHTML(d2), /in 1 day/,
     'a real one-day move still reports one day');
 
   // Direction is a SHAPE (▲/▼) as well as a colour, and the two colours are
@@ -26900,7 +28208,7 @@ test('F794 Huge-text Twitches List uses large cards without changing its data or
       loc: 'Jetty', locId: 'L3', subId: 'S3', observer: 'C Birder',
       count: 1, evidence: 'P' },
   ];
-  seedRarityChase(app, rows);
+  await seedRarityChase(app, rows);
   app.window.localStorage.setItem('ebird_rarity_filters_v1',
     JSON.stringify({ year: 'all', distance: 'near' }));
   A.setTwitchView('list');
@@ -27202,7 +28510,7 @@ test('F498 checklist facts have separate destinations and the row itself is iner
 test('the convoy already-seen list is collapsed', () => {
   // Not scoped to renderConvoys: the species split is filled in by a later
   // hydration pass, several functions away from where the card is built.
-  assert.match(HTML, /<details class="convoyseen"><summary>Already seen this year/,
+  assert.match(HTML, /<details class="convoyseen"><summary>Already recorded on your selected list/,
     'it is a collapsed <details>, not an always-open block');
   assert.ok(!/<div class="convoyhead">Already seen this year/.test(HTML),
     'and the old always-open heading is gone, not merely bypassed');
@@ -27777,7 +29085,7 @@ test('F254 tier chase preserves its derived profile and projects Full-day separa
   });
   const A = app.window.__app;
   A.setCountySeed({});
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const base = A.chaseProfile();
   const baseRows = [1, 2, 3, 4].map((n) => ({
     speciesCode: 'base' + n, comName: 'Base Bird ' + n,
@@ -27882,7 +29190,7 @@ function syntheticEditionRows(edition) {
   return rows;
 }
 
-test('F739 name-backed evidence preserves canonical scientific identity and edition changes', async () => {
+test('F739 name-backed imports never replace owned evidence across canonical edition changes', async () => {
   let latest = '2024.0';
   const year = new Date().getFullYear();
   const app = await boot({ sample: false, indexedDB: new IDBFactory(), storage: {
@@ -27903,17 +29211,24 @@ test('F739 name-backed evidence preserves canonical scientific identity and edit
   } });
   const A = app.window.__app, store = app.window.localStorage;
   assert.equal(await A.checkTaxonomyEdition(true), true);
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), true);
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), null);
   store.setItem('ebird_seen', JSON.stringify({ 'different scientific identity': 1 }));
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), false,
-    'the English label cannot replace incompatible scientific evidence');
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), null,
+    'the English label cannot replace missing exact personal evidence');
   store.setItem('ebird_seen', JSON.stringify({ 'stable bird': 1 }));
   store.setItem('ebird_seen_field', 'comName');
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), true);
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), null);
+  const owner = A.personalListOwner();
+  store.setItem(A.personalListKey(owner),JSON.stringify({
+    owner,source:A.personalListUrl(owner),readAt:new Date().toISOString(),
+    readDate:A.todayStr(),codes:['stable'],rows:[{code:'stable',name:'Stable bird'}],
+    declaredCount:1,coverage:'complete',unresolved:0,paginated:false,
+  }));
+  assert.equal(A.isSpeciesSeen('stable','Stable bird'),true);
   latest = '2025.0';
   assert.equal(await A.checkTaxonomyEdition(true), true);
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), false,
-    'a retained name cannot silently resolve a changed canonical identity');
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), null,
+    'a prior edition owner cannot silently establish a changed canonical identity');
   app.window.close();
 });
 
@@ -27949,12 +29264,12 @@ test('F735/F736 official editions and localized cards preserve evidence, quarant
       })]);
     } finally { clearTimeout(timer); }
   }
-  seedSeen(app, ['stable', 'rename', 'form', 'splitold']);
   assert.equal(await taxonomyStep('Initial edition', A.checkTaxonomyEdition(true)), true);
+  await seedCurrentSeen(app, ['stable', 'rename', 'form', 'splitold']);
   assert.equal(A.taxonomyEdition(), '2024.0');
   const seed = app.window.__SEED_BIRDLIST__;
   seed.seenByReport[A.getReportSlug()].names = ['Stable bird'];
-  assert.equal(A.isSpeciesSeen('unknownform', 'Stable bird (unknown form)'), false,
+  assert.equal(A.isSpeciesSeen('unknownform', 'Stable bird (unknown form)'), null,
     'a checked edition must not award an unknown form through legacy parent-name evidence');
   assert.match(A.renderSpeciesNameHtml('Stable bird (unknown form)', 'unknownform'), /Taxonomy unknown/);
   assert.match(A.speciesCacheKey('US-WA'), /2024\.0:US-WA$/);
@@ -27985,25 +29300,23 @@ test('F735/F736 official editions and localized cards preserve evidence, quarant
   latest = '2025.0';
   assert.equal(await taxonomyStep('Changed edition', A.checkTaxonomyEdition(true)), true);
   assert.equal(A.taxonomyEdition(), '2025.0');
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), true);
-  assert.equal(A.isSpeciesSeen('rename', 'New name'), true);
-  assert.equal(A.isSpeciesSeen('form', 'Synthetic form'), false);
-  assert.equal(A.isSpeciesSeen('splitold', 'Old broad bird'), false);
-  assert.equal(A.isSpeciesSeen('splitnewa', 'Split A'), false);
-  assert.equal(A.isSpeciesSeen('splitnewb', 'Split B'), false);
+  for (const code of ['stable','rename','form','splitold','splitnewa','splitnewb']) {
+    assert.equal(A.isSpeciesSeen(code),null,'a changed edition requires fresh exact personal evidence');
+  }
   assert.equal(A.getReportSeen().newparent, undefined, 'changed parent must not manufacture a tick');
-  assert.equal(JSON.stringify(A.getReportSeenScope().exact), evidence);
+  assert.notEqual(JSON.stringify(A.getReportSeenScope().exact), evidence,
+    'prior-edition evidence is retired from the active personal owner');
   assert.equal(app.window.localStorage.getItem('ebird_seen'), personal);
   assert.equal(JSON.stringify(A.getWatchlist()), watch);
   assert.match(A.renderSpeciesNameHtml('Old name', 'rename'), /New name/);
   A.setWatchlist([{ code: 'form', name: 'Synthetic ambiguous form' }]);
-  seedSeen(app, ['stable', 'rename', 'form', 'splitold', 'newparent']);
-  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), false,
-    'an unresolved watch form must keep its former parent held off');
+  await seedCurrentSeen(app, ['stable', 'rename', 'form', 'newparent']);
+  assert.equal(A.isSpeciesSeen('stable', 'Stable bird'), true,
+    'fresh current-edition evidence resolves the held form to its current parent only');
   assert.equal(A.isSpeciesSeen('newparent', 'New parent'), false,
     'an unresolved watch form must also hold the current possible parent off');
   A.setWatchlist(JSON.parse(watch));
-  seedSeen(app, ['stable', 'rename', 'form', 'splitold']);
+  await seedCurrentSeen(app, ['stable', 'rename', 'form']);
   const scope = A.activeScope();
   A.firstYearWrite(scope.effectiveRegion, scope.year, {
     declared: 1, evidenceComplete: true, rows: [{ code: 'form', name: 'Synthetic form' }],
@@ -28147,7 +29460,7 @@ test('F749 production species batches count down while publishing useful partial
     return [];
   } });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const profile = Object.assign({}, A.chaseProfile(), {
     counties: [{ code: 'US-WA-033', name: 'Synthetic county' }],
   });
@@ -28194,6 +29507,7 @@ test('F758 bundled JSON is the production authority for menu icons, titles and s
 test('F763 latest checklist supplies MEGA count; unknown counts and held explanations are omitted', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
   const rows = [1, 3, 2].map((howMany, i) => ({
     speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', howMany,
     obsDt: new Date(Date.now() - (3 - i) * 60000).toISOString().slice(0, 16).replace('T', ' '),
@@ -28201,7 +29515,7 @@ test('F763 latest checklist supplies MEGA count; unknown counts and held explana
     lat: 47.6, lng: -122.3,
   }));
   function paint(records) {
-    app.window.localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
+    app.window.localStorage.setItem(A.bcReal('ebird_mega_snapshot_v1'), JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: 'SN10489', rows: records,
     }));
     A.renderSurge([], [], [], [], []);
@@ -28432,7 +29746,7 @@ test('F738 open-ended Day trip acquires all valid counties and finite empty tier
 test('F744 and F745 real Mass Flock/Favorite badges are framed and route only to supporting patches', async () => {
   const app = await boot();
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const flock = {
     code: 'snogoo', name: 'Synthetic Snow Goose flock',
     minCount: 600, maxCount: 750, evidenceCount: 2,
@@ -28515,7 +29829,10 @@ test('F600 Day trip modes render disjoint seeded tier results', async () => {
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[
+    ...[1,2,3,4].map(n=>({code:'base'+n,name:'Base Bird '+n})),
+    {code:'nisbir',name:'Nisqually Bird'}, {code:'leabir',name:'Leavenworth Bird'},
+  ]);
   const base = A.chaseProfile();
   const baseRows = [1, 2, 3, 4].map((n) => ({
     speciesCode: 'base' + n, comName: 'Base Bird ' + n,
@@ -29120,22 +30437,24 @@ test('Refresh actually refetches; opening the section does not', async () => {
     },
   });
   const doc = app.window.document, A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'tufpuf',name:'Tufted Puffin'}]);
 
-  A.refresh();
-  await new Promise((r) => setTimeout(r, 1400));
+  A.showSection('sec-refreshBtn');
+  await waitFor(() => waves > 0 && !doc.getElementById('refreshBtn').disabled,
+    'the visible rarity section to finish its first acquisition');
   const first = waves;
   assert.ok(first > 0, 'the first load fetches');
 
   // Re-opening a section must NOT spend the wave again. This is the behaviour
   // the 30-minute memo exists for and it has to survive the fix.
   A.refresh();
-  await new Promise((r) => setTimeout(r, 900));
+  await waitFor(() => !doc.getElementById('refreshBtn').disabled,'cached rarity repaint');
   assert.equal(waves, first,
     'reloading from cache costs nothing — a section you open twice is not two waves');
 
   // ...but the ↻ is a promise to go and look again.
   doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
-  await new Promise((r) => setTimeout(r, 1600));
+  await waitFor(() => waves > first,'visible Refresh to start a new rarity read');
   assert.ok(waves > first,
     `Refresh must actually refetch: ${first} calls before, ${waves} after`);
   app.window.close();
@@ -29465,6 +30784,9 @@ test('a shorter feed may correct a hotspot card, but never empty it', async () =
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  await seedSeen(app,['daejun'],null,[
+    {code:'tufpuf',name:'Tufted Puffin'}, {code:'commur',name:'Common Murre'},
+  ]);
 
   A.renderHot({ hot: [{ locId: 'L1', name: 'Sandel Lookout', lat: 47.7, lng: -122.2,
     dist: 10, fresh: 2, checklists: 3, share: 5, latest: todayFixtureDate(),
@@ -29567,6 +30889,8 @@ test('your own checklists top up the year list, for free', async () => {
   });
   const A = app.window.__app, W = app.window;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await seedSeen(app,[],null,[{code:'tufpuf',name:'Tufted Puffin'},
+    {code:'commur',name:'Common Murre'}]);
 
   assert.equal(A.isOwnRow(lists[0]), true, 'your checklist is yours');
   assert.equal(A.isOwnRow(lists[1]), false, 'and somebody else\'s is not');
@@ -29584,8 +30908,9 @@ test('your own checklists top up the year list, for free', async () => {
   assert.equal(await A.harvestOwnChecklists(lists), 0, 'nothing new to do');
   assert.deepEqual(Array.from(viewed), [], 'and nothing re-fetched');
 
-  // The point: a bird you filed since the bundle was built stops being a target.
-  assert.ok(A.getReportSeen().tufpuf, 'a bird you reported counts as seen');
+  assert.equal(A.isSpeciesSeen('tufpuf'),false,
+    'annual capture cannot rewrite exact-source membership');
+  assert.equal(A.personalListEvidence().count,0,'the exact official total is unchanged');
   assert.ok(!A.getReportSeen().shouldnotappear,
     'and a bird from somebody else\'s checklist does not');
   app.window.close();
@@ -29611,7 +30936,7 @@ test('F417 records exact forms separately while parent species and watchlist rul
   });
   const A = app.window.__app, W = app.window;
   W.__SEED_BIRDLIST__.reportAsParents = aliases;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   A.setWatchlist([]);
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
 
@@ -29619,6 +30944,9 @@ test('F417 records exact forms separately while parent species and watchlist rul
     { subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: observed.length },
   ]);
   const raw = A.ownSeenCodes();
+  assert.equal(A.personalListEvidence().count,0,
+    'capturing forms must not invent exact personal membership');
+  await seedSeen(app,observed);
   const scope = A.getReportSeenScope();
   const seen = scope.species;
   for (const child of observed) {
@@ -29673,8 +31001,8 @@ test('F417 records exact forms separately while parent species and watchlist rul
     'the watched parent remains a target even though its child was reported');
 
   A.setWatchlist([]);
-  W.localStorage.removeItem('ebird_own_seen:' + A.getReportSlug());
-  seedSeen(app, ['hawama']);
+  W.localStorage.removeItem(A.bcReal('ebird_own_seen:' + A.getReportSlug()));
+  await seedSeen(app, ['hawama']);
   const parentScope = A.getReportSeenScope();
   assert.ok(parentScope.species.hawama && parentScope.species.hawama1
     && parentScope.species.hawama2,
@@ -29683,14 +31011,11 @@ test('F417 records exact forms separately while parent species and watchlist rul
     ['hawama'],
     'but the exact-taxon layer records only the parent that was actually listed');
 
-  W.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()].yearList = [{
-    code: 'hawama2', name: 'Hawaii Amakihi (Hawaii)', date: '18 Sep 2026',
-    subId: 'S-HAWAMA', loc: 'Hawaii',
-  }];
+  await seedSeen(app,['hawama2'],['Hawaii Amakihi (Hawaii)']);
   A.updateMyYear();
-  assert.match(app.$('myYearList').textContent,
-    /Exact form · counts as Hawaii Amakihi for species lists/,
-    'a form row labels its exact-versus-species relationship in words');
+  assert.equal(A.personalListEvidence().count,1,'the exact form counts as one parent species');
+  assert.equal(app.$('myYearList').children.length,1,
+    'the selected personal list consolidates its official species without inflating the total');
   app.window.close();
 });
 
@@ -29776,12 +31101,12 @@ test('a bird you are holding back is not ticked by your own checklist', async ()
   });
   const A = app.window.__app, W = app.window;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await seedSeen(app,['tufpuf'],['Tufted Puffin']);
   await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]);
   assert.ok(A.getReportSeen().tufpuf, 'ticked while nothing is held');
 
   // Now hold it back.
-  W.localStorage.setItem('ebird_watchlist_v1',
-    JSON.stringify([{ code: 'tufpuf', name: 'Tufted Puffin' }]));
+  A.setWatchlist([{code:'tufpuf',name:'Tufted Puffin'}]);
   assert.ok(!A.getReportSeen().tufpuf,
     'the watchlist subtracts it again — the union is applied BEFORE the '
     + 'watchlist, never after');
@@ -29795,7 +31120,7 @@ test('a bird you are holding back is not ticked by your own checklist', async ()
 // memo lapsed. Verified against live data on 2026-08-09: two of this reader's
 // own checklists carried Tufted Puffin and Wandering Tattler, neither of which
 // is on the bundled Washington year list.
-test('learning a bird from your own checklist refreshes what is a target', async () => {
+test('annual own-checklist capture retires its legacy memo without rewriting exact membership', async () => {
   let waves = 0;
   const app = await boot({
     fetch(url) {
@@ -29809,6 +31134,7 @@ test('learning a bird from your own checklist refreshes what is a target', async
   const A = app.window.__app, W = app.window;
   const doc = () => app.window.document;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await seedSeen(app,[],null,[{code:'tufpuf',name:'Tufted Puffin'}]);
 
   // Settling is measured by the CALL COUNT going quiet, not by the Refresh
   // button. The button re-enables as soon as the rarity feeds land — the
@@ -29834,7 +31160,9 @@ test('learning a bird from your own checklist refreshes what is a target', async
   // A checklist of yours appears carrying a bird the bundle does not know.
   const n = await A.harvestOwnChecklists([{ subId: 'S1', userDisplayName: 'Birder Wyatt' }]);
   assert.equal(n, 1, 'the checklist was read');
-  assert.ok(A.getReportSeen().tufpuf, 'and the bird now counts as seen');
+  assert.equal(A.isSpeciesSeen('tufpuf'),false,
+    'captured checklist evidence does not rewrite exact membership');
+  assert.equal(A.personalListEvidence().count,0);
 
   // The next look must recompute rather than serve the memo that still calls
   // it a target.
@@ -30066,6 +31394,9 @@ test('a hotspot counts only the targets you still need, right now', async () => 
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = ['tufpuf', 'wantat1']; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
+  await seedSeen(app,['tufpuf','wantat1'],null,[
+    {code:'comloo',name:'Common Loon'}, {code:'commur',name:'Common Murre'},
+  ]);
 
   // Scored as two rarities — but both are birds you have since logged.
   const stale = A.toDest({ locId: 'L1', locName: 'Sandel Lookout', lat: 47.7, lon: -122.3,
@@ -30163,7 +31494,7 @@ test('there is ONE menu ordering, not two', () => {
 // this bird seen?" needs, and My year is the one section that does not ask
 // that — it renders a list, so it needs a name, a date, a checklist and a
 // place. A code cannot be a row.
-test('a bird harvested from your own checklist is a row, not just a tick', async () => {
+test('a harvested own-checklist bird retains a named annual row without certifying personal membership', async () => {
   const lists = [{
     subId: 'S1', userDisplayName: 'Birder Wyatt', numSpecies: 3,
     isoObsDate: '2026-08-09 16:46',
@@ -30185,13 +31516,15 @@ test('a bird harvested from your own checklist is a row, not just a tick', async
   });
   const A = app.window.__app, W = app.window;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await seedSeen(app,[],null,[{code:'tuftpu',name:'Tufted Puffin'}]);
   await A.harvestOwnChecklists(lists);
 
   // The tick is durable BEFORE the name lookup is awaited. That ordering is
   // the load-bearing part: a name is a rendering detail, and a taxonomy call
   // that never returns must not be able to hold up the thing that stops a bird
   // you logged this morning being offered as a target.
-  assert.ok(A.getReportSeen().tuftpu, 'seen the moment the checklist is read');
+  assert.ok(A.ownSeenCodes().tuftpu,'annual evidence is captured immediately');
+  assert.equal(A.isSpeciesSeen('tuftpu'),false,'membership still belongs to the exact source');
   await A.nameOwnCodes();
 
   const rec = A.ownSeenCodes().tuftpu;
@@ -30211,7 +31544,7 @@ test('a bird harvested from your own checklist is a row, not just a tick', async
     + 'ahead of the eBird page the heading links to');
 
   // ...and it still does the job it already did.
-  assert.ok(A.getReportSeen().tuftpu, 'while still counting as seen');
+  assert.equal(A.personalListEvidence().count,0,'naming the capture does not change official totals');
   app.window.close();
 });
 
@@ -30231,13 +31564,15 @@ test('a name that failed to resolve is retried, not lost', async () => {
   });
   const A = app.window.__app, W = app.window;
   W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
+  await seedSeen(app,[],null,[{code:'tuftpu',name:'Tufted Puffin'}]);
   await A.harvestOwnChecklists([{
     subId: 'S1', userDisplayName: 'Birder Wyatt', isoObsDate: '2026-08-09 16:46',
     loc: { locId: 'L1', name: 'Here', isHotspot: true },
   }]);
   await A.nameOwnCodes();
   assert.equal(A.ownSeenCodes().tuftpu.n, '', 'no name yet');
-  assert.ok(A.getReportSeen().tuftpu, 'but the bird is still seen — that half never depended on it');
+  assert.ok(A.ownSeenCodes().tuftpu,'the capture survives without a resolved name');
+  assert.equal(A.isSpeciesSeen('tuftpu'),false,'name lookup cannot replace exact membership');
   assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 0,
     'and it is kept OUT of the list rather than rendered as a blank row');
 
@@ -30265,7 +31600,7 @@ test('the export keeps its own order when new birds are merged in', async () => 
   const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const _now = new Date();
   const todayExportDate = _now.getDate() + ' ' + _mon[_now.getMonth()] + ' ' + _now.getFullYear();
-  W.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
+  W.localStorage.setItem(A.bcReal('ebird_own_seen:' + A.getReportSlug()), JSON.stringify({
     aaaaaa: { n: 'Brand New Bird', d: todayExportDate, s: 'S1', l: 'Here', i: 'L1', h: 1 },
     // A bare 1 is what harvests before this change stored. It still marks the
     // bird seen; it simply has no name, and a row with no name is worse than
@@ -30280,15 +31615,8 @@ test('the export keeps its own order when new birds are merged in', async () => 
 
   A.updateMyYear();
   const rows = W.document.getElementById('myYearList').querySelectorAll('li');
-  assert.equal(rows.length, seed.length + 1);
-  // report.py numbers the OLDEST #1, so a newly added bird is #N.
-  // .trim() because the row now renders through the shared medium card, whose
-  // template indents its markup — the assertion is about the NUMBER, and
-  // leading whitespace was incidental to the hand-rolled <li> it replaced.
-  assert.match(rows[0].textContent.trim(), new RegExp('^' + (seed.length + 1) + '\\.'),
-    'numbered as the newest, not renumbered from the top');
-  assert.match(rows[0].textContent, /added from checklist refresh/,
-    'and it says why it is not on the eBird page');
+  assert.equal(rows.length,0,
+    'a preserved legacy export cannot populate an unavailable exact personal list');
   app.window.close();
 });
 
@@ -30861,6 +32189,7 @@ test('quick outing hydrates its cards like top destinations does', async () => {
     },
   });
   const A = app.window.__app, W = app.window, D = W.document;
+  await seedSeen(app,['amecro'],null,[{code:'zztuft2',name:'Zed Test Puffin'}]);
   A.seedChase(A.getReportSlug(), null);
   const hydration = A.loadQuickOuting('home');
   assert.ok(hydration && typeof hydration.then === 'function',
@@ -30922,6 +32251,8 @@ test('quick outing keeps broader local unseen evidence', async () => {
     },
   });
   const A = app.window.__app, W = app.window, D = W.document;
+  await seedSeen(app,[],null,[{code:'zzgoose',name:'Zed Hawaiian Goose'},
+    {code:'zzfran',name:'Zed Gray Francolin'}]);
   const rep = W.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   W.localStorage.setItem('ebird_seen_field', 'speciesCode');
@@ -31011,6 +32342,8 @@ test('Nearby Patches progressively shows 10 cards and keeps the map in sync', as
 test('quick outing can reuse the matching Today patch species', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'zzgoose',name:'Zed Hawaiian Goose'},
+    {code:'zzfran',name:'Zed Gray Francolin'}]);
   const rep = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
@@ -31230,11 +32563,18 @@ test('the help section is generated from the notes each section already carries'
 test('the menu names you, from cache, without spending a call', async () => {
   const app = await boot();
   const A = app.window.__app, D = app.window.document, W = app.window;
+  A.setDisplayNameValue('Birder Wyatt','manual');
+  await seedSeen(app,['amerob']);
+  const owner = A.personalListOwner(), period = String(new Date().getFullYear());
+  const request = {region:'US-WA',max:500,metric:'spp'};
+  const key = A.rankCacheOwnerKey(request,period,'Birder Wyatt');
+  const board = (region,rank) => ({region,period,metric:'spp',
+    profile:owner.profile,ownerRevision:owner.identityRevision,
+    me:{name:'Birder Wyatt',rank,species:331,checklists:120}});
   const before = app.state.fetches.length;
 
   // With nothing cached it says who you are and no more — a "—" where a number
   // belongs reads as a failure rather than as "not looked up".
-  W.localStorage.setItem('ebird_display_name', 'Birder Wyatt');
   A.renderMenuIdentity();
   // F200: the identity block was REMOVED from the top of the menu -- "everything
   // under the highlights should be removed" -- because the header now carries
@@ -31246,31 +32586,26 @@ test('the menu names you, from cache, without spending a call', async () => {
   assert.doesNotMatch(txt, /#/, 'and no rank is invented when none is known');
 
   // With today's board cached for this region, the standing appears.
-  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
-    'US-WA|2026|500|Birder Wyatt': { date: A.todayStr(),
-      data: { region: 'US-WA', me: { rank: 42, species: 331, checklists: 120 } } },
-  }));
+  A.rankCachePut(key,board('US-WA',42));
   A.renderMenuIdentity();
   txt = D.getElementById('hdrId').textContent;
   assert.match(txt, /#42/, 'the cached rank is used');
-  assert.match(txt, /331sp/,
-    'the species count comes from the same Washington leaderboard row as the rank');
-  assert.doesNotMatch(txt, /209sp/,
-    'the Washington rank is still paired with the device-wide ABA species total');
+  assert.match(txt, /1\s*sp\./,
+    'exact personal membership owns the independently acquired species count');
+  assert.match(txt, /120\s*cl\./,'the matching board owns its checklist total');
+  assert.doesNotMatch(txt, /331\s*sp\.|209\s*sp\./,
+    'neither the board species total nor a device-wide ABA total replaces exact membership');
 
   // A board for ANOTHER region must not be borrowed.
-  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
-    'US-MO|2026|500|Birder Wyatt': { date: A.todayStr(),
-      data: { region: 'US-MO', me: { rank: 7 } } },
-  }));
+  A.rankCachePut(A.rankCacheOwnerKey({region:'US-MO',max:500,metric:'spp'},period,'Birder Wyatt'),
+    board('US-MO',7));
   A.renderMenuIdentity();
   assert.doesNotMatch(D.getElementById('hdrId').textContent, /#7/,
     'a Missouri standing is not your Washington standing');
 
   // ...and a YESTERDAY board is not today's.
-  W.localStorage.setItem('ebird_rank_cache_v2', JSON.stringify({
-    'US-WA|2026|500|Birder Wyatt': { date: '2001-01-01',
-      data: { region: 'US-WA', me: { rank: 9 } } },
+  W.localStorage.setItem(A.bcReal(A.RANK_CACHE_KEY),JSON.stringify({
+    [key]:{date:'2001-01-01',data:board('US-WA',9)},
   }));
   A.renderMenuIdentity();
   assert.doesNotMatch(D.getElementById('hdrId').textContent, /#9/,
@@ -31591,91 +32926,57 @@ test('My Ticks can refresh edited checklists again in the same session', async (
   }
 });
 
-test('opening My Ticks owns an immediate fresh own-checklist scan', () => {
+test('opening My List prepares its exact personal source instead of a checklist union', () => {
   const start = HTML.indexOf('function loadMyYear()');
   const end = HTML.indexOf('function updateMyYear()', start);
   const fn = HTML.slice(start, end);
   assert.ok(start >= 0, 'My Ticks needs a loader that can do more than repaint local rows');
   assert.match(fn, /_myYearRefreshState = 'checking';[\s\S]*updateMyYear\(\);/,
     'the existing rows still paint immediately');
-  assert.match(fn, /:\s*ensureOwnHarvest\(work,\s*true\)/,
-    'opening or reloading My Ticks bypasses the session list cache');
-  assert.match(fn, /nameOwnCodes\(\)/,
-    'the owned first-paint promise settles before newly harvested codes receive names');
+  assert.match(fn, /return preparePersonalList\(scope,\s*force/,
+    'opening or reloading My List owns its exact selected source');
+  assert.doesNotMatch(fn, /ensureOwnHarvest|tryLifelistYear|nameOwnCodes/,
+    'a geographic checklist/CSV union must not replace personal membership');
   assert.match(HTML, /myYearBody:\s*\{\s*fn:\s*loadMyYear\b/,
     'the menu section is wired to the refreshing loader');
 });
 
-test('F342 My Ticks marks its first paint as updating until a new bird is included', async () => {
+test('F342 My List marks its first paint as updating until exact personal acquisition settles', async () => {
   const app = await boot({
     sample: false,
     storage: { ebird_display_name: 'Birder Wyatt' },
   });
   const A = app.window.__app;
-  const response = (body) => Promise.resolve({
-    ok: true, status: 200,
-    headers: { get: () => null },
-    text: () => Promise.resolve(JSON.stringify(body)),
-    json: () => Promise.resolve(body),
-  });
-  let releaseKing;
+  await seedSeen(app,[],null,[{code:'lewwoo',name:"Lewis's Woodpecker"}]);
+  app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+  let release;
   app.window.fetch = (url) => {
-    const u = String(url);
-    if (/product\/lists\/US-WA-033/.test(u)) {
-      return new Promise((resolve) => {
-        releaseKing = () => resolve({
-          ok: true, status: 200,
-          headers: { get: () => null },
-          text: () => Promise.resolve(JSON.stringify([{
-            subId: 'S-LEWO', userDisplayName: 'Birder Wyatt', numSpecies: 1,
-            isoObsDate: '2026-09-09 08:00',
-            loc: { locId: 'L-LEWO', name: 'Lewis Woodpecker Place', isHotspot: true },
-          }])),
-          json: () => Promise.resolve([{
-            subId: 'S-LEWO', userDisplayName: 'Birder Wyatt', numSpecies: 1,
-            isoObsDate: '2026-09-09 08:00',
-            loc: { locId: 'L-LEWO', name: 'Lewis Woodpecker Place', isHotspot: true },
-          }]),
-        });
-      });
-    }
-    if (/product\/lists\/US-WA-061/.test(u)) return response([]);
-    if (/product\/checklist\/view\/S-LEWO/.test(u)) {
-      return response({ obs: [{ speciesCode: 'lewwoo' }] });
-    }
-    if (/ref\/taxonomy\/ebird/.test(u)) {
-      return response([{
-        speciesCode: 'lewwoo', comName: "Lewis's Woodpecker",
-        sciName: 'Melanerpes lewis',
-      }]);
-    }
-    return response([]);
+    assert.equal(String(url),A.personalListUrl(A.personalListOwner()),
+      'the selected personal list must not scan public checklists');
+    return new Promise(resolve => {
+      release = () => resolve({ok:true,status:200,headers:{get:()=>null},
+        text:async()=>ownedPersonalListFixture({codes:['lewwoo'],account:'Birder Wyatt'})});
+    });
   };
-  A.fgSchedReset(Date.now());
-
   const loading = A.LOADERS.myYearBody.fn();
   assert.ok(loading && typeof loading.then === 'function',
-    'the loader detached the checklist scan, so callers cannot know when the first answer is authoritative');
-  await waitFor(() => releaseKing, 'the fresh King County checklist list request');
-  assert.match(app.$('myYearBody').textContent, /checking recent.*checklists|still updating/i,
-    'the first visible list looked complete while its fresh checklist scan was still pending');
-  const progress = app.$('myYearFreshness').querySelector('progress');
-  assert.ok(progress,
-    'Washington My Ticks has updating text but no visible loading bar');
+    'the loader must own its complete first acquisition');
+  await waitFor(() => release,'the exact personal-list request');
+  assert.match(app.$('myYearBody').textContent,/Reading the exact personal list/i);
+  const progress = app.$('myYearBody').querySelector('progress');
+  assert.ok(progress,'exact acquisition retains an indeterminate loading bar');
   assert.equal(progress.hasAttribute('value'), false,
-    'the checklist loading bar pretends to know progress it cannot measure');
+    'the loading bar must not invent measured progress');
   assert.match(progress.getAttribute('aria-label'),
-    /Loading recent eBird checklists for Washington/i,
-    'the checklist loading bar does not name its report or work');
+    /Loading exact personal list for Washington/i);
   assert.doesNotMatch(app.$('myYearList').textContent, /Lewis/,
     'the controlled new bird appeared before its checklist response');
 
-  releaseKing();
+  release();
   await loading;
   assert.match(app.$('myYearList').textContent, /Lewis's Woodpecker/,
-    'the loader settled before the newly harvested bird reached the authoritative list');
-  assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|checking recent/i,
-    'the updating disclosure remained after the fresh list settled');
+    'the loader settled before the exact acquired bird was rendered');
+  assert.doesNotMatch(app.$('myYearBody').textContent, /Reading the exact personal list/i);
   assert.equal(app.$('myYearBody').querySelector('progress'), null,
     'the checklist loading bar remained after the fresh list settled');
   app.window.close();
@@ -31686,6 +32987,11 @@ test('F342 My Ticks keeps its known list and names a failed fresh scan', async (
     storage: { ebird_display_name: 'Birder Wyatt' },
   });
   const A = app.window.__app;
+  await seedSeen(app,['amerob']);
+  const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+  const prior = JSON.parse(app.window.localStorage.getItem(key));
+  prior.readDate = '2001-01-01';
+  app.window.localStorage.setItem(key,JSON.stringify(prior));
   A.updateMyYear();
   const before = app.$('myYearList').textContent;
   assert.ok(before.trim(), 'the failure control needs a known list to preserve');
@@ -31700,8 +33006,8 @@ test('F342 My Ticks keeps its known list and names a failed fresh scan', async (
   await A.LOADERS.myYearBody.fn();
   assert.equal(app.$('myYearList').textContent, before,
     'a failed refresh erased the last known My Ticks rows');
-  assert.match(app.$('myYearBody').textContent,
-    /Recent checklist check did not finish.*Refresh to try again/is,
+  assert.match(app.$('myYearBody').closest('section').textContent,
+    /saved|stale|Refresh.*retry/is,
     'the failed scan was presented as a current authoritative list');
   app.window.close();
 });
@@ -31722,29 +33028,23 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
     HTML.indexOf('function loadMyYear()'),
     HTML.indexOf('function updateMyYear()'),
   );
-  assert.match(loaderSource, /isRarityTracker[\s\S]*tryLifelistYear/,
-    'ABA still goes through the empty county harvester instead of its signed-in year list');
-
-  const csv = [
-    'Species Code,Common Name,Date',
-    'hawgoo,Hawaiian Goose,10 Sep 2026',
-    'hawcoo,Hawaiian Coot,09 Sep 2026',
-    'hawhaw,Hawaiian Hawk,08 Sep 2026',
-    'iiwi,Iiwi,07 Sep 2026',
-    'apapan,Apapane,06 Sep 2026',
-  ].join('\n');
+  assert.match(loaderSource, /preparePersonalList\(scope,\s*force/,
+    'ABA must use its exact personal list, not the empty county harvester');
+  const codes = ['hawgoo','hawcoo','hawhaw','iiwi','apapan'];
+  await seedSeen(app,codes,['Hawaiian Goose','Hawaiian Coot','Hawaiian Hawk','Iiwi','Apapane']);
+  app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+  const page = ownedPersonalListFixture({region:'aba',codes,count:5,account:'Birder Wyatt'});
   const urls = [];
   let releaseCsv;
   app.window.fetch = (url) => {
     const u = String(url);
     urls.push(u);
-    if (/lifelist\?r=aba&time=year&year=2026&fmt=csv/.test(u)) {
+    if (u === 'https://ebird.org/lifelist/aba?time=year') {
       return new Promise((resolve) => {
         releaseCsv = () => resolve({
           ok: true, status: 200,
           headers: { get: () => null },
-          text: () => Promise.resolve(csv),
-          json: () => Promise.resolve(csv),
+          text: () => Promise.resolve(page),
         });
       });
     }
@@ -31763,19 +33063,19 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
     'the ABA refresh detached its signed-in year-list request');
   await waitFor(() => releaseCsv, 'the ABA year-list request to start', 2000);
   assert.match(app.$('myYearBody').textContent.trim(),
-    /^Still updating\..*Reading your ABA Area year list/is,
+    /Reading the exact personal list/is,
     'F425 the active ABA loader is not the first visible My Year List status');
-  const progress = app.$('myYearFreshness').querySelector('progress');
+  const progress = app.$('myYearBody').querySelector('progress');
   assert.ok(progress, 'the ABA refresh has text but no visible loading bar');
   assert.equal(progress.hasAttribute('value'), false,
     'the ABA loading bar pretends to know progress it cannot measure');
-  assert.match(progress.getAttribute('aria-label'), /Loading.*ABA Area year list/i,
+  assert.match(progress.getAttribute('aria-label'), /Loading exact personal list for ABA/i,
     'the loading bar does not name the work in progress');
   assert.doesNotMatch(app.$('myYearBody').textContent, /Hawaii.*38 species/is,
     'F425 stale Hawaii summary survived after the ABA refresh started');
   assert.doesNotMatch(app.$('myYearList').textContent, /stale Hawaii bird/i,
     'F425 stale Hawaii cards survived after the ABA refresh started');
-  assert.match(app.$('myYearBody').textContent, /reading.*ABA.*year list|still updating/i,
+  assert.match(app.$('myYearBody').textContent, /Reading the exact personal list/i,
     'the old ABA rows looked current while the signed-in year list was pending');
   assert.equal(urls.filter((u) => /product\/lists\//.test(u)).length, 0,
     'a countyless ABA profile spent an impossible county-list call');
@@ -31786,13 +33086,13 @@ test('F373 ABA My Ticks reads the signed-in year list immediately', async () => 
   ['Hawaiian Goose', 'Hawaiian Coot', 'Hawaiian Hawk', 'Iiwi', 'Apapane']
     .forEach((name) => assert.match(rows, new RegExp(name),
       name + ' did not reach the authoritative ABA list'));
-  assert.doesNotMatch(app.$('myYearBody').textContent, /still updating|reading.*year list/i,
+  assert.doesNotMatch(app.$('myYearBody').textContent, /Reading the exact personal list/i,
     'the ABA updating disclosure remained after the signed-in list settled');
   assert.equal(app.$('myYearBody').querySelector('progress'), null,
     'the loading bar remained after the ABA year list settled');
-  assert.equal(Object.keys(JSON.parse(
-    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
-  )).length, 5, 'the ABA rows were stored under a different report');
+  assert.equal(A.personalListEvidence().count,5,'the exact ABA source owns its five species');
+  assert.equal(urls.filter(u=>/\/lifelist\//.test(u)).length,1,
+    'one exact source replaces the old ABA/Hawaii union');
   assert.equal(urls.filter((u) => /product\/lists\//.test(u)).length, 0,
     'the successful one-call path fell through to county harvesting');
   app.window.close();
@@ -31806,40 +33106,41 @@ test('F373 ABA My Ticks names an unavailable signed-in year list', async () => {
     storage: { ebird_display_name: 'Birder Wyatt' },
     fetch: (url) => /lifelist/.test(url) ? login : [],
   });
-  await app.window.__app.LOADERS.myYearBody.fn();
-  assert.match(app.$('myYearBody').textContent,
-    /ABA.*year-list refresh did not finish|year-list refresh did not finish.*ABA/is,
+  const A = app.window.__app;
+  await seedSeen(app,[]);
+  app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+  await A.LOADERS.myYearBody.fn();
+  const section = app.$('myYearBody').closest('section');
+  assert.match(section.textContent,
+    /personal history unavailable.*Signed-in eBird account metadata is unavailable/is,
     'a login response was presented as a current ABA list');
-  assert.match(app.$('myYearBody').textContent, /sign in.*eBird.*Refresh/is,
+  assert.ok(section.querySelector('.myYearEbirdLink'),
     'the failed ABA source does not name the action that can repair it');
+  assert.equal(A.personalListEvidence().count,null,'a login failure is not zero species');
   assert.equal(app.state.fetches.filter((u) => /product\/lists\//.test(u)).length, 0,
     'a failed ABA account page fell through to an impossible county scan');
   app.window.close();
 });
 
-test('F373 a late ABA year-list response stays owned by ABA', async () => {
+test('F373 a late exact ABA personal response is rejected after switching to Hawaii', async () => {
   const app = await boot({
     report: 'aba',
     sample: false,
     storage: { ebird_display_name: 'Birder Wyatt' },
   });
-  const csv = [
-    'Species Code,Common Name,Date',
-    'hawgoo,Hawaiian Goose,10 Sep 2026',
-    'hawcoo,Hawaiian Coot,09 Sep 2026',
-    'hawhaw,Hawaiian Hawk,08 Sep 2026',
-    'iiwi,Iiwi,07 Sep 2026',
-    'apapan,Apapane,06 Sep 2026',
-  ].join('\n');
+  const A = app.window.__app;
+  await seedSeen(app,['hawgoo']);
+  const oldKey = A.bcReal(A.personalListKey(A.personalListOwner()));
+  app.window.localStorage.removeItem(oldKey);
+  const page = ownedPersonalListFixture({region:'aba',codes:['hawgoo'],account:'Birder Wyatt'});
   let releaseCsv;
   app.window.fetch = (url) => {
-    if (/lifelist\?r=aba&time=year&year=2026&fmt=csv/.test(String(url))) {
+    if (String(url) === 'https://ebird.org/lifelist/aba?time=year') {
       return new Promise((resolve) => {
         releaseCsv = () => resolve({
           ok: true, status: 200,
           headers: { get: () => null },
-          text: () => Promise.resolve(csv),
-          json: () => Promise.resolve(csv),
+          text: () => Promise.resolve(page),
         });
       });
     }
@@ -31857,10 +33158,9 @@ test('F373 a late ABA year-list response stays owned by ABA', async () => {
   releaseCsv();
   await loading;
 
-  assert.equal(Object.keys(JSON.parse(
-    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
-  )).length, 5, 'a late ABA response was discarded or stored under the new report');
-  assert.equal(app.window.localStorage.getItem('ebird_own_seen:hi'), null,
+  assert.equal(app.window.localStorage.getItem(oldKey),null,
+    'the obsolete ABA response must not publish after navigation');
+  assert.equal(A.personalListEvidence().state,'unavailable',
     'a late ABA response contaminated Hawaii My Ticks');
   app.window.close();
 });
@@ -31871,16 +33171,9 @@ test('F375 Reload My Ticks uses the exact ABA year URL', async () => {
       n: 'American Robin', d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '',
     },
   };
-  const exactCsv = 'https://ebird.org/lifelist?r=aba&time=year&year=2026&fmt=csv';
-  const exactPage = 'https://ebird.org/lifelist?r=aba&time=year&year=2026';
-  const csv = [
-    'Species Code,Common Name,Date',
-    'amerob,American Robin,10 Sep 2026',
-    'norcar,Northern Cardinal,09 Sep 2026',
-    'moudov,Mourning Dove,08 Sep 2026',
-    'blujay,Blue Jay,07 Sep 2026',
-    'amecro,American Crow,06 Sep 2026',
-  ].join('\n');
+  const exactPage = 'https://ebird.org/lifelist/aba?time=year';
+  const codes = ['amerob','norcar','moudov','blujay','amecro'];
+  const page = ownedPersonalListFixture({region:'aba',codes,count:5,account:'Birder Wyatt'});
   const urls = [];
   const app = await boot({
     report: 'aba',
@@ -31890,11 +33183,12 @@ test('F375 Reload My Ticks uses the exact ABA year URL', async () => {
       'ebird_own_seen:aba': JSON.stringify(prior),
     },
   });
+  const A = app.window.__app;
+  await seedSeen(app,['amerob'],null,codes.map(code=>({code})));
   app.window.fetch = (url) => {
     const u = String(url);
     urls.push(u);
-    const body = u === exactCsv || /lifelist\?r=US-HI.*fmt=csv/.test(u)
-      ? csv : 'Species Code,Common Name,Date\n';
+    const body = u === exactPage ? page : '';
     return Promise.resolve({
       ok: true, status: 200,
       headers: { get: () => null },
@@ -31912,21 +33206,16 @@ test('F375 Reload My Ticks uses the exact ABA year URL', async () => {
   await waitFor(() => /American Crow/.test(app.$('myYearList').textContent),
     'the exact ABA year list to reach My Ticks', 3000);
 
-  assert.ok(urls.includes(exactCsv),
-    'Reload My Ticks did not request the lower-case, explicit-year ABA CSV URL');
-  assert.equal(urls.filter((u) => u === exactCsv).length, 1,
-    'the exact ABA CSV was not read exactly once');
-  assert.equal(urls.filter((u) => /ebird\.org\/lifelist/.test(u)).length, 2,
-    'the ABA refresh did not make exactly one intentional Hawaii supplement read');
-  const link = app.$('myYearBody').querySelector('.bignum a');
+  assert.equal(urls.filter((u) => u === exactPage).length, 1,
+    'the exact ABA personal page was not read exactly once');
+  assert.equal(urls.filter((u) => /ebird\.org\/lifelist/.test(u)).length, 1,
+    'an exact ABA list must not add a separate Hawaii supplement');
+  const link = app.$('myYearBody').closest('section').querySelector('.myYearEbirdLink');
   assert.ok(link, 'the My Ticks total no longer links to its eBird year list');
   assert.equal(link.getAttribute('data-href'), exactPage,
     'the visible My Ticks link does not use the same lower-case, explicit-year URL');
   assert.match(app.$('myYearList').textContent, /American Crow/);
-  assert.ok(Object.keys(JSON.parse(
-    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
-  )).length > Object.keys(prior).length,
-  'the exact ABA response did not increase the stored list');
+  assert.equal(A.personalListEvidence().count,5,'the exact response must be durably owned');
   assert.equal(app.window.__app.takeForce(), false,
     'Reload My Ticks leaked its force flag into the next section');
   app.window.close();
@@ -31978,14 +33267,17 @@ test('F390 ABA My Ticks reloads uncached Hawaii sightings beside the ABA list', 
 
   await A.tryLifelistYear();
   A.updateMyYear();
-  assert.match(app.$('myYearList').textContent, /Hawaiian Coot/,
-    'the ABA list did not supplement its excluded Hawaii scope');
+  assert.ok(JSON.stringify(A.ownSeenCodes('aba')).includes('hawcoo'),
+    'the legacy import capture did not retain its Hawaii supplement');
+  assert.equal(app.$('myYearList').children.length,0,
+    'legacy capture cannot publish its ABA/Hawaii union as exact personal membership');
   assert.doesNotMatch(app.$('myYearList').textContent, /Red-billed Leiothrix/);
 
   await A.tryLifelistYear();
   A.updateMyYear();
-  assert.match(app.$('myYearList').textContent, /Red-billed Leiothrix/,
-    'a later Hawaii sighting did not appear after the next reload');
+  assert.ok(JSON.stringify(A.ownSeenCodes('aba')).includes('reblei'),
+    'legacy capture did not retain the later Hawaii evidence');
+  assert.equal(app.$('myYearList').children.length,0);
   assert.equal(requests.filter((r) => r.url === exactAbaCsv).length, 2,
     'the two reloads did not read the ABA year list twice');
   assert.equal(requests.filter((r) => r.url === exactHiCsv).length, 2,
@@ -31997,7 +33289,7 @@ test('F390 ABA My Ticks reloads uncached Hawaii sightings beside the ABA list', 
   app.window.close();
 });
 
-test('F394 ABA My Ticks makes room and durably repaints the fetched year lists', async () => {
+test('F394 legacy ABA/Hawaii capture makes room and remains distinct from exact My List', async () => {
   const exactAbaCsv = 'https://ebird.org/lifelist?r=aba&time=year&year=2026&fmt=csv';
   const exactHiCsv = 'https://ebird.org/lifelist?r=US-HI&time=year&year=2026&fmt=csv';
   const csv = (prefix, count, newestName) => [
@@ -32041,13 +33333,12 @@ test('F394 ABA My Ticks makes room and durably repaints the fetched year lists',
     });
   };
 
-  const reload = app.$('myYearBody').closest('section').querySelector('.refreshbtn');
-  app.click(reload);
-  await waitFor(() => /F394 ABA Latest/.test(app.$('myYearList').textContent),
-    'the production My Ticks refresh to repaint its fetched ABA rows', 3000);
+  const A = app.window.__app;
+  await A.tryLifelistYear();
+  A.updateMyYear();
 
   const stored = JSON.parse(
-    app.window.localStorage.getItem('ebird_own_seen:aba') || '{}',
+    app.window.localStorage.getItem(A.bcReal('ebird_own_seen:aba')) || '{}',
   );
   assert.ok(blockedWrites >= 1, 'the quota fixture never blocked the owned-list write');
   assert.equal(app.window.localStorage.getItem('bc_ckl2:discard-me'), null,
@@ -32056,16 +33347,15 @@ test('F394 ABA My Ticks makes room and durably repaints the fetched year lists',
     'the ABA and Hawaii responses were not both durable after the retry');
   assert.ok(stored.fa000 && stored.fh000,
     'the durable store lost one of the two fetched year-list scopes');
-  assert.match(app.$('myYearList').textContent, /F394 Hawaii Latest/,
-    'the final production repaint omitted the fetched Hawaii row');
-  assert.match(app.$('myYearBody').textContent,
-    /403 added from the signed-in eBird year-list refresh/,
-    'the final repaint did not disclose the source of the owned rows it rendered');
+  assert.equal(A.personalListEvidence().state,'unavailable',
+    'durable capture must not certify an exact ABA/Hawaii geographic union');
+  assert.equal(app.$('myYearList').children.length,0,
+    'a legacy captured row is not an exact personal-list row');
   app.window.Storage.prototype.setItem = original;
   app.window.close();
 });
 
-test('F394 My Ticks reports failure instead of claiming rows an owned store rejected', async () => {
+test('F394 legacy personal capture reports failure instead of claiming rejected storage', async () => {
   const csv = [
     'Species Code,Common Name,Date',
     'f394a,F394 Bird A,13 Sep 2026',
@@ -32093,9 +33383,10 @@ test('F394 My Ticks reports failure instead of claiming rows an owned store reje
     json: () => Promise.resolve(csv),
   });
 
-  app.click(app.$('myYearBody').closest('section').querySelector('.refreshbtn'));
-  await waitFor(() => /year-list refresh did not finish/.test(app.$('myYearBody').textContent),
-    'the production refresh to expose its rejected owned-list write', 3000);
+  const A = app.window.__app;
+  await assert.rejects(A.tryLifelistYear(),/Owned bird list could not be saved/,
+    'a rejected durable capture must fail explicitly');
+  A.updateMyYear();
 
   assert.equal(app.window.localStorage.getItem('ebird_own_seen:aba'), null,
     'the rejected write left a success-shaped owned list behind');
@@ -32108,7 +33399,7 @@ test('F394 My Ticks reports failure instead of claiming rows an owned store reje
   app.window.close();
 });
 
-test('F425 My Year List keeps evicting disposable cache batches until its owned list is durable', async () => {
+test('F425 legacy capture keeps evicting disposable cache batches without claiming exact membership', async () => {
   const csv = [
     'Species Code,Common Name,Date',
     'f425a,F425 Bird A,13 Sep 2026',
@@ -32142,12 +33433,16 @@ test('F425 My Year List keeps evicting disposable cache batches until its owned 
     json: () => Promise.resolve(csv),
   });
 
-  await app.window.__app.LOADERS.myYearBody.fn();
+  const A = app.window.__app;
+  await A.tryLifelistYear();
+  A.updateMyYear();
 
   assert.equal(blockedWrites, 2,
     'the fixture did not require more than the old single eviction batch');
-  assert.match(app.$('myYearList').textContent, /F425 Bird A/,
-    'the fetched year list did not repaint after the later durable retry');
+  assert.match(JSON.stringify(A.ownSeenCodes()), /F425 Bird A/,
+    'the captured annual list was not durable after the later retry');
+  assert.equal(app.$('myYearList').children.length,0,
+    'durable legacy capture does not establish exact selected membership');
   assert.doesNotMatch(app.$('myYearBody').textContent, /refresh did not finish/i,
     'a successful later retry was still presented as a failed refresh');
   app.window.Storage.prototype.setItem = original;
@@ -32155,10 +33450,12 @@ test('F425 My Year List keeps evicting disposable cache batches until its owned 
 });
 
 test('F390 My Ticks has an explicit eBird control and keeps ordinal with the name', async () => {
-  const exactPage = 'https://ebird.org/lifelist?r=aba&time=year&year=2026';
+  const exactPage = 'https://ebird.org/lifelist/aba?time=year';
   const app = await boot({ report: 'aba', sample: true });
+  await seedSeen(app,['amerob']);
+  app.window.__app.updateMyYear();
   const body = app.$('myYearBody');
-  const control = body.querySelector('.myYearEbirdLink');
+  const control = body.closest('section').querySelector('.myYearEbirdLink');
   assert.ok(control, 'My Ticks has no explicit control to open its eBird year list');
   assert.equal(control.getAttribute('data-href'), exactPage,
     'the explicit eBird control does not open the same year list My Ticks refreshes');
@@ -32200,12 +33497,7 @@ test('F398 ABA My Ticks stays responsive through an unchanged manual refresh', a
   const stored = Object.fromEntries(rows.map(([code, name]) => [code, {
     n: name, d: '01 Jan 2026', s: '', l: '', i: '', h: 0, x: '', p: 'lifelist',
   }]));
-  const csv = (subset) => [
-    'Species Code,Common Name,Date',
-    ...subset.map(([code, name]) => `${code},${name},01 Jan 2026`),
-  ].join('\n');
   let releaseAba;
-  let releaseHi;
   const app = await boot({
     report: 'aba',
     sample: false,
@@ -32215,17 +33507,22 @@ test('F398 ABA My Ticks stays responsive through an unchanged manual refresh', a
     },
   });
   app.window.fetch = (url) => new Promise((resolve) => {
-    const body = /r=US-HI/.test(String(url)) ? csv(rows.slice(5)) : csv(rows.slice(0, 5));
-    const release = () => resolve({
+    assert.equal(String(url),'https://ebird.org/lifelist/aba?time=year',
+      'My List must acquire one exact ABA list, not supplement it with Hawaii');
+    releaseAba = () => resolve({
       ok: true, status: 200,
       headers: { get: () => null },
-      text: () => Promise.resolve(body),
-      json: () => Promise.resolve(body),
+      text: async () => ownedPersonalListFixture({
+        region:'aba',codes:rows.map(row=>row[0]),count:rows.length,account:'Birder Wyatt',
+      }),
     });
-    if (/r=US-HI/.test(String(url))) releaseHi = release;
-    else releaseAba = release;
   });
   const A = app.window.__app;
+  await seedSeen(app,rows.map(row=>row[0]),rows.map(row=>row[1]));
+  const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+  const prior = JSON.parse(app.window.localStorage.getItem(key));
+  prior.readDate = '2001-01-01';
+  app.window.localStorage.setItem(key,JSON.stringify(prior));
   A.updateMyYear();
   const firstCard = app.$('myYearList').firstElementChild;
   assert.ok(firstCard, 'the responsiveness fixture has no existing card to preserve');
@@ -32234,16 +33531,14 @@ test('F398 ABA My Ticks stays responsive through an unchanged manual refresh', a
   await waitFor(() => releaseAba, 'the delayed ABA refresh to start', 2000);
   assert.equal(app.$('myYearList').firstElementChild, firstCard,
     'starting refresh synchronously destroyed and rebuilt the entire card list');
-  assert.match(app.$('myYearBody').textContent, /Still updating/i,
+  assert.match(app.$('myYearBody').textContent, /Reading the exact personal list/i,
     'manual refresh gives no immediate visible feedback');
 
   releaseAba();
-  await waitFor(() => releaseHi, 'the delayed Hawaii supplement to start', 2000);
-  releaseHi();
   await refresh;
   assert.equal(app.$('myYearList').firstElementChild, firstCard,
     'an unchanged refresh rebuilt and rehydrated every card a second time');
-  assert.doesNotMatch(app.$('myYearBody').textContent, /Still updating/i,
+  assert.doesNotMatch(app.$('myYearBody').textContent, /Reading the exact personal list/i,
     'the unchanged manual refresh never visibly completed');
   app.window.close();
 });
@@ -32269,6 +33564,13 @@ test('F398 signed-in year-list dates cannot call an old Muscovy Duck NEW', async
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,['musduc','newbird'],['Muscovy Duck','Checklist-backed New Bird']);
+  const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+  const exact = JSON.parse(app.window.localStorage.getItem(key));
+  exact.rows[0].observedAt = A.todayStr();
+  exact.rows[1].observedAt = A.todayStr();
+  exact.rows[1].subId = 'SNEW';
+  app.window.localStorage.setItem(key,JSON.stringify(exact));
   A.updateMyYear();
   const cards = [...app.$('myYearList').querySelectorAll('li')];
   const muscovy = cards.find((card) => /Muscovy Duck/.test(card.textContent));
@@ -32276,19 +33578,19 @@ test('F398 signed-in year-list dates cannot call an old Muscovy Duck NEW', async
   assert.ok(muscovy, 'the signed-in year-list Muscovy row did not render');
   assert.equal(muscovy.querySelector('.newflag'), null,
     'an ambiguous signed-in year-list date was presented as first-seen recency');
-  assert.match(muscovy.textContent, /added from eBird year-list refresh/,
-    'the old stored row still claims it came from a recent checklist');
-  assert.ok(checklist.querySelector('.newflag'),
-    'removing false year-list recency also removed checklist-backed recency');
-  assert.match(checklist.textContent, /added from checklist refresh/,
-    'the checklist-backed row lost its distinct provenance');
+  assert.doesNotMatch(muscovy.textContent,/added from.*refresh/,
+    'the exact source must not claim provenance from the legacy annual overlay');
+  assert.equal(checklist.querySelector('.newflag'),null,
+    'a dated exact list row is not proof of personal first-seen recency');
+  assert.ok(checklist.querySelector('[data-href="https://ebird.org/checklist/SNEW"]'),
+    'the exact source checklist link is preserved');
   app.window.close();
 });
 
 test('F393 repeated My Ticks redraws keep one Additional taxa block', async () => {
   const app = await boot({ report: 'hi' });
   const A = app.window.__app;
-  app.window.localStorage.setItem('ebird_own_seen:' + A.getReportSlug(), JSON.stringify({
+  app.window.localStorage.setItem(A.bcReal('ebird_own_seen:' + A.getReportSlug()), JSON.stringify({
     hawama: {
       n: 'Hawaii Amakihi', d: '11 Sep 2026', s: 'S0',
       l: 'Hawaii Rental', i: '', h: 0, x: '',
@@ -32300,6 +33602,11 @@ test('F393 repeated My Ticks redraws keep one Additional taxa block', async () =
   }));
   assert.equal(A.yearListExtras().additional.length, 1,
     'the repeated-redraw fixture did not reach the Additional taxa bucket');
+  await seedSeen(app,['hawama']);
+  const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+  const exact = JSON.parse(app.window.localStorage.getItem(key));
+  exact.rows.push({code:'shorebird',name:'shorebird sp.'});
+  app.window.localStorage.setItem(key,JSON.stringify(exact));
   A.updateMyYear();
   A.updateMyYear();
   A.updateMyYear();
@@ -32332,6 +33639,7 @@ test('F375 a header-only life-list CSV cannot erase or complete over prior rows'
     fetch: (url) => /fmt=csv/.test(String(url)) ? header : '',
   });
   const A = app.window.__app;
+  await seedSeen(app,['amerob']);
 
   assert.equal(A.lifelistCsvIsEmpty(header), false,
     'a header-only response was called authoritative empty over a known list');
@@ -32363,7 +33671,7 @@ test('My year says so when it cannot keep itself up to date', async () => {
   // with nothing to add.
   const app = await boot({ fetch() { return null; } });
   const body = app.document.getElementById('myYearBody');
-  assert.match(body.innerHTML, /display name/i,
+  assert.match(body.innerHTML, /Personal history unavailable|signed-in.*identity/i,
     'My year does not mention the missing display name, so the reader has no '
     + 'way to know why their list stopped growing');
   app.window.close();
@@ -32693,7 +34001,7 @@ test('F523 Bird Gen has no unseen filter and always shows every alert', async ()
     }),
   } });
   const A = app.window.__app;
-  seedSeen(app, ['nazboo1', 'ruff', 'norwat']);
+  await seedSeen(app, ['nazboo1', 'ruff', 'norwat']);
   A.renderSurge(
     [
       { code: 'ruff', name: 'Ruff', observers: 5, checklists: 5, ratio: 4,
@@ -32947,6 +34255,7 @@ test('a spuh is never a target, on any of the four unseen paths (F239)', async (
   const NOT_SPECIES = ['peep sp.', 'new world flycatcher sp.',
     'Short-billed/Long-billed Dowitcher', 'Western x Glaucous-winged Gull (hybrid)'];
   const REAL = 'Sharp-shinned Hawk';
+  await seedSeen(app,[],null,[{code:'nevrsn',name:REAL},{code:'shshaw',name:REAL}]);
 
   // 1. the rule itself
   for (const n of NOT_SPECIES) {
@@ -33406,7 +34715,7 @@ test('the board records itself so each birder can show movement', async () => {
   // honest, an invented zero is not.
   const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
   assert.match(html, /function boardHistRecord\(/, 'the board is never snapshotted');
-  assert.match(html, /var movement = boardMoveHTML\(boardDeltasFor\(/,
+  assert.match(html, /boardMoveHTML\(boardDeltasFor\(/,
     'rows carry no movement');
   // It must reuse the ONE period helper, not grow a second one.
   assert.match(html, /BL\.rankDeltas\(mine, nowMs\)/,
@@ -35883,6 +37192,7 @@ test('a mega found this week is marked; one that was already here is not', async
   });
   const d = await boot({ storage: { ebird_mega_snapshot_v1: snap,
                                     ebird_aba_archive_v1: longAgo } });
+  await seedSeen(d,[],null,[{code:'nazboo',name:'Nazca Booby'}]);
   // ⚠️ ANCHORED AT HOME ON PURPOSE. With no anchor this row now qualifies for
   // nothing under F256, so the lane renders empty and the doesNotMatch below
   // would pass by rendering NOTHING — a check that cannot fail. Giving it the
@@ -36005,6 +37315,7 @@ test('mega newness follows a four-mile species locality instead of hotspot ids o
     ebird_aba_archive_v1: JSON.stringify(archive),
     ebird_mega_snapshot_v1: JSON.stringify(snapshot),
   } });
+  await seedSeen(app,[],null,snapshot.rows.map(row=>({code:row.speciesCode,name:row.comName})));
   const reportSeed = app.window.__SEED_BIRDLIST__.seenByReport[
     app.window.__app.getReportSlug()];
   reportSeed.codes = reportSeed.codes.filter((code) => code !== 'ruff');
@@ -36067,6 +37378,7 @@ test('F763 latest mega checklist owns the compact tuple while repeated-hotspot e
     ebird_mega_snapshot_v1: JSON.stringify(snapshot),
     ebird_aba_archive_v1: JSON.stringify(archive),
   } });
+  await seedSeen(app,[],null,[{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
   app.window.__app.renderSurge([], [], [], []);
   const row = app.document.querySelector('[data-alert-kind="mega"]');
   const summary = row.querySelector('.surgefacts');
@@ -36288,6 +37600,7 @@ test('a watched bird outside the report is filtered, not accused of being droppe
   const A = app.window.__app;
   const year = A.reportYearList();
   assert.ok(year.length, 'the WA seed has no year list — this fixture proves nothing');
+  await seedSeen(app,[year[0].code],null,[{code:'zzzfake',name:'Ghost Bird'}]);
 
   A.renderWatch();
   assert.doesNotMatch(app.$('nvResults').textContent, /Ghost Bird/,
@@ -36392,6 +37705,7 @@ test('F691 Stakeout Patch hydrates duration and unseen targets with Comments off
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'sabgul',name:"Sabine's Gull"}]);
   const report = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
   report.codes = report.codes.filter((code) => code !== 'sabgul');
   report.names = report.names.filter((name) => name !== "Sabine's Gull");
@@ -36420,6 +37734,51 @@ test('F691 Stakeout Patch hydrates duration and unseen targets with Comments off
     'duration did not hydrate independently of Comments');
   assert.equal(row.querySelector('.cknote-pending'), null,
     'the settled checklist retained a loading ellipsis');
+  app.window.close();
+});
+
+test('F826/F827 mixed API dates sort chronologically, format consistently and expand only on request', async () => {
+  const app = await boot({ key: null });
+  const A = app.window.__app;
+  const lists = Array.from({ length: 45 }, (_, i) => ({
+    subId: 'S826' + String(i).padStart(3, '0'), durationHrs: 1,
+    obsDt: `${1 + i % 28} Sep 2026`,
+    isoObsDate: `2026-09-${String(1 + i % 28).padStart(2, '0')} 09:29`,
+    numSpecies: 5,
+  }));
+  lists.push({ subId: 'S399608962', obsDt: '5 Oct 2026',
+    isoObsDate: '2026-10-05 16:56', durationHrs: 1 });
+  lists.push({ subId: 'S391622252', obsDt: '2026-09-10 09:29',
+    observationLinked: true, durationHrs: 1 });
+  lists.push({ subId: 'S826INVALID', obsDt: '10/11/2026',
+    isoObsDate: '2026-02-30 10:00', durationHrs: 1 });
+  const raw = JSON.stringify(lists);
+  const before = app.state.fetches.filter((url) => /product\/checklist\/view\//.test(url)).length;
+  A.renderStakeHs('L292411', 'Crescent Lake', lists, [], {}, undefined, 'loaded');
+  const rows = () => [...app.$('stakeHsResults').querySelectorAll('.stakeHsChecklistCards > li')];
+  assert.equal(rows().length, 21, '20 ordinary plus every supplemental row, not eager full hydration');
+  assert.equal(rows()[0].dataset.evSub, 'S399608962', 'October 5 leads September despite display-string order');
+  assert.match(rows()[0].textContent, /10\/5 4:56P/);
+  const hidden = rows().find((row) => row.dataset.evSub === 'S391622252');
+  assert.match(hidden.textContent, /9\/10 9:29A/);
+  assert.doesNotMatch(hidden.textContent, /2026-09-10/);
+  assert.equal(hidden.dataset.observedAt, '2026-09-10 09:29');
+  assert.match(hidden.textContent, /HIDDEN/);
+  assert.match(app.$('stakeHsShowMore').textContent, /27 remaining/);
+  app.click(app.$('stakeHsShowMore'));
+  assert.equal(rows().length, 41);
+  app.click(app.$('stakeHsShowMore'));
+  assert.equal(rows().length, lists.length, 'all acquired IDs become reachable');
+  assert.equal(app.$('stakeHsShowMore'), null);
+  assert.equal(rows().at(-1).dataset.evSub, 'S826INVALID');
+  assert.match(rows().at(-1).textContent, /Date unavailable/);
+  assert.match(app.$('stakeHsResults').textContent, /undated rows sort last/);
+  const values = rows().slice(0, -1).map((row) => Date.parse(row.dataset.observedAt.replace(' ', 'T')));
+  assert.ok(values.every((value, i) => i === 0 || value <= values[i - 1]));
+  assert.equal(JSON.stringify(lists), raw, 'authoritative machine evidence remains untouched');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(app.state.fetches.filter((url) => /product\/checklist\/view\//.test(url)).length,
+    before, 'offline expansion remains reachable without checklist acquisition');
   app.window.close();
 });
 
@@ -36453,7 +37812,7 @@ test('F823 direct hotspot discovery resolves every missing ID and labels only ve
         return null;
       },
     });
-    seedSeen(app, []);
+    await seedSeen(app, []);
     const link = app.document.createElement('a');
     link.className = 'hslink';
     link.dataset.loc = locId;
@@ -36537,6 +37896,7 @@ test('F823 supplemental refresh failure preserves previously verified hidden evi
     return null;
   } });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'snogoo',name:'Snow Goose'}]);
   await A.stakeHsOpen('L823KEEP', 'Retained hotspot');
   await waitFor(() => /1 of 1 resolved/.test(app.$('stakeHsResults').textContent),
     'initial hidden resolution');
@@ -36587,9 +37947,13 @@ test('F816 obsolete ownership cannot publish rows, status or completion controls
     return null;
   } });
   const A = app.window.__app;
-  A.rankCachePut('US-WA|' + new Date().getFullYear() + '|500|' + A.getDisplayName(), {
-    region: 'US-WA', rows: [{ name: 'Synthetic birder', rank: 1,
-      recent: 'Snow Goose (Oct 6, 2026)' }],
+  const owner = A.personalListOwner(),period = String(new Date().getFullYear());
+  ['spp','cl'].forEach(metric=>{
+    A.rankCachePut(A.rankCacheOwnerKey({region:'US-WA',metric,max:500},period,A.getDisplayName()), {
+      region:'US-WA',period,metric,profile:owner.profile,ownerRevision:owner.identityRevision,
+      rows:metric==='spp'?[{profileId:'synthetic',name:'Synthetic birder',rank:1,
+        recent:'Snow Goose (Oct 6, 2026)'}]:[],
+    });
   });
   const loading = A.loadLastNew();
   await waitFor(() => resolveCodes, 'pending code index');
@@ -36646,35 +38010,35 @@ test('F810 Advanced disclosure preserves the exact inventory without network or 
   app.window.close();
 });
 
-test('F818 WATCH explains proven-seen exceptions in standalone and nested Unseen rows only', async () => {
+test('F818 Needs proof explains explicit Watch exceptions in standalone and nested personal-target rows only', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
     { code: 'mallar3', name: 'Mallard' }, { code: 'baleag', name: 'Bald Eagle' },
   ]) } });
   const A = app.window.__app;
-  seedSeen(app, ['mallar3']);
+  await seedSeen(app, ['mallar3']);
   const row = { code: 'mallar3', name: 'Mallard', dateStr: recentObsStamp(),
     subId: 'S818', locId: 'L818', reviewState: 'pending' };
   assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), false, 'watch eligibility changed');
-  assert.match(A.birdReportListCard(row, { need: true }), /watchflag[^>]*WATCH:/);
+  assert.match(A.birdReportListCard(row, { need: true }), /watchflag[^>]*Needs proof:/);
   assert.doesNotMatch(A.birdReportListCard(row, { need: false }), /watchflag/);
-  assert.doesNotMatch(A.birdReportListCard({ ...row, code: 'baleag', name: 'Bald Eagle' },
-    { need: true }), /watchflag/, 'unknown/unseen watch member labelled proven seen');
+  assert.match(A.birdReportListCard({ ...row, code: 'baleag', name: 'Bald Eagle' },
+    { need: true }), /Needs proof/, 'the explicit Watch exception does not depend on fabricated seen proof');
   A.renderStakeHs('L818', 'Patch', [], [
     { speciesCode: 'mallar3', comName: 'Mallard', locId: 'L818' },
     { speciesCode: 'baleag', comName: 'Bald Eagle', locId: 'L818' },
   ], {}, false);
   const watch = app.$('stakeHsResults').querySelector('.hsunseen .watchflag');
   assert.ok(watch);
-  assert.equal(watch.textContent, 'WATCH');
-  assert.match(watch.getAttribute('aria-label'), /Seen bird shown because it is on your Watch List/);
-  assert.equal(app.$('stakeHsResults').querySelectorAll('.watchflag').length, 1);
+  assert.equal(watch.textContent, 'Needs proof');
+  assert.match(watch.getAttribute('aria-label'), /explicit Watch List verification/);
+  assert.equal(app.$('stakeHsResults').querySelectorAll('.watchflag').length, 2);
   assert.match(A.favDetailHtml({ id: 'L818' }, [{
     speciesCode: 'mallar3', comName: 'Mallard', obsDt: recentObsStamp(),
   }], {}), /watchflag/);
-  app.window.__SEED_BIRDLIST__.year = 1999;
-  assert.doesNotMatch(A.birdReportListCard(row, { need: true }), /watchflag/,
-    'a different period borrowed seen proof');
-  app.window.__SEED_BIRDLIST__.year = new Date().getFullYear();
+  app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'all');
+  assert.match(A.birdReportListCard(row, { need: true }), /Needs proof/,
+    'the explicit verification exception remains usable without borrowed period membership');
+  app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'current');
   app.window.localStorage.setItem('ebird_watchlist_v1', '[]');
   assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), true);
   assert.doesNotMatch(A.birdReportListCard(row, { need: true }), /watchflag/);
@@ -36769,7 +38133,7 @@ test('F751 Stakeout hotspot renders scoped unseen and already-seen species lists
       return null;
     },
   });
-  seedSeen(app, ['baleag']);
+  await seedSeen(app, ['baleag']);
   await app.window.__app.stakeHsOpen('L-F751', 'Fixture Stakeout Patch');
   await waitFor(() => {
     const root = app.$('stakeHsResults');
@@ -36991,8 +38355,14 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   assert.equal(favorite.textContent.trim(), '☆ Add to favorite hotspots');
   assert.equal(favorite.getAttribute('aria-pressed'), 'false');
   assert.match(HTML,
-    /\.stakeHsIntroActions\s+\.stakeHsFav\s*\{[^}]*color:\s*var\(--accent-ink\)/s,
+    /\.stakeHsFavoriteRow\s+\.stakeHsFav\s*\{[^}]*color:\s*var\(--accent-ink\)/s,
     'the favorite-hotspot label must contrast with its accent background');
+  assert.equal(intro.firstElementChild.className, 'stakeHsFavoriteRow',
+    'F828 favorite owns the first row immediately after the title');
+  assert.equal(favorite.closest('.stakeHsIntroActions'), null,
+    'F828 external navigation must not share the favorite row');
+  assert.ok(favorite.compareDocumentPosition(intro.querySelector('.stakeHsIdentity'))
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING);
 
   const map = card.querySelector('#stakeHsMap');
   assert.ok(map && map.innerHTML,
@@ -37127,6 +38497,12 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
       { code: 'fixture8', alpha: 'F008' },
     ],
   }));
+  await seedSeen(app,[],null,[
+    {code:'shtsan',name:'Sharp-tailed Sandpiper'}, {code:'whcspa',name:'White-crowned Sparrow'},
+    {code:'sonspa',name:'Song Sparrow'}, {code:'mallar3',name:'Mallard'},
+    {code:'amecro',name:'American Crow'},
+    ...[3,4,5,6,7,8].map(n=>({code:'fixture'+n,name:'Fixture Bird '+n})),
+  ]);
   A.renderHot({
     hot: [{
       locId: 'L1', name: 'Fixture Hotspot', lat: 47.66, lng: -122.12,
@@ -38741,6 +40117,7 @@ test('correcting a hotspot card must not cost it the date and the count', async 
 test('the scored set is carried across whole, not just enough to name the bird', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'sp0',name:'Bird 0'}]);
   const doc = app.window.document;
   const host = doc.createElement('ul');
   doc.body.appendChild(host);
@@ -38787,6 +40164,8 @@ test('F704 hotspot hydration keeps reportAs forms collapsed', async () => {
   const W = app.window;
   const doc = app.window.document;
   W.__SEED_BIRDLIST__.reportAsParents = { palwar3: 'palwar' };
+  await seedSeen(app,[],null,[{code:'palwar',name:'Palm Warbler'},
+    {code:'palwar3',name:'Palm Warbler (Western)',category:'issf',reportAs:'palwar'}]);
 
   const map = doc.createElement('div');
   const list = doc.createElement('ul');
@@ -38845,6 +40224,11 @@ test('F619 hydrated destination evidence recomputes yield, rarity, and target fa
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[
+    {code:'rare1',name:'Rare One'}, {code:'target2',name:'Target Two'},
+    {code:'target3',name:'Target Three'},
+    ...[1,2,3,4].map(n=>({code:'old'+n,name:'Old '+n})),
+  ]);
   const doc = app.window.document;
   const map = doc.createElement('div');
   const list = doc.createElement('ul');
@@ -38875,6 +40259,7 @@ test('F619 hydrated destination evidence recomputes yield, rarity, and target fa
 test('F621 opening and painting Today’s patches records a results coverage snapshot', async () => {
   const app = await boot({ report: 'hi' });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'hawama1',name:'Hawaiʻi ʻAmakihi'}]);
   A.showSection('sec-destBtn');
   A.renderDestinations([{
     locId: 'L123', locName: 'Coverage Park', lat: 21.3, lng: -157.8,
@@ -39163,6 +40548,9 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
     oldBoard,
     'a profile-local board snapshot was not recovered into shared history',
   );
+  const boardOwner = ['US-WA',new Date().getFullYear(),'spp',
+    A.bcProfile(),A.identityRevision(),'Washington'].join('|');
+  app.window.localStorage.setItem('bc_board_v1:' + boardOwner,JSON.stringify(oldBoard));
   app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
     JSON.stringify({ t: Date.now(), rows: [{ name: longBird, code: 'blcaho1' }] }));
   if (A.resetRankCodeIndex) A.resetRankCodeIndex();
@@ -39241,6 +40629,8 @@ test('F566 a private account gets an explicitly estimated unpublished rank', asy
       }),
     },
   });
+  const fixtureCodes = Array.from({length:353},(_,index) => 'privatefixture' + index);
+  await seedSeen(app,fixtureCodes);
   app.window.__app.renderRankings({
     me: null,
     checkedToRank: 500,
@@ -39517,6 +40907,38 @@ test('F530 Fresh Ticks keeps chase range but removes the Unseen control', async 
 //
 // Asserted by RENDERING one. A source regex cannot distinguish "no badge"
 // from "no news".
+test('F792 persisted badge preference suppresses initial and progressive report badges only', async () => {
+  const storage = { bc_report_menu_badges_v1: 'hide',
+    ebird_aba_archive_v1: JSON.stringify({ 'US-WA': { 'rudtur|S1': 1, 'wesgre|S2': 1 } }),
+    'bc_seen_v1:sec-abaBtn': JSON.stringify({ ids: [] }) };
+  const app = await boot({ storage });
+  const A = app.window.__app;
+  const doc = app.window.document;
+  const tile = doc.querySelector('#menuList .toclink[data-at="abaBtn"]');
+  assert.equal(tile.querySelector('.tilebadge'), null, 'initial paint obeys saved preference');
+  const field = app.$('reportMenuBadges');
+  assert.equal(field.value, 'hide');
+  const before = app.state.fetches.length;
+  A.MENU_BADGES.targetsBtn = () => ({ n: 2, kind: 'new', ids: ['one', 'two'] });
+  A.MENU_BADGES.surgeBtn = () => ({ n: 3, kind: 'new', ids: ['a', 'b', 'c'] });
+  assert.equal(A.menuBadge('targetsBtn', 'sec-targetsBtn'), null, 'cached Nemesis two stays hidden');
+  assert.equal(A.menuBadge('surgeBtn', 'sec-surgeBtn').n, 3, 'Bird Gen eligibility stays unchanged');
+  A.refreshMenuBadges();
+  assert.equal(tile.querySelector('.tilebadge'), null, 'late refresh cannot restore hidden badges');
+  field.value = 'show';
+  field.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(app.window.localStorage.getItem('bc_report_menu_badges_v1'), 'show');
+  assert.ok(tile.querySelector('.tilebadge'), 're-enabling restores cached report news');
+  assert.equal(A.menuBadge('targetsBtn', 'sec-targetsBtn').n, 2);
+  field.value = 'hide';
+  field.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(tile.querySelector('.tilebadge'), null);
+  assert.equal(app.state.fetches.length, before, 'badge settings must remain cache-only');
+  assert.equal(app.window.localStorage.getItem('ebird_aba_archive_v1'), storage.ebird_aba_archive_v1);
+  assert.equal(app.window.localStorage.getItem('bc_seen_v1:sec-abaBtn'), storage['bc_seen_v1:sec-abaBtn']);
+  app.window.close();
+});
+
 test('a menu badge actually renders — the key resolves and the repaint runs', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -39810,6 +41232,7 @@ test('F669 county transitions share parent source identity but isolate derived s
 test('F669 county scope owns observation requests and exact year evidence', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await seedSeen(app,['amerob','amecro'],null,[{code:'kingfixture',name:'King Fixture Bird'}]);
   const parentSeen = Object.keys(A.getReportSeen()).length;
   assert.ok(parentSeen > 1, 'the Washington control needs a real parent seen set');
 
@@ -39829,43 +41252,53 @@ test('F669 county scope owns observation requests and exact year evidence', asyn
       date: '2026-05-01', subId: 'S1', locName: 'King Park', locId: 'L1' }],
   });
 
+  assert.deepEqual(Object.keys(A.getReportSeen()), [],
+    'a public regional annual table is not personal membership');
+  assert.equal(A.countySeenEvidenceReady(),false);
+  await seedSeen(app,['kingfixture'],['King Fixture Bird']);
   assert.deepEqual(Object.keys(A.getReportSeen()), ['kingfixture'],
-    'the county seen set is not built from its exact cached year evidence');
+    'the county seen set must come from the exact owned personal source');
   assert.equal(A.countySeenEvidenceReady(), true,
     'cached exact county evidence is not recognized as complete');
-  assert.equal(A.reportYearList()[0].loc, 'King Park');
+  assert.equal(A.personalListOwner().region,'US-WA-033');
   app.window.close();
 });
 
-test('F723 My Year joins an active exact-county capture and force-refreshes only when idle', async () => {
+test('F723 My List joins an exact-county capture, reuses fresh evidence and explicitly refreshes', async () => {
   let release;
   const page = new Promise((resolve) => { release = resolve; });
   const app = await boot({
     sample: false,
     storage: { ebird_display_name: 'Sample Observer' },
-    fetch: (url) => (/\/bird-list\?/.test(url) ? page : null),
+    fetch: (url) => (/\/lifelist\//.test(url) ? page : null),
   });
   const A = app.window.__app;
+  const codes = ['kingone','kingtwo','kingthree','kingfour'];
+  await seedSeen(app,[],null,codes.map(code=>({code,name:code})));
   A.setCountyView('US-WA-033');
   const scope = A.activeScope();
 
   const chase = A.ensureCountySeenEvidence(scope);
   const myYear = A.loadMyYear();
+  await waitFor(()=>app.state.fetches.some(url=>/\/lifelist\//.test(url)),'the shared exact county source');
   assert.equal(
-    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    app.state.fetches.filter((url) => /\/lifelist\//.test(url)).length,
     1,
     'concurrent county consumers opened duplicate exact-year-list captures',
   );
 
-  release(FIRST_YEAR_HTML);
+  release(ownedPersonalListFixture({region:'US-WA-033',codes,count:4}));
   assert.equal(await chase, true);
   assert.equal(await myYear, 4);
   assert.equal(A.countySeenEvidenceReady(scope), true);
 
-  const beforeRefresh = app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length;
+  const beforeRefresh = app.state.fetches.filter((url) => /\/lifelist\//.test(url)).length;
   await A.loadMyYear();
+  assert.equal(app.state.fetches.filter(url=>/\/lifelist\//.test(url)).length,beforeRefresh,
+    'automatic reopening must reuse fresh exact evidence');
+  await A.ensurePersonalList(scope,true);
   assert.equal(
-    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    app.state.fetches.filter((url) => /\/lifelist\//.test(url)).length,
     beforeRefresh + 1,
     'an explicit idle My Year refresh reused the old county list instead of refreshing it',
   );
@@ -39878,24 +41311,26 @@ test('F724 Today’s patches names and shares its county year-list prerequisite'
   const app = await boot({
     sample: false,
     storage: { ebird_display_name: 'Sample Observer' },
-    fetch: (url) => (/\/bird-list\?/.test(url) ? page : null),
+    fetch: (url) => (/\/lifelist\//.test(url) ? page : null),
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'kingfixture',name:'King Fixture Bird'}]);
   A.setCountyView('US-WA-033');
   const scope = A.activeScope();
 
   const existing = A.ensureCountySeenEvidence(scope);
   const loading = A.loadDestinations();
-  assert.match(app.$('destStatus').textContent, /^Loading King year list/i,
+  assert.match(app.$('destStatus').textContent, /^Loading the exact King \d{4} Year List/i,
     'the hidden county prerequisite still looks like Washington hotspot ranking');
   assert.equal(app.$('destStatus').getAttribute('aria-busy'), 'true');
+  await waitFor(()=>app.state.fetches.some(url=>/\/lifelist\//.test(url)),'the shared county personal prerequisite');
   assert.equal(
-    app.state.fetches.filter((url) => /\/bird-list\?/.test(url)).length,
+    app.state.fetches.filter((url) => /\/lifelist\//.test(url)).length,
     1,
     'Today’s patches opened a second capture instead of joining the shared county load',
   );
 
-  release(FIRST_YEAR_HTML);
+  release(ownedPersonalListFixture({region:'US-WA-033',codes:['kingfixture']}));
   assert.equal(await existing, true);
   await waitFor(() => /^Ranking King hotspots/i.test(app.$('destStatus').textContent),
     'the county patch loader to advance from year evidence to hotspot ranking');
@@ -39910,18 +41345,19 @@ test('F724 a failed county year-list prerequisite leaves an explicit retry', asy
   const app = await boot({
     sample: false,
     storage: { ebird_display_name: 'Sample Observer' },
-    fetch: (url) => (/\/bird-list\?/.test(url)
+    fetch: (url) => (/\/lifelist\//.test(url)
       ? Promise.reject(new Error('fixture offline'))
       : null),
   });
   const A = app.window.__app;
+  await seedSeen(app,[]);
   A.setCountyView('US-WA-033');
 
   assert.equal(await A.loadDestinations(), false,
     'a missing exact county list was reported as a successful section load');
   assert.match(app.$('destStatus').textContent,
-    /exact King year list is unavailable/i);
-  assert.match(app.$('destBtn').textContent, /Retry King year list/i,
+    /exact King personal list is unavailable/i);
+  assert.match(app.$('destBtn').textContent, /Retry King \d{4} Year List/i,
     'the bounded failure leaves no named recovery action');
   assert.equal(app.$('destStatus').getAttribute('aria-busy'), 'false');
   app.window.close();
@@ -40098,7 +41534,7 @@ test('F717 bundled boundary files cover every selectable WA and HI region', () =
 // "in the top menu bar display the short region code like US-WA or US-WA-033
 // for when king county is selected. when its clicked then the drop downs for
 // selecting region and county view can appear."
-test('the top bar shows the scope code and opens the pickers', async () => {
+test('the top bar names the exact scope and period and opens the pickers', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -40110,15 +41546,14 @@ test('the top bar shows the scope code and opens the pickers', async () => {
 
   A.headerScopeRefresh();
   assert.equal(chip.hidden, false, 'it is shown once a region is known');
-  assert.match(chip.textContent, /^[A-Z]{2}(-[A-Z0-9]+)+$/,
-    `the SHORT CODE, e.g. US-WA — got ${chip.textContent}`);
-  assert.equal(A.scopeCode(), chip.textContent,
-    'and it is the same string the control reports');
+  assert.match(chip.textContent,/Washington.*\d{4} Year List/,
+    'the selected region and current-year basis are visible together');
+  assert.equal(A.scopeCode(),'US-WA','the machine scope code remains separate from its human-readable label');
 
   // A code is an abbreviation; the sentence is on aria-label.
   const lab = chip.getAttribute('aria-label') || '';
   assert.match(lab, /scope/i, 'the chip says what it is');
-  assert.match(lab, /tap to change/i, 'and what tapping it does');
+  assert.match(lab, /change|settings/i, 'and what tapping it does');
 
   // Tapping opens the control at the bottom.
   const det = doc.getElementById('menuScope');
@@ -40229,12 +41664,14 @@ test('the header carries name, rank and species without fetching', async () => {
 test('F722 a county switch immediately replaces the parent standing with labelled pending text', async () => {
   const app = await boot({ storage: { ebird_display_name: 'Sample Observer' } });
   const A = app.window.__app;
+  const owner = A.personalListOwner();
   A.rankCachePut('fixture-wa', {
-    region: 'US-WA',
-    me: { rank: 12, species: 222 },
+    region:'US-WA',period:String(new Date().getFullYear()),metric:'spp',
+    profile:owner.profile,ownerRevision:owner.identityRevision,
+    me:{name:'Sample Observer',rank:12,species:222},
   });
   A.headerIdentityRefresh();
-  assert.match(app.$('hdrId').textContent, /#12.*222sp/,
+  assert.match(app.$('hdrId').textContent, /#12.*222\s*sp\./,
     'the Washington control standing was not painted');
 
   A.setCountyView('US-WA-033');
@@ -40242,7 +41679,7 @@ test('F722 a county switch immediately replaces the parent standing with labelle
     'Washington standing remained visible after selecting King County');
   assert.match(app.$('hdrId').textContent, /Loading/i,
     'the new scope has no visible pending standing');
-  assert.match(app.$('hdrId').getAttribute('aria-label') || '', /Loading King standing/i,
+  assert.match(app.$('hdrId').getAttribute('aria-label') || '', /King.*Species rank Loading/i,
     'the compact pending text does not name its scope accessibly');
   app.window.close();
 });
@@ -41374,6 +42811,7 @@ test('F241: the scout answers with hotspots only inside a Patches section, and w
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,[{code:'zzztst3',name:'Testable Warbler'}]);
 
   // 1. FAVORITE PATCHES — Patches-group, and its own auto-load is silent with
   //    zero saved favourites, so it cannot starve the scout behind a queue the
@@ -41992,11 +43430,10 @@ test('F189: the county picker says what it is, on screen', async () => {
   const hints = [...sel.closest('.scopebody').querySelectorAll('.menuidhint')];
   assert.ok(hints.length, 'the control explains itself');
   const hintText = hints.map((hint) => hint.textContent).join(' ');
-  assert.match(hintText, /no eBird calls/, 'it is free, and says so');
-  assert.match(hintText, /never changes what counts as seen/,
-    'and it does not redefine seen — the F152 hard constraint, said out loud');
-  assert.match(hintText, /Washington year list/,
-    'naming the list that still decides');
+  assert.match(hintText,/Personal membership uses this exact county and selected time period/,
+    'the current ownership contract must name scope and period');
+  assert.match(hintText,/recorded elsewhere.*does not establish county membership/,
+    'the selected county must not borrow parent-region membership');
   app.window.close();
 });
 
@@ -42615,7 +44052,7 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
     'the birder and recent-bird details are not emitted as one sentence');
   assert.match(HTML, /icon:\s*'<span class="rankstack">/,
     'the rank does not emit a dedicated fixed stack');
-  assert.match(HTML, /\+\s*esc\(r\.rank\)\s*\+\s*'<\/span>'\s*\+\s*movement\s*\+\s*'<\/span>'/,
+  assert.match(HTML, /esc\(r\.rank\)\)\s*\+\s*'<\/span>'\s*\+\s*movement\s*\+\s*'<\/span>'/,
     'the movement arrow is not emitted in the same fixed stack as the rank');
   assert.match(HTML, /sub:\s*''/,
     'the obsolete second-row movement slot is still populated');
@@ -42650,8 +44087,10 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
   const fn = HTML.slice(HTML.indexOf('function lazyFetchRankMe()'),
                         HTML.indexOf('function lazyFetchRankMe()') + 2200);
   assert.ok(fn.length > 100, 'lazyFetchRankMe still exists');
-  assert.match(fn, /cachedRankMe\(scope\.effectiveRegion\)/,
-    'it must not re-fetch what today already has');
+  assert.match(fn, /cachedRankEntry\(scope\.effectiveRegion,\s*'spp'\)/,
+    'it must reuse the matching species board');
+  assert.match(fn, /cachedRankEntry\(scope\.effectiveRegion,\s*'cl'\)/,
+    'the independently owned checklist board is checked too');
   assert.match(fn, /_rankLazyInflight\[owner\]/,
     'concurrent requests for one scope must share one owner');
   assert.match(fn, /scopeCurrent\(scope\)/,
@@ -43189,7 +44628,8 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[{code:'leabir',name:'Leavenworth Bird'},
+    {code:'basebir',name:'Base Bird'}]);
 
   const measured = await A.tripScopeProfile('from3to5', null, null, 5);
   const measuredFeeds = app.window.BirdLogic.planFeeds(measured);
@@ -43333,7 +44773,8 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[...fallback.map(row=>({code:row.speciesCode,name:row.comName})),
+    {code:'hawgoo',name:'Hawaiian Goose'}]);
   const profile = A.chaseProfile();
   const fresh = {
     obsId: 'fresh', speciesCode: 'hawgoo', comName: 'Hawaiian Goose',
@@ -43407,7 +44848,7 @@ test('F346 Today patches does not request older evidence when five fresh rows ex
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, []);
   const profile = A.chaseProfile();
   const fresh = [0, 1, 2, 3, 4].map((n) => ({
     obsId: 'fresh-' + n, speciesCode: 'fresh' + n,
@@ -43442,7 +44883,7 @@ test('F471 Today patches stays unseen-only even with the old All preference stor
   });
   const A = app.window.__app;
   app.window.localStorage.setItem('ebird_seen_meta', JSON.stringify({ source: 'seed' }));
-  seedSeen(app, ['grefri'], ['Great Frigatebird']);
+  await seedSeen(app, ['grefri'], ['Great Frigatebird']);
   assert.equal(A.isSpeciesSeen('grefri', 'Great Frigatebird'), true,
     'the Hawaii seen-list fixture did not activate');
   const profile = A.chaseProfile();
@@ -43508,7 +44949,7 @@ test('F415 Hāpuna remains a nearby All-mode patch and never enters a day tier',
     },
   });
   const A = app.window.__app;
-  seedSeen(app, ['grefri'], ['Great Frigatebird']);
+  await seedSeen(app, ['grefri'], ['Great Frigatebird']);
   const profile = A.chaseProfile();
   const rows = [{
     speciesCode: 'grefri', comName: 'Great Frigatebird',
@@ -43572,7 +45013,7 @@ test('F343 Hawaii 3–5h Day trip stays searching, then paints only Big Island o
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,fallback.map(row=>({code:row.speciesCode,name:row.comName})));
   const base = A.chaseProfile();
   A.seedChase(base.slug, {
     t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
@@ -43656,7 +45097,7 @@ test('F421 Hawaii 3–5h Day trip accepts the installed state hotspot index for 
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,cached.map(row=>({code:row.speciesCode,name:row.comName})));
   const base = A.chaseProfile();
   A.seedChase(base.slug, {
     t: Date.now(), rarity: false, rows: {}, speciesCodes: [],
@@ -43669,7 +45110,7 @@ test('F421 Hawaii 3–5h Day trip accepts the installed state hotspot index for 
     fetchBaseKey: A.chaseFetchBaseKey(profile),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
   });
-  app.window.localStorage.setItem('ebird_hotspots_v2:US-HI', JSON.stringify({
+  app.window.localStorage.setItem(A.bcReal('ebird_hotspots_v2:US-HI'), JSON.stringify({
     at: Date.now(),
     rows: [
       { locId: 'L-hilo-cache', locName: 'Hilo gardens' },
@@ -43756,7 +45197,7 @@ test('F349 Hawaii 3–5h reuses county-scoped older evidence and preserves its b
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,[fresh,...fallback].map(row=>({code:row.speciesCode,name:row.comName})));
   const base = A.chaseProfile();
   A.seedChase(base.slug, {
     t: Date.now(), rarity: false,
@@ -43847,7 +45288,7 @@ test('F349 five fresh Hawaii 3–5h rows spend no fallback request', async () =>
     },
   });
   const A = app.window.__app;
-  seedSeen(app, []);
+  await seedSeen(app, [],null,fresh.map(row=>({code:row.speciesCode,name:row.comName})));
   const base = A.chaseProfile();
   A.seedChase(base.slug, {
     t: Date.now(), rarity: false,
@@ -43931,7 +45372,7 @@ test('F320 navigation cancels obsolete phase-two work and rejects it', async () 
     locName: 'Place ' + i,
     lat: 47.6 + i / 10000,
     lng: -122.3,
-    obsDt: '2026-09-04 08:00',
+    obsDt: todayFixtureDate() + ' 08:00',
     subId: 'S' + i,
     subnational2Code: 'US-WA-033',
     subnational2Name: 'King',
@@ -43959,6 +45400,7 @@ test('F320 navigation cancels obsolete phase-two work and rejects it', async () 
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,rows.map(row=>({code:row.speciesCode,name:row.comName})));
   A.clearChaseCache(false);
   await A.getChase();
   const phase2 = A.chasePhase2();
@@ -43995,7 +45437,7 @@ test('F320 navigation during phase one cannot start phase two under the new sect
     locName: 'Early Place ' + i,
     lat: 47.6 + i / 10000,
     lng: -122.3,
-    obsDt: '2026-09-04 08:00',
+    obsDt: todayFixtureDate() + ' 08:00',
     subId: 'SE' + i,
     subnational2Code: 'US-WA-033',
     subnational2Name: 'King',
@@ -44018,6 +45460,7 @@ test('F320 navigation during phase one cannot start phase two under the new sect
     },
   });
   const A = app.window.__app;
+  await seedSeen(app,[],null,rows.map(row=>({code:row.speciesCode,name:row.comName})));
   A.clearChaseCache(false);
   const phaseOne = A.getChase();
   await waitFor(() => releaseFirst, 'the first phase-one request to start');

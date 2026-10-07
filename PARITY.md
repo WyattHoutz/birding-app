@@ -13,6 +13,38 @@ claiming full parity. Since v1.0.16 an omission must record a **reason** and
 have a **row in the matrix below**, enforced from both repos
 (`birding/tests/parity/test_report_toc.py`).
 
+## Current candidate — F805/F812 personal ownership and F811 dual boards
+
+The historical matrix below records earlier releases, not an alternative
+personal-membership source. The current candidate resolves **Current year**
+(the per-profile default) and **All time** from the exact signed-in eBird
+personal list for the selected geography. Imports, county checklist unions,
+bundled samples and parent regions cannot establish complete membership.
+Complete/explicit-zero evidence proves absence; incomplete positives are
+known, while unknown history is neutral. Watch remains an explicit Needs proof
+exception for targeting, without reducing official recorded totals.
+
+`BirdLogic.resolvePersonalList` and Python's `resolve_personal_list` share
+owner, coverage, taxonomy and strict-negative semantics, exercised by
+`tests/parity/test_personal_list.py`. The device owns authenticated acquisition
+and per-profile period selection; the archived report does not acquire a
+signed-in user's live list. Independent news stays visible under both periods
+and unavailable personal history. Ticks, Pro patches, effort and annual-first
+events remain annual, not life-list statistics.
+
+Species and Checklists boards are acquired and validated independently for the
+same region and period. Their merge is parity-tested in
+`tests/parity/test_rank_boards.py`: only stable profile identity joins rows;
+display names and ranks never do. Unmatched other-board ranks are **n/a**.
+One failed board retains a usable board with partial disclosure; two failures
+are not verified emptiness. Standing/history belong to metric, period, region
+and profile revision. Header species count comes from personal membership;
+checklist count and species rank come from the matching official board.
+
+Returned authenticated list shapes are synthetic-fixture tested, not native
+Washington/King County Year/Life proof. These are candidate contracts, not a
+claim that a new release has shipped.
+
 ## The direction of the delta changed on 2026-08-12
 
 Parity used to mean *the app carries everything the report does*, and the
@@ -52,6 +84,7 @@ evidence stay unchanged, and no locale taxonomy is redistributed in the bundle.
 
 | section | why it cannot be a report section |
 |---|---|
+| 🗓️ FOY | F815. The initial baseline, cumulative known codes and read acknowledgements belong to one device profile, exact region and calendar year; the archived report cannot know that reader's discovery history. Annual-first interpretation is shared as `foyEvidence` / `first_year.py:foy_evidence` and guarded by `tests/parity/test_first_year.py`. HTML acquisition, durable ownership, cards and Bird Gen overlap are app-specific. |
 | 🦉 Stakeout Birds *(includes Spuh finder)* | F358. A Markdown report cannot take a bird/spuh query, candidate selection or comparison set, and printing every bird's places and hierarchy paths for a region is a phone book, not a section. The app builds the candidate-set DAG on the device from the reader's direct eBird taxonomy call and caches the compact model in IndexedDB; no taxonomy bundle is redistributed in the public repository. |
 | 🏜️ Stakeout Patches | a Markdown report cannot take a query either, and this is the INVERSE of every place-finding section — those answer "which place should I go to", this starts from "I have chosen this place, tell me everything". It leads with the **pattern** (how often the place is birded, what a visit is typically worth, who the regulars are) rather than with today's rows, because eBird embargoes checklists for an hour and people submit hours later — measured 2026-08-22 at 10:10, three target species returned **zero** reports from that day statewide |
 | ⭐ Iconic Patches (`iconicBtn`) | F156. Ranks how much a place STANDS OUT for a bird rather than how rare the bird is, so it surfaces birds no rarity feed ever flags — a Western Kingbird never trips the notable flag, yet there is one road in Sultan where it is the bird of the place. Cannot be a report section for two reasons: it is measured against YOUR home and YOUR chase radius, which a report generated hours earlier cannot ask for, and the scan is a live pass of keyless GBIF facets over the 12 nearest hotspots whose answer moves as the reader moves. Validated against eBird's own Iconic Birds panel: at Mann Rd, Sultan our ordering is eBird's exactly. |

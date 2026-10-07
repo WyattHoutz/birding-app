@@ -12,7 +12,7 @@ for (const item of menu) {
   }
   if (ids.has(item.at)) throw new Error(`Duplicate menu ID: ${item.at}`);
   ids.add(item.at);
-  if (item.dynamicSubtitle && item.dynamicSubtitle !== 'leaderboard-scope') {
+  if (item.dynamicSubtitle && !['leaderboard-scope', 'personal-list'].includes(item.dynamicSubtitle)) {
     throw new Error(`Unknown dynamic subtitle: ${item.at}`);
   }
 }

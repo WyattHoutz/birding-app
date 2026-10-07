@@ -47,7 +47,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['stakeoutreachable-f389', 'stakeoutdistance-f389',
+    ['nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
     'stakeoutchecklists-progressive', 'stakeoutmixed-f634',
     'stakeoutspts-notes-off', 'stakeoutspts-notes-on', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
@@ -102,7 +102,7 @@ test('every menu section declares representative fixture data or an intentional 
   const allowed = new Set([
     'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'favorites', 'species-search',
     'hotspot-search', 'stakeout-merged', 'mega-index', 'patches',
-    'checklists', 'birdcast', 'help', 'migration', 'static',
+    'checklists', 'birdcast', 'help', 'migration', 'foy', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
     assert.ok(allowed.has(shot.kind),

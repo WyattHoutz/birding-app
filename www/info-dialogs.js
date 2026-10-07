@@ -45,18 +45,18 @@
           + 'labels inside that radius remain one continuing bird. The other qualifiers — nearby, '
           + 'multiple reports, or multiple reports at one hotspot — require the '
           + 'bird to be within the 55-mile day-trip gate and still missing from '
-          + 'your year list. A far bird that is not new, or one you have already '
+          + 'your exact selected personal list. Unknown history does not prove absence. A far bird that is not new, or one you have already '
           + 'seen, stays in <b>Mega rarities</b> instead of alerting again here.</p>'
           + '<p>For photos, state history and the rarity evidence, open '
           + '<b>Rare birds</b>: this feed keeps one compact row per bird.</p>'
       },
       celebrity: {
         title: '🎯 Celebrity Birds',
-        body: '<p>Birds <b>eBird flags as notable in this region</b> that are '
-          + 'not on your year list, with <b>' + BL.NEED_MIN_SIGHTINGS
+        body: '<p>Birds <b>eBird flags as notable in this region</b>, with <b>' + BL.NEED_MIN_SIGHTINGS
           + ' or more independent sightings</b> at one hotspot or adjacent '
           + 'walkable hotspots, within chase distance and the last '
-          + BL.FRESH_HOURS + ' hours plus checklist-start grace.</p>'
+          + BL.FRESH_HOURS + ' hours plus checklist-start grace. This independent '
+          + 'news remains useful for recorded birds and unknown personal history.</p>'
           + '<p><b>Notable, not merely unseen.</b> A bird earns this category '
           + 'by being unusual <i>here</i> and drawing a real local stakeout. '
           + 'An unseen-but-ordinary bird belongs in <b>All unseen reports</b> '
@@ -122,7 +122,7 @@
         body: '<p>Fresh unseen species at a saved patch, using its own recent feed. '
           + 'One alert per species and patch keeps the newest evidence. The bird photo '
           + 'identifies the species; the headline opens the patch. County scope requires '
-          + 'the exact county year list and matching patch/observation ownership. '
+          + 'the exact selected personal list and matching patch/observation ownership. '
           + 'Each patch publishes as it arrives, without waiting for later patches. '
           + 'Failed sibling feeds are named while successful and still-relevant retained '
           + 'results remain visible.</p>'
@@ -142,7 +142,7 @@
           + '<p>Reopening reuses successfully acquired evidence for up to 30 minutes and '
           + 'rechecks observation eligibility without downloading again. Stale evidence is refreshed '
           + 'on the next load, not by an extra background sweep.</p>'
-          + '<p><b>Refresh high-count flocks</b> bypasses that reuse, downloads one full page and reuses the shared '
+          + '<p>Ordinary Bird Gen refresh downloads stale high-count evidence and reuses the shared '
           + 'hotspot directory. There is no seven-day daily cache or species-query fallback. '
           + 'A website challenge, unreadable page or failed directory is reported as failed '
           + 'coverage; still-relevant retained alerts remain visible.</p>'

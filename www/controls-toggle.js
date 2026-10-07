@@ -62,6 +62,7 @@
     var out = '<button type="button" class="'
       + attrEsc(classNames('pressbtn', spec.cls)) + '"';
     if (spec.id) out += ' id="' + attrEsc(spec.id) + '"';
+    if (spec.disabled) out += ' disabled';
     out += dataAttrs(spec.data)
       + ' aria-pressed="' + (spec.pressed ? 'true' : 'false') + '"'
       + ' aria-label="' + attrEsc(spec.ariaLabel || spec.label || 'Toggle') + '">'
@@ -75,6 +76,7 @@
   function syncPressed(button, spec) {
     if (!button) return;
     spec = spec || {};
+    if ('disabled' in spec) button.disabled = !!spec.disabled;
     button.classList.add('pressbtn');
     button.setAttribute('aria-pressed', spec.pressed ? 'true' : 'false');
     button.setAttribute('aria-label', spec.ariaLabel || spec.label || 'Toggle');

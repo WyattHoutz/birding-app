@@ -56,6 +56,24 @@ function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+test('F829 Pygmy Nuthatch preserves the full credited bird instead of clipping its face', () => {
+  assert.match(tableBody('FIT_OVERRIDES'), /['"]pygnut\.jpg['"]/,
+    'Pygmy Nuthatch can return to the face-clipping automatic square');
+  assert.match(tableBody('OVERRIDE_SRC_SHA'),
+    /['"]pygnut\.jpg['"]\s*:\s*['"]a02b9d232a5656e6['"]/);
+  const output = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'pygnut.jpg'));
+  assert.deepEqual(jpegSize(output), { w: 179, h: 179 });
+  assert.equal(sha256Hex(output),
+    '2167a283986c97d31dbfb5aa1584a1496896672275c794f2913f59e704423e60',
+    'the installed icon no longer matches the full-frame derivative');
+  const credits = fs.readFileSync(
+    path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+  assert.match(credits,
+    /\| `pygnut` \| Pygmy nuthatch \| Polinova \| CC BY-SA 4\.0 \|/);
+  assert.match(credits, /File%3APygmyNuthatch\.jpg/);
+});
+
 test('F486 Black Scoter uses the reviewed single-bird photograph', () => {
   const pins = tableBody('OVERRIDE_SRC_SHA');
   const credits = fs.readFileSync(

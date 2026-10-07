@@ -133,6 +133,8 @@ const STUB_SPEC = {
       '#abaResults li[data-mega-code] .thumb', '#abaResults .megajump',
       '#abaResults .spmetric-age', '#abaResults .spmetric-distance'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
+  foyBtn:         { kind: 'foy',           host: 'foyResults',
+    expects: ['#foyResults .obs > li', '#foyResults .thumb'] },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -286,6 +288,45 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the mandatory 34-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'nuthatch-icons-f829', at: 'refreshBtn',
+    title: 'F829 — Pygmy Nuthatch and Red-breasted Nuthatch icon control',
+    host: 'results', scrollTo: '#results', freshApp: true, minControls: 0,
+    expects: ['#results .card-sm img.birdpic', '#results .xl img.birdpic'],
+    prep: `var w = document.defaultView;
+           var sec=document.getElementById('refreshBtn').closest('section');
+           A.showSection(sec.id);
+           var host = document.getElementById('results');
+           host.setAttribute('data-mock-data','true');
+           sec.dataset.mockAt='refreshBtn';
+           sec.dataset.mockReady='true';
+           host.className = 'nuthatchIconReview';
+           host.innerHTML = ['small', 'medium'].map(function (size) {
+             var rows = [{code:'pygnut',name:'Pygmy Nuthatch'},
+                     {code:'rebnut',name:'Red-breasted Nuthatch — unchanged control'}]
+               .map(function (bird) {
+                 return w.SpeciesCards[size]({
+                   name:bird.name, code:bird.code,
+                   icon:w.BirdIcons.photoSlot(bird.name,bird.code),
+                   sub:'Bundled seed · ' + size + ' card'});
+               });
+             return '<li><h2>'+size+' card</h2>'
+               +w.SpeciesCards.list(size,rows)+'</li>';
+           }).join('');
+           w.BirdIcons.hydratePhotos(host);
+           for (var i=0;i<100;i++) {
+             var imgs = host.querySelectorAll('img.birdpic');
+             if (imgs.length === 4 && [].every.call(imgs,function(img) {
+               return img.complete && img.naturalWidth > 0;
+             })) break;
+             await new Promise(function(r){setTimeout(r,50);});
+           }
+           [].forEach.call(host.querySelectorAll('.thumb'),function(slot) {
+             var img=slot.querySelector('img.birdpic');
+             if (!img || !img.currentSrc.endsWith(slot.dataset.code+'.jpg')
+                 || !img.naturalWidth) throw new Error('F829 bundled seed not painted');
+             var box=slot.getBoundingClientRect();
+             console.log('F829 '+slot.dataset.code+' '+box.width+'x'+box.height);
+           });` },
   { id: 'stakeoutreachable-f389', at: 'spLookupBtn',
     title: 'Stakeout bird — Reachable hides pelagic and other-island evidence',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
@@ -2034,6 +2075,27 @@ const BOOTSTRAP = `
         var eventText = document.getElementById('migEvent').textContent;
         return /October Big Day/.test(eventText) && /in 30 days/.test(eventText);
       }, 'On passage exact event countdown');
+      markHost(host, label);
+    } else if (spec.kind === 'foy') {
+      var foyCtx = A.foyContext(), foyNow = new Date();
+      var foyDay = foyNow.getFullYear() + '-'
+        + String(foyNow.getMonth() + 1).padStart(2, '0') + '-'
+        + String(foyNow.getDate()).padStart(2, '0');
+      A.firstYearWrite(foyCtx.region, foyCtx.year, {
+        valid: true, declared: 3, evidenceComplete: true,
+        source: {kind:'annual-first',region:foyCtx.region,year:foyCtx.year,
+          url:A.firstYearUrl(foyCtx.region),updatedAt:foyNow.toISOString()},
+        rows: [
+          {code:'bktgwa',name:'Black-throated Gray Warbler',sci:'Setophaga nigrescens',
+            date:foyDay,observedAt:foyDay + ' 08:00',subId:'S-FOY-1',
+            locName:'Union Bay Natural Area',locId:'L1'},
+          {code:'comnig',name:'Common Nighthawk',sci:'Chordeiles minor',
+            date:foyDay,observedAt:foyDay + ' 07:00',subId:'S-FOY-2',
+            locName:'Marymoor Park--Audubon Bird Loop',locId:'L2'},
+          {code:'gyrfal',name:'Gyrfalcon',sci:'Falco rusticolus',sensitive:true,date:''}
+        ]
+      });
+      await A.loadFoy();
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
