@@ -425,6 +425,14 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareF634Stakeout(A, document, sec);` },
+  { id: 'stakeoutpins-f837', at: 'spLookupBtn',
+    title: 'Stakeout bird — checklists share their public map-pin numbers',
+    host: 'sec-spLookupBtn', scrollTo: '#spLookupRecent', fullPage: true,
+    prepTimeoutMs: 45000,
+    expects: ['#spLookupRecent .stakeoutPinCue', '#spLookupRecent .stakeoutFlatChecklists'],
+    prep: `var sec = document.getElementById('spLookupBtn').closest('section');
+           A.showSection(sec.id);
+           await FIX.prepareF837(A, document, sec);` },
   { id: 'stakeoutspts-notes-off', at: 'spLookupBtn',
     title: 'Stakeout bird — Sharp-tailed Sandpiper, Notes off',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupResults',
@@ -840,6 +848,10 @@ function shotReadinessProblems(ready) {
   return problems;
 }
 
+function mockupRunPassed(made, expected, failures) {
+  return made === expected && failures.length === 0;
+}
+
 function shotLooksBlank(seen, hasSection) {
   const minText = hasSection ? 30 : 200;
   const minNodes = hasSection ? 5 : 100;
@@ -1022,50 +1034,36 @@ const BOOTSTRAP = `
         'NEEDS PROOF', 'Still counted by eBird · remains a chase target'],
       todBtn: ['Solitary Sandpiper', 'solsan', 'Tringa solitaria',
         'DAWN SPECIALIST', '63% of records before 8 AM'],
-      myYearBody: ["Lewis's Woodpecker", 'lewwoo', 'Melanerpes lewis',
-        'RECENT CHECKLIST', 'Year bird #216 · included in the completed first paint'],
       recordBody: ['Nazca Booby', 'nazboo1', 'Sula granti',
         'OVERDUE RECORD', 'Best historical window: late Aug–Sep'],
       spLookupBtn: ['Solitary Sandpiper', 'solsan', 'Tringa solitaria',
         '12 PLACES', '28 reports in the last 30 days']
     }[at] || ['Semipalmated Sandpiper', 'semsan', 'Calidris pusilla',
       'NEEDED', '3 places · latest Sep 1 at 5:10 PM'];
-    var secondTag = at === 'myYearBody' ? 'SEEN' : 'NEW REPORT';
-    var secondSub = at === 'myYearBody'
-      ? 'Year bird #214 · added Aug 23'
-      : '2 checklists · one report unreviewed';
-    var secondCode = at === 'myYearBody' ? 'fragul' : 'solsan';
+    var secondTag = 'NEW REPORT';
+    var secondSub = '2 checklists · one report unreviewed';
+    var secondCode = 'solsan';
     var secondBird = stubBird(secondCode);
     var firstBird = stubBird(cfg[1]);
-    var isMyYear = at === 'myYearBody';
     var isBirdReport = at === 'refreshBtn' || at === 'allUnseenBtn';
     return [
       SC.medium({ sci: cfg[2], icon: mockPhoto(cfg[1]),
-        name: (isMyYear ? '<span class="yrnum">216.</span>' : '') + cfg[0],
+        name: cfg[0],
         code: cfg[1], alpha: firstBird.alpha || '',
         tags: isBirdReport
           ? reportTags(at === 'refreshBtn', true)
           : '<span class="mockstate">' + cfg[3] + '</span>',
         distMi: isBirdReport ? null : 8.4,
         primary: isBirdReport ? metric('2h', '8.4') : '',
-        actions: isMyYear
-          ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
-            + ' aria-pressed="false">Add to watchlist</button>'
-          : '',
         sub: isBirdReport ? 'Today 8:14 AM · Marymoor Park · 3 reports' : cfg[4] }),
       SC.medium({ sci: secondBird.sci || 'Tringa solitaria', icon: mockPhoto(secondCode),
-        name: (isMyYear ? '<span class="yrnum">214.</span>' : '')
-          + (secondBird.name || 'Solitary Sandpiper'), code: secondCode,
+        name: secondBird.name || 'Solitary Sandpiper', code: secondCode,
         alpha: secondBird.alpha || '',
         tags: isBirdReport
           ? reportTags(false, false)
           : '<span class="mockstate">' + secondTag + '</span>',
         distMi: isBirdReport ? null : 17.2,
         primary: isBirdReport ? metric('11h', '17.2') : '',
-        actions: isMyYear
-          ? '<button type="button" class="secondary speciesWatchlistAction myYearWatchlist"'
-            + ' aria-pressed="true">Remove from watchlist</button>'
-          : '',
         sub: isBirdReport ? 'Today 1:05 AM · Discovery Park · 2 checklists' : secondSub })
     ];
   }
@@ -2192,6 +2190,25 @@ const BOOTSTRAP = `
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
+      else if (at === 'myYearBody') {
+        await preparePersonalFixture(A, document.defaultView, {yearList: [
+          {code: 'lewwoo', name: "Lewis's Woodpecker"},
+          {code: 'fragul', name: "Franklin's Gull"}
+        ]}, [
+          {code: 'lewwoo', name: "Lewis's Woodpecker", sci: 'Melanerpes lewis'},
+          {code: 'fragul', name: "Franklin's Gull", sci: 'Leucophaeus pipixcan'}
+        ]);
+        A.setWatchlist([{code: 'fragul', name: "Franklin's Gull"}]);
+        A.updateMyYear();
+        await fillFixturePhotos(host, document);
+        if (host.querySelectorAll('.yrnum').length !== 2
+            || !host.querySelector('.myYearWatchlist[aria-pressed="false"]')
+            || !host.querySelector('.myYearWatchlist[aria-pressed="true"]')
+            || host.querySelector('.taxonomyUnresolved')) {
+          throw new Error('Personal-list production fixture lost membership, actions or taxonomy');
+        }
+        markHost(host, label);
+      }
       else fillSpeciesHost(host, document.defaultView, label, at);
     } else if (spec.kind === 'favorites') {
       A.setFavs([
@@ -2336,7 +2353,7 @@ const BOOTSTRAP = `
         '3 under 3h options · 1 county · all recent/notable feeds checked';
     } else if (at === 'myYearBody') {
       sec.querySelector('.status').textContent =
-        'Recent checklist check complete · newly harvested birds included';
+        'Exact personal membership prepared · representative Year List';
     }
     if (spec.kind === 'favorites') {
       document.getElementById(spec.map).setAttribute('data-mock-map', 'true');
@@ -2564,6 +2581,66 @@ const BOOTSTRAP = `
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
     return true;
+  }
+  async function prepareF837(A, document, sec) {
+    A.fgCancelAll('Starting deterministic Stakeout pin fixture');
+    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy([{
+      speciesCode: 'solsan', comName: 'Solitary Sandpiper', sciName: 'Tringa solitaria',
+      category: 'species', order: 'Charadriiformes', familySciName: 'Scolopacidae',
+      familyComName: 'Sandpipers and Allies', taxonOrder: 1
+    }]));
+    var rows = Array.from({length: 14}, function (_, i) {
+      return {
+        speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+        locId: 'L-F837-' + (i % 7), locName: 'Representative place ' + (i % 7),
+        lat: i % 7 === 5 ? null : 47.75 + (i % 7) * 0.01,
+        lng: i % 7 === 5 ? null : -122.16,
+        locationPrivate: i % 7 === 6,
+        obsDt: mockObservationDate(i + 1), subId: 'S-F837-' + i,
+        durationHrs: 0.5, numSpecies: 20, howMany: 1, obsValid: true
+      };
+    });
+    rows.forEach(function (row) {
+      A.seedChecklistView(row.subId, {
+        subId: row.subId, obsDt: row.obsDt, durationHrs: row.durationHrs,
+        numSpecies: row.numSpecies, obs: [{speciesCode: 'solsan', howMany: 1}]
+      });
+    });
+    await fillStakeoutSpecies(A, document, 'Stakeout matched pins', rows.length, {
+      code: 'solsan', name: 'Solitary Sandpiper', rows: rows
+    });
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(false);
+    await wait(100);
+    var list = document.querySelector('#spLookupRecent .stakeoutFlatChecklists');
+    var more = document.querySelector('#spLookupRecent .progressive-more');
+    if (!list || ![10,14].includes(list.children.length)) throw new Error('F837 bounded rows missing');
+    if (list.children.length === 10) {
+      if (!more) throw new Error('F837 expansion control missing');
+      more.click();
+    }
+    await wait(100);
+    var pins = new Map(Array.from(document.querySelectorAll('#spLookupMap .leaflet-marker-icon'))
+      .filter(function (pin) { return pin.textContent !== 'H'; })
+      .map(function (pin) { return [pin.textContent, {
+        title: pin.getAttribute('title'), key: pin.getAttribute('data-pin-place')
+      }]; }));
+    if (list.children.length !== 14 || pins.size !== 5) throw new Error('F837 expanded row/pin count mismatch');
+    Array.from(list.children).forEach(function (row) {
+      var number = row.getAttribute('data-pin-number');
+      if (!number) {
+        if (!/No public pin/.test(row.textContent)) throw new Error('F837 missing honest gap cue');
+      } else if (!pins.has(number)
+          || pins.get(number).title !== number + ': ' + row.getAttribute('data-ev-place')
+          || pins.get(number).key !== row.getAttribute('data-pin-place')
+          || row.querySelector('.stakeoutPinCue').textContent !== number + '.') {
+        throw new Error('F837 actual row/pin identity mismatch');
+      }
+    });
+    A.fgProgressReset();
+    markHost(sec, 'Stakeout matched pins');
+    sec.dataset.mockAt = 'spLookupBtn';
+    sec.dataset.mockReady = 'true';
   }
   async function prepareStakeoutSpts(A, document, sec, detailsOn) {
     ensureMockStyle(document);
@@ -3016,6 +3093,7 @@ const BOOTSTRAP = `
     prepareStakeoutReports: prepareStakeoutReports,
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,
     prepareF634Stakeout: prepareF634Stakeout,
+    prepareF837: prepareF837,
     prepareStakeoutSpts: prepareStakeoutSpts,
     prepareF389Stakeout: prepareF389Stakeout,
     prepareBirdFinderMerged: prepareBirdFinderMerged,
@@ -3385,6 +3463,33 @@ async function main() {
           : `Math.min(${HEIGHT}, Math.max(600, d.documentElement.scrollHeight))`}; })()`,
       returnByValue: true }, sessionId);
     const h = Number(hr.result.value) || HEIGHT;
+    if (shot.at === 'myYearBody') {
+      const readability = await c.send('Runtime.evaluate', {
+        expression: `(function () {
+          var d = document.getElementById('f').contentDocument;
+          var measure = ${require('./card-readability').toString()};
+          var cards = Array.from(d.querySelectorAll('#myYearList > li'));
+          var results = cards.map(measure);
+          var control = d.createElement('ul');
+          control.className = 'obs big xl';
+          control.innerHTML = d.defaultView.SpeciesCards.medium({
+            name: 'American Robin', icon: '<span class="thumb"></span>',
+            below: '<button class="secondary speciesWatchlistAction">Add to watchlist</button>'
+          });
+          cards[0].parentElement.parentElement.appendChild(control);
+          var reference = measure(control.firstElementChild);
+          control.remove();
+          return {cards:results, control:reference};
+        })()`, returnByValue: true
+      }, sessionId);
+      const metrics = readability.result.value;
+      console.log('  readability ' + WIDTH + '/' + SCALE + ': ' + JSON.stringify(metrics));
+      if (!metrics || [...metrics.cards, metrics.control].some(card =>
+        card.wordBroken || card.titleClipped || card.actions.some(action => action.clipped))) {
+        console.error('  !! ' + shot.id + ': internal card text breaks or clips');
+        blank.push(shot.id);
+      }
+    }
     const png = await c.send('Page.captureScreenshot', {
       format: 'png',
       clip: { x: 0, y: 0, width: WIDTH, height: h, scale: 2 },
@@ -3456,12 +3561,13 @@ async function main() {
     console.error('BLANK SHOTS: ' + blank.join(', ')
       + ' — a mockup folder you cannot trust is worse than none.');
   }
-  process.exit(made.length === shots.length ? 0 : 1);
+  process.exit(mockupRunPassed(made.length, shots.length, blank) ? 0 : 1);
 }
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  fixtureIconPath, preparePersonalFixture, shotReadinessProblems, shotLooksBlank, withTimeout
+  fixtureIconPath, preparePersonalFixture, shotReadinessProblems, shotLooksBlank,
+  mockupRunPassed, withTimeout
 };
 
 if (require.main === module) {

@@ -35909,8 +35909,8 @@ test('the stakeout map plots the places the rows are numbered against', () => {
   const at = HTML.indexOf('function renderSpeciesLookupMap');
   const src = HTML.slice(at, HTML.indexOf('\n      function ', at + 1));
   assert.ok(at > 0, 'renderSpeciesLookupMap not found');
-  assert.ok(/p\.lon/.test(src),
-    'the stakeout map still reads only p.lng, which speciesPlaces never sets');
+  assert.match(src, /spLookupEvidenceRows/,
+    'the Stakeout map must use the same canonical-place mapping as its rows');
 
   // The field names really are what this claims - if speciesPlaces ever emits
   // lng, this guard should be revisited rather than quietly passing.
@@ -36714,10 +36714,111 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
   // The rows and the pins must be numbered from the same list, or the numbers
   // are decoration.
   assert.ok(/function spLookupPlaceCards/.test(HTML), 'no numbered row renderer');
-  assert.ok(/renderItem:\s*function \(place, i\)[\s\S]*spLookupPlaceCards\(\[place\], i \+ 1, bird\)/
-    .test(listFn), 'progressive batches do not keep one continuous row number');
+  assert.match(listFn, /spLookupEvidenceRows\(places \|\| \[\], true\)/,
+    'grouped cards must use the shared evidence mapping');
   assert.ok(!/_spLookupGroup\.name/.test(HTML),
     'the row renderer still reaches for module state instead of its argument');
+});
+
+test('F837 visible Stakeout checklist identities equal map pins across controls and expansion', async () => {
+  const observations = Array.from({length: 14}, (_, i) => ({
+    speciesCode: 'solsan', comName: 'Solitary Sandpiper',
+    locId: 'L' + (i % 7), locName: 'Place ' + (i % 7 === 1 ? 0 : i % 7),
+    lat: i % 7 === 5 ? null : i % 7 === 4 ? 49 : 47.75 + (i % 7) * 0.01,
+    lng: i % 7 === 5 ? null : -122.16,
+    locationPrivate: i % 7 === 6,
+    obsDt: recentObsStamp(1, 10, 59 - i), subId: 'SF837-' + i,
+    howMany: 1, obsValid: true
+  }));
+  const app = await boot({sample: false, fetch(url) {
+    return /data\/obs\/.*\/recent\/solsan/.test(url) ? observations : [];
+  }});
+  const A = app.window.__app;
+  const positions = new WeakMap();
+  const originalMarker = app.window.L.marker;
+  app.window.L.marker = function (...args) {
+    const marker = originalMarker.apply(this, args);
+    marker.on('add', () => positions.set(marker.getElement(), marker.getLatLng()));
+    return marker;
+  };
+  app.window.localStorage.setItem(A.homeKey('lat'), '47.75');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-122.16');
+  app.window.localStorage.setItem(A.chaseMiKey(), '10');
+  await A.lookupSpecies('solsan', 'Solitary Sandpiper');
+  A.setSpeciesLookupWithinChase(false);
+  A.setSpeciesLookupGrouped(false);
+  function assertIdentity() {
+    const rows = arr(app.$('spLookupRecent').querySelectorAll('.stakeoutFlatChecklists > li'));
+    const pins = arr(app.$('spLookupMap').querySelectorAll('.leaflet-marker-icon'))
+      .filter(pin => pin.textContent !== 'H');
+    assert.ok(rows.length >= 10, 'actual checklist rows painted');
+    const identities = new Map(pins.map(pin => [pin.textContent, pin.getAttribute('title')]));
+    assert.ok(identities.size >= 3, 'actual map pins painted');
+    const mapped = new Set();
+    for (const row of rows) {
+      const place = row.getAttribute('data-ev-place');
+      const number = row.getAttribute('data-pin-number') || '';
+      if (/Place [56]/.test(place)) {
+        assert.equal(number, '', 'coordinate/private gaps have no invented pin');
+        assert.match(row.textContent, /No public pin/);
+      } else {
+        assert.equal(identities.get(number), number + ': ' + place);
+        assert.equal(pins.find(pin => pin.textContent === number)?.getAttribute('data-pin-place'),
+          row.getAttribute('data-pin-place'), 'rows must match their canonical place identity, not just its name');
+        const position = positions.get(pins.find(pin => pin.textContent === number));
+        assert.equal(position.lat, Number(row.getAttribute('data-ev-lat')));
+        assert.equal(position.lng, Number(row.getAttribute('data-ev-lng')));
+        assert.equal(row.querySelector('.stakeoutPinCue')?.textContent, number + '.');
+        assert.ok(row.querySelector('.ckdate a'), 'checklist date link preserved');
+        mapped.add(number);
+      }
+    }
+    assert.equal(mapped.size, identities.size, 'no extra map pins absent from visible rows');
+    return rows;
+  }
+  let rows = assertIdentity();
+  assert.equal(rows.length, 10);
+  const initialDates = rows.map(row => row.getAttribute('data-ev-sort'));
+  assert.deepEqual(initialDates, initialDates.slice().sort().reverse());
+  const staleMore = app.$('spLookupRecent').querySelector('.progressive-more');
+  staleMore.click();
+  rows = assertIdentity();
+  assert.equal(rows.length, 14);
+  const repeated = rows.filter(row => row.getAttribute('data-pin-place') === 'L0');
+  assert.equal(repeated.length, 4, 'existing same-name canonical grouping is preserved');
+  assert.equal(repeated[0].getAttribute('data-pin-number'), repeated[1].getAttribute('data-pin-number'));
+  A.setSpeciesLookupSort('dist');
+  rows = assertIdentity();
+  staleMore.click();
+  assertIdentity();
+  const dates = rows.map(row => row.getAttribute('data-ev-sort'));
+  assert.notDeepEqual(dates, observations.slice(0, 10).map(row => row.obsDt),
+    'distance sort is exercised, not a second identical date case');
+  A.setSpeciesLookupGrouped(true);
+  function assertGrouped() {
+    for (const row of app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')) {
+      const number = row.querySelector('.hsnum')?.textContent;
+      const marker = arr(app.$('spLookupMap').querySelectorAll('.leaflet-marker-icon'))
+        .find(pin => pin.textContent === number);
+      if (/Place [56]/.test(row.getAttribute('data-ev-place'))) {
+        assert.equal(number, undefined, 'unmapped grouped places have no ordinal pretending to be a pin');
+      } else {
+        assert.equal(marker?.getAttribute('title'), number + ': ' + row.getAttribute('data-ev-place'));
+        assert.equal(marker?.getAttribute('data-pin-place'), row.getAttribute('data-pin-place'));
+      }
+    }
+  }
+  assertGrouped();
+  app.$('spLookupRecent').querySelector('.progressive-more').click();
+  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li').length, 6);
+  assertGrouped();
+  A.setSpeciesLookupWithinChase(true);
+  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Place [456]/);
+  assertGrouped();
+  A.setSpeciesLookupGrouped(false);
+  assert.ok(app.$('spLookupRecent').querySelector('.stakeoutPinCue'));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  app.window.close();
 });
 
 test('F548 Stakeout expands sparse iconic evidence without refetching', async () => {

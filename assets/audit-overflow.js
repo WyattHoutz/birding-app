@@ -198,6 +198,25 @@ const AUDIT = `<script>
         Math.abs(place.top - lead.top) > Math.max(place.height, lead.height) * 0.5,
       metadataGap: place.left - lead.right
     };
+    var cards = document.createElement('ul');
+    cards.className = 'obs big xl';
+    cards.innerHTML = window.SpeciesCards.medium({
+      name: '<a href="#">Lewis\\'s Woodpecker</a>',
+      icon: '<span class="thumb"></span>',
+      distMi: 8.4,
+      actions: '<button class="secondary speciesWatchlistAction">Remove from watchlist</button>'
+    }) + window.SpeciesCards.medium({
+      name: '<a href="#">Lewis\\'s Woodpecker</a>',
+      icon: '<span class="thumb"></span>',
+      below: '<button class="secondary speciesWatchlistAction">Remove from watchlist</button>'
+    }) + window.SpeciesCards.medium({
+      name: '<a href="#">American Robin</a>', icon: '<span class="thumb"></span>'
+    });
+    panel.appendChild(cards);
+    if (panel.id === 'sec-myYearBody') {
+      result.cardReadability = Array.from(cards.children).map(${require('./card-readability').toString()});
+    }
+    cards.remove();
     host.remove();
     if (panel.id === 'sec-rankBtn') {
       var icons = [].slice.call(panel.querySelectorAll('.rankbirdicon .thumb'));
@@ -2022,6 +2041,12 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (layout) {
         var layoutProblems = [];
+        if (r.sectionId === 'sec-myYearBody' && (!layout.cardReadability || layout.cardReadability.length !== 3
+            || layout.cardReadability.some(card => card.wordBroken || card.titleClipped
+              || card.actions.some(action => action.clipped)))) {
+          layoutProblems.push('F839 internal card readability: '
+            + JSON.stringify(layout.cardReadability));
+        }
         if (layout.latestBirdIcons === false) {
           layoutProblems.push('Top 100 latest-bird icons missing or larger than compact geometry');
         }

@@ -172,6 +172,7 @@
        display:contents. */
     '.obs.xl > li, .obs.card-md > li {',
     '  display: grid;',
+    '  container: species-card / inline-size;',
     /* Three columns, matching the hotspot medium card: photo · name · how far.
        The distance was previously buried mid-sentence in the sub-header
        ("66 places · nearest 4.2 mi · 67 reports"), where the one number that
@@ -396,6 +397,17 @@
        species name should wrap between its words or not at all. */
     '.obs.xl > li > .name > .ntext { min-width: 0; overflow-wrap: break-word; word-break: normal;',
     '                 hyphens: none; line-height: 1.15; }',
+    'html[data-display="high-visibility"] .obs.xl > li > .name > .ntext,',
+    'html[data-display="high-visibility"] .obs.card-md > li > .name > .ntext {',
+    '  grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }',
+    'html[data-display="high-visibility"] .obs.xl > li > .meta,',
+    'html[data-display="high-visibility"] .obs.card-md > li > .meta { grid-row: 3; }',
+    '@container species-card (max-width: 18em) {',
+    '  .obs.xl > li > .name > .ntext, .obs.card-md > li > .name > .ntext {',
+    '    grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }',
+    '  .obs.xl > li > .meta, .obs.card-md > li > .meta { grid-row: 3; }',
+    '}',
+    '.obs .ntext > .speciesWatchlistAction { max-width: 100%; white-space: normal; }',
     /* The whole card scales together, not just the name.
        The name was reported too large at 22px, but dropping it alone to 17px
        would have put it level with the 17px checklists and only 1px above the

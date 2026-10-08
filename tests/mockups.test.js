@@ -67,7 +67,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
     ['nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
-    'stakeoutchecklists-progressive', 'stakeoutmixed-f634',
+    'stakeoutchecklists-progressive', 'stakeoutmixed-f634', 'stakeoutpins-f837',
     'stakeoutspts-notes-off', 'stakeoutspts-notes-on', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
@@ -390,12 +390,12 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
   assert.match(rank, /Season best #170 · first reached Aug 20/,
     'the Top 100 release shot does not prove the earliest tied best date');
 
-  const year = source.slice(source.indexOf('myYearBody: ['),
-    source.indexOf('recordBody: ['));
+  const year = source.slice(source.indexOf("else if (at === 'myYearBody') {"),
+    source.indexOf("} else if (spec.kind === 'favorites')"));
   assert.match(year, /Lewis's Woodpecker/);
-  assert.match(year, /included in the completed first paint/);
-  assert.match(source, /Recent checklist check complete · newly harvested birds included/,
-    'the My Ticks shot can still look like a silently stale first paint');
+  assert.match(year, /preparePersonalFixture/);
+  assert.match(source, /Exact personal membership prepared · representative Year List/,
+    'the My List shot must state its representative source');
 
   assert.match(source,
     /3 under 3h options · 1 county · all recent\/notable feeds checked/,
@@ -444,12 +444,13 @@ test('F686 release preparation follows compact Top 100 and owns Stakeout work', 
 });
 
 test('F384/F385 release mockups expose row actions and regional watch scope', () => {
-  const year = source.slice(source.indexOf("var isMyYear = at === 'myYearBody'"),
-    source.indexOf('function fillSpeciesHost', source.indexOf("var isMyYear = at === 'myYearBody'")));
-  assert.match(year, /class="yrnum">216\./,
-    'the My Ticks release fixture does not exercise the full-size ordinal');
-  assert.match(year, /aria-pressed="false">Add to watchlist/);
-  assert.match(year, /aria-pressed="true">Remove from watchlist/,
+  const year = source.slice(source.indexOf("else if (at === 'myYearBody') {"),
+    source.indexOf("} else if (spec.kind === 'favorites')"));
+  assert.match(year, /A\.updateMyYear\(\)/,
+    'My List must use production rendering, not invented card fields');
+  assert.match(year, /\.yrnum/);
+  assert.match(year, /\.myYearWatchlist\[aria-pressed="false"\]/);
+  assert.match(year, /\.myYearWatchlist\[aria-pressed="true"\]/,
     'the My Ticks release fixture does not show both watchlist states');
 
   const scope = source.slice(source.indexOf("if (at === 'nvResults')"),
@@ -466,6 +467,13 @@ test('F384/F385 release mockups expose row actions and regional watch scope', ()
     'the default Needs proof screenshot no longer discloses its hidden stored row');
   assert.deepEqual(mockups.STUB_SPEC.nvResults.allowDisabled, [],
     'Watch list no longer contains reorder controls');
+});
+
+test('F839 a captured but unreadable shot still fails the gallery run', () => {
+  const {mockupRunPassed} = require('../assets/mockups');
+  assert.equal(mockupRunPassed(1, 1, []), true);
+  assert.equal(mockupRunPassed(1, 1, ['internal card readability']), false);
+  assert.equal(mockupRunPassed(0, 1, []), false);
 });
 
 test('F372 review mockups prove empty Hawaii stays empty on both reported surfaces', () => {
