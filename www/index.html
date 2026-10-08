@@ -4798,7 +4798,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.143.1-f840.1';
+      var APP_VERSION = '1.143.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6533,7 +6533,8 @@
         scope = scope || activeScope();
         var context = personalBasisLabel() + ' · ' + scope.label;
         var text = evidence.complete
-          ? context + ': ' + (evidence.seenCount == null ? evidence.count : evidence.seenCount) + ' recorded species.'
+          ? context + ': ' + evidence.count + ' recorded species'
+            + (evidence.seenCount > evidence.count ? ' + ' + (evidence.seenCount - evidence.count) + ' Escapees' : '') + '.'
           : evidence.state === 'incomplete'
           ? context + ': ' + evidence.knownCount + ' known birds — incomplete; absence is unknown.'
           : context + ': personal history unavailable; absence is unknown.';
@@ -6715,6 +6716,24 @@
         result.paginated = !!root.querySelector(
           'a[rel="next"], button[aria-label="Next page"], .Pagination a[href]:not([aria-disabled="true"])');
         var seen = {};
+        var invalidDate = false;
+        function listDate(value) {
+          value = String(value || '').trim();
+          if (!value) return '';
+          var iso = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(value);
+          var text = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/.exec(value);
+          var months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+          var year = iso ? +iso[1] : text ? +text[3] : 0;
+          var month = iso ? +iso[2] - 1 : text ? months.indexOf(text[2].toLowerCase()) : -1;
+          var day = iso ? +iso[3] : text ? +text[1] : 0;
+          var date = new Date(Date.UTC(year, month, day));
+          if (!year || date.getUTCFullYear() !== year || date.getUTCMonth() !== month
+              || date.getUTCDate() !== day) {
+            invalidDate = true;
+            return '';
+          }
+          return year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+        }
         function readRows(container, category) {
         Array.from(container.querySelectorAll('a[href*="/species/"]')).forEach(function (bird) {
           var codeMatch = /\/species\/([a-z0-9]+)(?:[/?#]|$)/i.exec(bird.getAttribute('href') || '');
@@ -6724,12 +6743,14 @@
           seen[code] = 1;
           var row = bird.closest('li, tr, .Obs') || bird.parentElement;
           var stamp = row && row.querySelector('time[datetime]');
-          var checklist = row && row.querySelector('a[href*="/checklist/"]');
+          var dateLinks = row ? row.querySelectorAll('.Observation-meta-date a[href*="/checklist/"]') : [];
+          if (dateLinks.length > 1) invalidDate = true;
+          var checklist = dateLinks[0] || row && row.querySelector('a[href*="/checklist/"]');
           var sub = checklist && /\/checklist\/(S\d+)/i.exec(checklist.getAttribute('href') || '');
           result.rows.push({
             code: code,
             name: String((bird.querySelector('.Species-common') || bird).textContent || '').trim(),
-            observedAt: stamp ? String(stamp.getAttribute('datetime') || '') : '',
+            observedAt: listDate(stamp ? stamp.getAttribute('datetime') : dateLinks[0] ? dateLinks[0].textContent : ''),
             subId: sub ? sub[1] : '',
             category: category
           });
@@ -6764,6 +6785,7 @@
             return fail('Personal-list Escapee categories are incomplete or ambiguous.');
           }
         } else readRows(root, 'countable');
+        if (invalidDate) return fail('Personal-list dates are unreadable or ambiguous.');
         if (!result.rows.length && result.declaredCount !== 0) {
           return fail('No verified personal-list membership was returned.');
         }
@@ -40112,9 +40134,11 @@
         $('myYearBtn').textContent = 'Reload ' + title;
         var evidence = personalListEvidence(scope, true), saved = personalListRead(personalListOwner(scope));
         var parents = canonicalParents(((window.__SEED_BIRDLIST__ || {}).reportAsParents) || {});
+        var escapees = {};
+        (saved && saved.escapeeCodes || []).forEach(function (code) { escapees[code] = true; });
         var byRoot = {};
         (saved && saved.rows || []).forEach(function (row) {
-          if (!evidence.exact[row.code]) return;
+          if (!evidence.exact[row.code] || escapees[row.code]) return;
           var root = resolveSpecies(row.code, parents), previous = byRoot[root];
           var entry = { code: root, name: speciesDisplayName(row.name, root),
             date: row.observedAt || '', subId: row.subId || '' };
@@ -40124,14 +40148,16 @@
           return String(b.date).localeCompare(String(a.date)) || a.name.localeCompare(b.name);
         });
         el.innerHTML = '<div class="bignum">'
-          + (evidence.complete ? esc(evidence.seenCount == null ? evidence.count : evidence.seenCount) + ' <small>recorded species</small>'
+          + (evidence.complete ? esc(evidence.count) + ' <small>recorded species</small>'
+            + (evidence.seenCount > evidence.count ? ' <small>+ ' + esc(evidence.seenCount - evidence.count) + ' Escapees</small>' : '')
             : evidence.state === 'incomplete' ? esc(evidence.knownCount) + ' <small>known birds — incomplete</small>'
             : '<small>Personal history unavailable</small>') + '</div>'
           + (_myYearRefreshState === 'checking'
             ? '<p data-personal-progress role="status">Reading the exact personal list; saved rows remain available.</p>'
               + '<progress aria-label="' + esc('Loading exact personal list for ' + scope.label) + '"></progress>' : '')
           + '<p class="meta">Official personal membership, including Watch List birds. '
-          + 'Dates and checklist links appear only when returned by eBird; undated birds remain recorded. '
+          + 'Newest supplied dates appear first; Escapees are listed separately and do not count toward the species total. '
+          + 'Dates and checklist links appear only when returned by eBird; reload the personal list to recover dates from older saved rows. Undated birds remain recorded. '
           + 'Imported annual evidence does not establish a complete life list.</p>';
         paintPersonalCoverage(section);
         var total = entries.length;
@@ -40174,9 +40200,9 @@
         }
         var ex = { escapee: [], hybrid: [], additional: [] };
         (saved && saved.rows || []).forEach(function (row) {
-          if (evidence.exact[row.code]) return;
+          if (evidence.exact[row.code] && !escapees[row.code]) return;
           var taxon = _taxonomyModel && _taxonomyModel.byCode[row.code];
-          var category = taxon && taxon.category === 'hybrid' ? 'hybrid' : 'additional';
+          var category = escapees[row.code] ? 'escapee' : taxon && taxon.category === 'hybrid' ? 'hybrid' : 'additional';
           ex[category].push({ code: row.code, name: row.name, date: row.observedAt, subId: row.subId });
         });
         var groups = [
@@ -40186,7 +40212,9 @@
         ];
         var extraHtml = '';
         groups.forEach(function (g) {
-          var rows = ex[g[0]] || [];
+          var rows = (ex[g[0]] || []).sort(function (a, b) {
+            return String(b.date || '').localeCompare(String(a.date || '')) || a.name.localeCompare(b.name);
+          });
           if (!rows.length) return;
           extraHtml += '<div class="rankhead"><b>' + esc(g[1]) + ' (' + rows.length + ')</b></div>'
             + '<p class="hint">' + esc(g[2]) + '</p>'

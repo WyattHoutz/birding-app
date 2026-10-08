@@ -6040,6 +6040,66 @@ test('F838 terminal personal-list failure closes only its owned capture without 
   app.window.close();
 });
 
+test('F841 textual dates are row-scoped, calendar-valid and retained by the serialized reader', async () => {
+  const app = await boot(), A = app.window.__app;
+  const html = FIX('personal-list-text-dates.html');
+  const proof = {status:'ok',profileId:'fixtureA',evidence:'same-session-profile-id'};
+  const page = A.parsePersonalListPage(html,proof);
+  assert.equal(page.valid,true,page.reason);
+  assert.deepEqual(Array.from(page.rows,row => [row.code,row.observedAt,row.subId]),
+    [['stable','2026-01-02','S300000001'],['recent','2026-10-08','S300000002'],
+      ['undated','',''],['escapee','2026-09-03','S300000003']]);
+  for (const bad of ['31 Feb 2026','29 Feb 2026','0 Oct 2026','8 Xxx 2026','32 Oct 2026']) {
+    const invalid = A.parsePersonalListPage(html.replace('8 Oct 2026',bad),proof);
+    assert.equal(invalid.valid,false,bad);
+    assert.match(invalid.reason,/dates are unreadable/);
+  }
+  assert.equal(A.parsePersonalListPage(html.replace('8 Oct 2026','29 Feb 2024'),proof).rows[1].observedAt,'2024-02-29');
+  const ambiguous = html.replace('8 Oct 2026</a>', '8 Oct 2026</a><a href="/checklist/S300000004">7 Oct 2026</a>');
+  assert.equal(A.parsePersonalListPage(ambiguous,proof).valid,false,'multiple row dates cannot be guessed');
+  assert.equal(A.parsePersonalListPage(html.replace('<div class="Observation-meta-date"><a href="/checklist/S300000002">8 Oct 2026</a></div>',
+    '<time datetime="2026-10-08T08:00:00"></time><a href="/checklist/S300000002">Checklist</a>'),proof).rows[1].observedAt,'2026-10-08');
+  const native = new JSDOM(html,{url:'https://ebird.org/lifelist/US-WA?time=year',runScripts:'outside-only'});
+  let bridged;
+  native.window.fetch = async url => ({ok:true,url:url.endsWith('/profile')
+    ? 'https://ebird.org/profile/fixtureA' : url,
+    text:async () => url.endsWith('/profile') ? FIX('personal-profile-shell.html') : html});
+  native.window.mobileApp = {postMessage(message) { bridged=message.detail; }};
+  native.window.eval(A.buildPersonalListInject({...A.personalListOwner(),period:'year:2026'}));
+  await waitFor(() => bridged,'text dates serialized reader');
+  assert.equal(bridged.ok,true);
+  assert.equal(bridged.data.rows[1].observedAt,'2026-10-08');
+  native.window.close(); app.window.close();
+});
+
+test('F841 saved personal dates sort newest-first with undated tails and separate Escapees', async () => {
+  const app = await boot(), A = app.window.__app;
+  const proof = {status:'ok',profileId:'fixtureA',evidence:'same-session-profile-id'};
+  const page = A.parsePersonalListPage(FIX('personal-list-text-dates.html'),proof);
+  await seedSeen(app,['stable','recent','undated','escapee'],
+    ['Alpha older bird','Zulu recent bird','Beta undated bird','Escapee bird']);
+  const owner = A.personalListOwner();
+  const snapshot = {owner,coverage:'complete',codes:page.rows.map(row=>row.code),
+    countableCodes:['stable','recent','undated'],escapeeCodes:['escapee'],
+    declaredCount:3,unresolved:0,rows:page.rows,readAt:new Date().toISOString(),readDate:A.todayStr()};
+  const key=A.bcReal(A.personalListKey(owner));
+  const raw=JSON.stringify(snapshot);
+  app.window.localStorage.setItem(key,raw);
+  A.updateMyYear();
+  assert.match(app.$('myYearBody').textContent,/3 recorded species\s*\+ 1 Escapees/);
+  const rows=Array.from(app.$('myYearList').querySelectorAll('li'));
+  assert.equal(rows.length,3);
+  assert.match(rows[0].textContent,/Zulu recent bird/);
+  assert.match(rows[1].textContent,/Alpha older bird/);
+  assert.match(rows[2].textContent,/Beta undated bird/);
+  assert.match(rows[2].textContent,/Date not supplied by eBird/);
+  assert.equal(rows[0].querySelector('[data-href*="S300000002"]') != null,true);
+  assert.match(app.$('myYearExtras').textContent,/Escapee bird/);
+  assert.equal(A.personalListEvidence().species.escapee,1,'presentation does not erase targeting membership');
+  assert.equal(app.window.localStorage.getItem(key),raw,'repaint does not rewrite source history');
+  app.window.close();
+});
+
 test('F838 category membership includes Escapees without promoting hybrids or standing totals', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -6092,10 +6152,13 @@ test('F838 category membership includes Escapees without promoting hybrids or st
   app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify(snapshot));
   A.updateMyYear();
   A.headerIdentityRefresh();
-  assert.match(app.$('myYearBody').textContent,/2 recorded species/);
+  assert.match(app.$('myYearBody').textContent,/1 recorded species\s*\+ 1 Escapees/);
   assert.match(app.$('hdrId').textContent,/1\s*sp\./);
   assert.equal(A.personalListEvidence().species.escapee,1);
-  assert.equal(app.$('myYearList').querySelectorAll('li').length,2);
+  assert.equal(app.$('myYearList').querySelectorAll('li').length,1);
+  assert.match(app.$('myYearExtras').textContent,/Exotic: escapee \(1\)/);
+  assert.match(app.$('myYearExtras').textContent,/Escapee bird/);
+  assert.match(app.document.querySelector('.personalCoverageBox').textContent,/1 recorded species \+ 1 Escapees/);
   app.window.close();
 });
 
