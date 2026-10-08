@@ -5693,6 +5693,15 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
     return [];
   }});
   const A = app.window.__app;
+  const completionStates = [];
+  const originalPush = app.window.__dbg.push;
+  app.window.__dbg.push = (level, parts) => {
+    if (parts.join(' ').includes('F838 diagnostic RESULT')) {
+      completionStates.push(['dbgPersonalPath','dbgPersonalQuery','dbgPersonalBrowser']
+        .every(id => !app.$(id).disabled));
+    }
+    originalPush(level, parts);
+  };
   app.click(app.$('dbgPersonalPath'));
   assert.equal(app.$('dbgPersonalQuery').disabled,true);
   await waitFor(() => !app.$('dbgPersonalPath').disabled,'path diagnostic finishes');
@@ -5705,6 +5714,8 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   const log = app.window.__dbg.buf.map(entry => JSON.stringify(entry)).join('\n');
   assert.match(log,/F838 diagnostic RESULT method=path/);
   assert.match(log,/F838 diagnostic RESULT method=query/);
+  assert.ok(completionStates.length >= 2);
+  assert.ok(completionStates.every(Boolean),'completion renders only after controls are enabled');
   assert.doesNotMatch(log,/fixture_login|Sample Observer/);
   const native = new JSDOM(ownedPersonalListFixture(), {
     url:A.personalListUrl(A.personalListOwner()),runScripts:'outside-only'
@@ -5734,6 +5745,16 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   assert.equal(result.data.headingYear,'2026');
   assert.equal(result.data.accountContainers[0].inHeader,false);
   assert.doesNotMatch(JSON.stringify(result),/fixture_login|Sample Observer|Stable bird/);
+  native.window.document.body.innerHTML='<div><button title="Birder Sample Observer (fixture_login)">My Account</button></div>'
+    + '<h1>Washington 2026 Year List</h1><a href="#nativeNatProv">1 Species Observed</a>'
+    + '<div id="nativeNatProv"><h3>Native, Naturalized, or Provisional</h3>'
+    + '<ol><li><h5><a href="/species/stable">Stable bird</a></h5></li></ol></div>'
+    + '<div><h3>Exotic: Escapee (1)</h3><ol><li><a href="/species/escapee">Escapee bird</a></li></ol></div>';
+  native.window.eval(A.buildPersonalDiagnosticInject(19));
+  assert.equal(result.data.alternateAccounts.find(node => node.attribute === 'title').identityStatus,'ok');
+  assert.equal(result.data.countableStructure.speciesLinks,1);
+  assert.equal(result.data.categoryShapes.find(node => node.category === 'escapee').next.speciesLinks,1);
+  assert.doesNotMatch(JSON.stringify(result),/fixture_login|Sample Observer|Stable bird|Escapee bird/);
   native.window.close();
   app.window.close();
 });

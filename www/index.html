@@ -4792,7 +4792,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.142.2-f838.2';
+      var APP_VERSION = '1.142.2-f838.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6722,6 +6722,40 @@
           accountProbe.querySelector('header').appendChild(node.cloneNode(true));
         });
         var globalIdentity = parseEbirdAccountIdentity(accountProbe);
+        var alternateAccounts = [];
+        Array.from(doc.querySelectorAll('[title], [aria-label], a, button')).forEach(function (node) {
+          ['title', 'aria-label', 'textContent'].forEach(function (attribute) {
+            var value = String(attribute === 'textContent' ? node.textContent : node.getAttribute(attribute) || '')
+              .replace(/\s+/g, ' ').trim();
+            if (!/^Birder\s+.+\s+\([^()]+\)$/.test(value) && !/^My Account$/i.test(value)) return;
+            var probe = new DOMParser().parseFromString('<header><button></button></header>', 'text/html');
+            probe.querySelector('button').setAttribute('aria-label', value);
+            alternateAccounts.push({tag:node.tagName,attribute:attribute,
+              identityStatus:parseEbirdAccountIdentity(probe).status,
+              inHeader:!!node.closest('header, [role="banner"]')});
+          });
+        });
+        function structure(node) {
+          if (!node) return null;
+          return {tag:node.tagName,role:node.getAttribute('role') || '',
+            children:node.children.length,items:node.querySelectorAll('li').length,
+            rows:node.querySelectorAll('tr').length,
+            speciesLinks:node.querySelectorAll('a[href*="/species/"]').length,
+            headingCount:node.querySelectorAll('h1,h2,h3,h4,h5,h6').length,
+            parentTag:node.parentElement && node.parentElement.tagName};
+        }
+        var countTarget = doc.getElementById('nativeNatProv');
+        var countableStructure = structure(countTarget);
+        var categoryShapes = Array.from(doc.querySelectorAll('h2,h3,h4')).filter(function (node) {
+          return /^(?:Native, Naturalized, or Provisional|Exotic:\s*Escapee|Hybrids|Additional taxa)(?:\s*\(\d+\))?$/i
+            .test(String(node.textContent || '').trim());
+        }).map(function (node) {
+          var text = String(node.textContent || '').trim();
+          return {category:/^Native/i.test(text) ? 'countable' : /^Exotic/i.test(text) ? 'escapee'
+            : /^Hybrids/i.test(text) ? 'hybrid' : 'additional',
+            heading:structure(node),parent:structure(node.parentElement),
+            next:structure(node.nextElementSibling)};
+        });
         var codes = {};
         Array.from(doc.querySelectorAll('a[href*="/species/"]')).forEach(function (node) {
           var match = /\/species\/([a-z0-9]+)(?:[/?#]|$)/i.exec(node.getAttribute('href') || '');
@@ -6743,6 +6777,8 @@
           documentSpeciesCount: Object.keys(codes).length,
           documentObservedCount: bodyObserved ? Number(bodyObserved[1].replace(/,/g, '')) : null,
           accountLabelCount: accountNodes.length, documentIdentityStatus: globalIdentity.status,
+          alternateAccounts:alternateAccounts.slice(0,12),
+          countableStructure:countableStructure,categoryShapes:categoryShapes,
           accountContainers: accountNodes.map(function (node) {
             return {tag:node.tagName,parentTag:node.parentElement && node.parentElement.tagName,
               inHeader:!!node.closest('header, [role="banner"]')};
@@ -6783,6 +6819,11 @@
         buttons.forEach(function (id) { $(id).disabled = true; });
         var owner = personalListOwner(), generation = _identityGeneration;
         var started = Date.now();
+        function releaseControls() {
+          clearTimeout(deadline);
+          _personalDiagnosticBusy = false;
+          buttons.forEach(function (id) { $(id).disabled = false; });
+        }
         function current() {
           return generation === _identityGeneration
             && JSON.stringify(personalListOwner()) === JSON.stringify(owner);
@@ -6806,16 +6847,14 @@
           })]);
         return bounded.then(function (result) {
           if (!current()) throw new Error('Diagnostic superseded by profile or scope change.');
+          releaseControls();
           dbg('info', 'F838 diagnostic RESULT method=' + method + ' elapsedMs='
-            + (Date.now() - started) + ' ' + JSON.stringify(result));
+            + (Date.now() - started) + ' controlsEnabled=true ' + JSON.stringify(result));
         }).catch(function (error) {
+          releaseControls();
           dbg('warn', 'F838 diagnostic FAILED method=' + method + ' elapsedMs='
-            + (Date.now() - started) + ' ' + (error.message || error));
-        }).finally(function () {
-          clearTimeout(deadline);
-          _personalDiagnosticBusy = false;
-          buttons.forEach(function (id) { $(id).disabled = false; });
-        });
+            + (Date.now() - started) + ' controlsEnabled=true ' + (error.message || error));
+        }).finally(releaseControls);
       }
       function ensurePersonalList(scope, force, onStatus) {
         scope = scope || activeScope();
