@@ -6527,7 +6527,7 @@
         scope = scope || activeScope();
         var context = personalBasisLabel() + ' · ' + scope.label;
         var text = evidence.complete
-          ? context + ': ' + evidence.count + ' recorded species.'
+          ? context + ': ' + (evidence.seenCount == null ? evidence.count : evidence.seenCount) + ' recorded species.'
           : evidence.state === 'incomplete'
           ? context + ': ' + evidence.knownCount + ' known birds — incomplete; absence is unknown.'
           : context + ': personal history unavailable; absence is unknown.';
@@ -6614,12 +6614,16 @@
         dbg('warn', 'Personal targets withheld: exact owned history is not complete.');
         return false;
       }
-      function parsePersonalListPage(html) {
+      function parsePersonalListPage(html, sessionIdentity) {
         var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
         var result = { valid: false, reason: '', region: '', period: '',
           rows: [], declaredCount: null, paginated: false,
           identity: parseEbirdAccountIdentity(doc) };
         function fail(reason) { result.reason = reason; return result; }
+        if (result.identity.status !== 'logged-out' && sessionIdentity
+            && sessionIdentity.status === 'ok' && sessionIdentity.evidence === 'profile-heading') {
+          result.identity = sessionIdentity;
+        }
         if (result.identity.status !== 'ok') return fail('Signed-in eBird account metadata is unavailable.');
         if (!/(?:Life|Year) List/i.test(doc.title)) return fail('The response is not a personal list.');
         var canonical = doc.querySelector('link[rel="canonical"]');
@@ -6641,26 +6645,68 @@
           }
           result.region = region;
         }
+        var download = doc.querySelector('a[href*="fmt=csv"]');
+        var listSource = null;
+        if (download) {
+          try {
+            listSource = new URL(download.getAttribute('href'), 'https://ebird.org');
+          } catch (error) { return fail('Personal-list download metadata is unreadable.'); }
+          if (listSource.origin !== 'https://ebird.org' || listSource.pathname !== '/lifelist') {
+            return fail('Personal-list download source is not eBird.');
+          }
+          var downloadRegion = listSource.searchParams.get('r') || '';
+          if (result.region && downloadRegion && result.region.toLowerCase() !== downloadRegion.toLowerCase()) {
+            return fail('Personal-list geographic metadata conflicts.');
+          }
+          if (downloadRegion) result.region = downloadRegion;
+        }
         if (!result.region) return fail('Returned personal-list geography is unavailable.');
         var timeField = doc.querySelector('select[name="time"], input[name="time"]');
         var time = timeField ? String(timeField.value || '') : source && source.searchParams.get('time') || '';
         var yearField = doc.querySelector('select[name="year"], input[name="year"]');
         var year = yearField ? String(yearField.value || '') : source && source.searchParams.get('year') || '';
+        var listHeading = doc.querySelector('h1');
+        var headingText = String(listHeading && listHeading.textContent || '').trim();
+        var headingYear = /\b(20\d{2})\s+Year\s+List$/i.exec(headingText);
+        var downloadTime = listSource && listSource.searchParams.get('time') || '';
+        var downloadYear = listSource && listSource.searchParams.get('year') || '';
+        function periodKind(value) {
+          return /^(all|life|alltime|AAAA)$/i.test(value) ? 'all' : value;
+        }
+        if (time && downloadTime && periodKind(time) !== periodKind(downloadTime)) {
+          return fail('Personal-list period metadata conflicts.');
+        }
+        if (year && downloadYear && year !== downloadYear) {
+          return fail('Personal-list year metadata conflicts.');
+        }
+        if (!time && listSource) time = listSource.searchParams.get('time') || '';
+        if (!year && downloadYear) year = downloadYear;
+        if (!year && headingYear) year = headingYear[1];
         if (/^(all|life|alltime|AAAA)$/i.test(time)) result.period = 'all';
         else if (time === 'year') {
           if (year && !/^\d{4}$/.test(year)) return fail('Returned personal-list year is unreadable.');
           result.period = 'year:' + (year || new Date().getFullYear());
         }
         if (!result.period) return fail('Returned personal-list period is unavailable.');
-        var root = doc.querySelector('main, [role="main"]');
+        if (headingYear && result.period !== 'year:' + headingYear[1]) {
+          return fail('Personal-list heading and period conflict.');
+        }
+        var countSection = doc.getElementById('nativeNatProv');
+        var root = doc.querySelector('main, [role="main"]') || countSection;
         if (!root) return fail('Personal-list content is unavailable.');
         var plain = String(root.textContent || '').replace(/\s+/g, ' ');
         var total = /Species\s+Total\s*:?\s*([\d,]+)(?![\d,.])/i.exec(plain);
+        if (countSection) {
+          var totalLink = doc.querySelector('a[href="#nativeNatProv"]');
+          total = totalLink && /([\d,]+)\s+Species\s+Observed\b/i.exec(
+            String(totalLink.textContent || '').replace(/\s+/g, ' '));
+        }
         if (total) result.declaredCount = Number(total[1].replace(/,/g, ''));
         result.paginated = !!root.querySelector(
           'a[rel="next"], button[aria-label="Next page"], .Pagination a[href]:not([aria-disabled="true"])');
         var seen = {};
-        Array.from(root.querySelectorAll('a[href*="/species/"]')).forEach(function (bird) {
+        function readRows(container, category) {
+        Array.from(container.querySelectorAll('a[href*="/species/"]')).forEach(function (bird) {
           var codeMatch = /\/species\/([a-z0-9]+)(?:[/?#]|$)/i.exec(bird.getAttribute('href') || '');
           if (!codeMatch) return;
           var code = codeMatch[1].toLowerCase();
@@ -6674,16 +6720,97 @@
             code: code,
             name: String((bird.querySelector('.Species-common') || bird).textContent || '').trim(),
             observedAt: stamp ? String(stamp.getAttribute('datetime') || '') : '',
-            subId: sub ? sub[1] : ''
+            subId: sub ? sub[1] : '',
+            category: category
           });
         });
+        }
+        if (countSection) {
+          if (doc.querySelectorAll('[id="nativeNatProv"]').length !== 1) {
+            return fail('Personal-list countable categories are ambiguous.');
+          }
+          result.categoryEvidence = true;
+          readRows(countSection, 'countable');
+          var escapeSections = [], escapeInvalid = false;
+          Array.from(doc.querySelectorAll('h3')).forEach(function (heading) {
+            var escapeHeading = /^Exotic:\s*Escapee(?:\s*\(([\d,]+)\))?$/i.exec(String(heading.textContent || '').trim());
+            if (!escapeHeading) return;
+            var section = heading.closest('section');
+            if (!section || section === countSection || escapeSections.indexOf(section) >= 0) {
+              escapeInvalid = true; return;
+            }
+            escapeSections.push(section);
+            var previousRows = result.rows.length;
+            readRows(section, 'escapee');
+            if (escapeHeading[1] != null
+                && result.rows.length - previousRows !== Number(escapeHeading[1].replace(/,/g, ''))) {
+              escapeInvalid = true;
+            }
+            if (section.querySelector('a[rel="next"], button[aria-label="Next page"], .Pagination a[href]:not([aria-disabled="true"])')) {
+              result.paginated = true;
+            }
+          });
+          if (escapeInvalid || escapeSections.length > 1) {
+            return fail('Personal-list Escapee categories are incomplete or ambiguous.');
+          }
+        } else readRows(root, 'countable');
         if (!result.rows.length && result.declaredCount !== 0) {
           return fail('No verified personal-list membership was returned.');
         }
         result.valid = true;
         return result;
       }
+      function fetchPersonalSessionPage(url) {
+        function read(source) {
+          var controller = new AbortController(), timer;
+          var deadline = new Promise(function (resolve, reject) {
+            timer = setTimeout(function () {
+              controller.abort();
+              reject(new Error('Personal source timed out after 20 seconds.'));
+            },20000);
+          });
+          var request = fetch(source, {credentials:'include',cache:'no-store',signal:controller.signal,
+            headers:{Accept:'text/html,application/xhtml+xml'}}).then(function (response) {
+            if (!response.ok) throw new Error('Personal source HTTP ' + response.status);
+            if (response.url) {
+              var actual = new URL(response.url);
+              var expected = new URL(source);
+              if (actual.origin !== expected.origin
+                  || (expected.pathname === '/profile'
+                    ? !/^\/profile(?:\/|$)/.test(actual.pathname)
+                    : actual.pathname !== expected.pathname)) {
+                throw new Error('The personal source redirected away from the requested page.');
+              }
+            }
+            return response.text().then(function (html) {
+              return {html:html,url:response.url || ''};
+            });
+          });
+          return Promise.race([request,deadline]).finally(function () { clearTimeout(timer); });
+        }
+        var before, html;
+        return read('https://ebird.org/profile').then(function (profile) {
+          before = parseEbirdProfileIdentity(profile.html);
+          var profilePath = profile.url && new URL(profile.url).pathname;
+          var id = /^\/profile\/([A-Za-z0-9_-]+)\/?$/.exec(profilePath || '');
+          if (before.status !== 'ok' || !id) throw new Error('Same-session eBird profile identity is unavailable.');
+          before.profileId = id[1];
+          return read(url);
+        }).then(function (list) {
+          html = list.html;
+          return read('https://ebird.org/profile');
+        }).then(function (profile) {
+          var after = parseEbirdProfileIdentity(profile.html);
+          var profilePath = profile.url && new URL(profile.url).pathname;
+          var id = /^\/profile\/([A-Za-z0-9_-]+)\/?$/.exec(profilePath || '');
+          if (after.status !== 'ok' || !id || id[1] !== before.profileId) {
+            throw new Error('The signed-in eBird account changed during the list read.');
+          }
+          return parsePersonalListPage(html, before);
+        });
+      }
       function buildPersonalListInject(owner) {
+        var boundProfile = getIdentityMeta() && getIdentityMeta().profileId;
         return '(function(){'
           + 'function send(message){'
           + 'try{if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){window.mobileApp.postMessage(message);return;}}catch(_){}'
@@ -6691,12 +6818,18 @@
           + 'if(h&&typeof h.postMessage==="function")h.postMessage(message);}'
           + 'try{'
           + parseEbirdAccountIdentity.toString() + ';'
+          + parseEbirdProfileIdentity.toString() + ';'
           + parsePersonalListPage.toString() + ';'
-          + 'var R=parsePersonalListPage(document.documentElement.outerHTML);'
+          + fetchPersonalSessionPage.toString() + ';'
           + 'var wanted=' + JSON.stringify(owner) + ';'
           + 'var onPage=location.origin==="https://ebird.org"&&decodeURIComponent(location.pathname).toLowerCase()==="/lifelist/"+wanted.region.toLowerCase();'
+          + 'var initial=parsePersonalListPage(document.documentElement.outerHTML);'
+          + 'if(onPage&&initial.valid&&!' + JSON.stringify(!!boundProfile) + '){send({detail:{__ebird:true,kind:"personalList",ok:initial.region.toLowerCase()===wanted.region.toLowerCase()&&initial.period===wanted.period,data:initial}});return;}'
+          + 'if(!onPage||window.__bcPersonalSessionRead)return;window.__bcPersonalSessionRead=true;'
+          + 'fetchPersonalSessionPage(location.href).then(function(R){'
           + 'var ok=onPage&&R.valid&&R.region.toLowerCase()===wanted.region.toLowerCase()&&R.period===wanted.period;'
-          + 'send({detail:{__ebird:true,kind:"personalList",ok:ok,data:R}});'
+          + 'send({detail:{__ebird:true,kind:"personalList",ok:ok,terminal:true,error:ok?"":R.reason||"The personal list does not match the requested geography or period.",data:R}});'
+          + '}).catch(function(e){send({detail:{__ebird:true,kind:"personalList",ok:false,terminal:true,error:String(e.message||e)}});});'
           + '}catch(e){send({detail:{__ebird:true,kind:"personalList",ok:false,error:String(e.message||e)}});}})();';
       }
       function personalDiagnosticShape(html) {
@@ -6871,9 +7004,14 @@
           if (!rankRegionMatches(owner.region, page.region) || owner.period !== page.period) {
             throw new Error('The returned personal list belongs to another geography or period.');
           }
-          if (!page.identity || page.identity.status !== 'ok'
-              || !sameDisplayName(page.identity.displayName)) {
-            throw new Error('The signed-in eBird account does not match this profile.');
+          var boundProfile = getIdentityMeta() && getIdentityMeta().profileId;
+          var identityMatches = page.identity && page.identity.status === 'ok'
+            && (page.identity.profileId ? !!boundProfile && page.identity.profileId === boundProfile
+              : !boundProfile && sameDisplayName(page.identity.displayName));
+          if (!identityMatches) {
+            throw new Error(page.identity && page.identity.profileId && !boundProfile
+              ? 'Fetch your signed-in eBird identity in Settings to bind this account, then retry.'
+              : 'The signed-in eBird account does not match this profile.');
           }
           return page;
         }
@@ -6891,8 +7029,10 @@
         }
         var url = personalListUrl(owner);
         _personalListLoads[loadKey] = fetchPublicHTML(url, true).then(function (html) {
-          return read(parsePersonalListPage(html));
-        }).catch(function (error) {
+          var page = parsePersonalListPage(html);
+          return page.identity.status === 'missing' || (getIdentityMeta() && getIdentityMeta().profileId)
+            ? fetchPersonalSessionPage(url) : page;
+        }).then(read).catch(function (error) {
           if (!current() || !ibAvail()) throw error;
           dbg('warn', 'Personal-list direct read failed; trying the same exact eBird list.');
           return captureEbird({
@@ -6901,12 +7041,16 @@
             onStatus: onStatus
           }).then(read);
         }).then(function (page) {
-          var codes = [], unresolved = 0, parents = _taxonomyModel.parents;
+          var codes = [], countableCodes = [], escapeeCodes = [], unresolved = 0, parents = _taxonomyModel.parents;
           page.rows.forEach(function (row) {
             var taxon = _taxonomyModel.byCode[row.code];
             if (!taxon) { unresolved++; return; }
             var root = BL.resolveReportAs(row.code, parents), species = _taxonomyModel.byCode[root];
-            if (species && species.category === 'species') codes.push(row.code);
+            if (species && species.category === 'species') {
+              codes.push(row.code);
+              if (row.category === 'escapee') escapeeCodes.push(row.code);
+              else countableCodes.push(row.code);
+            }
           });
           var candidate = {
             owner: owner, source: url, readAt: new Date().toISOString(), readDate: todayStr(),
@@ -6914,6 +7058,10 @@
             unresolved: unresolved, paginated: page.paginated,
             coverage: page.declaredCount === 0 && !page.rows.length ? 'empty' : 'complete'
           };
+          if (page.categoryEvidence) {
+            candidate.countableCodes = countableCodes;
+            candidate.escapeeCodes = escapeeCodes;
+          }
           var resolved = BL.resolvePersonalList(candidate, owner, {}, parents);
           if (!resolved.complete) candidate.coverage = 'incomplete';
           if (!current()) throw new Error('Personal-list request was superseded.');
@@ -26079,11 +26227,18 @@
         if (!found) return { applied: false, status: 'malformed' };
         var field = $('ebirdName');
         var existing = getDisplayName(), meta = getIdentityMeta();
-        if (existing === found && meta && meta.source === 'ebird-bird-list') {
+        if (existing === found && meta && meta.source === 'ebird-bird-list'
+            && (!identity.profileId || meta.profileId === identity.profileId)) {
           return { applied: false, status: 'already-set' };
         }
         var previous = existing;
         setDisplayNameValue(found, 'ebird-bird-list');
+        if (identity.profileId && /^[A-Za-z0-9_-]+$/.test(identity.profileId)) {
+          var capturedMeta = Object.assign({}, getIdentityMeta(), {profileId:identity.profileId});
+          if (!storeWithReclaim(IDENTITY_META_KEY, JSON.stringify(capturedMeta))) {
+            throw new Error('The signed-in profile identity could not be saved.');
+          }
+        }
         if (identity.profileRegion && typeof identity.profileRegion === 'object') {
           try {
             localStorage.setItem(PROFILE_REGION_RECOMMENDATION_KEY,
@@ -27030,6 +27185,8 @@
           profileRegionRecommendation.toString() + ';' +
           identityPageShape.toString() + ';' +
           'var I=parseEbirdProfileIdentity(document);' +
+          'var profileId=/^\\/profile\\/([A-Za-z0-9_-]+)\\/?$/.exec(location.pathname);' +
+          'if(I&&I.status==="ok"&&profileId)I.profileId=profileId[1];' +
           'if(I)I.profileRegion=profileRegionRecommendation(location.pathname);' +
           'var needsLogin=!!(onPage&&I&&I.status==="logged-out");' +
           'var ready=I&&(/^(ok|anonymous|malformed|ambiguous)$/).test(I.status);' +
@@ -27161,7 +27318,16 @@
           function finish(err, data) {
             if (done) return;
             cleanup(err ? 'error: ' + ((err && err.message) || err) : 'success');
-            if (id) { try { IB.close({ id: id }); } catch (e) {} }
+            if (id) {
+              try {
+                var closing = IB.close({ id: id });
+                if (closing && closing.catch) closing.catch(function (error) {
+                  trace('close failed', (error && error.message) || String(error), 'warn');
+                });
+              } catch (error) {
+                trace('close failed', (error && error.message) || String(error), 'warn');
+              }
+            }
             err ? reject(err) : resolve(data);
           }
           function alive() {
@@ -27225,6 +27391,10 @@
                 trace('profile shape', JSON.stringify(d.pageShape));
               }
               if (d.needsLogin) { reveal(); return; }
+              if (opts.kind === 'personalList' && d.terminal && !d.ok) {
+                finish(new Error(d.error || 'The signed-in personal list could not be verified.'));
+                return;
+              }
               // Listeners are registered on the plugin, not on one window, so a
               // leftover eBird window could otherwise resolve this capture with
               // its own page. Ignore anything that names a different window.
@@ -39875,7 +40045,7 @@
           return String(b.date).localeCompare(String(a.date)) || a.name.localeCompare(b.name);
         });
         el.innerHTML = '<div class="bignum">'
-          + (evidence.complete ? esc(evidence.count) + ' <small>recorded species</small>'
+          + (evidence.complete ? esc(evidence.seenCount == null ? evidence.count : evidence.seenCount) + ' <small>recorded species</small>'
             : evidence.state === 'incomplete' ? esc(evidence.knownCount) + ' <small>known birds — incomplete</small>'
             : '<small>Personal history unavailable</small>') + '</div>'
           + (_myYearRefreshState === 'checking'
@@ -46083,6 +46253,7 @@
         personalListEvidence: personalListEvidence, ensurePersonalList: ensurePersonalList,
         preparePersonalList: preparePersonalList,
         parsePersonalListPage: parsePersonalListPage, buildPersonalListInject: buildPersonalListInject,
+        fetchPersonalSessionPage: fetchPersonalSessionPage,
         buildPersonalDiagnosticInject: buildPersonalDiagnosticInject,
         PERSONAL_PERIOD_KEY: PERSONAL_PERIOD_KEY, PERSONAL_LIST_NS: PERSONAL_LIST_NS,
         lifelistIsLogin: lifelistIsLogin, lifelistTitle: lifelistTitle,

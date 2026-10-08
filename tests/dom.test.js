@@ -5759,6 +5759,172 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   app.window.close();
 });
 
+test('F838 same-session profile IDs own list reads despite mutable display names', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const profile = name => '<div class="ProfileUser-infoColumn"><div class="ProfileUser-header">'
+    + '<h1>' + name + '</h1></div></div>';
+  const list = ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  let calls = [], afterId = 'fixtureA', afterName = 'Renamed Observer';
+  app.window.fetch = async (url, options) => {
+    calls.push({url,options});
+    const profileRead = url.endsWith('/profile');
+    const second = calls.filter(call => call.url.endsWith('/profile')).length === 2;
+    return {ok:true,url:profileRead ? 'https://ebird.org/profile/' + (second ? afterId : 'fixtureA') : url,
+      text:async () => profileRead ? profile(second ? afterName : 'Sample Observer') : list};
+  };
+  const page = await A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner()));
+  assert.equal(page.valid,true);
+  assert.equal(page.identity.profileId,'fixtureA');
+  assert.equal(calls.length,3);
+  assert.ok(calls.every(call => call.options.credentials === 'include'
+    && call.options.cache === 'no-store'));
+  calls=[]; afterId='fixtureB'; afterName='Sample Observer';
+  await assert.rejects(A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner())),
+    /account changed/,'same display name does not hide a different account');
+  calls=[]; afterId='fixtureA';
+  app.window.fetch = async url => ({ok:true,url:'https://secure.birds.cornell.edu/cassso/login',
+    text:async () => profile('Sample Observer')});
+  await assert.rejects(A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner())),
+    /redirected away/);
+  app.window.fetch = async () => ({ok:true,text:async () => profile('Sample Observer')});
+  await assert.rejects(A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner())),
+    /identity is unavailable/,'missing resolved URL cannot prove account ownership');
+  app.window.fetch = async () => {throw new TypeError('Failed to fetch');};
+  await assert.rejects(A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner())),
+    /Failed to fetch/);
+  const realTimer = app.window.setTimeout;
+  app.window.setTimeout = (callback, ms) => realTimer(callback, ms === 20000 ? 1 : ms);
+  let aborted = false;
+  app.window.fetch = (url, options) => new Promise(() => {
+    options.signal.addEventListener('abort', () => {aborted=true;});
+  });
+  await assert.rejects(A.fetchPersonalSessionPage(A.personalListUrl(A.personalListOwner())),
+    /timed out/);
+  assert.equal(aborted,true);
+  app.window.setTimeout = realTimer;
+  const native = new JSDOM(list,{url:A.personalListUrl(A.personalListOwner()),runScripts:'outside-only'});
+  let bridged, profileCalls=0;
+  native.window.fetch = async url => ({ok:true,
+    url:url.endsWith('/profile') ? 'https://ebird.org/profile/fixtureA' : url,
+    text:async () => {
+      if (url.endsWith('/profile')) {profileCalls++; return profile('Sample Observer');}
+      return list;
+    }});
+  native.window.mobileApp={postMessage(value){bridged=value.detail;}};
+  native.window.eval(A.buildPersonalListInject(A.personalListOwner()));
+  await waitFor(() => bridged,'same-page async bridge returns session-owned rows');
+  assert.equal(bridged.ok,true);
+  assert.equal(bridged.data.identity.profileId,'fixtureA');
+  assert.equal(profileCalls,2);
+  native.window.document.body.innerHTML='<main>Loading</main>';
+  native.window.__bcPersonalSessionRead=false;
+  profileCalls=0; bridged=null;
+  native.window.fetch=async () => {profileCalls++; throw new Error('Session source unavailable');};
+  native.window.eval(A.buildPersonalListInject(A.personalListOwner()));
+  await waitFor(() => bridged,'failed session read returns a terminal bridge error');
+  assert.equal(bridged.terminal,true);
+  assert.equal(bridged.ok,false);
+  native.window.eval(A.buildPersonalListInject(A.personalListOwner()));
+  assert.equal(profileCalls,1,'a deterministic session failure does not restart on each parser sample');
+  native.window.close(); app.window.close();
+});
+
+test('F838 exact session lists require explicit profile binding and retain last-good evidence on account switch', async () => {
+  const app = await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      return [];
+    }});
+  const A=app.window.__app;
+  assert.equal(await A.checkTaxonomyEdition(true),true);
+  let id='fixtureA', reads=0;
+  const list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  const profile='<div class="ProfileUser-infoColumn"><h1>Sample Observer</h1></div>';
+  app.window.fetch=async url => {
+    reads++;
+    const isProfile=url.endsWith('/profile');
+    return {ok:true,url:isProfile ? 'https://ebird.org/profile/'+id : url,
+      text:async () => isProfile ? profile : list};
+  };
+  await assert.rejects(A.ensurePersonalList(A.activeScope(),true),/bind this account/);
+  assert.equal(A.personalListEvidence().state,'unavailable');
+  A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+    evidence:'profile-heading',profileId:'fixtureA'});
+  assert.equal(A.getIdentityMeta().profileId,'fixtureA');
+  reads=0;
+  await A.ensurePersonalList(A.activeScope(),true);
+  assert.equal(reads,4,'one initial page plus profile/list/profile qualification');
+  assert.equal(A.personalListEvidence().complete,true);
+  const saved=app.window.localStorage.getItem(A.personalListKey(A.personalListOwner()));
+  id='fixtureB';
+  await assert.rejects(A.ensurePersonalList(A.activeScope(),true),/does not match/);
+  assert.equal(app.window.localStorage.getItem(A.personalListKey(A.personalListOwner())),saved);
+  assert.equal(A.personalListEvidence().complete,true);
+  assert.equal(A.personalListEvidence().stale,true);
+  app.window.close();
+});
+
+test('F838 category membership includes Escapees without promoting hybrids or standing totals', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const html = ownedPersonalListFixture().replace(/<main>[\s\S]*?<\/main>/,
+    '<a href="#nativeNatProv"><span>1</span> Species Observed</a>'
+    + '<section id="nativeNatProv"><div><h3>Native, Naturalized, or Provisional</h3></div>'
+    + '<ol><li><h5><a href="/species/stable">Stable bird</a></h5></li></ol></section>'
+    + '<section><div><h3>Exotic: Escapee (1)</h3></div><ol><li>'
+    + '<h5><a href="/species/escapee">Escapee bird</a></h5></li></ol></section>'
+    + '<section><div><h3>Hybrids (1)</h3></div><li><a href="/species/hybrid1">Hybrid</a></li></section>'
+    + '<section><div><h3>Additional taxa (1)</h3></div><li><a href="/species/additional1">Unknown</a></li></section>');
+  const page = A.parsePersonalListPage(html);
+  assert.equal(page.valid,true);
+  assert.equal(page.declaredCount,1);
+  assert.equal(page.categoryEvidence,true);
+  assert.equal(A.parsePersonalListPage(html.replace('Exotic: Escapee (1)','Exotic: Escapee (2)')).valid,
+    false,'a missing Escapee row cannot certify unseen species');
+  assert.equal(A.parsePersonalListPage(html.replace('<section id="nativeNatProv">',
+    '<section id="nativeNatProv"></section><section id="nativeNatProv">')).valid,false);
+  assert.deepEqual(Array.from(page.rows, row => [row.code,row.category]),
+    [['stable','countable'],['escapee','escapee']]);
+  assert.equal(A.parsePersonalListPage(html.replace(/<header>[\s\S]*?<\/header>/,'')).valid,false,
+    'measured container support does not manufacture missing account identity');
+  const measured = html.replace(/<header>[\s\S]*?<\/header>/,'')
+    .replace(/<link rel="canonical"[^>]+>/,'')
+    .replace(/<select[\s\S]*?<\/select>/,'')
+    .replace('<a href="#nativeNatProv">',
+      '<h1>Washington 2026 Year List</h1><a href="/lifelist?r=US-WA&time=year&fmt=csv">Download</a>'
+      + '<a href="#nativeNatProv">');
+  const session = {status:'ok',displayName:'Sample Observer',evidence:'profile-heading',profileId:'fixtureA'};
+  const regional = A.parsePersonalListPage(measured,session);
+  assert.equal(regional.valid,true,regional.reason);
+  assert.equal(regional.period,'year:2026');
+  assert.equal(regional.region,'US-WA');
+  assert.equal(A.parsePersonalListPage(measured.replace('time=year&fmt','time=life&fmt'),session).valid,false);
+  assert.equal(A.parsePersonalListPage(measured.replace('r=US-WA&time','r=US-MO&time')
+    .replace('</head>','<link rel="canonical" href="https://ebird.org/lifelist/US-WA?time=year"></head>'),
+    session).valid,false,'conflicting returned geography cannot qualify');
+  assert.equal(A.parsePersonalListPage(measured.replace('time=year&fmt','time=year&year=2025&fmt'),
+    session).valid,false,'returned CSV year must agree with the heading');
+  const life = A.parsePersonalListPage(measured.replace(/2026 Year List/g,'Life List')
+    .replace('time=year&fmt','time=life&fmt'),session);
+  assert.equal(life.valid,true);
+  assert.equal(life.period,'all');
+  await seedSeen(app,['stable','escapee'],['Stable bird','Escapee bird']);
+  const owner = A.personalListOwner();
+  const snapshot = {owner,coverage:'complete',codes:['stable','escapee'],
+    countableCodes:['stable'],escapeeCodes:['escapee'],declaredCount:1,unresolved:0,
+    rows:page.rows,readAt:new Date().toISOString(),readDate:A.todayStr()};
+  app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify(snapshot));
+  A.updateMyYear();
+  A.headerIdentityRefresh();
+  assert.match(app.$('myYearBody').textContent,/2 recorded species/);
+  assert.match(app.$('hdrId').textContent,/1\s*sp\./);
+  assert.equal(A.personalListEvidence().species.escapee,1);
+  assert.equal(app.$('myYearList').querySelectorAll('li').length,2);
+  app.window.close();
+});
+
 test('F805 personal source parses owned metadata, explicit zero and date-free membership without promoting partial history', async () => {
   const app = await boot();
   const A = app.window.__app;

@@ -4495,14 +4495,36 @@
     Object.keys(exact).forEach(function (code) { species[code] = 1; });
     expand(species);
     Object.keys(held).forEach(function (code) { delete species[code]; });
+    var categoryEvidence = Object.prototype.hasOwnProperty.call(snapshot, 'countableCodes')
+      || Object.prototype.hasOwnProperty.call(snapshot, 'escapeeCodes');
+    var countableRoots = roots, categoriesValid = true;
+    if (categoryEvidence) {
+      countableRoots = {};
+      var categoryCodes = {};
+      categoriesValid = Array.isArray(snapshot.countableCodes) && Array.isArray(snapshot.escapeeCodes);
+      if (categoriesValid) {
+        [snapshot.countableCodes, snapshot.escapeeCodes].forEach(function (codes, index) {
+          codes.forEach(function (code) {
+            if (typeof code !== 'string' || !/^[a-z0-9]+$/.test(code) || !exact[code]) {
+              categoriesValid = false;
+              return;
+            }
+            categoryCodes[code] = 1;
+            if (index === 0) countableRoots[resolveReportAs(code, parentOf)] = 1;
+          });
+        });
+        if (Object.keys(exact).some(function (code) { return !categoryCodes[code]; })) categoriesValid = false;
+      }
+    }
     var count = snapshot.declaredCount;
     var agrees = typeof count === 'number' && isFinite(count)
-      && count >= 0 && Math.floor(count) === count && count === out.knownCount
-      && snapshot.unresolved === 0 && !invalid && !snapshot.paginated;
-    out.complete = agrees && (snapshot.coverage === 'complete' && count > 0
-      || snapshot.coverage === 'empty' && count === 0);
+      && count >= 0 && Math.floor(count) === count && count === Object.keys(countableRoots).length
+      && categoriesValid && snapshot.unresolved === 0 && !invalid && !snapshot.paginated;
+    out.complete = agrees && (snapshot.coverage === 'complete' && out.knownCount > 0
+      || snapshot.coverage === 'empty' && out.knownCount === 0);
     out.state = out.complete ? snapshot.coverage : 'incomplete';
     out.count = out.complete ? count : null;
+    if (categoryEvidence) out.seenCount = out.complete ? out.knownCount : null;
     out.stale = !!snapshot.stale;
     out.reason = out.complete ? '' : 'incomplete';
     return out;
