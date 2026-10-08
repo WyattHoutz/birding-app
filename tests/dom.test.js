@@ -5759,6 +5759,151 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   app.window.close();
 });
 
+test('F840 raw profile shell qualifies direct and injected reads without inventing a name', async () => {
+  const app = await boot(), A = app.window.__app;
+  const shell = fs.readFileSync(path.join(__dirname,'fixtures','personal-profile-shell.html'),'utf8');
+  const rendered = fs.readFileSync(path.join(__dirname,'fixtures','personal-profile-rendered.html'),'utf8');
+  assert.equal(A.parseEbirdProfileIdentity(shell).status,'missing');
+  assert.equal(A.parseEbirdProfileIdentity(rendered).status,'ok');
+  const list = ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  let body = shell, resolved = 'https://ebird.org/profile/fixtureA', reads = 0;
+  const fetch = async url => {
+    reads++;
+    const profile = url.endsWith('/profile');
+    return {ok:true,url:profile ? resolved : url,text:async () => profile ? body : list};
+  };
+  app.window.fetch = fetch;
+  const url = A.personalListUrl(A.personalListOwner());
+  const page = await A.fetchPersonalSessionPage(url);
+  assert.equal(page.valid,true);
+  assert.equal(reads,3);
+  assert.equal(page.identity.evidence,'same-session-profile-id');
+  assert.equal(page.identity.profileId,'fixtureA');
+  assert.equal(page.identity.displayName,undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(page.sessionProof)),
+    {beforeStatus:'missing',afterStatus:'missing',resolvedIdsPresent:true,idsEqual:true});
+  for (const invalid of [
+    '<input type="password">',
+    '<header><button aria-label="Birder Anonymous eBirder (fixture)">Account</button></header>',
+    '<header><button aria-label="Birder Sample Observer">Account</button></header>',
+    '<header><button aria-label="Birder One (fixture1)">Account</button>'
+      + '<button aria-label="Birder Two (fixture2)">Account</button></header>'
+  ]) {
+    body=invalid; reads=0;
+    await assert.rejects(A.fetchPersonalSessionPage(url),/identity is unavailable/);
+    assert.equal(reads,1,'explicit invalid identity blocks the list request');
+  }
+  body=shell;
+  for (const invalid of ['', 'https://ebird.org/profile', 'https://ebird.org/profile/fixtureA/extra',
+    'https://example.org/profile/fixtureA', 'https://ebird.org/profile/fixture%20A']) {
+    resolved=invalid;
+    await assert.rejects(A.fetchPersonalSessionPage(url),/identity is unavailable|redirected away/);
+  }
+  resolved='https://ebird.org/profile/fixtureA';
+  const native = new JSDOM(list,{url,runScripts:'outside-only'});
+  let bridged;
+  native.window.fetch=fetch;
+  native.window.mobileApp={postMessage(message){bridged=message.detail;}};
+  native.window.eval(A.buildPersonalListInject(A.personalListOwner()));
+  await waitFor(() => bridged,'raw shell injected reader finishes');
+  assert.equal(bridged.ok,true);
+  assert.equal(bridged.data.identity.evidence,'same-session-profile-id');
+  assert.equal(bridged.data.identity.displayName,undefined);
+  native.window.close(); app.window.close();
+});
+
+test('F840 ID-only parser provenance cannot override invalid account evidence', async () => {
+  const app=await boot(), A=app.window.__app;
+  const list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  const proof={status:'ok',profileId:'fixtureA',evidence:'same-session-profile-id'};
+  assert.equal(A.parsePersonalListPage(list,proof).valid,true);
+  for (const invalid of [{...proof,evidence:'untrusted'}, {...proof,profileId:''},
+    {...proof,profileId:'fixture/other'}, {...proof,profileId:42}, {...proof,status:'missing'}]) {
+    assert.equal(A.parsePersonalListPage(list,invalid).valid,false);
+  }
+  for (const invalid of ['<input type="password">',
+    '<header><button aria-label="Birder Anonymous eBirder (fixture)">Account</button></header>',
+    '<header><button aria-label="Birder malformed">Account</button></header>']) {
+    assert.equal(A.parsePersonalListPage(list.replace('<body>','<body>'+invalid),proof).valid,false);
+  }
+  app.window.close();
+});
+
+test('F840 direct session diagnostic uses the repaired reader, reenables controls and never writes evidence', async () => {
+  const app=await boot(), A=app.window.__app;
+  const shell=fs.readFileSync(path.join(__dirname,'fixtures','personal-profile-shell.html'),'utf8');
+  const list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+    evidence:'profile-heading',profileId:'fixtureA'});
+  let reads=0;
+  app.window.fetch=async url => {
+    reads++;
+    return {ok:true,url:url.endsWith('/profile') ? 'https://ebird.org/profile/fixtureA' : url,
+      text:async () => url.endsWith('/profile') ? shell : list};
+  };
+  const key=A.personalListKey(A.personalListOwner()), saved=app.window.localStorage.getItem(key);
+  app.click(app.$('dbgPersonalSession'));
+  assert.equal(app.$('dbgPersonalSessionBrowser').disabled,true);
+  await waitFor(() => !app.$('dbgPersonalSession').disabled,'session diagnostic completes');
+  assert.equal(reads,3);
+  assert.equal(app.window.localStorage.getItem(key),saved);
+  const log=app.window.__dbg.buf.map(entry => JSON.stringify(entry)).join('\n');
+  assert.match(log,/F840 diagnostic RESULT method=session/);
+  assert.match(log,/boundIdMatches.*true/);
+  assert.match(log,/controlsEnabled=true/);
+  assert.doesNotMatch(log,/fixtureA|fixture_login|Sample Observer/);
+  const realTimer=app.window.setTimeout;
+  app.window.setTimeout=(callback,ms) => realTimer(callback,ms === 20000 ? 1 : ms);
+  let aborted=false;
+  app.window.fetch=(url,options) => new Promise(() => {
+    options.signal.addEventListener('abort',() => {aborted=true;});
+  });
+  app.click(app.$('dbgPersonalSession'));
+  await waitFor(() => !app.$('dbgPersonalSession').disabled,'failed probe releases controls');
+  assert.equal(aborted,true);
+  assert.equal(app.$('dbgPersonalSessionBrowser').disabled,false);
+  assert.equal(app.window.localStorage.getItem(key),saved);
+  assert.match(app.window.__dbg.buf.map(entry => JSON.stringify(entry)).join('\n'),
+    /F840 diagnostic FAILED method=session.*controlsEnabled=true.*timed out/);
+  app.window.setTimeout=realTimer;
+  app.window.close();
+});
+
+test('F840 browser session diagnostic captures the repaired reader without saving or leaking private data', async () => {
+  const app=await boot(), A=app.window.__app, handlers={}, closed=[];
+  A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+    evidence:'profile-heading',profileId:'fixtureA'});
+  const shell=FIX('personal-profile-shell.html');
+  const list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  const native=new JSDOM(list,{url:A.personalListUrl(A.personalListOwner()),runScripts:'outside-only'});
+  native.window.fetch=async url => ({ok:true,
+    url:url.endsWith('/profile') ? 'https://ebird.org/profile/fixtureA' : url,
+    text:async () => url.endsWith('/profile') ? shell : list});
+  native.window.mobileApp={postMessage(message) {
+    handlers.messageFromWebview({id:'owned-probe',detail:message.detail});
+  }};
+  app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+    addListener(name,callback) {handlers[name]=callback;return Promise.resolve({remove(){}});},
+    openWebView() {
+      setTimeout(() => handlers.browserPageLoaded({id:'owned-probe'}),10);
+      return Promise.resolve({id:'owned-probe'});
+    },
+    hide(){},show(){},
+    executeScript({code}) {native.window.eval(code);return Promise.resolve();},
+    close({id}) {closed.push(id);return Promise.resolve();}
+  }}};
+  const key=A.personalListKey(A.personalListOwner()), saved=app.window.localStorage.getItem(key);
+  app.click(app.$('dbgPersonalSessionBrowser'));
+  await waitFor(() => !app.$('dbgPersonalSessionBrowser').disabled,'owned browser probe finishes');
+  const log=app.window.__dbg.buf.map(entry => JSON.stringify(entry)).join('\n');
+  assert.match(log,/F840 diagnostic RESULT method=session-browser/);
+  assert.match(log,/boundIdMatches.*true/);
+  assert.doesNotMatch(log,/fixtureA|fixture_login|Sample Observer/);
+  assert.deepEqual(closed,['owned-probe']);
+  assert.equal(app.window.localStorage.getItem(key),saved);
+  native.window.close();app.window.close();
+});
+
 test('F838 same-session profile IDs own list reads despite mutable display names', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -5840,8 +5985,8 @@ test('F838 exact session lists require explicit profile binding and retain last-
   const A=app.window.__app;
   assert.equal(await A.checkTaxonomyEdition(true),true);
   let id='fixtureA', reads=0;
-  const list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
-  const profile='<div class="ProfileUser-infoColumn"><h1>Sample Observer</h1></div>';
+  let list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
+  const profile=fs.readFileSync(path.join(__dirname,'fixtures','personal-profile-shell.html'),'utf8');
   app.window.fetch=async url => {
     reads++;
     const isProfile=url.endsWith('/profile');
@@ -5858,6 +6003,12 @@ test('F838 exact session lists require explicit profile binding and retain last-
   assert.equal(reads,4,'one initial page plus profile/list/profile qualification');
   assert.equal(A.personalListEvidence().complete,true);
   const saved=app.window.localStorage.getItem(A.personalListKey(A.personalListOwner()));
+  assert.deepEqual(JSON.parse(saved).codes,['stable']);
+  list=ownedPersonalListFixture({count:2}).replace(/<header>[\s\S]*?<\/header>/,'');
+  await A.ensurePersonalList(A.activeScope(),true);
+  assert.equal(app.window.localStorage.getItem(A.personalListKey(A.personalListOwner())),saved,
+    'incomplete raw-shell refresh retains the exact last-good snapshot');
+  list=ownedPersonalListFixture().replace(/<header>[\s\S]*?<\/header>/,'');
   id='fixtureB';
   await assert.rejects(A.ensurePersonalList(A.activeScope(),true),/does not match/);
   assert.equal(app.window.localStorage.getItem(A.personalListKey(A.personalListOwner())),saved);

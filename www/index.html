@@ -4257,10 +4257,12 @@
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgClear" type="button">Clear</button>
-      <strong>F838 diagnostic build — tests deferred; no personal data saved</strong>
+      <strong>Personal-list diagnostics — read-only probes; normal refresh saves verified history</strong>
       <button id="dbgPersonalPath" type="button">Test personal list: direct path</button>
       <button id="dbgPersonalQuery" type="button">Test personal list: direct explicit year</button>
       <button id="dbgPersonalBrowser" type="button">Test personal list: browser reader</button>
+      <button id="dbgPersonalSession" type="button">Test owned list: direct session</button>
+      <button id="dbgPersonalSessionBrowser" type="button">Test owned list: browser session</button>
     </div>
     <!-- A <pre>, NOT a <textarea>. A textarea is focusable, and on iOS focus
          raises the keyboard and resizes the visual viewport — which is the
@@ -4796,7 +4798,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.143.0';
+      var APP_VERSION = '1.143.1-f840.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6624,8 +6626,12 @@
           rows: [], declaredCount: null, paginated: false,
           identity: parseEbirdAccountIdentity(doc) };
         function fail(reason) { result.reason = reason; return result; }
-        if (result.identity.status !== 'logged-out' && sessionIdentity
-            && sessionIdentity.status === 'ok' && sessionIdentity.evidence === 'profile-heading') {
+        if (/^(missing|ok)$/.test(result.identity.status) && sessionIdentity
+            && sessionIdentity.status === 'ok'
+            && (sessionIdentity.evidence === 'profile-heading'
+              || (sessionIdentity.evidence === 'same-session-profile-id'
+                && typeof sessionIdentity.profileId === 'string'
+                && /^[A-Za-z0-9_-]+$/.test(sessionIdentity.profileId)))) {
           result.identity = sessionIdentity;
         }
         if (result.identity.status !== 'ok') return fail('Signed-in eBird account metadata is unavailable.');
@@ -6792,25 +6798,33 @@
           });
           return Promise.race([request,deadline]).finally(function () { clearTimeout(timer); });
         }
-        var before, html;
-        return read('https://ebird.org/profile').then(function (profile) {
-          before = parseEbirdProfileIdentity(profile.html);
+        function identity(profile, phase) {
+          var parsed = parseEbirdProfileIdentity(profile.html);
           var profilePath = profile.url && new URL(profile.url).pathname;
           var id = /^\/profile\/([A-Za-z0-9_-]+)\/?$/.exec(profilePath || '');
-          if (before.status !== 'ok' || !id) throw new Error('Same-session eBird profile identity is unavailable.');
-          before.profileId = id[1];
+          if (!/^(ok|missing)$/.test(parsed.status) || !id) {
+            throw new Error('Same-session eBird profile identity is unavailable ('
+              + phase + ': status=' + parsed.status + ', resolvedId=' + !!id + ').');
+          }
+          return {status:'ok',profileId:id[1],evidence:'same-session-profile-id',
+            profileStatus:parsed.status};
+        }
+        var before, html;
+        return read('https://ebird.org/profile').then(function (profile) {
+          before = identity(profile, 'before');
           return read(url);
         }).then(function (list) {
           html = list.html;
           return read('https://ebird.org/profile');
         }).then(function (profile) {
-          var after = parseEbirdProfileIdentity(profile.html);
-          var profilePath = profile.url && new URL(profile.url).pathname;
-          var id = /^\/profile\/([A-Za-z0-9_-]+)\/?$/.exec(profilePath || '');
-          if (after.status !== 'ok' || !id || id[1] !== before.profileId) {
+          var after = identity(profile, 'after');
+          if (after.profileId !== before.profileId) {
             throw new Error('The signed-in eBird account changed during the list read.');
           }
-          return parsePersonalListPage(html, before);
+          var page = parsePersonalListPage(html, before);
+          page.sessionProof = {beforeStatus:before.profileStatus,afterStatus:after.profileStatus,
+            resolvedIdsPresent:true,idsEqual:true};
+          return page;
         });
       }
       function buildPersonalListInject(owner) {
@@ -6952,7 +6966,8 @@
       function runPersonalDiagnostic(method) {
         if (_personalDiagnosticBusy) return;
         _personalDiagnosticBusy = true;
-        var buttons = ['dbgPersonalPath', 'dbgPersonalQuery', 'dbgPersonalBrowser'];
+        var buttons = ['dbgPersonalPath', 'dbgPersonalQuery', 'dbgPersonalBrowser',
+          'dbgPersonalSession', 'dbgPersonalSessionBrowser'];
         buttons.forEach(function (id) { $(id).disabled = true; });
         var owner = personalListOwner(), generation = _identityGeneration;
         var started = Date.now();
@@ -6969,13 +6984,19 @@
           + (owner.period === 'all' ? '&time=all'
             : '&time=year&year=' + encodeURIComponent(owner.period.slice(5)));
         var url = method === 'query' ? query : personalListUrl(owner);
-        dbg('info', 'F838 diagnostic START method=' + method + ' · no evidence writes');
+        var session = method === 'session' || method === 'session-browser';
+        var label = session ? 'F840' : 'F838';
+        dbg('info', label + ' diagnostic START method=' + method + ' · no evidence writes');
         var controller = new AbortController(), deadline;
-        var request = method === 'browser'
+        var request = method === 'session-browser'
+          ? captureEbird({kind:'personalList',url:url,alive:current,
+              injectAttempts:240,buildInject:function () { return buildPersonalListInject(owner); }})
+          : method === 'session' ? fetchPersonalSessionPage(url)
+          : method === 'browser'
           ? captureEbird({kind:'personalDiagnostic',url:url,alive:current,
               injectAttempts:20,revealAfterDelay:true,buildInject:buildPersonalDiagnosticInject})
           : fetchPublicHTML(url, true, controller.signal).then(personalDiagnosticShape);
-        var bounded = method === 'browser' ? request : Promise.race([request,
+        var bounded = session || method === 'browser' ? request : Promise.race([request,
           new Promise(function (resolve, reject) {
             deadline = setTimeout(function () {
               reject(new Error('Direct diagnostic timed out after 20 seconds.'));
@@ -6984,12 +7005,23 @@
           })]);
         return bounded.then(function (result) {
           if (!current()) throw new Error('Diagnostic superseded by profile or scope change.');
+          if (session) {
+            var bound = getIdentityMeta() && getIdentityMeta().profileId;
+            result = {valid:result.valid,reason:result.reason,sessionProof:result.sessionProof,
+              identityStatus:result.identity && result.identity.status,
+              idPresent:!!(result.identity && result.identity.profileId),
+              boundIdPresent:!!bound,boundIdMatches:!!bound && result.identity.profileId === bound,
+              scopeMatches:rankRegionMatches(owner.region,result.region),
+              periodMatches:owner.period === result.period,
+              parsedCount:result.rows.length,declaredCount:result.declaredCount,
+              categoryEvidence:!!result.categoryEvidence,paginated:result.paginated};
+          }
           releaseControls();
-          dbg('info', 'F838 diagnostic RESULT method=' + method + ' elapsedMs='
+          dbg('info', label + ' diagnostic RESULT method=' + method + ' elapsedMs='
             + (Date.now() - started) + ' controlsEnabled=true ' + JSON.stringify(result));
         }).catch(function (error) {
           releaseControls();
-          dbg('warn', 'F838 diagnostic FAILED method=' + method + ' elapsedMs='
+          dbg('warn', label + ' diagnostic FAILED method=' + method + ' elapsedMs='
             + (Date.now() - started) + ' controlsEnabled=true ' + (error.message || error));
         }).finally(releaseControls);
       }
@@ -7067,6 +7099,9 @@
             candidate.escapeeCodes = escapeeCodes;
           }
           var resolved = BL.resolvePersonalList(candidate, owner, {}, parents);
+          dbg('info', 'F840 personal qualification: complete=' + resolved.complete
+            + ', unresolved=' + unresolved + ', parsedCount=' + page.rows.length
+            + ', declaredCount=' + page.declaredCount + ', paginated=' + page.paginated);
           if (!resolved.complete) candidate.coverage = 'incomplete';
           if (!current()) throw new Error('Personal-list request was superseded.');
           if (!resolved.complete && personalListEvidence(scope).complete) {
@@ -7077,11 +7112,15 @@
           if (!storeWithReclaim(key, JSON.stringify(candidate))) {
             throw new Error('The verified personal list could not be saved. Free storage and retry.');
           }
+          if (localStorage.getItem(key) !== JSON.stringify(candidate)) {
+            throw new Error('The verified personal list did not pass saved readback. Retry the refresh.');
+          }
           delete _personalListErrors[key];
           updateTaxonomyImpact();
           recomputePersonalChase(scope);
           headerIdentityRefresh();
           updateMyYear();
+          dbg('info', 'F840 personal refresh: saved=true, readbackMatches=true, renderRequested=true');
           return candidate;
         }).catch(function (error) {
           if (current()) {
@@ -45589,6 +45628,8 @@
       $('dbgPersonalPath').addEventListener('click', function () { runPersonalDiagnostic('path'); });
       $('dbgPersonalQuery').addEventListener('click', function () { runPersonalDiagnostic('query'); });
       $('dbgPersonalBrowser').addEventListener('click', function () { runPersonalDiagnostic('browser'); });
+      $('dbgPersonalSession').addEventListener('click', function () { runPersonalDiagnostic('session'); });
+      $('dbgPersonalSessionBrowser').addEventListener('click', function () { runPersonalDiagnostic('session-browser'); });
       $('dbgDrag').addEventListener('click', armDragProbe);
       // Sections that answer the same question different ways read as ONE report
       // with several modes: "ranked by the birds you still need" (Top
