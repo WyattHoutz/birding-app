@@ -16,7 +16,7 @@
     if (!Array.isArray(rows) || !rows.length) throw new Error('Empty taxonomy.');
     var byCode = {}, parents = {};
     rows.forEach(function (row) {
-      if (!row || typeof row.speciesCode !== 'string' || !/^[a-z0-9]+$/.test(row.speciesCode)
+      if (!row || typeof row.speciesCode !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(row.speciesCode)
           || typeof row.comName !== 'string' || !row.comName.trim()
           || byCode[row.speciesCode]
           || row.sciName != null && typeof row.sciName !== 'string'
@@ -25,7 +25,7 @@
         throw new Error('Unreadable or duplicate taxonomy row.');
       }
       var parent = row.reportAs || '';
-      if (parent && !/^[a-z0-9]+$/.test(parent)) throw new Error('Unreadable taxonomy parent.');
+      if (parent && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(parent)) throw new Error('Unreadable taxonomy parent.');
       byCode[row.speciesCode] = {
         name: row.comName, sci: row.sciName || '', parent: parent,
         category: row.category || 'species',
@@ -64,7 +64,7 @@
     }
     Object.keys(model.byCode).forEach(function (code) {
       var row = model.byCode[code];
-      if (!/^[a-z0-9]+$/.test(code) || !row || typeof row.name !== 'string'
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(code) || !row || typeof row.name !== 'string'
           || !row.name.trim() || typeof row.sci !== 'string'
           || typeof row.category !== 'string' || !row.category
           || typeof row.alpha !== 'string' || typeof row.parent !== 'string'

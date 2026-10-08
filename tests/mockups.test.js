@@ -37,6 +37,25 @@ test('F359 mockup preparation timeout rejects a hung fixture by shot name', asyn
   );
 });
 
+test('F830 Twitches preparation acquires exact personal membership before rendering', () => {
+  const twitch = source.slice(source.indexOf('async function prepareTwitches('),
+    source.indexOf('async function waitFor(', source.indexOf('async function prepareTwitches(')));
+  assert.match(twitch, /await preparePersonalFixture\(A, document\.defaultView,/);
+  assert.ok(twitch.indexOf('await preparePersonalFixture(') < twitch.indexOf('A.refresh()'));
+  assert.doesNotMatch(twitch, /disabled\s*=\s*false|allowDisabled/);
+  assert.equal(typeof mockups.preparePersonalFixture, 'function');
+  const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
+    source.indexOf("} else if (at === 'rankBtn')"));
+  assert.match(birdGen, /await preparePersonalFixture\(A, document\.defaultView,/);
+  const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("} else if (spec.kind === 'patches')"));
+  assert.match(rank, /A\.bcProfile\(\), A\.identityRevision\(\), 'Sample Birder'/);
+  assert.match(rank, /'ebird_rankhist:' \+ historyOwner/);
+  assert.match(rank, /'bc_board_v1:' \+ historyOwner/);
+  assert.match(rank, /A\.renderRankPair\(\{boards:\{spp:speciesBoard,cl:checklistBoard\}/);
+  assert.match(rank, /Top 100 gallery lost production dual-board controls/);
+});
+
 test('release mockups include exactly one section shot per visible menu entry', () => {
   const expected = mockups.CONTRACT.menu.map((item) => item.at).sort();
   const actual = mockups.SECTION_SHOTS.map((shot) => shot.at).sort();
@@ -366,7 +385,7 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
 test('F329/F342/F345 release mockups show the completed new facts', () => {
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
-  assert.match(rank, /ebird_rankhist:US-WA/);
+  assert.match(rank, /'ebird_rankhist:' \+ historyOwner/);
   assert.match(rank, /rank:\s*170/);
   assert.match(rank, /Season best #170 · first reached Aug 20/,
     'the Top 100 release shot does not prove the earliest tied best date');

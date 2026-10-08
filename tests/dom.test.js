@@ -5802,6 +5802,91 @@ test('F805/F812 selected period owns header metrics, personal screen and navigat
   assert.equal(app.$('rankResults').querySelector('.rankestimate'),null,'life mode never uses an annual estimate');
 });
 
+test('F830 gallery personal fixture qualifies real Twitches controls and preserves ownership', async () => {
+  const app = await boot({ sample:false, indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Birder'} });
+  const A = app.window.__app;
+  const { preparePersonalFixture } = require('../assets/mockups.js');
+  const originalFetch = app.window.fetch;
+  assert.equal(A.personalListEvidence().complete, false);
+  await preparePersonalFixture(A, app.window, {yearList:[
+    {code:'baisan',name:"Baird's Sandpiper"}
+  ]});
+  assert.equal(app.window.fetch, originalFetch, 'temporary fixture transport must restore');
+  assert.equal(A.personalListEvidence().complete, true);
+  assert.equal(A.personalListEvidence().count, 1);
+  const profile = A.chaseProfile();
+  A.seedChase(profile.slug,{t:Date.now(),rarity:false,
+    fetchBaseKey:A.chaseFetchBaseKey(profile),
+    geoNotableKm:app.window.BirdLogic.geoNotableDistKm(profile),
+    speciesCodes:['shtsan'],rows:{'king-notable.json':[
+      {speciesCode:'shtsan',comName:'Sharp-tailed Sandpiper',
+        lat:profile.home.lat,lng:profile.home.lng,
+        obsDt:new Date().toISOString().slice(0,10),locName:'Representative patch',
+        locId:'L2',subId:'S-TWITCH-1'}
+    ]}});
+  A.showSection('sec-refreshBtn');
+  await A.refresh();
+  await waitFor(() => app.$('todayYear'), 'real Twitches personal filter');
+  assert.equal(app.$('todayYear').disabled, false,
+    'real Twitches render must enable the personal-history filter');
+  assert.match(app.$('results').textContent,/Sharp-tailed Sandpiper/);
+  A.setPersonalPeriod('all');
+  assert.equal(A.personalListEvidence().complete, false,
+    'representative annual completeness cannot certify lifetime history');
+  await A.refresh();
+  await waitFor(() => app.$('todayYear') && app.$('todayYear').disabled,
+    'real Twitches unknown-history filter');
+  assert.equal(app.$('todayYear').disabled, true,
+    'missing exact membership must still disable the real filter');
+  app.window.close();
+});
+
+test('F831/F835 official taxonomy permits Year List loading and collapsible seen hotspot context', async () => {
+  let listRequests = 0;
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(),
+    storage: { ebird_display_name:'Sample Observer' }, fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2025,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return [...syntheticEditionRows('2025.0'),
+        { speciesCode:'bird-o1',comName:'bird-of-paradise sp.',
+          sciName:'Paradisaeidae sp.',category:'spuh' }];
+      if (/ebird\.org\/lifelist\//.test(url)) {
+        listRequests++;
+        return ownedPersonalListFixture();
+      }
+      return [];
+    }
+  });
+  const A = app.window.__app;
+  app.click(app.$('hdrSpeciesJump'));
+  await waitFor(() => app.$('myYearList').querySelectorAll('.yrnum').length === 1,
+    'production Year List after official taxonomy preparation');
+  assert.ok(listRequests > 0, 'checked taxonomy must unblock the exact personal source');
+  assert.equal(A.personalListEvidence().complete, true);
+  assert.equal(A.personalListEvidence().count, 1);
+  assert.match(app.$('myYearList').textContent, /Stable bird/);
+  assert.equal(await A.restoreTaxonomyNames(), true, 'persistent hyphenated edition must restore');
+  assert.equal(A.personalListEvidence().complete, true);
+  A.renderStakeHs('L835', 'Representative patch', [], [
+    {speciesCode:'stable',comName:'Stable bird'},
+    {speciesCode:'rename',comName:'New name'},
+    {speciesCode:'unresolved835',comName:'Unresolved bird'}
+  ], {}, false);
+  const hotspot = app.$('stakeHsResults');
+  const seen = hotspot.querySelector('details.hsseen');
+  assert.ok(seen, 'checked personal membership must restore the actual Seen expander');
+  assert.equal(seen.open, false, 'seen context starts collapsed');
+  assert.match(seen.textContent, /Stable bird/);
+  assert.doesNotMatch(seen.textContent, /New name|Unresolved bird/);
+  assert.match(hotspot.querySelector('.hsunseen').textContent, /New name/);
+  assert.match(hotspot.querySelector('.hsunknown').textContent, /Unresolved bird/);
+  seen.querySelector('summary').click();
+  assert.equal(seen.open, true, 'Seen context can be opened');
+  seen.querySelector('summary').click();
+  assert.equal(seen.open, false, 'Seen context can be collapsed again');
+  app.window.close();
+});
+
 test('F805 owned personal snapshots replace corrected data, retain dated complete evidence and reject obsolete owners', async () => {
   let response = ownedPersonalListFixture(), pending = null;
   const app = await boot({ sample: false, indexedDB: new IDBFactory(),
@@ -7326,7 +7411,7 @@ test('a watchlist bird is unseen on the ROW as well as in the heading', async ()
   assert.equal(A.isSpeciesSeen('shbdow', "Short-billed Dowitcher"), false,
     'and so must the ROW. A name match must not undo an explicit '
     + '"I have not confirmed this"');
-  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />Needs proof<\/span>/,
+  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />WATCH<\/span>/,
     'F818 explains the proven-seen watch exception without changing eligibility');
   app.window.close();
 });
@@ -38010,7 +38095,7 @@ test('F810 Advanced disclosure preserves the exact inventory without network or 
   app.window.close();
 });
 
-test('F818 Needs proof explains explicit Watch exceptions in standalone and nested personal-target rows only', async () => {
+test('F818/F833 WATCH explains explicit Watch exceptions in standalone and nested personal-target rows only', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
     { code: 'mallar3', name: 'Mallard' }, { code: 'baleag', name: 'Bald Eagle' },
   ]) } });
@@ -38019,29 +38104,69 @@ test('F818 Needs proof explains explicit Watch exceptions in standalone and nest
   const row = { code: 'mallar3', name: 'Mallard', dateStr: recentObsStamp(),
     subId: 'S818', locId: 'L818', reviewState: 'pending' };
   assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), false, 'watch eligibility changed');
-  assert.match(A.birdReportListCard(row, { need: true }), /watchflag[^>]*Needs proof:/);
+  assert.match(A.birdReportListCard(row, { need: true }), /watchflag[^>]*WATCH:/);
+  const standalone = app.document.createElement('div');
+  standalone.innerHTML = A.birdReportListCard(row, { need: true });
+  assert.equal(standalone.querySelector('.watchflag').textContent, 'WATCH');
   assert.doesNotMatch(A.birdReportListCard(row, { need: false }), /watchflag/);
   assert.match(A.birdReportListCard({ ...row, code: 'baleag', name: 'Bald Eagle' },
-    { need: true }), /Needs proof/, 'the explicit Watch exception does not depend on fabricated seen proof');
+    { need: true }), />WATCH<\/span>/, 'the explicit Watch exception does not depend on fabricated seen proof');
   A.renderStakeHs('L818', 'Patch', [], [
     { speciesCode: 'mallar3', comName: 'Mallard', locId: 'L818' },
     { speciesCode: 'baleag', comName: 'Bald Eagle', locId: 'L818' },
   ], {}, false);
   const watch = app.$('stakeHsResults').querySelector('.hsunseen .watchflag');
   assert.ok(watch);
-  assert.equal(watch.textContent, 'Needs proof');
+  assert.equal(watch.textContent, 'WATCH');
   assert.match(watch.getAttribute('aria-label'), /explicit Watch List verification/);
   assert.equal(app.$('stakeHsResults').querySelectorAll('.watchflag').length, 2);
   assert.match(A.favDetailHtml({ id: 'L818' }, [{
     speciesCode: 'mallar3', comName: 'Mallard', obsDt: recentObsStamp(),
   }], {}), /watchflag/);
   app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'all');
-  assert.match(A.birdReportListCard(row, { need: true }), /Needs proof/,
+  assert.match(A.birdReportListCard(row, { need: true }), />WATCH<\/span>/,
     'the explicit verification exception remains usable without borrowed period membership');
   app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'current');
   app.window.localStorage.setItem('ebird_watchlist_v1', '[]');
   assert.equal(A.isSpeciesSeen('mallar3', 'Mallard'), true);
   assert.doesNotMatch(A.birdReportListCard(row, { need: true }), /watchflag/);
+  app.window.close();
+});
+
+test('F836 explicit Snow Goose Watch membership retains Unseen and WATCH under known and unknown history', async () => {
+  const app = await boot({sample:false,storage:{ebird_watchlist_v1:JSON.stringify([
+    {code:'snogoo',name:'Snow Goose'}
+  ])}});
+  const A = app.window.__app;
+  const row = {code:'snogoo',name:'Snow Goose',dateStr:recentObsStamp(),
+    subId:'S836',locId:'L836'};
+  async function verify() {
+    assert.equal(A.isSpeciesSeen('snogoo','Snow Goose'),false);
+    const host = app.document.createElement('div');
+    host.innerHTML = A.birdReportListCard(row,{need:true});
+    assert.equal(host.querySelector('.watchflag').textContent,'WATCH');
+    assert.doesNotMatch(A.birdReportListCard(row,{need:false}),/watchflag/);
+    A.renderStakeHs('L836','Representative patch',[],[
+      {speciesCode:'snogoo',comName:'Snow Goose',locId:'L836'}
+    ],{},false);
+    const unseen = app.$('stakeHsResults').querySelector('.hsunseen');
+    assert.ok(unseen,'Snow Goose Watch exception must stay in the Unseen group');
+    assert.equal(unseen.querySelector('.watchflag').textContent,'WATCH');
+    assert.doesNotMatch(app.$('stakeHsResults').querySelector('.hsseen')?.textContent || '',
+      /Snow Goose/, 'Snow Goose must not move into already-seen context');
+  }
+  assert.equal(A.personalListEvidence().complete,false);
+  await verify();
+  await seedSeen(app,['snogoo'],['Snow Goose']);
+  assert.equal(A.personalListEvidence().complete,true);
+  await verify();
+  A.setPersonalPeriod('all');
+  assert.equal(A.personalListEvidence().complete,false);
+  await verify();
+  A.setPersonalPeriod('current');
+  A.setWatchlist([]);
+  assert.equal(A.isSpeciesSeen('snogoo','Snow Goose'),true);
+  assert.doesNotMatch(A.birdReportListCard(row,{need:true}),/watchflag/);
   app.window.close();
 });
 

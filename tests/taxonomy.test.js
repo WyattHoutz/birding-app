@@ -49,6 +49,24 @@ test('F736 localized presentation retains canonical identity and permits explici
     { code: 'fr', name: 'French' }, { code: 'en_AU', name: 'English (Australia)' }])
     .map((locale) => locale.code), ['en', 'fr', 'en_AU']);
 });
+test('F831 official hyphenated identities survive canonical construction and cached restoration', () => {
+  const official = { speciesCode: 'bird-o1', comName: 'bird-of-paradise sp.',
+    sciName: 'Paradisaeidae sp.', category: 'spuh' };
+  const model = Tax.create([row('stable', 'Stable'), official,
+    row('form', 'Form', { category: 'issf', reportAs: 'bird-o1' })], '2025.0');
+  assert.equal(model.byCode['bird-o1'].name, official.comName);
+  assert.equal(model.byCode['bird-o1'].category, 'spuh');
+  assert.equal(model.parents.form, 'bird-o1');
+  assert.deepEqual(Tax.validate(JSON.parse(JSON.stringify(model)), '2025.0'), model);
+  assert.throws(() => Tax.create([official, official], '2025.0'), /duplicate/);
+  for (const code of ['-bird', 'bird-', 'bird--o1', 'bird/o1', 'bird o1', 'Bird-o1']) {
+    assert.throws(() => Tax.create([{ ...official, speciesCode: code }], '2025.0'), /taxonomy/);
+    assert.throws(() => Tax.create([row('form', 'Form', { reportAs: code })], '2025.0'), /taxonomy/);
+    const corrupt = JSON.parse(JSON.stringify(model));
+    corrupt.byCode[code] = corrupt.byCode['bird-o1'];
+    assert.throws(() => Tax.validate(corrupt, '2025.0'), /taxonomy/);
+  }
+});
 test('F735 cached canonical models validate identity, edition and parent indexes', () => {
   const model = Tax.create([row('stable', 'Stable'), row('other', 'Other valid parent'),
     row('form', 'Form', { reportAs: 'stable' })], '2025.0');

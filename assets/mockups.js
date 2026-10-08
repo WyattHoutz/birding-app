@@ -59,6 +59,65 @@ function fixtureIconPath(code, extensions = BUNDLED_ICON_EXTENSIONS) {
   return 'assets/birds/' + code + ext;
 }
 
+async function preparePersonalFixture(A, window, seen, taxa = []) {
+  const rows = new Map(seen.yearList.map(row => [row.code, {
+    speciesCode: row.code, comName: row.name, sciName: '', category: 'species'
+  }]));
+  for (const row of taxa) rows.set(row.code, {
+    speciesCode: row.code, comName: row.name, sciName: row.sci || '', category: 'species',
+    bandingCodes: row.alpha ? [row.alpha] : []
+  });
+  for (const [code, name, sci] of [
+    ['comter', 'Common Tern', 'Sterna hirundo'],
+    ['shtsan', 'Sharp-tailed Sandpiper', 'Calidris acuminata'],
+    ['solsan', 'Solitary Sandpiper', 'Tringa solitaria']
+  ]) rows.set(code, { speciesCode: code, comName: name, sciName: sci, category: 'species' });
+  for (let index = 0; rows.size < 9000; index++) {
+    const code = 'mocktaxon' + index;
+    rows.set(code, { speciesCode: code, comName: 'Representative taxon ' + index,
+      sciName: '', category: 'species' });
+  }
+  const model = window.BirdTaxonomy.create([...rows.values()], '2025.0');
+  await A.taxonomyStore('put', 'identity:2025.0', model);
+  window.localStorage.setItem('bc_taxonomy_v1', JSON.stringify({
+    edition: model.edition, checkedAt: window.Date.now(), previousEdition: ''
+  }));
+  if (!await A.restoreTaxonomyNames()) throw new Error('Representative taxonomy did not restore');
+  const owner = A.personalListOwner();
+  if (owner.region !== 'US-WA' || owner.period !== 'year:2026') {
+    throw new Error('Representative personal fixture has the wrong region or period');
+  }
+  if (taxa.length) window.localStorage.setItem(A.speciesCacheKey(owner.region), JSON.stringify({
+    t: window.Date.now(), rows: taxa.map(row => ({
+      code: row.code, name: row.name, sci: row.sci || '',
+      alpha: row.alpha || '', bandingCodes: row.alpha || ''
+    }))
+  }));
+  const url = A.personalListUrl(owner);
+  const html = '<!doctype html><html><head><title>Personal Life List - eBird</title>'
+    + '<link rel="canonical" href="https://ebird.org/lifelist/US-WA"></head><body>'
+    + '<header><button aria-label="Birder Sample Birder (fixture_login)">My Account</button></header>'
+    + '<select name="time"><option value="year" selected>year</option></select>'
+    + '<main><h1>Life List</h1><p>Species Total: ' + seen.yearList.length + '</p>'
+    + seen.yearList.map(row => '<li><a href="/species/' + row.code + '">'
+      + row.name + '</a></li>').join('') + '</main></body></html>';
+  const originalFetch = window.fetch;
+  window.fetch = function (request, options) {
+    return String(request) === url
+      ? Promise.resolve({ ok: true, text: () => Promise.resolve(html) })
+      : originalFetch.call(window, request, options);
+  };
+  try {
+    await A.ensurePersonalList(A.activeScope(), true);
+  } finally {
+    window.fetch = originalFetch;
+  }
+  const evidence = A.personalListEvidence();
+  if (!evidence.complete || evidence.count !== seen.yearList.length) {
+    throw new Error('Representative exact personal membership did not qualify');
+  }
+}
+
 function arg(name, dflt) {
   const i = process.argv.indexOf('--' + name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
@@ -799,6 +858,7 @@ const BOOTSTRAP = `
   var MEGA_STAKEOUT = ${JSON.stringify(MEGA_STAKEOUT)};
   var BIRD_ICON_EXT = ${JSON.stringify(BUNDLED_ICON_EXTENSIONS)};
   var fixtureIconPath = ${fixtureIconPath.toString()};
+  var preparePersonalFixture = ${preparePersonalFixture.toString()};
   var RealDate = Date;
   var MOCK_NOW = RealDate.parse('2026-09-02T18:00:00-07:00');
   window.Date = class MockDate extends RealDate {
@@ -1670,6 +1730,8 @@ const BOOTSTRAP = `
     }));
   }
   async function prepareTwitches(A, document, sec, grouped) {
+    await preparePersonalFixture(A, document.defaultView,
+      window.__SEED_BIRDLIST__.seenByReport.wa, WA_SEEN_STUB.birds);
     var profile = A.chaseProfile();
     var twitchRows = [
         { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
@@ -1747,6 +1809,8 @@ const BOOTSTRAP = `
     }
     if (!spec.preserveHost) host.innerHTML = '';
     if (spec.kind === 'birdgen') {
+      await preparePersonalFixture(A, document.defaultView,
+        window.__SEED_BIRDLIST__.seenByReport.wa, WA_SEEN_STUB.birds);
       var reportSeen = A.getReportSeen();
       if (!reportSeen.baisan || reportSeen.amgplo) {
         throw new Error('Washington seen fixture did not reach getReportSeen');
@@ -1889,7 +1953,9 @@ const BOOTSTRAP = `
       }
       markHost(host, label);
     } else if (at === 'rankBtn') {
-      localStorage.setItem('ebird_rankhist:US-WA', JSON.stringify([
+      var historyOwner = ['US-WA', String(new Date().getFullYear()), 'spp',
+        A.bcProfile(), A.identityRevision(), 'Sample Birder'].join('|');
+      localStorage.setItem('ebird_rankhist:' + historyOwner, JSON.stringify([
         { d: '2026-08-20', rank: 170, species: 206 },
         { d: '2026-08-28', rank: 170, species: 208 },
         { d: '2026-09-02', rank: 178, species: 209 }
@@ -1898,17 +1964,37 @@ const BOOTSTRAP = `
       var priorDay = prior.getFullYear() + '-'
         + String(prior.getMonth() + 1).padStart(2, '0') + '-'
         + String(prior.getDate()).padStart(2, '0');
-      localStorage.setItem('bc_board_v1:US-WA', JSON.stringify([{
+      localStorage.setItem('bc_board_v1:' + historyOwner, JSON.stringify([{
         d: priorDay,
         r: {
-          'ada lovelace': 3,
-          'Wilhelmina Featherstonehaugh': 1,
-          'Grace Hopper': 4,
-          'Alan Turing': 2
+          'mockprofile0': 3,
+          'mockprofile1': 1,
+          'mockprofile2': 4,
+          'mockprofile3': 2
         }
       }]));
-      A.renderRankings(window.FIX.rankings, 'US-WA',
-        'https://ebird.org/top100', 'Sample Birder');
+      var speciesBoard = Object.assign({}, window.FIX.rankings, {metric:'spp',period:'2026'});
+      speciesBoard.rows = speciesBoard.rows.map(function (row, index) {
+        return Object.assign({}, row, {profileId:'mockprofile' + index});
+      });
+      speciesBoard.me = speciesBoard.rows[4];
+      var checklistRanks = [1,3,2,4,182];
+      var checklistBoard = Object.assign({}, speciesBoard, {metric:'cl',
+        rows:speciesBoard.rows.map(function (row, index) {
+          return Object.assign({}, row, {rank:checklistRanks[index]});
+        }).sort(function (a,b) { return a.rank-b.rank; })});
+      checklistBoard.me = checklistBoard.rows.find(function (row) {
+        return row.profileId === speciesBoard.me.profileId;
+      });
+      A.renderRankPair({boards:{spp:speciesBoard,cl:checklistBoard},
+        failures:{},stale:{},coverage:'REPRESENTATIVE STUB DATA · Both metric boards, Washington 2026'},
+        'US-WA','2026','Sample Birder');
+      var metricButtons = document.querySelectorAll('#rankResults [data-rank-metric]');
+      if (metricButtons.length !== 2
+          || metricButtons[0].textContent !== 'Species'
+          || metricButtons[1].textContent !== 'Checklists') {
+        throw new Error('Top 100 gallery lost production dual-board controls');
+      }
       var seasonBest = document.querySelector('#rankSummary .rankbest');
       if (!seasonBest
           || seasonBest.textContent.replace(/\\s+/g, ' ').trim()
@@ -1945,7 +2031,9 @@ const BOOTSTRAP = `
       var markerRect = rankMarker.getBoundingClientRect();
       var nameBox = rankName.getBoundingClientRect();
       var nameRect = textRect(rankName);
-      var speciesRect = textRect(rankSpecies);
+      var primaryMetric = rankSpecies.querySelector('.spmetric');
+      var secondaryMetric = primaryMetric && primaryMetric.nextElementSibling;
+      var speciesRect = textRect(primaryMetric || rankSpecies);
       var speciesBox = rankSpecies.getBoundingClientRect();
       if (markerRect.right >= nameRect.left) {
         throw new Error('Top 100 rank is not in its own left column');
@@ -1975,9 +2063,14 @@ const BOOTSTRAP = `
         throw new Error('Top 100 columns are not top-aligned: spread='
           + topSpread + 'px');
       }
-      if (!speciesUnitRect
-          || speciesUnitRect.top <= speciesRect.top + speciesRect.height / 2) {
-        throw new Error('Top 100 sp unit is not below the species number: number='
+      if (!speciesUnitRect || !secondaryMetric
+          || speciesUnitRect.left < speciesRect.right
+          || speciesUnitRect.bottom <= speciesRect.top
+          || speciesUnitRect.top >= speciesRect.bottom
+          || secondaryMetric.getBoundingClientRect().top < primaryMetric.getBoundingClientRect().bottom
+          || primaryMetric.querySelector('small').textContent !== 'sp.'
+          || secondaryMetric.querySelector('small').textContent !== 'cl.') {
+        throw new Error('Top 100 dual metric units or ordering drifted: number='
           + JSON.stringify({ top: speciesRect.top, bottom: speciesRect.bottom })
           + ' unit=' + JSON.stringify(speciesUnitRect
             ? { top: speciesUnitRect.top, bottom: speciesUnitRect.bottom }
@@ -3368,7 +3461,7 @@ async function main() {
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  fixtureIconPath, shotReadinessProblems, shotLooksBlank, withTimeout
+  fixtureIconPath, preparePersonalFixture, shotReadinessProblems, shotLooksBlank, withTimeout
 };
 
 if (require.main === module) {
