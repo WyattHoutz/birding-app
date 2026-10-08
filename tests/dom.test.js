@@ -5685,6 +5685,47 @@ function ownedPersonalListFixture({ region = 'US-WA', period = 'year', count = 1
     + '</main></body></html>';
 }
 
+test('F838 diagnostic buttons isolate direct methods and never save personal evidence', async () => {
+  const urls = [];
+  const app = await boot({sample:false,fetch(url) {
+    urls.push(url);
+    if (/ebird\.org\/lifelist/.test(url)) return ownedPersonalListFixture();
+    return [];
+  }});
+  const A = app.window.__app;
+  app.click(app.$('dbgPersonalPath'));
+  assert.equal(app.$('dbgPersonalQuery').disabled,true);
+  await waitFor(() => !app.$('dbgPersonalPath').disabled,'path diagnostic finishes');
+  assert.equal(urls.filter(url => /ebird\.org\/lifelist/.test(url)).length,1);
+  assert.match(urls.find(url => /ebird\.org\/lifelist/.test(url)),/\/lifelist\/US-WA\?time=year$/);
+  app.click(app.$('dbgPersonalQuery'));
+  await waitFor(() => !app.$('dbgPersonalQuery').disabled,'query diagnostic finishes');
+  assert.ok(urls.some(url => /\/lifelist\?r=US-WA&time=year&year=2026$/.test(url)));
+  assert.equal(A.personalListEvidence().complete,false);
+  const log = app.window.__dbg.buf.map(entry => JSON.stringify(entry)).join('\n');
+  assert.match(log,/F838 diagnostic RESULT method=path/);
+  assert.match(log,/F838 diagnostic RESULT method=query/);
+  assert.doesNotMatch(log,/fixture_login|Sample Observer/);
+  const native = new JSDOM(ownedPersonalListFixture(), {
+    url:A.personalListUrl(A.personalListOwner()),runScripts:'outside-only'
+  });
+  let result;
+  native.window.mobileApp = {postMessage(message) { result=message.detail; }};
+  native.window.eval(A.buildPersonalDiagnosticInject(0));
+  assert.equal(result.ok,true);
+  assert.equal(result.data.parsedCount,1);
+  assert.equal(result.data.identityStatus,'ok');
+  assert.doesNotMatch(JSON.stringify(result),/fixture_login|Sample Observer/);
+  native.window.document.body.innerHTML='<main>Still loading</main>';
+  native.window.eval(A.buildPersonalDiagnosticInject(0));
+  assert.equal(result.ok,false,'wait for page content, not an initial loading sample');
+  native.window.eval(A.buildPersonalDiagnosticInject(19));
+  assert.equal(result.ok,true,'bounded diagnostic returns the failed shape, not verified membership');
+  assert.equal(result.data.valid,false);
+  native.window.close();
+  app.window.close();
+});
+
 test('F805 personal source parses owned metadata, explicit zero and date-free membership without promoting partial history', async () => {
   const app = await boot();
   const A = app.window.__app;

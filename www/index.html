@@ -4253,6 +4253,10 @@
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgClear" type="button">Clear</button>
+      <strong>F838 diagnostic build — tests deferred; no personal data saved</strong>
+      <button id="dbgPersonalPath" type="button">Test personal list: direct path</button>
+      <button id="dbgPersonalQuery" type="button">Test personal list: direct explicit year</button>
+      <button id="dbgPersonalBrowser" type="button">Test personal list: browser reader</button>
     </div>
     <!-- A <pre>, NOT a <textarea>. A textarea is focusable, and on iOS focus
          raises the keyboard and resizes the visual viewport — which is the
@@ -4788,7 +4792,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.142.1';
+      var APP_VERSION = '1.142.2-f838.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6694,6 +6698,81 @@
           + 'var ok=onPage&&R.valid&&R.region.toLowerCase()===wanted.region.toLowerCase()&&R.period===wanted.period;'
           + 'send({detail:{__ebird:true,kind:"personalList",ok:ok,data:R}});'
           + '}catch(e){send({detail:{__ebird:true,kind:"personalList",ok:false,error:String(e.message||e)}});}})();';
+      }
+      function personalDiagnosticShape(html) {
+        var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+        var page = parsePersonalListPage(html);
+        var root = doc.querySelector('main, [role="main"]');
+        var plain = String(root && root.textContent || '').replace(/\s+/g, ' ');
+        var observed = /([\d,]+)\s+Species\s+Observed\b/i.exec(plain);
+        var heading = Array.from(doc.querySelectorAll('h1, h2')).map(function (node) {
+          return String(node.textContent || '');
+        }).join(' ');
+        var year = /\b(20\d{2})\s+Year\s+List\b/i.exec(heading);
+        var canonical = doc.querySelector('link[rel="canonical"]');
+        var path = '';
+        if (canonical) {
+          try { path = new URL(canonical.getAttribute('href'), 'https://ebird.org').pathname; }
+          catch (error) { path = 'unreadable'; }
+        }
+        return {
+          valid: page.valid, reason: page.reason, identityStatus: page.identity.status,
+          region: page.region, period: page.period, declaredCount: page.declaredCount,
+          parsedCount: page.rows.length, paginated: page.paginated,
+          canonicalPath: path, mainPresent: !!root, timeFieldPresent: !!doc.querySelector('[name="time"]'),
+          yearFieldPresent: !!doc.querySelector('[name="year"]'),
+          headingYear: year ? year[1] : '', observedCount: observed ? Number(observed[1].replace(/,/g, '')) : null,
+          speciesLinks: root ? root.querySelectorAll('a[href*="/species/"]').length : 0,
+          bytes: String(html || '').length
+        };
+      }
+      function buildPersonalDiagnosticInject(attempt) {
+        return '(function(){'
+          + parseEbirdAccountIdentity.toString() + ';'
+          + parsePersonalListPage.toString() + ';'
+          + personalDiagnosticShape.toString() + ';'
+          + 'var data;try{data=personalDiagnosticShape(document.documentElement.outerHTML);}'
+          + 'catch(e){data={valid:false,reason:"Injected parser exception",errorType:e.name};}'
+          + 'var ready=data.speciesLinks>0||data.declaredCount===0||data.observedCount===0;'
+          + 'var message={detail:{__ebird:true,kind:"personalDiagnostic",ok:ready||'
+          + (attempt >= 19 ? 'true' : 'false')
+          + ',pageShape:data,data:data}};'
+          + 'if(window.mobileApp&&typeof window.mobileApp.postMessage==="function")window.mobileApp.postMessage(message);'
+          + 'else{var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;'
+          + 'if(h&&typeof h.postMessage==="function")h.postMessage(message);}})();';
+      }
+      var _personalDiagnosticBusy = false;
+      function runPersonalDiagnostic(method) {
+        if (_personalDiagnosticBusy) return;
+        _personalDiagnosticBusy = true;
+        var buttons = ['dbgPersonalPath', 'dbgPersonalQuery', 'dbgPersonalBrowser'];
+        buttons.forEach(function (id) { $(id).disabled = true; });
+        var owner = personalListOwner(), generation = _identityGeneration;
+        var started = Date.now();
+        function current() {
+          return generation === _identityGeneration
+            && JSON.stringify(personalListOwner()) === JSON.stringify(owner);
+        }
+        var query = 'https://ebird.org/lifelist?r=' + encodeURIComponent(owner.region)
+          + (owner.period === 'all' ? '&time=all'
+            : '&time=year&year=' + encodeURIComponent(owner.period.slice(5)));
+        var url = method === 'query' ? query : personalListUrl(owner);
+        dbg('info', 'F838 diagnostic START method=' + method + ' · no evidence writes');
+        var request = method === 'browser'
+          ? captureEbird({kind:'personalDiagnostic',url:url,alive:current,
+              injectAttempts:20,revealAfterDelay:true,buildInject:buildPersonalDiagnosticInject})
+          : fetchPublicHTML(url, true).then(personalDiagnosticShape);
+        return request.then(function (result) {
+          if (!current()) throw new Error('Diagnostic superseded by profile or scope change.');
+          dbg('info', 'F838 diagnostic RESULT method=' + method + ' elapsedMs='
+            + (Date.now() - started) + ' ' + JSON.stringify(result));
+        }).catch(function (error) {
+          dbg('warn', 'F838 diagnostic FAILED method=' + method + ' elapsedMs='
+            + (Date.now() - started) + ' ' + (error.message || error));
+        }).finally(function () {
+          _personalDiagnosticBusy = false;
+          buttons.forEach(function (id) { $(id).disabled = false; });
+        });
       }
       function ensurePersonalList(scope, force, onStatus) {
         scope = scope || activeScope();
@@ -45215,6 +45294,9 @@
         b.setAttribute('aria-expanded', t.hidden ? 'false' : 'true');
       });
       $('dbgDump').addEventListener('click', dbgDump);
+      $('dbgPersonalPath').addEventListener('click', function () { runPersonalDiagnostic('path'); });
+      $('dbgPersonalQuery').addEventListener('click', function () { runPersonalDiagnostic('query'); });
+      $('dbgPersonalBrowser').addEventListener('click', function () { runPersonalDiagnostic('browser'); });
       $('dbgDrag').addEventListener('click', armDragProbe);
       // Sections that answer the same question different ways read as ONE report
       // with several modes: "ranked by the birds you still need" (Top
@@ -45919,6 +46001,7 @@
         personalListEvidence: personalListEvidence, ensurePersonalList: ensurePersonalList,
         preparePersonalList: preparePersonalList,
         parsePersonalListPage: parsePersonalListPage, buildPersonalListInject: buildPersonalListInject,
+        buildPersonalDiagnosticInject: buildPersonalDiagnosticInject,
         PERSONAL_PERIOD_KEY: PERSONAL_PERIOD_KEY, PERSONAL_LIST_NS: PERSONAL_LIST_NS,
         lifelistIsLogin: lifelistIsLogin, lifelistTitle: lifelistTitle,
         lifelistHTMLIsEmpty: lifelistHTMLIsEmpty,
