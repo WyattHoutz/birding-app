@@ -4792,7 +4792,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.142.2-f838.1';
+      var APP_VERSION = '1.142.2-f838.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6710,6 +6710,23 @@
         }).join(' ');
         var year = /\b(20\d{2})\s+Year\s+List\b/i.exec(heading);
         var canonical = doc.querySelector('link[rel="canonical"]');
+        var textNodes = [], walker = doc.createTreeWalker(doc.body, 4), textNode;
+        while ((textNode = walker.nextNode())) textNodes.push(textNode.nodeValue);
+        var bodyText = textNodes.join(' ').replace(/\s+/g, ' ');
+        var bodyObserved = /([\d,]+)\s+Species\s+Observed\b/i.exec(bodyText);
+        var accountNodes = Array.from(doc.querySelectorAll('[aria-label]')).filter(function (node) {
+          return /^Birder\b/i.test(String(node.getAttribute('aria-label') || ''));
+        });
+        var accountProbe = new DOMParser().parseFromString('<header></header>', 'text/html');
+        accountNodes.forEach(function (node) {
+          accountProbe.querySelector('header').appendChild(node.cloneNode(true));
+        });
+        var globalIdentity = parseEbirdAccountIdentity(accountProbe);
+        var codes = {};
+        Array.from(doc.querySelectorAll('a[href*="/species/"]')).forEach(function (node) {
+          var match = /\/species\/([a-z0-9]+)(?:[/?#]|$)/i.exec(node.getAttribute('href') || '');
+          if (match) codes[match[1].toLowerCase()] = true;
+        });
         var path = '';
         if (canonical) {
           try { path = new URL(canonical.getAttribute('href'), 'https://ebird.org').pathname; }
@@ -6723,6 +6740,23 @@
           yearFieldPresent: !!doc.querySelector('[name="year"]'),
           headingYear: year ? year[1] : '', observedCount: observed ? Number(observed[1].replace(/,/g, '')) : null,
           speciesLinks: root ? root.querySelectorAll('a[href*="/species/"]').length : 0,
+          documentSpeciesCount: Object.keys(codes).length,
+          documentObservedCount: bodyObserved ? Number(bodyObserved[1].replace(/,/g, '')) : null,
+          accountLabelCount: accountNodes.length, documentIdentityStatus: globalIdentity.status,
+          accountContainers: accountNodes.map(function (node) {
+            return {tag:node.tagName,parentTag:node.parentElement && node.parentElement.tagName,
+              inHeader:!!node.closest('header, [role="banner"]')};
+          }),
+          headingListCount: doc.querySelectorAll('h1, h2').length,
+          formRegionFields: doc.querySelectorAll('[name="r"], [name="regionCode"], [name="locInfo.regionCode"]').length,
+          listLinks: Array.from(doc.querySelectorAll('a[href*="/lifelist"]')).map(function (node) {
+            try {
+              var link = new URL(node.getAttribute('href'), 'https://ebird.org');
+              var region = /^\/lifelist\/([A-Za-z]{2}(?:-[A-Za-z0-9]+)*)\/?$/.exec(link.pathname);
+              return {region:region ? region[1] : link.searchParams.get('r') || '',
+                time:link.searchParams.get('time') || '',year:link.searchParams.get('year') || ''};
+            } catch (error) { return {unreadable:true}; }
+          }).filter(function (link) { return link.region || link.time || link.year; }).slice(0,12),
           bytes: String(html || '').length
         };
       }
@@ -6758,11 +6792,19 @@
             : '&time=year&year=' + encodeURIComponent(owner.period.slice(5)));
         var url = method === 'query' ? query : personalListUrl(owner);
         dbg('info', 'F838 diagnostic START method=' + method + ' · no evidence writes');
+        var controller = new AbortController(), deadline;
         var request = method === 'browser'
           ? captureEbird({kind:'personalDiagnostic',url:url,alive:current,
               injectAttempts:20,revealAfterDelay:true,buildInject:buildPersonalDiagnosticInject})
-          : fetchPublicHTML(url, true).then(personalDiagnosticShape);
-        return request.then(function (result) {
+          : fetchPublicHTML(url, true, controller.signal).then(personalDiagnosticShape);
+        var bounded = method === 'browser' ? request : Promise.race([request,
+          new Promise(function (resolve, reject) {
+            deadline = setTimeout(function () {
+              reject(new Error('Direct diagnostic timed out after 20 seconds.'));
+              controller.abort();
+            }, 20000);
+          })]);
+        return bounded.then(function (result) {
           if (!current()) throw new Error('Diagnostic superseded by profile or scope change.');
           dbg('info', 'F838 diagnostic RESULT method=' + method + ' elapsedMs='
             + (Date.now() - started) + ' ' + JSON.stringify(result));
@@ -6770,6 +6812,7 @@
           dbg('warn', 'F838 diagnostic FAILED method=' + method + ' elapsedMs='
             + (Date.now() - started) + ' ' + (error.message || error));
         }).finally(function () {
+          clearTimeout(deadline);
           _personalDiagnosticBusy = false;
           buttons.forEach(function (id) { $(id).disabled = false; });
         });

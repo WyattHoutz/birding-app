@@ -5715,6 +5715,7 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   assert.equal(result.ok,true);
   assert.equal(result.data.parsedCount,1);
   assert.equal(result.data.identityStatus,'ok');
+  assert.equal(result.data.documentSpeciesCount,1);
   assert.doesNotMatch(JSON.stringify(result),/fixture_login|Sample Observer/);
   native.window.document.body.innerHTML='<main>Still loading</main>';
   native.window.eval(A.buildPersonalDiagnosticInject(0));
@@ -5722,6 +5723,17 @@ test('F838 diagnostic buttons isolate direct methods and never save personal evi
   native.window.eval(A.buildPersonalDiagnosticInject(19));
   assert.equal(result.ok,true,'bounded diagnostic returns the failed shape, not verified membership');
   assert.equal(result.data.valid,false);
+  native.window.document.body.innerHTML='<div><button aria-label="Birder Sample Observer (fixture_login)"></button></div>'
+    + '<h1>Washington 2026 Year List</h1><div>1 Species Observed</div>'
+    + '<a href="/species/stable">Stable bird</a>';
+  native.window.eval(A.buildPersonalDiagnosticInject(19));
+  assert.equal(result.data.identityStatus,'missing');
+  assert.equal(result.data.documentIdentityStatus,'ok');
+  assert.equal(result.data.documentSpeciesCount,1);
+  assert.equal(result.data.documentObservedCount,1);
+  assert.equal(result.data.headingYear,'2026');
+  assert.equal(result.data.accountContainers[0].inHeader,false);
+  assert.doesNotMatch(JSON.stringify(result),/fixture_login|Sample Observer|Stable bird/);
   native.window.close();
   app.window.close();
 });
