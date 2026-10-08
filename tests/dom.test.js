@@ -5866,6 +5866,29 @@ test('F838 exact session lists require explicit profile binding and retain last-
   app.window.close();
 });
 
+test('F838 terminal personal-list failure closes only its owned capture without waiting for timeout', async () => {
+  const app=await boot(), A=app.window.__app, handlers={}, closed=[];
+  app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+    addListener(name, callback) {handlers[name]=callback; return Promise.resolve({remove(){}});},
+    openWebView() {return Promise.resolve({id:'personal-window'});},
+    hide(){}, show(){}, executeScript(){return Promise.resolve();},
+    close({id}) {closed.push(id); return Promise.resolve();}
+  }}};
+  const capture=A.captureEbird({kind:'personalList',url:A.personalListUrl(A.personalListOwner()),
+    buildInject:() => '',timeout:1000});
+  const rejected=assert.rejects(capture,/Session source unavailable/);
+  await waitFor(() => handlers.messageFromWebview,'capture listener registered');
+  await new Promise(resolve => setTimeout(resolve,10));
+  handlers.messageFromWebview({id:'unrelated-window',detail:{__ebird:true,kind:'personalList',
+    terminal:true,ok:false,error:'Session source unavailable'}});
+  assert.deepEqual(closed,[]);
+  handlers.messageFromWebview({id:'personal-window',detail:{__ebird:true,kind:'personalList',
+    terminal:true,ok:false,error:'Session source unavailable'}});
+  await rejected;
+  assert.deepEqual(closed,['personal-window']);
+  app.window.close();
+});
+
 test('F838 category membership includes Escapees without promoting hybrids or standing totals', async () => {
   const app = await boot();
   const A = app.window.__app;

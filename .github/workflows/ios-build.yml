@@ -7,11 +7,6 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      diagnostic_only:
-        description: 'F838 diagnostic branch only: skip full suites, upload test IPA, no Release'
-        type: boolean
-        default: false
 
 permissions:
   contents: write   # the release job below creates a tag and a Release
@@ -22,7 +17,6 @@ jobs:
   # logic regression, a stray brace, or a broken/unwired section fails CI before
   # we spend ~2 min compiling on macOS.
   test:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.diagnostic_only && github.ref == 'refs/heads/diagnostic/f838-personal-list') }}
     name: Unit tests (BirdLogic + syntax + DOM)
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +46,6 @@ jobs:
 
   build:
     needs: test
-    if: ${{ always() && (needs.test.result == 'success' || (needs.test.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.diagnostic_only && github.ref == 'refs/heads/diagnostic/f838-personal-list')) }}
     runs-on: macos-latest
     steps:
       - name: Checkout

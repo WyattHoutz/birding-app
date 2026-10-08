@@ -26,7 +26,17 @@ exception for targeting, without reducing official recorded totals.
 
 `BirdLogic.resolvePersonalList` and Python's `resolve_personal_list` share
 owner, coverage, taxonomy and strict-negative semantics, exercised by
-`tests/parity/test_personal_list.py`. The device owns authenticated acquisition
+`tests/parity/test_personal_list.py`. Category-qualified snapshots supply both
+`countableCodes` and `escapeeCodes`, whose union covers the seen `codes`.
+Declared totals qualify normalized countable roots, not the combined seen set:
+`count` stays countable for standing/header, while `seenCount` includes
+species-level Escapees. Escapee-only history is nonempty even with count zero.
+Hybrid/additional-taxa sections are excluded during acquisition; identifiable
+forms retain report-as normalization. Legacy snapshots retain their previous
+count-agreement contract rather than gaining invented category evidence.
+The device binds session reads to an explicitly captured stable profile ID
+and verifies it before and after the exact list read; names are presentation,
+not stable ownership proof. The device owns authenticated acquisition
 and per-profile period selection; the archived report does not acquire a
 signed-in user's live list. Independent news stays visible under both periods
 and unavailable personal history. Ticks, Pro patches, effort and annual-first

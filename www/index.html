@@ -4061,6 +4061,10 @@
         Bird Chaser discovers or configures. Each keeps a separate eBird key, alert code,
         year list, favourites, Home and rank history. After an eBird data import or
         signed-in identity fetch, that account name labels its slot automatically.
+        Before refreshing exact Year/Life lists, fetch your signed-in identity
+        in Settings to bind the slot to eBird's stable profile ID. Names alone
+        do not prove ownership. List seen totals include species-level Escapees;
+        leaderboard and header totals exclude them.
         Hotspot, GBIF and taxonomy caches are shared because they describe places, not you.</p>
       <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
       <label>Bird Chaser setup</label>
@@ -4792,7 +4796,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.142.2-f838.3';
+      var APP_VERSION = '1.142.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
