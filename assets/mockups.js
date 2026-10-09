@@ -24,7 +24,7 @@
  *   node assets/mockups.js --width 414   # iPhone 11
  *   node assets/mockups.js --width 402
  *   node assets/mockups.js --width 402 --scale 1.75
- *   node assets/mockups.js --only menu,top100
+ *   node assets/mockups.js --only menu,section-rankBtn
  *   node assets/mockups.js --out somewhere
  */
 'use strict';
@@ -193,7 +193,7 @@ const STUB_SPEC = {
       '#abaResults .spmetric-age', '#abaResults .spmetric-distance'] },
   lastNewBtn:     { kind: 'bird',          host: 'lastNewResults' },
   foyBtn:         { kind: 'foy',           host: 'foyResults',
-    expects: ['#foyResults .obs > li', '#foyResults .thumb'] },
+    expects: ['#foyResults li.twitchcard', '#foyResults .thumb'] },
   cklBtn:         { kind: 'checklists',    host: 'cklResults', map: 'cklMap' },
   recentBtn:      { kind: 'checklists',    host: 'recentResults', map: 'recentMap' },
   convoyBtn:      { kind: 'checklists',    host: 'convoyResults' },
@@ -222,7 +222,8 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     at: item.at,
     title: item.label + (item.sub ? ' — ' + item.sub : ''),
     kind: spec && spec.kind,
-    host: spec && spec.host,
+    host: item.at === 'rankBtn' ? 'sec-rankBtn' : spec && spec.host,
+    fullPage: item.at === 'rankBtn',
     map: spec && spec.map,
     scrollTo: spec && spec.scrollTo,
     maxHostHeight: spec && spec.maxHostHeight,
@@ -347,6 +348,15 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the mandatory 34-shot release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'nearby-competitors-f857', at: 'rankBtn',
+    title: 'F857 — compact nearby competitors and target answers',
+    host: 'sec-rankBtn', fullPage: true, freshApp: true,
+    expects: ['.ranknearby', '.ranknearby [aria-current="true"]'],
+    prep: `FIX.before('rankBtn', A, document);
+      var sec=document.getElementById('rankBtn').closest('section');
+      A.showSection(sec.id);
+      return FIX.prepare('rankBtn',{kind:'ranking',host:'rankResults'},
+        A,document,sec,1);` },
   { id: 'nuthatch-icons-f829', at: 'refreshBtn',
     title: 'F829 — Pygmy Nuthatch and Red-breasted Nuthatch icon control',
     host: 'results', scrollTo: '#results', freshApp: true, minControls: 0,
@@ -1990,11 +2000,21 @@ const BOOTSTRAP = `
           'mockprofile3': 2
         }
       }]));
-      var speciesBoard = Object.assign({}, window.FIX.rankings, {metric:'spp',period:'2026'});
+      var speciesBoard = Object.assign({}, window.FIX.rankings, {metric:'spp',period:'2026',region:'US-WA'});
       speciesBoard.rows = speciesBoard.rows.map(function (row, index) {
         return Object.assign({}, row, {profileId:'mockprofile' + index});
       });
       speciesBoard.me = speciesBoard.rows[4];
+      var neighborNames=['Morgan','Taylor','Alex','Casey','Jordan','Sample Birder',
+        'Robin','Avery','Sam','Jamie','Drew'];
+      var neighborTotals=[220,219,217,215,213,209,208,207,205,204,202];
+      speciesBoard.rows=speciesBoard.rows.slice(0,4).concat(neighborNames.map(function(name,i){
+        return {name:name,rank:177+i,species:neighborTotals[i],checklists:300,
+          profileId:i===5?'mockprofile4':'neighbor'+i};
+      }));
+      speciesBoard.me=speciesBoard.rows[9];
+      localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'mockprofile4'}));
+      speciesBoard.readAt='2026-09-03T12:00:00Z';
       var checklistRanks = [1,3,2,4,182];
       var checklistBoard = Object.assign({}, speciesBoard, {metric:'cl',
         rows:speciesBoard.rows.map(function (row, index) {
@@ -2006,6 +2026,7 @@ const BOOTSTRAP = `
       A.renderRankPair({boards:{spp:speciesBoard,cl:checklistBoard},
         failures:{},stale:{},coverage:'REPRESENTATIVE STUB DATA · Both metric boards, Washington 2026'},
         'US-WA','2026','Sample Birder');
+      sec.setAttribute('data-mock-data','true');
       var metricButtons = document.querySelectorAll('#rankResults [data-rank-metric]');
       if (metricButtons.length !== 2
           || metricButtons[0].textContent !== 'Species'
@@ -2066,9 +2087,9 @@ const BOOTSTRAP = `
       var recentThumb = firstRankRow.querySelector('.rankbirdicon .thumb');
       var recentThumbBox = recentThumb && recentThumb.getBoundingClientRect();
       var firstRowRect = firstRankRow.getBoundingClientRect();
-      if (!recentThumbBox || Math.abs(recentThumbBox.width - 32 * renderScale) > 1
-          || Math.abs(recentThumbBox.height - 32 * renderScale) > 1) {
-        throw new Error('Top 100 latest-bird icon is missing or not 32 scaled pixels');
+      if (!recentThumbBox || Math.abs(recentThumbBox.width - 56 * renderScale) > 1
+          || Math.abs(recentThumbBox.height - 56 * renderScale) > 1) {
+        throw new Error('Top 100 latest-bird icon is missing or not 56 scaled pixels');
       }
       var compactRowLimit = 86 + recentThumbBox.height - 18 * renderScale;
       if (renderScale <= 1 && firstRowRect.height > compactRowLimit) {

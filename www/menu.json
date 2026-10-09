@@ -4,7 +4,7 @@
   {"at":"allUnseenBtn","icon":"🦅","title":"Nemesis birds","subtitle":"Closest unseen birds reported now","needs":"county","group":"Buzz - Celebrity and Rare Bird News"},
   {"at":"activeBtn","icon":"🚨","title":"Twitches this week","subtitle":"Rarities this week","group":"Buzz - Celebrity and Rare Bird News","enabled":false},
   {"at":"abaBtn","icon":"🦤","title":"Mega rarities","subtitle":"ABA Code 3+ alert","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
-  {"at":"foyBtn","icon":"🗓️","title":"FOY","subtitle":"First of year birds","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
+  {"at":"foyBtn","icon":"🐣","title":"FOY Ticks","subtitle":"Recent first of the year birds","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
   {"at":"destBtn","icon":"🏞","title":"Today’s patches","subtitle":"Top hotspots to visit","needs":"geo","group":"Patches - Go birding"},
   {"at":"quickBtn","icon":"🚶","title":"Nearby Patches","subtitle":"Local hotspots and unseen targets","needs":"geo","group":"Patches - Go birding"},
   {"at":"excBtn","icon":"🚗","title":"Day trip patches","subtitle":"Hotspot excursions","needs":"geo","group":"Patches - Go birding"},

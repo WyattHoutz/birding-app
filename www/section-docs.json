@@ -35,6 +35,7 @@
         "Every category sorts by newest observation/event datetime first, including incremental paints. Category priority and stable bird/place/checklist identity break equal-time ties. Missing or invalid dates go last; date-only evidence labels unavailable time. Forecast validity and completed-night events are not made newer by refreshing.",
         "Every alert is one always-visible three-line card. The name cell contains two lines: the name alone, then a flush-left four-letter code, xN, linked place and linked compact date. The category badge begins a separate full-width explanation row below the headline cell, followed by the bold reason without a repeated written category prefix. The alert icon and relative age remain at the right.",
         "There is no feed-wide Unseen filter or ordering toggle. Personal Favorite Patch eligibility is retained; flock and place news remain useful for seen species.",
+        "Category filter buttons appear only for nonzero primary-category results and use the shared pressed-button template. They return as staged source results arrive. If the selected category disappears, the view returns to all alerts; overlapping FOY reasons do not invent an additional primary-category card.",
         "Personal status uses the exact selected Current year or All time list after duplicate species and reasons are merged. Only complete history or an explicit complete zero proves absence. Incomplete positives remain known; unknown history is neutral, not unseen. Species-blind HOTSPOT alerts have no personal status.",
         "Custom reports resolve the existing county acquisition scope before planning hotspot checklist feeds and cache keys. Independent observation results can paint while scope loads. Failed scope resolution is explicit, not not-applicable or known-empty, and county hydration does not cancel independent Mass/Favorite work.",
         "If the same species qualifies in several categories it renders once under the strongest category. Every qualifying reason remains in accessible category metadata; the visible bold third line explains the strongest category.",
@@ -144,11 +145,15 @@
         "Rows merge only by stable profile identity, never rank or display name. Without an identity match the other-board rank is n/a. One failed board leaves the other usable with partial coverage; two failures are not a verified empty board.",
         "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle.",
         "The app records one successful owner-rank snapshot per day, separated by region, period, metric, profile and identity revision because eBird cannot re-serve a past board.",
-        "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached."
+        "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached.",
+        "The app's compact target tables use only the selected Species source and a verified eBird profile ID. They show five returned birders above and below you, same-board gaps, the next-higher tie/exceed target, an available Top 100 cutoff and how many higher returned rows five more species would exceed.",
+        "Species retains up to 500 returned rows from the existing 500-result request, reusing its daily account-owned cache with Leaderboard Ticks and joining duplicate in-flight reads. The main Top 100 board stays limited to its existing presentation.",
+        "Latest-bird images are 56px before display scaling and sit immediately left of the bird name, not in the rank column."
       ],
       "limits": [
         "eBird runs a proof-of-work bot filter on some region pages. When the token cannot be resolved the field size is omitted rather than failing the section — so a missing \"of N\" means degraded, not zero.",
-        "Each published day is a dated snapshot; eBird cannot re-serve yesterday's board."
+        "Each published day is a dated snapshot; eBird cannot re-serve yesterday's board.",
+        "Nearby targets assume unchanged competitor totals and do not guarantee future ranks. Missing profile identity, gaps around the owner, stale reads and response boundaries are stated explicitly. A separately returned owner summary does not establish neighbor coverage. No larger or growing-prefix request is made for deep ranks."
       ]
     },
     "patchBtn": {
@@ -240,12 +245,15 @@
       ],
       "how": [
         "FOY remains annual in both Current year and All time personal-list modes. Personal need is labelled independently; annual first does not mean first-ever, rarity or current presence.",
+        "The heading's Unseen button hides confirmed seen birds using the selected personal list. Unknown personal history remains explicitly unknown, not confirmed unseen.",
+        "Bird cards use the Twitches image size for the selected display profile. Ten newest annual firsts render initially; the shared progressive loader adds older rows in batches of ten. Unknown or withheld dates follow dated rows.",
+        "Source region/year, publisher and read times, discovery tracking and retained-source details appear in this info dialog rather than above the birds.",
         "One regional page supplies all rows. A same-day verified list is reused; explicit refresh checks the source again. There is no per-species discovery fan-out, guessed endpoint or annual date sweep.",
         "The initial saved baseline announces no old birds. Later discoveries require a new code, a valid annual-first date no earlier than the previous verified read day, and an advancing non-future publisher timestamp.",
         "Cumulative known codes suppress historical backfills, repeat refreshes and removed/reintroduced birds. Unknown or withheld dates remain separate and cannot generate fresh alerts.",
         "Unread discoveries appear in the cache-only FOY menu badge unless report badges are hidden. Opening FOY acknowledges them only after successful rendering and durable read-back.",
-        "Bird Gen adds a distinct FOY reason to an existing matching bird alert rather than adding a duplicate. Independent flock and visit events remain separate.",
-        "Failed acquisition retains dated last-good evidence. Invalid saved history restarts a baseline without announcing old birds; failed persistence explicitly disables new discovery alerts."
+        "Bird Gen shows at most three newly learned FOY birds whose annual-first dates are within seven days, newest first. It adds a distinct FOY reason to an existing matching bird alert rather than adding a duplicate; merged FOY reasons count toward the same limit. Unknown, withheld, future and older annual dates do not qualify. Independent flock and visit events remain separate.",
+        "Failed acquisition retains dated last-good evidence. Invalid saved history restarts a baseline without announcing old birds. History writes use safe disposable-cache reclamation and one bounded retry under storage pressure, then require exact durable read-back. If persistence still fails, new discovery alerts remain explicitly disabled."
       ],
       "limits": [
         "Publisher time and acquisition time are distinct. Neither establishes observation-upload lag, and no arbitrary recent-days threshold is inferred.",
@@ -257,17 +265,18 @@
       "report": "## ☑️ Leaderboard Ticks — Newest on the board",
       "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
       "inputs": [
-        "the region's Top 100 board (each row prints that birder's most recent year tick)"
+        "the region's Species-ranked leaderboard, requesting up to 500 participants (each row prints that birder's most recent year tick)"
       ],
       "how": [
-        "The 'most recent addition' column is grouped BY SPECIES. When nine of the top hundred share the same newest bird, it is demonstrably findable now.",
+        "The 'most recent addition' column is grouped BY SPECIES. Shared additions are discovery signals; recent regional checklist observations are needed to corroborate where a bird was seen.",
         "Newest sorts by the newest returned checklist observation date once resolved, with the board tick date as provisional ordering while acquisition is pending. Nearest sorts by verified nearest-checklist distance; missing evidence is not zero.",
-        "One board only — the region's own. Pooling a national board recommends birds you cannot drive to.",
+        "One Species leaderboard request only, reused from valid cache; the Checklists-ranked board is not acquired for ticks. Use the region's own board, not a cross-region union.",
         "Each clickable bird row opens species Stakeout. Inline Newest and Nearest summaries separately label their own observation date, distance and real linked checklist ID; clicking a checklist does not open the bird row.",
         "Only Newest / Nearest and chase-distance / All controls remain. The distance restriction uses nearest verified evidence. Rows enrich progressively without rebuilding the entire list; select a sort control to reorder resolved evidence."
       ],
       "limits": [
-        "The board updates roughly daily, so a tick can be up to a day old."
+        "A leaderboard addition date is not a continued-presence guarantee or an observation acquisition timestamp.",
+        "The website's maxResults parameter is undocumented and may need to fall back to default Top 100 acquisition. Coverage reports actual returned rows, not a promised 500."
       ]
     },
     "tripBtn": {

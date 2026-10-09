@@ -242,8 +242,8 @@ const AUDIT = `<script>
       var font = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
       result.latestBirdIcons = icons.length === 2 && icons.every(function (icon) {
         var box = icon.getBoundingClientRect();
-        return Math.abs(box.width - 32 * font) < 0.5
-          && Math.abs(box.height - 32 * font) < 0.5;
+        return Math.abs(box.width - 56 * font) < 0.5
+          && Math.abs(box.height - 56 * font) < 0.5;
       });
     }
     return result;
@@ -855,8 +855,9 @@ const AUDIT = `<script>
       var visibleCards = cards.filter(function (row) { return getComputedStyle(row).display !== 'none'; });
       categoryFilter = {
         pressed: selected.getAttribute('aria-pressed') === 'true',
-        emphasized: getComputedStyle(selected).borderTopWidth === '3px',
-        checkmark: getComputedStyle(selected, '::before').content.indexOf('\u2713') >= 0,
+        emphasized: selected.classList.contains('pressbtn')
+          && getComputedStyle(selected.querySelector('.presslabel')).textDecorationLine.indexOf('underline') >= 0,
+        checkmark: getComputedStyle(selected, '::after').content.indexOf('\u2713') >= 0,
         onlyMass: visibleCards.length > 0 && visibleCards.every(function (row) {
           return row.getAttribute('data-alert-kind') === 'mass';
         }),
@@ -1146,13 +1147,64 @@ const AUDIT = `<script>
           recent:'American Golden-Plover (Oct. 1, 2026)'}
       ]},'US-WA','https://ebird.org/top100','');
       out.push(scan('(F851 compact Top100)'));
+      var previousIdentity=localStorage.getItem(A.IDENTITY_META_KEY);
+      localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'F857-owner'}));
+      var neighborRows=[220,219,217,215,213,209,208,207,205,204,202].map(function(species,i){
+        return {rank:177+i,name:i===5?'You':'Representative birder '+i,species:species,
+          profileId:i===5?'F857-owner':'F857-'+i,checklists:100};
+      });
+      neighborRows=[
+        {rank:1,name:'Top birder',species:356,checklists:484,
+          recent:'Common Ringed Plover (Oct. 1, 2026)'},
+        {rank:100,name:'Cutoff birder',species:250,checklists:800,
+          recent:'American Golden-Plover (Oct. 1, 2026)'}
+      ].concat(neighborRows);
+      A.renderRankPair({boards:{spp:{region:'US-WA',period:'2026',metric:'spp',
+        rows:neighborRows,me:neighborRows[7],readAt:'2026-10-09T12:00:00Z'}},
+        failures:{},stale:{},coverage:'REPRESENTATIVE DATA'},
+        'US-WA','2026','You');
+      document.querySelector('#rankResults [data-rank-metric="spp"]').click();
+      var nearbyScan=scan('(F857 compact neighbor tables)');
+      var neighborPanel=document.querySelector('.ranknearby');
+      nearbyScan.nearbyRows=neighborPanel.querySelectorAll(
+        '[aria-label="Five birders above and below you"] tbody tr').length;
+      out.push(nearbyScan);
+      if(previousIdentity===null) localStorage.removeItem(A.IDENTITY_META_KEY);
+      else localStorage.setItem(A.IDENTITY_META_KEY,previousIdentity);
+      A.showSection('sec-destBtn');
+      var wrapCard=A.hotspotCard({n:1,locId:'L-WRAP',locName:'Representative patch',
+        distMi:6.1,species:[],seenSpecies:[]});
+      wrapCard.querySelector('.hslists').innerHTML=A.speciesListHtml([
+        {code:'wesgre',comName:'Western Grebe',count:2,dateStr:'2026-10-07 14:00',
+          tag:'<span class="watchflag">WATCH</span>'},
+        {code:'amepip',comName:'American Pipit',count:3,dateStr:'2026-10-08 07:21',
+          tag:'<span class="watchflag">WATCH</span>'},
+        {code:'gresca',comName:'Greater Scaup',count:3,dateStr:'2026-10-08 13:18',
+          tag:'<span class="watchflag">WATCH</span>'}
+      ]);
+      document.getElementById('destResults').replaceChildren(wrapCard);
+      var wrapping=scan('(F865 patch unseen names)');
+      wrapping.patchNames=[].map.call(wrapCard.querySelectorAll('.ntext > a.splink'),function(link){
+        var range=document.createRange();range.selectNodeContents(link);
+        var lines=new Set([].map.call(range.getClientRects(),function(r){return r.top;})).size;
+        var style=getComputedStyle(link), canvas=document.createElement('canvas').getContext('2d');
+        canvas.font=style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+        return {name:link.textContent,display:style.display,lines:lines,
+          required:canvas.measureText(link.textContent).width,
+          available:link.parentNode.getBoundingClientRect().width};
+      });
+      out.push(wrapping);
       A.showMenu();
       var savedPeriod = localStorage.getItem(A.PERSONAL_PERIOD_KEY);
       var savedName = localStorage.getItem('ebird_display_name');
       var savedRanks = localStorage.getItem(A.RANK_CACHE_KEY);
       var sampleName = 'Sample Observer with a long display name';
       localStorage.setItem('ebird_display_name', sampleName);
-      ['current', 'all', 'unavailable'].forEach(function (mode) {
+      ['current', 'all', 'unavailable', 'current-short', 'all-short', 'unavailable-short'].forEach(function (mode) {
+        var shortName = /-short$/.test(mode);
+        mode = mode.replace(/-short$/, '');
+        sampleName = shortName ? 'Birder Wyatt' : 'Sample Observer with a long display name';
+        localStorage.setItem('ebird_display_name', sampleName);
         localStorage.setItem(A.PERSONAL_PERIOD_KEY, mode === 'all' ? 'all' : 'current');
         var period = A.personalBoardPeriod();
         if (mode === 'unavailable') localStorage.removeItem(A.RANK_CACHE_KEY);
@@ -1195,11 +1247,12 @@ const AUDIT = `<script>
           spacingSaved:spacedHeight - compactHeight,
           twoRows:name.top >= Math.max(brand.bottom, scope.bottom, periodBox.bottom) - 1,
           nameWidth:name.width,
-          evenlySpaced: cellBoxes.every(function (cell) {
-            return Math.abs(cell.width - cellBoxes[0].width) < 1;
-          }),
+          nameClipped:identity.querySelector('.hdrname').scrollWidth > name.width + 1,
+          displayName:sampleName,
+          justified: getComputedStyle(identity).justifyContent === 'space-between',
           fullWidth: Math.abs(cellBoxes[0].left - identityBox.left) < 1
-            && Math.abs(cellBoxes[3].right - identityBox.right) < 1,
+            && Math.abs(Math.max.apply(null,cellBoxes.map(function(b){return b.right;}))
+              - identityBox.right) < 1,
           compact: getComputedStyle(document.querySelector('header')).paddingBottom === '0px'
             && getComputedStyle(document.querySelector('header')).rowGap === '0px',
           fullCounts:[].every.call(identity.querySelectorAll('.hdrcount span'), function (span) {
@@ -1558,15 +1611,33 @@ const AUDIT = `<script>
             });
             A.renderFoy({snapshot:foySnapshot,record:null,saved:true,initial:true});
             var foy = scan('(F815 populated annual-first cards)');
+            var foyPhotoGeometry = [];
+            profiles.forEach(function (profileName) {
+              A.setDisplayProfile(profileName);
+              A.showSection(document.getElementById('refreshBtn').closest('section').id);
+              var twitchPhoto = document.querySelector('#results li.twitchcard .thumb');
+              var twitchBox = twitchPhoto.getBoundingClientRect();
+              A.showSection('sec-foyBtn');
+              A.renderFoy({snapshot:foySnapshot,record:null,saved:true,initial:true});
+              var foyBox = document.querySelector('#foyBirds li.twitchcard .thumb').getBoundingClientRect();
+              foyPhotoGeometry.push({profile:profileName,twitchWidth:twitchBox.width,
+                foyWidth:foyBox.width,twitchHeight:twitchBox.height,foyHeight:foyBox.height});
+            });
+            A.setDisplayProfile(originalProfile);
             foy.foyGeometry = {
-              rows:document.querySelectorAll('#foyResults .obs > li').length,
+              rows:document.querySelectorAll('#foyResults li.twitchcard').length,
               mediumLists:document.querySelectorAll('#foyResults .card-md').length,
-              largeLists:document.querySelectorAll('#foyResults .card-lg').length
+              largeLists:document.querySelectorAll('#foyResults .card-lg').length,
+              photoParity:foyPhotoGeometry
             };
             if (foy.foyGeometry.rows !== 3
                 || !/Date and location withheld/.test(document.getElementById('foyResults').textContent)) {
               foy.fixtureError = 'FOY layout fixture did not render dated and withheld evidence.';
             }
+            if (foyPhotoGeometry.some(function (p) {
+              return p.foyWidth <= 0 || Math.abs(p.foyWidth-p.twitchWidth)>1
+                || Math.abs(p.foyHeight-p.twitchHeight)>1;
+            })) foy.fixtureError = 'FOY photo dimensions differ from Twitches.';
             out.push(foy);
             A.showMenu();
             ['county', 'aba'].forEach(function (scopeMode) {
@@ -1887,7 +1958,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
       + ' (' + SCALE + 'x)\n');
-    if (report.filter((r) => r.personalHeader).length !== 3) {
+    if (report.filter((r) => r.personalHeader).length !== 6) {
       bad++;
       console.log('   F805/F812 FIXTURE missing Current year / All time header geometry');
     }
@@ -1909,7 +1980,7 @@ server.listen(0, '127.0.0.1', () => {
         const header = r.personalHeader;
         console.log('   F852/F853 HEADER GEOMETRY ' + JSON.stringify(header));
         if (!header.twoRows || header.nameWidth <= 0 || !header.periodFirst
-            || !header.evenlySpaced || !header.fullWidth || !header.compact || !header.fullCounts
+            || !header.justified || header.nameClipped || !header.fullWidth || !header.compact || !header.fullCounts
             || header.basis !== (header.mode === 'all' ? 'All Time' : String(new Date().getFullYear()))
             || header.region !== 'US-WA' || !header.separated || Math.abs(header.rowGap) > 1
             || Math.abs(header.spacingSaved - 12) > 1
@@ -1921,6 +1992,12 @@ server.listen(0, '127.0.0.1', () => {
           bad++;
           console.log('   F805/F812 HEADER controls, basis or two-row geometry failed: '
             + JSON.stringify(header));
+        }
+      }
+      if(r.patchNames){
+        console.log('   F865 PATCH NAME FIT '+JSON.stringify(r.patchNames));
+        if(r.patchNames.length!==3 || r.patchNames.some(p=>p.required<=p.available && p.lines!==1)){
+          bad++;console.log('   F865 patch names wrap before using available width');
         }
       }
       if (r.label === '(contents menu)') {
@@ -2193,9 +2270,9 @@ server.listen(0, '127.0.0.1', () => {
           bad++;
           console.log('   F790 shared Mega Group/card/top-bar contract failed');
         }
-        if (r.foyGeometry) {
-          console.log('   F815 ADAPTIVE CARDS ' + JSON.stringify(r.foyGeometry));
-        }
+      }
+      if (r.foyGeometry) {
+        console.log('   F861 ADAPTIVE CARDS ' + JSON.stringify(r.foyGeometry));
       }
       if (r.twitchGeometry) {
         var geometry = r.twitchGeometry;
@@ -2235,8 +2312,11 @@ server.listen(0, '127.0.0.1', () => {
           layoutProblems.push('F839 internal card readability: '
             + JSON.stringify(layout.cardReadability));
         }
+        if (r.nearbyRows != null && r.nearbyRows !== 11) {
+          layoutProblems.push('F857 compact neighborhood lost its eleven source rows');
+        }
         if (layout.latestBirdIcons === false) {
-          layoutProblems.push('Top 100 latest-bird icons must match the readable 32px scaled size');
+          layoutProblems.push('Top 100 latest-bird icons must match the readable 56px scaled size');
         }
         if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
         if (layout.emptyMinHeight > 0.5) {

@@ -66,7 +66,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
+    ['nearby-competitors-f857', 'nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
     'stakeoutchecklists-progressive', 'stakeoutmixed-f634', 'stakeoutpins-f837',
     'stakeoutspts-notes-off', 'stakeoutspts-notes-on', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
@@ -402,7 +402,7 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the unified Day trip release shot does not identify its selected range and completed plan');
 });
 
-test('F856 gallery guards require visible checklist evidence and scaled 32px bird icons', () => {
+test('F856 gallery guards require visible checklist evidence and scaled 56px bird icons', () => {
   assert.match(source, /renderScale = Number\(document\.defaultView\.getComputedStyle\([\s\S]*?getPropertyValue\('--s'\)\)/,
     'geometry must use the selected app profile, not the legacy renderer argument');
   const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
@@ -414,7 +414,7 @@ test('F856 gallery guards require visible checklist evidence and scaled 32px bir
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
   for (const dimension of ['width', 'height']) {
-    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - 32 * renderScale) > 1`),
+    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - 56 * renderScale) > 1`),
       `gallery does not measure ${dimension} against the scaled F851 icon size`);
   }
   assert.match(rank, /compactRowLimit = 86 \+ recentThumbBox\.height - 18 \* renderScale/);

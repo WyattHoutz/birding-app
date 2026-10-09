@@ -134,11 +134,11 @@
     },
     {
       "at": "foyBtn",
-      "label": "🗓️ FOY",
+      "label": "🐣 FOY Ticks",
       "report": null,
       "map": null,
       "why": "F815 app-only: discovery history is owned by the device profile, exact region and calendar year. The archived report cannot establish that reader's first saved baseline, acknowledge discoveries or suppress repeated in-app alerts. Annual-first interpretation remains shared and parity-tested.",
-      "sub": "First of year birds"
+      "sub": "Recent first of the year birds"
     },
     {
       "at": "lastNewBtn",

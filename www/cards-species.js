@@ -42,7 +42,7 @@
 
   var SMALL = [
     '<li class="{{cls}}"{{attrs}}>',
-    '  <div class="name">{{icon}}<span class="ntext">{{name}}{{tags}}{{actions}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
+    '  <div class="name">{{icon}}<span class="ntext">{{name}}<wbr>{{tags}}{{actions}}{{count}}{{when}}{{code}}{{sub}}</span>{{right}}</div>',
     '  {{below}}',
     '</li>'
   ].join('');

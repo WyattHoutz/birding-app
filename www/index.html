@@ -795,14 +795,16 @@
     header > .hdrid,
     html[data-display="large"] header > .hdrid,
     html[data-display="high-visibility"] header > .hdrid {
-      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      display: flex; flex-wrap: wrap; justify-content: space-between;
       grid-column: 1 / -1; grid-row: 2; min-width: 0;
       align-items: center; gap: 8px; margin: 0; padding: 0; text-align: center;
     }
     header .hdrid .hdrname,
     html[data-display="large"] header .hdrid .hdrname,
     html[data-display="high-visibility"] header .hdrid .hdrname {
-      display: block; flex: 1 1 0; min-width: 0; font-size: calc(15px * var(--s));
+      display: block; flex: 0 1 auto; min-width: 0; max-width: 100%;
+      font-size: calc(15px * var(--s)); overflow: visible; text-overflow: clip;
+      white-space: normal; overflow-wrap: anywhere;
     }
     header .hdrid .hdrstat,
     html[data-display="large"] header .hdrid .hdrstat,
@@ -2270,15 +2272,6 @@
     .surgehidden { color: var(--muted); font-size: calc(12px * var(--s));
                    font-weight: 700; }
     .surgecounts { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
-    .surgecount { border: 1px solid var(--line); border-radius: var(--btn-radius-pill);
-                  padding: 3px 7px; color: var(--muted); background: var(--card);
-                  min-height: 44px; cursor: pointer;
-                  font-size: calc(11px * var(--s)); line-height: 1.15; white-space: nowrap; }
-    .surgecount[aria-pressed="true"] {
-      border-width: 3px; border-style: solid; border-color: var(--safe-blue); font-weight: 800;
-    }
-    .surgecount[aria-pressed="true"]::before { content: '\2713 '; }
-    .surgecount b { color: var(--ink); font-variant-numeric: tabular-nums; }
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
     .surgefeed.obs.card-sm > li > .name { align-items: flex-start; gap: 10px; }
@@ -2872,7 +2865,13 @@
                                 height: calc(32px * var(--s)); border-radius: 6px; }
     .rankrow .rankbirdicon { display: inline-block; vertical-align: middle; margin-right: 4px; }
     .rankrow .rankbirdicon .thumb { float: none; display: block; margin: 0;
-      width: calc(32px * var(--s)); height: calc(32px * var(--s)); border-radius: 4px; }
+      width: calc(56px * var(--s)); height: calc(56px * var(--s)); border-radius: 4px; }
+    .rankrow .rankbirdline .rankbirdicon { float: left; margin: 0 6px 0 0; }
+    .ranknearby table { width: 100%; border-collapse: collapse; font-size: .875em; }
+    .ranknearby th, .ranknearby td { padding: 5px 3px; border-bottom: 1px solid var(--line);
+      text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .ranknearby .ranknumber { text-align: right; white-space: nowrap; }
+    .ranknearby [aria-current="true"] { font-weight: bold; border-left: 3px solid var(--safe-blue); }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
@@ -2964,7 +2963,7 @@
       font-style: italic; color: var(--muted);
     }
     .rankrow.hscard-md .wholine { font-size: calc(19px * var(--s)); font-weight: 600; }
-    .rankrow.hscard-md .rankbirdline { display: block; font-size: calc(14px * var(--s)); }
+    .rankrow.hscard-md .rankbirdline { display: flow-root; font-size: calc(14px * var(--s)); }
     .rankrow.hscard-md .rankbirdline a.splink { font-size: inherit; font-weight: 700; text-decoration: none; }
     .rankrow.hscard-md .hsdist .spmetric {
       font-size: calc(15px * var(--s)); font-weight: 400; color: var(--muted);
@@ -3878,9 +3877,11 @@
     </section>
 
     <section class="panel">
-      <h2>🗓️ FOY</h2>
+      <h2>🐣 FOY Ticks</h2>
+      <button id="foyUnseenBtn" class="pressbtn" type="button"
+        aria-pressed="false" aria-label="Unseen birds"><span class="pressicon" aria-hidden="true">🔍</span><span class="presslabel vh">Unseen birds</span></button>
       <div class="row"><button id="foyBtn">Refresh annual firsts</button></div>
-      <div id="foyStatus" class="status">Selected-region annual firsts, not personal ticks or proof of current presence.</div>
+      <div id="foyStatus" class="status" role="status" hidden></div>
       <div id="foyResults"></div>
     </section>
 
@@ -4360,9 +4361,9 @@
   },
   {
     "at": "foyBtn",
-    "icon": "🗓️",
-    "title": "FOY",
-    "subtitle": "First of year birds",
+    "icon": "🐣",
+    "title": "FOY Ticks",
+    "subtitle": "Recent first of the year birds",
     "needs": "geo",
     "group": "Buzz - Celebrity and Rare Bird News"
   },
@@ -4812,7 +4813,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.145.1';
+      var APP_VERSION = '1.146.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -26488,6 +26489,9 @@
       }
 
       // top100 URL, mirroring rankings.py REGIONS query construction.
+      // maxResults is undocumented for the Top 100 website. If eBird stops
+      // honoring it, acquisition may need to omit it and fall back to Top 100;
+      // always describe the returned coverage, not the requested depth.
       function rankingsUrl(region, year, maxResults, metric) {
         metric = metric === 'cl' ? 'cl' : 'spp';
         var reg = String(region || '').trim(), low = reg.toLowerCase(), q;
@@ -26504,7 +26508,7 @@
       // Ported from rankings.py (_RANK_RE/_NAME_RE/_COUNT_RE/_RECENT_RE,
       // _parse_row, _find_user). Injected into the eBird page, so it must be
       // self-contained (no closure refs).
-      function parseRankingsHTML(html, displayName) {
+      function parseRankingsHTML(html, displayName, rowLimit) {
         // eBird's top100 page names its own region in the canonical link (and in
         // a hidden region input). Reading it back is the only way to be sure the
         // rows are the board we asked for: a session redirect, a cached page or
@@ -26547,7 +26551,7 @@
         // Slice to the board size, never to rows.length: eBird appends YOUR row
         // after the hundredth even when you are ranked #211, so an unsliced list
         // renders a stray 101st entry that is not on the board.
-        return { rows: rows.slice(0, TOP_BOARD_N), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
+        return { rows: rows.slice(0, rowLimit || TOP_BOARD_N), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
       }
 
       function rankPageIdentity(html) {
@@ -27226,13 +27230,14 @@
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
       // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
-      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric) {
+      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric, rowLimit) {
         return '(function(){try{if(!window.mobileApp)return;' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
           'var onPage=/\\/top100/.test(location.pathname);' +
           parseRankingsHTML.toString() + ';' +
           'var TOP_BOARD_N=100;' + rankPageIdentity.toString() + ';' +
-          'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ');' +
+          'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ','
+            + JSON.stringify(rowLimit || 100) + ');' +
           'var source=rankPageIdentity(H);R.metric=source.metric;R.period=source.period;' +
           'var want=' + JSON.stringify(String(expectRegion || '')) + ';' +
           // Being ON a top100 page is not enough. eBird can land us on a
@@ -27809,7 +27814,9 @@
       function rankCacheOwnerKey(rr, period, name) {
         var profile = typeof rr.ownerProfile === 'string' ? rr.ownerProfile : bcProfile();
         var revision = typeof rr.ownerRevision === 'number' ? rr.ownerRevision : identityRevision();
-        return [rr.region, period, rr.max || 500, name, rr.metric || 'spp', profile, revision].join('|');
+        var key = [rr.region, period, rr.max || 500, name, rr.metric || 'spp', profile, revision].join('|');
+        // Legacy board caches retain only 100 rows even when 500 were requested.
+        return rr.rowLimit ? key + '|rows:' + rr.rowLimit : key;
       }
       function rankLastGood(rr, period, name) {
         try {
@@ -27831,6 +27838,7 @@
         var ck = rankCacheOwnerKey(rr, year, name);
         var hit = rankCacheGet(ck);
         if (!force && rankSourceMatches(hit, rr.region, year, metric)) return Promise.resolve(hit);
+        if (!force && _rankFetchInflight[ck]) return _rankFetchInflight[ck];
         var generation = (_rankFetchGeneration[ck] || 0) + 1;
         _rankFetchGeneration[ck] = generation;
         var urls = rankingsUrlVariants(rr.region, year, rr.max, metric), lastErr = null;
@@ -27839,7 +27847,7 @@
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
           return fetchPublicHTML(urls[i], force).then(function (html) {
             if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
-            var data = parseRankingsHTML(html, name) || {};
+            var data = parseRankingsHTML(html, name, rr.rowLimit) || {};
             var source = rankPageIdentity(html);
             data.metric = source.metric; data.period = source.period; data.profile = profile;
             data.ownerRevision = rr.ownerRevision;
@@ -27885,8 +27893,13 @@
             return attempt(i + 1);
           });
         }
-        return attempt(0);
+        var work = attempt(0).finally(function () {
+          if (_rankFetchInflight[ck] === work) delete _rankFetchInflight[ck];
+        });
+        _rankFetchInflight[ck] = work;
+        return work;
       }
+      var _rankFetchInflight = {};
       // The report prints "#210 of 13,303" — the rank alone says nothing about
       // the size of the field it is a rank in. Ported from
       // rankings.py::ebirder_count/_web_api_key: the count endpoint rejects a
@@ -28417,7 +28430,7 @@
           if (!ibAvail() || !rankRequestCurrent(rr)) throw e;
           dbg('warn', 'rankings ' + metric + ' direct read failed; trying the same eBird board');
           return captureEbird({ url: url, alive: function () { return rankRequestCurrent(rr); }, buildInject: function () {
-            return buildRankInject(name, rr.region, period, metric);
+            return buildRankInject(name, rr.region, period, metric, rr.rowLimit);
           }, onStatus: onStatus }).then(function (data) {
             if (!rankSourceMatches(data, rr.region, period, metric)
                 || !data.rows || !data.rows.length) {
@@ -28432,13 +28445,15 @@
           });
         });
       }
-      function fetchRankPair(rr, period, name, force, onStatus) {
+      function fetchRankPair(rr, period, name, force, onStatus, metrics) {
         rr = ownedRankRequest(rr);
+        metrics = metrics || ['spp', 'cl'];
         var pair = { boards: {}, failures: {}, stale: {}, coverage: '' };
-        return ['spp', 'cl'].reduce(function (work, metric) {
+        return metrics.reduce(function (work, metric) {
           return work.then(function () {
             if (!rankRequestCurrent(rr)) throw new Error('Account changed during leaderboard acquisition.');
-            var request = Object.assign({}, rr, { metric: metric });
+            var request = Object.assign({}, rr, { metric: metric,
+              rowLimit: metric === 'spp' ? (rr.rowLimit || 500) : undefined });
             return rankBoardRead(request, period, name, force, onStatus)
               .then(function (data) { pair.boards[metric] = data; })
               .catch(function (e) {
@@ -28453,12 +28468,16 @@
           });
         }, Promise.resolve()).then(function () {
           var failed = Object.keys(pair.failures);
-          pair.coverage = failed.length ? (failed.length === 2
-            ? 'Both board acquisitions failed: ' : 'Partial coverage: ') + failed.map(function (metric) {
+          pair.coverage = failed.length ? (failed.length === metrics.length
+            ? (metrics.length === 2 ? 'Both board acquisitions failed: ' : 'Leaderboard acquisition failed: ')
+            : 'Partial coverage: ') + failed.map(function (metric) {
             var label = metric === 'cl' ? 'Checklists' : 'Species';
             return label + (pair.stale[metric] ? ' stale, read ' + pair.stale[metric] : ' unavailable')
               + ' (' + pair.failures[metric] + ')';
-          }).join('; ') : 'Species and Complete checklists boards verified for the same region and period.';
+          }).join('; ') : (metrics.length === 1
+            ? 'Species board verified for the selected region and period; '
+              + pair.boards.spp.rows.length + ' participant rows returned.'
+            : 'Species and Complete checklists boards verified for the same region and period.');
           return pair;
         });
       }
@@ -28471,6 +28490,13 @@
           $('rankResults').innerHTML = '<p class="hint">' + esc(_rankMetric === 'cl' ? 'Checklists' : 'Species')
             + ' board unavailable. ' + esc(pair.failures[_rankMetric] || 'No verified source.')
             + ' Refresh to retry or select the other metric.</p>';
+        }
+        if (_rankMetric === 'spp') {
+          var nearby = document.createElement('div');
+          nearby.className = 'ranknearby';
+          nearby.innerHTML = rankNearbyHTML(pair.boards.spp, region, period, name,
+            pair.stale && pair.stale.spp);
+          $('rankSummary').prepend(nearby);
         }
         var coverage = document.createElement('p');
         coverage.className = 'hint rankcoverage';
@@ -28523,7 +28549,7 @@
         // and only fall back to the in-app login flow if the public page can't
         // be read. Goes through fetchRank so the day-cache is shared with the
         // multi-region summary below and the same page is never fetched twice.
-        return fetchRankPair({ key: rr.key, region: region, max: max }, year, name, force, function (m) {
+        return fetchRankPair({ key: rr.key, region: region, max: max, rowLimit: 500 }, year, name, force, function (m) {
           if (generation === _rankLoadGeneration && getRankScope().region === region && bcProfile() === owner) st.textContent = m;
         }).then(function (pair) {
             if (generation !== _rankLoadGeneration || getRankScope().region !== region || bcProfile() !== owner
@@ -28544,6 +28570,84 @@
               + ' ' + extA(url, 'View on eBird');
           })
           .finally(function () { if (generation === _rankLoadGeneration) btn.disabled = false; });
+      }
+
+      function rankNearbyHTML(data, region, period, name, stale) {
+        var unavailable = '<p class="hint">Nearby competitors unavailable: ';
+        if (!rankSourceMatches(data, region, period, 'spp')
+            || (data.profile != null && data.profile !== bcProfile())
+            || (data.ownerRevision != null && data.ownerRevision !== identityRevision())) {
+          return unavailable + 'no verified Species board for this account, region and period.</p>';
+        }
+        var rows = data.rows || [], meta = getIdentityMeta();
+        if (rows.some(function (row) {
+          return !row || !Number.isInteger(row.rank) || row.rank < 1
+            || !Number.isInteger(row.species) || row.species < 0;
+        })) return unavailable + 'the returned ranks or species totals are invalid.</p>';
+        var profile = meta && meta.profileId;
+        var me = profile && rows.find(function (row) { return row.profileId === profile; });
+        var own = me || (profile && data.me && data.me.profileId === profile ? data.me : null);
+        var coverage = '<p class="hint">' + esc(rankRegionName(region)) + ' · Species · '
+          + esc(period) + ' · ' + rows.length + ' rows returned'
+          + (data.readAt ? ' · read ' + esc(data.readAt) : ' · read time unavailable')
+          + (stale ? ' · STALE — refresh failed' : '') + '</p>';
+        if (!own || !Number.isInteger(own.species) || own.species < 0
+            || !Number.isInteger(own.rank) || own.rank < 1) {
+          return coverage + unavailable + 'fetch your signed-in eBird profile to verify your row. '
+            + 'Display names alone are not used to select neighbors.</p>';
+        }
+        var answers = [['Your standing', '#' + rankNum(own.rank) + ' · ' + own.species + ' species']];
+        function target(label, total) {
+          answers.push([label, total + ' sp. · +' + (total - own.species)
+            + ' tie / +' + (total - own.species + 1) + ' exceed']);
+        }
+        var index = rows.indexOf(me);
+        var windowRows = index < 0 ? [] : rows.slice(Math.max(0, index - 5), index + 6);
+        var contiguous = windowRows.every(function (row, i) {
+          if (!i) return true;
+          var previous = windowRows[i - 1], tied = 1;
+          for (var j = i - 2; j >= 0 && windowRows[j].rank === previous.rank; j--) tied++;
+          return row.rank >= previous.rank && row.rank <= previous.rank + tied
+            && row.species <= previous.species;
+        });
+        if (index >= 0) {
+          var higher = rows.slice(0, index).filter(function (row) {
+            return Number.isInteger(row.species) && row.species > own.species;
+          });
+          if (!contiguous) answers.push(['Next higher total', 'Unavailable: gaps in returned rows']);
+          else if (higher.length) target('Next higher total', higher[higher.length - 1].species);
+          else answers.push(['Next higher total', 'No higher total in returned coverage']);
+          var cutoff = rows.find(function (row) { return row.rank === 100; });
+          if (cutoff && cutoff.species > own.species) target('Top 100 cutoff', cutoff.species);
+          else answers.push(['Top 100 cutoff', own.rank <= 100 ? 'Already in Top 100'
+            : 'Unavailable in returned coverage']);
+          answers.push(['If you add 5', (own.species + 5) + ' sp. · exceed '
+            + higher.filter(function (row) { return row.species < own.species + 5; }).length
+            + ' higher birders in returned coverage']);
+        }
+        var html = coverage + '<table aria-label="Leaderboard target answers"><tbody>'
+          + answers.map(function (answer) {
+            return '<tr><th scope="row">' + esc(answer[0]) + '</th><td>' + esc(answer[1]) + '</td></tr>';
+          }).join('') + '</tbody></table>';
+        if (index < 0) return html + unavailable
+          + 'your standing is known, but your row is outside the returned competitor table.</p>';
+        if (!contiguous) return html + unavailable
+          + 'there are gaps around your row in returned coverage. Open the board in eBird.</p>';
+        html += '<table aria-label="Five birders above and below you"><thead><tr>'
+          + '<th scope="col">Rank</th><th scope="col">Birder</th>'
+          + '<th scope="col" class="ranknumber">Species</th><th scope="col" class="ranknumber">Gap</th>'
+          + '</tr></thead><tbody>' + windowRows.map(function (row) {
+            var mine = row === me, gap = row.species - own.species;
+            return '<tr' + (mine ? ' aria-current="true"' : '') + '><td>#' + esc(rankNum(row.rank))
+              + '</td><td>' + (mine ? 'You' : esc(row.name)) + '</td><td class="ranknumber">'
+              + esc(row.species) + '</td><td class="ranknumber">'
+              + (mine ? '—' : gap > 0 ? '+' + gap : String(gap)) + '</td></tr>';
+          }).join('') + '</tbody></table><p class="hint">Gap = their species minus yours. '
+          + 'Snapshot targets assume unchanged totals; they do not guarantee future ranks.'
+          + (index < 5 ? ' Fewer than five higher rows are available.' : '')
+          + (index + 5 >= rows.length ? ' Lower neighbors may be truncated by returned coverage; '
+            + 'this does not establish that you are last.' : '') + '</p>';
+        return html;
       }
 
       function renderRankings(data, region, url, name) {
@@ -29662,13 +29766,15 @@
         // *Washington* chase board — birds no one can chase from here. A shared
         // newest tick only means "go get it" if the birders are birding here.
         _lastNewCoverage = '';
-        return fetchRankPair({ key: rr.key, region: rr.region, max: rr.max || 500 }, year, name, false)
+        // maxResults is undocumented; if unsupported, this may need to fall
+        // back to eBird's default Top 100. Report actual rows, never promise 500.
+        return fetchRankPair({ key: rr.key, region: rr.region, max: 500, rowLimit: 500 }, year, name, false, undefined, ['spp'])
           .then(function (pair) {
           if (!current()) return;
           var union = rankTickGroups(pair), groups = union.groups;
           _lastNewCoverage = pair.coverage + (union.ambiguous
             ? ' Stable profile identity unavailable for ' + union.ambiguous
-              + ' source rows. Cross-board names are not merged or counted as independent corroboration.' : '');
+              + ' source rows. Names alone are not counted as independent corroboration.' : '');
           var species = Object.keys(groups);
           if (!species.length) {
             st.textContent = Object.keys(pair.failures).length ? pair.coverage
@@ -29677,7 +29783,7 @@
           }
           // Paint the BOARD before the checklists. Everything above was derived
           // from one leaderboard read that has already returned: which birds,
-          // how many of the top 100 got each, when, and who. The ~46 per-species
+          // how many returned participants got each, when, and who. The per-species
           // checklist feeds behind it are paced against eBird's real rate limit
           // and take minutes — so waiting for them meant staring at a status
           // line while the answer sat in memory.
@@ -29809,7 +29915,7 @@
         if (!/^US-[A-Z]{2}/.test(region)) return Promise.resolve({});
         var key = region + ':' + todayStr();
         if (_lastNewCodes[key]) return _lastNewCodes[key];
-        progressStage('Naming the birds the top 100 just added', 0, 1, 2);
+        progressStage('Naming the birds the leaderboard participants just added', 0, 1, 2);
         _lastNewCodes[key] = ebird('data/obs/' + encodeURIComponent(region) + '/recent?back=30&detail=full&includeProvisional=true&maxResults=10000')
           .catch(function () { return []; })
           .then(function (obs) {
@@ -35765,7 +35871,9 @@
       function foyHistoryWrite(ctx, record) {
         try {
           var text = JSON.stringify(record);
-          localStorage.setItem(foyKey(ctx), text);
+          if (!storeWithReclaim(foyKey(ctx), text)) {
+            throw new Error('Device storage could not save discovery history after safe cache recovery.');
+          }
           if (localStorage.getItem(foyKey(ctx)) !== text) {
             throw new Error('The saved discovery history could not be read back.');
           }
@@ -35857,11 +35965,18 @@
         });
         return work.promise;
       }
+      var _foyUnseen = false, _foyPaintGeneration = 0;
       function renderFoy(result) {
         var box = $('foyResults'), status = $('foyStatus'), ctx = foyContext();
+        var generation = ++_foyPaintGeneration, scope = activeScope();
+        var navigation = _navGeneration, privacy = _identityGeneration;
+        var cancellation = _workCancelGeneration;
+        var section = box.closest('section');
         var value = result && result.snapshot;
         if (!firstYearSourceMatches(value, ctx.region, ctx.year)) {
           box.innerHTML = '';
+          setSectionNote(section, '');
+          status.hidden = false;
           status.textContent = result && result.error
             || 'No verified annual-first list is available for ' + ctx.label + ' ' + ctx.year + '.';
           return;
@@ -35897,26 +36012,60 @@
           if (dated && row.locName) parts.push(locLink(row.locName, null, null, row.locId, row.isPrivate));
           if (discovery) parts.push('Newly learned since the verified list read '
             + esc(fmtDate(discovery.previousReadDate)) + '; not necessarily a current sighting.');
-          return SpeciesCards.medium({
-            icon: photoSlot(row.name, row.code), name: speciesLink(row.name, row.code),
+          var large = largeBirdReportList({cls:'twitchcard'});
+          return (large ? SpeciesCards.large : SpeciesCards.medium)({
+            cls: 'twitchcard',
+            icon: large ? heroSlot(row.name, row.code) : photoSlot(row.name, row.code),
+            name: speciesLink(row.name, row.code),
             code: row.code, alpha: alphaFor(row.code), sci: row.sci,
-            tags: needTag(row.code, row.name),
+            tags: large ? '' : needTag(row.code, row.name),
+            statusLine: large ? needTag(row.code, row.name) : '',
             lead: dated ? fmtDate(row.date) : 'unknown', leadUnit: dated ? 'annual first' : 'date',
             sub: parts.join(' · ')
           });
         }
-        if (evidence.dated.length) html += SpeciesCards.list('medium',
-          evidence.dated.map(function (row) { return card(row, true); }), 'icon-sm');
-        if (evidence.undated.length) html += '<div class="rankhead"><b>Unknown or withheld dates</b></div>'
-          + SpeciesCards.list('medium', evidence.undated.map(function (row) {
-            return card(row, false);
-          }), 'icon-sm');
-        if (!value.rows.length) html += '<div class="status">Verified empty annual-first list.</div>';
-        box.innerHTML = html;
-        hydratePhotos(box);
-        status.textContent = value.rows.length + ' Native/Naturalized species · '
+        var membership = personalListEvidence();
+        var rows = evidence.dated.map(function (row) { return {row:row,dated:true}; })
+          .concat(evidence.undated.map(function (row) { return {row:row,dated:false}; }));
+        var unknown = 0;
+        rows = rows.filter(function (item) {
+          if (!_foyUnseen) return true;
+          var seen = personalMembership(membership, item.row.code, item.row.name);
+          if (seen === null) unknown++;
+          return seen !== true && BL.countableTaxon(item.row.name);
+        });
+        if (_foyUnseen && unknown) html += '<div class="hint">'
+          + unknown + ' birds have unknown personal history; they are not confirmed unseen.</div>';
+        html += '<div class="hint">' + rows.length + ' displayed · '
+          + value.rows.length + ' Native/Naturalized species · '
           + evidence.dated.length + ' dated annual firsts · ' + evidence.undated.length
-          + ' unknown dates' + (result.retained ? ' · retained source' : '') + '.';
+          + ' unknown dates' + (result.retained ? ' · retained source' : '') + '.</div>';
+        setSectionNote(section, html);
+        if (!window.ProgressiveList) throw new Error('The progressive list control is unavailable.');
+        $('foyUnseenBtn').setAttribute('aria-pressed', _foyUnseen ? 'true' : 'false');
+        status.textContent = result.error || ''; status.hidden = !result.error;
+        var navigationOwner = function () {
+          return generation === _foyPaintGeneration && scopeCurrent(scope)
+            && navigation === _navGeneration && privacy === _identityGeneration
+            && cancellation === _workCancelGeneration && !_scrubbedPendingReload;
+        };
+        ProgressiveList.mount({
+          host:box,id:'foyBirds',items:rows,initialCount:10,batchSize:10,noun:'birds',
+          listClass:largeBirdReportList({cls:'twitchcard'})
+            ? 'cards card-lg twitchgroups' : 'obs big xl',
+          buttonClass:'foyMore',
+          isCurrent:navigationOwner,
+          renderItem:function (item, index) {
+            var title = !item.dated && (!index || rows[index - 1].dated)
+              ? '<li class="hint">Unknown or withheld dates</li>' : '';
+            return title + card(item.row,item.dated);
+          },
+          afterAppend:function (list) { hydratePhotos(list); }
+        });
+        if (!rows.length) box.innerHTML = '<div class="status">'
+          + (!value.rows.length ? 'Verified empty annual-first list.'
+            : _foyUnseen ? 'No unseen annual-first birds in the verified list.'
+              : 'No annual-first birds to display.') + '</div>';
         _birdReportDisplayRefresh.foy = function () {
           var next = foyContext();
           if (ctx.profile === next.profile && ctx.revision === next.revision
@@ -35936,6 +36085,7 @@
         if (old) renderFoy({ snapshot: old.snapshot, record: old, saved: true, retained: true });
         else $('foyResults').innerHTML = '';
         $('foyStatus').textContent = 'Checking ' + scope.label + ' annual-first evidence…';
+        $('foyStatus').hidden = false;
         button.disabled = true;
         return ensureFoy(force, current, function (message) {
           if (current()) $('foyStatus').textContent = message;
@@ -35946,6 +36096,7 @@
             var read = Object.assign({}, result.record, { pendingRows: [] });
             if (!foyHistoryWrite(foyContext(), read)) {
               $('foyStatus').textContent += ' Read acknowledgement could not be saved.';
+              $('foyStatus').hidden = false;
             }
             refreshMenuBadges();
           }
@@ -35954,6 +36105,7 @@
           if (current() && !error.queueCancelled) {
             dbg('warn', 'FOY presentation failed: ' + error.message);
             $('foyStatus').textContent = 'FOY unavailable: ' + error.message;
+            $('foyStatus').hidden = false;
           }
         }).finally(function () { if (current()) button.disabled = false; });
       }
@@ -37494,19 +37646,20 @@
       function surgeCountHtml(rows) {
         var counts = {
           mega: 0, migration: 0, need: 0, crowd: 0, cascade: 0,
-          mass: 0, favorite: 0, hotspot: 0, patch: 0
+          mass: 0, favorite: 0, hotspot: 0, patch: 0, foy: 0
         };
         rows.forEach(function (r) { counts[r.kind] += 1; });
         var labels = {
           mega: 'mega', migration: 'migration', mass: 'mass flock', need: 'celebrity',
           crowd: 'crowd', cascade: 'cascade', favorite: 'favorite patch',
-          hotspot: 'hotspot', patch: 'top patch'
+          hotspot: 'hotspot', patch: 'top patch', foy: 'FOY'
         };
+        if (_surgeCategory && !counts[_surgeCategory]) _surgeCategory = '';
         return '<div class="surgecounts" aria-label="Alert counts by category">'
-          + Object.keys(labels).map(function (kind) {
-            return '<button type="button" class="surgecount" data-count-kind="' + kind
-              + '" aria-pressed="' + String(_surgeCategory === kind) + '"><b>'
-              + counts[kind] + '</b> ' + labels[kind] + '</button>';
+          + Object.keys(labels).filter(function (kind) { return counts[kind] > 0; }).map(function (kind) {
+            return ToggleControls.pressed({cls:'surgecount',data:{'count-kind':kind},
+              icon:SURGE_KINDS[kind].glyph,label:counts[kind] + ' ' + labels[kind],
+              pressed:_surgeCategory === kind});
           }).join('') + '</div><p class="hint" id="surgeFilterStatus" role="status" hidden></p>';
       }
 
@@ -38811,7 +38964,9 @@
         };
       }
       function appendFoySurgeReasons(rows, annualFirsts) {
-        (annualFirsts || []).forEach(function (first) {
+        var recent = BL.firstYearEvidence(annualFirsts || [],
+          new Date(todayStr() + 'T12:00:00'), 7).recent.slice(0, 3);
+        recent.forEach(function (first) {
           var why = 'Annual first in ' + esc(rankRegionName(foyContext().region))
             + ' ' + foyContext().year + ': ' + esc(fmtDate(first.date))
             + '. Newly learned since the verified list read ' + esc(fmtDate(first.previousReadDate))
@@ -42212,9 +42367,12 @@
         // menu entry off while leaving the section reachable by anchor.
         sec._enabled = m.enabled !== false;
         sec._group = m.group || '';
-          _setH2(sec, menuSubText(m.at) || splitLabel(m.label).text);
+          var foyUnseen = m.at === 'foyBtn' ? $('foyUnseenBtn') : null;
+          if (foyUnseen) foyUnseen.remove();
+          _setH2(sec, m.at === 'foyBtn' ? 'FOY Ticks' : menuSubText(m.at) || splitLabel(m.label).text);
           addSectionDoc(sec);
         addSectionRefresh(sec);
+          if (foyUnseen) sec.querySelector('h2').appendChild(foyUnseen);
           _sections.push(sec);
         });
         renderMenuIdentity();
@@ -45603,6 +45761,11 @@
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
       $('foyBtn').addEventListener('click', function () { loadFoy(true); });
+      $('foyUnseenBtn').addEventListener('click', function () {
+        _foyUnseen = !_foyUnseen;
+        $('foyUnseenBtn').setAttribute('aria-pressed', _foyUnseen ? 'true' : 'false');
+        if (_birdReportDisplayRefresh.foy) _birdReportDisplayRefresh.foy();
+      });
       $('todBtn').addEventListener('click', loadTimeOfDay);
       $('easyBtn').addEventListener('click', loadEasyMisses);
       $('easyMore').addEventListener('click', function () {
