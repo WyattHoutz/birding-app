@@ -556,6 +556,13 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
   const handlers = {};
   const pages = [
+    (() => {
+      const source = new JSDOM(FIRST_YEAR_HTML);
+      source.window.document.querySelector('#comnig .Species-sci').remove();
+      const html = '<!doctype html>' + source.window.document.documentElement.outerHTML;
+      source.window.close();
+      return html;
+    })(),
     FIRST_YEAR_HTML.replaceAll('/region/US-WA/bird-list', '/region/US-HI/bird-list'),
     FIRST_YEAR_HTML.replace('This Year 2026', 'This Year 2025'),
     FIRST_YEAR_HTML.replace('First Observed', 'Last Observed'),
@@ -563,6 +570,7 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     FIRST_YEAR_HTML,
   ];
   let browser, opened, injections = 0;
+  const receipts = [];
   const sourceMessages = [];
   app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
     addListener(name, fn) {handlers[name] = fn; return {remove(){}};},
@@ -570,6 +578,7 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
       opened = options;
       browser = new JSDOM(pages[0], {url:options.url,runScripts:'outside-only'});
       browser.window.mobileApp = {postMessage(message) {
+        receipts.push(message.detail);
         handlers.messageFromWebview({id:'foy-window',detail:message.detail});
       }};
       setTimeout(() => handlers.browserPageLoaded({id:'foy-window'}), 10);
@@ -587,7 +596,17 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
   try {
     const page = await app.window.__app.firstYearFetch('US-WA', undefined,
       message => sourceMessages.push(message));
-    assert.equal(injections, 5, 'unverified rendered selections must not settle the source');
+    assert.equal(injections, 6, 'unverified rendered selections must not settle the source');
+    const incomplete = receipts.find(message => message.parseStatus === 'incomplete');
+    assert.ok(incomplete && incomplete.pageShape,
+      'an incomplete first sample reports its sanitized validation shape');
+    assert.equal(incomplete.pageShape.validation.missingScientificNameRows, 1);
+    assert.equal(incomplete.pageShape.validation.missingCodeRows, 0);
+    assert.equal(incomplete.pageShape.validation.missingNameRows, 0);
+    assert.equal(incomplete.pageShape.validation.countMatches, true,
+      'the summary distinguishes identity failure from a row-count mismatch');
+    assert.equal(JSON.stringify(incomplete.pageShape).includes('Chordeiles minor'), false,
+      'diagnostic shape contains no species or account text');
     assert.equal(page.source.kind, 'annual-first');
     assert.equal(page.source.region, 'US-WA');
     assert.equal(opened.url, app.window.__app.firstYearUrl('US-WA'));
@@ -904,6 +923,30 @@ test('F268 parses countable first-year rows and preserves eBird withholding', as
   assert.equal(privateLocationLink, undefined,
     'preserved private-location text is plain text when eBird publishes no coordinates');
   app.window.close();
+});
+
+test('F842 reports only aggregate FOY membership failures when row counts match', async () => {
+  const app = await boot();
+  try {
+    const source = new app.window.DOMParser().parseFromString(FIRST_YEAR_HTML, 'text/html');
+    source.querySelector('#comnig .Species-sci').remove();
+    const page = app.window.__app.parseFirstYearBirdList(
+      '<!doctype html>' + source.documentElement.outerHTML);
+
+    assert.equal(page.declared, 4);
+    assert.equal(page.rows.length, 4);
+    assert.equal(page.validation.missingCodeRows, 0);
+    assert.equal(page.validation.missingNameRows, 0);
+    assert.equal(page.validation.missingScientificNameRows, 1,
+      'the failing identity field is measurable without retaining row text');
+    assert.equal(page.validation.membershipComplete, false);
+    assert.equal(page.validation.countMatches, true);
+    assert.equal(page.validation.parsedRows, 4);
+    assert.equal(page.valid, false,
+      'matching aggregate counts must not qualify a row missing its scientific identity');
+  } finally {
+    app.window.close();
+  }
 });
 
 test('F723 exact county membership survives incomplete optional first-report evidence', async () => {

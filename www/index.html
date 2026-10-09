@@ -4798,7 +4798,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.143.1';
+      var APP_VERSION = '1.144.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -27262,7 +27262,8 @@
           'htmlChars:H.length,items:document.querySelectorAll("li").length,' +
           'birdItems:document.querySelectorAll("li.BirdList-list-list-item").length,' +
           'countable:document.querySelectorAll("li.BirdList-list-list-item.countable").length,' +
-          'declared:R&&R.declared||0,rows:R&&R.rows&&R.rows.length||0}:null;' +
+          'declared:R&&R.declared||0,rows:R&&R.rows&&R.rows.length||0,' +
+          'validation:R&&R.validation||null}:null;' +
           'send({detail:{__ebird:true,kind:"firstYear",needsLogin:!!(I&&I.status==="logged-out"),' +
           'ok:!!(onPage&&owned),parseStatus:status,pageShape:shape,data:R}});' +
           '}catch(e){send({detail:{__ebird:true,kind:"firstYear",ok:false,parseStatus:"error",' +
@@ -35412,6 +35413,10 @@
       function parseFirstYearBirdList(html) {
         var out = {
           valid: false, evidenceComplete: false, declared: 0, rows: [], title: '',
+          validation: {
+            missingCodeRows: 0, missingNameRows: 0, missingScientificNameRows: 0,
+            membershipComplete: true, countMatches: false, parsedRows: 0
+          },
           identity: { status: 'missing', displayName: '', evidence: '' }
         };
         var doc;
@@ -35479,6 +35484,7 @@
           if (emptySections.length === 1 && out.source.kind === 'annual-first') {
             out.valid = true;
             out.evidenceComplete = true;
+            out.validation.countMatches = true;
           }
           return out;
         }
@@ -35508,6 +35514,9 @@
           var observedAt = '', date = '', subId = '', observer = '';
           var locId = '', locName = '', county = '', isPrivate = false;
 
+          if (!/^[a-z0-9]+$/.test(code)) out.validation.missingCodeRows++;
+          if (!name) out.validation.missingNameRows++;
+          if (!sci) out.validation.missingScientificNameRows++;
           if (!sensitive) {
             var time = el.querySelector('.Obs-date time[datetime]');
             observedAt = time ? String(time.getAttribute('datetime') || '').trim() : '';
@@ -35548,8 +35557,11 @@
           });
         }
 
-        out.valid = !!(membershipComplete && out.declared > 0
+        out.validation.membershipComplete = membershipComplete;
+        out.validation.parsedRows = out.rows.length;
+        out.validation.countMatches = !!(out.declared > 0
           && nodes.length === out.declared && out.rows.length === out.declared);
+        out.valid = !!(membershipComplete && out.validation.countMatches);
         out.evidenceComplete = !!(out.valid && evidenceComplete);
         return out;
       }
