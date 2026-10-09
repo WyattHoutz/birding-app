@@ -402,10 +402,28 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the unified Day trip release shot does not identify its selected range and completed plan');
 });
 
+test('F856 gallery guards require visible checklist evidence and scaled 32px bird icons', () => {
+  assert.match(source, /renderScale = Number\(document\.defaultView\.getComputedStyle\([\s\S]*?getPropertyValue\('--s'\)\)/,
+    'geometry must use the selected app profile, not the legacy renderer argument');
+  const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
+    source.indexOf("} else if (at === 'rankBtn')"));
+  assert.match(birdGen, /NABO x1 - Smith Island - 9\/1 5:50p · S388997009/);
+  assert.match(birdGen, /megaChecklist\.getAttribute\('data-href'\) !== 'https:\/\/ebird\.org\/checklist\/S388997009'/);
+  assert.match(birdGen, /deferPhotos: true/);
+  assert.match(birdGen, /await fillFixturePhotos\(host, document\)/);
+  const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("} else if (spec.kind === 'patches')"));
+  for (const dimension of ['width', 'height']) {
+    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - 32 * renderScale) > 1`),
+      `gallery does not measure ${dimension} against the scaled F851 icon size`);
+  }
+  assert.match(rank, /compactRowLimit = 86 \+ recentThumbBox\.height - 18 \* renderScale/);
+});
+
 test('F628 Top 100 compact-height guard allows deliberate Huge-text reflow', () => {
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
-  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > 86\)/,
+  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > compactRowLimit\)/,
     'the normal-size compact-row ceiling still rejects intentional Huge-text wrapping');
   assert.match(source,
     /async function fixturePrepare\(at, spec, A, document, sec, renderScale\)/,

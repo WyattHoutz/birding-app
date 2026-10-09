@@ -1724,7 +1724,14 @@ const BOOTSTRAP = `
       img.alt = slot.getAttribute('data-bird') || '';
       img.src = fixtureIconPath(slot.getAttribute('data-code'), BIRD_ICON_EXT);
       slot.replaceChildren(img);
-      await img.decode();
+      try {
+        await img.decode();
+      } catch (error) {
+        throw new Error('Fixture photo could not decode: ' + img.src
+          + ' (complete=' + img.complete + ', width=' + img.naturalWidth
+          + ', connected=' + img.isConnected + ', slot=' + slot.innerHTML + ')',
+          { cause: error });
+      }
     }));
   }
   async function prepareTwitches(A, document, sec, grouped) {
@@ -1783,6 +1790,11 @@ const BOOTSTRAP = `
   }
   async function fixturePrepare(at, spec, A, document, sec, renderScale) {
     ensureMockStyle(document);
+    renderScale = Number(document.defaultView.getComputedStyle(
+      document.documentElement).getPropertyValue('--s'));
+    if (!isFinite(renderScale) || renderScale <= 0) {
+      throw new Error('Fixture has no valid app display scale');
+    }
     if (Date.now() !== MOCK_NOW) throw new Error('Release mock clock is not frozen');
     if (A.progressEnd) A.progressEnd();
     if (!spec || !spec.kind || !spec.host) throw new Error('no fixture spec for ' + at);
@@ -1863,7 +1875,8 @@ const BOOTSTRAP = `
             latestLocName: 'Release filter control', latestLocId: 'LSEENCONTROL',
             latestLat: 47.6, latestLon: -122.2, latestDistMi: 12.5 }
         ], [],
-        { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok' },
+        { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
+          deferPhotos: true },
         [
           { locId: 'LPATCH', locName: 'Marymoor Park', lat: 47.66, lng: -122.12,
             dist: 8.4, score: 18, rare: 2, band: 'high yield',
@@ -1874,6 +1887,7 @@ const BOOTSTRAP = `
                 count: 1, dateStr: '2026-09-02 15:20', subId: 'SP2' }
             ] }
         ]);
+      await fillFixturePhotos(host, document);
       var alertRows = Array.prototype.slice.call(
         document.querySelectorAll('#surgeFeed > [data-species-code]'));
       var visibleCodes = alertRows.filter(function (row) {
@@ -1921,10 +1935,15 @@ const BOOTSTRAP = `
       var mega = document.querySelector('#surgeFeed [data-species-code="nazboo1"]');
       var megaFacts = mega && mega.querySelector('.surgefacts');
       if (!megaFacts || megaFacts.textContent.replace(/\\s+/g, ' ').trim()
-          !== 'NABO x1 - Smith Island - 9/1 5:50p') {
+          !== 'NABO x1 - Smith Island - 9/1 5:50p · S388997009') {
         throw new Error('Bird Gen MEGA fact line drifted from the approved markup: '
           + (megaFacts ? megaFacts.textContent.replace(/\\s+/g, ' ').trim() : 'missing')
           + ' HTML=' + (megaFacts ? megaFacts.innerHTML : 'missing'));
+      }
+      var megaChecklist = megaFacts.querySelector('.surgeabsolute .extlink');
+      if (!megaChecklist
+          || megaChecklist.getAttribute('data-href') !== 'https://ebird.org/checklist/S388997009') {
+        throw new Error('Bird Gen MEGA checklist ID does not link to its evidence');
       }
       if (!mega.querySelector(':scope > .surgeexplain > .surgebadge')
           || mega.querySelector(':scope > .surgeexplain > .surgebadge').textContent.trim()
@@ -2047,13 +2066,14 @@ const BOOTSTRAP = `
       var recentThumb = firstRankRow.querySelector('.rankbirdicon .thumb');
       var recentThumbBox = recentThumb && recentThumb.getBoundingClientRect();
       var firstRowRect = firstRankRow.getBoundingClientRect();
-      if (!recentThumbBox || recentThumbBox.width > 19 * renderScale
-          || recentThumbBox.height > 19 * renderScale) {
-        throw new Error('Top 100 latest-bird icon is missing or not compact');
+      if (!recentThumbBox || Math.abs(recentThumbBox.width - 32 * renderScale) > 1
+          || Math.abs(recentThumbBox.height - 32 * renderScale) > 1) {
+        throw new Error('Top 100 latest-bird icon is missing or not 32 scaled pixels');
       }
-      if (renderScale <= 1 && firstRowRect.height > 86) {
+      var compactRowLimit = 86 + recentThumbBox.height - 18 * renderScale;
+      if (renderScale <= 1 && firstRowRect.height > compactRowLimit) {
         throw new Error('Top 100 sentence row is too tall: '
-          + firstRowRect.height + 'px');
+          + firstRowRect.height + 'px (limit ' + compactRowLimit + 'px)');
       }
       var topSpread = Math.max(markerRect.top, nameBox.top, speciesBox.top)
         - Math.min(markerRect.top, nameBox.top, speciesBox.top);
