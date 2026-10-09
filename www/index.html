@@ -492,6 +492,7 @@
        with colour doing nothing load-bearing. */
     .tag { font-size: calc(12px * var(--s)); padding: 2px 8px; border-radius: 999px;
            border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+    .tag.checklist-hidden { color: #fff; background: #000; }
     /* F138: `var(--link)`, not two hard-coded Okabe-Ito blues plus a SECOND
        dark-mode media query. `--link` already holds exactly this value per
        theme — blue on light, sky blue on dark — chosen for the same reason
@@ -682,7 +683,7 @@
          called. Padding and mark come down together - the mark is the
          header's height and the padding is its air, so trimming one alone
          just changes which looks wrong. */
-      padding: calc(env(safe-area-inset-top) + 8px) 20px 8px;
+      padding: calc(env(safe-area-inset-top) + 8px) 20px 0;
       /* F138: `--accent-deep`, not a literal `#0b5a3c`. This is the second
          stop of the header gradient and it is an ACCENT shade, so it has to
          move when the accent does — hard-coded, the dark theme drew a
@@ -722,7 +723,7 @@
        the one signal this reader cannot use. */
     .hdrid .hdrrank { -webkit-appearance: none; appearance: none; background: none;
       border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
-      text-decoration: underline; text-underline-offset: 2px;
+      text-decoration: none; font-weight: 700;
       cursor: pointer; position: relative; }
     .hdrid .hdrrank::after { content: ''; position: absolute; left: 50%; top: 50%;
              transform: translate(-50%, -50%);
@@ -779,20 +780,24 @@
     header,
     html[data-display="large"] header,
     html[data-display="high-visibility"] header {
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      grid-template-rows: auto auto; gap: 4px 10px; align-items: center;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-rows: auto auto; gap: 0 10px; align-items: center;
       border-top: 4px solid var(--safe-blue); }
     header[data-list-period="all"] { border-top-color: #E69F00; }
     header > .brand { grid-column: 1; grid-row: 1; gap: 8px; }
     header .brandtext h1 { font-size: calc(18px * var(--s)); }
-    header > .hdrscope { grid-column: 2; grid-row: 1; min-width: 0;
+    header > .hdrscope { grid-column: 3; grid-row: 1; min-width: 0;
       margin-left: 0; white-space: normal; overflow-wrap: anywhere; border-radius: 12px; }
+    header > #hdrPeriod { grid-column: 2; }
+    html[data-display="large"] header > #hdrScope,
+    html[data-display="high-visibility"] header > #hdrScope { grid-column: 3; }
     header .hdrscope span { display: block; }
     header > .hdrid,
     html[data-display="large"] header > .hdrid,
     html[data-display="high-visibility"] header > .hdrid {
-      display: flex; grid-column: 1 / -1; grid-row: 2; min-width: 0;
-      justify-content: space-between; align-items: center; gap: 8px; margin-left: 0;
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-column: 1 / -1; grid-row: 2; min-width: 0;
+      align-items: center; gap: 8px; margin: 0; padding: 0; text-align: center;
     }
     header .hdrid .hdrname,
     html[data-display="large"] header .hdrid .hdrname,
@@ -802,13 +807,15 @@
     header .hdrid .hdrstat,
     html[data-display="large"] header .hdrid .hdrstat,
     html[data-display="high-visibility"] header .hdrid .hdrstat {
-      display: flex; flex: 0 1 auto; min-width: 0; gap: 4px;
-      align-items: center; font-size: calc(13px * var(--s));
+      display: contents; font-size: calc(13px * var(--s));
     }
-    .hdrid .hdrrank, .hdrid .hdrcount { min-width: 44px; min-height: 44px; }
+    .hdrid .hdrrank, .hdrid .hdrcount {
+      min-width: 44px; min-height: 44px; font-weight: 700; text-decoration: none;
+    }
     .hdrid .hdrcount { appearance: none; background: none; color: inherit;
       border: 0; margin: 0; padding: 0 2px; font: inherit; cursor: pointer;
-      display: flex; align-items: center; gap: 4px; text-decoration: underline; }
+      display: flex; flex-wrap: wrap; justify-content: center; align-content: center;
+      align-items: center; gap: 0 4px; font-weight: 700; text-decoration: none; }
     .hdrid .hdrcount span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .hdrid .hdrcount small { flex: 0 0 auto; font: inherit; }
     .hdrid .hdrrank::after { content: none; }
@@ -2265,7 +2272,12 @@
     .surgecounts { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
     .surgecount { border: 1px solid var(--line); border-radius: var(--btn-radius-pill);
                   padding: 3px 7px; color: var(--muted); background: var(--card);
+                  min-height: 44px; cursor: pointer;
                   font-size: calc(11px * var(--s)); line-height: 1.15; white-space: nowrap; }
+    .surgecount[aria-pressed="true"] {
+      border-width: 3px; border-style: solid; border-color: var(--safe-blue); font-weight: 800;
+    }
+    .surgecount[aria-pressed="true"]::before { content: '\2713 '; }
     .surgecount b { color: var(--ink); font-variant-numeric: tabular-nums; }
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
@@ -2293,7 +2305,9 @@
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
     .surgefacts { display: block; color: var(--muted);
-                  font-size: calc(13px * var(--s)); line-height: 1.35; }
+                  font-size: calc(15px * var(--s)); line-height: 1.35; }
+    .surgefeed .ntext .surgefacts .hslink { font-weight: 700; font-size: inherit; }
+    .surgefacts .extlink { font-size: inherit; }
     .surgefeed.obs.card-sm .ntext .surgefacts .spalpha { margin-left: 0; }
     .surgefactsep { white-space: nowrap; }
     .surgefeed > li > .surgeexplain {
@@ -2858,7 +2872,7 @@
                                 height: calc(32px * var(--s)); border-radius: 6px; }
     .rankrow .rankbirdicon { display: inline-block; vertical-align: middle; margin-right: 4px; }
     .rankrow .rankbirdicon .thumb { float: none; display: block; margin: 0;
-      width: calc(18px * var(--s)); height: calc(18px * var(--s)); border-radius: 4px; }
+      width: calc(32px * var(--s)); height: calc(32px * var(--s)); border-radius: 4px; }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
        explicit requirement, and a name is the thing allowed to ellipsis, not
@@ -2894,7 +2908,7 @@
     .rankrow.hscard-md > .name > .rankstack {
       grid-column: 1; grid-row: 1; align-self: start;
       display: flex; flex-direction: column; align-items: flex-start;
-      gap: 3px; width: calc(45px * var(--s)); min-width: 0;
+      gap: 3px; width: auto; min-width: 0;
     }
     .rankrow.hscard-md > .name > .rankstack > :where(.hsnum) {
       width: auto; min-width: 0; height: auto; border: 0; border-radius: 0;
@@ -2951,7 +2965,7 @@
     }
     .rankrow.hscard-md .wholine { font-size: calc(19px * var(--s)); font-weight: 600; }
     .rankrow.hscard-md .rankbirdline { display: block; font-size: calc(14px * var(--s)); }
-    .rankrow.hscard-md .rankbirdline a.splink { font-size: inherit; font-weight: 700; text-decoration: underline; }
+    .rankrow.hscard-md .rankbirdline a.splink { font-size: inherit; font-weight: 700; text-decoration: none; }
     .rankrow.hscard-md .hsdist .spmetric {
       font-size: calc(15px * var(--s)); font-weight: 400; color: var(--muted);
     }
@@ -3434,6 +3448,7 @@
         <h1>Bird Chaser</h1>
       </div>
     </div>
+    <button type="button" id="hdrPeriod" class="hdrscope" hidden></button>
     <button type="button" id="hdrScope" class="hdrscope" hidden></button>
     <div id="hdrId" class="hdrid" hidden></div>
   </header>
@@ -3627,7 +3642,6 @@
 
     <section class="panel">
       <h2>🚗 Day trip patches <span class="dim" id="excRegionLabel"></span></h2>
-      <p id="dayTripLoadNotice" class="hint" role="note" data-long-load="excBtn"></p>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row daytriprangewrap">
         <div class="daytriprange-label">Estimated round trip</div>
@@ -4798,7 +4812,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.144.0';
+      var APP_VERSION = '1.145.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6547,6 +6561,10 @@
       function paintPersonalCoverage(section) {
         if (!section) return;
         var box = section.querySelector('.personalCoverageBox');
+        if (!section.querySelector('#myYearBody')) {
+          if (box) box.remove();
+          return;
+        }
         if (!box) {
           box = document.createElement('div');
           box.className = 'personalCoverageBox hint';
@@ -19809,7 +19827,7 @@
           + ' data-lat="' + esc(o.lat == null ? '' : o.lat) + '"'
           + ' data-lng="' + esc(o.lng == null ? '' : o.lng) + '"'
           + ' aria-pressed="' + String(saved) + '">'
-          + (saved ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
+          + (saved ? '★ Remove from favorite hotspots' : '☆ Add to favorites')
           + '</button>';
       }
       // The report's favorites section does not list what is AT a hotspot — it
@@ -21300,7 +21318,7 @@
             // this place"; rareBadge() is an R tile that means only the first.
             var tags = (x.tag != null) ? x.tag
               : needTag(x.code, x.comName) + (x.rare ? rareBadge() : '');
-            if (opts.unseen && x.tag != null) {
+            if (opts.unseen && x.tag != null && !/\bwatchflag\b/.test(tags)) {
               tags += watchExceptionTag(x.code, x.comName);
             }
             // `pre` is ADDITIVE where `tag` is a replacement. The iconic
@@ -21965,6 +21983,7 @@
               });
             }), {}, parentOf).species;
             groupedRows.forEach(function (o) {
+              if (!BL.countableTaxon(o.name)) return;
               var speciesKey = resolveSpecies(o.code, parentOf);
               if (dedupe[speciesKey]) return;
               dedupe[speciesKey] = 1;
@@ -21996,6 +22015,7 @@
             try {
               JSON.parse(el.getAttribute('data-scored') || '[]').forEach(function (u) {
                 if (!u) return;
+                if (!BL.countableTaxon(u.name)) return;
                 var speciesKey = resolveSpecies(u.code, parentOf);
                 if (dedupe[speciesKey]) return;
                 if (isSeen(u.code, u.name) !== false) return;
@@ -34720,9 +34740,6 @@
         var split = personalSpeciesSplit(Object.keys(byCode).map(function (code) { return byCode[code]; }), isSeen);
         var unseen = split.unseen, seen = split.seen, unknown = split.unknown;
 
-        // ---- THE PATTERN LEADS. How often this place is birded and what it
-        // reliably holds are true all day, unlike "what was seen today", which
-        // is empty every morning by eBird's own design (F159 measurement 3).
         var identity = [addr ? esc(addr) : '', esc(locId)].filter(Boolean).join(' · ');
         var factRows = [
           ['Recent activity', lists.length
@@ -34738,16 +34755,11 @@
         var facts = '<span class="stakeHsFavoriteRow">' + stakeHsFavoriteButton({
             locId: locId, locName: name || locId, lat: la, lng: ln
           }) + '</span>'
-          + '<span class="stakeHsIdentity">' + identity + '</span>'
-          + '<span class="stakeHsFacts">' + factRows.map(function (fact) {
-            return '<span class="stakeHsFact"><b>' + fact[0] + '</b><span>'
-              + fact[1] + '</span></span>';
-          }).join('') + '</span>';
+          + '<span class="stakeHsIdentity">' + identity + '</span>';
         var placeActions = (la != null && ln != null
           ? '<a class="maplink" data-q="' + esc(distQ(la, ln))
             + '">\ud83d\uddfa Open in Maps \u2197</a>' : '')
-          + extA(hotspotUrl(locId), 'Open eBird hotspot \u2197', 'extlink')
-          + qrButton('hotspot', locId);
+          + extA(hotspotUrl(locId), 'Open eBird hotspot \u2197', 'extlink');
         if (placeActions) {
           facts += '<span class="stakeHsIntroActions">' + placeActions + '</span>';
         }
@@ -34854,7 +34866,7 @@
               href: r.subId ? checklistUrl(r.subId) : '',
               who: esc(r.userDisplayName || ''),
               flag: r.observationLinked
-                ? '<span class="tag" aria-label="HIDDEN: Linked from an observation; not listed in the recent-checklist feed">HIDDEN</span>'
+                ? '<span class="tag checklist-hidden" aria-label="HIDDEN: Linked from an observation; not listed in the recent-checklist feed">HIDDEN</span>'
                 : '',
               sp: isFinite(r.numSpecies) ? r.numSpecies : '',
               targets: targets.map(function (target) { return target.label; }).join(', '),
@@ -34902,11 +34914,6 @@
             + 'rate \u2014 itself an answer: an ordinary patch rather than a speciality.</div>';
         }
 
-        // ---- ...and the birders LAST, one line each.
-        // "the list should be one line per birder, and birder list should be
-        //  last". It was first and two lines deep, so eight regulars pushed
-        //  every fact about the PLACE below the fold — on a page whose whole
-        //  purpose is the place.
         if (top.length) {
           below += '<div class="rankhead"><b>\ud83d\udc65 Who birds here</b>'
             + '<span class="rankwhy">most checklists filed in this window</span></div>';
@@ -34922,9 +34929,15 @@
               + (by[who] === 1 ? '' : 's') + '</span></li>';
           }).join('') + '</ul>';
         }
+        below += '<div class="rankhead"><b>Hotspot snapshot</b></div>'
+          + '<div class="stakeHsFacts">' + factRows.map(function (fact) {
+            return '<span class="stakeHsFact"><b>' + fact[0] + '</b><span>'
+              + fact[1] + '</span></span>';
+          }).join('') + '</div>';
 
         box.innerHTML = '<ul class="obs">' + HotspotCards.large({
           name: esc(name || loc.locName || locId),
+          headingAction: qrButton('hotspot', locId),
           sub: facts,
           // The bird split moved into `below` so it could carry a header like
           // every other block on this card. These slots stay empty rather than
@@ -35547,7 +35560,7 @@
 
           var rowEvidenceComplete = sensitive
             || !!(date && observedAt && subId && observer && locName);
-          if (!/^[a-z0-9]+$/.test(code) || !name || !sci) membershipComplete = false;
+          if (!/^[a-z0-9]+$/.test(code) || !name) membershipComplete = false;
           if (!rowEvidenceComplete) evidenceComplete = false;
           out.rows.push({
             code: code, name: name, sci: sci, count: count, countRaw: countRaw,
@@ -36861,7 +36874,7 @@
       var _surgeRepaint = null;
       var _surgeLoadGeneration = 0;
       var _surgeActiveLoad = null;
-      var _surgeAllFlocks = false;
+      var _surgeCategory = '';
       var _appUnloading = false;
       window.addEventListener('unload', function () {
         _appUnloading = true;
@@ -36914,6 +36927,10 @@
               home: anchorPoint(), maxMi: chaseMaxMi(),
               allowedPrivateLocIds: value.allowedPrivateLocIds || {},
               singleObservation: value.source === 'highCountPage'
+            });
+            next.rows.forEach(function (flock) {
+              flock.found = massArrivalEvidence(flock,
+                (value.arrivalDays || {})[flock.locId], now).found;
             });
           } else if (key === 'cascades') {
             next.rows = value.rows.filter(function (row) {
@@ -37252,7 +37269,7 @@
         ].filter(Boolean);
         if (!a.omitWhen) {
           var date = esc(surgeCompactDate(a.when));
-          if (a.checklistId) date = checklistLink(a.checklistId, date);
+          if (a.checklistId) date = checklistLink(a.checklistId, date + ' · ' + esc(a.checklistId));
           bits.push('<span class="surgeabsolute">' + date + '</span>');
         }
         return '<span class="surgefacts">'
@@ -37480,17 +37497,42 @@
           mass: 0, favorite: 0, hotspot: 0, patch: 0
         };
         rows.forEach(function (r) { counts[r.kind] += 1; });
+        var labels = {
+          mega: 'mega', migration: 'migration', mass: 'mass flock', need: 'celebrity',
+          crowd: 'crowd', cascade: 'cascade', favorite: 'favorite patch',
+          hotspot: 'hotspot', patch: 'top patch'
+        };
         return '<div class="surgecounts" aria-label="Alert counts by category">'
-          + '<span class="surgecount" data-count-kind="mega"><b>' + counts.mega + '</b> mega</span>'
-          + '<span class="surgecount" data-count-kind="migration"><b>' + counts.migration + '</b> migration</span>'
-          + '<span class="surgecount" data-count-kind="mass"><b>' + counts.mass + '</b> mass flock</span>'
-          + '<span class="surgecount" data-count-kind="need"><b>' + counts.need + '</b> celebrity</span>'
-          + '<span class="surgecount" data-count-kind="crowd"><b>' + counts.crowd + '</b> crowd</span>'
-          + '<span class="surgecount" data-count-kind="cascade"><b>' + counts.cascade + '</b> cascade</span>'
-          + '<span class="surgecount" data-count-kind="favorite"><b>' + counts.favorite + '</b> favorite patch</span>'
-          + '<span class="surgecount" data-count-kind="hotspot"><b>' + counts.hotspot + '</b> hotspot</span>'
-          + '<span class="surgecount" data-count-kind="patch"><b>' + counts.patch + '</b> top patch</span>'
-          + '</div>';
+          + Object.keys(labels).map(function (kind) {
+            return '<button type="button" class="surgecount" data-count-kind="' + kind
+              + '" aria-pressed="' + String(_surgeCategory === kind) + '"><b>'
+              + counts[kind] + '</b> ' + labels[kind] + '</button>';
+          }).join('') + '</div><p class="hint" id="surgeFilterStatus" role="status" hidden></p>';
+      }
+
+      function applySurgeCategory() {
+        var visible = 0, feed = $('surgeFeed');
+        if (feed) [].forEach.call(feed.children, function (row) {
+          row.hidden = !!_surgeCategory && row.getAttribute('data-alert-kind') !== _surgeCategory;
+          if (!row.hidden) visible++;
+        });
+        var box = $('surgeResults');
+        if (box) [].forEach.call(box.querySelectorAll('[data-count-kind]'), function (button) {
+          button.setAttribute('aria-pressed', String(button.getAttribute('data-count-kind') === _surgeCategory));
+        });
+        var status = $('surgeFilterStatus');
+        if (status) {
+          status.hidden = !_surgeCategory;
+          status.textContent = _surgeCategory
+            ? (visible ? 'Showing ' + visible : 'No') + ' '
+              + SURGE_KINDS[_surgeCategory].word.toLowerCase()
+              + ' alerts. Select the category again to show all.' : '';
+        }
+      }
+
+      function resetSurgeCategory() {
+        _surgeCategory = '';
+        applySurgeCategory();
       }
 
       function applySurgeSort() {
@@ -37560,6 +37602,7 @@
             open();
           });
           head.addEventListener('keydown', function (ev) {
+            if (ev.target.closest && ev.target.closest('a, button')) return;
             if (ev.key !== 'Enter' && ev.key !== ' ') return;
             ev.preventDefault();
             open();
@@ -37570,6 +37613,15 @@
       function wireSurgeControls() {
         applySurgeSort();
         wireSurgeHeadlines();
+        var box = $('surgeResults');
+        if (box) [].forEach.call(box.querySelectorAll('[data-count-kind]'), function (button) {
+          button.addEventListener('click', function () {
+            var kind = button.getAttribute('data-count-kind');
+            _surgeCategory = _surgeCategory === kind ? '' : kind;
+            applySurgeCategory();
+          });
+        });
+        applySurgeCategory();
       }
 
       function surgePlaceTile() {
@@ -37698,6 +37750,127 @@
       var MASS_ALERT_COUNT = 500;
       var MASS_WINDOW_DAYS = 7;
       var MASS_DAY_CACHE_NS = 'bc_mass_day_v1:';
+
+      function massNews(flock) {
+        return megaNews({
+          mi: flock.distanceMi,
+          unseen: isSpeciesSeen(flock.code, flock.name) === false,
+          found: flock.found,
+          reports: flock.evidenceCount,
+          spotReports: flock.evidenceCount
+        });
+      }
+
+      function massArrivalEvidence(flock, days, now) {
+        now = now || Date.now();
+        var end = new Date(now);
+        end.setHours(0, 0, 0, 0);
+        var all = [], activity = {};
+        for (var ago = 0; ago < ABA_HIST_BACK; ago++) {
+          var date = new Date(end);
+          date.setDate(date.getDate() - ago);
+          var day = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
+            + '-' + String(date.getDate()).padStart(2, '0');
+          var rows = days && days[day];
+          if (!Array.isArray(rows) || rows.length >= 1000
+              || rows.some(function (r) {
+                return !r || r.locId !== flock.locId || !r.speciesCode
+                  || String(r.obsDt || '').slice(0, 10) !== day
+                  || r.obsReviewed === true && r.obsValid === false;
+              })) return { state: 'unverified', found: null };
+          activity[day] = rows.length > 0;
+          rows.forEach(function (r) {
+            if (r.speciesCode === flock.code) all.push(r);
+          });
+        }
+        var dates = Object.keys(activity).sort();
+        var first = firstReport(all, dates[0]);
+        if (!first || !first.found) return { state: 'continuing', found: null };
+        var firstDay = first.r.obsDt.slice(0, 10);
+        // Empty API days are not evidence that somebody looked without finding it.
+        if (dates.some(function (day) { return day < firstDay && !activity[day]; })) {
+          return { state: 'unverified', found: null };
+        }
+        var age = Math.round((end - new Date(firstDay + 'T00:00:00')) / 86400000);
+        if (age < 0 || age > MEGA_FRESH_DAYS) return { state: 'continuing', found: null };
+        return { state: 'new', found: { day: firstDay, days: age, since: dates[0] } };
+      }
+
+      function enrichMassArrivals(result, work, onProgress, force) {
+        var candidates = result.rows.filter(function (flock) { return !massNews(flock).length; });
+        if (!candidates.length) return Promise.resolve(result);
+        var baseCoverage = result.coverage;
+        var requests = {}, now = Date.now();
+        result.arrivalDays = result.arrivalDays || {};
+        result.arrivalPending = true;
+        result.state = 'partial';
+        result.coverage = baseCoverage + '; arrival evidence loading';
+        if (onProgress) onProgress(result);
+        var unknown = 0;
+        return candidates.reduce(function (chain, flock) {
+          return chain.then(function () {
+            var days = {}, dates = [], terminal = '';
+            var offsets = [];
+            for (var older = MEGA_FRESH_DAYS + 1; older < ABA_HIST_BACK; older++) {
+              offsets.push(older);
+            }
+            for (var fresh = MEGA_FRESH_DAYS; fresh >= 0; fresh--) offsets.push(fresh);
+            offsets.forEach(function (ago) {
+              var date = new Date(now);
+              date.setDate(date.getDate() - ago);
+              dates.push(date);
+            });
+            return dates.reduce(function (pending, date) {
+              return pending.then(function () {
+                if (!workCurrent(work)) throw queueCancelledError(work);
+                if (terminal) return;
+                var day = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
+                  + '-' + String(date.getDate()).padStart(2, '0');
+                var path = 'data/obs/' + encodeURIComponent(flock.locId) + '/historic/'
+                  + date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate()
+                  + '?detail=full&cat=species&maxResults=1000';
+                if (!requests[path]) requests[path] = ebird(path, true, false, !!force, work);
+                return requests[path].then(function (rows) {
+                  if (!Array.isArray(rows)) throw new Error('Invalid Mass arrival history response');
+                  days[day] = rows;
+                  if (rows.length >= 1000 || rows.some(function (r) {
+                    return !r || r.locId !== flock.locId || !r.speciesCode
+                      || String(r.obsDt || '').slice(0, 10) !== day
+                      || r.obsReviewed === true && r.obsValid === false;
+                  })) terminal = 'unverified';
+                  var target = rows.some(function (r) { return r && r.speciesCode === flock.code; });
+                  var age = Math.round((new Date(now).setHours(0, 0, 0, 0)
+                    - new Date(day + 'T00:00:00')) / 86400000);
+                  if (!terminal && target && age > MEGA_FRESH_DAYS) terminal = 'continuing';
+                  if (!terminal && !rows.length && !Object.keys(days).some(function (key) {
+                    return days[key].some(function (r) { return r.speciesCode === flock.code; });
+                  })) terminal = 'unverified';
+                });
+              });
+            }, Promise.resolve()).then(function () {
+              var verdict = terminal ? { state: terminal, found: null }
+                : massArrivalEvidence(flock, days, now);
+              if (verdict.state === 'unverified') unknown++;
+              flock.found = verdict.found;
+              result.arrivalDays[flock.locId] = days;
+            }).catch(function (error) {
+              if (error && error.queueCancelled) throw error;
+              unknown++;
+              dbg('warn', 'Mass arrival evidence unavailable: ' + ((error && error.message) || error));
+            }).then(function () {
+              if (!workCurrent(work)) throw queueCancelledError(work);
+              if (onProgress) onProgress(result);
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          result.arrivalPending = false;
+          result.state = unknown || /could not|not covered/.test(baseCoverage) ? 'partial' : 'ok';
+          result.coverage = baseCoverage + '; first-report checks: up to ' + ABA_HIST_BACK
+            + ' days at candidate hotspots, stopping early on prior presence or unknown coverage'
+            + (unknown ? '; ' + unknown + ' arrivals unverified (missing, capped or unsurveyed history)' : '');
+          return result;
+        });
+      }
 
       function massFlockAlerts(rows, options) {
         options = options || {};
@@ -37909,7 +38082,7 @@
           '}catch(e){send({__ebird:true,kind:"massHighCount",ok:false,parseStatus:"unreadable"});}})();';
       }
 
-      function loadMassFlockAlertSource(force, scope) {
+      function loadMassFlockAlertSource(force, scope, onProgress) {
         scope = scope || activeScope();
         var work = cancellableWork('Bird Gen mass flock', 'sec-surgeBtn');
         var generation = _surgeLoadGeneration, navigation = _navGeneration;
@@ -37949,6 +38122,7 @@
           var age = part ? Date.now() - Number(part.at) : NaN;
           if (!force && part && age >= 0 && age < CHASE_TTL_MS
               && part.value && part.value.source === 'highCountPage'
+              && !part.value.arrivalPending
               && ['ok', 'partial'].indexOf(part.value.state) >= 0
               && Array.isArray(part.value.evidenceRows)) {
             var retained = surgeRetainedModel(cache).mass;
@@ -38035,7 +38209,9 @@
                 singleObservation: true, diagnostics: diagnostics
               })
             };
-            return finish(result);
+            return enrichMassArrivals(result, work, onProgress, force).then(function (enriched) {
+              return finish(enriched);
+            });
           });
         }).catch(function (error) {
           var cancelled = !!(error && error.queueCancelled)
@@ -38184,8 +38360,6 @@
         topPatches = topPatches || [];
         favoriteRows = favoriteRows || [];
         massRows = massRows || [];
-        var allFlocks = massRows;
-        if (!_surgeAllFlocks) massRows = massRows.slice(0, 3);
         var rareCodes = {}, rareNames = {};
         merged.forEach(function (r) {
           if (!r || r.kind !== 'Rarity') return;
@@ -38408,6 +38582,8 @@
         });
 
         massRows.forEach(function (flock) {
+          var news = massNews(flock);
+          if (!news.length) return;
           var destination = flock.locId
             ? { locId: flock.locId, locName: flock.locName }
             : (flock.locations || []).filter(function (place) { return !!place.locId; })
@@ -38420,6 +38596,13 @@
           var chaseText = flock.insideChase
             ? 'within chase distance'
             : 'outside chase radius';
+          var reason = news.map(function (tag) {
+            return surgeMegaNewsLabel(tag, {
+              found: flock.found, reports: flock.evidenceCount,
+              spotReports: flock.evidenceCount, spotName: flock.locName,
+              spotId: flock.locId, spotLat: flock.lat, spotLng: flock.lng
+            });
+          }).join(' · ');
           var places = {}, links = [];
           (flock.locations || []).forEach(function (place) {
             if (!place.locId || places[place.locId]) return;
@@ -38447,16 +38630,18 @@
             count: null,
             distance: surgeDistanceText(flock.distanceMi),
             why: '<b>' + esc(range) + ' birds</b> · '
-              + esc(chaseText) + (flock.singleObservation
+              + reason + ' · ' + esc(chaseText) + (flock.singleObservation
                 ? ' · one reported high count; flock may have moved'
                 : ' · corroborated at nearby public places'),
             where: links.length ? links.join(' · ') : esc(flock.locName || 'Flock area'),
             when: flock.when,
             time: flock.time,
             checklistId: flock.checklistId || '',
-            extra: esc(surgeDistanceText(flock.distanceMi))
+            extra: reason + ' · ' + esc(surgeDistanceText(flock.distanceMi))
               + (!destination ? ' · Patch destination unavailable; see retained checklist evidence.' : '')
               + (flock.supportingLowRows ? ' · lower nearby counts retained as coverage evidence' : '')
+              + (flock.found ? ' · First report at this hotspot in the checked '
+                + ABA_HIST_BACK + '-day window; not proof of physical arrival.' : '')
               + (moreEyes ? ' · <b>More eyes on this flock</b>: increased observer activity'
                 + ' may reveal associated birds (Patagonia-effect potential).' : ''),
             data: destination ? {
@@ -38599,18 +38784,6 @@
             : '')
           ;
         box.innerHTML = html + sampleCoverage;
-        if (allFlocks.length > 3 && !_surgeAllFlocks) {
-          var more = document.createElement('button');
-          more.type = 'button';
-          more.className = 'secondary';
-          more.textContent = 'Show all ' + allFlocks.length + ' mass flocks';
-          more.addEventListener('click', function () {
-            _surgeAllFlocks = true;
-            renderSurge(events, cascades, convergence, needs, merged, sourceState,
-              topPatches, favoriteRows, allFlocks);
-          });
-          box.appendChild(more);
-        }
         wireSurgeControls();
         if (!(sourceState && sourceState.deferPhotos)) hydratePhotos(box);
         return rows.length;
@@ -38813,6 +38986,7 @@
       }
 
       function loadSurge(performanceLoadId, deepHistory) {
+        resetSurgeCategory();
         if (!getHome()) {
           $('surgeStatus').hidden = false;
           showHomeRequired($('surgeStatus'), birdGenHomeRequired(), false,
@@ -38849,7 +39023,6 @@
         }
         var activeLoad = { current: current, deepHistory: deepHistory === true, primary: null };
         _surgeActiveLoad = activeLoad;
-        _surgeAllFlocks = false;
         _surgeHotspotRetry = null;
         if ($('surgeRegionLabel')) $('surgeRegionLabel').textContent = '· ' + getReport().label;
         var btn = $('surgeBtn'), st = $('surgeStatus'), resultsBox = $('surgeResults');
@@ -42214,8 +42387,11 @@
         var code = scopeCode();
         if (!code || code === 'Region') { el.hidden = true; return; }
         el.hidden = false;
-        el.innerHTML = '<span>' + esc(activeScope().label) + '</span><span>'
-          + esc(personalBasisLabel()) + '</span>';
+        el.textContent = /^aba$/i.test(code) ? 'ABA Area' : code;
+        var period = $('hdrPeriod');
+        period.hidden = false;
+        period.textContent = personalPeriod() === 'all' ? 'All Time' : String(new Date().getFullYear());
+        period.setAttribute('aria-label', 'Time period: ' + personalBasisLabel() + '. Change year or all time.');
         var header = el.closest('header');
         if (header) header.dataset.listPeriod = personalPeriod() === 'all' ? 'all' : 'current';
         var said = rankRegionName(getRegion()) || code;
@@ -42505,6 +42681,17 @@
       // Bound once. The chip is in static markup, so a listener attached on
       // every menu render would stack up one per repaint.
       function bindHeaderScope() {
+        var period = $('hdrPeriod');
+        if (period && !period._bound) {
+          period._bound = true;
+          period.addEventListener('click', function () {
+            var target = document.querySelector('.quicksettings .periodpick');
+            if (!target) return;
+            if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var selected = target.querySelector('[aria-pressed="true"]');
+            if (selected) selected.focus({ preventScroll: true });
+          });
+        }
         var el = $('hdrScope');
         if (!el || el._bound) return;
         el._bound = true;
@@ -42533,13 +42720,6 @@
         var det = $('menuScope');
         if (det) det.open = false;
       }
-      function longLoadNotice(at, compact) {
-        if (at !== 'excBtn' && at !== 'surgeBtn') return '';
-        return compact ? 'Cold scan: 30s+; may take several minutes.'
-          : 'Slow loading: fresh scans may take 30 seconds or more; broad scans can '
-            + 'take several minutes. Cached results can appear sooner. Useful results '
-            + 'remain visible while more evidence loads.';
-      }
       function renderMenuList() {
         // Rebuilding the list DESTROYS the region <select>, because the cell is
         // part of the grid now. Re-binding is therefore the last thing this
@@ -42555,9 +42735,6 @@
         var personalSection = $('myYearBody').closest('section');
         if (personalSection) personalSection._label = '📅 ' + (personalPeriod() === 'all' ? 'My Life List' : 'My Year List');
         list.innerHTML = '';
-        document.querySelectorAll('[data-long-load]').forEach(function (notice) {
-          notice.textContent = longLoadNotice(notice.getAttribute('data-long-load'), false);
-        });
         renderJargonTip(list);
         var shown = _sections.filter(function (sec) {
           return menuApplies({ at: sec._at, needs: sec._needs, enabled: sec._enabled });
@@ -42922,6 +43099,7 @@
 
       function showSection(id) {
         var options = arguments[1] || {};
+        if (id === 'sec-surgeBtn') resetSurgeCategory();
         // F261. THE PAGE IS LAID OUT AGAINST A STALE VIEWPORT, AND NOTHING
         // EVER RE-MEASURES.
         //
@@ -45923,7 +46101,7 @@
           }
           var fullFavLabel = fav.getAttribute('data-fav-label') === 'full';
           fav.textContent = fullFavLabel
-            ? (nowFav ? '★ Remove from favorite hotspots' : '☆ Add to favorite hotspots')
+            ? (nowFav ? '★ Remove from favorite hotspots' : '☆ Add to favorites')
             : (nowFav ? '★ Saved to favorites' : '☆ Save to favorites');
           if (fav.hasAttribute('aria-pressed')) {
             fav.setAttribute('aria-pressed', String(nowFav));
@@ -46452,6 +46630,7 @@
         reportingDates: reportingDates, validReportingStats: validReportingStats,
         loadReportingActivity: loadReportingActivity,
         massFlockAlerts: massFlockAlerts,
+        massNews: massNews, massArrivalEvidence: massArrivalEvidence,
         parseMassHighCountPage: parseMassHighCountPage,
         loadMassFlockAlertSource: loadMassFlockAlertSource,
         loadFavoritePatchAlertSource: loadFavoritePatchAlertSource,

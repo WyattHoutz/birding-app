@@ -78,6 +78,12 @@ const BOOTSTRAP = `<script>
     localStorage.setItem('ebird_home_lat', '47.75');
     localStorage.setItem('ebird_home_lng', '-122.16');
     localStorage.setItem('ebird_report', 'wa');
+    localStorage.setItem('ebird_species_v2:US-WA', JSON.stringify({t:Date.now(), rows:[
+      {name:'Common Ringed Plover',code:'coripl'},
+      {name:'American Golden-Plover',code:'amgplo'}
+    ]}));
+    localStorage.setItem('ebird_species_v3:2025.0:US-WA',
+      localStorage.getItem('ebird_species_v2:US-WA'));
     localStorage.setItem('bc_display_profile', '__PROFILE__');
     // Layout-only, previously validated personal evidence; not a live source claim.
     var acquired = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
@@ -219,12 +225,25 @@ const AUDIT = `<script>
     cards.remove();
     host.remove();
     if (panel.id === 'sec-rankBtn') {
+      result.rankColumns = [].map.call(panel.querySelectorAll('.rankrow'), function (row) {
+        var stack = row.querySelector('.rankstack'), number = stack.querySelector('.hsnum, .rankna');
+        var name = row.querySelector('.ntext'), link = row.querySelector('.rankbirdline a.splink');
+        return {
+          rank: number ? number.textContent : stack.textContent,
+          reservedWidth: stack.getBoundingClientRect().width,
+          contentWidth: Math.max.apply(Math, [].map.call(stack.children, function (child) {
+            return child.getBoundingClientRect().width;
+          })),
+          gap: name.getBoundingClientRect().left - stack.getBoundingClientRect().right,
+          decoration: link && getComputedStyle(link).textDecorationLine
+        };
+      });
       var icons = [].slice.call(panel.querySelectorAll('.rankbirdicon .thumb'));
       var font = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
       result.latestBirdIcons = icons.length === 2 && icons.every(function (icon) {
         var box = icon.getBoundingClientRect();
-        return box.width > 0 && box.width <= 19 * font
-          && box.height > 0 && box.height <= 19 * font;
+        return Math.abs(box.width - 32 * font) < 0.5
+          && Math.abs(box.height - 32 * font) < 0.5;
       });
     }
     return result;
@@ -817,8 +836,55 @@ const AUDIT = `<script>
         });
       });
     }
+    var alertEvidence = [];
+    var patchHeader = null;
+    if (label === 'sec-destBtn' || label === 'sec-excBtn' || label === 'sec-quickBtn') {
+      var patchSection = document.getElementById(label), heading = patchSection.querySelector('h2');
+      var next = heading.nextElementSibling;
+      while (next && getComputedStyle(next).display === 'none') next = next.nextElementSibling;
+      patchHeader = {
+        toolbarNext: !!next && next.matches('.modeswitch'),
+        actions: !!heading.querySelector('.docbtn') && !!heading.querySelector('.refreshbtn'),
+        noBoilerplate: !patchSection.querySelector('.personalCoverageBox, #dayTripLoadNotice')
+      };
+    }
+    var categoryFilter = null;
+    if (label === '(F849 selected Mass Flock)') {
+      var selected = document.querySelector('#surgeResults [data-count-kind="mass"]');
+      var cards = [].slice.call(document.querySelectorAll('#surgeFeed > li'));
+      var visibleCards = cards.filter(function (row) { return getComputedStyle(row).display !== 'none'; });
+      categoryFilter = {
+        pressed: selected.getAttribute('aria-pressed') === 'true',
+        emphasized: getComputedStyle(selected).borderTopWidth === '3px',
+        checkmark: getComputedStyle(selected, '::before').content.indexOf('\u2713') >= 0,
+        onlyMass: visibleCards.length > 0 && visibleCards.every(function (row) {
+          return row.getAttribute('data-alert-kind') === 'mass';
+        }),
+        otherKindsHidden: cards.some(function (row) {
+          return row.getAttribute('data-alert-kind') !== 'mass' && getComputedStyle(row).display === 'none';
+        })
+      };
+    }
+    if (label === 'sec-surgeBtn') {
+      var textScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
+      [].forEach.call(document.querySelectorAll('#surgeFeed .surgefacts'), function (facts) {
+        alertEvidence.push({
+          largeEnough: parseFloat(getComputedStyle(facts).fontSize) >= 15 * textScale - 0.1,
+          boldPlaces: [].every.call(facts.querySelectorAll('.hslink'), function (link) {
+            return parseFloat(getComputedStyle(link).fontWeight) >= 700;
+          }),
+          checklistLabeled: [].every.call(facts.querySelectorAll('.surgeabsolute a'), function (link) {
+            var id = (link.getAttribute('data-href') || '').split('/').pop();
+            return !!id && link.textContent.indexOf(id) >= 0;
+          })
+        });
+      });
+    }
     return {
       label: label, vw: vw, n: all.length,
+      alertEvidence: alertEvidence,
+      patchHeader: patchHeader,
+      categoryFilter: categoryFilter,
       sectionId: vis ? vis.id : '',
       crushed: crushed.slice(0, 8),
       midword: midword.slice(0, 12),
@@ -896,16 +962,26 @@ const AUDIT = `<script>
       var root = document.getElementById('stakeHsResults');
       var fav = root.querySelector('.stakeHsFav');
       var title = root.querySelector('.hscardhead').getBoundingClientRect();
+      var qrNode = root.querySelector('.hscardhead > .qrbtn');
+      var qr = qrNode && qrNode.getBoundingClientRect();
+      var titleText = root.querySelector('.hscardhead > .ntext').getBoundingClientRect();
       var favorite = fav.getBoundingClientRect();
       var identity = root.querySelector('.stakeHsIdentity').getBoundingClientRect();
       var facts = root.querySelector('.stakeHsFacts').getBoundingClientRect();
       var actions = root.querySelector('.stakeHsIntroActions').getBoundingClientRect();
       var detailScan = scan('(F828 hotspot favorite ' + (saved ? 'Remove' : 'Add') + ')');
+      detailScan.hotspotQr = {
+        inHeading: !!qrNode,
+        separated: !!qr && qr.left >= titleText.right,
+        rightAligned: !!qr && Math.abs(qr.right - title.right) <= 1,
+        sameHeader: !!qr && qr.top >= title.top - 1 && qr.bottom <= title.bottom + 1
+      };
       detailScan.hotspotFavorite = {
         saved: saved, pressed: fav.getAttribute('aria-pressed'),
         titleBottom: title.bottom, favoriteTop: favorite.top, favoriteBottom: favorite.bottom,
         favoriteHeight: favorite.height, favoriteWidth: favorite.width,
-        identityTop: identity.top, summaryBottom: facts.bottom, actionsTop: actions.top,
+        identityTop: identity.top, identityBottom: identity.bottom,
+        summaryTop: facts.top, actionsTop: actions.top, actionsBottom: actions.bottom,
         ownRow: !!fav.closest('.stakeHsFavoriteRow'),
         noNavigation: !fav.parentNode.querySelector('.maplink, .extlink')
       };
@@ -1022,18 +1098,23 @@ const AUDIT = `<script>
               massCoverage: '12 of 15 candidate species; 6 of 7 daily samples; capped coverage'
             }, [], [{
               code: 'bktgwa', name: 'Black-throated Gray Warbler',
-              count: 2, when: stamp, time: +now, checklistId: 'SFIXTURE',
+              count: 2, when: stamp, time: +now, checklistId: 'S123456789',
               locId: 'L2', locName: 'Marymoor Park--Audubon Bird Loop'
             }], [{
               code: 'margod', name: 'Marbled Godwit', minCount: 600, maxCount: 750,
               evidenceCount: 3, supportingLowRows: 1, when: stamp, time: +now,
               locId: 'L257970', locName: 'Tokeland--marina', distanceMi: 125,
+              found: { day: stamp.slice(0, 10), days: 0 },
               insideChase: false, checklistId: 'SFLOCK',
               locations: [
                 { locId: 'L257970', locName: 'Tokeland--marina', count: 750 },
                 { locId: 'L257976', locName: 'Tokeland--Graveyard Spit', count: 3 }
               ]
             }]);
+            var massToggle = document.querySelector('#surgeResults [data-count-kind="mass"]');
+            massToggle.click();
+            out.push(scan('(F849 selected Mass Flock)'));
+            massToggle.click();
           }
           var s = scan(id);
           s.atMs = at;
@@ -1051,16 +1132,32 @@ const AUDIT = `<script>
     }
     function finalFixtures() {
       auditStage('final fixtures');
+      A.showSection('sec-rankBtn');
+      localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
+        t:Date.now(), rows:[
+          {name:'Common Ringed Plover',code:'coripl'},
+          {name:'American Golden-Plover',code:'amgplo'}
+        ]
+      }));
+      A.renderRankings({rows:[
+        {rank:1,name:'Birder with a long display name',species:356,checklists:484,
+          recent:'Common Ringed Plover (Oct. 1, 2026)'},
+        {rank:100,name:'Another birder',species:200,checklists:800,
+          recent:'American Golden-Plover (Oct. 1, 2026)'}
+      ]},'US-WA','https://ebird.org/top100','');
+      out.push(scan('(F851 compact Top100)'));
       A.showMenu();
       var savedPeriod = localStorage.getItem(A.PERSONAL_PERIOD_KEY);
       var savedName = localStorage.getItem('ebird_display_name');
       var savedRanks = localStorage.getItem(A.RANK_CACHE_KEY);
       var sampleName = 'Sample Observer with a long display name';
       localStorage.setItem('ebird_display_name', sampleName);
-      ['current', 'all'].forEach(function (mode) {
-        localStorage.setItem(A.PERSONAL_PERIOD_KEY, mode);
+      ['current', 'all', 'unavailable'].forEach(function (mode) {
+        localStorage.setItem(A.PERSONAL_PERIOD_KEY, mode === 'all' ? 'all' : 'current');
         var period = A.personalBoardPeriod();
+        if (mode === 'unavailable') localStorage.removeItem(A.RANK_CACHE_KEY);
         ['spp', 'cl'].forEach(function (metric) {
+          if (mode === 'unavailable') return;
           var me = {name:sampleName, rank:145, species:mode === 'all' ? 536 : 356,
             checklists:mode === 'all' ? 34759 : 484};
           A.rankCachePut('F812-audit-' + mode + '-' + metric, {
@@ -1073,16 +1170,50 @@ const AUDIT = `<script>
         var brand = document.querySelector('header .brand').getBoundingClientRect();
         var name = document.querySelector('#hdrId .hdrname').getBoundingClientRect();
         var scope = document.getElementById('hdrScope').getBoundingClientRect();
+        var periodButton = document.getElementById('hdrPeriod');
+        var periodBox = periodButton.getBoundingClientRect();
+        var identity = document.getElementById('hdrId');
+        var identityBox = identity.getBoundingClientRect();
+        var headerNode = document.querySelector('header');
+        var compactHeight = headerNode.getBoundingClientRect().height;
+        var previousInlineStyle = headerNode.getAttribute('style');
+        headerNode.style.rowGap = '4px';
+        headerNode.style.paddingBottom = '8px';
+        var spacedHeight = headerNode.getBoundingClientRect().height;
+        if (previousInlineStyle == null) headerNode.removeAttribute('style');
+        else headerNode.setAttribute('style', previousInlineStyle);
+        var cells = [identity.querySelector('.hdrname')].concat(
+          [].slice.call(identity.querySelector('.hdrstat').children));
+        var cellBoxes = cells.map(function (cell) { return cell.getBoundingClientRect(); });
         header.personalHeader = {
-          mode:mode, basis:document.getElementById('hdrScope').textContent,
-          twoRows:name.top >= Math.max(brand.bottom, scope.bottom) - 1,
+          mode:mode, basis:periodButton.textContent,
+          region:document.getElementById('hdrScope').textContent,
+          separated:periodBox.right <= scope.left && periodBox.width >= 44
+            && periodBox.height >= 44 && scope.width >= 44 && scope.height >= 44,
+          rowGap:identityBox.top - Math.max(brand.bottom, scope.bottom, periodBox.bottom),
+          headerHeight:compactHeight, spacingControlHeight:spacedHeight,
+          spacingSaved:spacedHeight - compactHeight,
+          twoRows:name.top >= Math.max(brand.bottom, scope.bottom, periodBox.bottom) - 1,
           nameWidth:name.width,
+          evenlySpaced: cellBoxes.every(function (cell) {
+            return Math.abs(cell.width - cellBoxes[0].width) < 1;
+          }),
+          fullWidth: Math.abs(cellBoxes[0].left - identityBox.left) < 1
+            && Math.abs(cellBoxes[3].right - identityBox.right) < 1,
+          compact: getComputedStyle(document.querySelector('header')).paddingBottom === '0px'
+            && getComputedStyle(document.querySelector('header')).rowGap === '0px',
+          fullCounts:[].every.call(identity.querySelectorAll('.hdrcount span'), function (span) {
+            return span.scrollWidth <= span.clientWidth + 1;
+          }),
           periodFirst:document.querySelector('.quicksettings').children[1].classList.contains('periodpick'),
-          controls:['hdrRankJump','hdrSpeciesJump','hdrChecklistJump'].map(function (id) {
+          controls:['hdrRankJump','hdrSpeciesJump','hdrChecklistJump'].filter(function (id) {
+            return !!document.getElementById(id);
+          }).map(function (id) {
             var button = document.getElementById(id), box = button.getBoundingClientRect();
             return {id:id, text:button.textContent, label:button.getAttribute('aria-label'),
               width:box.width, height:box.height, right:box.right,
-              underlined:getComputedStyle(button).textDecorationLine.indexOf('underline') >= 0};
+              underlined:getComputedStyle(button).textDecorationLine.indexOf('underline') >= 0,
+              bold:parseFloat(getComputedStyle(button).fontWeight) >= 700};
           })
         };
         out.push(header);
@@ -1437,6 +1568,25 @@ const AUDIT = `<script>
               foy.fixtureError = 'FOY layout fixture did not render dated and withheld evidence.';
             }
             out.push(foy);
+            A.showMenu();
+            ['county', 'aba'].forEach(function (scopeMode) {
+              if (scopeMode === 'county') A.setCountyView('US-WA-033');
+              else A.setActiveReport('aba');
+              A.headerScopeRefresh();
+              var scoped = scan('(F853 ' + scopeMode + ' shortcuts)');
+              var periodNode = document.getElementById('hdrPeriod');
+              var regionNode = document.getElementById('hdrScope');
+              var pb = periodNode.getBoundingClientRect(), rb = regionNode.getBoundingClientRect();
+              scoped.scopeHeader = {
+                region:regionNode.textContent,
+                expected:scopeMode === 'county' ? 'US-WA-033' : 'ABA Area',
+                separate:pb.right <= rb.left,
+                touch:pb.width >= 44 && pb.height >= 44 && rb.width >= 44 && rb.height >= 44,
+                within:rb.right <= document.documentElement.clientWidth
+              };
+              out.push(scoped);
+            });
+            A.setActiveReport('wa');
             finish(out);
             });
           });
@@ -1737,7 +1887,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     console.log('viewport ' + WIDTH + 'px  Display ' + PROFILE
       + ' (' + SCALE + 'x)\n');
-    if (report.filter((r) => r.personalHeader).length !== 2) {
+    if (report.filter((r) => r.personalHeader).length !== 3) {
       bad++;
       console.log('   F805/F812 FIXTURE missing Current year / All time header geometry');
     }
@@ -1750,15 +1900,24 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      if (r.scopeHeader && (r.scopeHeader.region !== r.scopeHeader.expected
+          || !r.scopeHeader.separate || !r.scopeHeader.touch || !r.scopeHeader.within)) {
+        bad++;
+        console.log('   F853 scoped shortcut geometry failed: ' + JSON.stringify(r.scopeHeader));
+      }
       if (r.personalHeader) {
         const header = r.personalHeader;
+        console.log('   F852/F853 HEADER GEOMETRY ' + JSON.stringify(header));
         if (!header.twoRows || header.nameWidth <= 0 || !header.periodFirst
-            || !header.basis.includes(header.mode === 'all' ? 'Life List' : 'Year List')
-            || header.controls.length !== 3
+            || !header.evenlySpaced || !header.fullWidth || !header.compact || !header.fullCounts
+            || header.basis !== (header.mode === 'all' ? 'All Time' : String(new Date().getFullYear()))
+            || header.region !== 'US-WA' || !header.separated || Math.abs(header.rowGap) > 1
+            || Math.abs(header.spacingSaved - 12) > 1
+            || header.controls.length !== (header.mode === 'unavailable' ? 2 : 3)
             || header.controls.some((control) => control.width < 44 || control.height < 44
-              || control.right > r.vw + 0.5 || !control.underlined || !control.label)
-            || !header.controls[1].text.endsWith('sp.')
-            || !header.controls[2].text.endsWith('cl.')) {
+              || control.right > r.vw + 0.5 || control.underlined || !control.bold || !control.label)
+            || !header.controls.find(control => control.id === 'hdrSpeciesJump').text.endsWith('sp.')
+            || !header.controls.find(control => control.id === 'hdrChecklistJump').text.endsWith('cl.')) {
           bad++;
           console.log('   F805/F812 HEADER controls, basis or two-row geometry failed: '
             + JSON.stringify(header));
@@ -1932,13 +2091,42 @@ server.listen(0, '127.0.0.1', () => {
         });
       }
       var layout = r.releaseLayout;
+      if (r.patchHeader && Object.values(r.patchHeader).some(value => !value)) {
+        bad++;
+        console.log('   F850 patch header must lead into the toolbar: ' + JSON.stringify(r.patchHeader));
+      }
+      if (r.label === '(F851 compact Top100)') {
+        console.log('   F851 RANK GEOMETRY ' + JSON.stringify(layout && layout.rankColumns));
+        if (!layout || !layout.rankColumns || layout.rankColumns.length !== 2
+            || layout.rankColumns.some(row => row.reservedWidth > row.contentWidth + 0.5
+              || row.decoration !== 'none')) {
+          bad++;
+          console.log('   F851 rank columns reserve excess space or bird names are underlined');
+        }
+      }
+      if (r.categoryFilter && Object.values(r.categoryFilter).some(value => !value)) {
+        bad++;
+        console.log('   F849 selected Mass Flock must visibly select and hide other categories: '
+          + JSON.stringify(r.categoryFilter));
+      }
+      if (r.alertEvidence && r.alertEvidence.some(evidence => Object.values(evidence).some(value => !value))) {
+        bad++;
+        console.log('   F848 evidence must be enlarged, hotspots bold and checklist IDs labeled');
+      }
+      if (r.hotspotQr) {
+        console.log('   F845 HOTSPOT QR GEOMETRY ' + JSON.stringify(r.hotspotQr));
+        if (Object.values(r.hotspotQr).some(value => !value)) {
+          bad++;
+          console.log('   F845 hotspot QR must be right-aligned beside the title');
+        }
+      }
       if (r.hotspotFavorite) {
         var hf = r.hotspotFavorite;
         console.log('   F828 FAVORITE GEOMETRY ' + JSON.stringify(hf));
         if (hf.pressed !== String(hf.saved) || !hf.ownRow || !hf.noNavigation
             || hf.favoriteHeight < 44 || hf.favoriteWidth < 44
             || hf.favoriteTop < hf.titleBottom || hf.identityTop < hf.favoriteBottom
-            || hf.actionsTop < hf.summaryBottom) {
+            || hf.actionsTop < hf.identityBottom || hf.summaryTop < hf.actionsBottom) {
           bad++;
           console.log('   F828 favorite is not separated below title and above metadata');
         }
@@ -2048,7 +2236,7 @@ server.listen(0, '127.0.0.1', () => {
             + JSON.stringify(layout.cardReadability));
         }
         if (layout.latestBirdIcons === false) {
-          layoutProblems.push('Top 100 latest-bird icons missing or larger than compact geometry');
+          layoutProblems.push('Top 100 latest-bird icons must match the readable 32px scaled size');
         }
         if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
         if (layout.emptyMinHeight > 0.5) {

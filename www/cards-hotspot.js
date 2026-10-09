@@ -76,7 +76,7 @@
 
   var LARGE = [
     '<li class="{{cls}}"{{data}}>',
-    '  <div class="hscardhead">{{marker}}<span class="ntext">{{name}}</span></div>',
+    '  <div class="hscardhead">{{marker}}<span class="ntext">{{name}}</span>{{headingaction}}</div>',
     '  <div class="meta">{{sub}}{{qr}}</div>',
     '  <div class="hslists">{{unseen}}{{seen}}</div>',
     '  {{below}}',
@@ -318,6 +318,8 @@
     '             margin: 0 0 16px; padding: 14px; background: var(--card); }',
     '.hscard-lg > .hscardhead { display: flex; align-items: center; gap: 12px;',
     '                           font-size: calc(26px * var(--s)); font-weight: 800; }',
+    '.hscard-lg > .hscardhead > .ntext { flex: 1; min-width: 0; overflow-wrap: anywhere; }',
+    '.hscard-lg > .hscardhead > .qrbtn { flex: 0 0 auto; margin: 0 0 0 auto; }',
     '.hscard-lg > .meta { font-size: calc(16px * var(--s)); color: var(--muted);',
     '                     margin-top: 4px; }',
 
@@ -494,7 +496,7 @@
       data: dataHtml(v),
       marker: markerHtml(v),
       name: v.name || '',
-      headingaction: isMedium ? v.headingAction || '' : '',
+      headingaction: v.headingAction || '',
       sub: subHtml(v, tpl === SMALL, isMedium),
       dist: isMedium ? v.metricHtml || distHtml(v) : '',
       unseen: unseenHtml(v) + unknownHtml(v),
@@ -503,8 +505,8 @@
       // Existing callers own their map + save row and must keep it intact.
       // QR gets its own optional slot rather than being inserted into that
       // caller HTML: parsing and splicing a markup string is a fragile,
-      // second action builder. The Stakeout-hotspot caller deliberately puts
-      // its QR directly beside its map action; QR-only cards use this row.
+      // second action builder. Stakeout uses headingAction for its QR;
+      // other callers keep the existing optional slot.
       actions: v.actions == null ? '' : v.actions,
       // ⚠️ A SPAN, NOT A DIV, AND THAT IS THE WHOLE BUG. Reported twice —
       // "QR icon wrapping issue is not fixed on stakeout bird ... i already
