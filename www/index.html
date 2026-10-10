@@ -904,6 +904,12 @@
     /* "Who added it" as one sentence rather than a row per birder. The table
        version was the tallest thing on the card and the least scanned. */
     .wholine { font-size: calc(14px * var(--s)); line-height: 1.45; margin: 8px 0 0; }
+    .tickwho { font-weight: 400; }
+    .tickwho .tickprofile a { font-weight: 700; text-decoration: none; }
+    #lastNewResults > li > .name > .spprimary { align-self: start; }
+    #lastNewResults > li > .name > .ntext > .spsci > .spcodes-inline {
+      display: inline; margin-left: 6px;
+    }
     .wholine .lbl { display: inline-block; font-size: calc(12px * var(--s));
                     font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
                     color: var(--muted); margin-right: 6px; }
@@ -4293,6 +4299,8 @@
       <button id="dbgDump" type="button">Dump</button>
       <button id="dbgDrag" type="button">📐 Drag</button>
       <button id="dbgClear" type="button">Clear</button>
+      <button id="dbgSourceCapture" type="button" aria-pressed="false">Capture page fragments: Off</button>
+      <button id="dbgSourceCopy" type="button">Copy page fragments</button>
       <strong>Personal-list diagnostics — read-only probes; normal refresh saves verified history</strong>
       <button id="dbgPersonalPath" type="button">Test personal list: direct path</button>
       <button id="dbgPersonalQuery" type="button">Test personal list: direct explicit year</button>
@@ -4834,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.147.2';
+      var APP_VERSION = '1.148.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -16400,8 +16408,8 @@
           profile: scope.profile ? 'alternate' : 'default',
           evidence: personalListEvidence(scope).state };
       }
-      function rarityFilterControl(id, kind, leftValue, leftLabel, rightValue, rightLabel) {
-        var selected = rarityFilters()[kind];
+      function rarityFilterControl(id, kind, leftValue, leftLabel, rightValue, rightLabel, selection) {
+        var selected = selection == null ? rarityFilters()[kind] : selection;
         if (kind === 'year' && leftValue === 'unseen' && rightValue === 'all') {
           var ready = personalListEvidence().complete;
           return ToggleControls.pressed({
@@ -26572,11 +26580,26 @@
         }
         var me = null, dn = (displayName || '').trim();
         if (dn) for (var j = 0; j < rows.length; j++) if (rows[j].name === dn) { me = rows[j]; break; }
+        var sessionUser = null;
+        // A separate standing prefix restarts at rank 1. Equal-rank rows only
+        // establish a prefix when the owner's full standing is duplicated.
+        if (rows.length > 1 && rows[1].rank === 1 && (rows[0].rank > 1
+            || (rows[0].rank === 1 && rows[0].name === rows[1].name
+              && rows[0].species === rows[1].species && rows[0].checklists === rows[1].checklists))) {
+          sessionUser = rows.shift();
+        }
+        function normalizedName(value) {
+          return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        }
+        var ownerMatch = !!(sessionUser && dn && normalizedName(sessionUser.name) === normalizedName(dn));
+        if (ownerMatch) me = sessionUser;
         var maxRank = 0; for (var k = 0; k < marks.length; k++) if (marks[k].rank > maxRank) maxRank = marks[k].rank;
         // Slice to the board size, never to rows.length: eBird appends YOUR row
         // after the hundredth even when you are ranked #211, so an unsliced list
         // renders a stray 101st entry that is not on the board.
-        return { rows: rows.slice(0, rowLimit || TOP_BOARD_N), me: me, checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
+        return { rows: rows.slice(0, rowLimit || TOP_BOARD_N), me: me,
+          sessionUser: sessionUser, ownerMatch: ownerMatch ? 'session-prefix-name' : '',
+          checkedToRank: maxRank || null, total: rows.length, region: pageRegion(html) };
       }
 
       function rankPageIdentity(html) {
@@ -26623,6 +26646,68 @@
         }));
       }
 
+      var RANK_SNAPSHOT_KEY = 'bc_rank_snapshots_v1';
+      function rankSnapshotEnabled() {
+        try { return localStorage.getItem('bc_rank_snapshot_enabled') === 'true'; }
+        catch (error) { dbg('error', 'Page fragment preference unreadable: ' + error.message); return false; }
+      }
+      function rankSnapshotFragment(html) {
+        if (String(html).length > 2000000) throw new Error('Source exceeds the 2 MB diagnostic input limit');
+        var doc = new DOMParser().parseFromString(String(html), 'text/html');
+        var marks = Array.from(doc.querySelectorAll('.ResultsStats-index')).slice(0, 6);
+        var remaining = 600;
+        return marks.map(function (mark) {
+          var parent = mark.closest('.ResultsStats') || mark.parentElement;
+          if (!parent || parent === doc.body) parent = mark;
+          var allowed = new Set(['DIV', 'SPAN', 'H5', 'A', 'SVG', 'USE']);
+          function clean(node) {
+            if (remaining-- <= 0) return '';
+            if (node.nodeType === 3) return '[text]';
+            if (node.nodeType !== 1 || !allowed.has(node.tagName)) return '';
+            var classes = Array.from(node.classList).filter(function (value) {
+              return /^(?:ResultsStats|StatsIcon|Icon|u-margin-none)(?:--[A-Za-z]+|-[A-Za-z]+)*$/.test(value);
+            }).join(' ');
+            return '<' + node.tagName.toLowerCase() + (classes ? ' class="' + classes + '"' : '') + '>'
+              + Array.from(node.childNodes).map(clean).join('') + '</' + node.tagName.toLowerCase() + '>';
+          }
+          return clean(parent);
+        }).join('\n').slice(0, 12000);
+      }
+      function rankSnapshotRead() {
+        var saved;
+        try { saved = JSON.parse(localStorage.getItem(RANK_SNAPSHOT_KEY) || '[]'); }
+        catch (error) { dbg('error', 'Page fragments unreadable: ' + error.message); return []; }
+        if (!Array.isArray(saved)) {
+          dbg('error', 'Page fragments unreadable: expected a record array');
+          return [];
+        }
+        return saved.filter(function (row) {
+          if (!row || !Number.isFinite(row.time) || typeof row.fragment !== 'string'
+              || row.fragment.length > 12000
+              || !/^(http-response|rendered-dom)$/.test(row.transport)
+              || !/^(spp|cl)$/.test(row.metric)
+              || typeof row.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(row.version)) {
+            dbg('error', 'Discarded an invalid page-fragment record');
+            return false;
+          }
+          var age = Date.now() - row.time;
+          return age >= 0 && age < 86400000;
+        }).slice(-6).map(function (row) {
+          return { time: row.time, version: row.version, transport: row.transport,
+            metric: row.metric, fragment: rankSnapshotFragment(row.fragment) || '[No ranking elements found]' };
+        });
+      }
+      function rankSnapshotSave(html, transport, metric) {
+        try {
+          if (!rankSnapshotEnabled()) return;
+          var fragment = rankSnapshotFragment(html);
+          var rows = rankSnapshotRead();
+          rows.push({ time: Date.now(), version: APP_VERSION, transport: transport,
+            metric: metric === 'cl' ? 'cl' : 'spp', fragment: fragment || '[No ranking elements found]' });
+          localStorage.setItem(RANK_SNAPSHOT_KEY, JSON.stringify(rows.slice(-6)));
+          dbg('net', 'Saved redacted leaderboard structure (' + transport + ')');
+        } catch (error) { dbg('error', 'Page fragment not saved: ' + error.message); }
+      }
       function rankProfileUrl(row) {
         if (row.profileUrl && /^https:\/\/ebird\.org\/profile\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?\/?$/.test(row.profileUrl)) {
           return row.profileUrl;
@@ -27273,7 +27358,7 @@
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
       // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
-      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric, rowLimit, accountRequired, expectProfileId) {
+      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric, rowLimit, accountRequired, expectProfileId, attempt) {
         return '(function(){function send(message){' +
           'if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){' +
           'window.mobileApp.postMessage(message);return;}' +
@@ -27283,21 +27368,12 @@
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
           'var onPage=location.origin==="https://ebird.org"&&location.pathname.replace(/\\/+$/,"")==="/top100";' +
           parseRankingsHTML.toString() + ';' +
+          rankSnapshotFragment.toString() + ';' +
           'var TOP_BOARD_N=100;' + rankPageIdentity.toString() + ';' +
           'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ','
             + JSON.stringify((rowLimit || 100) + (accountRequired ? 1 : 0)) + ');' +
-          'var owner=' + JSON.stringify(expectProfileId || '') + ';' +
-          // Signed-in eBird can put the owner's standing above the board.
-          // Remove only a verified-ID prefix; retain me and the bounded board.
-          'if(owner&&R.rows.length>1&&R.rows[0].profileId===owner' +
-          '&&R.rows[0].rank>R.rows[1].rank)R.rows.shift();' +
           'R.rows=R.rows.slice(0,' + JSON.stringify(rowLimit || 100) + ');' +
           'var source=rankPageIdentity(H);R.metric=source.metric;R.period=source.period;' +
-          parseEbirdAccountIdentity.toString() + ';' +
-          'var I=parseEbirdAccountIdentity(document);' +
-          'var accountRequired=' + JSON.stringify(!!accountRequired) + ';' +
-          'var accountOk=I&&I.status==="ok"&&I.displayName===' + JSON.stringify(displayName || '') + ';' +
-          'if(accountRequired&&accountOk)R.accountName=I.displayName;' +
           'var want=' + JSON.stringify(String(expectRegion || '')) + ';' +
           // Being ON a top100 page is not enough. eBird can land us on a
           // different board than the URL asked for (session redirect, a
@@ -27307,10 +27383,17 @@
           'var right=(!want||(R&&R.region&&String(R.region).toLowerCase()===want.toLowerCase()))' +
           '&&(!' + JSON.stringify(expectPeriod || '') + '||String(R.period)===' + JSON.stringify(String(expectPeriod || '')) + ')' +
           '&&(!' + JSON.stringify(expectMetric || '') + '||R.metric===' + JSON.stringify(expectMetric || '') + ');' +
-          'var ok=!!(onPage&&right&&R&&R.rows&&R.rows.length&&(!accountRequired||accountOk));' +
-          'send({detail:{__ebird:true,kind:"rank",ok:ok,needsLogin:accountRequired&&!accountOk,' +
-          'parseStatus:accountRequired?I.status:"public",region:R?R.region:"",data:R}});' +
-          '}catch(e){send({detail:{__ebird:true,kind:"rank",ok:false,error:String(e&&e.message||e)}});}})();';
+          rankRowsConsistent.toString() + ';' +
+          'var ordered=rankRowsConsistent(R,' + JSON.stringify(expectMetric || 'spp') + ');' +
+          'var ok=!!(onPage&&right&&ordered);' +
+          'send({detail:{__ebird:true,kind:"rank",ok:ok,needsLogin:false,terminal:' + (Number(attempt) >= 19) + ',' +
+          'parseStatus:!onPage?"wrong-page":!right?"wrong-source":!ordered?"invalid-rows":"ok",' +
+          'sourceFragment:' + (rankSnapshotEnabled()
+            ? 'rankSnapshotFragment(H)' : '""') + ',' +
+          'pageShape:{onPage:onPage,sourceMatches:right,ordered:ordered,rows:R.rows.length,' +
+          'sessionPrefix:!!R.sessionUser,nameMatched:!!R.ownerMatch},region:R?R.region:"",data:R}});' +
+          '}catch(e){send({detail:{__ebird:true,kind:"rank",ok:false,parseStatus:"error",terminal:'
+            + (Number(attempt) >= 19) + ',error:String(e&&e.message||e)}});}})();';
       }
       function buildAlertInject() {
         return '(function(){try{if(!window.mobileApp)return;' +
@@ -27576,6 +27659,17 @@
                 + (d.onProfile === false ? ' · wrong page' : ''));
               if (d.pageShape) {
                 trace('profile shape', JSON.stringify(d.pageShape));
+              }
+              if (d.kind === 'rank' && d.sourceFragment) {
+                rankSnapshotSave(d.sourceFragment, 'rendered-dom', d.data && d.data.metric);
+              }
+              if (d.kind === 'rank' && !d.ok && d.parseStatus === 'wrong-source') {
+                finish(new Error('The browser returned a different leaderboard scope, period or metric.'));
+                return;
+              }
+              if (d.kind === 'rank' && !d.ok && d.terminal) {
+                finish(new Error('The leaderboard could not be read: ' + (d.parseStatus || 'parse failed')));
+                return;
               }
               if (d.needsLogin) { reveal(); return; }
               if (opts.kind === 'personalList' && d.terminal && !d.ok) {
@@ -27907,6 +28001,7 @@
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
           return fetchPublicHTML(urls[i], force).then(function (html) {
             if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
+            rankSnapshotSave(html, 'http-response', metric);
             var data = parseRankingsHTML(html, name, rr.rowLimit) || {};
             var source = rankPageIdentity(html);
             data.metric = source.metric; data.period = source.period; data.profile = profile;
@@ -28491,7 +28586,7 @@
           var profileId = identity.profileId;
           var ck = rankCacheOwnerKey(rr,period,name), cached = rankCacheGet(ck);
           if (!force && rankSourceMatches(cached,rr.region,period,metric)
-              && cached.accountName === name && cached.profile === rr.ownerProfile
+              && cached.profile === rr.ownerProfile
               && cached.ownerRevision === rr.ownerRevision && rankRowsConsistent(cached,metric)) {
             return Promise.resolve(cached);
           }
@@ -28500,12 +28595,12 @@
           return captureEbird({kind:'rank',url:url,alive:function () {
             var current = getIdentityMeta();
             return rankRequestCurrent(rr) && current && current.profileId === profileId;
-          },buildInject:function () {
-            return buildRankInject(name,rr.region,period,metric,rr.rowLimit,true,profileId);
+          },buildInject:function (attempt) {
+            return buildRankInject(name,rr.region,period,metric,rr.rowLimit,true,profileId,attempt);
           },onStatus:onStatus}).then(function (data) {
             var current = getIdentityMeta();
             if (!rankRequestCurrent(rr) || !current || current.profileId !== profileId
-                || data.accountName !== name || !rankSourceMatches(data,rr.region,period,metric)
+                || !rankSourceMatches(data,rr.region,period,metric)
                 || !rankRowsConsistent(data,metric)) {
               throw new Error('The signed-in leaderboard does not match this account or scope.');
             }
@@ -28515,24 +28610,7 @@
             return data;
           });
         }
-        return fetchRank(rr, period, name, force).catch(function (e) {
-          if (!ibAvail() || !rankRequestCurrent(rr)) throw e;
-          dbg('warn', 'rankings ' + metric + ' direct read failed; trying the same eBird board');
-          return captureEbird({ url: url, alive: function () { return rankRequestCurrent(rr); }, buildInject: function () {
-            return buildRankInject(name, rr.region, period, metric, rr.rowLimit);
-          }, onStatus: onStatus }).then(function (data) {
-            if (!rankSourceMatches(data, rr.region, period, metric)
-                || !rankRowsConsistent(data,metric)) {
-              throw new Error('The website did not return the requested leaderboard.');
-            }
-            if (!rankRequestCurrent(rr)) throw new Error('Account changed during leaderboard acquisition.');
-            data.url = url; data.profile = typeof rr.ownerProfile === 'string' ? rr.ownerProfile : bcProfile();
-            data.ownerRevision = rr.ownerRevision;
-            data.readAt = new Date().toISOString();
-            rankCachePut(rankCacheOwnerKey(rr, period, name), data);
-            return data;
-          });
-        });
+        return fetchRank(rr, period, name, force);
       }
       function fetchRankPair(rr, period, name, force, onStatus, metrics) {
         rr = ownedRankRequest(rr);
@@ -28645,9 +28723,7 @@
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var owner = bcProfile();
-        var identity = getIdentityMeta();
-        authenticated = !!authenticated || !!(ibAvail() && identity
-          && identity.source === 'ebird-bird-list' && identity.profileId);
+        authenticated = authenticated === true;
         var btn = $('rankBtn'), st = $('rankStatus');
         var boardKey = region + '|' + year + '|' + name + '|' + owner;
         if ($('rankResults').dataset.boardKey !== boardKey) {
@@ -28655,8 +28731,7 @@
         }
         var previous = $('rankResults').textContent;
         btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
-        // Verified native accounts read the signed-in DOM, whose public names
-        // include profile links omitted by the unauthenticated HTTP response.
+        // Background reads are the default; a browser is an explicit action.
         return fetchRankPair({ key: rr.key, region: region, max: max, rowLimit: 500,
           authenticated:!!authenticated }, year, name, force, function (m) {
           if (generation === _rankLoadGeneration && getRankScope().region === region && bcProfile() === owner) st.textContent = m;
@@ -28695,17 +28770,29 @@
         })) return unavailable + 'the returned ranks or species totals are invalid.</p>';
         var profile = meta && meta.profileId;
         var me = profile && rows.find(function (row) { return row.profileId === profile; });
-        var own = me || (profile && data.me && data.me.profileId === profile ? data.me : null);
+        var prefix = data.ownerMatch === 'session-prefix-name' && data.sessionUser
+          && String(data.sessionUser.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+            === String(name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+          ? data.sessionUser : null;
+        if (prefix) {
+          me = rows.find(function (row) {
+            return row.rank === prefix.rank && row.species === prefix.species
+              && String(row.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+                === String(prefix.name).replace(/\s+/g, ' ').trim().toLowerCase();
+          }) || null;
+        }
+        var own = prefix || me || (profile && data.me && data.me.profileId === profile ? data.me : null);
         var coverage = '<p class="hint">' + esc(rankRegionName(region)) + ' · Species · '
           + esc(period) + ' · ' + rows.length + ' rows returned'
           + (data.readAt ? ' · read ' + esc(data.readAt) : ' · read time unavailable')
-          + (stale ? ' · STALE — refresh failed' : '') + '</p>';
+          + (stale ? ' · STALE — refresh failed' : '')
+          + (prefix ? ' · Session user matched by display name' : '') + '</p>';
         if (!own || !Number.isInteger(own.species) || own.species < 0
             || !Number.isInteger(own.rank) || own.rank < 1) {
           var verified = profile && meta.source === 'ebird-bird-list';
           return coverage + unavailable + (verified
-            ? 'your profile is verified, but this source does not identify your competitor row. Load the signed-in board to read its account and public-profile links.'
-            : 'fetch your signed-in eBird profile, then read the signed-in leaderboard. Display names alone are not used to select neighbors.') + '</p>'
+            ? 'your profile is verified, but this public source does not identify your standing. An explicit browser read can supply its separate user row.'
+            : 'this public board has no matched user standing. An explicit browser read can supply its separate user row.') + '</p>'
             + '<button type="button" class="secondary" ' + (verified ? 'data-rank-account>Load signed-in leaderboard' : 'data-rank-verify>Verify my eBird profile') + '</button>'
             + '<span role="status"></span>';
         }
@@ -29833,7 +29920,7 @@
               seen[key].metrics.push(metric);
               return;
             }
-            var birder = { name: row.name, profileId: row.profileId || '',
+            var birder = { name: row.name, profileId: row.profileId || '', profileUrl: row.profileUrl || '',
               rank: row.rank, url: data.url, date: tick.date, metric: metric, metrics: [metric] };
             seen[key] = birder;
             var group = groups[tick.species] || (groups[tick.species] = { birders: [], latest: '' });
@@ -29892,33 +29979,13 @@
               : 'No verified leaderboard entry carried a newest-species note.';
             return;
           }
-          // Paint the BOARD before the checklists. Everything above was derived
-          // from one leaderboard read that has already returned: which birds,
-          // how many returned participants got each, when, and who. The per-species
-          // checklist feeds behind it are paced against eBird's real rate limit
-          // and take minutes — so waiting for them meant staring at a status
-          // line while the answer sat in memory.
-          //
-          // The ONE region-wide code feed is awaited first: it is a single call
-          // (and the same one the checklist pass would make anyway, memoised),
-          // and without it the seen/unseen headings cannot be decided, so rows
-          // would migrate between them as the board hydrated.
+          // Resolve identities once; detail feeds belong to on-demand Stakeout.
           st.textContent = 'Resolving ' + species.length + ' birds…';
           return lastNewCodeIndex(region).then(function (codeIdx) {
             if (!current()) return;
             reconcileLastNewOwnerTicks(groups, codeIdx);
             renderLastNew(groups, {}, region, codeIdx);
-            st.textContent = 'Matching ' + species.length + ' birds to recent checklists…';
-            return lastNewChecklists(species, region, function (done, total) {
-              if (!current()) return;
-              st.textContent = 'Matching ' + done + ' of ' + total + ' birds to recent checklists…';
-            }, function (sp, info) {
-              if (!current()) return;
-              lastNewPatch(sp, groups[sp], info, region, codeIdx[sp.toLowerCase()] || '');
-            }).then(function () {
-              if (!current()) return;
-              st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
-            });
+            st.textContent = 'Updated ' + nowTime() + ' · ' + species.length + ' birds';
           });
         }).catch(function (e) {
           if (!current()) return;
@@ -30119,69 +30186,32 @@
       // rarityFilterRecords itself is NOT reusable - it requires
       // kind === 'Rarity' on each row and these rows are species groups - so
       // only the DECISION is duplicated, and it copies that function's rule
-      // that an unknown distance is never a reason to hide a row.
       var _lastNewState = null;
       function lastNewNearest(info) {
         return lastNewEvidence(info).mi;
       }
       function lastNewPasses(sp, info, code) {
-        var f = rarityFilters();
-        if (f.distance === 'near') {
-          var mi = lastNewNearest(info);
-          // A row whose checklists have not landed yet has no distance, and a
-          // row with no distance cannot claim to be far. It stays until the
-          // feed can answer - the same rule rarityFilterRecords follows.
-          if (mi != null && mi > chaseMaxMi()) return false;
-        }
-        return true;
+        return !lastNewSettings().hideSeen || !personalListEvidence().complete
+          || isSpeciesSeen(code, sp) === false;
       }
-      // F193. This section painted a Newest/Nearest control and then sorted by
-      // NEITHER. `raritySorted` is called by both twitch sections and was
-      // never called here, so both chips re-rendered an identical list.
-      //
-      // Reported as *"clicking newest toggle does nothing"*, and the first
-      // diagnosis — a loading race on `_lastNewState` — was WRONG: that state
-      // is published by the FIRST render, before any checklist lands, so the
-      // chips were inert after loading finished too. A control that is dead
-      // for two minutes and a control that is dead forever look identical from
-      // the device, which is why the report was taken mid-load.
-      //
-      // The old order was birders-desc, which is what neither chip claims.
-      // "Newest" now means newest, and being true costs nothing: `latest`
-      // comes from the leaderboard read, so it is known before any checklist
-      // arrives. Birders stays as the TIE-BREAK, which is what that ranking
-      // was really doing — separating two birds ticked on the same day.
-      //
-      // "Nearest" needs the per-species checklists, which land minutes later.
-      // A row whose feed has not arrived has no distance and cannot claim to
-      // be nearest, so it sorts LAST rather than as zero — the same rule
-      // raritySorted follows.
-      //
-      // This does NOT reintroduce the reshuffle the old guard was written
-      // against. That guard asserted the file's shape (`lastNewOrder` must not
-      // mention `byName`) as a stand-in for the real property: the list must
-      // never re-order ON ITS OWN. That property is enforced where it actually
-      // lives — `lastNewPatch` swaps one row in place and never re-sorts — so
-      // the order changes only when the reader asks for it.
+      function lastNewRecentCount(group) {
+        var identities = {};
+        (group.birders || []).forEach(function (birder) {
+          if (!rankTickIsFresh(birder.date)) return;
+          identities[birder.profileId || [birder.metric || 'spp', birder.rank, birder.name].join('|')] = true;
+        });
+        return Object.keys(identities).length;
+      }
+      // Both orders use board evidence, never delayed checklist enrichment.
       function lastNewOrder(groups, byName) {
-        var mode = raritySort();
-        var far = {};
-        if (mode === 'distance') {
-          Object.keys(groups).forEach(function (sp) {
-            var mi = lastNewNearest((byName || {})[sp] || null);
-            far[sp] = (mi == null || !isFinite(mi)) ? Infinity : mi;
-          });
-        }
+        var mode = lastNewSettings().sort;
         return Object.keys(groups).sort(function (a, b) {
-          if (mode === 'distance' && far[a] !== far[b]) return far[a] - far[b];
-          var newestA = lastNewEvidence((byName || {})[a]).newest;
-          var newestB = lastNewEvidence((byName || {})[b]).newest;
-          var dateA = newestA ? newestA.obsDt : (byName || {})[a] ? '' : groups[a].latest;
-          var dateB = newestB ? newestB.obsDt : (byName || {})[b] ? '' : groups[b].latest;
+          var d = lastNewRecentCount(groups[b]) - lastNewRecentCount(groups[a]);
+          if (mode === 'count' && d) return d;
+          var dateA = groups[a].latest, dateB = groups[b].latest;
           if (dateA !== dateB) {
             return dateA < dateB ? 1 : -1;
           }
-          var d = lastNewSupportCount(groups[b]) - lastNewSupportCount(groups[a]);
           if (d) return d;
           return a < b ? -1 : 1;
         });
@@ -30203,29 +30233,58 @@
           + '</span><span class="cgwhy">' + why + '</span></li>';
       }
 
+      var _lastNewRecentOnly = false;
+      function lastNewSettings() {
+        try {
+          var settings = JSON.parse(localStorage.getItem('bc_lastnew_display_v1') || '{}');
+          return { sort: settings.sort === 'count' ? 'count' : 'date', hideSeen: settings.hideSeen === true };
+        } catch (error) {
+          dbg('warn', 'Ticks display settings unreadable: ' + error.message);
+          return { sort: 'date', hideSeen: false };
+        }
+      }
+      function lastNewControls() {
+        var settings = lastNewSettings();
+        return '<div class="raritycontrols" id="lastNewControls"><div class="raritycontrolrow">'
+          + ToggleControls.group({ id: 'lastNewSort', label: 'Sort leaderboard ticks', options: [
+            { label: 'Date', data: { ticksort: 'date' }, pressed: settings.sort !== 'count' },
+            { label: 'Count', data: { ticksort: 'count' }, pressed: settings.sort === 'count' }
+          ] })
+          + rarityFilterControl('lastNewSeen', 'year', 'unseen', 'Unseen', 'all', 'All',
+            settings.hideSeen && personalListEvidence().complete ? 'unseen' : 'all')
+          + ToggleControls.pressed({ id: 'lastNewRecent', label: 'Recent',
+            ariaLabel: 'Show additions from the last ' + RANK_FRESH_DAYS + ' days',
+            data: { tickrecent: 'toggle' }, pressed: _lastNewRecentOnly })
+          + '</div></div>';
+      }
       function renderLastNew(groups, byName, region, codeIdx) {
         var out = $('lastNewResults');
         var keys = lastNewOrder(groups, byName);
         codeIdx = codeIdx || {};
         _lastNewState = { groups: groups, byName: byName, region: region, codeIdx: codeIdx };
-        // The controls are painted from the FIRST render, which happens as soon
-        // as the board resolves and long before the ~46 per-species checklist
-        // feeds finish. A control that only appears once the slowest source
-        // lands is a control nobody can reach while they are waiting.
         var chost = $('lastNewControlsHost');
-        if (chost && !chost.firstChild) {
-          chost.innerHTML = rarityControls('lastNew', { unseenOnly: true, notes: false });
-          wireRarityControls('lastNew', function () {
+        if (chost) {
+          chost.innerHTML = lastNewControls();
+          chost.onclick = function (event) {
+            var button = event.target.closest('[data-ticksort], [data-filter="year"], [data-tickrecent]');
+            if (!button) return;
+            var settings = lastNewSettings();
+            if (button.hasAttribute('data-tickrecent')) _lastNewRecentOnly = !_lastNewRecentOnly;
+            else if (button.hasAttribute('data-ticksort')) settings.sort = button.getAttribute('data-ticksort');
+            else settings.hideSeen = button.getAttribute('data-value') === 'unseen';
+            try { localStorage.setItem('bc_lastnew_display_v1', JSON.stringify(settings)); }
+            catch (error) { dbg('error', 'Ticks display settings not saved: ' + error.message); return; }
             if (_lastNewState) {
               renderLastNew(_lastNewState.groups, _lastNewState.byName,
                 _lastNewState.region, _lastNewState.codeIdx);
             }
-          });
+          };
         }
         var shown = [], hidden = 0;
         keys.forEach(function (sp) {
           var info = (byName || {})[sp] || null;
           var code = (info && info.code) || codeIdx[sp.toLowerCase()] || '';
+          if (_lastNewRecentOnly && !rankTickIsFresh(groups[sp].latest)) { hidden++; return; }
           if (!lastNewPasses(sp, info, code)) { hidden++; return; }
           shown.push(sp);
         });
@@ -30341,20 +30400,14 @@
       }
       function lastNewCard(sp, g, info, region, code) {
         code = (info && info.code) || code || '';
-        var evidence = lastNewEvidence(info);
-        var pending = !info && !!code;
         var people = g.birders.slice().sort(function (a, b) {
           return String(b.date || '').localeCompare(String(a.date || ''))
             || ((a.rank || 9999) - (b.rank || 9999));
         });
-        var who = people.slice(0, 4).map(function (b) {
-          return esc(b.name) + (b.rank ? ' ' + (b.metric === 'cl' ? 'checklists' : 'species')
-            + ' #' + esc(b.rank) : '');
-        }).join(', ') + (people.length > 4 ? ' and ' + (people.length - 4) + ' more' : '');
-        var summaries = pending
-          ? '<span class="ckwait" role="status">Finding recent checklists…</span>'
-          : '<br>' + lastNewSummary('Newest checklist', evidence.newest) + '<br>'
-            + lastNewSummary('Nearest', evidence.nearest);
+        var who = people.map(function (b) {
+          var url = rankProfileUrl(b), rank = b.rank ? '#' + esc(b.rank) + ' ' : '';
+          return rank + (url ? '<strong class="tickprofile">' + extA(url, b.name) + '</strong>' : esc(b.name));
+        }).join(', ');
         var recentPeople = {}, recent = [];
         people.forEach(function (birder) {
           if (!rankTickIsFresh(birder.date)) return;
@@ -30363,15 +30416,17 @@
           recentPeople[identity] = true; recent.push(birder);
         });
         return SpeciesCards.medium({
-          sci: sciFor(code), icon: photoSlot(sp, code),
+          sci: sciFor(code), codeInSci: true, lowercaseCodeInSci: true, tagsInCodes: true, icon: photoSlot(sp, code),
           name: speciesLink(sp, code), code: code, alpha: alphaFor(code),
-          tags: needTag(code, sp, null, false),
+          tags: needTag(code, sp)
+            + (rankTickIsFresh(g.latest) ? '<span class="newflag" aria-label="added in the last '
+              + RANK_FRESH_DAYS + ' days">NEW</span>' : ''),
           primary: '<span class="spmetricstack" aria-label="Recent birders: '
             + recent.length + '"><span class="spmetric"><strong>' + recent.length
-            + '</strong></span><span class="spmetric"><small>recent birders</small></span></span>',
-          sub: summaries,
+            + '</strong></span><span class="spmetric"><small>recent<br>birders</small></span></span>',
+          sub: '',
           below: (isWatched(code) ? '<div class="hint">On your watchlist for verification</div>' : '')
-            + '<div class="wholine"><span class="lbl">Who added it</span> ' + who + '</div>',
+            + '<div class="wholine tickwho"><span class="lbl">Who added it:</span> ' + who + '</div>',
           data: code ? { 'last-new-code': code, 'last-new-name': sp } : {}
         });
       }
@@ -46353,8 +46408,32 @@
       });
       $('dbgClear').addEventListener('click', function () {
         if (window.__dbg && window.__dbg.clear) window.__dbg.clear();
+        try { localStorage.removeItem(RANK_SNAPSHOT_KEY); }
+        catch (error) { dbg('error', 'Page fragments not cleared: ' + error.message); }
         dbgRender();
       });
+      $('dbgSourceCapture').addEventListener('click', function () {
+        var enabled = rankSnapshotEnabled();
+        if (!enabled && !confirmAction('capture-page-fragments', 'Capture redacted leaderboard structure locally for 24 hours? Names, values, links and scripts are excluded. Nothing is uploaded.')) return;
+        try { localStorage.setItem('bc_rank_snapshot_enabled', String(!enabled)); }
+        catch (error) { dbg('error', 'Page fragment capture not changed: ' + error.message); return; }
+        this.setAttribute('aria-pressed', String(!enabled));
+        this.textContent = 'Capture page fragments: ' + (!enabled ? 'On' : 'Off');
+      });
+      $('dbgSourceCopy').addEventListener('click', function () {
+        if (!confirmAction('copy-page-fragments', 'Copy locally captured redacted page structure? Review it before sharing. This is separate from Copy all.')) return;
+        var text = JSON.stringify(rankSnapshotRead(), null, 2);
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          dbg('error', 'Page fragments cannot be copied: clipboard unavailable');
+          return;
+        }
+        navigator.clipboard.writeText(text).then(function () {
+          dbg('net', 'Page fragments copied');
+        }).catch(function (error) { dbg('error', 'Page fragments not copied: ' + error.message); });
+      });
+      $('dbgSourceCapture').setAttribute('aria-pressed', String(rankSnapshotEnabled()));
+      $('dbgSourceCapture').textContent = 'Capture page fragments: '
+        + (rankSnapshotEnabled() ? 'On' : 'Off');
       $('dbgClose').addEventListener('click', function () { openDebug(false); });
       if ($('openDebugBtn')) $('openDebugBtn').addEventListener('click', function () { openDebug(true); });
       (function () {
@@ -47051,6 +47130,7 @@
         rankPageIdentity: rankPageIdentity, rankSourceMatches: rankSourceMatches,
         mergeRankBoards: mergeRankBoards, fetchRankPair: fetchRankPair,
         buildRankInject: buildRankInject, loadRankings: loadRankings,
+        rankSnapshotSave: rankSnapshotSave, rankSnapshotRead: rankSnapshotRead,
         renderRankPair: renderRankPair, lastNewSupportCount: lastNewSupportCount,
         rankTickGroups: rankTickGroups, rankCacheOwnerKey: rankCacheOwnerKey,
         fetchRank: fetchRank, captureEbird: captureEbird,

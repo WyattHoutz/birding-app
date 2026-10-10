@@ -957,7 +957,7 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'wrong'}));
     paint();
     assert.equal(app.document.querySelector('.ranknearby [aria-current]'),null);
-    assert.match(app.document.querySelector('.ranknearby').textContent,/Display names alone/);
+    assert.match(app.document.querySelector('.ranknearby').textContent,/no matched user standing/);
   }finally{app.window.close();}
 });
 
@@ -986,7 +986,7 @@ test('F858/F869 metric switching uses independent boards and always exposes hone
     assert.match(app.$('rankResults').textContent,/300/);
     assert.ok(app.document.querySelector('.ranknearby'),
       'neighbor coverage must remain visible on Checklists');
-    assert.match(app.document.querySelector('.ranknearby').textContent,/Display names alone/);
+    assert.match(app.document.querySelector('.ranknearby').textContent,/no matched user standing/);
     delete pair.boards.cl;
     pair.failures.cl = 'Offline';
     A.renderRankPair(pair,'US-WA','2026','Owner');
@@ -1049,8 +1049,8 @@ test('F868 Leader Board Ticks counts distinct recent birders and moves source ex
     A.renderLastNew(groups,info,'US-WA',{});
     const card = app.$('lastNewResults').querySelector('[data-last-new-code]');
     assert.equal(card.querySelector('.spprimary [aria-label]').getAttribute('aria-label'),'Recent birders: 2');
-    assert.equal(card.querySelector('.lastNewSummary').previousElementSibling.tagName,'BR');
-    assert.match(card.textContent,/Newest checklist:/);
+    assert.equal(card.querySelector('.lastNewSummary'),null);
+    assert.ok(card.querySelector('.spprimary small br'));
     assert.equal(app.$('lastNewResults').querySelector('.lastnewcoverage'),null);
   } finally { app.window.close(); }
 });
@@ -7377,6 +7377,223 @@ test('F878 preserves exact public profile destinations and leaves private names 
   } finally { app.window.close(); }
 });
 
+test('F879 background boards never auto-open native windows and accept missing profile links', async () => {
+  const period = String(new Date().getFullYear());
+  let opens = 0;
+  const app = await boot({sample:false,storage:{ebird_display_name:'Sample Observer',
+    ebird_identity_v1:JSON.stringify({profileId:'saved',source:'ebird-bird-list'})},
+    fetch:url => /top100/.test(url)
+      ? dualRankFixture(new URL(url).searchParams.get('rankedBy'),[
+        {name:'Other',rank:1,species:100,checklists:200},
+        {name:'Private',rank:2,species:90,checklists:190}
+      ],'US-WA',period) : null});
+  try {
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{openWebView(){opens++;throw new Error('Unexpected window');}}}};
+    await app.window.__app.loadRankings(true);
+    assert.equal(opens,0);
+    assert.equal(app.$('rankResults').querySelectorAll('.rankrow').length,2);
+    assert.match(app.$('rankStatus').textContent,/Loaded|Refreshed/);
+  } finally { app.window.close(); }
+});
+
+test('F879 session prefix name match supplies standing without profile IDs or count corroboration', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A=app.window.__app, period=String(new Date().getFullYear());
+    const rows=Array.from({length:11},(_,i)=>({name:i===5?'Sample Observer':'Birder '+i,
+      rank:i+1,species:200-i,checklists:400-i}));
+    const prefix={...rows[5],name:'  SAMPLE   OBSERVER '};
+    const source=A.parseRankingsHTML(dualRankFixture('spp',[prefix,...rows],'US-WA',period),
+      'Sample Observer',500);
+    assert.equal(source.rows.length,11);
+    assert.equal(source.ownerMatch,'session-prefix-name');
+    assert.equal(source.me.rank,6);
+    const mismatch=A.parseRankingsHTML(dualRankFixture('spp',[{...prefix,name:'Other'},...rows]),
+      'Sample Observer',500);
+    assert.equal(mismatch.ownerMatch,'');
+    const ordinary=A.parseRankingsHTML(dualRankFixture('spp',rows),'Sample Observer',500);
+    assert.equal(ordinary.sessionUser,null);
+    const first=A.parseRankingsHTML(dualRankFixture('spp',[rows[0],...rows]),rows[0].name,500);
+    assert.equal(first.rows.length,11);
+    assert.equal(first.ownerMatch,'session-prefix-name');
+  } finally {app.window.close();}
+});
+
+test('F880 board-only load and shared controls cost zero species/checklist enrichment requests', async () => {
+  const period=String(new Date().getFullYear()), date=recentObsStamp(1).slice(0,10);
+  const app=await boot({sample:false,fetch:url=>{
+    if (/top100/.test(url)) return dualRankFixture('spp',[
+      {name:'A',rank:1,species:100,checklists:200,recent:'Ruff ('+new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+')'}
+    ],'US-WA',period);
+    if (/ref\/region\/species/.test(url)) return ['ruff'];
+    if (/taxonomy/.test(url)) return [{speciesCode:'ruff',comName:'Ruff',sciName:'Calidris pugnax'}];
+    if (/data\/obs\/US-WA\/recent\?/.test(url)) return [{speciesCode:'ruff',comName:'Ruff',obsDt:date}];
+    if (/data\/obs\/|checklist\/view|product\/checklist/.test(url)) return [];
+    return null;
+  }});
+  try {
+    const A=app.window.__app;
+    const before=app.state.fetches.length;
+    await A.loadLastNew();
+    const details=()=>app.state.fetches.slice(before).filter(url=>/data\/obs\/.*\/recent\/|checklist\/view|product\/checklist/.test(url));
+    assert.equal(details().length,0);
+    app.click(app.document.querySelector('[data-ticksort="count"]'));
+    app.click(app.$('lastNewSeen'));
+    app.click(app.$('lastNewRecent'));
+    await A.loadLastNew();
+    assert.equal(details().length,0);
+    assert.ok(app.document.querySelector('#lastNewSort.twopill'));
+    assert.equal(app.$('lastNewSeen').querySelector('.presslabel').textContent,'Unseen unavailable');
+    assert.equal(app.$('lastNewDistance'),null);
+    assert.doesNotMatch(app.$('lastNewResults').textContent,/Finding recent checklists|Newest checklist|Nearest/);
+  } finally {app.window.close();}
+});
+
+test('F880 roster retains all ranks, only profile names bold, shared inline identity codes', async () => {
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app;
+    const birders=Array.from({length:7},(_,i)=>({name:'Person '+i,rank:i+1,date:recentObsStamp(1).slice(0,10),
+      ...(i===0?{profileUrl:'https://ebird.org/profile/P1/US-WA'}:{})}));
+    A.renderLastNew({'Ruff':{birders,latest:birders[0].date}},{},'US-WA',{ruff:'ruff'});
+    const who=app.document.querySelector('.tickwho');
+    assert.equal(who.querySelector('.lbl').textContent,'Who added it:');
+    assert.equal(who.querySelectorAll('strong').length,1);
+    assert.equal(who.querySelector('strong').textContent,'Person 0');
+    assert.equal(who.querySelector('a').getAttribute('data-href'),'https://ebird.org/profile/P1/US-WA');
+    assert.match(who.textContent,/#7 Person 6/);
+    assert.doesNotMatch(who.textContent,/species|and \d+ more/);
+  } finally {app.window.close();}
+});
+
+test('F880 shared Recent and complete-history Unseen filter the actual board cards', async () => {
+  const app=await boot({sample:false,indexedDB:new IDBFactory(),
+    storage:{ebird_display_name:'Sample Observer'},fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{authorityVer:2024,latest:true}];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return ownedPersonalListFixture({codes:['stable']});
+      return null;
+    }
+  });
+  try {
+    const A=app.window.__app, recent=recentObsStamp(1).slice(0,10), old=recentObsStamp(20).slice(0,10);
+    await A.preparePersonalList(A.activeScope(),true);
+    const groups={
+      'Stable bird':{birders:[{name:'A',rank:1,date:recent}],latest:recent},
+      'New name':{birders:[{name:'B',rank:2,date:old}],latest:old}
+    };
+    A.renderLastNew(groups,{},'US-WA',{'stable bird':'stable','new name':'rename'});
+    const cards=()=>Array.from(app.document.querySelectorAll('#lastNewResults > li[data-sp]'),
+      node=>node.getAttribute('data-sp'));
+    assert.deepEqual(cards(),['Stable bird','New name']);
+    app.click(app.$('lastNewRecent'));
+    assert.deepEqual(cards(),['Stable bird']);
+    assert.equal(app.$('lastNewRecent').getAttribute('aria-pressed'),'true');
+    app.click(app.$('lastNewRecent'));
+    app.click(app.$('lastNewSeen'));
+    assert.deepEqual(cards(),['New name']);
+    assert.equal(app.$('lastNewSeen').getAttribute('aria-pressed'),'true');
+    app.click(app.$('lastNewSeen'));
+    assert.deepEqual(cards(),['Stable bird','New name']);
+  } finally {app.window.close();}
+});
+
+test('F881 opt-in fragments exclude all source text, links, forms, scripts and values and obey retention limits', async () => {
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app, ls=app.window.localStorage;
+    const html='<div class="ResultsStats"><div class="ResultsStats-index">213.</div>'
+      + '<h5 id="PRIVATE" class="u-margin-none">PRIVATE</h5>'
+      + '<a href="https://ebird.org/profile/SECRET?token=TOKEN">PRIVATE</a>'
+      + '<input value="PASSWORD"><script>TOKEN</script><span data-secret="TOKEN">SECRET</span></div>';
+    A.rankSnapshotSave(html,'http-response','spp');
+    assert.equal(ls.getItem('bc_rank_snapshots_v1'),null);
+    ls.setItem('bc_rank_snapshot_enabled','true');
+    for(let i=0;i<9;i++) A.rankSnapshotSave(html,'http-response','spp');
+    const saved=A.rankSnapshotRead();
+    assert.equal(saved.length,6);
+    assert.equal(saved[0].transport,'http-response');
+    assert.match(saved[0].fragment,/ResultsStats-index/);
+    assert.doesNotMatch(JSON.stringify(saved),/PRIVATE|SECRET|TOKEN|PASSWORD|213|href|script|input/);
+    ls.setItem('bc_rank_snapshots_v1',JSON.stringify([{...saved[0],fragment:html,extra:'SECRET'}]));
+    assert.doesNotMatch(JSON.stringify(A.rankSnapshotRead()),/PRIVATE|SECRET|TOKEN|PASSWORD|213|href|script|input/);
+    ls.setItem('bc_rank_snapshots_v1',JSON.stringify(saved));
+    A.rankSnapshotSave('x'.repeat(2000001),'http-response','cl');
+    assert.equal(A.rankSnapshotRead().length,6);
+    ls.setItem('bc_rank_snapshots_v1',JSON.stringify([
+      {...saved[0],time:Date.now()-86400001},
+      {...saved[0],time:Date.now()+86400000},
+      {...saved[0],fragment:'x'.repeat(12001)},
+      {...saved[0],transport:'untrusted'},
+      {time:Date.now(),fragment:'unexpected'}
+    ]));
+    assert.equal(A.rankSnapshotRead().length,0);
+    app.click(app.$('dbgClear'));
+    assert.equal(ls.getItem('bc_rank_snapshots_v1'),null);
+  } finally {app.window.close();}
+});
+
+test('F879 explicit capture closes owned windows on wrong-source and terminal parse failure', async () => {
+  for (const status of ['wrong-source','invalid-rows','error']) {
+    const app=await boot({sample:false,fetch:()=>[]});
+    try {
+      const A=app.window.__app, handlers={}, closes=[];
+      A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+        evidence:'profile-heading',profileId:'P5'});
+      app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+        addListener(name,handler) {handlers[name]=handler;return Promise.resolve({remove(){}});},
+        openWebView() {
+          setTimeout(()=>handlers.browserPageLoaded({id:'failed-rank'}),0);
+          return Promise.resolve({id:'failed-rank'});
+        },
+        executeScript() {
+          handlers.messageFromWebview({id:'failed-rank',detail:{
+            __ebird:true,kind:'rank',ok:false,parseStatus:status,terminal:status!=='wrong-source'
+          }});
+          return Promise.resolve();
+        },
+        hide(){},show(){},close(options){closes.push(options);return Promise.resolve();}
+      }}};
+      await A.loadRankings(true,true);
+      assert.equal(closes.length,2,'each failed metric releases its owned window');
+      assert.match(app.$('rankResults').textContent,
+        status==='wrong-source'?/different leaderboard scope, period or metric/
+          :new RegExp('could not be read: '+status));
+    } finally {app.window.close();}
+  }
+});
+
+test('F879 native injection reports independent scope/order failures and final exception verdicts', async () => {
+  const app=await boot({sample:false}), A=app.window.__app, period=String(new Date().getFullYear());
+  const rows=[{name:'A',rank:1,species:100,checklists:200},
+    {name:'B',rank:2,species:99,checklists:199},
+    {name:'C',rank:3,species:98,checklists:198}];
+  try {
+    for(const [html,status,attempt,throws] of [
+      [dualRankFixture('spp',rows,'US-WA',period),'ok',19,false],
+      [dualRankFixture('spp',rows,'US-OR',period),'wrong-source',19,false],
+      [dualRankFixture('spp',rows,'US-WA',String(+period-1)),'wrong-source',19,false],
+      [dualRankFixture('cl',rows,'US-WA',period),'wrong-source',19,false],
+      [dualRankFixture('spp',[rows[0],rows[2],rows[1]],'US-WA',period),'invalid-rows',19,false],
+      [dualRankFixture('spp',[],'US-WA',period),'wrong-source',0,false],
+      [dualRankFixture('spp',rows,'US-WA',period),'error',19,true]
+    ]) {
+      const page=new JSDOM('<!doctype html><html><body>'+html+'</body></html>',
+        {url:'https://ebird.org/top100',runScripts:'outside-only'});
+      try {
+        let result;
+        page.window.mobileApp={postMessage(message){result=message.detail;}};
+        if(throws) Object.defineProperty(page.window.document.documentElement,'outerHTML',
+          {get(){throw new Error('source-read control');}});
+        page.window.eval(A.buildRankInject('Sample Observer','US-WA',period,'spp',500,true,'P5',attempt));
+        assert.equal(result.parseStatus,status);
+        assert.equal(result.ok,status==='ok');
+        assert.equal(result.terminal,attempt>=19);
+      } finally {page.window.close();}
+    }
+  } finally {app.window.close();}
+});
+
 test('F877 signed-in native capture parses region-suffixed links before owner-scoped cache/render', async () => {
   const period = String(new Date().getFullYear());
   const app = await boot({sample:false,fetch:()=>[]});
@@ -7385,7 +7602,7 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
     const A = app.window.__app;
     A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
       evidence:'profile-heading',profileId:'P5'});
-    const handlers = {}, opens = [];
+    const handlers = {}, opens = [], closes = [];
     let source;
     app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
       addListener(name,handler) { handlers[name]=handler;return Promise.resolve({remove(){}}); },
@@ -7393,10 +7610,11 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
         opens.push(options.url);
         const metric = new URL(options.url).searchParams.get('rankedBy');
         const rows = Array.from({length:11},(_,i)=>({name:i===5?'Sample Observer':'Birder '+i,
-          profileId:'P'+i,rank:i+1,species:200-i,checklists:400-i}));
-        const board = dualRankFixture(metric,[rows[5],...rows],'US-WA',period)
+          ...(i===5?{}:{profileId:'P'+i}),rank:i+1,species:200-i,checklists:400-i}));
+        const prefix={...rows[5],name:' SAMPLE  OBSERVER '};
+        const board = dualRankFixture(metric,[prefix,...rows],'US-WA',period)
           .replaceAll('">Profile</a>','/US-WA">Profile</a>');
-        source = new JSDOM(ACCOUNT_MENU_HTML.replace('</body>',board+'</body>'),
+        source = new JSDOM('<!doctype html><html><body>'+board+'</body></html>',
           {url:options.url,runScripts:'outside-only'});
         windows.push(source.window);
         source.window.webkit = {messageHandlers:{messageHandler:{postMessage(message) {
@@ -7406,26 +7624,30 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
         return Promise.resolve({id:'owned-rank'});
       },
       executeScript({code}) { source.window.eval(code);return Promise.resolve(); },
-      hide(){},show(){},close(){return Promise.resolve();},
+      hide(){},show(){},close(options){closes.push(options);return Promise.resolve();},
     }}};
-    await A.loadRankings(true);
+    await A.loadRankings(true,true);
     assert.equal(opens.length,2);
+    assert.equal(closes.length,2,'accepted public boards close automatically without account-menu markup');
     assert.ok(opens.every(url=>new URL(url).searchParams.get('maxResults')==='500'));
     const panel = app.document.querySelector('.ranknearby');
+    assert.ok(panel,'the accepted name-only session standing must produce a neighbor panel');
     assert.equal(panel.querySelectorAll('table').length,2);
     assert.equal(panel.querySelector('[aria-current]').textContent,'#6You195—');
     assert.equal(panel.querySelector('button'),null);
     assert.equal(app.$('rankResults').querySelector('.rankrow .wholine a').getAttribute('data-href'),
       'https://ebird.org/profile/P0/US-WA');
     const cached = (await A.fetchRankPair({region:'US-WA'},period,'Sample Observer',false)).boards.spp;
-    assert.equal(cached.rows[5].profileId,'P5');
+    assert.equal(cached.rows[5].profileId,undefined);
+    assert.equal(cached.ownerMatch,'session-prefix-name',
+      'a separate name-matched standing must render without a public profile link');
     assert.equal(cached.profile,A.bcProfile());
     assert.equal(cached.ownerRevision,A.identityRevision());
     await A.loadRankings();
     assert.equal(opens.length,2,'same-owner signed-in cache must avoid reopening both boards');
-    for (const [url,account] of [
-      ['https://ebird.org/top100','Other account'],
-      ['https://untrusted.example/top100','Sample Observer'],
+    for (const [url,account,accepted] of [
+      ['https://ebird.org/top100','Other account',true],
+      ['https://untrusted.example/top100','Sample Observer',false],
     ]) {
       const rejected = new JSDOM(ACCOUNT_MENU_HTML.replaceAll('Sample Observer',account)
         .replace('</body>',dualRankFixture('spp',[{name:'Sample Observer',rank:1,
@@ -7435,7 +7657,7 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
       let receipt;
       rejected.window.mobileApp={postMessage(message){receipt=message.detail;}};
       rejected.window.eval(A.buildRankInject('Sample Observer','US-WA',period,'spp',500,true));
-      assert.equal(receipt.ok,false,'another account/origin cannot own this board');
+      assert.equal(receipt.ok,accepted,'public boards do not require account-menu identity, but origin must match');
     }
   } finally { windows.forEach(window=>window.close());app.window.close(); }
 });
@@ -7537,7 +7759,7 @@ test('F860 ticks acquire only Species 500, reuse cache and report a returned Top
       species:500 - index, checklists:600 - index,
       recent:recent(index === 499 ? 'Red Knot' : index === 500 ? 'Snow Goose' : 'Ruff'),
     }));
-    const app = await boot({ storage:{ebird_report:slug}, fetch(url) {
+    const app = await boot({ sample:false,storage:{ebird_report:slug}, fetch(url) {
       if (/top100/.test(url)) {
         const metric = new URL(url).searchParams.get('rankedBy');
         return dualRankFixture(metric, metric === 'spp' ? rows : [{
@@ -7548,7 +7770,7 @@ test('F860 ticks acquire only Species 500, reuse cache and report a returned Top
       if (/data\/obs\/.*\/recent\?/.test(url)) return [
         {comName:'Ruff',speciesCode:'ruff'}, {comName:'Red Knot',speciesCode:'redkno'},
       ];
-      return [];
+      return null;
     } });
     try {
       const A = app.window.__app;
@@ -7558,16 +7780,12 @@ test('F860 ticks acquire only Species 500, reuse cache and report a returned Top
       });
       assert.equal(A.parseRankingsHTML(dualRankFixture('spp',rows,region,year),'').rows.length,100,
         'Top 100 presentation keeps its existing default retention');
-      const builderSource = HTML.slice(HTML.indexOf('function buildRankInject('),
-        HTML.indexOf('function buildAlertInject('));
-      const builder = new Function('parseRankingsHTML','rankPageIdentity','parseEbirdAccountIdentity',
-        builderSource + '; return buildRankInject;')(A.parseRankingsHTML,A.rankPageIdentity,A.parseEbirdAccountIdentity);
       const capture = new JSDOM(dualRankFixture('spp',rows,region,year),
         {url:'https://ebird.org/top100',runScripts:'outside-only'});
       try {
         let captured;
         capture.window.mobileApp = {postMessage(message) { captured = message.detail; }};
-        capture.window.eval(builder('',region,year,'spp',500));
+        capture.window.eval(A.buildRankInject('',region,year,'spp',500));
         assert.equal(captured.ok,true);
         assert.equal(captured.data.rows.length,count,'browser capture retains the same tick cohort');
       } finally { capture.window.close(); }
@@ -9079,9 +9297,9 @@ test('a section still fetching does not look like a section that found nothing',
   const g = { birders: [], latest: '' };
   const pending = A.lastNewCard('Mallard', g, null, 'US-WA', 'mallar3');
   const settled = A.lastNewCard('Mallard', g, { code: 'mallar3', obs: [] }, 'US-WA');
-  assert.match(pending, /role="status">Finding recent checklists/);
+  assert.doesNotMatch(pending, /Finding recent checklists/);
   assert.doesNotMatch(settled, /Finding recent checklists/);
-  assert.match(settled, /Newest checklist: unavailable/);
+  assert.doesNotMatch(settled, /Newest checklist/);
   app.window.close();
 });
 
@@ -9158,12 +9376,12 @@ test('Leader Board Ticks: the bird outranks the roster of who added it', () => {
     'and no longer renders as a checklist-style table');
 });
 
-test('Leader Board Ticks: the bird links to Stakeout and shows inline checklist summaries', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
+test('Leader Board Ticks: the bird links to Stakeout without automatic checklist summaries', () => {  const src = HTML.slice(HTML.indexOf('function renderLastNew('),
     HTML.indexOf('function loadAbaAlert('));
   assert.match(src, /speciesLink\(sp, code\)/,
     'the bird title is a link to ebird.org/species/<code>/<region>');
-  assert.match(src, /lastNewSummary\('Newest checklist', evidence\.newest\)/);
-  assert.match(src, /lastNewSummary\('Nearest', evidence\.nearest\)/);
+  assert.doesNotMatch(src, /lastNewSummary\('Newest checklist', evidence\.newest\)/);
+  assert.doesNotMatch(src, /lastNewSummary\('Nearest', evidence\.nearest\)/);
   assert.doesNotMatch(src, /checklistDetails\(/);
 });
 
@@ -17414,7 +17632,7 @@ test('the medium card is a real 2x2 grid, not a float', async () => {
   app.window.close();
 });
 
-test('Leader Board Ticks answers how far away the bird is', async () => {
+test('Leader Board Ticks does not claim checklist distance from board-only evidence', async () => {
   const app = await boot({ storage: { 'ebird_home_lat:wa': '47.75', 'ebird_home_lng:wa': '-122.15' } });
   const A = app.window.__app, d = app.window.document;
   const groups = {}, byName = {};
@@ -17435,11 +17653,11 @@ test('Leader Board Ticks answers how far away the bird is', async () => {
   // It now renders in the medium card's distance COLUMN rather than as a
   // phrase in the sub-header, which is the same convention every other medium
   // card uses — the number is there to be scanned down the edge of a list.
-  assert.match(txt, /3\.\d/, 'measures to the closest report, not the latest');
+  assert.doesNotMatch(txt, /Nearest|Newest checklist|3\.\d/);
   const dist = [...d.querySelectorAll('#lastNewResults .lastNewSummary')]
     .find((el) => el.textContent.startsWith('Nearest:'));
-  assert.ok(dist, 'the distance belongs to the explicitly labelled nearest evidence');
-  assert.match(dist.textContent, /3\.\d/);
+  assert.equal(dist, undefined);
+  app.window.close();
 });
 
 test('F578 Favorite patches never lets a rarity flag bypass exact personal seen filtering', async () => {
@@ -18315,11 +18533,11 @@ test('Leader Board Ticks: names are a list sorted newest first, not a run-on', (
     'a paragraph of "Name (#4) · Name (#7) · …" is unreadable on a phone');
   assert.match(src, /b\.date \|\| ''\)\.localeCompare\(String\(a\.date/,
     'sorted most recent first — yesterday’s tick says more than the highest rank');
-  assert.match(src, /Who added it[\s\S]{0,80}class="wholine"|class="wholine"[\s\S]{0,80}Who added it/,
+  assert.match(src, /Who added it[\s\S]{0,80}class="wholine\b|class="wholine\b[\s\S]{0,80}Who added it/,
     'the birders render as ONE labelled sentence — the table was the tallest '
     + 'thing on the card and the least scanned');
-  assert.match(src, /lastNewSummary\('Newest checklist'/,
-    'checklist evidence is inline rather than an expandable collection');
+  assert.doesNotMatch(src, /lastNewSummary\('Newest checklist'/,
+    'checklist evidence belongs to on-demand Stakeout');
 });
 
 // The expander mirrors report._rarity_reports_cell: a section whose rows ARE the
@@ -24472,11 +24690,9 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
                           HTML.indexOf('function lastNewKey('));
   assert.match(load, /renderLastNew\(groups, \{\}, region, codeIdx\)/,
     'the board is painted from the leaderboard read, with no checklists yet');
-  assert.ok(load.indexOf('renderLastNew(groups, {}, region, codeIdx)')
-            < load.indexOf('lastNewChecklists('),
-    'and painted BEFORE the per-species fetches start');
-  assert.match(load, /lastNewPatch\(sp, groups\[sp\], info, region, codeIdx/,
-    'each row is replaced as its own feed lands');
+  assert.doesNotMatch(load, /lastNewChecklists\(/,
+    'board-only load must not start per-species feeds');
+  assert.doesNotMatch(load, /lastNewPatch\(/);
 
   // The FIRST order must be decided by the leaderboard alone — the initial
   // paint passes `{}` for byName, so nothing that arrives later can be in it.
@@ -24484,14 +24700,10 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
   // enforced by lastNewPatch below, not by the comparator.
   const order = HTML.slice(HTML.indexOf('function lastNewOrder('),
                            HTML.indexOf('function renderLastNew('));
-  assert.match(order, /raritySort\(\)/,
-    'F193: the comparator consults the sort chips — it used to consult neither, '
-    + 'so "Newest" and "Nearest" both re-rendered an identical list');
-  assert.match(order, /lastNewSupportCount\(groups\[b\]\) - lastNewSupportCount\(groups\[a\]\)/,
+  assert.match(order, /lastNewSettings\(\)\.sort/);
+  assert.match(order, /lastNewRecentCount\(groups\[b\]\) - lastNewRecentCount\(groups\[a\]\)/,
     'the tie-break must not count ambiguous cross-board duplicates as independent people');
-  assert.match(order, /Infinity/,
-    'a row whose checklists have not landed has no distance and cannot claim '
-    + 'to be nearest, so it sorts last rather than as zero');
+  assert.doesNotMatch(order, /lastNewNearest|raritySort/);
 
   // Patching ONE row rather than re-rendering the list: a full re-render would
   // restart photo hydration ~46 times and close any expander already opened.
@@ -24505,10 +24717,7 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
   // A pending row still says something useful rather than looking broken.
   const card = HTML.slice(HTML.indexOf('function lastNewCard('),
                           HTML.indexOf('function loadAbaAlert('));
-  assert.match(card, /var pending = !info && !!code;/,
-    'a row knows whether its feed has landed — and a species with no code has '
-    + 'no feed coming, so it must not wait forever');
-  assert.match(card, /Finding recent checklists/, 'and says so while it waits');
+  assert.doesNotMatch(card, /Finding recent checklists|var pending/);
 });
 
 // "I would like the Leader Board Ticks to be split, showing the
@@ -24588,14 +24797,13 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
     .map((li) => li.getAttribute('data-sp')).filter(Boolean);
   assert.deepEqual(names(), ['Far New Bird', 'Near Old Bird']);
 
-  doc.querySelector('#lastNewSort [data-sort="distance"]').click();
-  assert.deepEqual(names(), ['Near Old Bird', 'Far New Bird'],
-    'Nearest click did not visibly reorder the loaded cards');
-  assert.equal(doc.querySelector('#lastNewSort [data-sort="distance"]')
+  doc.querySelector('#lastNewSort [data-ticksort="count"]').click();
+  assert.deepEqual(names(), ['Far New Bird', 'Near Old Bird'],
+    'Count ties break by source date, not distance');
+  assert.equal(doc.querySelector('#lastNewSort [data-ticksort="count"]')
     .getAttribute('aria-pressed'), 'true');
 
-  assert.ok(doc.querySelector('#lastNewResults > li .lastNewSummary'),
-    'inline checklist evidence is missing');
+  assert.equal(doc.querySelector('#lastNewResults > li .lastNewSummary'),null);
   assert.equal(doc.querySelector('#lastNewResults details.ckall'), null);
   assert.equal(doc.getElementById('lastNewView'), null);
 
@@ -37800,6 +38008,16 @@ test('F493 medium species cards put the italic scientific name under the common 
     'the grouped bird codes are not on their own line after the Latin name');
   assert.equal(grouped.window.document.querySelector('.meta').textContent.trim(), '',
     'codeInSci duplicates the identifiers in the metadata row');
+  const ticks = new JSDOM('<ul class="obs xl">' + SC.medium({
+    name:'Northern Waterthrush',sci:'Parkesia noveboracensis',code:'norwat',alpha:'NOWA',
+    codeInSci:true,lowercaseCodeInSci:true,tagsInCodes:true,
+    tags:'<span class="needflag">🔍</span><span class="newflag">NEW</span>'
+  })+'</ul>');
+  const codes=ticks.window.document.querySelector('.spcodes-inline');
+  assert.match(codes.textContent,/NOWA \/ norwat/);
+  assert.ok(codes.querySelector('.needflag'));
+  assert.ok(codes.querySelector('.newflag'));
+  assert.equal(ticks.window.document.querySelectorAll('.needflag').length,1);
   const compact = new JSDOM('<ul class="obs card-sm">'
     + SC.small({ name: 'Sharp-tailed Sandpiper', code: 'shtsan',
       alpha: 'SPTS', alphaOnly: true, sub: 'Sep 23 9:14A' }) + '</ul>');
@@ -39806,7 +40024,7 @@ test('F819 confirmed presentation consistently uses the standard shield and expl
   app.window.close();
 });
 
-test('F816 clickable birds retain independent Newest and Nearest checklist evidence without collections', async () => {
+test('F880 clickable birds retain Stakeout actions without automatic checklist summaries', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.document;
   app.window.localStorage.setItem(A.RARITY_FILTER_KEY,
@@ -39827,32 +40045,19 @@ test('F816 clickable birds retain independent Newest and Nearest checklist evide
   };
   A.renderLastNew(groups, info, 'US-WA', {});
   const names = () => [...app.$('lastNewResults').children].map((r) => r.dataset.sp).filter(Boolean);
-  assert.deepEqual(names(), ['Mallard', 'Bald Eagle'], 'Newest used board tick rather than observation');
-  assert.deepEqual([...app.$('lastNewControlsHost').querySelectorAll('button')]
-    .map((b) => b.textContent.trim()), ['Newest', 'Nearest', '35mi', 'All']);
+  assert.deepEqual(names(), ['Bald Eagle', 'Mallard'], 'Date must use board tick rather than observations');
+  assert.equal(app.$('lastNewSort').querySelectorAll('[data-ticksort]').length,2);
+  assert.equal(app.$('lastNewDistance'),null);
   const row = app.$('lastNewResults').firstElementChild;
   assert.equal(row.getAttribute('role'), 'link');
   assert.equal(row.tabIndex, 0);
   assert.equal(row.querySelector('.cklcards,details,.cknote'), null);
-  const summaries = [...row.querySelectorAll('.lastNewSummary')];
-  assert.equal(summaries.length, 2);
-  assert.match(summaries[0].textContent, /Newest checklist:.*10\/6.*S8161/);
-  assert.match(summaries[1].textContent, /Nearest:.*10\/1.*0\.0 mi.*S8162/);
-  assert.equal(summaries[0].querySelector('a').dataset.href, 'https://ebird.org/checklist/S8161');
-  assert.equal(summaries[1].querySelector('a').dataset.href, 'https://ebird.org/checklist/S8162');
-  app.click(summaries[1].querySelector('a'));
-  assert.notEqual(app.$('spLookup').value, 'Mallard', 'checklist link also opened Stakeout');
+  assert.equal(row.querySelector('.lastNewSummary'),null);
   row.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  assert.equal(app.$('spLookup').value, 'Mallard');
-  app.$('lastNewSort').querySelector('[data-sort="distance"]').click();
-  assert.deepEqual(names(), ['Mallard', 'Bald Eagle']);
-  info.Mallard = { code: 'mallar3', obs: [{ subId: 'S8164',
-    obsDt: '2026-10-07 08:00', lat: 48.6, lng: -122.9 }] };
-  A.lastNewPatch('Mallard', groups.Mallard, info.Mallard, 'US-WA', 'mallar3');
-  assert.match(app.$('lastNewResults').firstElementChild.textContent, /S8164/);
-  assert.equal(app.$('lastNewResults').firstElementChild.tabIndex, 0);
-  app.$('lastNewDistance').querySelector('[data-value="near"]').click();
-  assert.deepEqual(names(), ['Bald Eagle']);
+  assert.equal(app.$('spLookup').value, 'Bald Eagle');
+  app.$('lastNewSort').querySelector('[data-ticksort="count"]').click();
+  assert.deepEqual(names(), ['Bald Eagle', 'Mallard']);
+  assert.doesNotMatch(app.$('lastNewResults').textContent,/S816[123]|Newest checklist|Nearest/);
   app.window.close();
 });
 
@@ -42576,7 +42781,7 @@ test('the checklist id on a hotspot sub-line is big enough to hit', async () => 
   app.window.close();
 });
 
-test('F530 Fresh Ticks keeps chase range but removes the Unseen control', async () => {
+test('F880 board ticks ignore retained checklist distance and expose shared Unseen', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -42598,40 +42803,19 @@ test('F530 Fresh Ticks keeps chase range but removes the Unseen control', async 
 
   const controls = doc.querySelector('#lastNewControlsHost .raritycontrols');
   assert.ok(controls, 'the control bar renders');
-  // It must be there from the FIRST paint - the ~46 per-species checklist
-  // feeds take minutes, and the device screenshot was taken mid-load.
   const chips = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
     .map((b) => b.querySelector('.presslabel')
       ? b.querySelector('.presslabel').textContent : b.textContent.trim());
-  assert.deepEqual(chips.filter((c) => c === 'Unseen'), [],
-    `the removed year-list toggle returned: ${chips.join(', ')}`);
-  assert.ok(chips.some((c) => /\d+mi$/.test(c)),
-    `and the distance pair, whose label states the bar: ${chips.join(', ')}`);
+  assert.ok(chips.some((c) => /^Unseen/.test(c)));
+  assert.ok(!chips.some((c) => /\d+mi$/.test(c)));
 
   function names() {
     return [].slice.call(doc.querySelectorAll('#lastNewResults > li'))
       .map((li) => li.getAttribute('data-sp')).filter(Boolean);
   }
-  // Default is `near`, and the far bird is ~180 mi out.
-  assert.deepEqual(names().join('|'), 'Near Bird',
-    'the default chase radius drops a bird nobody is going to drive to');
-
-  // Widen it.
-  const wide = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
-    .find((b) => b.getAttribute('data-filter') === 'distance'
-                 && b.getAttribute('data-value') === 'region');
-  wide.click();
-  assert.equal(names().length, 2,
-    'switching to the wide chip brings the far bird back without a refetch');
-
-  // And it says what it removed - a filter that silently shortens a list is
-  // indistinguishable from a feed that returned less.
-  const narrow = [].slice.call(controls.querySelectorAll('.rarityfilterbtn'))
-    .find((b) => b.getAttribute('data-filter') === 'distance'
-                 && b.getAttribute('data-value') === 'near');
-  narrow.click();
-  assert.match(doc.getElementById('lastNewResults').textContent, /hidden by the filters/,
-    'the count of what the filter removed is stated');
+  assert.deepEqual(names(),['Far Bird','Near Bird'],
+    'retained observation coordinates must never exclude board-only ticks');
+  assert.equal(controls.querySelector('[data-filter="distance"]'),null);
   app.window.close();
 });
 
@@ -43512,7 +43696,7 @@ test('the icon squarer refuses to overwrite its own source', () => {
 
 // Asserted on the rendered DOM rather than the source, because the failure IS
 // an order and a regex cannot see an order.
-test('Leader Board Ticks: Newest and Nearest actually reorder the list', async () => {
+test('Leader Board Ticks: Date and Count actually reorder the list', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -43520,10 +43704,13 @@ test('Leader Board Ticks: Newest and Nearest actually reorder the list', async (
   W.localStorage.removeItem(A.RARITY_FILTER_KEY);
   W.localStorage.removeItem(A.RARITY_SORT_KEY);
 
+  const oldDate=recentObsStamp(5).slice(0,10), newDate=recentObsStamp(0).slice(0,10),
+    midDate=recentObsStamp(3).slice(0,10);
   const groups = {
-    'Old Near': { birders: [{ name: 'A', rank: 1, date: '2026-08-20' }], latest: '2026-08-20' },
-    'New Far': { birders: [{ name: 'B', rank: 2, date: '2026-08-25' }], latest: '2026-08-25' },
-    'No Feed': { birders: [{ name: 'C', rank: 3, date: '2026-08-22' }], latest: '2026-08-22' },
+    'Old Near': { birders: [{ name: 'A', rank: 1, date: oldDate },
+      {name:'D',rank:4,date:oldDate}], latest: oldDate },
+    'New Far': { birders: [{ name: 'B', rank: 2, date: newDate }], latest: newDate },
+    'No Feed': { birders: [{ name: 'C', rank: 3, date: midDate }], latest: midDate },
   };
   // Home is 47.75 / -122.16 in the harness: ~0 mi and ~15 mi, both inside the
   // chase radius so the distance FILTER cannot be what moves them. 'No Feed'
@@ -43543,15 +43730,12 @@ test('Leader Board Ticks: Newest and Nearest actually reorder the list', async (
     'the default chip says Newest, so the list is newest first — it used to be '
     + 'ranked by how many of the top 100 added it, which is what neither chip claims');
 
-  const host = doc.getElementById('lastNewSort');
-  assert.ok(host, 'the sort pair is painted from the first render');
-  const pick = (v) => [].slice.call(host.querySelectorAll('.sortbtn'))
-    .find((b) => b.getAttribute('data-sort') === v);
+  assert.ok(doc.getElementById('lastNewSort'), 'the sort pair is painted from the first render');
+  const pick = (v) => doc.querySelector('#lastNewSort [data-ticksort="'+v+'"]');
 
-  pick('distance').click();
+  pick('count').click();
   assert.deepEqual(names(), ['Old Near', 'New Far', 'No Feed'],
-    'Nearest orders by the closest checklist, and a bird whose feed has not '
-    + 'landed sorts LAST rather than as zero — it cannot claim to be nearest');
+    'Count orders participants, with source dates as tie-breakers');
 
   pick('date').click();
   assert.deepEqual(names(), ['New Far', 'No Feed', 'Old Near'],

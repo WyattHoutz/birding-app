@@ -269,11 +269,11 @@
       ],
       "how": [
         "The 'most recent addition' column is grouped BY SPECIES. Shared additions are discovery signals; recent regional checklist observations are needed to corroborate where a bird was seen.",
-        "Newest sorts by the newest returned checklist observation date once resolved, with the board tick date as provisional ordering while acquisition is pending. Nearest sorts by verified nearest-checklist distance; missing evidence is not zero.",
+        "Date sorts by the source board's newest addition date. Count sorts by distinct recent birders adding that species. Ties use the other board fact, then the bird name.",
         "One Species leaderboard request only, reused from valid cache; the Checklists-ranked board is not acquired for ticks. Use the region's own board, not a cross-region union.",
-        "Each clickable bird row opens species Stakeout. Compact 72px photos preserve text space. The rightmost column labels the distinct birders who added this species within seven days; duplicate stable identities count once. It is not a checklist-record or distance count. Newest checklist begins on a separate line; Newest and Nearest summaries retain their own observation date, distance and real linked checklist ID.",
+        "Each clickable bird row opens species Stakeout for details on demand. Compact 72px photos preserve text space. The rightmost column labels distinct recent birders, not checklist records or distance. Who added it lists all participants as rank then name; public profile links are used only when supplied by the source.",
         "The verified Species cohort and returned-row coverage appear in this info dialog, not as a large block above the birds.",
-        "Only Newest / Nearest and chase-distance / All controls remain. The distance restriction uses nearest verified evidence. Rows enrich progressively without rebuilding the entire list; select a sort control to reorder resolved evidence."
+        "One Date / Count pill, the shared Unseen button and Recent are independent of other sections. Unseen requires complete personal history; Recent and NEW use the same seven-day board-addition window. WATCH marks explicit verification holds. No distance filter or automatic per-species/checklist detail fetch is used."
       ],
       "limits": [
         "A leaderboard addition date is not a continued-presence guarantee or an observation acquisition timestamp.",

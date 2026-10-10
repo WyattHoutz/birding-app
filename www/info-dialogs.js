@@ -367,6 +367,16 @@
       name: 'Setup Bird Chaser',
       reason: 'Resumable credential and capability actions, not a read-only information dialog.'
     },
+    'capture-page-fragments': {
+      surface: 'confirmation',
+      name: 'Capture redacted page fragments',
+      reason: 'Explicit opt-in to bounded local source-structure diagnostics, not an informational sheet.'
+    },
+    'copy-page-fragments': {
+      surface: 'confirmation',
+      name: 'Copy redacted page fragments',
+      reason: 'Separate clipboard export requiring review before sharing; excluded from ordinary Copy all.'
+    },
     'clear-diagnostics': {
       surface: 'confirmation',
       name: 'Clear diagnostic history',

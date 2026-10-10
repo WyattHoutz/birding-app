@@ -1232,6 +1232,10 @@ const AUDIT = `<script>
         {'Western Grebe':{code:'wesgre',obs:[]}},'US-WA',{});
       var tickScan=scan('(F868 compact ticks)');
       tickScan.tickPhoto=document.querySelector('#lastNewResults .thumb').getBoundingClientRect().width;
+      var tickPrimary=document.querySelector('#lastNewResults .spprimary');
+      tickScan.tickPrimaryOffset=A.getDisplayProfile()==='high-visibility' ? null
+        : tickPrimary.getBoundingClientRect().top
+          -document.querySelector('#lastNewResults .thumb').getBoundingClientRect().top;
       out.push(tickScan);
       A.showSection('sec-surgeBtn');
       document.getElementById('surgeResults').innerHTML='<ul id="surgeFeed" class="obs card-sm surgefeed">'
@@ -2063,6 +2067,9 @@ server.listen(0, '127.0.0.1', () => {
           bad++;console.log('   F868 tick photo did not use compact scoped sizing: '+r.tickPhoto);
         }
         if(r.tickPhoto!=null) console.log('   F868 PHOTO '+r.tickPhoto);
+        if(r.tickPrimaryOffset!=null && Math.abs(r.tickPrimaryOffset)>.5){
+          bad++;console.log('   F880 recent-birder count must align at the card header top: '+r.tickPrimaryOffset);
+        }
         if(r.birdPhoto!=null){
           var expectedPhoto=PROFILE==='high-visibility' ? r.vw-32 : 64*Number(SCALE);
           console.log('   F873 PHOTO '+r.birdPhoto+' RIGHT ICON '+r.rightIcon);

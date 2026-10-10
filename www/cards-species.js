@@ -707,10 +707,11 @@
     var codes = '';
     if (v.codeInSci) {
       var alpha = alphaText(v.alpha);
-      var code = codeText(v.code).toUpperCase();
+      var code = v.lowercaseCodeInSci ? codeText(v.code) : codeText(v.code).toUpperCase();
       if (alpha || code) {
         codes = '<span class="spcodes-inline">'
-          + [alpha, code].filter(Boolean).join(' / ') + '</span>';
+          + [alpha, code].filter(Boolean).join(' / ')
+          + (v.tagsInCodes && v.tags ? ' ' + v.tags : '') + '</span>';
       }
     }
     return '<span class="spsci">' + n + codes + '</span>';
@@ -802,7 +803,8 @@
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' ').trim(),
       icon: v.icon || '',
       name: nameRenderer(v.name || '', codeText(v.code)),
-      tags: v.tags || '',
+      tags: v.tagsInCodes && v.codeInSci && tpl === MEDIUM && sciText(v.sci)
+        && (alphaText(v.alpha) || codeText(v.code)) ? '' : v.tags || '',
       sub: identifierLine ? identifierLineHtml(v) : subHtml(v, tpl === SMALL),
       largemeta: largeMeta ? '<div class="bcmeta">' + largeMeta + '</div>' : '',
       largesub: largeSub ? '<div class="bcsub">' + largeSub + '</div>' : '',

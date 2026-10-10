@@ -2243,15 +2243,16 @@ const BOOTSTRAP = `
       if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
       else if (at === 'lastNewBtn') {
         var tickTaxa = [
-          {code:'norwat',name:'Northern Waterthrush',sci:'Parkesia noveboracensis'},
-          {code:'solsan',name:'Solitary Sandpiper',sci:'Tringa solitaria'}
+          {code:'norwat',name:'Northern Waterthrush',sci:'Parkesia noveboracensis',alpha:'NOWA'},
+          {code:'solsan',name:'Solitary Sandpiper',sci:'Tringa solitaria',alpha:'SOSA'}
         ];
         await preparePersonalFixture(A, document.defaultView,
           window.__SEED_BIRDLIST__.seenByReport.wa, tickTaxa);
         var tickDay = A.todayStr(), groups = {}, info = {};
         tickTaxa.forEach(function (bird,index) {
-          var birder = {name:'Representative birder',profileId:'tick-'+index,rank:index+1,date:tickDay};
-          groups[bird.name] = {latest:tickDay,birders:[birder,birder,
+          var birder = {name:'Representative birder',profileId:'tick-'+index,
+            profileUrl:'https://ebird.org/profile/tick-'+index,rank:index+1,date:tickDay};
+          groups[bird.name] = {latest:tickDay,birders:[birder,
             {name:'Second representative',profileId:'tick-second-'+index,rank:index+3,date:tickDay}]};
           info[bird.name] = {code:bird.code,obs:[{obsDt:tickDay+' 08:40',
             subId:'S868'+index,lat:47.658,lng:-122.118,
