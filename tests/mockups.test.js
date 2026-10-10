@@ -402,6 +402,30 @@ test('F329/F342/F345 release mockups show the completed new facts', () => {
     'the unified Day trip release shot does not identify its selected range and completed plan');
 });
 
+test('F867 leaderboard fixture restores its synthetic profile proof before later sections', () => {
+  const rank=source.slice(source.indexOf("} else if (at === 'rankBtn')"),
+    source.indexOf("var metricButtons ="));
+  assert.match(rank,/var priorIdentity=localStorage\.getItem\(A\.IDENTITY_META_KEY\)/);
+  assert.match(rank,/if\(priorIdentity===null\) localStorage\.removeItem\(A\.IDENTITY_META_KEY\)/);
+  assert.match(rank,/else localStorage\.setItem\(A\.IDENTITY_META_KEY,priorIdentity\)/);
+  assert.ok(rank.indexOf('A.renderRankPair(')<rank.indexOf('if(priorIdentity===null)'),
+    'restore only after the production renderer has consumed the temporary proof');
+});
+
+test('F868 and F870 gallery fixtures use production Ticks and resolved FOY taxonomy', () => {
+  const ticks = source.slice(source.indexOf("else if (at === 'lastNewBtn') {"),
+    source.indexOf("else if (at === 'myYearBody') {"));
+  assert.match(ticks, /A\.renderLastNew\(groups,info,'US-WA',\{\}\)/);
+  assert.match(ticks, /Recent birders: 2/);
+  assert.match(ticks, /profileId:'tick-second-'/);
+  assert.match(ticks, /await fillFixturePhotos\(host,document\)/);
+  const foy = source.slice(source.indexOf("} else if (spec.kind === 'foy') {"),
+    source.indexOf("} else if (spec.kind === 'bird') {"));
+  assert.match(foy, /await preparePersonalFixture/);
+  assert.match(foy, /await A\.loadFoy\(\)/);
+  assert.match(foy, /await fillFixturePhotos\(host, document\)/);
+});
+
 test('F856 gallery guards require visible checklist evidence and scaled 56px bird icons', () => {
   assert.match(source, /renderScale = Number\(document\.defaultView\.getComputedStyle\([\s\S]*?getPropertyValue\('--s'\)\)/,
     'geometry must use the selected app profile, not the legacy renderer argument');

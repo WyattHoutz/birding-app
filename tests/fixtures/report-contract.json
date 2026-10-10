@@ -222,8 +222,8 @@
     },
     {
       "at": "myYearBody",
-      "label": "📅 My Year List",
-      "report": "## 📅 My Year List — Your seen bird list this year",
+      "label": "📅 Year List",
+      "report": "## 📅 Year List — Your seen bird list this year",
       "map": null,
       "sub": "Your seen bird list this year"
     },

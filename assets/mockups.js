@@ -2013,6 +2013,7 @@ const BOOTSTRAP = `
           profileId:i===5?'mockprofile4':'neighbor'+i};
       }));
       speciesBoard.me=speciesBoard.rows[9];
+      var priorIdentity=localStorage.getItem(A.IDENTITY_META_KEY);
       localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'mockprofile4'}));
       speciesBoard.readAt='2026-09-03T12:00:00Z';
       var checklistRanks = [1,3,2,4,182];
@@ -2026,6 +2027,8 @@ const BOOTSTRAP = `
       A.renderRankPair({boards:{spp:speciesBoard,cl:checklistBoard},
         failures:{},stale:{},coverage:'REPRESENTATIVE STUB DATA · Both metric boards, Washington 2026'},
         'US-WA','2026','Sample Birder');
+      if(priorIdentity===null) localStorage.removeItem(A.IDENTITY_META_KEY);
+      else localStorage.setItem(A.IDENTITY_META_KEY,priorIdentity);
       sec.setAttribute('data-mock-data','true');
       var metricButtons = document.querySelectorAll('#rankResults [data-rank-metric]');
       if (metricButtons.length !== 2
@@ -2209,6 +2212,12 @@ const BOOTSTRAP = `
       }, 'On passage exact event countdown');
       markHost(host, label);
     } else if (spec.kind === 'foy') {
+      await preparePersonalFixture(A, document.defaultView,
+        window.__SEED_BIRDLIST__.seenByReport.wa, [
+          {code:'shtsan',name:'Sharp-tailed Sandpiper',sci:'Calidris acuminata'},
+          {code:'comnig',name:'Common Nighthawk',sci:'Chordeiles minor'},
+          {code:'gyrfal',name:'Gyrfalcon',sci:'Falco rusticolus'}
+        ]);
       var foyCtx = A.foyContext(), foyNow = new Date();
       var foyDay = foyNow.getFullYear() + '-'
         + String(foyNow.getMonth() + 1).padStart(2, '0') + '-'
@@ -2218,7 +2227,7 @@ const BOOTSTRAP = `
         source: {kind:'annual-first',region:foyCtx.region,year:foyCtx.year,
           url:A.firstYearUrl(foyCtx.region),updatedAt:foyNow.toISOString()},
         rows: [
-          {code:'bktgwa',name:'Black-throated Gray Warbler',sci:'Setophaga nigrescens',
+          {code:'shtsan',name:'Sharp-tailed Sandpiper',sci:'Calidris acuminata',
             date:foyDay,observedAt:foyDay + ' 08:00',subId:'S-FOY-1',
             locName:'Union Bay Natural Area',locId:'L1'},
           {code:'comnig',name:'Common Nighthawk',sci:'Chordeiles minor',
@@ -2228,9 +2237,34 @@ const BOOTSTRAP = `
         ]
       });
       await A.loadFoy();
+      await fillFixturePhotos(host, document);
       markHost(host, label);
     } else if (spec.kind === 'bird') {
       if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
+      else if (at === 'lastNewBtn') {
+        var tickTaxa = [
+          {code:'norwat',name:'Northern Waterthrush',sci:'Parkesia noveboracensis'},
+          {code:'solsan',name:'Solitary Sandpiper',sci:'Tringa solitaria'}
+        ];
+        await preparePersonalFixture(A, document.defaultView,
+          window.__SEED_BIRDLIST__.seenByReport.wa, tickTaxa);
+        var tickDay = A.todayStr(), groups = {}, info = {};
+        tickTaxa.forEach(function (bird,index) {
+          var birder = {name:'Representative birder',profileId:'tick-'+index,rank:index+1,date:tickDay};
+          groups[bird.name] = {latest:tickDay,birders:[birder,birder,
+            {name:'Second representative',profileId:'tick-second-'+index,rank:index+3,date:tickDay}]};
+          info[bird.name] = {code:bird.code,obs:[{obsDt:tickDay+' 08:40',
+            subId:'S868'+index,lat:47.658,lng:-122.118,
+            locName:'Marymoor Park--Audubon Bird Loop',locId:'L2'}]};
+        });
+        A.renderLastNew(groups,info,'US-WA',{});
+        await fillFixturePhotos(host,document);
+        if (host.querySelectorAll('.spprimary [aria-label="Recent birders: 2"]').length!==2
+            || host.querySelector('.lastnewcoverage')) {
+          throw new Error('Leader Board Ticks fixture lost distinct recent counts or compact coverage');
+        }
+        markHost(host,label);
+      }
       else if (at === 'myYearBody') {
         await preparePersonalFixture(A, document.defaultView, {yearList: [
           {code: 'lewwoo', name: "Lewis's Woodpecker"},

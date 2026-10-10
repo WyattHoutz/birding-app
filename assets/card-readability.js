@@ -12,7 +12,7 @@ function cardReadability(card) {
     ? Array.from(title.childNodes).filter(node => node.nodeType === 3)
       .map(node => node.textContent).join(' ')
     : name.textContent).trim();
-  const required = Math.max(...text.split(/\s+/).map(word => canvas.measureText(word).width));
+  const required = Math.max(...text.split(/[\s-]+/).map(word => canvas.measureText(word).width));
   const actions = Array.from(card.querySelectorAll('.speciesWatchlistAction')).map(action => {
     const bounds = action.getBoundingClientRect();
     const range = card.ownerDocument.createRange();

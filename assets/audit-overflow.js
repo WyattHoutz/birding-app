@@ -1069,18 +1069,19 @@ const AUDIT = `<script>
           }
           if (id === 'sec-rankBtn') {
             var rankPair = { boards: {
-              spp: {metric:'spp', period:'2026', rows:[
+              spp: {region:'US-WA', metric:'spp', period:'2026', rows:[
                 {rank:1,profileId:'F811A',name:'Leaderboard fixture one',species:356,checklists:484,
                   recent:'Black-throated Gray Warbler (Oct. 1, 2026)'},
-                {rank:2,profileId:'F811B',name:'Leaderboard fixture two',species:300,checklists:400}
+                {rank:2,profileId:'F811B',name:'Leaderboard fixture two',species:300,checklists:400,
+                  recent:'Marbled Godwit (Oct. 1, 2026)'}
               ]},
-              cl: {metric:'cl', period:'2026', rows:[
+              cl: {region:'US-WA', metric:'cl', period:'2026', rows:[
                 {rank:1,profileId:'F811C',name:'Other board fixture with a long wrapped name',species:200,checklists:800,
                   recent:'Marbled Godwit (Oct. 1, 2026)'},
                 {rank:2,profileId:'F811A',name:'Leaderboard fixture one',species:356,checklists:484,
                   recent:'Black-throated Gray Warbler (Oct. 1, 2026)'}
               ]}
-            },coverage:'Same-scope, same-period verified fixture boards.'};
+            },failures:{},stale:{},coverage:'Same-scope, same-period verified fixture boards.'};
             A.renderRankPair(rankPair,'US-WA','2026','');
             out.push(scan('(F811 Species board)'));
             document.querySelector('[data-rank-metric="cl"]').click();
@@ -1194,7 +1195,56 @@ const AUDIT = `<script>
           available:link.parentNode.getBoundingClientRect().width};
       });
       out.push(wrapping);
+      A.showSection('sec-myYearBody');
+      var yearOwner = A.personalListOwner();
+      var savedYear = localStorage.getItem(A.personalListKey(yearOwner));
+      var yearRows = [
+        {code:'amerob',name:'American Robin',observedAt:''},
+        {code:'bktgwa',name:'Black-throated Gray Warbler',observedAt:''}
+      ];
+      localStorage.setItem(A.personalListKey(yearOwner),JSON.stringify({
+        owner:yearOwner,coverage:'complete',declaredCount:2,unresolved:0,paginated:false,
+        codes:yearRows.map(function(row){return row.code;}),rows:yearRows,
+        readAt:new Date().toISOString(),readDate:A.todayStr()
+      }));
+      var priorWatch = A.getWatchlist();
+      A.setWatchlist([{code:'amerob',name:'American Robin'}]);
+      A.updateMyYear();
+      var yearScan = scan('(F874 rightmost watch column)');
+      var cardReadability = ${require('./card-readability').toString()};
+      yearScan.watchActions=[].map.call(document.querySelectorAll('#myYearList .myYearWatchlist'),function(button){
+        var card=button.closest('li'),photo=card.querySelector('.thumb');
+        var rect=button.getBoundingClientRect(),image=photo.getBoundingClientRect();
+        return {label:button.textContent,width:rect.width,height:rect.height,
+          right:rect.right,left:rect.left,photoRight:image.right,
+          primary:button.parentElement.classList.contains('spprimary'),
+          title:cardReadability(card),clipped:cardReadability(card).actions.some(function(action){return action.clipped;}),
+          wordBroken:cardReadability(card).wordBroken};
+      });
+      out.push(yearScan);
+      A.setWatchlist(priorWatch);
+      if(savedYear===null)localStorage.removeItem(A.personalListKey(yearOwner));
+      else localStorage.setItem(A.personalListKey(yearOwner),savedYear);
+      A.showSection('sec-lastNewBtn');
+      A.renderLastNew({'Western Grebe':{birders:[{name:'Representative',profileId:'F868',
+        rank:1,date:A.todayStr()}],latest:A.todayStr()}},
+        {'Western Grebe':{code:'wesgre',obs:[]}},'US-WA',{});
+      var tickScan=scan('(F868 compact ticks)');
+      tickScan.tickPhoto=document.querySelector('#lastNewResults .thumb').getBoundingClientRect().width;
+      out.push(tickScan);
+      A.showSection('sec-surgeBtn');
+      document.getElementById('surgeResults').innerHTML='<ul id="surgeFeed" class="obs card-sm surgefeed">'
+        + A.surgeAlertCard({kind:'need',icon:window.BirdIcons.photoSlot('Western Grebe','wesgre'),
+          name:'Western Grebe',code:'wesgre',when:A.todayStr(),time:Date.now(),
+          why:'Representative needed bird',where:'Representative location'},0)+'</ul>';
+      var birdGenScan=scan('(F873 larger left bird image)');
+      birdGenScan.birdPhoto=document.querySelector('#surgeFeed .thumb').getBoundingClientRect().width;
+      birdGenScan.rightIcon=document.querySelector('#surgeFeed .surgekindtile').getBoundingClientRect().width;
+      out.push(birdGenScan);
       A.showMenu();
+      var brandScan=scan('(F875 main menu brand)');
+      brandScan.brandSize=parseFloat(getComputedStyle(document.querySelector('header .brandtext h1')).fontSize);
+      out.push(brandScan);
       var savedPeriod = localStorage.getItem(A.PERSONAL_PERIOD_KEY);
       var savedName = localStorage.getItem('ebird_display_name');
       var savedRanks = localStorage.getItem(A.RANK_CACHE_KEY);
@@ -2000,6 +2050,30 @@ server.listen(0, '127.0.0.1', () => {
           bad++;console.log('   F865 patch names wrap before using available width');
         }
       }
+        if(r.watchActions){
+          console.log('   F874 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
+          if(r.watchActions.length!==2 || r.watchActions.some(action=>
+            !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
+            || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped)){
+            bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
+          }
+        }
+        if(r.tickPhoto!=null && Math.abs(r.tickPhoto-Math.min(72*Number(SCALE),.22*WIDTH))>.5){
+          bad++;console.log('   F868 tick photo did not use compact scoped sizing: '+r.tickPhoto);
+        }
+        if(r.tickPhoto!=null) console.log('   F868 PHOTO '+r.tickPhoto);
+        if(r.birdPhoto!=null){
+          var expectedPhoto=PROFILE==='high-visibility' ? r.vw-32 : 64*Number(SCALE);
+          console.log('   F873 PHOTO '+r.birdPhoto+' RIGHT ICON '+r.rightIcon);
+          if((PROFILE!=='high-visibility' && Math.abs(r.birdPhoto-expectedPhoto)>.5)
+              || Math.abs(r.rightIcon-56*Number(SCALE))>.5){
+            bad++;console.log('   F873 must enlarge the left photo without changing the right icon');
+          }
+        }
+        if(r.brandSize!=null && Math.abs(r.brandSize-24*Number(SCALE))>.5){
+          bad++;console.log('   F875 brand title size failed: '+r.brandSize);
+        }
+        if(r.brandSize!=null) console.log('   F875 BRAND SIZE '+r.brandSize);
       if (r.label === '(contents menu)') {
         var menuWarnings = r.menuWarnings || [];
         if (menuWarnings.length !== 2 || menuWarnings.some(function (warning) {
@@ -2343,6 +2417,7 @@ server.listen(0, '127.0.0.1', () => {
       });
       console.log('');
     });
+    if (bad) console.log('\nLayout failures: ' + bad);
     if (!bad) console.log('\nnothing overflows at ' + WIDTH + 'px'
       + (PROFILE === 'standard' ? '' : ', and every tap target clears 44px'));
     process.exit(bad ? 1 : 0);

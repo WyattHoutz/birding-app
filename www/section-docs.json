@@ -142,11 +142,11 @@
       "how": [
         "Species and Checklists are separately fetched official boards for one exact geography and selected Current year or All time period. Returned metric, period and geography must match.",
         "The full-width Species / Checklists control selects the official metric-owned rank, count, order, personal standing and history without another read. Never infer checklist rank from species counts.",
-        "Rows merge only by stable profile identity, never rank or display name. Without an identity match the other-board rank is n/a. One failed board leaves the other usable with partial coverage; two failures are not a verified empty board.",
+        "Each toggle shows only participants returned by that metric's own board, with no cross-board row synthesis or count enrichment. One failed board leaves the other usable with partial coverage; two failures are not a verified empty board.",
         "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle.",
         "The app records one successful owner-rank snapshot per day, separated by region, period, metric, profile and identity revision because eBird cannot re-serve a past board.",
         "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached.",
-        "The app's compact target tables use only the selected Species source and a verified eBird profile ID. They show five returned birders above and below you, same-board gaps, the next-higher tie/exceed target, an available Top 100 cutoff and how many higher returned rows five more species would exceed.",
+        "The compact target tables remain at the top on both toggles and are explicitly Species targets, using only the Species source and a verified eBird profile ID. They show five returned birders above and below you, same-board gaps, the next-higher tie/exceed target, an available Top 100 cutoff and how many higher returned rows five more species would exceed. Missing identity offers Verify my eBird profile; missing or gapped coverage remains unavailable.",
         "Species retains up to 500 returned rows from the existing 500-result request, reusing its daily account-owned cache with Leaderboard Ticks and joining duplicate in-flight reads. The main Top 100 board stays limited to its existing presentation.",
         "Latest-bird images are 56px before display scaling and sit immediately left of the bird name, not in the rank column."
       ],
@@ -246,7 +246,7 @@
       "how": [
         "FOY remains annual in both Current year and All time personal-list modes. Personal need is labelled independently; annual first does not mean first-ever, rarity or current presence.",
         "The heading's Unseen button hides confirmed seen birds using the selected personal list. Unknown personal history remains explicitly unknown, not confirmed unseen.",
-        "Bird cards use the Twitches image size for the selected display profile. Ten newest annual firsts render initially; the shared progressive loader adds older rows in batches of ten. Unknown or withheld dates follow dated rows.",
+        "Bird cards use the Twitches image size for the selected display profile. Ten newest annual firsts render initially; the shared progressive loader automatically adds older rows in batches of ten as its sentinel enters the scroll viewport, with a labeled load-more fallback when observation is unavailable. Unknown or withheld dates follow dated rows.",
         "Source region/year, publisher and read times, discovery tracking and retained-source details appear in this info dialog rather than above the birds.",
         "One regional page supplies all rows. A same-day verified list is reused; explicit refresh checks the source again. There is no per-species discovery fan-out, guessed endpoint or annual date sweep.",
         "The initial saved baseline announces no old birds. Later discoveries require a new code, a valid annual-first date no earlier than the previous verified read day, and an advancing non-future publisher timestamp.",
@@ -271,7 +271,8 @@
         "The 'most recent addition' column is grouped BY SPECIES. Shared additions are discovery signals; recent regional checklist observations are needed to corroborate where a bird was seen.",
         "Newest sorts by the newest returned checklist observation date once resolved, with the board tick date as provisional ordering while acquisition is pending. Nearest sorts by verified nearest-checklist distance; missing evidence is not zero.",
         "One Species leaderboard request only, reused from valid cache; the Checklists-ranked board is not acquired for ticks. Use the region's own board, not a cross-region union.",
-        "Each clickable bird row opens species Stakeout. Inline Newest and Nearest summaries separately label their own observation date, distance and real linked checklist ID; clicking a checklist does not open the bird row.",
+        "Each clickable bird row opens species Stakeout. Compact 72px photos preserve text space. The rightmost column labels the distinct birders who added this species within seven days; duplicate stable identities count once. It is not a checklist-record or distance count. Newest checklist begins on a separate line; Newest and Nearest summaries retain their own observation date, distance and real linked checklist ID.",
+        "The verified Species cohort and returned-row coverage appear in this info dialog, not as a large block above the birds.",
         "Only Newest / Nearest and chase-distance / All controls remain. The distance restriction uses nearest verified evidence. Rows enrich progressively without rebuilding the entire list; select a sort control to reorder resolved evidence."
       ],
       "limits": [
@@ -682,8 +683,8 @@
       ]
     },
     "myYearBody": {
-      "report": "## 📅 My Year List — Your seen bird list this year",
-      "summary": "My Year List or My Life List: exact selected personal membership for the active geography.",
+      "report": "## 📅 Year List — Your seen bird list this year",
+      "summary": "Year List or Life List: exact selected personal membership for the active geography.",
       "inputs": [
         "Current year: the signed-in exact /lifelist/{region}?time=year page",
         "All time: the signed-in exact /lifelist/{region} page",
@@ -691,8 +692,8 @@
       ],
       "how": [
         "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
-        "Every species row has the shared Add to watchlist or Remove from watchlist action. It updates the device-local global watchlist and repaints My Year/My Life List immediately without refetching, removing the official row or reducing its count.",
-        "Huge text and narrow cards give the bird title its own full-width row below the photo. Watch actions remain below the card's identity and evidence so their labels remain readable without reducing text size.",
+        "Every species row has an Add watch or Remove watch action in the rightmost column. It updates the device-local global watchlist and repaints Year List/Life List immediately without refetching, removing the official row or reducing its count.",
+        "Huge text and narrow cards give the bird title its own full-width row below the photo. Watch actions retain a dedicated rightmost column and a full tap target without reducing text size.",
         "Opening paints matching last-known personal rows immediately while the exact selected list refreshes. Annual imports, public county lists, parent geography and unions never establish complete personal membership.",
         "If Reload cannot run because the API key or account identity is missing, it names that prerequisite and offers the corresponding Settings or Fetch my name action instead of silently returning unchanged.",
         "Reload and Open this exact personal list use the same selected-period route. The eBird action opens through the installed browser mechanism.",

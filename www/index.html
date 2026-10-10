@@ -785,7 +785,7 @@
       border-top: 4px solid var(--safe-blue); }
     header[data-list-period="all"] { border-top-color: #E69F00; }
     header > .brand { grid-column: 1; grid-row: 1; gap: 8px; }
-    header .brandtext h1 { font-size: calc(18px * var(--s)); }
+    header .brandtext h1 { font-size: calc(24px * var(--s)); }
     header > .hdrscope { grid-column: 3; grid-row: 1; min-width: 0;
       margin-left: 0; white-space: normal; overflow-wrap: anywhere; border-radius: 12px; }
     header > #hdrPeriod { grid-column: 2; }
@@ -1036,9 +1036,17 @@
              color: inherit; line-height: inherit; margin-right: 0.25em;
              font-variant-numeric: tabular-nums; }
     .myYearWatchlist { display: block; width: max-content; max-width: 100%;
-                       min-height: 44px; margin: 8px 0 0; padding: 7px 10px;
+                       min-height: 44px; margin: 0; padding: 7px 6px;
                        font-size: calc(13px * var(--s)); line-height: 1.2;
                        white-space: normal; text-align: left; }
+    #myYearList.obs.xl > li {
+      grid-template-columns: 80px minmax(0, 1fr) calc(78px * var(--s)); column-gap: 10px;
+    }
+    #myYearList.obs.xl > li > .name > .thumb {
+      width: 80px; height: 80px; margin: 0;
+    }
+    #myYearList.obs.xl > li > .name > .spprimary { width: calc(78px * var(--s)); padding-left: 0; }
+    #myYearList.obs.xl > li > .meta { grid-column: 1 / 3; }
     .nvscope { display: flex; align-items: center; margin: 8px 0 10px; }
     .nvscope .sortpick { margin-left: 0; }
     /* No `white-space: nowrap`. At 320px with the 1.75x accessibility scale
@@ -1078,6 +1086,7 @@
     .panel h2 { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px;
                 font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
     .panel.compacthead > h2 { margin-bottom: 0; }
+    #sec-foyBtn > h2 { flex-wrap: wrap; }
     .panel.compacthead > .status { padding-top: 0; }
     .panel h2 .dim { display: none; }
     #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--nav-bg); border-bottom: 1px solid var(--line);
@@ -2275,6 +2284,13 @@
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
     .surgefeed.obs.card-sm > li > .name { align-items: flex-start; gap: 10px; }
+    html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li > .name > .thumb {
+      width: calc(64px * var(--s)); height: calc(64px * var(--s));
+    }
+    #lastNewResults.obs.xl > li > .name > .thumb {
+      width: min(calc(72px * var(--s)), 22vw);
+      height: min(calc(72px * var(--s)), 22vw);
+    }
     .surgefeed > li > .name.surgeheadline { cursor: pointer; border-radius: 8px; }
     .surgefeed > li > .name.surgeheadline:focus-visible {
       outline: 3px solid var(--safe-blue); outline-offset: 3px;
@@ -3802,9 +3818,9 @@
     </section>
 
     <section class="panel">
-      <h2>📅 My Year List</h2>
+      <h2>📅 Year List</h2>
       <div class="row">
-        <button id="myYearBtn">Reload My Year List</button>
+        <button id="myYearBtn">Reload Year List</button>
       </div>
       <div id="myYearBody" class="status">Read your exact personal eBird list for verified membership and totals.</div>
       <ul id="myYearList" class="obs"></ul>
@@ -3879,7 +3895,7 @@
     <section class="panel">
       <h2>🐣 FOY Ticks</h2>
       <button id="foyUnseenBtn" class="pressbtn" type="button"
-        aria-pressed="false" aria-label="Unseen birds"><span class="pressicon" aria-hidden="true">🔍</span><span class="presslabel vh">Unseen birds</span></button>
+        aria-pressed="false" aria-label="Unseen birds"><span class="pressicon" aria-hidden="true">🔍</span><span class="presslabel">Unseen birds</span></button>
       <div class="row"><button id="foyBtn">Refresh annual firsts</button></div>
       <div id="foyStatus" class="status" role="status" hidden></div>
       <div id="foyResults"></div>
@@ -4536,7 +4552,7 @@
   {
     "at": "myYearBody",
     "icon": "📅",
-    "title": "My Year List",
+    "title": "Year List",
     "subtitle": "Your seen bird list this year",
     "dynamicSubtitle": "personal-list",
     "group": "My Bird List"
@@ -4813,7 +4829,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.146.0';
+      var APP_VERSION = '1.147.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -20290,6 +20306,7 @@
         if (!c) return '';
         var watched = isWatched(c);
         var label = watched ? 'Remove from watchlist' : 'Add to watchlist';
+        if (extraClass === 'myYearWatchlist') label = watched ? 'Remove watch' : 'Add watch';
         var body = stacked
           ? (watched ? 'Remove from<br>Watchlist' : 'Add to<br>Watchlist')
           : label;
@@ -28482,26 +28499,41 @@
         });
       }
       function renderRankPair(pair, region, period, name) {
-        var data = mergeRankBoards(pair, _rankMetric);
+        var selected = pair.boards[_rankMetric];
+        var data = rankSourceMatches(selected, region, period, _rankMetric)
+          && (selected.profile == null || selected.profile === bcProfile())
+          && (selected.ownerRevision == null || selected.ownerRevision === identityRevision())
+          ? selected : null;
         var url = rankingsUrl(region, period, 500, _rankMetric);
         if (data) renderRankings(data, region, url, name);
         else {
           $('rankSummary').innerHTML = '';
           $('rankResults').innerHTML = '<p class="hint">' + esc(_rankMetric === 'cl' ? 'Checklists' : 'Species')
-            + ' board unavailable. ' + esc(pair.failures[_rankMetric] || 'No verified source.')
+            + ' board unavailable. ' + esc(pair.failures && pair.failures[_rankMetric] || 'No verified source.')
             + ' Refresh to retry or select the other metric.</p>';
         }
-        if (_rankMetric === 'spp') {
+        {
           var nearby = document.createElement('div');
           nearby.className = 'ranknearby';
           nearby.innerHTML = rankNearbyHTML(pair.boards.spp, region, period, name,
             pair.stale && pair.stale.spp);
           $('rankSummary').prepend(nearby);
+          var verify = nearby.querySelector('[data-rank-verify]');
+          if (verify) verify.addEventListener('click', function () {
+            verify.disabled = true;
+            var status = nearby.querySelector('[role="status"]');
+            fetchIdentityFromBirdList(function (message) { status.textContent = message; })
+              .then(function (result) {
+                if (result && (result.applied || result.status === 'already-set')) return loadRankings();
+                status.textContent = 'eBird did not return a verified account identity.';
+              }).catch(function (error) {
+                status.textContent = error.message || 'Could not verify the signed-in eBird account.';
+              }).finally(function () { verify.disabled = false; });
+          });
         }
         var coverage = document.createElement('p');
         coverage.className = 'hint rankcoverage';
-        coverage.textContent = pair.coverage + (data && data.identityLimited
-          ? ' eBird supplies no stable profile IDs for some rows: those cross-board entries remain separate; their other-board rank is n/a. Names alone are not merged.' : '');
+        coverage.textContent = pair.coverage;
         $('rankResults').prepend(coverage);
         var controls = document.createElement('div');
         controls.className = 'daytripranges rankmetrics';
@@ -28594,7 +28626,9 @@
         if (!own || !Number.isInteger(own.species) || own.species < 0
             || !Number.isInteger(own.rank) || own.rank < 1) {
           return coverage + unavailable + 'fetch your signed-in eBird profile to verify your row. '
-            + 'Display names alone are not used to select neighbors.</p>';
+            + 'Display names alone are not used to select neighbors.</p>'
+            + '<button type="button" class="secondary" data-rank-verify>Verify my eBird profile</button>'
+            + '<span role="status"></span>';
         }
         var answers = [['Your standing', '#' + rankNum(own.rank) + ' · ' + own.species + ' species']];
         function target(label, total) {
@@ -30143,12 +30177,7 @@
         }
         hydratePhotos(out);
         decorateLastNewRows(out);
-        if (_lastNewCoverage) {
-          var coverage = document.createElement('li');
-          coverage.className = 'cardgroup lastnewcoverage';
-          coverage.textContent = _lastNewCoverage;
-          out.prepend(coverage);
-        }
+        setSectionNote(out.closest('section'), esc(_lastNewCoverage));
       }
 
       // Replace ONE row once its own checklist feed lands. Rebuilding the whole
@@ -30247,12 +30276,22 @@
         }).join(', ') + (people.length > 4 ? ' and ' + (people.length - 4) + ' more' : '');
         var summaries = pending
           ? '<span class="ckwait" role="status">Finding recent checklists…</span>'
-          : lastNewSummary('Newest', evidence.newest) + '<br>'
+          : '<br>' + lastNewSummary('Newest checklist', evidence.newest) + '<br>'
             + lastNewSummary('Nearest', evidence.nearest);
+        var recentPeople = {}, recent = [];
+        people.forEach(function (birder) {
+          if (!rankTickIsFresh(birder.date)) return;
+          var identity = birder.profileId || [birder.metric || 'spp', birder.rank, birder.name].join('|');
+          if (recentPeople[identity]) return;
+          recentPeople[identity] = true; recent.push(birder);
+        });
         return SpeciesCards.medium({
           sci: sciFor(code), icon: photoSlot(sp, code),
           name: speciesLink(sp, code), code: code, alpha: alphaFor(code),
           tags: needTag(code, sp, null, false),
+          primary: '<span class="spmetricstack" aria-label="Recent birders: '
+            + recent.length + '"><span class="spmetric"><strong>' + recent.length
+            + '</strong></span><span class="spmetric"><small>recent birders</small></span></span>',
           sub: summaries,
           below: (isWatched(code) ? '<div class="hint">On your watchlist for verification</div>' : '')
             + '<div class="wholine"><span class="lbl">Who added it</span> ' + who + '</div>',
@@ -31965,7 +32004,7 @@
           add(row.code, row.name, {
             kind: 'arrivals', icon: '\ud83d\udeec', days: -row.ageDays,
             ageDays: row.ageDays, observed: true, movement: 'Arrived',
-            source: source
+            source: source, observedAt: surgeTimeValue(row.observedAt) ? row.observedAt : row.date
           });
         });
 
@@ -32331,8 +32370,7 @@
         });
         var news = [];
         if (observed.length) {
-          var arrival = observed[0], arrivalDate = birdcastIsoDate(birdcastShiftDate(
-            birdcastLocalParts(now, getReport()), -arrival.event.ageDays));
+          var arrival = observed[0], arrivalDate = arrival.event.observedAt || '';
           news.push({
             kind: 'migration',
             icon: photoSlot(arrival.row.name, arrival.row.code),
@@ -32343,7 +32381,8 @@
               + esc(arrival.event.source) + '</a>',
             when: arrivalDate,
             time: surgeTimeValue(arrivalDate),
-            ageTime: 0,
+            ageTime: surgePreciseTimeValue(arrivalDate),
+            ageLabel: surgePreciseTimeValue(arrivalDate) ? '' : 'Date only',
             noteHeader: 'MIGRATION ARRIVAL: ' + arrival.row.name,
             why: '<b>First regional report this year</b>',
             extra: '<span class="dim">Observed on eBird, not inferred from a forecast.</span>'
@@ -32362,7 +32401,7 @@
               + esc(departure.event.source) + '</a>',
             when: departureDate,
             time: surgeTimeValue(departureDate),
-            ageTime: 0,
+            ageTime: 0, ageLabel: 'Expected',
             omitWhen: true,
             noteHeader: 'MIGRATION DEPARTURE: ' + departure.row.name,
             why: '<b>County history puts departure in the current week</b>',
@@ -36042,7 +36081,9 @@
           + ' unknown dates' + (result.retained ? ' · retained source' : '') + '.</div>';
         setSectionNote(section, html);
         if (!window.ProgressiveList) throw new Error('The progressive list control is unavailable.');
-        $('foyUnseenBtn').setAttribute('aria-pressed', _foyUnseen ? 'true' : 'false');
+        ToggleControls.syncPressed($('foyUnseenBtn'), {
+          label:'Unseen birds', icon:'\ud83d\udd0d', pressed:_foyUnseen
+        });
         status.textContent = result.error || ''; status.hidden = !result.error;
         var navigationOwner = function () {
           return generation === _foyPaintGeneration && scopeCurrent(scope)
@@ -36053,7 +36094,7 @@
           host:box,id:'foyBirds',items:rows,initialCount:10,batchSize:10,noun:'birds',
           listClass:largeBirdReportList({cls:'twitchcard'})
             ? 'cards card-lg twitchgroups' : 'obs big xl',
-          buttonClass:'foyMore',
+          buttonClass:'foyMore', autoLoad:true,
           isCurrent:navigationOwner,
           renderItem:function (item, index) {
             var title = !item.dated && (!index || rows[index - 1].dated)
@@ -37420,7 +37461,12 @@
           a.where || '<span class="dim">Location unavailable</span>'
         ].filter(Boolean);
         if (!a.omitWhen) {
-          var date = esc(surgeCompactDate(a.when));
+          var migrationTime = a.kind === 'migration' && surgeTimeValue(a.when);
+          var date = esc(migrationTime ? fmtEvidenceDateTime(a.when)
+            + (surgePreciseTimeValue(a.when) ? ' local time' : ' · date only')
+            : surgeCompactDate(a.when));
+          if (migrationTime) date = '<time datetime="' + esc(a.when)
+            + '" title="Source observation: ' + esc(a.when) + '">' + date + '</time>';
           if (a.checklistId) date = checklistLink(a.checklistId, date + ' · ' + esc(a.checklistId));
           bits.push('<span class="surgeabsolute">' + date + '</span>');
         }
@@ -40468,7 +40514,7 @@
         var scope = activeScope();
         list.setAttribute('data-my-year-report', scope.cacheIdentity);
         Array.from(list.parentNode.querySelectorAll('.myYearExtras')).forEach(function (node) { node.remove(); });
-        var section = el.closest('section'), title = personalPeriod() === 'all' ? 'My Life List' : 'My Year List';
+        var section = el.closest('section'), title = personalPeriod() === 'all' ? 'Life List' : 'Year List';
         _setH2(section, '📅 ' + title);
         section._label = '📅 ' + title;
         $('myYearBtn').textContent = 'Reload ' + title;
@@ -40517,7 +40563,7 @@
             // The ordinal is title content, so it stays beside the bird name.
             name: '<span class="yrnum">' + (total - i) + '.</span>'
               + speciesLink(e.name, e.code),
-            below: watchlistActionHtml(e.code, e.name, 'myYearWatchlist'),
+            primary: watchlistActionHtml(e.code, e.name, 'myYearWatchlist'),
             code: e.code,
               alpha: alphaFor(e.code),
             sub: bits.join(' · ')
@@ -42372,7 +42418,12 @@
           _setH2(sec, m.at === 'foyBtn' ? 'FOY Ticks' : menuSubText(m.at) || splitLabel(m.label).text);
           addSectionDoc(sec);
         addSectionRefresh(sec);
-          if (foyUnseen) sec.querySelector('h2').appendChild(foyUnseen);
+          if (foyUnseen) {
+            ToggleControls.syncPressed(foyUnseen, {
+              label:'Unseen birds', icon:'\ud83d\udd0d', pressed:_foyUnseen
+            });
+            sec.querySelector('h2').appendChild(foyUnseen);
+          }
           _sections.push(sec);
         });
         renderMenuIdentity();
@@ -42891,7 +42942,7 @@
       function _renderMenuListInner() {
         var list = $('menuList'); if (!list) return;
         var personalSection = $('myYearBody').closest('section');
-        if (personalSection) personalSection._label = '📅 ' + (personalPeriod() === 'all' ? 'My Life List' : 'My Year List');
+        if (personalSection) personalSection._label = '📅 ' + (personalPeriod() === 'all' ? 'Life List' : 'Year List');
         list.innerHTML = '';
         renderJargonTip(list);
         var shown = _sections.filter(function (sec) {
@@ -44206,13 +44257,93 @@
         rows.sort(function (a, b) { return a.label.localeCompare(b.label); });
         return rows;
       }
+      var _cachedRecentRegions = [], _cachedRecentProfile = '', _cachedRecentRevision = -1, _recentRegionGeneration = 0;
+      function normalizeRecentRegion(value, choices) {
+        var text = String(value || ''), code = text.replace(/^region:/i, '').toUpperCase();
+        var row = choices.find(function (choice) {
+          return choice.value === text || choice.code.toUpperCase() === code;
+        });
+        return row ? row.value : '';
+      }
+      function recoverCachedRecentRegions() {
+        var choices = regionChoiceRows(), visits = {}, now = Date.now();
+        function add(region, time) {
+          var value = normalizeRecentRegion(region, choices);
+          var stamp = typeof time === 'number' ? time : Date.parse(time);
+          if (value && isFinite(stamp) && stamp > 0 && stamp <= now) {
+            visits[value] = Math.max(visits[value] || 0, stamp);
+          }
+        }
+        var ranks;
+        try { ranks = JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || '{}'); }
+        catch (error) { dbg('warn', 'Recent regions skipped unreadable leaderboard cache.'); ranks = {}; }
+        Object.keys(ranks || {}).forEach(function (key) {
+          var data = ranks[key] && ranks[key].data;
+          if (data && Array.isArray(data.rows) && data.rows.length
+              && data.profile === bcProfile() && data.ownerRevision === identityRevision()
+              && rankSourceMatches(data, data.region, data.period, data.metric)
+              && data.rows.every(function (row) {
+                return row && Number.isInteger(row.rank) && row.rank > 0
+                  && Number.isInteger(row[data.metric === 'cl' ? 'checklists' : 'species'])
+                  && row[data.metric === 'cl' ? 'checklists' : 'species'] >= 0;
+              })
+              && ['spp', 'cl'].indexOf(data.metric) >= 0) add(data.region, data.readAt);
+        });
+        return Promise.all(bcVisibleKeys().map(function (key) {
+          if (key.indexOf(FIRST_YEAR_NS) === 0) {
+            try {
+              var first = JSON.parse(localStorage.getItem(key) || 'null');
+              if (first && first.rows && first.rows.length
+                  && key === firstYearKey(first.region, first.year)
+                  && first.rows.every(function (row) {
+                    return row && typeof row.code === 'string' && row.code
+                      && typeof row.name === 'string' && row.name;
+                  })
+                  && firstYearSourceMatches(first, first.region, first.year)) add(first.region, first.readAt);
+            } catch (error) { dbg('warn', 'Recent regions skipped unreadable annual-first cache.'); }
+          } else if (key.indexOf(PERSONAL_LIST_NS) === 0) {
+            try {
+              var owner = JSON.parse(key.slice(PERSONAL_LIST_NS.length));
+              var saved = personalListRead(owner);
+              if (owner.profile === bcProfile() && owner.identityRevision === identityRevision()
+                  && BL.resolvePersonalList(saved, owner, {}, {}).complete
+                  && saved.codes && saved.codes.length) add(owner.region, saved.readAt);
+            } catch (error) { dbg('warn', 'Recent regions skipped invalid personal-list cache.'); }
+          } else if (key.indexOf(CHASE_NS) === 0) {
+            var match = /^(.+):(\d{4}-\d{2}-\d{2})$/.exec(key.slice(CHASE_NS.length));
+            if (!match) return;
+            return unpackJson(localStorage.getItem(key)).then(function (value) {
+              if (!value || value.v !== 2 || !value.rows || !value.fetchBaseKey
+                  || !Object.keys(value.rows).some(function (file) {
+                    return Array.isArray(value.rows[file]) && value.rows[file].some(function (row) {
+                      return row && typeof row.speciesCode === 'string' && row.speciesCode
+                        && surgeTimeValue(row.obsDt) > 0;
+                    });
+                  })) return;
+              var choice = choices.find(function (row) { return row.value === match[1]; });
+              if (choice && String(value.fetchBaseKey).indexOf('/' + choice.code) >= 0) {
+                add(choice.value, value.t);
+              }
+            }).catch(function () { dbg('warn', 'Recent regions skipped unreadable chase cache.'); });
+          }
+        })).then(function () {
+          return Object.keys(visits).sort(function (a, b) {
+            return visits[b] - visits[a] || a.localeCompare(b);
+          });
+        });
+      }
       function recentRegions() {
+        var choices = regionChoiceRows(), values = [];
         try {
-          var values = JSON.parse(localStorage.getItem(RECENT_REGIONS_KEY) || '[]');
-          return Array.isArray(values) ? values.filter(function (v) {
-            return typeof v === 'string';
-          }).slice(0, 6) : [];
-        } catch (e) { return []; }
+          var stored = JSON.parse(localStorage.getItem(RECENT_REGIONS_KEY) || '[]');
+          if (Array.isArray(stored)) values = stored;
+        } catch (e) { dbg('warn', 'Recent region selection history is unreadable.'); }
+        return values.concat(_cachedRecentProfile === bcProfile() && _cachedRecentRevision === identityRevision()
+          ? _cachedRecentRegions : []).map(function (value) {
+          return typeof value === 'string' ? normalizeRecentRegion(value, choices) : '';
+        }).filter(function (value, index, all) {
+          return value && all.indexOf(value) === index;
+        }).slice(0, 6);
       }
       function rememberRecentRegion(value) {
         value = String(value || '');
@@ -44283,6 +44414,25 @@
         chooser.hidden = false;
         chooser.scrollTop = 0;
         $('regionChooserClose').focus({ preventScroll: true });
+        var generation = ++_recentRegionGeneration, profile = bcProfile(), revision = identityRevision();
+        recoverCachedRecentRegions().then(function (values) {
+          if (generation !== _recentRegionGeneration || profile !== bcProfile()
+              || revision !== identityRevision()) return;
+          _cachedRecentRegions = values;
+          _cachedRecentProfile = profile;
+          _cachedRecentRevision = revision;
+          if (chooser.hidden) return;
+          var rows = regionChoiceRows(), current = getReportSlug();
+          var host = $('regionChooserRecent');
+          host.innerHTML = '';
+          recentRegions().forEach(function (value) {
+            var row = rows.find(function (choice) { return choice.value === value; });
+            if (row && value !== current) host.appendChild(regionChoiceButton(row, false));
+          });
+          if (!host.children.length) host.textContent = 'No recent regions yet.';
+        }).catch(function (error) {
+          dbg('warn', 'Cached recent region recovery failed: ' + error.message);
+        });
       }
       function closeRegionChooser() {
         var chooser = $('regionChooser');
@@ -46788,6 +46938,7 @@
         profileRegionRecommendation: profileRegionRecommendation,
         acceptRegionRecommendation: acceptRegionRecommendation,
         openRegionChooser: openRegionChooser, renderRegionChooser: renderRegionChooser,
+        recoverCachedRecentRegions: recoverCachedRecentRegions, recentRegions: recentRegions,
         openSetupSheet: openSetupSheet, renderSetupSheet: renderSetupSheet,
         favoritePatchAlerts: favoritePatchAlerts,
         reportingDates: reportingDates, validReportingStats: validReportingStats,
