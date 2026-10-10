@@ -1200,10 +1200,11 @@ const AUDIT = `<script>
       var savedYear = localStorage.getItem(A.personalListKey(yearOwner));
       var yearRows = [
         {code:'amerob',name:'American Robin',observedAt:''},
-        {code:'bktgwa',name:'Black-throated Gray Warbler',observedAt:''}
+        {code:'bktgwa',name:'Black-throated Gray Warbler',observedAt:''},
+        {code:'lewwoo',name:"Lewis's Woodpecker",observedAt:''}
       ];
       localStorage.setItem(A.personalListKey(yearOwner),JSON.stringify({
-        owner:yearOwner,coverage:'complete',declaredCount:2,unresolved:0,paginated:false,
+        owner:yearOwner,coverage:'complete',declaredCount:3,unresolved:0,paginated:false,
         codes:yearRows.map(function(row){return row.code;}),rows:yearRows,
         readAt:new Date().toISOString(),readDate:A.todayStr()
       }));
@@ -2052,7 +2053,7 @@ server.listen(0, '127.0.0.1', () => {
       }
         if(r.watchActions){
           console.log('   F874 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
-          if(r.watchActions.length!==2 || r.watchActions.some(action=>
+          if(r.watchActions.length!==3 || r.watchActions.some(action=>
             !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped)){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
