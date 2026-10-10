@@ -2891,6 +2891,7 @@
     .ranknearby th, .ranknearby td { padding: 5px 3px; border-bottom: 1px solid var(--line);
       text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     .ranknearby .ranknumber { text-align: right; white-space: nowrap; }
+    .ranknearby td .extlink { margin-top: 0; font-size: inherit; }
     .ranknearby [aria-current="true"] { font-weight: bold; border-left: 3px solid var(--safe-blue); }
     .rankrow .n { text-align: right; font-size: calc(14px * var(--s) * var(--rf)); }
     /* F125 movement column. Fixed width and nowrap: "avoid wrapping" was the
@@ -4833,7 +4834,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.147.1';
+      var APP_VERSION = '1.147.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -26556,8 +26557,11 @@
             species: counts.length >= 2 ? parseInt(counts[1], 10) : null,
             recent: recentM ? recentM[1].trim() : null
           };
-          var profile = /href="(?:https:\/\/ebird\.org)?\/profile\/([A-Za-z0-9_-]+)"/.exec(chunk);
-          if (profile) row.profileId = profile[1];
+          var profile = /href="((?:https:\/\/ebird\.org)?\/profile\/([A-Za-z0-9_-]+)(?:\/[A-Za-z0-9_-]+)?\/?)"/.exec(chunk);
+          if (profile) {
+            row.profileId = profile[2];
+            row.profileUrl = profile[1].indexOf('https://') === 0 ? profile[1] : 'https://ebird.org' + profile[1];
+          }
           return row;
         }
         var rows = [];
@@ -26607,6 +26611,24 @@
       function rankSourceMatches(data, region, period, metric) {
         return !!(data && rankRegionMatches(region, data.region)
           && data.metric === metric && String(data.period) === String(period));
+      }
+
+      function rankRowsConsistent(data, metric) {
+        var rows = data && data.rows, field = metric === 'cl' ? 'checklists' : 'species';
+        return !!(rows && rows.length && rows.every(function (row, index) {
+          return row && Number.isInteger(row.rank) && row.rank > 0
+            && Number.isInteger(row[field]) && row[field] >= 0
+            && (!index || (row.rank >= rows[index - 1].rank
+              && row[field] <= rows[index - 1][field]));
+        }));
+      }
+
+      function rankProfileUrl(row) {
+        if (row.profileUrl && /^https:\/\/ebird\.org\/profile\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?\/?$/.test(row.profileUrl)) {
+          return row.profileUrl;
+        }
+        return row.profileId && /^[A-Za-z0-9_-]+$/.test(row.profileId)
+          ? 'https://ebird.org/profile/' + row.profileId : '';
       }
 
       function mergeRankBoards(pair, metric) {
@@ -27251,15 +27273,31 @@
       // Wrap a parser as page-injected code: read the server-rendered HTML,
       // run the parser, post a compact JSON payload back over the bridge. The
       // `onPage` guard keeps us from resolving on the SSO login/redirect pages.
-      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric, rowLimit) {
-        return '(function(){try{if(!window.mobileApp)return;' +
+      function buildRankInject(displayName, expectRegion, expectPeriod, expectMetric, rowLimit, accountRequired, expectProfileId) {
+        return '(function(){function send(message){' +
+          'if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){' +
+          'window.mobileApp.postMessage(message);return;}' +
+          'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
+          'if(h&&typeof h.postMessage==="function")h.postMessage(message);}' +
+          'try{' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
-          'var onPage=/\\/top100/.test(location.pathname);' +
+          'var onPage=location.origin==="https://ebird.org"&&location.pathname.replace(/\\/+$/,"")==="/top100";' +
           parseRankingsHTML.toString() + ';' +
           'var TOP_BOARD_N=100;' + rankPageIdentity.toString() + ';' +
           'var R=parseRankingsHTML(H,' + JSON.stringify(displayName || '') + ','
-            + JSON.stringify(rowLimit || 100) + ');' +
+            + JSON.stringify((rowLimit || 100) + (accountRequired ? 1 : 0)) + ');' +
+          'var owner=' + JSON.stringify(expectProfileId || '') + ';' +
+          // Signed-in eBird can put the owner's standing above the board.
+          // Remove only a verified-ID prefix; retain me and the bounded board.
+          'if(owner&&R.rows.length>1&&R.rows[0].profileId===owner' +
+          '&&R.rows[0].rank>R.rows[1].rank)R.rows.shift();' +
+          'R.rows=R.rows.slice(0,' + JSON.stringify(rowLimit || 100) + ');' +
           'var source=rankPageIdentity(H);R.metric=source.metric;R.period=source.period;' +
+          parseEbirdAccountIdentity.toString() + ';' +
+          'var I=parseEbirdAccountIdentity(document);' +
+          'var accountRequired=' + JSON.stringify(!!accountRequired) + ';' +
+          'var accountOk=I&&I.status==="ok"&&I.displayName===' + JSON.stringify(displayName || '') + ';' +
+          'if(accountRequired&&accountOk)R.accountName=I.displayName;' +
           'var want=' + JSON.stringify(String(expectRegion || '')) + ';' +
           // Being ON a top100 page is not enough. eBird can land us on a
           // different board than the URL asked for (session redirect, a
@@ -27269,9 +27307,10 @@
           'var right=(!want||(R&&R.region&&String(R.region).toLowerCase()===want.toLowerCase()))' +
           '&&(!' + JSON.stringify(expectPeriod || '') + '||String(R.period)===' + JSON.stringify(String(expectPeriod || '')) + ')' +
           '&&(!' + JSON.stringify(expectMetric || '') + '||R.metric===' + JSON.stringify(expectMetric || '') + ');' +
-          'var ok=!!(onPage&&right&&R&&R.rows&&R.rows.length);' +
-          'window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:ok,region:R?R.region:"",data:R}});' +
-          '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"rank",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
+          'var ok=!!(onPage&&right&&R&&R.rows&&R.rows.length&&(!accountRequired||accountOk));' +
+          'send({detail:{__ebird:true,kind:"rank",ok:ok,needsLogin:accountRequired&&!accountOk,' +
+          'parseStatus:accountRequired?I.status:"public",region:R?R.region:"",data:R}});' +
+          '}catch(e){send({detail:{__ebird:true,kind:"rank",ok:false,error:String(e&&e.message||e)}});}})();';
       }
       function buildAlertInject() {
         return '(function(){try{if(!window.mobileApp)return;' +
@@ -27881,12 +27920,9 @@
             if (!rankSourceMatches(data, rr.region, year, metric)) {
               throw new Error('eBird returned an unverified or different leaderboard metric/period.');
             }
-            var field = metric === 'cl' ? 'checklists' : 'species';
-            if (data.rows.some(function (row, index) {
-              return row[field] == null || !isFinite(Number(row[field])) || Number(row[field]) < 0
-                || (index && (row.rank < data.rows[index - 1].rank
-                  || Number(row[field]) > Number(data.rows[index - 1][field])));
-            })) throw new Error('eBird returned inconsistent leaderboard rank/count ordering.');
+            if (!rankRowsConsistent(data,metric)) {
+              throw new Error('eBird returned inconsistent leaderboard rank/count ordering.');
+            }
             data.url = urls[i];
             data.readAt = new Date().toISOString();
             if (_rankFetchGeneration[ck] === generation) rankCachePut(ck, data);
@@ -28447,6 +28483,38 @@
         rr = ownedRankRequest(rr);
         var metric = rr.metric || 'spp';
         var url = rankingsUrl(rr.region, period, rr.max, metric);
+        if (rr.authenticated) {
+          var identity = getIdentityMeta();
+          if (!identity || identity.source !== 'ebird-bird-list' || !identity.profileId) {
+            return Promise.reject(new Error('A verified signed-in profile is required for the account leaderboard.'));
+          }
+          var profileId = identity.profileId;
+          var ck = rankCacheOwnerKey(rr,period,name), cached = rankCacheGet(ck);
+          if (!force && rankSourceMatches(cached,rr.region,period,metric)
+              && cached.accountName === name && cached.profile === rr.ownerProfile
+              && cached.ownerRevision === rr.ownerRevision && rankRowsConsistent(cached,metric)) {
+            return Promise.resolve(cached);
+          }
+          var generation = (_rankFetchGeneration[ck] || 0) + 1;
+          _rankFetchGeneration[ck] = generation;
+          return captureEbird({kind:'rank',url:url,alive:function () {
+            var current = getIdentityMeta();
+            return rankRequestCurrent(rr) && current && current.profileId === profileId;
+          },buildInject:function () {
+            return buildRankInject(name,rr.region,period,metric,rr.rowLimit,true,profileId);
+          },onStatus:onStatus}).then(function (data) {
+            var current = getIdentityMeta();
+            if (!rankRequestCurrent(rr) || !current || current.profileId !== profileId
+                || data.accountName !== name || !rankSourceMatches(data,rr.region,period,metric)
+                || !rankRowsConsistent(data,metric)) {
+              throw new Error('The signed-in leaderboard does not match this account or scope.');
+            }
+            data.url=url; data.profile=rr.ownerProfile; data.ownerRevision=rr.ownerRevision;
+            data.readAt=new Date().toISOString();
+            if (_rankFetchGeneration[ck] === generation) rankCachePut(ck,data);
+            return data;
+          });
+        }
         return fetchRank(rr, period, name, force).catch(function (e) {
           if (!ibAvail() || !rankRequestCurrent(rr)) throw e;
           dbg('warn', 'rankings ' + metric + ' direct read failed; trying the same eBird board');
@@ -28454,7 +28522,7 @@
             return buildRankInject(name, rr.region, period, metric, rr.rowLimit);
           }, onStatus: onStatus }).then(function (data) {
             if (!rankSourceMatches(data, rr.region, period, metric)
-                || !data.rows || !data.rows.length) {
+                || !rankRowsConsistent(data,metric)) {
               throw new Error('The website did not return the requested leaderboard.');
             }
             if (!rankRequestCurrent(rr)) throw new Error('Account changed during leaderboard acquisition.');
@@ -28509,7 +28577,7 @@
           && (selected.ownerRevision == null || selected.ownerRevision === identityRevision())
           ? selected : null;
         var url = rankingsUrl(region, period, 500, _rankMetric);
-        if (data) renderRankings(data, region, url, name);
+        if (data) renderRankings(data, region, url, name, pair);
         else {
           $('rankSummary').innerHTML = '';
           $('rankResults').innerHTML = '<p class="hint">' + esc(_rankMetric === 'cl' ? 'Checklists' : 'Species')
@@ -28522,13 +28590,16 @@
           nearby.innerHTML = rankNearbyHTML(pair.boards.spp, region, period, name,
             pair.stale && pair.stale.spp);
           $('rankSummary').prepend(nearby);
-          var verify = nearby.querySelector('[data-rank-verify]');
+          var verify = nearby.querySelector('[data-rank-verify], [data-rank-account]');
           if (verify) verify.addEventListener('click', function () {
             verify.disabled = true;
             var status = nearby.querySelector('[role="status"]');
-            fetchIdentityFromBirdList(function (message) { status.textContent = message; })
+            var verifyAccount = verify.hasAttribute('data-rank-verify')
+              ? fetchIdentityFromBirdList(function (message) { status.textContent = message; })
+              : Promise.resolve({status:'already-set'});
+            verifyAccount
               .then(function (result) {
-                if (result && (result.applied || result.status === 'already-set')) return loadRankings();
+                if (result && (result.applied || result.status === 'already-set')) return loadRankings(true, true);
                 status.textContent = 'eBird did not return a verified account identity.';
               }).catch(function (error) {
                 status.textContent = error.message || 'Could not verify the signed-in eBird account.';
@@ -28555,7 +28626,7 @@
         });
         $('rankResults').prepend(controls);
       }
-      function loadRankings(explicit) {
+      function loadRankings(explicit, authenticated) {
         var force = takeForce() || explicit === true;
         var generation = ++_rankLoadGeneration;
         // F152: the SCOPE, not the report's primary board. Everything
@@ -28574,6 +28645,9 @@
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var owner = bcProfile();
+        var identity = getIdentityMeta();
+        authenticated = !!authenticated || !!(ibAvail() && identity
+          && identity.source === 'ebird-bird-list' && identity.profileId);
         var btn = $('rankBtn'), st = $('rankStatus');
         var boardKey = region + '|' + year + '|' + name + '|' + owner;
         if ($('rankResults').dataset.boardKey !== boardKey) {
@@ -28581,11 +28655,10 @@
         }
         var previous = $('rankResults').textContent;
         btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
-        // rankings.py reads ebird.org/top100 unauthenticated, so try that first
-        // and only fall back to the in-app login flow if the public page can't
-        // be read. Goes through fetchRank so the day-cache is shared with the
-        // multi-region summary below and the same page is never fetched twice.
-        return fetchRankPair({ key: rr.key, region: region, max: max, rowLimit: 500 }, year, name, force, function (m) {
+        // Verified native accounts read the signed-in DOM, whose public names
+        // include profile links omitted by the unauthenticated HTTP response.
+        return fetchRankPair({ key: rr.key, region: region, max: max, rowLimit: 500,
+          authenticated:!!authenticated }, year, name, force, function (m) {
           if (generation === _rankLoadGeneration && getRankScope().region === region && bcProfile() === owner) st.textContent = m;
         }).then(function (pair) {
             if (generation !== _rankLoadGeneration || getRankScope().region !== region || bcProfile() !== owner
@@ -28629,9 +28702,11 @@
           + (stale ? ' · STALE — refresh failed' : '') + '</p>';
         if (!own || !Number.isInteger(own.species) || own.species < 0
             || !Number.isInteger(own.rank) || own.rank < 1) {
-          return coverage + unavailable + 'fetch your signed-in eBird profile to verify your row. '
-            + 'Display names alone are not used to select neighbors.</p>'
-            + '<button type="button" class="secondary" data-rank-verify>Verify my eBird profile</button>'
+          var verified = profile && meta.source === 'ebird-bird-list';
+          return coverage + unavailable + (verified
+            ? 'your profile is verified, but this source does not identify your competitor row. Load the signed-in board to read its account and public-profile links.'
+            : 'fetch your signed-in eBird profile, then read the signed-in leaderboard. Display names alone are not used to select neighbors.') + '</p>'
+            + '<button type="button" class="secondary" ' + (verified ? 'data-rank-account>Load signed-in leaderboard' : 'data-rank-verify>Verify my eBird profile') + '</button>'
             + '<span role="status"></span>';
         }
         var answers = [['Your standing', '#' + rankNum(own.rank) + ' · ' + own.species + ' species']];
@@ -28677,7 +28752,7 @@
           + '</tr></thead><tbody>' + windowRows.map(function (row) {
             var mine = row === me, gap = row.species - own.species;
             return '<tr' + (mine ? ' aria-current="true"' : '') + '><td>#' + esc(rankNum(row.rank))
-              + '</td><td>' + (mine ? 'You' : esc(row.name)) + '</td><td class="ranknumber">'
+              + '</td><td>' + (mine ? 'You' : extA(rankProfileUrl(row),row.name)) + '</td><td class="ranknumber">'
               + esc(row.species) + '</td><td class="ranknumber">'
               + (mine ? '—' : gap > 0 ? '+' + gap : String(gap)) + '</td></tr>';
           }).join('') + '</tbody></table><p class="hint">Gap = their species minus yours. '
@@ -28688,7 +28763,7 @@
         return html;
       }
 
-      function renderRankings(data, region, url, name) {
+      function renderRankings(data, region, url, name, pair) {
         var sum = $('rankSummary'), out = $('rankResults');
         out.innerHTML = ''; if (sum) sum.innerHTML = '';
         data = data || {}; var rows = data.rows || [], me = data.me;
@@ -28845,9 +28920,7 @@
             var pf = lastNewParse(r && r.recent);
             if (!(pf && pf.date && rankTickIsFresh(pf.date))) return;
           }
-          // The report deep-links each birder to their own row on the board
-          // (their <h5> id is the display name), so the app does too.
-          var who = board ? extA(board + '#' + encodeURIComponent(r.name), r.name) : esc(r.name);
+          var who = extA(rankProfileUrl(r),r.name);
           var movement = r.rank == null ? '' : boardMoveHTML(boardDeltasFor(bhist, r.profileId || r.name, bnow));
           cards.push(HotspotCards.medium({
             cls: 'rankrow' + (mine ? ' rankme' : ''),
@@ -28881,7 +28954,7 @@
           // re-calling it with only `data` would silently drop the region, the
           // eBird link and the name the "you" row is matched by, which is the
           // shape of bug that renders a plausible-looking wrong page.
-          if (data.dual && _rankPair) renderRankPair(_rankPair, region, period, name);
+          if (pair) renderRankPair(pair, region, period, name);
           else renderRankings(data, region, url, name);
         });
         var foot = document.createElement('div');
@@ -46977,6 +47050,7 @@
         parseRankingsHTML: parseRankingsHTML, rankingsUrlVariants: rankingsUrlVariants,
         rankPageIdentity: rankPageIdentity, rankSourceMatches: rankSourceMatches,
         mergeRankBoards: mergeRankBoards, fetchRankPair: fetchRankPair,
+        buildRankInject: buildRankInject, loadRankings: loadRankings,
         renderRankPair: renderRankPair, lastNewSupportCount: lastNewSupportCount,
         rankTickGroups: rankTickGroups, rankCacheOwnerKey: rankCacheOwnerKey,
         fetchRank: fetchRank, captureEbird: captureEbird,

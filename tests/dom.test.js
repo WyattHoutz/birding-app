@@ -7295,6 +7295,151 @@ function dualRankFixture(metric, rows, region = 'US-WA', period = '2026') {
       + '<span class="ResultsStats-details-detail">' + (row.recent || '') + '</span>').join('');
 }
 
+test('F877 Recent on/off retains panel, both metrics and source coverage through acquisition', async () => {
+  let linked = false;
+  const period = String(new Date().getFullYear());
+  const date = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const rows = Array.from({length:11},(_,i)=>({rank:i+1,name:i===5?'Sample Observer':'Birder '+i,
+    profileId:'P'+i,species:200-i,checklists:400-i,recent:i===0?'Ruff ('+date+')':''}));
+  const app = await boot({sample:false,storage:{ebird_display_name:'Sample Observer',
+    ebird_identity_v1:JSON.stringify({profileId:'P5',source:'ebird-bird-list'})},fetch:url=>{
+    if (!/top100/.test(url)) return null;
+    const metric = new URL(url).searchParams.get('rankedBy');
+    const html = dualRankFixture(metric,rows,'US-WA',period).replaceAll('">Profile</a>','/US-WA">Profile</a>');
+    return linked ? html : html.replace(/<a href="[^"]+">Profile<\/a>/g,'');
+  }});
+  try {
+    const A = app.window.__app;
+    app.open(/Top 100/);
+    await waitFor(()=>!app.$('rankBtn').disabled && app.document.querySelector('.ranknearby'),
+      'initial unavailable source');
+    for (const populated of [false,true]) {
+      linked = populated;
+      await A.loadRankings(true);
+      for (const metric of ['spp','cl']) {
+        app.click(app.document.querySelector('[data-rank-metric="'+metric+'"]'));
+        const before = app.state.fetches.length;
+        const initial = app.$('rankResults').querySelectorAll('.rankrow').length;
+        for (const pressed of [true,false]) {
+          app.click(app.$('rankNewOnly'));
+          assert.equal(app.$('rankNewOnly').getAttribute('aria-pressed'),String(pressed));
+          assert.equal(app.document.querySelectorAll('.rankmetrics button').length,2);
+          assert.match(app.document.querySelector('.rankcoverage').textContent,/boards verified/);
+          const panel = app.document.querySelector('.ranknearby');
+          assert.ok(panel,'Recent must retain the answer-panel host');
+          if (populated) {
+            assert.equal(panel.querySelectorAll('table').length,2);
+            assert.equal(panel.querySelectorAll('[aria-current]').length,1);
+          } else {
+            assert.equal(panel.querySelector('[data-rank-verify]'),null);
+            assert.ok(panel.querySelector('[data-rank-account]'));
+            assert.match(panel.textContent,/your profile is verified/);
+          }
+          assert.equal(app.state.fetches.length,before,'Recent is a cache-only rerender');
+          if (pressed) assert.ok(app.$('rankResults').querySelectorAll('.rankrow').length < initial);
+          else assert.equal(app.$('rankResults').querySelectorAll('.rankrow').length,initial);
+        }
+      }
+    }
+  } finally { app.window.close(); }
+});
+
+test('F878 preserves exact public profile destinations and leaves private names unlinked', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    let opened;
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{open({url}){opened=url;}}}};
+    for (const [href,expected] of [
+      ['/profile/P1','https://ebird.org/profile/P1'],
+      ['/profile/P1/US-WA','https://ebird.org/profile/P1/US-WA'],
+      ['https://ebird.org/profile/P1/US-WA','https://ebird.org/profile/P1/US-WA'],
+      ['https://untrusted.example/profile/P1/US-WA',null],
+      ['/profile/P1/US-WA/extra',null],
+      ['/profile/P1?redirect=other',null],
+    ]) {
+      const html = dualRankFixture('spp',[{name:'Public birder',rank:1,species:100,checklists:200,
+        profileId:'P1'},{name:'Private birder',rank:2,species:90,checklists:190}])
+        .replace('/profile/P1',href);
+      const board = A.parseRankingsHTML(html,'',500);
+      board.metric='spp';board.period='2026';
+      assert.equal(board.rows[0].profileUrl || null,expected);
+      assert.equal(board.rows[0].profileId || null,expected ? 'P1' : null);
+      A.renderRankings(board,'US-WA','https://ebird.org/top100','');
+      const row = app.$('rankResults').querySelector('.rankrow');
+      assert.equal(row.querySelector('.wholine a')?.getAttribute('data-href') || null,expected);
+      assert.equal(app.$('rankResults').querySelectorAll('.rankrow')[1].querySelector('.wholine a'),null);
+      if (expected) {
+        app.click(row.querySelector('.wholine a'));
+        assert.equal(opened,expected,'the actual link handler opens this profile, never a board fragment');
+      }
+    }
+  } finally { app.window.close(); }
+});
+
+test('F877 signed-in native capture parses region-suffixed links before owner-scoped cache/render', async () => {
+  const period = String(new Date().getFullYear());
+  const app = await boot({sample:false,fetch:()=>[]});
+  const windows = [];
+  try {
+    const A = app.window.__app;
+    A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+      evidence:'profile-heading',profileId:'P5'});
+    const handlers = {}, opens = [];
+    let source;
+    app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,handler) { handlers[name]=handler;return Promise.resolve({remove(){}}); },
+      openWebView(options) {
+        opens.push(options.url);
+        const metric = new URL(options.url).searchParams.get('rankedBy');
+        const rows = Array.from({length:11},(_,i)=>({name:i===5?'Sample Observer':'Birder '+i,
+          profileId:'P'+i,rank:i+1,species:200-i,checklists:400-i}));
+        const board = dualRankFixture(metric,[rows[5],...rows],'US-WA',period)
+          .replaceAll('">Profile</a>','/US-WA">Profile</a>');
+        source = new JSDOM(ACCOUNT_MENU_HTML.replace('</body>',board+'</body>'),
+          {url:options.url,runScripts:'outside-only'});
+        windows.push(source.window);
+        source.window.webkit = {messageHandlers:{messageHandler:{postMessage(message) {
+          handlers.messageFromWebview({id:'owned-rank',detail:message.detail});
+        }}}};
+        setTimeout(()=>handlers.browserPageLoaded({id:'owned-rank'}),0);
+        return Promise.resolve({id:'owned-rank'});
+      },
+      executeScript({code}) { source.window.eval(code);return Promise.resolve(); },
+      hide(){},show(){},close(){return Promise.resolve();},
+    }}};
+    await A.loadRankings(true);
+    assert.equal(opens.length,2);
+    assert.ok(opens.every(url=>new URL(url).searchParams.get('maxResults')==='500'));
+    const panel = app.document.querySelector('.ranknearby');
+    assert.equal(panel.querySelectorAll('table').length,2);
+    assert.equal(panel.querySelector('[aria-current]').textContent,'#6You195—');
+    assert.equal(panel.querySelector('button'),null);
+    assert.equal(app.$('rankResults').querySelector('.rankrow .wholine a').getAttribute('data-href'),
+      'https://ebird.org/profile/P0/US-WA');
+    const cached = (await A.fetchRankPair({region:'US-WA'},period,'Sample Observer',false)).boards.spp;
+    assert.equal(cached.rows[5].profileId,'P5');
+    assert.equal(cached.profile,A.bcProfile());
+    assert.equal(cached.ownerRevision,A.identityRevision());
+    await A.loadRankings();
+    assert.equal(opens.length,2,'same-owner signed-in cache must avoid reopening both boards');
+    for (const [url,account] of [
+      ['https://ebird.org/top100','Other account'],
+      ['https://untrusted.example/top100','Sample Observer'],
+    ]) {
+      const rejected = new JSDOM(ACCOUNT_MENU_HTML.replaceAll('Sample Observer',account)
+        .replace('</body>',dualRankFixture('spp',[{name:'Sample Observer',rank:1,
+          species:10,checklists:20,profileId:'P5'}],'US-WA',period)+'</body>'),
+        {url,runScripts:'outside-only'});
+      windows.push(rejected.window);
+      let receipt;
+      rejected.window.mobileApp={postMessage(message){receipt=message.detail;}};
+      rejected.window.eval(A.buildRankInject('Sample Observer','US-WA',period,'spp',500,true));
+      assert.equal(receipt.ok,false,'another account/origin cannot own this board');
+    }
+  } finally { windows.forEach(window=>window.close());app.window.close(); }
+});
+
 test('F811 dual boards validate source ownership, stable identities and cache-only metric switching', async () => {
   const spp = [
     { name: 'Shared birder', profileId: 'P1', rank: 1, species: 356, checklists: 484,
@@ -7415,8 +7560,8 @@ test('F860 ticks acquire only Species 500, reuse cache and report a returned Top
         'Top 100 presentation keeps its existing default retention');
       const builderSource = HTML.slice(HTML.indexOf('function buildRankInject('),
         HTML.indexOf('function buildAlertInject('));
-      const builder = new Function('parseRankingsHTML','rankPageIdentity',
-        builderSource + '; return buildRankInject;')(A.parseRankingsHTML,A.rankPageIdentity);
+      const builder = new Function('parseRankingsHTML','rankPageIdentity','parseEbirdAccountIdentity',
+        builderSource + '; return buildRankInject;')(A.parseRankingsHTML,A.rankPageIdentity,A.parseEbirdAccountIdentity);
       const capture = new JSDOM(dualRankFixture('spp',rows,region,year),
         {url:'https://ebird.org/top100',runScripts:'outside-only'});
       try {
@@ -7660,8 +7805,8 @@ test('rankings: history is compact above the official Top 100 order', async () =
   assert.equal(rows[0].querySelectorAll('.hsdist').length, 1,
     'checklists share the selected-metric column rather than adding a competing column');
   const named = rows[0].querySelector('.ntext a');
-  assert.ok(named && /#sally/.test(named.getAttribute('data-href')),
-    'each birder deep-links to their own row on the board, as the report does');
+  assert.equal(named,null,
+    'a source without a public profile link must keep the birder name unlinked');
   const headingEl = app.$('rankBtn').closest('section').querySelector('h2');
   const heading = [...headingEl.childNodes]
     .filter((node) => node.nodeType === 3)
@@ -42147,7 +42292,8 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
   );
   const boardOwner = ['US-WA',new Date().getFullYear(),'spp',
     A.bcProfile(),A.identityRevision(),'Washington'].join('|');
-  app.window.localStorage.setItem('bc_board_v1:' + boardOwner,JSON.stringify(oldBoard));
+  app.window.localStorage.setItem('bc_board_v1:' + boardOwner,JSON.stringify(
+    [{d:day(yesterday),r:{fixtureUp:12,'Down Birder':2}}]));
   app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
     JSON.stringify({ t: Date.now(), rows: [{ name: longBird, code: 'blcaho1' }] }));
   if (A.resetRankCodeIndex) A.resetRankCodeIndex();
@@ -42155,7 +42301,8 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
   A.renderRankings({
     me: null,
     rows: [
-      { rank: 7, name: 'Up Birder', species: 350,
+      { rank: 7, name: 'Up Birder', species: 350, profileId:'fixtureUp',
+        profileUrl:'https://ebird.org/profile/fixtureUp/US-WA',
         recent: `${longBird} (${recent})` },
       { rank: 5, name: 'Down Birder', species: 349,
         recent: `Pectoral Sandpiper (${recent})` },
@@ -42176,8 +42323,9 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
   const birderLink = birdRow.querySelector('.wholine a.extlink');
   assert.equal(bird.textContent.includes(longBird), true,
     'the complete newest species name is absent');
-  assert.ok(birderLink && /top100/.test(birderLink.getAttribute('data-href') || ''),
-    'the birder name lost its eBird leaderboard link');
+  assert.equal(birderLink && birderLink.getAttribute('data-href'),
+    'https://ebird.org/profile/fixtureUp/US-WA',
+    'the birder name must retain the real profile destination beside its movement/tick');
   assert.ok(link && link.classList.contains('splink')
     && link.getAttribute('data-sp') === 'blcaho1',
   'the recent bird name lost its species action link');
