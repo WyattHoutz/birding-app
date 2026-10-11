@@ -961,6 +961,67 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
   }finally{app.window.close();}
 });
 
+test('F883 valid leaderboard ties do not masquerade as missing coverage', async () => {
+  const app=await boot();
+  try{
+    const A=app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'owner'}));
+    const nearbyRanks=[1,2,3,4,4,4,4,4,9,10,11,12,13,14,15,16];
+    const nearbyRows=nearbyRanks.map((rank,i)=>({
+      name:i===10?'Owner':'Birder '+i,profileId:i===10?'owner':'other'+i,
+      rank,species:301-rank,checklists:20
+    }));
+    const board={region:'US-WA',period:'2026',metric:'spp',rows:nearbyRows,
+      me:nearbyRows[10],readAt:'2026-10-10T18:00:00Z'};
+    const pair={boards:{spp:board},failures:{},stale:{},coverage:'verified'};
+    A.renderRankPair(pair,'US-WA','2026','Owner');
+    let panel=app.document.querySelector('.ranknearby');
+    assert.equal(panel.querySelectorAll(
+      'table[aria-label="Five birders above and below you"] tbody tr').length,11);
+    assert.doesNotMatch(panel.textContent,/Unavailable: gaps|gaps around your row/);
+
+    const cutoffRows=Array.from({length:105},(_,i)=>({
+      name:i===104?'Owner':'Cutoff birder '+i,profileId:i===104?'owner':'cutoff'+i,
+      rank:i<98?i+1:i<101?99:i+1,checklists:30
+    }));
+    cutoffRows.forEach(row=>{row.species=501-row.rank;});
+    board.rows=cutoffRows;board.me=cutoffRows[104];
+    A.renderRankPair(pair,'US-WA','2026','Owner');
+    panel=app.document.querySelector('.ranknearby');
+    assert.match(panel.textContent,/Top 100 cutoff\s*402 sp\./);
+    assert.doesNotMatch(panel.textContent,/Top 100 cutoff\s*Unavailable/);
+  }finally{app.window.close();}
+});
+
+test('F883 Top 100 explicitly extends Species coverage for a verified rank above 500', async () => {
+  const period=String(new Date().getFullYear());
+  const publicRows=Array.from({length:700},(_,i)=>({
+    name:i===619?'Owner':'Birder '+i,profileId:i===619?'owner':'other'+i,
+    rank:i+1,species:1200-i,checklists:1400-i
+  }));
+  const prefix={...publicRows[619]};
+  const requests=[];
+  const app=await boot({sample:false,storage:{ebird_display_name:'Owner',
+    ebird_identity_v1:JSON.stringify({profileId:'owner'})},fetch:url=>{
+    if(!/top100/.test(url)) return [];
+    const query=new URL(url).searchParams,metric=query.get('rankedBy');
+    const max=Number(query.get('maxResults'));requests.push([metric,max]);
+    const rows=max>500?publicRows:[prefix,...publicRows.slice(0,500)];
+    return dualRankFixture(metric,rows,'US-WA',period);
+  }});
+  try{
+    app.open(/Top 100/);
+    await waitFor(()=>!app.$('rankBtn').disabled
+      && app.document.querySelector('.ranknearby [aria-current]'),'extended nearby leaderboard');
+    const panel=app.document.querySelector('.ranknearby');
+    assert.match(panel.textContent,/700 rows returned/);
+    assert.equal(panel.querySelectorAll(
+      'table[aria-label="Five birders above and below you"] tbody tr').length,11);
+    assert.match(panel.querySelector('[aria-current]').textContent,/#620You581/);
+    assert.deepEqual(requests,[['spp',500],['cl',500],['spp',1000]]);
+  }finally{app.window.close();}
+});
+
 test('F858/F869 metric switching uses independent boards and always exposes honest Species neighbor coverage', async () => {
   const app = await boot({sample:false});
   try {

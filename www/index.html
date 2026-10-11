@@ -4842,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.148.0';
+      var APP_VERSION = '1.148.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -28719,7 +28719,7 @@
         var region = rr.region;
         syncRankRegionUI();
         var year = personalBoardPeriod();
-        var max = rr.max || 500;
+        var max = 500;
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var owner = bcProfile();
@@ -28732,10 +28732,34 @@
         var previous = $('rankResults').textContent;
         btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
         // Background reads are the default; a browser is an explicit action.
-        return fetchRankPair({ key: rr.key, region: region, max: max, rowLimit: 500,
-          authenticated:!!authenticated }, year, name, force, function (m) {
+        var baseRequest = { key: rr.key, region: region, max: max, rowLimit: 500,
+          authenticated:!!authenticated };
+        return fetchRankPair(baseRequest, year, name, force, function (m) {
           if (generation === _rankLoadGeneration && getRankScope().region === region && bcProfile() === owner) st.textContent = m;
         }).then(function (pair) {
+            var species = pair.boards.spp, own = species && (species.sessionUser || species.me);
+            if (!own || !Number.isInteger(own.rank) || own.rank <= 500 || own.rank > 5000) return pair;
+            var ownerRow = (species.rows || []).some(function (row) {
+              return own.profileId && row.profileId === own.profileId
+                || row.rank === own.rank && row.species === own.species
+                  && String(row.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+                    === String(own.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            });
+            if (ownerRow) return pair;
+            var extendedMax = Math.min(5000, Math.max(1000,
+              Math.ceil((own.rank + 10) / 500) * 500));
+            st.textContent = 'Loading nearby Species rows through rank ' + extendedMax + '…';
+            return fetchRankPair(Object.assign({}, baseRequest, {
+              max: extendedMax, rowLimit: extendedMax
+            }), year, name, force, function (m) {
+              if (generation === _rankLoadGeneration && getRankScope().region === region
+                  && bcProfile() === owner) st.textContent = m;
+            }, ['spp']).then(function (extended) {
+              if (extended.boards.spp) pair.boards.spp = extended.boards.spp;
+              else pair.extendedFailure = extended.failures.spp;
+              return pair;
+            });
+          }).then(function (pair) {
             if (generation !== _rankLoadGeneration || getRankScope().region !== region || bcProfile() !== owner
                 || getDisplayName() !== name || personalBoardPeriod() !== year) return;
             // Last line of defence before painting: the captured page bypasses
@@ -28803,12 +28827,18 @@
         }
         var index = rows.indexOf(me);
         var windowRows = index < 0 ? [] : rows.slice(Math.max(0, index - 5), index + 6);
+        var rankCounts = {};
+        rows.forEach(function (row) {
+          rankCounts[row.rank] = (rankCounts[row.rank] || 0) + 1;
+        });
+        function transitionIsComplete(previous, row) {
+          if (row.rank === previous.rank) return row.species === previous.species;
+          return row.rank === previous.rank + rankCounts[previous.rank]
+            && row.species < previous.species;
+        }
         var contiguous = windowRows.every(function (row, i) {
           if (!i) return true;
-          var previous = windowRows[i - 1], tied = 1;
-          for (var j = i - 2; j >= 0 && windowRows[j].rank === previous.rank; j--) tied++;
-          return row.rank >= previous.rank && row.rank <= previous.rank + tied
-            && row.species <= previous.species;
+          return transitionIsComplete(windowRows[i - 1], row);
         });
         if (index >= 0) {
           var higher = rows.slice(0, index).filter(function (row) {
@@ -28817,7 +28847,11 @@
           if (!contiguous) answers.push(['Next higher total', 'Unavailable: gaps in returned rows']);
           else if (higher.length) target('Next higher total', higher[higher.length - 1].species);
           else answers.push(['Next higher total', 'No higher total in returned coverage']);
-          var cutoff = rows.find(function (row) { return row.rank === 100; });
+          var cutoffComplete = rows.length >= 100 && rows[0].rank === 1
+            && rows.slice(1, 100).every(function (row, i) {
+              return transitionIsComplete(rows[i], row);
+            });
+          var cutoff = cutoffComplete ? rows[99] : null;
           if (cutoff && cutoff.species > own.species) target('Top 100 cutoff', cutoff.species);
           else answers.push(['Top 100 cutoff', own.rank <= 100 ? 'Already in Top 100'
             : 'Unavailable in returned coverage']);
