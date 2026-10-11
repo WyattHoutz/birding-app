@@ -706,6 +706,7 @@ test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today
     seen: {}, ownName: 'Nobody', snapshotDate: SNAP, home: hi.home,
     dailyDriveMi: hi.dailyDriveMi, travelCfg: TZ
   });
+
   const today = cv.destinations.map((r) => r.loc);
   const halfDay = cv.excursions.map((r) => r.loc);
 
@@ -723,6 +724,46 @@ test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today
     'the ordinary marina remains a drivable Today patch');
   assert.ok(!cv.fullDay.some((r) => r.loc === 'Offshore Honokōhau Marina'),
     'the 29.6-mile offshore trip belongs in Half-day, not Full-day');
+});
+
+test('F884 Today patches rank the full configured radius before taking ten', () => {
+  const wa = Object.assign({}, BL.profileFor('wa'), {
+    dailyDriveMi: 12,
+    chaseMaxMi: 35
+  });
+  const SNAP = '2026-10-10';
+  const home = { lat: 47.70, lng: -122.10 };
+  const row = (i, lat, code) => Object.assign(OBS({
+    obsId: 'f884-' + i,
+    speciesCode: code,
+    comName: code,
+    locId: 'L-F884-' + i,
+    locName: 'F884 spot ' + i,
+    lat,
+    lng: home.lng,
+    obsDt: SNAP + ' 08:0' + i,
+    subId: 'S-F884-' + i
+  }), { subnational2Code: 'US-WA-033' });
+  const nearby = [0, 1, 2, 3].map((i) =>
+    row(i, home.lat + 0.01 + i * 0.01, 'near' + i));
+  const farRich = [0, 1, 2].map((i) =>
+    row(4 + i, home.lat + 0.39, 'rich' + i));
+  const cv = BL.computeChaseViews(wa, {
+    rowsToday: waSnapshot({ 'king-recent.json': nearby.concat(farRich) }),
+    rowsPrior: waSnapshot({}),
+    seen: {},
+    ownName: 'Nobody',
+    snapshotDate: SNAP,
+    home,
+    dailyDriveMi: wa.dailyDriveMi
+  });
+
+  assert.equal(cv.destinations.radiusMi, 35,
+    'four nearby rows must not stop evaluation before the configured radius');
+  assert.equal(cv.destinations[0].loc, 'F884 spot 4',
+    'the richer outer-radius hotspot wins globally despite being farther away');
+  assert.equal(cv.destinations.length, 5,
+    'all useful clusters inside the configured radius remain eligible');
 });
 
 test('F705 shared chase output retains destinations at eight hours and beyond', () => {

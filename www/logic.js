@@ -2745,7 +2745,12 @@
       dailyDriveMi: dailyDriveMi,
       chaseMaxMi: profile.chaseMaxMi,
       watch: watch,
-      minRows: destinationMinRows(profile)
+      minRows: destinationMinRows(profile),
+      // Today's patches answers "where is the best place I am willing to
+      // chase?", not "where are the first four nearby places?". Species
+      // enrichment can add a much stronger location near the outer edge, so
+      // rank the complete configured radius before taking TOP_DEST.
+      radiusMi: profile.chaseMaxMi
     };
     if (profile.tierBaseRadiusMi != null) {
       destOpts.radiusMi = profile.tierBaseRadiusMi;

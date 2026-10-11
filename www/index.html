@@ -4842,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.148.1';
+      var APP_VERSION = '1.148.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -16990,6 +16990,51 @@
             });
           });
       }
+      function destinationDirectCheckpoints(radiusMi) {
+        var radius = Math.max(0, Number(radiusMi) || 0);
+        if (!radius) return [];
+        var out = [12, 18, 24].filter(function (mi) { return mi < radius; });
+        out.push(radius);
+        return out.filter(function (mi, i) { return !i || mi > out[i - 1]; });
+      }
+      function destinationDirectCandidates(hotspots, home, radiusMi, limit) {
+        if (!home || !isFinite(home.lat) || !isFinite(home.lng)) return [];
+        return (hotspots || []).map(function (h) {
+          var dist = BL.haversineMi(home.lat, home.lng, Number(h.lat), Number(h.lng));
+          return Object.assign({}, h, { distMi: dist });
+        }).filter(function (h) {
+          return h.locId && isFinite(h.distMi) && h.distMi <= radiusMi;
+        }).sort(function (a, b) {
+          return (Number(b.n) || 0) - (Number(a.n) || 0)
+            || a.distMi - b.distMi;
+        }).slice(0, limit == null ? 20 : limit);
+      }
+      function mergeDirectDestinationRows(baseRows, baseCodes, hotspots, rowsByHotspot, rareCodes) {
+        var rows = {};
+        Object.keys(baseRows || {}).forEach(function (file) {
+          rows[file] = (baseRows[file] || []).slice();
+        });
+        var codes = (baseCodes || []).slice(), codeSet = {};
+        codes.forEach(function (code) { codeSet[code] = 1; });
+        hotspots.forEach(function (h) {
+          (rowsByHotspot[h.locId] || []).forEach(function (s) {
+            var code = s.code;
+            if (!code) return;
+            if (!codeSet[code]) { codeSet[code] = 1; codes.push(code); }
+            var file = 'sp-' + code + '.json';
+            if (!rows[file]) rows[file] = [];
+            rows[file].push({
+              speciesCode: code, comName: s.name || code,
+              locId: h.locId, locName: h.locName,
+              lat: h.lat, lng: h.lng, obsDt: s.dateStr || '',
+              subId: s.subId || '', howMany: s.count,
+              subnational2Code: h.co || '',
+              __notable: !!(rareCodes && rareCodes[code])
+            });
+          });
+        });
+        return { rows: rows, codes: codes };
+      }
       var _remoteNotableLoads = {};
       function remoteNotableRows(profile) {
         var feeds = BL.planFeeds(profile, 30).filter(function (feed) {
@@ -22446,6 +22491,60 @@
           var useFallback = p.stateCode === 'US-HI'
             && dests.length < minRows;
           paint(dests, useFallback);
+          if (!useFallback && p.stateCode) {
+            var home = anchorPoint(), radius = Number(p.chaseMaxMi) || 0;
+            var directRows = {}, completed = [], rareCodes = {};
+            (c.cv.unseenAll || []).forEach(function (row) {
+              if (row.kind === 'Rarity' && row.code) rareCodes[row.code] = 1;
+            });
+            loadHotspotIndex(p.stateCode).then(function (hotspots) {
+              var candidates = destinationDirectCandidates(hotspots, home, radius, 20);
+              var rounds = destinationDirectCheckpoints(radius);
+              return rounds.reduce(function (chain, round) {
+                return chain.then(function () {
+                  if (!scopeCurrent(scope)) return false;
+                  var batch = candidates.filter(function (h) {
+                    return h.distMi <= round && completed.indexOf(h.locId) < 0;
+                  });
+                  return Promise.all(batch.map(function (h) {
+                    return locRecentSpecies(h.locId, 7).then(function (rows) {
+                      directRows[h.locId] = rows;
+                      completed.push(h.locId);
+                    });
+                  })).then(function () {
+                    if (!scopeCurrent(scope)) return false;
+                    var merged = mergeDirectDestinationRows(
+                      c.rows || {}, c.speciesCodes || [], candidates, directRows, rareCodes);
+                    var countySet = {}, directCounties = (p.counties || []).slice();
+                    directCounties.forEach(function (county) {
+                      if (county && county.code) countySet[county.code] = 1;
+                    });
+                    candidates.forEach(function (h) {
+                      if (h.co && !countySet[h.co]) {
+                        countySet[h.co] = 1;
+                        directCounties.push({ code: h.co, label: h.co, slug: h.co });
+                      }
+                    });
+                    var directProfile = Object.assign({}, p, { counties: directCounties });
+                    var cv = computeChaseRows(
+                      directProfile, p.slug, merged.rows, merged.codes, []);
+                    paint(rerankFromAnchor(cv.destinations.map(toDest)), false);
+                    st.textContent = round < radius
+                      ? 'Partial — checked direct hotspot evidence through '
+                        + round + ' of ' + radius + ' miles · best first, not nearest'
+                      : cv.destinations.length + ' hotspots from direct evidence through '
+                        + radius + ' miles · best first, not nearest';
+                    return true;
+                  });
+                });
+              }, Promise.resolve(true));
+            }).catch(function (e) {
+              st.textContent = st.textContent
+                + ' · Direct hotspot scan stopped: ' + netErr(e);
+              return true;
+            });
+            return true;
+          }
           if (!useFallback) return true;
           st.textContent = (dests.length ? dests.length + ' fresh hotspot'
             + (dests.length === 1 ? '' : 's') + ' found · ' : '')
@@ -47449,6 +47548,9 @@
         getChase: getChase, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,
+        destinationDirectCheckpoints: destinationDirectCheckpoints,
+        destinationDirectCandidates: destinationDirectCandidates,
+        mergeDirectDestinationRows: mergeDirectDestinationRows,
         recordCoverage: recordCoverage, recordSectionCoverage: recordSectionCoverage,
         coverageAuditExport: coverageAuditExport, clearCoverageAudit: clearCoverageAudit,
       seenCodesForRows: seenCodesForRows,

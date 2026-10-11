@@ -44703,6 +44703,40 @@ test('F152: a county view filters places without redefining seen', async () => {
   app.window.close();
 });
 
+test('F884 direct Today-patch acquisition is radius-aware and bounded', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  assert.deepEqual(Array.from(A.destinationDirectCheckpoints(8)), [8]);
+  assert.deepEqual(Array.from(A.destinationDirectCheckpoints(15)), [12, 15]);
+  assert.deepEqual(Array.from(A.destinationDirectCheckpoints(27)), [12, 18, 24, 27]);
+  assert.deepEqual(Array.from(A.destinationDirectCheckpoints(35)), [12, 18, 24, 35]);
+
+  const home = { lat: 47.70, lng: -122.10 };
+  const hotspots = Array.from({ length: 22 }, (_, i) => ({
+    locId: 'L' + i,
+    locName: 'Candidate ' + i,
+    lat: home.lat + 0.01 + i * 0.001,
+    lng: home.lng,
+    n: i
+  }));
+  hotspots.push({
+    locId: 'OUT', locName: 'Outside', lat: home.lat + 1, lng: home.lng, n: 999
+  });
+  const candidates = A.destinationDirectCandidates(hotspots, home, 35, 20);
+  assert.equal(candidates.length, 20, 'the direct fan-out has a hard call bound');
+  assert.equal(candidates[0].locId, 'L21', 'diversity orders the measured shortlist');
+  assert.ok(!candidates.some((h) => h.locId === 'OUT'),
+    'a high-diversity hotspot outside the configured radius is never queried');
+
+  const merged = A.mergeDirectDestinationRows({}, [], [candidates[0]], {
+    L21: [{ code: 'snogoo', name: 'Snow Goose', dateStr: '2026-10-10 08:00' }]
+  });
+  assert.deepEqual(Array.from(merged.codes), ['snogoo']);
+  assert.equal(merged.rows['sp-snogoo.json'][0].locId, 'L21',
+    'direct location evidence becomes a normal species feed for shared scoring');
+  app.window.close();
+});
+
 test('F152: a stored county that is not this report\u2019s is a miss, not an instruction', async () => {
   const app = await boot();
   const A = app.window.__app;
