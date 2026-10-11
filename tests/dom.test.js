@@ -8922,7 +8922,7 @@ test('a watchlist bird is unseen on the ROW as well as in the heading', async ()
   assert.equal(A.isSpeciesSeen('shbdow', "Short-billed Dowitcher"), false,
     'and so must the ROW. A name match must not undo an explicit '
     + '"I have not confirmed this"');
-  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />WATCH<\/span>/,
+  assert.match(A.needTag('shbdow', "Short-billed Dowitcher"), />WATCH<\/a>/,
     'F818 explains the proven-seen watch exception without changing eligibility');
   app.window.close();
 });
@@ -20182,6 +20182,75 @@ test('F681 Twitches Unseen trusts exact personal species codes and restores card
   assert.match(HTML,
     /#results \.rarewhere,\s*#activeResults \.rarewhere\s*\{[^}]*font-size:\s*calc\(15px/s,
     'Twitches checklist details remain undersized');
+  app.window.close();
+});
+
+test('F889 Twitches Unseen retains seen Watch birds and links WATCH to Watch List', async () => {
+  const app = await boot({storage:{ebird_watchlist_v1:JSON.stringify([
+    {code:'snogoo',name:'Snow Goose'},
+    {code:'taxmiss',name:'Unresolved Rarity'}
+  ])}});
+  const A = app.window.__app, doc = app.window.document;
+  await seedSeen(app,['snogoo','clcspa'],['Snow Goose','Clay-colored Sparrow'],
+    [{code:'newrare',name:'New Rarity'}]);
+  const rows = [
+    {code:'snogoo',name:'Snow Goose',distMi:3,dateStr:todayFixtureDate()+' 12:00',
+      loc:'Watch Park',locId:'L889-W',subId:'S889-W',observer:'Observer W'},
+    {code:'clcspa',name:'Clay-colored Sparrow',distMi:4,dateStr:todayFixtureDate()+' 11:00',
+      loc:'Seen Park',locId:'L889-S',subId:'S889-S',observer:'Observer S'},
+    {code:'taxmiss',name:'Unresolved Rarity',distMi:4,dateStr:todayFixtureDate()+' 10:30',
+      loc:'Unknown Park',locId:'L889-U',subId:'S889-U',observer:'Observer U'},
+    {code:'newrare',name:'New Rarity',distMi:5,dateStr:todayFixtureDate()+' 10:00',
+      loc:'New Park',locId:'L889-N',subId:'S889-N',observer:'Observer N'},
+  ];
+  const profile = A.chaseProfile(), home = profile.home;
+  const raw = rows.map((row,index) => ({
+    obsId:`F889-${index}`,speciesCode:row.code,comName:row.name,
+    lat:home.lat + row.distMi / 69,lng:home.lng,obsDt:row.dateStr,
+    locName:row.loc,locId:row.locId,subId:row.subId,
+    userDisplayName:row.observer,subnational2Code:'US-WA-033',
+    subnational2Name:'King',
+  }));
+  assert.equal(A.isSpeciesSeen('taxmiss','Unresolved Rarity'),null,
+    'the watched control must have genuinely unresolved taxonomy');
+  assert.ok(A.personalListEvidence().needsProof.taxmiss,
+    'the unresolved code is still explicit Watch List evidence');
+  A.seedChase(profile.slug,{
+    t:Date.now(),rarity:false,rows:{'king-notable.json':raw},
+    speciesCodes:raw.map(row => row.speciesCode),
+    fetchBaseKey:A.chaseFetchBaseKey(profile),
+    geoNotableKm:app.window.BirdLogic.geoNotableDistKm(profile),
+  });
+
+  A.refresh();
+  await waitFor(() => doc.querySelector('#results .twitchcard'), 'Twitches cards');
+  const results = doc.getElementById('results');
+  assert.match(results.textContent,/Snow Goose/,
+    'Unseen must retain a seen bird that is explicitly on the Watch List');
+  assert.match(results.textContent,/Unresolved Rarity/,
+    'a watched bird remains visible when its taxonomy code cannot be resolved');
+  assert.equal(results.querySelectorAll('.watchflag').length,2,
+    'the Watch List exception uses the standard WATCH tag');
+  assert.doesNotMatch(results.textContent,/Clay-colored Sparrow/,
+    'ordinary seen birds remain filtered');
+  assert.match(results.textContent,/New Rarity/,
+    'ordinary unseen birds retain normal eligibility');
+
+  const watchTag = results.querySelector('.watchflag');
+  assert.equal(watchTag.tagName,'A','WATCH must be an accessible in-app link');
+  assert.equal(watchTag.getAttribute('data-sec'),'sec-nvResults');
+  assert.match(watchTag.getAttribute('aria-label'),/open Watch List/);
+  watchTag.dispatchEvent(new app.window.MouseEvent('click',{bubbles:true,cancelable:true}));
+  assert.equal(doc.getElementById('sec-nvResults').hidden,false,
+    'activating WATCH opens the Watch List menu');
+
+  A.setWatchlist([]);
+  assert.doesNotMatch(A.needTag('snogoo','Snow Goose'),/watchflag/,
+    'removing Watch membership also removes the WATCH tag');
+  assert.doesNotMatch(A.rarityFilterRecords([
+    {kind:'Rarity',code:'snogoo',name:'Snow Goose'}
+  ],null,{year:'unseen',distance:'region'}).map(row => row.name).join(' '),/Snow Goose/,
+  'removing Watch membership removes the Unseen exception');
   app.window.close();
 });
 
@@ -40054,7 +40123,7 @@ test('F818/F833 WATCH explains explicit Watch exceptions in standalone and neste
   assert.equal(standalone.querySelector('.watchflag').textContent, 'WATCH');
   assert.doesNotMatch(A.birdReportListCard(row, { need: false }), /watchflag/);
   assert.match(A.birdReportListCard({ ...row, code: 'baleag', name: 'Bald Eagle' },
-    { need: true }), />WATCH<\/span>/, 'the explicit Watch exception does not depend on fabricated seen proof');
+    { need: true }), />WATCH<\/a>/, 'the explicit Watch exception does not depend on fabricated seen proof');
   A.renderStakeHs('L818', 'Patch', [], [
     { speciesCode: 'mallar3', comName: 'Mallard', locId: 'L818' },
     { speciesCode: 'baleag', comName: 'Bald Eagle', locId: 'L818' },
@@ -40068,7 +40137,7 @@ test('F818/F833 WATCH explains explicit Watch exceptions in standalone and neste
     speciesCode: 'mallar3', comName: 'Mallard', obsDt: recentObsStamp(),
   }], {}), /watchflag/);
   app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'all');
-  assert.match(A.birdReportListCard(row, { need: true }), />WATCH<\/span>/,
+  assert.match(A.birdReportListCard(row, { need: true }), />WATCH<\/a>/,
     'the explicit verification exception remains usable without borrowed period membership');
   app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'current');
   app.window.localStorage.setItem('ebird_watchlist_v1', '[]');
