@@ -4842,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.148.3';
+      var APP_VERSION = '1.148.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -14199,14 +14199,11 @@
         var sightings = mega
           ? megaEnsureState(mega.view, mega)
           : loadSpeciesSightings(region, code, generation, scopeSlug);
-        var stateRba = _spLookupEvidence.rarityKind
-          ? stateRbaRecords(false).then(function (result) {
-              return stakeoutRarityEvidenceRows(
-                result && result.rows || [], code, name);
-            }).catch(function () { return []; })
-          : null;
-        if (stateRba) {
-          stateRba.then(function (rbaRows) {
+        var stateRba = stateRbaRecords(false).then(function (result) {
+          return stakeoutRarityEvidenceRows(
+            result && result.rows || [], code, name);
+        }).catch(function () { return []; });
+        stateRba.then(function (rbaRows) {
             if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()
                 || !rbaRows.length) return;
             updateStakeoutEvidence(_spLookupEvidence, rbaRows);
@@ -14219,7 +14216,6 @@
             _spLookupGroup = refreshed;
             renderSpeciesLookup();
           });
-        }
         return sightings.then(function (rows) {
           var currentRows = rows || [];
           if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
@@ -15547,6 +15543,9 @@
           href: row.subId ? checklistUrl(row.subId) : '',
           who: esc(row.userDisplayName || ''),
           sp: row.numSpecies != null ? row.numSpecies : '',
+          flag: row.__stateRba || row.rbaRare
+            ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>'
+            : '',
           count: count,
           // Comments get one hydrated button at the END of the sentence.
           // This early slot is media-only or the same checklist would show a
@@ -30921,7 +30920,9 @@
       }
       function stakeoutRarityEvidenceRow(r, code, name) {
         if (!r) return null;
-        if (r.speciesCode) return r;
+        if (r.speciesCode) return Object.assign({}, r, {
+          __notable: true, __stateRba: true
+        });
         return {
           speciesCode: r.code || code,
           comName: r.name || name,
@@ -30933,9 +30934,12 @@
           lng: r.lon != null ? r.lon : r.lng,
           howMany: r.count,
           userDisplayName: r.observer || '',
-          locationPrivate: !!(r.location_private || r.locationPrivate),
+          locationPrivate: r.location_private === true || r.locationPrivate === true
+            ? true : (r.location_private === null || r.locationPrivate === null ? null : false),
           evidence: r.evidence || '',
-          hasComments: !!r.hasComments
+          hasComments: !!r.hasComments,
+          __notable: true,
+          __stateRba: true
         };
       }
       function stakeoutRarityEvidenceRows(rows, code, name) {
@@ -30958,6 +30962,46 @@
         var state = _stateRbaCache[region];
         if (state && Array.isArray(state.rows)) rows = rows.concat(state.rows);
         return stakeoutRarityEvidenceRows(rows, code, name);
+      }
+      function stakeoutPatchRbaRows(rows, locId) {
+        var seen = {}, lists = [], obs = [];
+        (rows || []).forEach(function (row) {
+          if (!row || !locId || row.locId !== locId) return;
+          var sub = row.subId || '';
+          var key = [sub, row.code || row.speciesCode || '', row.dateStr || ''].join('|');
+          if (seen[key]) return;
+          seen[key] = 1;
+          lists.push({
+            subId: sub,
+            isoObsDate: row.dateStr || '',
+            userDisplayName: row.observer || '',
+            observationLinked: true,
+            rbaRare: true,
+            locationPrivate: row.location_private,
+            loc: {
+              locId: row.locId || '',
+              name: row.loc || 'Private location',
+              lat: row.lat,
+              lng: row.lon
+            }
+          });
+          obs.push({
+            speciesCode: row.code || row.speciesCode || '',
+            comName: row.name || row.comName || '',
+            obsDt: row.dateStr || '',
+            subId: sub,
+            locId: row.locId || '',
+            locName: row.loc || 'Private location',
+            lat: row.lat,
+            lng: row.lon,
+            howMany: row.count,
+            userDisplayName: row.observer || '',
+            locationPrivate: row.location_private,
+            __notable: true,
+            __stateRba: true
+          });
+        });
+        return { lists: lists, obs: obs };
       }
       function stakeoutEvidence(code, name, rows, generation) {
         var report = getReport();
@@ -35024,6 +35068,19 @@
           renderStakeHs(locId, name, lastGood.lists, lastGood.obs, lastGood.hrow,
             lastGood.iconic, lastGood.obsState, lastGood.supplement);
         }
+        stateRbaRecords(false).then(function (result) {
+          if (generation !== _stakeHsGeneration) return;
+          var rba = stakeoutPatchRbaRows(result && result.rows || [], locId);
+          if (!rba.lists.length) return;
+          var known = {};
+          state.lists.forEach(function (row) { known[row.subId || row.subID || ''] = 1; });
+          rba.lists.forEach(function (row) {
+            if (!known[row.subId || '']) state.lists.push(row);
+          });
+          state.obs = state.obs.concat(rba.obs);
+          state.lists.sort(sortStakeHsChecklists);
+          paint();
+        });
         // ── PAINT ON THE FIRST ANSWER, FILL IN THE REST ────────────────────
         //
         // An earlier version awaited product/lists, the hotspot index AND the
@@ -35045,7 +35102,8 @@
                      + '?maxResults=' + STAKE_HS_LISTS, false, false, !!force)
           .then(function (lists) {
             if (generation !== _stakeHsGeneration) return;
-            state.lists = Array.isArray(lists) ? lists : [];
+            var rbaLists = state.lists.filter(function (row) { return row.rbaRare; });
+            state.lists = (Array.isArray(lists) ? lists : []).concat(rbaLists);
             if (lastGood) {
               var ordinary = {};
               state.lists.forEach(function (r) { ordinary[r.subId || r.subID] = true; });
@@ -35068,7 +35126,8 @@
                   false, false, !!force)
               .then(function (obs) {
                 if (generation !== _stakeHsGeneration) return;
-                state.obs = Array.isArray(obs) ? obs : [];
+                var rbaObs = state.obs.filter(function (row) { return row.__stateRba; });
+                state.obs = (Array.isArray(obs) ? obs : []).concat(rbaObs);
                 state.obsState = 'loaded';
                 paint();
                 return supplementStakeHs(locId, state, function () {
@@ -35275,9 +35334,12 @@
               durationPending: !!r.subId && r.durationHrs == null,
               href: r.subId ? checklistUrl(r.subId) : '',
               who: esc(r.userDisplayName || ''),
-              flag: r.observationLinked
-                ? '<span class="tag checklist-hidden" aria-label="HIDDEN: Linked from an observation; not listed in the recent-checklist feed">HIDDEN</span>'
-                : '',
+              flag: (r.rbaRare
+                ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>'
+                : '')
+                + (r.observationLinked
+                  ? '<span class="tag checklist-hidden" aria-label="HIDDEN: Linked from an observation; not listed in the recent-checklist feed">HIDDEN</span>'
+                  : ''),
               sp: isFinite(r.numSpecies) ? r.numSpecies : '',
               targets: targets.map(function (target) { return target.label; }).join(', '),
               data: {
@@ -47545,6 +47607,8 @@
         },
         stateRbaRecord: stateRbaRecord,
         stateRbaRecords: stateRbaRecords, mergeRarityRecords: mergeRarityRecords,
+        stakeoutRarityEvidenceRows: stakeoutRarityEvidenceRows,
+        stakeoutPatchRbaRows: stakeoutPatchRbaRows,
         getChase: getChase, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,

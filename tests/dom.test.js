@@ -9218,6 +9218,7 @@ test('F747 private RBA access metadata survives overlapping feeds, cache and Not
       return null;
     },
   });
+
   const A = app.window.__app, home = A.getHome();
   await seedSeen(app,[]);
   const raw = {
@@ -9285,6 +9286,54 @@ test('F747 private RBA access metadata survives overlapping feeds, cache and Not
   app.$('results').innerHTML = A.birdReportGroupCard(
     A.buildBirdReportGroups(cached, home)[0], { rare: true });
   assert.match(app.$('results').textContent, /Private location/);
+  app.window.close();
+});
+
+test('F888 Stakeout birds and patches retain immediate hidden private RBA evidence', async () => {
+  const app = await boot({ sample: false });
+  const A = app.window.__app;
+  const rows = [
+    {
+      code: 'vefl', name: 'Vesper Flycatcher', loc: 'Snohomish RBA place',
+      locId: 'L-VEFL', lat: 47.8, lon: -122.1,
+      dateStr: '2026-10-10 08:00', subId: 'S-SNO', observer: 'Sno observer',
+      location_private: false
+    },
+    {
+      code: 'vefl', name: 'Vesper Flycatcher', loc: 'Private location',
+      locId: 'L-VEFL', lat: null, lon: null,
+      dateStr: '2026-10-10 09:00', subId: 'S-WA', observer: 'WA observer',
+      location_private: true
+    },
+    {
+      code: 'other', name: 'Other bird', loc: 'Other patch',
+      locId: 'L-OTHER', dateStr: '2026-10-10 10:00', subId: 'S-OTHER'
+    }
+  ];
+  const bird = A.stakeoutRarityEvidenceRows(rows, 'vefl', 'Vesper Flycatcher');
+  assert.equal(bird.length, 2, 'both county and Washington RBA checklists survive');
+  assert.ok(bird.every((row) => row.__notable && row.__stateRba),
+    'every RBA bird row carries an explicit sticky rarity source');
+  assert.equal(bird[1].locationPrivate, true,
+    'private RBA evidence is not filtered or converted to public');
+
+  const patch = A.stakeoutPatchRbaRows(rows, 'L-VEFL');
+  assert.deepEqual(Array.from(patch.lists, (row) => row.subId), ['S-SNO', 'S-WA']);
+  assert.ok(patch.lists.every((row) => row.rbaRare && row.observationLinked),
+    'RBA checklists are both RARE and HIDDEN from the ordinary checklist feed');
+  assert.equal(patch.obs[1].locationPrivate, true);
+  assert.equal(patch.obs[1].lat, null, 'withheld private coordinates stay withheld');
+
+  const lookup = HTML.slice(HTML.indexOf('function runSpeciesLookup('),
+    HTML.indexOf('function renderSpeciesLookup('));
+  assert.match(lookup, /var stateRba = stateRbaRecords\(false\)/,
+    'exact Stakeout lookup does not start the shared RBA acquisition');
+  assert.doesNotMatch(lookup, /rarityKind\s*\?/,
+    'an RBA-only bird cannot be required to prove rarity before RBA is read');
+  const open = HTML.slice(HTML.indexOf('function stakeHsOpen('),
+    HTML.indexOf('function renderStakeHs('));
+  assert.ok(open.indexOf('stateRbaRecords(false)') < open.indexOf("return ebird('product/lists/"),
+    'Stakeout Patch does not start the shared RBA read before ordinary checklists');
   app.window.close();
 });
 
