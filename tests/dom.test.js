@@ -9480,6 +9480,71 @@ for (const [order, retainedMega] of [
   });
 }
 
+for (const order of [['species', 'rba'], ['rba', 'species']]) {
+  test(`F894 nearby private checklist evidence survives the default filter: ${order.join(' then ')}`, async () => {
+    const f = f890EvidenceFixture();
+    const rows = Array.from({ length: 52 }, (_, i) => ({
+      ...f.row(`S894000${String(i).padStart(2, '0')}`, i),
+      locName: i < 16 ? 'Public evidence' : `Personal evidence ${Math.floor((i - 16) / 12)}`,
+      locId: i < 16 ? 'L894PUBLIC' : `L894PERSONAL${Math.floor((i - 16) / 12)}`,
+      lat: 47.95 + Math.floor(i / 16) * 0.01, lng: -122.16,
+      locationPrivate: i >= 16,
+    }));
+    const gates = { species: f890Deferred(), rba: f890Deferred() };
+    const app = await boot({ sample: false, fetch(url) {
+      if (/ebird\.org\/alert\/rba/.test(url)) return gates.rba.promise;
+      if (/api\.ebird\.org/.test(url)) return [];
+      return null;
+    } });
+    try {
+      const A = app.window.__app;
+      installSpuhFixture(app);
+      app.window.localStorage.setItem(A.homeKey('lat'), '47.75');
+      app.window.localStorage.setItem(A.homeKey('lng'), '-122.16');
+      app.window.localStorage.setItem(A.chaseMiKey(), '35');
+      A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK),
+        gates.species.promise);
+      for (const r of rows) A.seedEbirdCache(`product/checklist/view/${r.subId}`, {
+        obsDt: r.obsDt, durationHrs: 1, numSpecies: 3, obs: [],
+      });
+      A.seedEbirdCache('product/lists/L894PUBLIC?maxResults=12', []);
+      const lookup = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+      for (const source of order) {
+        gates[source].resolve(source === 'species' ? rows : megaAlertHtml(rows));
+        if (source === 'species') await lookup;
+        else await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'), 'RBA rendered');
+      }
+      for (const grouped of [true, false]) {
+        A.setSpeciesLookupGrouped(grouped);
+        A.setSpeciesLookupWithinChase(true);
+        const host = app.$('spLookupRecent');
+        for (let pass = 0; pass < 15; pass++) {
+          const more = host.querySelector('.spLookupMore, .stakeoutChecklistMore');
+          if (!more) break;
+          app.click(more);
+        }
+        const displayed = [...host.querySelectorAll('.cklcard-sm')].filter(r => !r.hidden);
+        assert.deepEqual(displayed.map(r => r.dataset.evSub).sort(),
+          rows.map(r => r.subId).sort(), `all 52 nearby IDs are reachable (${grouped})`);
+        assert.match(app.$('spLookupDetailMain').textContent, /52 reports/);
+        for (const row of displayed) {
+          assert.ok(row.querySelector('.rareflag'), 'RARE survives either source order');
+          assert.equal(!!row.querySelector('.privateflag'),
+            rows.find(r => r.subId === row.dataset.evSub).locationPrivate,
+            'private locations are explicitly labelled in both presentation modes');
+          if (!grouped && rows.find(r => r.subId === row.dataset.evSub).locationPrivate) {
+            assert.ok(!row.dataset.pinNumber, 'personal evidence does not acquire a public map pin');
+            assert.match(row.textContent, /No public pin/);
+          }
+        }
+        assert.equal(host.querySelector('.stakeoutPlaceHistory[data-loc^="L894PERSONAL"]'), null);
+      }
+      assert.ok(!app.state.fetches.some(url => /product\/lists\/L894PERSONAL/.test(url)));
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+
 test('F890 obsolete RBA and Twitches completions cannot contaminate a new Stakeout', async () => {
   const f = f890EvidenceFixture(), rba = f890Deferred(), twitches = f890Deferred();
   const species = f890Deferred();
@@ -38593,7 +38658,11 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li').length, 6);
   assertGrouped();
   A.setSpeciesLookupWithinChase(true);
-  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Place [456]/);
+  assert.doesNotMatch(app.$('spLookupRecent').textContent, /Place [45]/,
+    'distant and coordinate-less evidence remains outside the distance view');
+  assert.match(app.$('spLookupRecent').textContent, /Place 6/);
+  assert.ok(app.$('spLookupRecent').querySelector('.privateflag'),
+    'nearby private evidence is visible and labelled, without a public map pin');
   assertGrouped();
   A.setSpeciesLookupGrouped(false);
   assert.ok(app.$('spLookupRecent').querySelector('.stakeoutPinCue'));

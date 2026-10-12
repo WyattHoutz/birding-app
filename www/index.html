@@ -4842,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.149.1';
+      var APP_VERSION = '1.149.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -15467,10 +15467,11 @@
       function spLookupPlaceReachable(place) {
         if (!place || place.distMi == null || !isFinite(place.distMi) ||
             place.distMi > chaseMaxMi()) return false;
+        // Nearby checklist evidence is not a public destination. Personal
+        // locations retain their privacy flag for the map and history paths.
         if (!BL.isChaseable({
           loc: place.loc || '',
-          locId: place.locId || '',
-          locationPrivate: !!place.locationPrivate
+          locId: place.locId || ''
         }, {})) return false;
         var countyCodes = ((getReport() && getReport().counties) || [])
           .map(function (county) { return county.code; }).filter(Boolean);
@@ -15544,9 +15545,11 @@
           href: row.subId ? checklistUrl(row.subId) : '',
           who: esc(row.userDisplayName || ''),
           sp: row.numSpecies != null ? row.numSpecies : '',
-          flag: row.__stateRba || row.__notable || row.rbaRare
+          flag: (row.__stateRba || row.__notable || row.rbaRare
             ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>'
-            : '',
+            : '') + (place.locationPrivate
+            ? '<span class="tag privateflag" title="Personal eBird location, not a shared hotspot" aria-label="Personal eBird location">PRIVATE</span>'
+            : ''),
           count: count,
           // Comments get one hydrated button at the END of the sentence.
           // This early slot is media-only or the same checklist would show a
