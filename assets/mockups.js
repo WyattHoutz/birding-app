@@ -343,9 +343,22 @@ const EXTRA_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutSpts(A, document, sec, true);` },
+  { id: 'stakeoutflat', at: 'spLookupBtn',
+    title: 'Stakeout bird — timestamp-first checklist list',
+    host: 'sec-spLookupBtn', fullPage: true, freshApp: true,
+    prepTimeoutMs: 45000,
+    expects: ['#spLookupRecent .stakeoutFlatChecklists .ckmain > .ckdate:first-child',
+      '#spLookupRecent .stakeoutPinCue',
+      '#spLookupClear', '#spLookupBtn'],
+    prep: `FIX.before('spLookupBtn', A, document);
+           var sec = document.getElementById('spLookupBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareStakeoutSpts(A, document, sec, false).then(function () {
+             A.setSpeciesLookupGrouped(false);
+           });` },
 ];
 
-// Review-only states do not increase the mandatory 34-shot release contract.
+// Review-only states do not increase the derived mandatory release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
   { id: 'nearby-competitors-f857', at: 'rankBtn',
@@ -2351,7 +2364,16 @@ const BOOTSTRAP = `
       ], {
         lat: 19.8319, lng: -155.5948, n: 54, nc: 3256,
         latest: '2026-09-12 09:05'
-      }, false);
+      }, false, 'loaded', null, {
+        rba:[], rbaStatus:'loaded', twitchesStatus:'loaded',
+        twitches:[{kind:'Rarity',code:'palila',name:'Palila',subId:'S900393001',
+          loc:'Synthetic nearby personal location',locId:'L900393001',
+          lat:19.832,lon:-155.595,dateStr:'2026-09-12 08:45',
+          location_private:true,observer:'Representative observer',durationHrs:1}]
+      });
+      if (!host.querySelector('.stakeHsNearbyChecklists .privateflag')) {
+        throw new Error('Nearby personal-location checklist fixture did not render');
+      }
       document.getElementById('stakeHsStatus').textContent =
         '4 recent checklists · 10:03 PM';
       markHost(host, label);

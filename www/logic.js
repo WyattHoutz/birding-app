@@ -606,6 +606,7 @@
         locId: r.locId || '',
         lat: r.lat != null ? +r.lat : 0,
         lon: r.lng != null ? +r.lng : 0,
+        coordinatesMissing: r.lat == null || r.lng == null || r.lat === '' || r.lng === '',
         dateStr: r.obsDt || '',
         count: (r.howMany == null ? null : r.howMany),
         observer: r.userDisplayName || '',

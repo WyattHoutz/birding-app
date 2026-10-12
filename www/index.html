@@ -493,6 +493,12 @@
     .tag { font-size: calc(12px * var(--s)); padding: 2px 8px; border-radius: 999px;
            border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
     .tag.checklist-hidden { color: #fff; background: #000; }
+    .stakeoutFlatChecklists > li > .cksummary > .ckmain {
+      padding-inline-start: 1em; text-indent: -1em;
+    }
+    .stakeoutFlatChecklists > li > .cksummary > .ckmain * { text-indent: 0; }
+    .locality-marker .pinbubble { border-radius: 4px; background: var(--safe-blue); }
+    .stakeoutPinCue { font-weight: 700; white-space: nowrap; }
     /* F138: `var(--link)`, not two hard-coded Okabe-Ito blues plus a SECOND
        dark-mode media query. `--link` already holds exactly this value per
        theme — blue on light, sky blue on dark — chosen for the same reason
@@ -1415,12 +1421,12 @@
     .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
     .stakeHsActions { flex-wrap: nowrap; }
     .stakeHsActions > #stakeHs { flex: 1 1 auto; width: auto; min-width: 0; }
-    .stakeHsActions > #stakeHsBtn { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
+    .row.stakeHsActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     #spCodesBtn { min-height: 44px; min-width: max-content;
                   white-space: nowrap; overflow-wrap: normal; }
     .spLookupActions { flex-wrap: nowrap; }
     .spLookupActions > #spLookup { flex: 1 1 auto; width: auto; min-width: 0; }
-    .spLookupActions > #spLookupBtn { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
+    .row.spLookupActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     .spLookupSecondaryActions { column-gap: 6px; }
     .spLookupSecondaryActions > button {
       min-height: 30px; padding: 0 10px; }
@@ -1949,6 +1955,7 @@
     .spLookupControlBar { display: flex; flex-wrap: wrap; align-items: center;
                           gap: 8px; margin: 10px 0; }
     .spLookupControlBar .sortpick { flex: 0 0 auto; margin: 0; }
+    .spLookupControlBar .sortpick > .sortbtn { padding: 0 7px; }
     .spLookupRecent > h3, .spLookupDetailsContent > h3 { margin: 14px 0 6px; }
     .spLookupDetailsContent[hidden], .spLookupRecent:empty { display: none; }
     .spLookupIconicSection .hscard-md .hsdist {
@@ -3553,10 +3560,10 @@
       <div class="row stakeHsActions">
         <input id="stakeHs" type="search" placeholder="Find a hotspot by name…" autocomplete="off" />
         <button id="stakeHsBtn" class="secondary" type="button">Go</button>
+        <button id="stakeHsClear" class="secondary" type="button">Clear</button>
       </div>
       <div class="row stakeHsSecondaryActions">
         <button id="stakeHsHere" class="secondary" type="button">📍 Here</button>
-        <button id="stakeHsClear" class="secondary" type="button" hidden>✕ Close</button>
       </div>
       <ul id="stakeHsFound" class="obs picklist"></ul>
       <div id="stakeHsStatus" class="status">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
@@ -3568,8 +3575,11 @@
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
                placeholder="Search for birds and spuhs…" autocomplete="off" />
-        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">Codes</button>
         <button id="spLookupBtn" class="secondary">Go</button>
+        <button id="spLookupClear" class="secondary" type="button">Clear</button>
+      </div>
+      <div class="row">
+        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">Codes</button>
       </div>
       <div class="row" id="spCodesSortRow" hidden>
         <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
@@ -3944,7 +3954,7 @@
             <button id="easyByDist" class="sortbtn" type="button" aria-pressed="false">Nearest</button>
           </span>
           <span class="sortpick twopill" role="group" aria-label="Filter common birds by distance">
-            <button id="easyNear" class="sortbtn" type="button" aria-pressed="true">20mi</button>
+            <button id="easyNear" class="sortbtn" type="button" aria-pressed="true">Nearby</button>
             <button id="easyAll" class="sortbtn" type="button" aria-pressed="false">All</button>
           </span>
           <button id="easyNotes" class="pressbtn" type="button" aria-pressed="false">💬 Notes</button>
@@ -4842,7 +4852,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.149.2';
+      var APP_VERSION = '1.150.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5472,6 +5482,7 @@
       function syncChaseMi() {
         var input = $('chaseMi'), hint = $('chaseMiHint'), reset = $('chaseMiReset');
         var mi = chaseMaxMi();
+        if ($('easyNear')) $('easyNear').textContent = mi + 'mi';
         if (input) input.value = String(mi);
         if (reset) {
           reset.textContent = 'Reset to ' + chaseDefaultMi() + ' mi';
@@ -13667,6 +13678,7 @@
       var _spLookupSeason = null;
       var _spLookupGeneration = 0;
       var _spLookupRenderRevision = 0;
+      var _spLookupViewKey = '';
       var _spLookupLoading = false;
       var _spLookupEvidence = null;
       var ICONIC_MIN_VISIBLE = 3;
@@ -13752,6 +13764,7 @@
         _spuhSearchHits = []; _spuhSearchShown = 0;
         if ($('spuhMore')) $('spuhMore').hidden = true;
         _spLookupGroup = null;
+        _spLookupViewKey = '';
         _spLookupEvidence = null;
         _spLookupIconic = null; _spLookupSeason = null;
         _spLookupIconicRadius = null;
@@ -13762,10 +13775,23 @@
 
       function clearSpeciesLookup() {
         _spLookupGeneration++;
+        _spCodesGeneration++;
         clearMegaStakeContext();
         resetSpeciesLookupView();
+        _spLookupSort = 'date'; _spLookupGrouped = true;
+        _spLookupWithinChase = true; _spLookupNotes = false;
+        _spCodes = null; _spCodesSort = 'name'; _spCodesAll = false;
+        _spCodesHaveSeen = false;
+        ['spCodesList', 'spCodesStatus', 'spCodesSortRow'].forEach(function (id) {
+          $(id).hidden = true;
+        });
+        $('spCodesList').innerHTML = '';
+        $('spCodesStatus').textContent = '';
+        $('spCodesBtn').setAttribute('aria-expanded', 'false');
+        $('spCodesBtn').textContent = 'Codes';
         if ($('spLookup')) $('spLookup').value = '';
-        if ($('spLookupClear')) $('spLookupClear').hidden = true;
+        if ($('spLookupClear')) $('spLookupClear').hidden = false;
+        $('spLookup').focus({ preventScroll: true });
         if ($('spLookupStatus')) {
           $('spLookupStatus').textContent = 'Search for any bird or spuh. '
             + 'Birds open recent places and checklists; spuhs open their bird '
@@ -14194,7 +14220,7 @@
         };
         _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
         var heldRecords = speciesLookupRecords(_spLookupEvidence.stateRows, anchors);
-        var heldGroup = buildAllUnseen(heldRecords)[0];
+        var heldGroup = buildStakeoutGroup(heldRecords);
         if (heldGroup) {
           heldGroup.name = heldGroup.name || name;
           heldGroup.code = heldGroup.code || code;
@@ -14246,7 +14272,7 @@
             // empty feed used to end the conversation here, which had it
             // backwards: nobody reporting a bird is the situation where knowing
             // where it has always turned up is the only thing left to go on.
-            var evidenceGroup = recs.length ? buildAllUnseen(recs)[0] : null;
+            var evidenceGroup = recs.length ? buildStakeoutGroup(recs) : null;
             if (!evidenceGroup) {
               evidenceGroup = {
                 code: code, name: name, places: [], nPlaces: 0, nReports: 0,
@@ -14263,7 +14289,7 @@
             hydrateUnwatched(code, name, 'spLookupUnwatched', [], generation);
             return;
           }
-          var g = buildAllUnseen(recs)[0];
+          var g = buildStakeoutGroup(recs);
           if (!g) { st.textContent = 'No reports of ' + name + ' in range.'; return; }
           g.name = g.name || name; g.code = g.code || code;
           _spLookupGroup = g;
@@ -15178,13 +15204,18 @@
       // out by the list instead of by itself.
       function renderSpeciesLookup() {        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
+        var reading = captureStakeoutReading($('spLookupRecent'));
+        var viewKey = [g.code, _spLookupSort, _spLookupGrouped, _spLookupWithinChase].join('|');
+        if (_spLookupViewKey !== viewKey) reading = { visible: {} };
+        _spLookupViewKey = viewKey;
+        _spLookupReading = reading;
         _spLookupRenderRevision++;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
         var evidence = _spLookupEvidence;
         var lookupSummary = '';
         var sightingsFailure = '';
         sortSpeciesPlaces(g, _spLookupSort);
-        var nearbyPlaces = (g.places || []).filter(spLookupPlaceReachable);
+        var nearbyPlaces = spLookupOrderedPlaces(g.places);
         var noNearbyEvidence = _spLookupWithinChase
           && (g.places || []).length > 0 && !nearbyPlaces.length;
         var watched = isWatched(g.code);
@@ -15317,8 +15348,11 @@
           renderSpeciesLookup();
         });
         if ((g.places || []).length) renderSpeciesLookupMap(g, false,
-          _spLookupGrouped ? SP_ROWS_MAX : 10);
+          recent.querySelectorAll(_spLookupGrouped
+            ? '.spLookupPlaceList > li' : '.stakeoutFlatChecklists > li').length);
         else clearMap($('spLookupMap'));
+        restoreStakeoutReading(recent, reading);
+        _spLookupReading = null;
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
           var b = $(id);
           if (!b) return;
@@ -15353,6 +15387,43 @@
       // eight more. Keep this below the measured ~10-request burst bucket.
       var STAKEOUT_CHECKLIST_BATCH = 8;
       var STAKEOUT_HISTORY_SCAN = 6;
+      var _spLookupReading = null;
+
+      function captureStakeoutReading(root) {
+        var state = { visible: {}, anchor: '', top: 0 };
+        if (!root) return state;
+        var navbar = $('navbar');
+        var visibleTop = navbar ? Math.max(0, navbar.getBoundingClientRect().bottom) : 0;
+        [].forEach.call(root.querySelectorAll('.cklcard-sm[data-ev-sub]'), function (row) {
+          if (row.hidden) return;
+          var id = row.getAttribute('data-ev-sub');
+          state.visible[id] = true;
+          var rect = row.getBoundingClientRect();
+          if (!state.anchor && rect.height && rect.bottom > visibleTop && rect.top < window.innerHeight) {
+            state.anchor = id; state.top = rect.top;
+          }
+        });
+        return state;
+      }
+
+      function restoreStakeoutReading(root, state) {
+        if (!root || !state || !state.anchor) return;
+        var row = [].find.call(root.querySelectorAll('.cklcard-sm[data-ev-sub]'), function (item) {
+          return item.getAttribute('data-ev-sub') === state.anchor && !item.hidden;
+        });
+        if (row) window.scrollBy(0, row.getBoundingClientRect().top - state.top);
+      }
+
+      function stakeoutInitialCount(rows, grouped, initial) {
+        if (!_spLookupReading) return initial;
+        rows.forEach(function (item, i) {
+          var cks = grouped ? item.place.checklists || [] : [item.checklist];
+          if (cks.some(function (ck) { return _spLookupReading.visible[ck.subId]; })) {
+            initial = Math.max(initial, i + 1);
+          }
+        });
+        return initial;
+      }
 
       function renderSpeciesLookupMap(g, iconicMode, visibleCount) {
         // The map plots the same ordered prefix currently visible in the list.
@@ -15407,7 +15478,7 @@
           var num = pin === undefined ? n++ : pin ? pin.num : '';
           var c = cks[0] || {};
           var where = p.loc || p.locId || '';
-          var nameHtml = (p.locId ? stakeHotspotLink(p.locId, where) : esc(where))
+          var nameHtml = (p.locId && !p.locationPrivate ? stakeHotspotLink(p.locId, where) : esc(where))
             + (c.valid === false ? ' \u26a0\ufe0f' : '');
           var whenTxt = fmtWhenShort(c.dateStr || p.dateStr);
           var rows = cks.map(function (ck, ci) {
@@ -15423,9 +15494,11 @@
               hasComments: !!ck.hasComments,
               __stateRba: !!ck.__stateRba,
               __notable: !!ck.__notable
-            }, p, bird, ci + 1);
+            }, ck.sourcePlace || p, bird, ci + 1, !!ck.sourcePlace, pin);
           });
-          var details = '<div class="stakeoutPlaceDetails">'
+          var details = (p.localityNumber ? '<div class="hint">Locality '
+            + p.localityNumber + ' · grouped source locations, not an access designation.</div>' : '')
+            + '<div class="stakeoutPlaceDetails">'
             + ChecklistCards.list('small', rows, 'stakeoutPlaceChecklists')
             + (speciesLookupDetails()
               ? (p.locationPrivate === true
@@ -15482,7 +15555,20 @@
       function spLookupOrderedPlaces(places) {
         var all = (places || []).slice();
         if (!_spLookupWithinChase) return all;
-        return all.filter(spLookupPlaceReachable);
+        return all.map(function (place) {
+          if (!place.localityNumber) return spLookupPlaceReachable(place) ? place : null;
+          var checklists = place.checklists.filter(function (ck) {
+            return spLookupPlaceReachable(ck.sourcePlace);
+          });
+          if (!checklists.length) return null;
+          var sources = checklists.map(function (ck) { return ck.sourcePlace; });
+          var closest = sources.slice().sort(function (a, b) { return a.distMi - b.distMi; })[0];
+          var representative = rarityLocalPlace(sources, closest);
+          return Object.assign({}, place, representative, {
+            checklists: checklists, distMi: closest.distMi,
+            dateStr: checklists[0].dateStr, nReports: checklists.length
+          });
+        }).filter(Boolean);
       }
 
       function spLookupEvidenceRows(places, grouped) {
@@ -15496,8 +15582,9 @@
         });
         if (!grouped) rows.sort(function (a, b) {
           if (_spLookupSort === 'dist') {
-            var ad = a.place.distMi == null ? Infinity : a.place.distMi;
-            var bd = b.place.distMi == null ? Infinity : b.place.distMi;
+            var ap = a.checklist.sourcePlace || a.place, bp = b.checklist.sourcePlace || b.place;
+            var ad = ap.distMi == null ? Infinity : ap.distMi;
+            var bd = bp.distMi == null ? Infinity : bp.distMi;
             if (ad !== bd) return ad - bd;
           }
           return String(b.checklist.dateStr || b.place.dateStr || '')
@@ -15506,13 +15593,14 @@
         var pins = {}, next = 1;
         rows.forEach(function (item) {
           var p = item.place, lng = p.lon == null ? p.lng : p.lon;
-          if (p.locationPrivate || p.lat == null || lng == null
+          if ((!p.localityNumber && p.locationPrivate) || p.lat == null || lng == null
               || !isFinite(p.lat) || !isFinite(lng)
               || Math.abs(+p.lat) > 90 || Math.abs(+lng) > 180) return;
-          var key = p.locId || [p.loc || '', +p.lat, +lng].join('|');
+          var key = p.localityKey || p.locId || [p.loc || '', +p.lat, +lng].join('|');
           if (!pins[key]) pins[key] = {
-            lat: +p.lat, lng: +lng, num: next++, locName: p.loc || p.locId || '',
-            placeKey: key
+            lat: +p.lat, lng: +lng, num: p.localityNumber || next++,
+            locName: (p.loc || p.locId || '') + (p.localityNumber ? ' (grouped locality)' : ''),
+            placeKey: p.localityKey || key, locality: !!p.localityNumber
           };
           item.pin = pins[key];
         });
@@ -15528,14 +15616,15 @@
         if (count == null) count = ob.howManyAtleast;
         if (count == null) count = ob.howManyStr;
         return ChecklistCards.small({
-          num: num,
+          num: flat ? '' : num,
+          dateFirst: flat && !_spLookupGrouped,
           place: flat ? (place.loc || place.locId || '') : '',
           placeHtml: flat
-            ? (num ? '<span class="stakeoutPinCue" aria-label="Map pin ' + num
-              + '">' + num + '.</span> ' : '<span class="hint">No public pin · </span>')
-              + (place.locId && !place.locationPrivate
+            ? (place.locId && !place.locationPrivate
                 ? stakeHotspotLink(place.locId, place.loc || place.locId || '')
                 : esc(place.loc || place.locId || ''))
+              + (pin ? ' <span class="stakeoutPinCue" aria-label="Map locality ' + pin.num
+                + '">Locality ' + pin.num + '</span>' : ' <span class="hint">No map coordinates</span>')
             : '',
           date: fmtDateTime(row.obsDt || row.isoObsDate || ''),
           dateHref: row.subId ? checklistUrl(row.subId) : '',
@@ -15558,7 +15647,7 @@
           iconsAtEnd: true,
           birdHtml: '',
           data: {
-            'pin-number': flat && num ? num : '',
+            'pin-number': flat && pin ? pin.num : '',
             'pin-place': flat && pin ? pin.placeKey : '',
             'ev-sub': row.subId || '',
             'ev-code': (bird && bird.code) || '',
@@ -15582,6 +15671,9 @@
         if (!isFinite(visible) || visible < STAKEOUT_CHECKLIST_INITIAL) {
           visible = STAKEOUT_CHECKLIST_INITIAL + STAKEOUT_CHECKLIST_BATCH;
         }
+        if (_spLookupReading) rows.forEach(function (row, i) {
+          if (_spLookupReading.visible[row.getAttribute('data-ev-sub')]) visible = Math.max(visible, i + 1);
+        });
         visible = Math.min(visible, rows.length);
         list.setAttribute('data-visible-count', String(visible));
         rows.forEach(function (row, i) { row.hidden = i >= visible; });
@@ -15798,13 +15890,13 @@
         var revision = _spLookupRenderRevision;
         return progressiveListHtml({
           items: rows,
-          initialCount: 10,
+          initialCount: stakeoutInitialCount(rows, false, 10),
           batchSize: 10,
           noun: 'checklists',
           listClass: 'cklcards cklcards-sm stakeoutFlatChecklists',
           buttonClass: 'stakeoutChecklistMore',
           renderItem: function (item, i) {
-            var ck = item.checklist, place = item.place;
+            var ck = item.checklist, place = ck.sourcePlace || item.place;
             return stakeoutChecklistRow({
               subId: ck.subId || '',
               obsDt: ck.dateStr || place.dateStr,
@@ -15843,7 +15935,7 @@
         var revision = _spLookupRenderRevision;
         return progressiveListHtml({
           items: all,
-          initialCount: SP_ROWS_MAX,
+          initialCount: stakeoutInitialCount(all, true, SP_ROWS_MAX),
           batchSize: SP_ROWS_MAX,
           noun: 'places',
           listClass: 'obs hscards hscards-medium spLookupPlaceList',
@@ -17178,7 +17270,7 @@
       //
       // The ordinary eBird URL memo is shared, so a later chase section reuses
       // these notable responses and buys only the additional feeds it needs.
-      function getChaseRarity(force) {
+      function getChaseRarity(force, background) {
         var slug = getReport().slug;
         var full = _chase[slug];
         var profile = chaseProfile();
@@ -17267,7 +17359,7 @@
             work.current = current;
             progressStage('Rare sightings near you', feeds.length, 1, 1);
             var requests = feeds.map(function (feed) {
-              return ebird(BL.requestUrl(feed), false, false, false, work)
+              return ebird(BL.requestUrl(feed), !!background, false, false, work)
                 .then(function (rows) {
                   rowsByFile[feed.file] = Array.isArray(rows) ? rows : [];
                   progressStep(1, feedLabel(feed));
@@ -18289,6 +18381,7 @@
           if (p.placeKey) {
             marker.on('add', function () {
               marker.getElement().setAttribute('data-pin-place', p.placeKey);
+              if (p.locality) marker.getElement().classList.add('locality-marker');
             });
           }
           marker.addTo(map);
@@ -18981,8 +19074,8 @@
       }
       function watchExceptionTag(code, name, parentOf) {
         if (!personalListEvidence().needsProof[String(code || '').toLowerCase()]) return '';
-        return '<a class="tag watchflag seclink" href="#nvResults" data-sec="sec-nvResults"'
-          + ' aria-label="WATCH: explicit Watch List verification; open Watch List">WATCH</a>';
+        return '<span class="tag watchflag"'
+          + ' aria-label="WATCH: explicit Watch List verification">WATCH</span>';
       }
       // The RARE badge — a rounded square with an R.
       //
@@ -23621,11 +23714,16 @@
       // row per sighting. Nearby private pins remain with the public hotspot
       // when they fall within the local grouping radius.
       var RARITY_LOCAL_GROUP_MI = 4;
+      function rarityCoordinates(r) {
+        var lon = r.lon != null ? r.lon : r.lng;
+        return !r.coordinatesMissing && r.lat != null && lon != null && r.lat !== '' && lon !== ''
+          && isFinite(r.lat) && isFinite(lon) && Math.abs(+r.lat) <= 90 && Math.abs(+lon) <= 180;
+      }
       function rarityLocalGroups(records) {
         var groups = [], missing = {};
         (records || []).forEach(function (r) {
           var lat = +r.lat, lon = +(r.lon != null ? r.lon : r.lng);
-          if (!isFinite(lat) || !isFinite(lon)) {
+          if (!rarityCoordinates(r)) {
             var key = String(r.locId || r.loc || r.locName || '__unknown__');
             if (!missing[key]) { missing[key] = []; groups.push(missing[key]); }
             missing[key].push(r);
@@ -23633,8 +23731,7 @@
           }
           var best = -1, bestDist = RARITY_LOCAL_GROUP_MI;
           groups.forEach(function (group, i) {
-            if (!group.length || !isFinite(+group[0].lat)
-                || !isFinite(+(group[0].lon != null ? group[0].lon : group[0].lng))) return;
+            if (!group.length || !rarityCoordinates(group[0])) return;
             var centroid = group.reduce(function (sum, item) {
               return {
                 lat: sum.lat + (+item.lat / group.length),
@@ -23648,6 +23745,50 @@
           else groups.push([r]);
         });
         return groups;
+      }
+      function rarityLocalPlace(records, fallback) {
+        return records.filter(function (r) {
+          return !(r.location_private || r.locationPrivate);
+        }).sort(function (a, b) {
+          return String(a.loc || a.locName || '').length - String(b.loc || b.locName || '').length;
+        }).pop() || fallback;
+      }
+      function buildStakeoutGroup(records) {
+        if (!records || !records.length) return null;
+        var ordered = records.slice().sort(function (a, b) {
+          return [a.locId, a.loc, a.lat, a.lon, a.subId].join('|')
+            .localeCompare([b.locId, b.loc, b.lat, b.lon, b.subId].join('|'));
+        });
+        var places = rarityLocalGroups(ordered).map(function (rs) {
+          var closest = rs.slice().sort(function (a, b) {
+            return (a.distMi == null ? Infinity : a.distMi) - (b.distMi == null ? Infinity : b.distMi);
+          })[0];
+          var rep = rarityLocalPlace(rs, closest);
+          var checklistRows = rs.filter(function (r) { return !!r.subId; });
+          if (!checklistRows.length) checklistRows = [rep];
+          var cks = checklistRows.map(function (r) {
+            return Object.assign({}, r, { sourcePlace: Object.assign({}, r, {
+              locationPrivate: !!(r.location_private || r.locationPrivate)
+            }) });
+          }).sort(function (a, b) {
+            return String(b.dateStr || '').localeCompare(String(a.dateStr || ''))
+              || String(a.subId || '').localeCompare(String(b.subId || ''));
+          });
+          return Object.assign({}, rep, {
+            localityKey: [rs[0].locId, rs[0].loc, rs[0].lat, rs[0].lon].join('|'),
+            locationPrivate: !!(rep.location_private || rep.locationPrivate), checklists: cks, distMi: closest.distMi,
+            dateStr: cks[0].dateStr, subId: cks[0].subId, nReports: cks.length,
+            anyUnconfirmed: rs.some(function (r) { return r.valid === false; })
+          });
+        });
+        places.sort(function (a, b) { return a.localityKey.localeCompare(b.localityKey); });
+        places.forEach(function (p, i) { p.localityNumber = i + 1; });
+        return { code: ordered[0].code, name: ordered[0].name, places: places,
+          nPlaces: places.length, nReports: ordered.length,
+          anyUnconfirmed: ordered.some(function (r) { return r.valid === false; }),
+          distMi: places.reduce(function (best, p) {
+            return p.distMi != null && (best == null || p.distMi < best) ? p.distMi : best;
+          }, null) };
       }
       function buildActiveRarities(records, home) {
         var byCode = {}, order = [], out = [];
@@ -23673,12 +23814,7 @@
             if (r.subId && (!newest || d > (newest.dateStr || ''))) newest = r;
             });
             if (!closest) closest = { rec: rs[0], distMi: null };
-            var place = rs.filter(function (r) {
-              return !(r.location_private || r.locationPrivate);
-            }).sort(function (a, b) {
-              return String(a.loc || a.locName || '').length
-                - String(b.loc || b.locName || '').length;
-            }).pop() || closest.rec;
+            var place = rarityLocalPlace(rs, closest.rec);
             out.push({
             code: code, name: rs[0].name || code,
             parentOf: rs[0].parentOf,
@@ -30942,8 +31078,8 @@
           locName: r.loc || r.locName || '',
           locId: r.locId || '',
           subId: r.subId || '',
-          lat: r.lat,
-          lng: r.lon != null ? r.lon : r.lng,
+          lat: r.coordinatesMissing ? null : r.lat,
+          lng: r.coordinatesMissing ? null : (r.lon != null ? r.lon : r.lng),
           howMany: r.count,
           userDisplayName: r.observer || '',
           locationPrivate: r.location_private === true || r.locationPrivate === true
@@ -31054,8 +31190,8 @@
       function refreshStakeoutLookupEvidence(entry, rows) {
         if (!stakeoutEvidenceCurrent(entry)) return;
         updateStakeoutEvidence(entry, rows);
-        var refreshed = buildAllUnseen(
-          speciesLookupRecords(entry.stateRows, getAnchors()))[0];
+        var refreshed = buildStakeoutGroup(
+          speciesLookupRecords(entry.stateRows, getAnchors()));
         if (!refreshed) return;
         refreshed.name = refreshed.name || entry.name;
         refreshed.code = refreshed.code || entry.code;
@@ -33860,6 +33996,10 @@
             var checklists = place.checklists && place.checklists.length
               ? place.checklists : [{ subId: '', dateStr: place.dateStr }];
             checklists.forEach(function (checklist) {
+              var lat = checklist.lat != null ? checklist.lat : place.lat;
+              var lon = checklist.lon != null ? checklist.lon : place.lon;
+              var mi = easyNearestMi({spots:[{lat:lat, lng:lon}]});
+              if (rarityFilters().distance === 'near' && mi != null && mi > chaseMaxMi()) return;
               out.push({
                 code: bird.code, name: bird.name, sci: sciFor(bird.code),
                 dateStr: checklist.dateStr || place.dateStr || bird.latest || '',
@@ -33868,7 +34008,7 @@
                 evidence: checklist.evidence || '',
                 loc: place.loc, locId: place.locId,
                 locationPrivate: place.locationPrivate,
-                lat: place.lat, lon: place.lon, distMi: place.distMi
+                lat: lat, lon: lon, distMi: mi
               });
             });
           });
@@ -33886,6 +34026,7 @@
       }
       function renderEasyMisses(rows, totalDays, keepVisible) {
         var box = $('easyResults');
+        $('easyNear').textContent = chaseMaxMi() + 'mi';
         // Remembered so a sort tap re-renders from data already in hand.
         _easyRows = rows; _easyDays = totalDays;
         var sortRow = $('easySortRow');
@@ -35058,16 +35199,89 @@
         _stakeHsOrdinaryLimit = 20;
         _stakeHsRows = null;
         _stakeHsSelected = null;
+        _stakeHsLastGood = {};
+        clearMap($('stakeHsMap'));
         if ($('stakeHs')) $('stakeHs').value = '';
         if ($('stakeHsFound')) $('stakeHsFound').innerHTML = '';
         if ($('stakeHsResults')) $('stakeHsResults').innerHTML = '';
-        if ($('stakeHsClear')) $('stakeHsClear').hidden = true;
+        if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
+        $('stakeHs').focus({ preventScroll: true });
         if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = true;
         if ($('stakeHsStatus')) {
           $('stakeHsStatus').textContent = 'Pick a place and see what eBird\u2019s hotspot '
             + 'page buries: who actually birds it, what it holds that nowhere else '
             + 'does, and which of its birds you still need.';
         }
+      }
+
+      function stakeHsNearbyRows(locId, name, lists, hrow, records) {
+        var loc = (lists[0] || {}).loc || {};
+        var anchor = {locId:locId, loc:name,
+          lat:hrow && hrow.lat != null ? hrow.lat : (loc.lat != null ? loc.lat : loc.latitude),
+          lon:hrow && hrow.lng != null ? hrow.lng : (loc.lng != null ? loc.lng : loc.longitude)};
+        if (!rarityCoordinates(anchor)) return null;
+        var ordered = (records || []).filter(function (r) { return r && rarityCoordinates(r); })
+          .slice().sort(function (a, b) {
+            return [a.locId, a.subId, a.code].join('|').localeCompare([b.locId,b.subId,b.code].join('|'));
+          });
+        var locality = rarityLocalGroups([anchor].concat(ordered)).find(function (group) {
+          return group.indexOf(anchor) >= 0;
+        }) || [];
+        var known = {};
+        (lists || []).forEach(function (row) { known[row.subId || row.subID] = true; });
+        return locality.filter(function (row) {
+          if (!(row.location_private || row.locationPrivate) || !row.subId
+              || row.locId === locId || known[row.subId]) return false;
+          known[row.subId] = true;
+          return true;
+        }).sort(function (a, b) {
+          return String(b.dateStr || '').localeCompare(String(a.dateStr || ''))
+            || String(a.subId).localeCompare(String(b.subId));
+        });
+      }
+
+      function stakeHsNearbyHtml(locId, name, lists, hrow, nearby, reading) {
+        if (!nearby) return '';
+        var records = (nearby.rba || []).concat(nearby.twitches || []);
+        var rows = stakeHsNearbyRows(locId, name, lists, hrow, records);
+        var status = 'RBA: ' + nearby.rbaStatus + ' · Twitches: ' + nearby.twitchesStatus
+          + '. Available source evidence, not a complete inventory of personal locations.'
+          + ' Only locations identified as personal by a source are included.';
+        var heading = '<div class="rankhead"><b>Nearby personal locations</b></div>'
+          + '<p class="hint" role="status">' + esc(status) + '</p>';
+        if (rows === null) return heading
+          + '<p class="hint">Source-provided hotspot coordinates are not available yet.</p>';
+        if (!rows.length) return heading
+          + '<p class="hint">No nearby personal-location checklists in the available evidence.</p>';
+        var initial = 20, generation = _stakeHsGeneration;
+        rows.forEach(function (row, i) {
+          if (reading.visible[row.subId]) initial = Math.max(initial, i + 1);
+        });
+        return heading + progressiveListHtml({
+          items:rows, initialCount:initial, batchSize:20, noun:'nearby checklists',
+          listClass:'cklcards cklcards-sm stakeHsNearbyChecklists',
+          buttonClass:'stakeHsNearbyMore',
+          isCurrent:function () { return generation === _stakeHsGeneration; },
+          renderItem:function (row) {
+            return ChecklistCards.small({
+              date:fmtDateTime(row.dateStr), dateFirst:true, observedAt:row.dateStr,
+              dateHref:checklistUrl(row.subId), href:checklistUrl(row.subId),
+              place:row.loc || row.locName || 'Personal location',
+              placeHtml:esc(row.loc || row.locName || 'Personal location'),
+              who:esc(row.observer || ''), durationHrs:row.durationHrs,
+              durationPending:row.durationHrs == null, sp:row.numSpecies,
+              flag:'<span class="tag privateflag" aria-label="Personal eBird location">PRIVATE</span>'
+                + (row.kind === 'Rarity' || row.__notable || row.__stateRba
+                  ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>' : ''),
+              icons:BirdLogic.recordIcons(row), iconsAtEnd:true,
+              distMi:row.distMi, distQ:distQ(row.lat, row.lon != null ? row.lon : row.lng),
+              data:{'ev-sub':row.subId, 'ev-checklist-only':'1',
+                'ev-place':row.loc || row.locName || '', 'ev-lat':row.lat,
+                'ev-lng':row.lon != null ? row.lon : row.lng}
+            });
+          },
+          afterAppend:function (list) { hydrateChecklistEvidence(list); }
+        });
       }
 
       function stakeHsOpen(locId, name, force) {
@@ -35082,25 +35296,52 @@
         $('stakeHsFound').innerHTML = '';
         box.innerHTML = '';
         st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
+        var lastGood = _stakeHsLastGood[locId], nearbyStarted = false, primaryReady = false;
+        var previousNearby = lastGood && lastGood.nearby;
         var state = {
-          lists: [], obs: [], obsState: 'loading', hrow: null, iconic: undefined,
-          supplement: null
+          lists: lastGood ? lastGood.lists.slice() : [],
+          obs: lastGood ? lastGood.obs.slice() : [],
+          obsState: lastGood ? lastGood.obsState : 'loading',
+          hrow: lastGood ? lastGood.hrow : null,
+          iconic: lastGood ? lastGood.iconic : undefined,
+          supplement: lastGood ? lastGood.supplement : null,
+          nearby:{
+            rba:previousNearby ? previousNearby.rba.slice() : [],
+            twitches:previousNearby ? previousNearby.twitches.slice() : [],
+            rbaStatus:'loading', twitchesStatus:'loading'
+          }
         };
         function paint() {
           if (generation !== _stakeHsGeneration) return;
           renderStakeHs(locId, name, state.lists, state.obs, state.hrow,
-            state.iconic, state.obsState, state.supplement);
+            state.iconic, state.obsState, state.supplement, state.nearby);
           _stakeHsLastGood[locId] = state;
+          if (primaryReady && !nearbyStarted
+              && stakeHsNearbyRows(locId, name, state.lists, state.hrow, []) !== null) {
+            nearbyStarted = true;
+            getChaseRarity(false, true).then(function (chase) {
+              if (generation !== _stakeHsGeneration) return;
+              state.nearby.twitches = chase && chase.cv && chase.cv.merged || [];
+              state.nearby.twitchesStatus = !chase || !chase.cv ? 'unavailable'
+                : chase.partial || chase.feedFailed ? 'partial (some feeds unavailable)' : 'loaded';
+              paint();
+            }).catch(function (error) {
+              if (generation !== _stakeHsGeneration) return;
+              state.nearby.twitchesStatus = 'unavailable';
+              dbg('warn', 'Nearby personal-location evidence: ' + ((error && error.message) || error));
+              paint();
+            });
+          }
         }
-        var lastGood = _stakeHsLastGood[locId];
         if (lastGood) {
           renderStakeHs(locId, name, lastGood.lists, lastGood.obs, lastGood.hrow,
-            lastGood.iconic, lastGood.obsState, lastGood.supplement);
+            lastGood.iconic, lastGood.obsState, lastGood.supplement, lastGood.nearby);
         }
         stateRbaRecords(false).then(function (result) {
           if (generation !== _stakeHsGeneration) return;
+          state.nearby.rba = result && result.rows || [];
+          state.nearby.rbaStatus = result && result.complete ? 'loaded' : 'unavailable';
           var rba = stakeoutPatchRbaRows(result && result.rows || [], locId);
-          if (!rba.lists.length) return;
           var known = {};
           state.lists.forEach(function (row) { known[row.subId || row.subID || ''] = 1; });
           rba.lists.forEach(function (row) {
@@ -35168,6 +35409,9 @@
                 dbg('warn', 'Stakeout hotspot species feed: '
                   + ((e && e.message) || e));
                 paint();
+              }).then(function () {
+                primaryReady = true;
+                paint();
               });
 
             stakeHsHotspotRow(locId).then(function (h) {
@@ -35191,14 +35435,18 @@
           })
           .catch(function (e) {
             if (generation === _stakeHsGeneration) {
+              primaryReady = true;
+              if (lastGood) paint();
               if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = false;
               st.textContent = netErr(e);
             }
           });
       }
 
-      function renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement) {
+      function renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement, nearby) {
         var box = $('stakeHsResults');
+        var reading = captureStakeoutReading(box.dataset.stakeoutLocation === locId ? box : null);
+        box.dataset.stakeoutLocation = locId;
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         lists = (lists || []).slice().sort(sortStakeHsChecklists); obs = obs || []; hrow = hrow || {};
         obsState = obsState || 'loaded';
@@ -35350,6 +35598,14 @@
           // (the template only shows the observer on a small row when there is
           // no place competing for the width).
           var ordinaryShown = 0;
+          lists.forEach(function (r) {
+            if (r.observationLinked) return;
+            ordinaryShown++;
+            if (reading.visible[r.subId || r.subID]) {
+              _stakeHsOrdinaryLimit = Math.max(_stakeHsOrdinaryLimit, ordinaryShown);
+            }
+          });
+          ordinaryShown = 0;
           var displayedLists = lists.filter(function (r) {
             return r.observationLinked || ordinaryShown++ < _stakeHsOrdinaryLimit;
           });
@@ -35387,6 +35643,8 @@
           if (unavailableDates) below += '<p class="hint" role="status">'
             + unavailableDates + ' checklist dates unavailable; undated rows sort last.</p>';
         }
+
+        below += stakeHsNearbyHtml(locId, name, lists, hrow, nearby, reading);
 
         // ---- iconic: the score, then the birds that earn it
         var iconicBirds = iconic && iconic.birds
@@ -35455,17 +35713,19 @@
         [].slice.call(box.querySelectorAll('.stakeHsNotesBtn')).forEach(function (button) {
           button.addEventListener('click', function () {
             setRarityNotes(button.getAttribute('data-notes') === 'on');
-            renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement);
+            renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement, nearby);
           });
           var more = $('stakeHsShowMore'), generation = _stakeHsGeneration;
           if (more) more.addEventListener('click', function () {
             if (generation !== _stakeHsGeneration) return;
             _stakeHsOrdinaryLimit += 20;
-            renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement);
+            renderStakeHs(locId, name, lists, obs, hrow, iconic, obsState, supplement, nearby);
           });
         });
+        mountProgressiveLists(box);
         hydratePhotos(box);
         hydrateChecklistEvidence(box);
+        restoreStakeoutReading(box, reading);
       }
 
       function loadIconicSpots() {
@@ -46311,6 +46571,7 @@
       if ($('iconicAll')) $('iconicAll').addEventListener('click', function () { setIconicRange('all'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
+      $('spLookupClear').addEventListener('click', clearSpeciesLookup);
       $('spuhMore').addEventListener('click', function () {
         _spuhSearchShown = Math.min(_spuhSearchHits.length, _spuhSearchShown + 25);
         paintSpuhSearchHits();
@@ -47166,6 +47427,7 @@
         megaLane: megaLane, saveMegaSnapshot: saveMegaSnapshot,
         megaFinderState: megaFinderState,
         stakeHsOpen: stakeHsOpen, stakeHsSearch: stakeHsSearch,
+        STAKE_HS_LISTS: STAKE_HS_LISTS,
         stakeHsRows: function () { return _stakeHsRows; },
         // Exposed so the card's four blocks can be RENDER-probed. Whether a
         // block carries a header, and whether there is space between it and

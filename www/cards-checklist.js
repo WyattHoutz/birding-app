@@ -409,10 +409,12 @@
       if (v.place && v.date) {
         var dateText = esc(shortWhen(v.date, true));
         var checklistHref = v.dateHref || v.href || '';
-        summary.push('<span class="ckdate">' + (checklistHref
+        var dated = '<span class="ckdate">' + (checklistHref
           ? '<a class="ckgo" target="_blank" rel="noopener" href="'
             + esc(checklistHref) + '">' + dateText + '</a>'
-          : dateText) + '</span>');
+          : dateText) + '</span>';
+        if (v.dateFirst) summary.unshift(dated);
+        else summary.push(dated);
         var datedAge = ageHtml(v.observedAt, v.nowMs);
         if (datedAge) summary.push('<span class="ckage">' + datedAge + '</span>');
         if (v.review) summary.push(v.review);

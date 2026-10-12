@@ -60,11 +60,21 @@
       "Sort by date, newest first",
       "Show places within 40 miles",
       "setSpeciesLookupWithinChase",
+      "function buildStakeoutGroup",
+      "function restoreStakeoutReading",
+      "function stakeHsNearbyRows",
+      "Nearby personal locations",
+      "$('easyNear').textContent = chaseMaxMi() + 'mi'",
+      "dateFirst: flat && !_spLookupGrouped",
+      "id=\"spLookupClear\"",
+      "stakeoutPinCue",
+      "WATCH: explicit Watch List verification\">WATCH</span>",
       "No physically reachable reports are within",
       "PERSIST_DELAY_MS = 750",
       "PREVIOUS SESSION (saved locally; secrets scrubbed)"
     ],
     "logic.js": [
+      "coordinatesMissing:",
       "(?:pacific|atlantic|indian|arctic|southern)"
     ],
     "seed-birdlist.js": [
@@ -95,7 +105,9 @@
   "forbiddenText": {
     "index.html": [
       "'bc_p:' + profile",
-      "id=\"abaDetail\""
+      "id=\"abaDetail\"",
+      "No public pin",
+      "class=\"tag watchflag seclink\""
     ]
   }
 }

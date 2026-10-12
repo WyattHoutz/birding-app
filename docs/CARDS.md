@@ -51,7 +51,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `renderSpeciesLookup` | 🔎 Stakeout bird Compact — exactly one scannable species card with its 64×76 photo, nearest distance and actions |
 | `medium` | `loadActiveRarities` | ⭐ Active rarities |
 | `medium` | `lastNewCard` | 🔭 Leader Board Ticks |
-| `medium` | `speciesPlacesCard` | 📋 All unseen reports **and** 🥚 Easy misses — both render through this one builder |
+| `medium` | `birdReportGroupCard` | Nemesis birds and Common birds — top-level grouped rows are species cards, not checklist cards |
 | `large` | `renderSpeciesLookup` | 🔎 Stakeout bird Details — one bird in depth, with a page-width hero photo before its checklists, evidence, references and Iconic hotspots |
 
 ### HotspotCards — a row is a place
@@ -61,7 +61,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `medium` | `hotspotCard` | 🥇 Top destinations · 🚗 Top excursions · 🧭 Trip planner · 🚶 Quick outing · 📍 Closest spots · 🔥 Hot hotspots · ❄️ Cold hotspots — **every** hotspot list in the app goes through this one builder |
 | `small` | `renderConvoys` | 👥 Birder convoys — the numbered stops on one route, each badge cloning that convoy's map pin |
 | `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
-| `small` | `spLookupPlaceCards` | 🔍 Stakeout bird recent reports — one row per hotspot, newest checklist linked, lazily appended into one list |
+| `medium` | `spLookupPlaceCards` | 🔍 Stakeout bird recent reports — one numbered four-mile locality, with every source checklist retaining its own place and metadata |
 | `large` | `renderStakeHs` | 🗺 Stake out a hotspot — ONE place, in depth: eBird code, address, all-time totals, the birds seen there in the last 30 days, its iconic score, its recent checklists, and who birds it. The one section that is about a single hotspot rather than a list of them, which is exactly what the large card is for |
 | `marker` | — | **unused** — and it is a trap, not an oversight: `build()` derives the badge from `num`/`icon`, so a caller passing a ready-made `marker` has it silently dropped. Stakeout *By odds* numbers its rows by passing `num` |
 
@@ -69,11 +69,23 @@ Sizes are a **rank of attention**, not a rank of importance:
 
 | template | built by | section |
 |---|---|---|
-| `small` | `unseenPlacesHtml` | 📋 All unseen reports · 🥚 Easy misses — one line per checklist under each bird |
+| `small` | `birdReportChecklistCard` | Nemesis birds, Common birds and Twitches — nested checklist evidence beneath the species/place cards |
+| `small` | `stakeoutChecklistRow` | Stakeout Bird — grouped source checklists and timestamp-first ungrouped checklists with explicit locality references |
+| `small` | `renderStakeHs` | Stakeout Patches — the selected hotspot's own recent and observation-linked checklists |
+| `small` | `stakeHsNearbyHtml` | Stakeout Patches — separate nearby personal-location evidence; never attributed to the selected hotspot |
 | `small` | `rarityChecklistDetails` | ⭐ Active rarities — the checklists behind one rarity |
-| `small` | `lastNewCard` | 🔭 Leader Board Ticks — the recent checklists for one bird |
 | `medium` | `loadBirdiest` | 🦜 Birdiest checklists |
 | `medium` | `recentChecklistCard` | 🕒 Recent checklists — every retained county-feed row, in the selected order |
+
+For small checklist rows containing both a place and a timestamp,
+`dateFirst: true` puts the existing linked timestamp before the source place.
+Omitting it preserves place-first order. Stakeout Bird's ungrouped list adds
+a scoped one-em hanging indent; other callers do not inherit that layout.
+Leader Board Ticks uses species rows without nested checklist cards.
+
+The older helpers `speciesPlacesCard` and `unseenPlacesHtml` remain in the
+source. Their legacy names are not additional menus: the current visible
+menus are Nemesis birds and Common birds.
 
 ## The unused ones
 
@@ -90,8 +102,8 @@ Sizes are a **rank of attention**, not a rank of importance:
 > 2026-08-22** — which is the argument below playing out as intended: the
 > shape was there when a section needed it, so nobody invented a fourth.
 >
-> `HotspotCards.small` now serves both *By odds* and the recent-report list;
-> the shared size is what keeps those place rows visually consistent.
+> `HotspotCards.small` serves *By odds*; the recent-report locality list uses
+> `HotspotCards.medium` with its nested source-checklist evidence.
 >
 > `marker` is a special case. *By odds* really does number its rows, but
 > `build()` computes the badge from `num`/`icon` and **ignores a `marker`
