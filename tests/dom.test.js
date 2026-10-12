@@ -9294,13 +9294,13 @@ test('F888 Stakeout birds and patches retain immediate hidden private RBA eviden
   const A = app.window.__app;
   const rows = [
     {
-      code: 'vefl', name: 'Vesper Flycatcher', loc: 'Snohomish RBA place',
+      code: 'verfly', name: 'Vermilion Flycatcher', loc: 'Snohomish RBA place',
       locId: 'L-VEFL', lat: 47.8, lon: -122.1,
       dateStr: '2026-10-10 08:00', subId: 'S-SNO', observer: 'Sno observer',
       location_private: false
     },
     {
-      code: 'vefl', name: 'Vesper Flycatcher', loc: 'Private location',
+      code: 'verfly', name: 'Vermilion Flycatcher', loc: 'Private location',
       locId: 'L-VEFL', lat: null, lon: null,
       dateStr: '2026-10-10 09:00', subId: 'S-WA', observer: 'WA observer',
       location_private: true
@@ -9310,7 +9310,7 @@ test('F888 Stakeout birds and patches retain immediate hidden private RBA eviden
       locId: 'L-OTHER', dateStr: '2026-10-10 10:00', subId: 'S-OTHER'
     }
   ];
-  const bird = A.stakeoutRarityEvidenceRows(rows, 'vefl', 'Vesper Flycatcher');
+  const bird = A.stakeoutRarityEvidenceRows(rows, 'verfly', 'Vermilion Flycatcher');
   assert.equal(bird.length, 2, 'both county and Washington RBA checklists survive');
   assert.ok(bird.every((row) => row.__notable && row.__stateRba),
     'every RBA bird row carries an explicit sticky rarity source');
@@ -9335,6 +9335,185 @@ test('F888 Stakeout birds and patches retain immediate hidden private RBA eviden
   assert.ok(open.indexOf('stateRbaRecords(false)') < open.indexOf("return ebird('product/lists/"),
     'Stakeout Patch does not start the shared RBA read before ordinary checklists');
   app.window.close();
+});
+
+function f890EvidenceFixture() {
+  const row = (id, i = 0, days = 1) => ({
+    speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+    subId: id, obsId: `OBS-${id}`, obsDt: recentObsStamp(days, 8, i % 60),
+    locName: i < 24 ? 'Synthetic Slough' : 'Synthetic Home Acres',
+    locId: i < 24 ? 'L-F890-SLOUGH' : 'L-F890-HOME',
+    lat: i < 24 ? 47.8 : 47.85, lng: -122.1,
+    howMany: 1, obsValid: true, locationPrivate: false,
+    userDisplayName: `Synthetic observer ${i}`, subnational2Code: 'US-WA-061',
+  });
+  const notable = Array.from({ length: 47 }, (_, i) => row(`S890000${String(i).padStart(2, '0')}`, i));
+  const cached = row('S-F890-CACHED');
+  const late = { ...row('S-F890-LATE', 47), locName: 'Private location',
+    locId: '', lat: null, lng: null, locationPrivate: true };
+  const older = row('S-F890-OLDER', 25, 4);
+  const ordinary = row('S-F890-ORDINARY', 26);
+  const other = { ...row('S-F890-OTHER'), speciesCode: 'mallar3', comName: 'Mallard' };
+  const species = notable.slice(0, 18).map((r) => ({
+    ...r, __notable: false, __stateRba: false,
+  })).concat(ordinary);
+  const normalized = (r, kind = 'Rarity') => ({
+    kind, code: r.speciesCode, name: r.comName, subId: r.subId,
+    loc: r.locName, locId: r.locId, lat: r.lat, lon: r.lng,
+    dateStr: r.obsDt, count: r.howMany, observer: r.userDisplayName,
+    location_private: r.locationPrivate,
+  });
+  return { row, notable, cached, late, older, ordinary, other, species, normalized };
+}
+
+function f890Deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function f890DisplayedRows(app, grouped) {
+  const A = app.window.__app, host = app.$('spLookupRecent');
+  A.setSpeciesLookupGrouped(grouped);
+  A.setSpeciesLookupWithinChase(false);
+  for (let pass = 0; pass < 30; pass++) {
+    const more = host.querySelector('.spLookupMore, .stakeoutChecklistMore');
+    if (!more) break;
+    app.click(more);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(host.querySelector('.spLookupMore, .stakeoutChecklistMore'), null,
+    'all progressive batches can be revealed');
+  return [...host.querySelectorAll('.cklcard-sm')].filter((row) => !row.hidden);
+}
+
+for (const [order, retainedMega] of [
+  [['rba', 'species', 'twitches'], false],
+  [['species', 'rba', 'twitches'], false],
+  [['twitches', 'rba', 'species'], false],
+  [['rba', 'species', 'twitches'], true],
+]) {
+  test(`F890 Stakeout preserves displayed evidence and RARE: ${retainedMega ? 'retained Mega ' : ''}${order.join(' then ')}`, async () => {
+    const f = f890EvidenceFixture();
+    const gates = { rba: f890Deferred(), species: f890Deferred(), twitches: f890Deferred() };
+    const app = await boot({ sample: false, fetch(url) {
+      if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return gates.rba.promise;
+      if (/recent\/verfly/.test(url)) return gates.species.promise;
+      if (/recent\/notable/.test(url)) return gates.twitches.promise;
+      if (/api\.ebird\.org/.test(url)) return [];
+      return null;
+    } });
+    try {
+      const A = app.window.__app;
+      installSpuhFixture(app);
+      // Pending memoized responses exercise independent source completion
+      // without deadlocking the production single-request network limiter.
+      A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK),
+        gates.species.promise);
+      BL.planFeeds(A.chaseProfile()).filter((feed) => feed.kind === 'notable')
+        .forEach((feed) => A.seedEbirdCache(BL.requestUrl(feed), gates.twitches.promise));
+      const falseRare = f.normalized(f.row('S-F890-NOT-RARE'), 'Need');
+      A.seedChase('wa', { cv: { merged: [f.normalized(f.cached), falseRare] } });
+      if (retainedMega) A.abaArchiveAdd('US-WA', [f.cached]);
+      for (const r of [...f.notable, f.cached, f.late, f.older, f.ordinary]) {
+        A.seedEbirdCache(`product/checklist/view/${r.subId}`, {
+          obsDt: r.obsDt, durationHrs: 1, numSpecies: 3, obs: [],
+        });
+      }
+      for (const loc of ['L-F890-SLOUGH', 'L-F890-HOME']) {
+        A.seedEbirdCache(`product/lists/${loc}?maxResults=12`, []);
+      }
+      const lookup = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+      A.setSpeciesLookupWithinChase(false);
+      assert.ok(app.$('spLookupRecent').querySelector('[data-ev-sub="S-F890-CACHED"]'),
+        'initially cached rarity evidence is displayed before either source settles');
+      assert.ok(!app.$('spLookupRecent').querySelector('[data-ev-sub="S-F890-NOT-RARE"]'),
+        'ordinary chase evidence must not be invented into an RBA checklist');
+      const expected = new Map([[f.cached.subId, true]]);
+      for (const source of order) {
+        if (source === 'rba') {
+          gates.rba.resolve(megaAlertHtml(f.notable.concat(f.other)));
+          f.notable.forEach((r) => expected.set(r.subId, true));
+        } else if (source === 'species') {
+          gates.species.resolve(f.species);
+          await lookup;
+          f.species.forEach((r) => {
+            if (!expected.has(r.subId)) expected.set(r.subId, false);
+          });
+        } else {
+          // County and state memberships overlap completely. Distinct obsIds
+          // still describe the same checklist/species evidence.
+          gates.twitches.resolve(f.notable.concat(
+            f.notable.map((r) => ({ ...r, obsId: r.obsId + '-STATE' })),
+            f.late, f.older, f.other));
+          [...f.notable, f.late, f.older].forEach((r) => expected.set(r.subId, true));
+        }
+        A.setSpeciesLookupGrouped(true);
+        await waitFor(() => {
+          return app.$('spLookupRecent').querySelectorAll('.cklcard-sm').length >= expected.size;
+        }, `${source} evidence joined the current search`);
+        for (const grouped of [true, false]) {
+          const displayed = await f890DisplayedRows(app, grouped);
+          assert.deepEqual(displayed.map((r) => r.dataset.evSub).sort(),
+            [...expected.keys()].sort(), `${source}: exact distinct displayed IDs (${grouped})`);
+          for (const r of displayed) {
+            assert.equal(!!r.querySelector('.rareflag'), expected.get(r.dataset.evSub),
+              `${source}: RARE provenance for ${r.dataset.evSub} (${grouped})`);
+          }
+        }
+      }
+      const privateRow = app.$('spLookupRecent').querySelector('[data-ev-sub="S-F890-LATE"]');
+      assert.match(privateRow.textContent, /No public pin/);
+      assert.ok(!privateRow.dataset.pinNumber, 'private evidence has no public pin number');
+      assert.ok(!app.state.fetches.some((url) => /product\/lists\/(?:undefined|null)/.test(url)));
+      assert.equal(expected.size, 51,
+        '47 shared RBA IDs + ordinary + cached + late private + older, not 94 memberships');
+      assert.match(app.$('spLookupDetailMain').textContent, /51 reports in the last 30 days/,
+        'deduplication must also preserve the report total, not only suppress duplicate cards');
+      assert.ok(app.$('spLookupEvidenceDetails').querySelector(
+        `.stakeoutrarity[data-kind="${retainedMega ? 'mega' : 'rare'}"]`),
+      'late notable evidence must not downgrade retained Mega classification');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      app.window.close();
+    }
+  });
+}
+
+test('F890 obsolete RBA and Twitches completions cannot contaminate a new Stakeout', async () => {
+  const f = f890EvidenceFixture(), rba = f890Deferred(), twitches = f890Deferred();
+  const species = f890Deferred();
+  const app = await boot({ sample: false, fetch(url) {
+    if (/ebird\.org\/alert\/rba/.test(url)) return rba.promise;
+    if (/recent\/notable/.test(url)) return twitches.promise;
+    if (/recent\/verfly/.test(url)) return species.promise;
+    if (/recent\/mallar3/.test(url)) return [f.other];
+    if (/api\.ebird\.org/.test(url)) return [];
+    return null;
+  } });
+  try {
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), species.promise);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'mallar3', A.SP_LOOKUP_BACK), [f.other]);
+    BL.planFeeds(A.chaseProfile()).filter((feed) => feed.kind === 'notable')
+      .forEach((feed) => A.seedEbirdCache(BL.requestUrl(feed), twitches.promise));
+    const old = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    await A.lookupSpecies('mallar3', 'Mallard');
+    species.resolve(f.species);
+    rba.resolve(megaAlertHtml(f.notable));
+    twitches.resolve(f.notable);
+    await old;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (const grouped of [true, false]) {
+      const rows = await f890DisplayedRows(app, grouped);
+      assert.deepEqual(rows.map((r) => r.dataset.evSub), [f.other.subId]);
+      assert.equal(rows[0].querySelector('.rareflag'), null);
+    }
+    assert.match(app.$('spLookupResults').textContent, /Mallard/);
+  } finally {
+    app.window.close();
+  }
 });
 
 test('a checklist link is labelled by its subId, never the word "checklist"', () => {

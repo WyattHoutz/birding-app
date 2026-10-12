@@ -4842,7 +4842,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.149.0';
+      var APP_VERSION = '1.149.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -11088,6 +11088,9 @@
         if (left.locationPrivate != null || right.locationPrivate != null) {
           out.locationPrivate = !!left.locationPrivate || !!right.locationPrivate;
         }
+        ['__stateRba', '__notable'].forEach(function (key) {
+          if (left[key] || right[key]) out[key] = true;
+        });
         return out;
       }
       function megaMergeRows(rows) {
@@ -11985,6 +11988,7 @@
                   // with no media marks.
                   return { subId: r.subId, dateStr: r.dateStr, count: r.count,
                            observer: r.observer, valid: r.valid,
+                           __stateRba: !!r.__stateRba, __notable: !!r.__notable,
                            durationHrs: r.durationHrs,
                            numSpecies: r.numSpecies,
                            evidence: r.evidence || '',
@@ -13697,6 +13701,8 @@
             sub2: r.subnational2Code || '',
             evidence: r.evidence || '',
             hasComments: !!(r.hasComments || r.has_comments),
+            __stateRba: !!r.__stateRba,
+            __notable: !!r.__notable,
             durationHrs: r.durationHrs,
             numSpecies: r.numSpecies,
             sciName: r.sciName || ''
@@ -14206,14 +14212,7 @@
         stateRba.then(function (rbaRows) {
             if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()
                 || !rbaRows.length) return;
-            updateStakeoutEvidence(_spLookupEvidence, rbaRows);
-            var refreshed = buildAllUnseen(
-              speciesLookupRecords(_spLookupEvidence.stateRows, anchors))[0];
-            if (!refreshed) return;
-            refreshed.name = refreshed.name || name;
-            refreshed.code = refreshed.code || code;
-            refreshed.emptyCurrent = !!(_spLookupGroup && _spLookupGroup.emptyCurrent);
-            _spLookupGroup = refreshed;
+            refreshStakeoutLookupEvidence(_spLookupEvidence, rbaRows);
             renderSpeciesLookup();
           });
         return sightings.then(function (rows) {
@@ -15421,7 +15420,9 @@
               count: Object.prototype.hasOwnProperty.call(ck, 'count')
                 ? ck.count : undefined,
               evidence: ck.evidence || '',
-              hasComments: !!ck.hasComments
+              hasComments: !!ck.hasComments,
+              __stateRba: !!ck.__stateRba,
+              __notable: !!ck.__notable
             }, p, bird, ci + 1);
           });
           var details = '<div class="stakeoutPlaceDetails">'
@@ -15543,7 +15544,7 @@
           href: row.subId ? checklistUrl(row.subId) : '',
           who: esc(row.userDisplayName || ''),
           sp: row.numSpecies != null ? row.numSpecies : '',
-          flag: row.__stateRba || row.rbaRare
+          flag: row.__stateRba || row.__notable || row.rbaRare
             ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>'
             : '',
           count: count,
@@ -15810,7 +15811,9 @@
               count: Object.prototype.hasOwnProperty.call(ck, 'count')
                 ? ck.count : undefined,
               evidence: ck.evidence || '',
-              hasComments: !!ck.hasComments
+              hasComments: !!ck.hasComments,
+              __stateRba: !!ck.__stateRba,
+              __notable: !!ck.__notable
             }, place, bird, item.pin ? item.pin.num : 0, true, item.pin);
           },
           isCurrent: function () {
@@ -30962,7 +30965,7 @@
         var slug = getReport().slug;
         var rows = [];
         [_chase[slug], _chaseRarity[slug]].forEach(function (source) {
-          if (source && source.cv) rows = rows.concat(source.cv.merged || []);
+          rows = rows.concat(stakeoutChaseRarityRows(source, code, name));
         });
         var region = String((getReport() || {}).stateCode || '');
         var state = _stateRbaCache[region];
@@ -31039,22 +31042,34 @@
       function updateStakeoutEvidence(entry, rows) {
         if (!entry) return entry;
         entry.stateRows = megaMergeRows(
-          (rows || []).concat(entry.storedMegaRows || []));
+          (entry.stateRows || []).concat(rows || [], entry.storedMegaRows || []));
         entry.latest = megaLatest(entry.stateRows);
         entry.sci = sciForRows(entry.stateRows)
           || (typeof sciNameFor === 'function' ? sciNameFor(entry.code) : '');
         return entry;
+      }
+      function refreshStakeoutLookupEvidence(entry, rows) {
+        if (!stakeoutEvidenceCurrent(entry)) return;
+        updateStakeoutEvidence(entry, rows);
+        var refreshed = buildAllUnseen(
+          speciesLookupRecords(entry.stateRows, getAnchors()))[0];
+        if (!refreshed) return;
+        refreshed.name = refreshed.name || entry.name;
+        refreshed.code = refreshed.code || entry.code;
+        refreshed.emptyCurrent = !!_spLookupGroup.emptyCurrent;
+        refreshed.loadError = _spLookupGroup.loadError || '';
+        _spLookupGroup = refreshed;
       }
       function stakeoutEvidenceCurrent(entry) {
         return !!(entry && _spLookupEvidence === entry
           && entry.generation === _spLookupGeneration
           && _spLookupGroup && _spLookupGroup.code === entry.code);
       }
-      function stakeoutRarityInChase(code, chase) {
-        return !!(chase && chase.cv && (chase.cv.merged || []).some(function (r) {
-          return r && (r.code === code || r.speciesCode === code)
-            && (r.kind === 'Rarity' || r.__notable);
-        }));
+      function stakeoutChaseRarityRows(chase, code, name) {
+        var rows = chase && chase.cv && chase.cv.merged || [];
+        return stakeoutRarityEvidenceRows(rows.filter(function (r) {
+          return r && (r.kind === 'Rarity' || r.__notable || r.__stateRba);
+        }), code, name);
       }
       function hydrateStakeoutEvidence(entry, generation) {
         if (!entry) return;
@@ -31089,11 +31104,16 @@
             if (stakeoutEvidenceCurrent(entry)) renderSpeciesLookup();
           });
         }
-        if (!entry.rarityPromise && entry.rarityKind !== 'mega') {
+        if (!entry.rarityPromise) {
+          var scopeSlug = getReportSlug();
           entry.rarityPromise = getChaseRarity(false).then(function (chase) {
-            if (stakeoutRarityInChase(entry.code, chase)) entry.rarityKind = 'rare';
+            if (scopeSlug !== getReportSlug() || !stakeoutEvidenceCurrent(entry)) return;
+            var rows = stakeoutChaseRarityRows(chase, entry.code, entry.name);
+            if (!rows.length) return;
+            if (entry.rarityKind !== 'mega') entry.rarityKind = 'rare';
+            refreshStakeoutLookupEvidence(entry, rows);
           }).catch(function (e) {
-            dbg('warn', 'Stakeout rarity classification failed for ' + entry.code + ': '
+            dbg('warn', 'Stakeout rarity evidence failed for ' + entry.code + ': '
               + ((e && e.message) || e));
           }).then(function () {
             if (generation === _spLookupGeneration && stakeoutEvidenceCurrent(entry)) {
