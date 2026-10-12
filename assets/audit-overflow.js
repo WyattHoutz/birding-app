@@ -534,6 +534,12 @@ const AUDIT = `<script>
       var cr = control.getBoundingClientRect();
       var ccs = getComputedStyle(control);
       var problem = [];
+      var labels = control.classList.contains('pressbtn')
+        ? [control, control.querySelector('.presslabel')]
+        : [].slice.call(control.querySelectorAll(':scope > .sortbtn'));
+      if (labels.some(function (label) {
+        return label && getComputedStyle(label).textDecorationLine !== 'none';
+      })) problem.push('F902 button label must not be underlined');
       var expectedControlHeight = document.documentElement.getAttribute('data-a11y') === 'on'
         ? 44 : 30;
       if (Math.abs(cr.height - expectedControlHeight) > 0.5) {
@@ -857,7 +863,7 @@ const AUDIT = `<script>
       categoryFilter = {
         pressed: selected.getAttribute('aria-pressed') === 'true',
         emphasized: selected.classList.contains('pressbtn')
-          && getComputedStyle(selected.querySelector('.presslabel')).textDecorationLine.indexOf('underline') >= 0,
+          && getComputedStyle(selected.querySelector('.presslabel')).textDecorationLine === 'none',
         checkmark: getComputedStyle(selected, '::after').content.indexOf('\u2713') >= 0,
         onlyMass: visibleCards.length > 0 && visibleCards.every(function (row) {
           return row.getAttribute('data-alert-kind') === 'mass';
@@ -1866,12 +1872,25 @@ const AUDIT = `<script>
       measurements.push({append:pass, before:before.length, after:visible(host).length});
     }
     var expanded = visible(host);
+    document.documentElement.style.overflowAnchor = 'none';
+    document.body.style.overflowAnchor = 'none';
+    var loadedHero = document.querySelector('#spLookupResults [data-hero]');
+    loadedHero.style.aspectRatio = '0.8';
     var anchor = placeAnchor(expanded[expanded.length - 3]);
     A.renderSpeciesLookup();
     retained(host, anchor, 'immediate unchanged refresh');
     require(visible(host).length >= expanded.length, 'refresh lost expanded rows');
     await new Promise(function (resolve) { requestAnimationFrame(resolve); });
     retained(host, anchor, 'next-frame unchanged refresh');
+    var refreshedHero = document.querySelector('#spLookupResults [data-hero]');
+    refreshedHero.style.aspectRatio = '0.8';
+    retained(host, anchor, 'F903 portrait photo settling without browser scroll anchoring');
+    require(refreshedHero === loadedHero, 'F904 loaded portrait photo was replaced');
+    A.setWatchlist([]);
+    A.renderSpeciesLookup();
+    require(document.querySelector('#spLookupResults [data-hero]') === loadedHero,
+      'F904 a changed species title replaced the loaded portrait photo');
+    retained(host, anchor, 'F903 changed species metadata without browser scroll anchoring');
     release(newer.concat(rows));
     await lookup;
     retained(host, anchor, 'late source prepended newer reports');

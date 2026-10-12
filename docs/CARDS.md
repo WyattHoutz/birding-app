@@ -81,6 +81,13 @@ For small checklist rows containing both a place and a timestamp,
 `dateFirst: true` puts the existing linked timestamp before the source place.
 Omitting it preserves place-first order. Stakeout Bird's ungrouped list adds
 a scoped one-em hanging indent; other callers do not inherit that layout.
+Grouped Stakeout Bird checklists omit repeated public/private source-place
+names and locality captions: the enclosing hotspot/locality card supplies
+that heading. Source-place data, map associations and PRIVATE/RARE labels
+remain on each checklist; ungrouped rows retain their visible source names.
+Metadata-only Stakeout updates retain loaded photos, unchanged checklist
+rows and map contents rather than rebuild them. Selected segmented and
+pressed controls use plain labels with checkmarks, not underlines.
 Leader Board Ticks uses species rows without nested checklist cards.
 
 The older helpers `speciesPlacesCard` and `unseenPlacesHtml` remain in the

@@ -937,7 +937,7 @@
       padding: 0 10px; border: 0; background: var(--card); color: var(--muted);
       cursor: pointer; }
     .sortbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink);
-      text-decoration: underline; text-underline-offset: 3px; }
+      text-decoration: none; }
     .daytriprangewrap { display: grid; gap: 6px; width: 100%; }
     .daytriprange-label { color: var(--muted); font-size: calc(12px * var(--s));
       font-weight: 700; }
@@ -946,8 +946,7 @@
     .daytripranges > .sortbtn { flex: 1 1 0; min-width: 0; min-height: 44px;
       padding: 0 10px; font-size: calc(14px * var(--s)); }
     .daytripranges > .sortbtn + .sortbtn { border-left: 1px solid var(--line); }
-    .twopill > .sortbtn[aria-pressed="true"]::after,
-    .checkedpick > .sortbtn[aria-pressed="true"]::after {
+    .sortbtn[aria-pressed="true"]::after {
       content: " ✓"; font-weight: 900; text-decoration: none; }
     .twopill { width: max-content; max-width: 100%; flex: 0 0 auto;
       height: 30px; min-height: 30px; }
@@ -963,8 +962,7 @@
       border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
     .pressbtn[aria-pressed="true"]::after { content: " ✓"; font-weight: 900; }
     .pressbtn[aria-pressed="true"] .presslabel {
-      text-decoration: underline; text-decoration-thickness: 2px;
-      text-underline-offset: 3px; }
+      text-decoration: none; }
     .pressbtn[aria-pressed="true"] .newflag {
       background: var(--accent-ink); color: var(--accent); }
     .raritynotesbtn { gap: 2px; padding-left: 7px; padding-right: 7px; }
@@ -4852,7 +4850,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.150.0';
+      var APP_VERSION = '1.150.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -15202,14 +15200,27 @@
       // `.obs big xl`, whose `> li` is a three-column grid with 12px vertical
       // padding and a rule on top — a `.bcard` dropped into it would be laid
       // out by the list instead of by itself.
-      function renderSpeciesLookup() {        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
+      function updateStakeoutHtml(host, html, keepHero) {
+        if (!host || (host._stakeoutHtml === html && (!html || host.firstChild))) return false;
+        var hero = keepHero && host.querySelector('[data-hero]');
+        host.innerHTML = html;
+        var replacement = keepHero && host.querySelector('[data-hero]');
+        if (hero && replacement && hero.getAttribute('data-code') === replacement.getAttribute('data-code')
+            && hero.getAttribute('data-bird') === replacement.getAttribute('data-bird')) {
+          replacement.replaceWith(hero);
+        }
+        host._stakeoutHtml = html;
+        return true;
+      }
+
+      function renderSpeciesLookup() {
+        var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
         var reading = captureStakeoutReading($('spLookupRecent'));
         var viewKey = [g.code, _spLookupSort, _spLookupGrouped, _spLookupWithinChase].join('|');
         if (_spLookupViewKey !== viewKey) reading = { visible: {} };
         _spLookupViewKey = viewKey;
         _spLookupReading = reading;
-        _spLookupRenderRevision++;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
         var evidence = _spLookupEvidence;
         var lookupSummary = '';
@@ -15218,6 +15229,13 @@
         var nearbyPlaces = spLookupOrderedPlaces(g.places);
         var noNearbyEvidence = _spLookupWithinChase
           && (g.places || []).length > 0 && !nearbyPlaces.length;
+        var recentMode = _spLookupLoading && !(g.places || []).length
+          ? 'loading' : noNearbyEvidence ? 'out-of-range' : 'evidence';
+        var recent = $('spLookupRecent');
+        var recentKey = JSON.stringify([_spLookupGeneration, viewKey, _spLookupNotes,
+          chaseMaxMi(), getCountyView(), recentMode, nearbyPlaces]);
+        var recentChanged = recent && recent._stakeoutKey !== recentKey;
+        if (recentChanged) _spLookupRenderRevision++;
         var watched = isWatched(g.code);
         var seenIt = isSpeciesSeen(g.code, g.name);
         st.hidden = false;
@@ -15255,7 +15273,7 @@
           st.textContent = '';
           st.hidden = true;
         }
-        var placesHtml = _spLookupLoading && !(g.places || []).length ? ''
+        var placesHtml = !recentChanged || (_spLookupLoading && !(g.places || []).length) ? ''
           : (noNearbyEvidence
             ? '<div class="status">No physically reachable reports are within <b>'
               + chaseMaxMi().toFixed(0)
@@ -15271,7 +15289,7 @@
           : seenIt === false ? 'not on your ' + personalBasisLabel()
           : 'personal history unknown for your ' + personalBasisLabel();
         out.className = 'cards card-lg stakeoutSpeciesCard stakeoutSpeciesCard-details';
-        out.innerHTML = SpeciesCards.large({
+        var cardChanged = updateStakeoutHtml(out, SpeciesCards.large({
             sci: sciFor((evidence && evidence.sci) || (g && g.code)),
             icon: heroSlot(g.name, g.code),
             name: speciesLink(g.name, g.code),
@@ -15285,42 +15303,42 @@
               + ((watched || seenIt)
                 ? watchlistActionHtml(g.code, g.name, 'spLookupWatchlist') : '')
               + '</div>'
-          });
-        var recent = $('spLookupRecent');
-        if (recent) {
+          }), true);
+        if (recentChanged) {
           var recentMap = $('spLookupMap');
-          if (recentMap && recentMap.parentNode === recent) {
+          if (!placesHtml && recentMap && recentMap.parentNode === recent) {
             recent.parentNode.insertBefore(recentMap, recent.nextSibling);
           }
-          recent.innerHTML = placesHtml
-            ? '<h3>Recent Checklists</h3>' + placesHtml
-            : '';
-          // The heading names both the map and the checklist list: map first,
-          // then the evidence rows it indexes.
-          if (placesHtml && recentMap) {
-            var recentHeading = recent.querySelector(':scope > h3');
-            if (recentHeading) recentHeading.insertAdjacentElement('afterend', recentMap);
+          if (!placesHtml) {
+            recent.innerHTML = '';
+          } else {
+            var checklistHost = recent.querySelector(':scope > .spLookupChecklistHost');
+            if (!checklistHost) {
+              recent.innerHTML = '<h3>Recent Checklists</h3><div class="spLookupChecklistHost"></div>';
+              checklistHost = recent.querySelector('.spLookupChecklistHost');
+              if (recentMap) checklistHost.insertAdjacentElement('beforebegin', recentMap);
+            }
+            checklistHost.innerHTML = placesHtml;
           }
+          recent._stakeoutKey = recentKey;
         }
         var detailMain = $('spLookupDetailMain');
-        if (detailMain) {
-          detailMain.innerHTML = (lookupSummary
+        var detailChanged = updateStakeoutHtml(detailMain, (lookupSummary
             ? '<h3>Current results</h3><p class="status splookupsummary">'
               + esc(lookupSummary) + '</p>'
-            : '') + sightingsFailure;
-        }
+            : '') + sightingsFailure);
         var evidenceHost = $('spLookupEvidenceDetails');
         if (evidenceHost) {
-          evidenceHost.innerHTML = stakeoutEvidenceHtml(evidence)
-            + speciesReferenceLinks(g.name, g.code);
-          wireStakeoutRarityLink(evidenceHost);
+          if (updateStakeoutHtml(evidenceHost, stakeoutEvidenceHtml(evidence)
+              + speciesReferenceLinks(g.name, g.code))) wireStakeoutRarityLink(evidenceHost);
         }
         var detailsHost = $('spLookupDetailsContent');
         if (detailsHost) detailsHost.hidden = false;
         var iconicHost = $('spLookupUnwatched');
         if (iconicHost && _spLookupIconic !== null) {
-          iconicHost.innerHTML = spLookupIconicHtml(g.name);
-          wireIconicExpand(iconicHost, g.name);
+          if (updateStakeoutHtml(iconicHost, spLookupIconicHtml(g.name))) {
+            wireIconicExpand(iconicHost, g.name);
+          }
         }
         hydratePhotos(out);
         // F183. The rows carry ev-* hooks now, so the shared hydration can fill
@@ -15329,28 +15347,28 @@
         // observer's note, which is the control every other list already uses,
         // rather than a second one invented for this section.
         if (recent) {
-          hydrateStakeoutPlaceHistories(recent, g).then(function () {
-            hydrateStakeoutChecklistFacts(recent);
+          hydrateStakeoutPlaceHistories(recent, g, !recentChanged).then(function () {
+            if (recentChanged) hydrateStakeoutChecklistFacts(recent);
           });
         }
-        mountProgressiveLists(recent);
+        if (recentChanged) mountProgressiveLists(recent);
         var retrySightings = detailMain
           && detailMain.querySelector('.spLookupRetrySightings');
-        if (retrySightings) retrySightings.addEventListener('click', function () {
+        if (retrySightings && detailChanged) retrySightings.addEventListener('click', function () {
           lookupSpecies(retrySightings.getAttribute('data-code') || g.code,
             retrySightings.getAttribute('data-name') || g.name);
         });
         var watchButton = out.querySelector('.spLookupWatchlist');
-        if (watchButton) watchButton.addEventListener('click', function () {
+        if (watchButton && cardChanged) watchButton.addEventListener('click', function () {
           var code = String(watchButton.getAttribute('data-code') || '').toLowerCase();
           var name = watchButton.getAttribute('data-name') || g.name || '';
           toggleWatchlistSpecies(code, name);
           renderSpeciesLookup();
         });
-        if ((g.places || []).length) renderSpeciesLookupMap(g, false,
+        if (recentChanged && (g.places || []).length) renderSpeciesLookupMap(g, false,
           recent.querySelectorAll(_spLookupGrouped
             ? '.spLookupPlaceList > li' : '.stakeoutFlatChecklists > li').length);
-        else clearMap($('spLookupMap'));
+        else if (!(g.places || []).length) clearMap($('spLookupMap'));
         restoreStakeoutReading(recent, reading);
         _spLookupReading = null;
         ['spLookupByDate', 'spLookupByDist'].forEach(function (id) {
@@ -15392,6 +15410,11 @@
       function captureStakeoutReading(root) {
         var state = { visible: {}, anchor: '', top: 0 };
         if (!root) return state;
+        var section = root.closest('section');
+        if (section && !section.hidden) {
+          state.section = section;
+          state.scrollY = window.scrollY;
+        }
         var navbar = $('navbar');
         var visibleTop = navbar ? Math.max(0, navbar.getBoundingClientRect().bottom) : 0;
         [].forEach.call(root.querySelectorAll('.cklcard-sm[data-ev-sub]'), function (row) {
@@ -15407,7 +15430,11 @@
       }
 
       function restoreStakeoutReading(root, state) {
-        if (!root || !state || !state.anchor) return;
+        if (!root || !state || !state.section || state.section.hidden) return;
+        if (!state.anchor) {
+          window.scrollTo(0, state.scrollY);
+          return;
+        }
         var row = [].find.call(root.querySelectorAll('.cklcard-sm[data-ev-sub]'), function (item) {
           return item.getAttribute('data-ev-sub') === state.anchor && !item.hidden;
         });
@@ -15447,7 +15474,13 @@
               pts.push(item.pin);
             });
           }
-          renderMap($('spLookupMap'), pts, getHome(), false);
+          var map = $('spLookupMap'), home = getHome();
+          var key = JSON.stringify([pts, home, getUiScale()]);
+          if (map && map._stakeoutPinsKey === key && map.firstChild) return;
+          var reading = captureStakeoutReading($('spLookupRecent'));
+          renderMap($('spLookupMap'), pts, home, false);
+          if (map) map._stakeoutPinsKey = key;
+          restoreStakeoutReading($('spLookupRecent'), reading);
         } catch (e) {
           dbg('error', 'stakeout map: ' + (e && e.message || e));
         }
@@ -15615,11 +15648,12 @@
         var count = Object.prototype.hasOwnProperty.call(row, 'count') ? row.count : ob.howMany;
         if (count == null) count = ob.howManyAtleast;
         if (count == null) count = ob.howManyStr;
+        var showPlace = flat && !_spLookupGrouped;
         return ChecklistCards.small({
           num: flat ? '' : num,
           dateFirst: flat && !_spLookupGrouped,
-          place: flat ? (place.loc || place.locId || '') : '',
-          placeHtml: flat
+          place: showPlace ? (place.loc || place.locId || '') : '',
+          placeHtml: showPlace
             ? (place.locId && !place.locationPrivate
                 ? stakeHotspotLink(place.locId, place.loc || place.locId || '')
                 : esc(place.loc || place.locId || ''))
@@ -15839,10 +15873,15 @@
           return loadStakeoutPlaceHistory(slot, bird);
         });
       }
-      function hydrateStakeoutPlaceHistories(root, bird) {
+      function hydrateStakeoutPlaceHistories(root, bird, keepRows) {
         if (!root || !speciesLookupDetails()) return Promise.resolve();
-        [].forEach.call(root.querySelectorAll('.stakeoutPlaceChecklists'),
+        if (!keepRows) [].forEach.call(root.querySelectorAll('.stakeoutPlaceChecklists'),
           limitStakeoutChecklistRows);
+        [].forEach.call(root.querySelectorAll('.stakeoutPlaceHistory[data-done]'), function (slot) {
+          var cached = _stakeoutHistoryCache[getReportSlug() + ':'
+            + slot.getAttribute('data-code') + ':' + slot.getAttribute('data-loc')];
+          if (!cached || Date.now() - cached.at >= EB_CACHE_MS) slot.removeAttribute('data-done');
+        });
         var slots = [].slice.call(root.querySelectorAll(
           '.stakeoutPlaceHistory[data-loc]:not([data-done]):not([data-loading])'));
         slots.forEach(function (slot) {

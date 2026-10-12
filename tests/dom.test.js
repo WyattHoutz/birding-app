@@ -8167,7 +8167,7 @@ test('F679 Migration uses checked filters and GBIF seasonal departures before co
     /class="migration-filters sortpick checkedpick"/,
     'Migration filters did not adopt the shared checked-button theme');
   assert.match(HTML,
-    /\.checkedpick\s*>\s*\.sortbtn\[aria-pressed="true"\]::after[\s\S]*content:\s*" ✓"/,
+    /\.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
     'selected Migration filters do not print a checkmark');
   assert.match(HTML,
     /\.migration-filters\s+\.sortbtn\[aria-pressed="true"\]\s*\{[\s\S]*background:\s*var\(--card\)[\s\S]*box-shadow:\s*inset 0 0 0 2px var\(--accent\)/,
@@ -9387,6 +9387,50 @@ async function f890DisplayedRows(app, grouped) {
   return [...host.querySelectorAll('.cklcard-sm')].filter((row) => !row.hidden);
 }
 
+test('F904 Stakeout metadata updates retain the hero, map and expanded checklist DOM', async () => {
+  const f = f890EvidenceFixture();
+  const rows = Array.from({ length: 24 }, (_, i) => f.row('S904-' + i, i));
+  const app = await boot({ sample: false, fetch(url) {
+    return /api\.ebird\.org/.test(url) ? [] : null;
+  } });
+  try {
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), rows);
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    A.setSpeciesLookupGrouped(false);
+    const recent = app.$('spLookupRecent');
+    app.click(recent.querySelector('.stakeoutChecklistMore'));
+    const hero = app.$('spLookupResults').querySelector('[data-hero]');
+    hero.style.aspectRatio = '0.8';
+    const loadedRatio = hero.style.aspectRatio;
+    const firstRow = recent.querySelector('.cklcard-sm');
+    const mapContent = app.$('spLookupMap').firstChild;
+    const more = recent.querySelector('.stakeoutChecklistMore');
+    for (let i = 0; i < 3; i++) A.renderSpeciesLookup();
+    assert.equal(app.$('spLookupResults').querySelector('[data-hero]'), hero,
+      'metadata-only updates must not replace an already loaded portrait photo');
+    assert.equal(hero.style.aspectRatio, loadedRatio);
+    assert.equal(recent.querySelector('.cklcard-sm'), firstRow,
+      'unchanged evidence must retain row identity and hydration');
+    assert.equal(app.$('spLookupMap').firstChild, mapContent,
+      'unchanged evidence must not recreate the map');
+    assert.equal(recent.querySelector('.stakeoutChecklistMore'), more);
+    A.setWatchlist([{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.renderSpeciesLookup();
+    assert.ok(app.$('spLookupResults').querySelector('.watchflag'),
+      'changed species metadata still updates promptly');
+    assert.equal(app.$('spLookupResults').querySelector('[data-hero]'), hero,
+      'a changed species title must also retain the loaded photo');
+    app.click(more);
+    assert.equal(recent.querySelectorAll('.cklcard-sm').length, 24,
+      'an unchanged repaint must not invalidate the mounted progressive controller');
+    assert.equal(app.$('spLookupMap').firstChild, mapContent,
+      'appending more checklists from the same locality must not redraw the map');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 for (const [order, retainedMega] of [
   [['rba', 'species', 'twitches'], false],
   [['species', 'rba', 'twitches'], false],
@@ -9594,6 +9638,12 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
           assert.equal(!!row.querySelector('.privateflag'),source.locationPrivate);
           assert.ok(row.querySelector('a[href*="' + source.subId + '"]'),
             'the action still opens the individual source checklist');
+          if (grouped) {
+            assert.ok(!row.querySelector('.ckplace, .stakeoutPinCue'),
+              'F905 grouped checklists omit public/private source names and repeated locality labels');
+            assert.doesNotMatch(row.textContent, new RegExp(source.locName),
+              'F905 source place is not repeated inside a grouped checklist');
+          }
           if (!grouped) {
             const main=row.querySelector('.ckmain');
             assert.ok(main.firstElementChild.classList.contains('ckdate'),
@@ -9606,7 +9656,7 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
             const pin=[...app.$('spLookupMap').querySelectorAll('[data-pin-place]')]
               .find(p=>p.dataset.pinPlace===row.dataset.pinPlace);
             assert.ok(pin,'each row refers to its actual locality marker');
-            assert.equal(row.querySelector('.stakeoutPinCue').textContent,'Locality '+pin.textContent);
+            if (!grouped) assert.equal(row.querySelector('.stakeoutPinCue').textContent,'Locality '+pin.textContent);
             assert.ok(pin.classList.contains('locality-marker'),'locality has a distinct marker shape');
             if (identity.has(source.subId)) assert.equal(row.dataset.pinNumber,identity.get(source.subId));
             identity.set(source.subId,row.dataset.pinNumber);
@@ -30325,7 +30375,7 @@ test('F304 has one exact-code route and no hidden Mega detail architecture', () 
   assert.doesNotMatch(stakeout, /detailsOn[\s\S]*SpeciesCards\.(?:large|medium)/,
     'Stakeout restored the removed Compact/Details card-family branch');
   assert.match(stakeout,
-    /recent\.innerHTML = placesHtml[\s\S]*evidenceHost\.innerHTML = stakeoutEvidenceHtml\(evidence\)/,
+    /checklistHost\.innerHTML = placesHtml[\s\S]*updateStakeoutHtml\(evidenceHost, stakeoutEvidenceHtml\(evidence\)/,
     'preserved evidence and recent checklists are not owned by the same Stakeout renderer');
   const registry = HTML.slice(HTML.indexOf('function megaViewId('),
     HTML.indexOf('function stakeoutStoredMegaRows('));
@@ -36366,14 +36416,17 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
   assert.match(HTML, /\.pressbtn\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
     'pressed toggles can stretch to fill their row');
   assert.match(HTML,
-    /\.pressbtn\[aria-pressed="true"\] \.presslabel\s*\{[^}]*text-decoration:\s*underline/,
-    'selected pressed toggles do not underline their text label');
+    /\.pressbtn\[aria-pressed="true"\] \.presslabel\s*\{[^}]*text-decoration:\s*none/,
+    'F902 selected pressed-toggle labels must not be underlined');
+  assert.match(HTML,
+    /\.sortbtn\[aria-pressed="true"\]\s*\{[^}]*text-decoration:\s*none/,
+    'F902 selected segmented-button labels must not be underlined');
   assert.match(HTML,
     /\.pressbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
     'selected pressed toggles do not show a checkmark');
   assert.match(HTML,
-    /\.twopill > \.sortbtn\[aria-pressed="true"\]::after,\s*\.checkedpick > \.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
-    'selected pill sides do not show a checkmark');
+    /\.sortbtn\[aria-pressed="true"\]::after\s*\{[^}]*content:\s*" ✓"/,
+    'selected segmented controls must retain a checkmark, including groups with more than two choices');
 });
 
 // ---- F32: a bird you NEED just turned up near you ---------------------------
@@ -39032,7 +39085,8 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
   A.setSpeciesLookupWithinChase(true);
   assert.doesNotMatch(app.$('spLookupRecent').textContent, /Place [45]/,
     'distant and coordinate-less evidence remains outside the distance view');
-  assert.match(app.$('spLookupRecent').textContent, /Place 6/);
+  assert.ok(app.$('spLookupRecent').querySelector('.cklcard-sm[data-ev-place="Place 6"]'),
+    'F905 source identity remains available without repeating the private place name');
   assert.ok(app.$('spLookupRecent').querySelector('.privateflag'),
     'nearby private evidence is visible and labelled, without a public map pin');
   assertGrouped();
