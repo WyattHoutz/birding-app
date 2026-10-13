@@ -1983,10 +1983,225 @@ const AUDIT = `<script>
     readingResult.measurements = measurements;
     out.push(readingResult);
   }
+  async function twitchRegression(out) {
+    var A = window.__app, logic = window.BirdLogic, errors = [], measurements = [];
+    var profileName = ${JSON.stringify(PROFILE)};
+    var result = {label:'(F908 production Twitches reading retention)', measurements:measurements};
+    out.push(result);
+    var pause = function (ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); };
+    var painted = function () { return new Promise(function (resolve) {
+      requestAnimationFrame(function () { requestAnimationFrame(resolve); });
+    }); };
+    async function until(fn, label) {
+      for (var i = 0; i < 100; i++) {
+        if (fn()) return;
+        await pause(30);
+      }
+      throw new Error('F908 timeout: ' + label);
+    }
+    function check(ok, label) { if (!ok) errors.push(label); }
+    function cards(host) {
+      return [].filter.call(host.children, function (row) { return !!row.querySelector('.thumb[data-code]'); });
+    }
+    function anchor(row, atEnd) {
+      var top = document.getElementById('navbar').getBoundingClientRect().bottom + 20;
+      window.scrollTo(0, window.scrollY + (atEnd
+        ? row.getBoundingClientRect().bottom - window.innerHeight + 200
+        : row.getBoundingClientRect().top - top));
+      return {node:row, photo:row.querySelector('.thumb'), code:row.querySelector('.thumb').dataset.code,
+        top:row.getBoundingClientRect().top, scrollY:window.scrollY,
+        sectionTop:row.closest('section').getBoundingClientRect().top + window.scrollY,
+        sectionHeight:row.closest('section').getBoundingClientRect().height};
+    }
+    function retained(host, saved, label, identity) {
+      var row = cards(host).find(function (r) { return r.querySelector('.thumb').dataset.code === saved.code; });
+      var top = row && row.getBoundingClientRect().top;
+      measurements.push({event:label, before:saved.top, after:top, scrollY:window.scrollY,
+        beforeSectionTop:saved.sectionTop, sectionTop:host.closest('section').getBoundingClientRect().top + window.scrollY,
+        beforeSectionHeight:saved.sectionHeight, sectionHeight:host.closest('section').getBoundingClientRect().height,
+        sameNode:row === saved.node, samePhoto:!!row && row.querySelector('.thumb') === saved.photo});
+      check(!!row && Math.abs(top - saved.top) <= 2, label + ': anchor moved ' + saved.top + ' -> ' + top);
+      if (identity) check(row === saved.node && row.querySelector('.thumb') === saved.photo,
+        label + ': replaced existing row/photo');
+    }
+    A.setActiveReport('wa'); A.setCountyView('');
+    A.setRarityFilter('year','all'); A.setRarityFilter('distance','near'); A.setRaritySort('date');
+    document.documentElement.style.overflowAnchor = 'none';
+    document.body.style.overflowAnchor = 'none';
+    var stamp = Date.now() - 3600000;
+    function obs(i, newer) {
+      return {speciesCode:'f908bird' + i, comName:'Synthetic rarity ' + i,
+        subId:'S908AUDIT' + i + mode, locId:'L908AUDIT', locName:'Synthetic public marsh',
+        lat:47.8, lng:-122.16, howMany:1, userDisplayName:'Synthetic observer ' + i,
+        obsDt:new Date(stamp + (newer ? 1800000 : -i * 60000)).toISOString().slice(0,19),
+        obsValid:true, locationPrivate:false};
+    }
+    function snapshot(raw) {
+      var profile = A.chaseProfile();
+      var files = {'king-notable.json':raw}, codes = raw.map(function(r){return r.speciesCode;});
+      return {t:Date.now(), rarity:false, fetchBaseKey:A.chaseFetchBaseKey(profile),
+        geoNotableKm:logic.geoNotableDistKm(profile), speciesCodes:codes,
+        rows:files, cv:A.computeChaseRows(profile,'wa',files,codes)};
+    }
+    for (var mode of ['list','grouped','week']) {
+      var rows = Array.from({length:45}, function (_, i) { return obs(i, false); });
+      rows.forEach(function (row) {
+        A.seedEbirdCache('product/checklist/view/' + row.subId,
+          {obsDt:row.obsDt, durationHrs:1, obs:[{speciesCode:row.speciesCode, comments:'Synthetic short note.'}]});
+      });
+      A.setRarityInflight(null);
+      A.seedChase('wa',snapshot(rows));
+      A.setTwitchView(mode === 'grouped' ? 'grouped' : 'list');
+      var week = mode === 'week', host = document.getElementById(week ? 'activeResults' : 'results');
+      var button = document.getElementById(week ? 'activeBtn' : 'refreshBtn');
+      var load = week ? A.loadActiveRarities : A.refresh;
+      A.showSection(week ? 'sec-activeBtn' : 'sec-refreshBtn');
+      load();
+      await until(function () { return !button.disabled && cards(host).length >= 10; }, mode + ' initial');
+      var before = cards(host), saved = anchor(before[before.length - 1],true);
+      await until(function () { return cards(host).length > before.length; }, mode + ' auto append');
+      await painted();
+      retained(host,saved,mode + ' automatic append',true);
+      var expanded = cards(host).length;
+      saved = anchor(cards(host)[expanded - 3]);
+      load();
+      await until(function () { return !button.disabled; }, mode + ' warm refresh');
+      await painted();
+      retained(host,saved,mode + ' warm refresh',true);
+      check(cards(host).length >= expanded, mode + ': warm refresh lost expanded prefix');
+
+      saved = anchor(cards(host)[6]);
+      A.progressStage('Synthetic source progress with a long wrapped explanation. '.repeat(4),3,1,2);
+      check(Math.abs(host.closest('section').getBoundingClientRect().top + window.scrollY
+        - saved.sectionTop) > 20, mode + ': progress chrome did not change geometry');
+      retained(host,saved,mode + ' progress chrome wraps',true);
+      A.progressEnd();
+      retained(host,saved,mode + ' progress chrome settles',true);
+
+      // Hold the actual shared source promise across frames, not a synthetic DOM replacement.
+      var release;
+      A.setRarityInflight(new Promise(function (resolve) { release = resolve; }));
+      saved = anchor(cards(host)[Math.min(6,cards(host).length - 1)]);
+      A.onRarityEarly('wa');
+      await pause(100);
+      retained(host,saved,mode + ' source pending',true);
+      saved = anchor(cards(host)[8]);
+      await pause(50);
+      var releaseNote;
+      A.seedChecklistView(obs(90,true).subId, new Promise(function (resolve) { releaseNote = resolve; }));
+      release(snapshot([obs(90,true),obs(91,true)].concat(rows)));
+      await until(function () { return !button.disabled; }, mode + ' source release');
+      await pause(100);
+      retained(host,saved,mode + ' source prepend',true);
+
+      var noteCard = cards(host)[0], detail = noteCard.querySelector('details');
+      if (detail) detail.open = true;
+      await pause(30);
+      var noteRow = noteCard.matches('[data-ev-sub]') ? noteCard : noteCard.querySelector('[data-ev-sub]');
+      check(!!noteRow, mode + ': note evidence missing');
+      noteRow.dataset.evShowNotes = '1';
+      var hydrate = A.hydrateChecklistEvidence(noteRow);
+      saved = anchor(cards(host)[6]);
+      await pause(50);
+      var noteHeight = noteCard.getBoundingClientRect().height;
+      releaseNote({durationHrs:2, obs:[{speciesCode:'f908bird90',
+        comments:'Delayed synthetic checklist evidence with a detailed description. '.repeat(12)}]});
+      await hydrate;
+      await until(function () { return /Delayed synthetic/.test(noteRow.textContent); }, mode + ' note paint');
+      await pause(80);
+      check(noteCard.getBoundingClientRect().height > noteHeight + 20, mode + ': note did not change geometry');
+      retained(host,saved,mode + ' delayed checklist note',true);
+
+      if (!week) {
+        saved = anchor(cards(host)[6]);
+        A.setDisplayProfile(profileName === 'standard' ? 'high-visibility' : 'standard');
+        await pause(100);
+        retained(host,saved,mode + ' display repaint',false);
+        A.setDisplayProfile(profileName);
+        await pause(50);
+        if (mode === 'grouped' || profileName === 'high-visibility') {
+          var hero = cards(host)[0].querySelector('[data-hero]');
+          saved = anchor(cards(host)[6]);
+          await pause(50);
+          window.BirdIcons.fitHeroFrame(hero,{classList:{contains:function(){return false;}},
+            naturalWidth:800,naturalHeight:1000});
+          await pause(80);
+          check(parseFloat(hero.style.aspectRatio) === 0.8, mode + ': production portrait fitting did not run');
+          retained(host,saved,mode + ' delayed portrait photo',true);
+        }
+      }
+      var removed = cards(host)[6], removedCode = removed.querySelector('.thumb').dataset.code;
+      saved = anchor(removed);
+      var neighbors = [cards(host)[5],cards(host)[7]].sort(function (a,b) {
+        return Math.abs(a.getBoundingClientRect().top - saved.top)
+          - Math.abs(b.getBoundingClientRect().top - saved.top);
+      });
+      var neighbor = neighbors[0], neighborSaved = {node:neighbor,photo:neighbor.querySelector('.thumb'),
+        code:neighbor.querySelector('.thumb').dataset.code,top:neighbor.getBoundingClientRect().top};
+      A.setRarityInflight(null);
+      A.seedChase('wa',snapshot(rows.filter(function (row) { return row.speciesCode !== removedCode; })));
+      load();
+      await until(function () { return !button.disabled; }, mode + ' removed row refresh');
+      retained(host,neighborSaved,mode + ' removed anchor keeps neighbor',true);
+      A.showSection('sec-nvResults'); window.scrollTo(0,0);
+      load();
+      await until(function () { return !button.disabled; }, mode + ' hidden repaint');
+      check(window.scrollY === 0 && !document.getElementById('sec-nvResults').hidden,
+        mode + ': hidden refresh undid navigation');
+    }
+    for (var groupedMode of ['grouped','week']) {
+      A.setRarityInflight(null);
+      A.setTwitchView('grouped');
+      mode = 'expanded-' + groupedMode;
+      var groupRows = Array.from({length:32}, function (_,i) {
+        var row = obs(i,false);
+        if (i < 20) { row.speciesCode = 'f908bird0'; row.comName = 'Synthetic rarity 0'; }
+        return row;
+      });
+      A.seedChase('wa',snapshot(groupRows));
+      var weekly = groupedMode === 'week';
+      var groupHost = document.getElementById(weekly ? 'activeResults' : 'results');
+      var groupBtn = document.getElementById(weekly ? 'activeBtn' : 'refreshBtn');
+      var groupLoad = weekly ? A.loadActiveRarities : A.refresh;
+      A.showSection(weekly ? 'sec-activeBtn' : 'sec-refreshBtn'); groupLoad();
+      await until(function () { return !groupBtn.disabled && groupHost.querySelector('.ckmore'); },
+        mode + ' collapsed group');
+      var group = cards(groupHost)[0];
+      if (weekly) group.querySelector('.ckall > summary').click();
+      group.querySelector('.ckmore > summary').click();
+      var sub = groupRows[18].subId;
+      var evidence = group.querySelector('[data-ev-sub="' + sub + '"]');
+      check(!!evidence, mode + ': expanded checklist absent');
+      window.scrollTo(0, window.scrollY + evidence.getBoundingClientRect().top
+        - document.getElementById('navbar').getBoundingClientRect().bottom - 20);
+      await pause(50);
+      var evidenceTop = evidence.getBoundingClientRect().top;
+      var addition = Object.assign({},groupRows[0],{subId:'S908ADDED' + mode,
+        obsDt:new Date(stamp + 1800000).toISOString().slice(0,19)});
+      A.seedChase('wa',snapshot([addition].concat(groupRows)));
+      groupLoad();
+      await until(function () { return !groupBtn.disabled; }, mode + ' new report');
+      await pause(50);
+      var nextEvidence = groupHost.querySelector('[data-ev-sub="' + sub + '"]');
+      check(nextEvidence === evidence, mode + ': replaced existing expanded checklist');
+      check(!!nextEvidence && Math.abs(nextEvidence.getBoundingClientRect().top - evidenceTop) <= 2,
+        mode + ': expanded checklist reading offset changed');
+      measurements.push({event:mode + ' same-bird prepend',before:evidenceTop,
+        after:nextEvidence && nextEvidence.getBoundingClientRect().top,sameNode:nextEvidence === evidence});
+    }
+    A.setRarityInflight(null);
+    Object.assign(result,scan(result.label));
+    result.twitchReading = true;
+    if (errors.length) result.fixtureError = errors.join('; ');
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await stakeoutRegression(out); }
       catch (error) { out.push({label:'(Stakeout regression)', fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await twitchRegression(out); }
+      catch (error) { out.push({label:'(F908 regression)', fixtureError:String(error)}); }
     }
     try {
       var x = new XMLHttpRequest();
@@ -2228,6 +2443,13 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    const twitch = report.find((r) => r.twitchReading);
+    if (!twitch) {
+      bad++;
+      console.log('   F908 FIXTURE missing production Twitches reading coverage');
+    } else {
+      console.log('   F908 measurements ' + JSON.stringify(twitch.measurements));
+    }
     if (!report.some((r) => r.stakeoutReading) || !report.some((r) => r.stakeoutHanging)
         || !report.some((r) => r.nearbyPatch) || report.filter((r) => r.watchTag).length < 4) {
       bad++;

@@ -4850,7 +4850,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.150.3';
+      var APP_VERSION = '1.150.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5650,6 +5650,10 @@
       }
       function setDisplayProfile(name) {
         if (!DISPLAY_PROFILES[name]) name = 'standard';
+        var twitchReadings = ['results', 'activeResults'].map(function (id) {
+          var list = $(id) && $(id)._twitchList;
+          return list ? { list: list, reading: list.capture() } : null;
+        });
         localStorage.setItem(DISPLAY_KEY, name);
         applyDisplayProfile(name);
         Object.keys(_birdReportDisplayRefresh).forEach(function (key) {
@@ -5657,6 +5661,9 @@
         });
         if (typeof refreshVisibleMaps === 'function') { try { refreshVisibleMaps(); } catch (e) {} }
         if ($('menuScopeHost')) renderMenuIdentity();
+        twitchReadings.forEach(function (saved) {
+          if (saved) saved.list.restore(saved.reading);
+        });
         return name;
       }
       function getUiScale() {
@@ -8510,85 +8517,87 @@
         _stage = null;
         if (_fgPauseTimer) { clearInterval(_fgPauseTimer); _fgPauseTimer = null; }
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        if (el) el.hidden = true;
+        if (el) twitchReadingUpdate(el, function () { el.hidden = true; })();
       }
       function fgProgressSync() {
-        if (_stage && _stage.work && !workCurrent(_stage.work)) _stage = null;
-        var busy = _fgWaiters.length
-          + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
-          + Object.keys(_progressHolds).length;
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
-        var stall = fgVisibleStall();
-        if (_stage || busy || stall) {
-          if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
-        } else if (!_fgIdleTimer) {
-          _fgIdleTimer = setTimeout(function () {
-            _fgIdleTimer = null; fgProgressReset();
-          }, FG_IDLE_RESET_MS);
-        }
-        if (!el) return;
-        var fill = document.getElementById('loadBarFill');
-        var txt = document.getElementById('loadBarText');
-        var actions = document.getElementById('loadBarActions');
-        if (stall) {
+        return twitchReadingUpdate(el, function () {
+          if (_stage && _stage.work && !workCurrent(_stage.work)) _stage = null;
+          var busy = _fgWaiters.length
+            + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
+            + Object.keys(_progressHolds).length;
+          var stall = fgVisibleStall();
+          if (_stage || busy || stall) {
+            if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
+          } else if (!_fgIdleTimer) {
+            _fgIdleTimer = setTimeout(function () {
+              _fgIdleTimer = null; fgProgressReset();
+            }, FG_IDLE_RESET_MS);
+          }
+          if (!el) return;
+          var fill = document.getElementById('loadBarFill');
+          var txt = document.getElementById('loadBarText');
+          var actions = document.getElementById('loadBarActions');
+          if (stall) {
+            el.hidden = false;
+            if (fill) fill.style.width = '100%';
+            if (txt) txt.textContent = 'Request stopped after '
+              + Math.round(stall.activeMs / 1000)
+              + 's of active runtime. Retry this section or cancel queued work.';
+            if (actions) actions.hidden = false;
+            return;
+          }
+          if (actions) actions.hidden = true;
+          if (!_stage && !busy) { el.hidden = true; return; }
           el.hidden = false;
-          if (fill) fill.style.width = '100%';
-          if (txt) txt.textContent = 'Request stopped after '
-            + Math.round(stall.activeMs / 1000)
-            + 's of active runtime. Retry this section or cancel queued work.';
-          if (actions) actions.hidden = false;
-          return;
-        }
-        if (actions) actions.hidden = true;
-        if (!_stage && !busy) { el.hidden = true; return; }
-        el.hidden = false;
 
-        // A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
-        // nothing completes for up to a minute, so the bar sits still and the
-        // app reads as hung. Say the number: a countdown is visibly progress
-        // even while the count of finished calls is not moving. This wins over
-        // every other suffix because it is the only one that explains a stall.
-        //
-        // F187: say WHICH hold it is. "eBird rate limit" was printed whether
-        // or not eBird had ever refused, which is asserting a cause the code
-        // could not observe — and in the 46-call device log, where there was
-        // no 429 at all, it would have been wrong every time.
-        var waitMs = _fgNextAt - Date.now();
-        var slow;
-        if (waitMs > 750) {
-          slow = ' · paused ' + Math.ceil(waitMs / 1000) + 's — '
-            + (_fgHoldWhy === 'limit'
-              ? 'eBird asked us to wait'
-              : _fgHoldWhy === 'retry' ? 'retrying after an eBird server error'
-                : 'spacing out our own calls');
-          // Repaint once a second so the number really counts down; the queue
-          // is asleep, so nothing else will call back in to update it.
-        } else {
-          slow = _fgGap > FG_MIN_GAP_MS * 2 ? ' · going slowly after a retry' : '';
-        }
-        var estimate = _stage && loadingEstimateText(_stage.estimate, Date.now(), _sleptMs, _etaRetryHold);
-        if (waitMs > 750 || estimate) {
-          if (!_fgPauseTimer) _fgPauseTimer = setInterval(fgProgressSync, 1000);
-        } else if (_fgPauseTimer) { clearInterval(_fgPauseTimer); _fgPauseTimer = null; }
-        var head = (_stage && _stage.of)
-          ? 'Step ' + _stage.step + ' of ' + _stage.of + ' · ' : '';
-        var tail = (_stage && _stage.detail) ? ' · ' + _stage.detail : '';
-        if (_stage && _stage.total) {
-          var pct = Math.round(_stage.done / _stage.total * 100);
-          if (fill) fill.style.width = pct + '%';
-          if (txt) txt.textContent = head + _stage.label + ' — ' + _stage.done
-            + ' of ' + _stage.total + tail + slow + (estimate ? ' · ' + estimate : '');
-        } else {
-          // No fixed total to report against. An indeterminate bar is honest;
-          // a made-up denominator is not.
-          if (fill) fill.style.width = '100%';
-          var heldLabels = Object.keys(_progressHolds).map(function (id) {
-            return _progressHolds[id];
-          });
-          if (txt) txt.textContent = head + (_stage ? _stage.label
-            : (heldLabels[0] || 'Loading from eBird'))
-            + '…' + tail + slow;
-        }
+          // A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
+          // nothing completes for up to a minute, so the bar sits still and the
+          // app reads as hung. Say the number: a countdown is visibly progress
+          // even while the count of finished calls is not moving. This wins over
+          // every other suffix because it is the only one that explains a stall.
+          //
+          // F187: say WHICH hold it is. "eBird rate limit" was printed whether
+          // or not eBird had ever refused, which is asserting a cause the code
+          // could not observe — and in the 46-call device log, where there was
+          // no 429 at all, it would have been wrong every time.
+          var waitMs = _fgNextAt - Date.now();
+          var slow;
+          if (waitMs > 750) {
+            slow = ' · paused ' + Math.ceil(waitMs / 1000) + 's — '
+              + (_fgHoldWhy === 'limit'
+                ? 'eBird asked us to wait'
+                : _fgHoldWhy === 'retry' ? 'retrying after an eBird server error'
+                  : 'spacing out our own calls');
+            // Repaint once a second so the number really counts down; the queue
+            // is asleep, so nothing else will call back in to update it.
+          } else {
+            slow = _fgGap > FG_MIN_GAP_MS * 2 ? ' · going slowly after a retry' : '';
+          }
+          var estimate = _stage && loadingEstimateText(_stage.estimate, Date.now(), _sleptMs, _etaRetryHold);
+          if (waitMs > 750 || estimate) {
+            if (!_fgPauseTimer) _fgPauseTimer = setInterval(fgProgressSync, 1000);
+          } else if (_fgPauseTimer) { clearInterval(_fgPauseTimer); _fgPauseTimer = null; }
+          var head = (_stage && _stage.of)
+            ? 'Step ' + _stage.step + ' of ' + _stage.of + ' · ' : '';
+          var tail = (_stage && _stage.detail) ? ' · ' + _stage.detail : '';
+          if (_stage && _stage.total) {
+            var pct = Math.round(_stage.done / _stage.total * 100);
+            if (fill) fill.style.width = pct + '%';
+            if (txt) txt.textContent = head + _stage.label + ' — ' + _stage.done
+              + ' of ' + _stage.total + tail + slow + (estimate ? ' · ' + estimate : '');
+          } else {
+            // No fixed total to report against. An indeterminate bar is honest;
+            // a made-up denominator is not.
+            if (fill) fill.style.width = '100%';
+            var heldLabels = Object.keys(_progressHolds).map(function (id) {
+              return _progressHolds[id];
+            });
+            if (txt) txt.textContent = head + (_stage ? _stage.label
+              : (heldLabels[0] || 'Loading from eBird'))
+              + '…' + tail + slow;
+          }
+        })();
       }
       function fgDead() {
         try { return typeof window !== 'undefined' && window.closed === true; }
@@ -11348,6 +11357,155 @@
         });
       }
 
+      function twitchContext(view) {
+        return JSON.stringify([getReportSlug(), chaseFetchBaseKey(chaseProfile()),
+          getCountyView(), chaseMaxMi(), rarityFilters(), raritySort(), rarityNotes(), view]);
+      }
+      function twitchReadingUpdate(el, update) {
+        return function (value) {
+          var host = el && el.closest('#results, #activeResults');
+          if (el && el.id === 'loadBar') host = document.querySelector(
+            'section:not([hidden]) #results, section:not([hidden]) #activeResults');
+          var list = host && host._twitchList, reading = list && list.capture();
+          try { return update(value); }
+          finally { if (list) list.restore(reading); }
+        };
+      }
+      function twitchList(host, context) {
+        if (host._twitchList && host._twitchList.context === context) return host._twitchList;
+        if (host._twitchList) host._twitchList.dispose();
+        host.innerHTML = '';
+        var state = { context: context, shown: 0, items: new Map() };
+        host._twitchList = state;
+        var section = host.closest('section'), saved = null;
+        function capture() {
+          if (!section || section.hidden || !window.scrollY) return null;
+          var top = $('navbar').getBoundingClientRect().bottom;
+          var rows = Array.from(state.items.values()).map(function (row) {
+            var rect = row.getBoundingClientRect();
+            return { key: row.dataset.twitchKey, top: rect.top, bottom: rect.bottom, node: row };
+          });
+          var index = rows.findIndex(function (row) {
+            return row.bottom > top && row.top < window.innerHeight;
+          });
+          if (index < 0) return null;
+          function visibleHeight(row) {
+            return Math.max(0, Math.min(row.bottom, window.innerHeight) - Math.max(row.top, top));
+          }
+          // Prefer the next heading over a preceding card's tail, but not over a tall card being read.
+          if (rows[index].top < top && rows[index + 1]
+              && visibleHeight(rows[index + 1]) > visibleHeight(rows[index])) index++;
+          var anchors = [], main = rows[index];
+          var nested = Array.from(main.node.querySelectorAll('[data-ev-sub]')).find(function (row) {
+            var rect = row.getBoundingClientRect();
+            return rect.height && rect.bottom > top && rect.top < window.innerHeight;
+          });
+          if (nested && main.top < top) anchors.push({key: main.key, sub: nested.dataset.evSub,
+            code: nested.dataset.evCode, top: nested.getBoundingClientRect().top});
+          rows.sort(function (a, b) {
+            return Math.abs(a.top - main.top) - Math.abs(b.top - main.top);
+          }).forEach(function (row) { anchors.push({key:row.key, top:row.top}); });
+          return { anchors: anchors, scrollY: window.scrollY };
+        }
+        function restore(reading) {
+          if (!reading || section.hidden || host._twitchList !== state) return;
+          reading.anchors.some(function (anchor) {
+            var row = state.items.get(anchor.key);
+            if (row && anchor.sub) row = Array.from(row.querySelectorAll('[data-ev-sub]'))
+              .find(function (el) { return el.dataset.evSub === anchor.sub && el.dataset.evCode === anchor.code; });
+            if (!row || !row.getBoundingClientRect().height) return false;
+            window.scrollBy(0, row.getBoundingClientRect().top - anchor.top);
+            return true;
+          });
+        }
+        function remember() { saved = capture(); }
+        window.addEventListener('scroll', remember, { passive: true });
+        var resize = typeof ResizeObserver === 'function' ? new ResizeObserver(function () {
+          // Do not undo a navigation or a reader scroll made since the last sample.
+          if (saved && saved.scrollY === window.scrollY) restore(saved);
+          remember();
+        }) : null;
+        if (resize) {
+          resize.observe(section);
+          resize.observe(document.body);
+        }
+        state.capture = capture;
+        state.restore = function (reading) { restore(reading); remember(); };
+        state.initialCount = function (rows, key) {
+          var count = Math.min(state.shown, rows.length);
+          rows.forEach(function (row, i) {
+            if (state.items.has(key(row))) count = Math.max(count, i + 1);
+          });
+          return count;
+        };
+        state.paint = function (rows, key, render, footer) {
+          var previous = state.items, next = new Map(), cursor = host.firstElementChild;
+          rows.forEach(function (row) {
+            var id = key(row), node = previous.get(id);
+            var signature = JSON.stringify([row, getDisplayProfile(),
+              speciesLink(row.name, row.code), sciFor(row.sci || row.code), alphaFor(row.code),
+              isSpeciesSeen(row.code, row.name), isWatched(row.code),
+              BL.isFresh(row.dateStr || row.latest), staleTag(row.dateStr || row.latest)]);
+            if (!node || node._twitchSignature !== signature) {
+              // Render only changed models: lazy disclosure IDs are allocated by rendering.
+              var template = document.createElement('template');
+              template.innerHTML = render(row);
+              var fresh = template.content.firstElementChild;
+              var records = row.places ? recordsFromGroup(row) : row.recs || [row];
+              var recordKeys = new Map(records.map(function (record) {
+                return [record.subId + '|' + record.code, JSON.stringify(record)];
+              }));
+              if (node) {
+                function detailKey(detail) {
+                  var place = detail.closest('.hscard');
+                  var link = place && place.querySelector('[data-loc]');
+                  var name = place && (place.querySelector('.name strong') || place.querySelector('.name'));
+                  return [detail.className, link ? link.dataset.loc : name ? name.textContent : ''].join('|');
+                }
+                var open = new Set(Array.from(node.querySelectorAll('details[open]')).map(detailKey));
+                Array.from(fresh.querySelectorAll('details')).forEach(function (detail) {
+                  if (!open.has(detailKey(detail))) return;
+                  if (detail.classList.contains('ckmore')) fillChecklistRemainder(detail);
+                  detail.open = true;
+                });
+                var evidence = new Map(Array.from(node.querySelectorAll('.cklcard[data-ev-sub]')).map(function (el) {
+                  return [el.dataset.evSub + '|' + el.dataset.evCode, el];
+                }));
+                Array.from(fresh.querySelectorAll('.cklcard[data-ev-sub]')).forEach(function (el) {
+                  var k = el.dataset.evSub + '|' + el.dataset.evCode;
+                  if (evidence.has(k) && recordKeys.has(k)
+                      && node._twitchRecords.get(k) === recordKeys.get(k)) el.replaceWith(evidence.get(k));
+                });
+                var oldPhoto = node.querySelector('.thumb[data-bird]');
+                var newPhoto = fresh.querySelector('.thumb[data-bird]');
+                if (oldPhoto && newPhoto && oldPhoto.hasAttribute('data-hero') === newPhoto.hasAttribute('data-hero')
+                    && oldPhoto.dataset.code === newPhoto.dataset.code
+                    && oldPhoto.dataset.bird === newPhoto.dataset.bird) newPhoto.replaceWith(oldPhoto);
+              }
+              fresh.dataset.twitchKey = id;
+              fresh._twitchSignature = signature;
+              fresh._twitchRecords = recordKeys;
+              node = fresh;
+            }
+            if (node !== cursor) host.insertBefore(node, cursor);
+            cursor = node.nextElementSibling;
+            next.set(id, node);
+          });
+          while (cursor) {
+            var following = cursor.nextElementSibling;
+            cursor.remove(); cursor = following;
+          }
+          host.insertAdjacentHTML('beforeend', footer);
+          state.items = next; state.shown = rows.length;
+        };
+        state.dispose = function () {
+          if (resize) resize.disconnect();
+          window.removeEventListener('scroll', remember);
+          if (state.stopNotes) state.stopNotes();
+        };
+        return state;
+      }
+
       var _twitchRefreshGeneration = 0;
       function refresh() {
         // Your own new checklists, read without being asked, once per session.
@@ -11359,11 +11517,15 @@
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
         var refreshId = ++_twitchRefreshGeneration, chaseGeneration = _chaseGeneration;
         var reportSlug = getReportSlug(), fetchKey = chaseFetchBaseKey(chaseProfile());
+        var context = twitchContext(twitchView()), list = twitchList(out, context);
+        if (list.stopNotes) list.stopNotes();
         function current() {
           return refreshId === _twitchRefreshGeneration && chaseGeneration === _chaseGeneration
-            && reportSlug === getReportSlug() && fetchKey === chaseFetchBaseKey(chaseProfile());
+            && reportSlug === getReportSlug() && fetchKey === chaseFetchBaseKey(chaseProfile())
+            && context === twitchContext(twitchView()) && out._twitchList === list;
         }
-        btn.disabled = true; out.innerHTML = ''; st.textContent = 'Loading rarity reports for ' + label + '\u2026';
+        btn.disabled = true;
+        if (!list.shown) st.textContent = 'Loading rarity reports for ' + label + '\u2026';
         // Was a raw notable-feed read: eBird's default 14-day window, deduped by
         // species+location and left in feed order. That is a different section
         // from the report's — it showed 31 rows spanning two weeks where the
@@ -11410,6 +11572,7 @@
           var rows = grouped
             ? buildBirdReportGroups(records, home)
             : raritySorted(records, order);
+          var reading = list.capture();
           // What arrived since you last looked at this section.
           var known = rarityKnownFor(all.map(rarityRowId));
           var fresh = rows.filter(function (r) {
@@ -11691,8 +11854,14 @@
               + chaseMaxMi() + ' mi · choose ' + esc(rarityRegionName())
               + ' to show them with the nearby reports.</div></li>');
           }
-          var shown = 0, batch = 10, notePaintSeq = 0;
+          var rowKey = grouped ? function (row) { return row.code; } : rarityRowId;
+          var shown = list.initialCount(rows, rowKey), batch = 10, notePaintSeq = 0;
           var todayNoteObserver = null, todayNoteQueue = [], todayNoteBusy = false;
+          list.stopNotes = function () {
+            notePaintSeq++;
+            todayNoteQueue = [];
+            if (todayNoteObserver) todayNoteObserver.disconnect();
+          };
           function deferTodayNoteWork(fn) {
             if (window.requestIdleCallback) {
               window.requestIdleCallback(fn, { timeout: 1000 });
@@ -11701,13 +11870,13 @@
             }
           }
           function pumpTodayNoteQueue(seq) {
-            if (seq !== notePaintSeq || todayNoteBusy) return;
+            if (!current() || seq !== notePaintSeq || todayNoteBusy) return;
             while (todayNoteQueue.length) {
               var row = todayNoteQueue.shift();
               if (!row || !row.isConnected || row.getAttribute('data-ev-done')) continue;
               todayNoteBusy = true;
               deferTodayNoteWork(function () {
-                if (seq !== notePaintSeq || !row.isConnected || row.getAttribute('data-ev-done')) {
+                if (!current() || seq !== notePaintSeq || !row.isConnected || row.getAttribute('data-ev-done')) {
                   todayNoteBusy = false;
                   pumpTodayNoteQueue(notePaintSeq);
                   return;
@@ -11743,7 +11912,9 @@
               pumpTodayNoteQueue(seq);
             }
           }
-          function paintTodayBatch(next) {
+          function paintTodayBatch(next, reading) {
+            if (!current()) return;
+            reading = reading || list.capture();
             shown = Math.min(rows.length, shown + next);
             var more = shown < rows.length
               ? '<li class="farhost"><button type="button" class="progressive-more todayRarityMore">'
@@ -11767,12 +11938,13 @@
                     need: filters.year === 'unseen', rare: true, cls: 'twitchcard'
                   });
                 };
-            out.innerHTML = rows.slice(0, shown).map(rowCard).join('')
-              + tailRows.join('') + more;
+            list.paint(rows.slice(0, shown), rowKey, rowCard, tailRows.join('') + more);
             hydratePhotos(out);
             scheduleTodayNoteHydration();
+            list.restore(reading);
             var moreBtn = out.querySelector('.todayRarityMore');
             var loadMore = function () {
+              if (!moreBtn.isConnected) return;
               paintTodayBatch(batch);
             };
             if (moreBtn) {
@@ -11780,8 +11952,7 @@
               autoLoadMoreButton(moreBtn, loadMore);
             }
           }
-          if (rows.length) paintTodayBatch(batch);
-          else out.innerHTML = tailRows.join('');
+          paintTodayBatch(shown ? 0 : batch, reading);
           var displayControls = $('todayControls');
           _birdReportDisplayRefresh.today = function () {
             if ($('todayControls') === displayControls && out.children.length) paintTodayBatch(0);
@@ -19518,7 +19689,7 @@
         var w = img.naturalWidth, h = img.naturalHeight;
         if (!w || !h) return;
         var ar = Math.min(HERO_AR_MAX, Math.max(HERO_AR_MIN, w / h));
-        el.style.aspectRatio = String(ar);
+        twitchReadingUpdate(el, function () { el.style.aspectRatio = String(ar); })();
       }
       function putImg(el, src, name, onErr, extraClass) {
         var img = document.createElement('img');
@@ -23878,13 +24049,21 @@
         return out;
       }
 
+      var _activeRarityGeneration = 0;
       function loadActiveRarities() {
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
-        btn.disabled = true; el.innerHTML = ''; st.textContent = 'Collecting rarity reports for ' + label + '…';
+        var generation = ++_activeRarityGeneration, chaseGeneration = _chaseGeneration;
+        var context = twitchContext('week'), list = twitchList(el, context);
+        function current() {
+          return generation === _activeRarityGeneration && chaseGeneration === _chaseGeneration
+            && context === twitchContext('week') && el._twitchList === list;
+        }
+        btn.disabled = true;
+        if (!list.shown) st.textContent = 'Collecting rarity reports for ' + label + '…';
         var done = false;
         var slowTimer = setTimeout(function () {
-          if (done) return;
+          if (done || !current() || list.shown) return;
           st.textContent = 'Still collecting rarity reports for ' + label
             + '… eBird or another refresh is slow. You can leave this screen; '
             + 'the list will paint here when the shared sighting wave finishes.';
@@ -23892,6 +24071,7 @@
         }, 8000);
         var snap = null, days = {};
         getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
+          if (!current()) return null;
           // The snapshot's own timestamp, kept so the status line can say when
           // the DATA was read rather than when the page was painted.
           snap = c;
@@ -23906,7 +24086,8 @@
           days = stakeoutDays(c.cv.merged || []);
           return c.cv.merged || [];
         }).then(function (records) {
-          if (!records) return;
+          if (!records || !current()) return;
+          var reading = list.capture();
           var filters = rarityFilters(), home = getHome();
           var allRecords = rarityFilterRecords(records, home,
             { year: 'all', distance: 'region' });
@@ -24064,8 +24245,14 @@
                 + openChecklistLink(r.closest && r.closest.subId)
             });
           };
-          var shown = 0, batch = 10;
-          function paintActiveBatch(next) {
+          function rowKey(row) {
+            var place = row.place || row.closest;
+            return JSON.stringify([row.code, place.locId || place.loc, place.lat, place.lon]);
+          }
+          var shown = list.initialCount(rows, rowKey), batch = 10;
+          function paintActiveBatch(next, reading) {
+            if (!current()) return;
+            reading = reading || list.capture();
             shown = Math.min(rows.length, shown + next);
             var visibleRows = rows.slice(0, shown);
             var more = shown < rows.length
@@ -24076,10 +24263,12 @@
                     Math.min(batch, rows.length - shown), rows.length - shown))
                 + '</span></button></li>'
               : '';
-            el.innerHTML = visibleRows.map(rareCard).join('') + more;
+            list.paint(visibleRows, rowKey, rareCard, more);
             hydratePhotos(el);
+            list.restore(reading);
             var moreBtn = el.querySelector('.activeRarityMore');
             var loadMore = function () {
+              if (!moreBtn.isConnected) return;
               paintActiveBatch(batch);
             };
             if (moreBtn) {
@@ -24091,8 +24280,9 @@
               return rarityRowId(r.newest || r.closest);
             }));
           }
-          if (rows.length) paintActiveBatch(batch);
+          paintActiveBatch(shown ? 0 : batch, reading);
         }).catch(function (e) {
+          if (!current()) return;
           if (e && e.queueCancelled) {
             st.textContent = 'That rarity refresh was cancelled by newer app work. Tap Load rarity reports to try again.';
           } else {
@@ -24101,7 +24291,7 @@
         }).finally(function () {
           done = true;
           clearTimeout(slowTimer);
-          btn.disabled = false;
+          if (generation === _activeRarityGeneration) btn.disabled = false;
         });
       }
 
@@ -24188,11 +24378,7 @@
         if (ev.key === 'Escape') hideSheet();
       });
 
-      document.addEventListener('click', function (ev) {
-        var t = ev.target;
-        var s = t && t.closest ? t.closest('details.ckmore > summary') : null;
-        if (!s) return;
-        var d = s.parentNode;
+      function fillChecklistRemainder(d) {
         if (d.getAttribute('data-filled')) return;
         d.setAttribute('data-filled', '1');
         var body = d.querySelector('.ckmorebody');
@@ -24204,6 +24390,11 @@
           body.innerHTML = '<span class="dim">could not show the rest</span>';
           dbg('warn', 'expander: ' + ((e && e.message) || e));
         }
+      }
+      document.addEventListener('click', function (ev) {
+        var t = ev.target;
+        var s = t && t.closest ? t.closest('details.ckmore > summary') : null;
+        if (s) fillChecklistRemainder(s.parentNode);
       });
 
       function checklistDetails(rows, total, label, suffix, inside) {
@@ -25351,13 +25542,15 @@
         // resolve — `rows` is already filtered to the CKL_EVID_MAX budget, so a
         // row that will never be fetched cannot be left saying "loading"
         // forever. A placeholder that never settles is worse than none.
-        rows.filter(checklistNotesShown).forEach(setNoteLoading);
+        rows.filter(checklistNotesShown).forEach(function (el) {
+          twitchReadingUpdate(el, function () { setNoteLoading(el); })();
+        });
         return pool(rows, CKL_EVID_CONC, function (el) {
           var sub = el.getAttribute('data-ev-sub');
           var code = el.getAttribute('data-ev-code') || '';
           var la = parseFloat(el.getAttribute('data-ev-lat'));
           var ln = parseFloat(el.getAttribute('data-ev-lng'));
-          return checklistObs(sub).then(function (got) {
+          return checklistObs(sub).then(twitchReadingUpdate(el, function (got) {
             if (!got) return;
             setChecklistDuration(el, got.durationHrs);
             if (el.getAttribute('data-ev-inline') === '1') {
@@ -25471,10 +25664,10 @@
             }
             slot.textContent = marks;
             slot.setAttribute('aria-label', 'Media attached to this checklist');
-          }).catch(function () {
+          })).catch(function () {
             // A failed call is not "no comment". Swallowed so one bad checklist
             // cannot fail the whole pool, but the placeholder still has to go.
-          }).then(function () { settleNote(el); });
+          }).then(twitchReadingUpdate(el, function () { settleNote(el); }));
         });
       }
       var _evidStore = {};
@@ -47986,12 +48179,23 @@
         promise._geoNotableKm = km;
         _chaseInflight[slug] = promise;
       },
+      setRarityInflight: function (promise) {
+        var profile = chaseProfile();
+        delete _chase[profile.slug];
+        delete _chaseRarity[profile.slug];
+        if (promise) {
+          promise.fetchBaseKey = chaseFetchBaseKey(profile);
+          promise.geoNotableKm = BL.geoNotableDistKm(profile);
+        }
+        _chaseRarityInflight[profile.slug] = promise;
+      },
       chaseGeneration: function () { return _chaseGeneration; },
       chasePhase2Max: chasePhase2Max, chasePhase2Codes: chasePhase2Codes,
       setChaseSnapshotStoreGate: function (fn) {
         _chaseSnapshotStoreGate = typeof fn === 'function' ? fn : null;
       },
       loadedSectionFor: loadedSectionFor, autoLoad: autoLoad,
+      onRarityEarly: onRarityEarly,
       onChasePhaseOne: onChasePhaseOne,
       onChasePartial: onChasePartial,
       progressStage: progressStage, progressStep: progressStep, progressEnd: progressEnd,

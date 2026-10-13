@@ -28220,13 +28220,114 @@ test('Twitches this week slow loads stop looking frozen', async () => {
     'a slow weekly twitch load leaves the Load button disabled');
 });
 
+test('F908 Twitches retains bounded rows, photos and expansion across append and source refresh', async () => {
+  for (const mode of ['list', 'grouped', 'week']) {
+    const app = await boot();
+    const A = app.window.__app, week = mode === 'week';
+    app.window.IntersectionObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    A.setRarityFilter('year', 'all'); A.setRarityFilter('distance', 'near');
+    A.setRaritySort('date'); A.setTwitchView(mode === 'grouped' ? mode : 'list');
+    const rows = Array.from({ length: 35 }, (_, i) => ({
+      code: 'f908bird' + i, name: 'Synthetic rarity ' + i, distMi: 5,
+      dateStr: recentObsStamp(0, 8, 59 - i), loc: 'Synthetic marsh', locId: 'L908',
+      subId: 'S908TEST' + i, observer: 'Synthetic observer', count: 1,
+    }));
+    await seedRarityChase(app, rows);
+    const host = app.$(week ? 'activeResults' : 'results');
+    const btn = app.$(week ? 'activeBtn' : 'refreshBtn');
+    const load = week ? A.loadActiveRarities : A.refresh;
+    const cards = () => [...host.children].filter(row => row.querySelector('.thumb'));
+    A.showSection(week ? 'sec-activeBtn' : 'sec-refreshBtn');
+    load();
+    await waitFor(() => !btn.disabled && cards().length === 10, mode + ' initial batch');
+    const first = cards()[0], photo = first.querySelector('.thumb');
+    const more = host.querySelector('.progressive-more');
+    more.click();
+    assert.equal(cards().length, 20, mode + ' appends only one bounded batch');
+    assert.equal(cards()[0], first, mode + ' keeps old row');
+    assert.equal(first.querySelector('.thumb'), photo, mode + ' keeps old photo');
+    more.click();
+    assert.equal(cards().length, 20, mode + ' ignores a detached More callback');
+    load();
+    assert.equal(cards().length, 20, mode + ' never clears while waiting');
+    await waitFor(() => !btn.disabled, mode + ' warm refresh');
+    assert.equal(cards().length, 20, mode + ' keeps the expanded prefix');
+    assert.equal(cards()[0], first, mode + ' keeps unchanged warm rows');
+
+    let releaseOld;
+    A.setRarityInflight(new Promise(resolve => { releaseOld = resolve; }));
+    A.onRarityEarly('wa');
+    assert.equal(cards()[0], first, mode + ' early-source fan-out retains cards');
+    const oldMore = host.querySelector('.progressive-more');
+    A.setRaritySort('distance');
+    await seedRarityChase(app, rows.slice(0, 4));
+    load();
+    await waitFor(() => !btn.disabled && cards().length === 4, mode + ' intentional filter context');
+    const replacement = cards()[0];
+    assert.notEqual(replacement, first, mode + ' deliberate sort gets a fresh context');
+    oldMore.click();
+    assert.equal(cards().length, 4, mode + ' old callback cannot restore old context');
+    releaseOld({ rarity:false, cv:{merged:[]}, t:Date.now() });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(cards()[0], replacement, mode + ' stale source cannot erase newer results');
+    A.setRarityInflight(null);
+    app.window.close();
+  }
+});
+
+test('F908 grouped Twitches keeps expanded hydrated evidence when a source adds another report', async () => {
+  for (const mode of ['grouped', 'week']) {
+    const app = await boot(), A = app.window.__app, week = mode === 'week';
+    app.window.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
+    A.setRarityFilter('year', 'all'); A.setRarityFilter('distance', 'near');
+    A.setTwitchView('grouped'); A.setRaritySort('date');
+    const rows = Array.from({ length: 32 }, (_, i) => ({
+      code: i < 20 ? 'verfly' : 'f908bird' + i,
+      name: i < 20 ? 'Vermilion Flycatcher' : 'Synthetic rarity ' + i,
+      distMi: 5, dateStr: recentObsStamp(0, 8, 59 - i),
+      loc: 'Synthetic marsh', locId: 'L908', subId: 'S908EXP' + i, obsId: 'O908EXP' + i, count: 1,
+    }));
+    await seedRarityChase(app, rows);
+    const host = app.$(week ? 'activeResults' : 'results'), btn = app.$(week ? 'activeBtn' : 'refreshBtn');
+    const load = week ? A.loadActiveRarities : A.refresh;
+    A.showSection(week ? 'sec-activeBtn' : 'sec-refreshBtn'); load();
+    await waitFor(() => !btn.disabled && host.querySelector('.ckmore'), mode + ' collapsed evidence');
+    const first = host.firstElementChild, photo = first.querySelector('.thumb');
+    if (week) first.querySelector('.ckall > summary').click();
+    first.querySelector('.ckmore > summary').click();
+    const evidence = first.querySelector('[data-ev-sub="S908EXP19"]');
+    assert.ok(evidence, mode + ' expanded beyond initial evidence');
+    A.seedChecklistView('S908EXP19', { durationHrs:2,
+      obs:[{speciesCode:'verfly',comments:'Retained synthetic field note.'}] });
+    evidence.dataset.evShowNotes = '1';
+    await A.hydrateChecklistEvidence(evidence);
+    assert.match(evidence.textContent, /Retained synthetic/);
+    host.querySelector('.progressive-more').click();
+    load();
+    await waitFor(() => !btn.disabled, mode + ' repeated expanded paint');
+    assert.equal(host.firstElementChild, first, mode + ' unchanged expanded card is retained');
+    assert.equal(host.querySelector('[data-ev-sub="S908EXP19"]'), evidence);
+    await seedRarityChase(app, [{...rows[0],subId:'S908NEW',obsId:'O908NEW',dateStr:recentObsStamp(0,10,0)}, ...rows]);
+    load();
+    await waitFor(() => !btn.disabled, mode + ' changed group');
+    assert.ok(host.firstElementChild.querySelector('.ckmore[open]'), mode + ' keeps disclosure open');
+    assert.equal(host.firstElementChild.querySelector('.thumb'), photo, mode + ' keeps loaded photo');
+    assert.equal(host.querySelector('[data-ev-sub="S908EXP19"]'), evidence, mode + ' retains unchanged hydrated evidence');
+    assert.match(evidence.textContent, /Retained synthetic/);
+    assert.ok(host.querySelector('[data-ev-sub="S908NEW"]'), mode + ' includes new report');
+    app.window.close();
+  }
+});
+
 test('Twitches this week bounds checklist evidence before lazy expansion', async () => {
   const render = HTML.slice(HTML.indexOf('function loadActiveRarities('),
     HTML.indexOf('function rarityChecklistDetails('));
   assert.match(render, /rarityChecklistDetails\(r, \{ initialCount: 3 \}\)/,
     'weekly rarity rows eagerly render every checklist behind every bird/place group');
-  assert.match(render, /var shown = 0, batch = 10;/,
-    'Twitches this week has no bounded initial species-card batch');
   assert.match(render, /activeRarityMore/,
     'Twitches this week has no explicit show-more control for remaining cards');
   assert.match(render,
@@ -28250,10 +28351,6 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
 test('Twitches today paints rarity rows in bounded batches', async () => {
   const render = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function buildClosestSpots('));
-  assert.match(render, /var shown = 0, batch = 10, notePaintSeq = 0;/,
-    'Twitches today has no bounded initial rarity-row batch');
-  assert.match(render, /rows\.slice\(0, shown\)\.map\(rowCard\)\.join\(''\)/,
-    'Twitches today still builds every rare-checklist row before first paint');
   assert.match(render, /class="progressive-more todayRarityMore"/,
     'Twitches today has no explicit show-more control for remaining rows');
   assert.match(render,
@@ -28382,21 +28479,81 @@ test('a comment is labelled and quoted, and an absent one prints nothing', () =>
 
 // A placeholder that never settles is worse than no placeholder: it turns
 // "this checklist has no comment" into a permanent lie.
-test('the comments placeholder always settles', () => {
+test('F908 progress painting tolerates a torn-down document', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  app.window.close();
+  assert.doesNotThrow(() => A.fgProgressSync());
+  A.fgProgressReset();
+});
+
+test('the comments placeholder always settles', async () => {
   const hyd = HTML.slice(HTML.indexOf('function hydrateChecklistEvidence'),
                          HTML.indexOf('var _evidStore = {}'));
-  assert.match(hyd, /rows\.filter\(checklistNotesShown\)\.forEach\(setNoteLoading\)/,
-    'the wait is announced');
-  // ...but only on rows the budget will actually fetch. `rows` is filtered to
-  // CKL_EVID_MAX first, so a skipped row cannot sit at "loading" forever —
-  // which is the bug F220 records as "these can lazy load but they are not
-  // updating".
-  assert.ok(hyd.indexOf('rows = rows.filter(') < hyd.indexOf('.forEach(setNoteLoading)'),
-    'and only on rows this pass will really resolve');
-  // ONE settle point, not one per early return. There are four exits in the
-  // resolver and the one that gets forgotten is the one a reader stares at.
-  assert.match(hyd, /\.catch\(function \(\) \{[\s\S]*?\}\)\.then\(function \(\) \{ settleNote\(el\); \}\)/,
-    'and it is cleared on EVERY exit, including a call that failed');
+  const dom = new JSDOM('<ul id="rows"></ul>');
+  const host = dom.window.document.getElementById('rows');
+  const outcomes = [
+    { obs: { larspa: { comments: 'Species note' } }, note: 'Checklist note' },
+    { obs: { larspa: {} } },
+    { obs: {} },
+    null,
+    new Error('checklist failed'),
+    { obs: {}, note: 'Checklist-only note' },
+  ];
+  const called = [], loading = [], settled = [], painted = [];
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  // Exercise the production resolver with a held checklist service and observed
+  // note writers, including rejection/null paths the network adapter normalizes.
+  const deps = {
+    getKey: () => 'TESTKEY',
+    CKL_EVID_MAX: outcomes.length,
+    CKL_EVID_CONC: 3,
+    cklCached: sub => sub === 'cached',
+    checklistNotesShown: el => el.dataset.evShowNotes === '1',
+    pool: async (rows, concurrency, fn) => {
+      assert.equal(concurrency, 3);
+      await Promise.all(rows.map(fn));
+    },
+    checklistObs: async sub => {
+      called.push(sub);
+      await pending;
+      const result = outcomes[Number(sub)] || (sub === 'cached' ? { obs: {} } : null);
+      if (result instanceof Error) throw result;
+      return result;
+    },
+    twitchReadingUpdate: (el, update) => update,
+    setNoteLoading: el => { loading.push(el.dataset.evSub); el.dataset.loading = '1'; },
+    settleNote: el => { settled.push(el.dataset.evSub); delete el.dataset.loading; },
+    setChecklistDuration: () => {},
+    setChecklistNoteButton: () => {},
+    setNoteText: (el, det) => { painted.push([el.dataset.evSub, det]); delete el.dataset.loading; },
+    mediaMarksFor: () => '',
+    BirdLogic: BL,
+  };
+  const hydrate = new Function(...Object.keys(deps),
+    hyd + '; return hydrateChecklistEvidence;')(...Object.values(deps));
+  host.innerHTML = [...outcomes.map((_, i) => String(i)), 'skipped', 'cached']
+    .map(sub => `<li data-ev-sub="${sub}" data-ev-code="larspa" data-ev-show-notes="1"`
+      + (sub === '5' ? ' data-ev-checklist-only="1"' : '') + '></li>').join('');
+  const work = hydrate(host);
+  const eligible = [...outcomes.map((_, i) => String(i)), 'cached'];
+  assert.deepEqual(loading, eligible, 'only fetched rows announce loading, including a free cached row');
+  assert.deepEqual(called, eligible, 'the budget excludes the skipped row, not the cached row after it');
+  assert.equal(host.querySelector('[data-ev-sub="skipped"]').hasAttribute('data-ev-done'), false);
+  assert.equal(host.querySelectorAll('[data-loading]').length, eligible.length);
+  release();
+  await work;
+  assert.deepEqual(settled.sort(), eligible.slice().sort(),
+    'success, empty, missing species, null, rejection and checklist-only exits all settle');
+  assert.equal(host.querySelectorAll('[data-loading]').length, 0);
+  assert.ok(painted.some(([sub, det]) => sub === '0' && det.c === 'Species note'));
+  assert.ok(painted.some(([sub, det]) => sub === '5' && det.k === 'Checklist-only note'));
+  host.innerHTML = '<li data-ev-sub="cached" data-ev-code="larspa"></li>';
+  loading.length = 0;
+  await hydrate(host);
+  assert.deepEqual(loading, [], 'Notes off does not announce loading');
+  dom.window.close();
   const combined = HTML.slice(HTML.indexOf('function setNoteLoading'),
                               HTML.indexOf('function setNoteText'));
   assert.match(combined, /'Comments loading\\u2026'/,
