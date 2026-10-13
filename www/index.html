@@ -4850,7 +4850,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.150.2';
+      var APP_VERSION = '1.150.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -38960,6 +38960,11 @@
           storeKeys(MASS_DAY_CACHE_NS).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
         function finish(result, cancelled) {
+          // Acquisition freshness is separate from the age of retained display rows.
+          if (!cancelled && result.source === 'highCountPage'
+              && !result.arrivalPending && ['ok', 'partial'].indexOf(result.state) >= 0) {
+            result = Object.assign({}, result, { acquiredAt: Date.now() });
+          }
           dbg(result.state === 'ok' ? 'net' : 'warn',
             'Bird Gen Mass Flock verdict: ' + (cancelled ? 'cancelled'
               : result.state === 'failed' ? 'source failed'
@@ -38976,16 +38981,32 @@
           if (!workCurrent(work)) return finish({
             state: 'failed', rows: [], diagnostics: diagnostics, coverage: 'Search cancelled'
           }, true);
-          var part = cache && cache.context === surgeRetainedContext()
-            && cache.parts && cache.parts.mass;
-          var age = part ? Date.now() - Number(part.at) : NaN;
-          if (!force && part && age >= 0 && age < CHASE_TTL_MS
-              && part.value && part.value.source === 'highCountPage'
-              && !part.value.arrivalPending
-              && ['ok', 'partial'].indexOf(part.value.state) >= 0
-              && Array.isArray(part.value.evidenceRows)) {
+          var contextMatches = cache && cache.context === surgeRetainedContext();
+          var part = contextMatches && cache.parts && cache.parts.mass;
+          var value = part && part.value, now = Date.now();
+          var acquiredAt = value && value.acquiredAt != null ? value.acquiredAt : part && part.at;
+          var age = part ? now - Number(acquiredAt) : NaN;
+          var retainedAge = part ? now - Number(part.at) : NaN;
+          var reason = force ? 'forced refresh'
+            : !cache ? 'missing cache'
+            : !contextMatches ? 'context mismatch'
+            : !part ? 'missing Mass part'
+            : !value ? 'missing value'
+            : value.source !== 'highCountPage' ? 'different source'
+            : value.arrivalPending ? 'arrival pending'
+            : ['ok', 'partial'].indexOf(value.state) < 0 ? 'incomplete state'
+            : !Array.isArray(value.evidenceRows) ? 'invalid evidence'
+            : !Array.isArray(value.rows) ? 'invalid rows'
+            : !(Number(part.at) > 0) || !isFinite(retainedAge) || retainedAge < 0 ? 'invalid retained time'
+            : !isFinite(age) || age < 0 ? 'invalid acquisition time'
+            : age >= CHASE_TTL_MS ? 'expired' : '';
+          dbg('net', 'Bird Gen Mass retained cache: ' + (reason ? 'reacquire' : 'reuse')
+            + '; reason ' + (reason || 'fresh')
+            + '; acquisition age ' + (isFinite(age) ? age + 'ms' : 'unknown')
+            + '; retained row age ' + (isFinite(retainedAge) ? retainedAge + 'ms' : 'unknown'));
+          if (!reason) {
             var retained = surgeRetainedModel(cache).mass;
-            return Object.assign({}, retained, { state: part.value.state });
+            return Object.assign({}, retained, { state: value.state });
           }
           return acquire();
         });

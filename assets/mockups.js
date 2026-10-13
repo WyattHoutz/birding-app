@@ -1910,7 +1910,6 @@ const BOOTSTRAP = `
                 count: 1, dateStr: '2026-09-02 15:20', subId: 'SP2' }
             ] }
         ]);
-      await fillFixturePhotos(host, document);
       var alertRows = Array.prototype.slice.call(
         document.querySelectorAll('#surgeFeed > [data-species-code]'));
       var visibleCodes = alertRows.filter(function (row) {
@@ -1919,11 +1918,20 @@ const BOOTSTRAP = `
       var hiddenCodes = alertRows.filter(function (row) {
         return row.hidden;
       }).map(function (row) { return row.getAttribute('data-species-code'); });
-      if (visibleCodes.join(',') !== 'comter,baisan,nazboo1,amgplo,vesspa'
+      if (visibleCodes.join(',') !== 'comter,baisan,nazboo1,amgplo,vesspa,ruff'
           || hiddenCodes.length) {
         throw new Error('Bird Gen fixture species/filter state drifted: visible='
           + visibleCodes.join(',') + ' hidden=' + hiddenCodes.join(','));
       }
+      var ruff = A.megaLane(A.getAnchors()).rows.find(function (row) {
+        return row.code === 'ruff';
+      });
+      if (!ruff || !ruff.found || ruff.found.day !== '2026-08-26'
+          || ruff._fresh || A.isSpeciesSeen('ruff', 'Ruff') !== true
+          || ruff.news.join(',') !== 'new') {
+        throw new Error('Bird Gen Ruff fixture lost its seen, older-report weekly discovery qualifier');
+      }
+      await fillFixturePhotos(host, document);
       var megaAge = document.querySelector(
         '#surgeFeed > [data-species-code="nazboo1"] .surgeage');
       if (!megaAge || megaAge.textContent.trim() !== '24hr ago') {

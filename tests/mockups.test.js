@@ -11,6 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(ROOT, 'assets', 'mockups.js'), 'utf8');
@@ -35,6 +37,22 @@ test('F359 mockup preparation timeout rejects a hung fixture by shot name', asyn
     mockups.withTimeout(new Promise(() => {}), 5, 'section-spLookupBtn preparation'),
     /section-spLookupBtn preparation timed out after 5ms/
   );
+});
+
+test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery', { timeout: 120000 }, () => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), 'birdgen-f910-'));
+  try {
+    const result = spawnSync(process.execPath, [
+      path.join(ROOT, 'assets', 'mockups.js'),
+      '--only', 'section-surgeBtn', '--out', output,
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 110000 });
+    assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+    assert.match(result.stdout, /1 mockup\(s\)/);
+    assert.ok(fs.readdirSync(output).some(name => /section-surgeBtn.*\.png$/.test(name)),
+      'real fixture preparation did not produce its Bird Gen image');
+  } finally {
+    fs.rmSync(output, { recursive: true, force: true });
+  }
 });
 
 test('F830 Twitches preparation acquires exact personal membership before rendering', () => {
@@ -616,7 +634,7 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release fixture no longer renders in the Washington timezone');
   assert.match(source, /Bird Gen fixture age drifted[\s\S]{0,120}24hr ago/,
     'the release renderer does not behaviorally guard its approved relative age');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa,ruff'/,
     'the release gate does not assert its exact visible Bird Gen species');
   assert.match(source, /\|\| hiddenCodes\.length/,
     'the release gate no longer proves that Bird Gen hides no species');
@@ -643,7 +661,7 @@ test('F302 Bird Gen mockup shows the approved three-line cards', () => {
     'the release fixture does not pin the bird code flush-left');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,
     'the release fixture does not fail if a report drawer returns');
-  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa'/,
+  assert.match(source, /visibleCodes\.join\(','\) !== 'comter,baisan,nazboo1,amgplo,vesspa,ruff'/,
     'the release gate does not assert the new Cascade row');
   assert.match(paint, /still links to All Mega rarities/,
     'the release fixture does not fail if the removed Mega link returns');

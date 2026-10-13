@@ -14827,7 +14827,7 @@ test('F821 reuses fresh evidence, expires it and honors forced refresh without p
   assert.equal(A.loadSurgeRetained().mass.rows.length, 1, 'failure erased last-good evidence');
   fail = false;
   await A.saveSurgeRetainedPart('mass', {
-    ...first, retainedAt: Date.now() - 86400000,
+    ...first, acquiredAt: Date.now() - 86400000, retainedAt: Date.now() - 86400000,
   });
   await A.loadMassFlockAlertSource(false, A.activeScope());
   assert.equal(requests(), 3, 'stale evidence suppressed reacquisition');
@@ -15740,6 +15740,113 @@ test('F834 live distant history is progressive, retained and fails closed on cov
   assert.equal(A.massNews(old.rows[0]).length, 0, 'one older low-count report rejects arrival');
   assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length - before, 1);
   app.window.close();
+});
+
+test('F906 completed partial Mass acquisition stays warm when production publication retains older rows', async () => {
+  let refresh = false;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/bird-list\?.*rank=hc/.test(url)) return f821Page(refresh ? [
+      { code: 'margod', name: 'Marbled Godwit', count: 600 },
+      { code: 'snogoo', count: 4000, locId: 'LUNRESOLVED' },
+    ] : [{ count: 4000 }]);
+    if (/ref\/hotspot\//.test(url)) return f821Hotspots();
+    if (/api\.ebird/.test(url)) return [];
+    if (/ebird\.org|birdcast/.test(url)) return '';
+    return [];
+  } });
+  try {
+    await seedSeen(app, []);
+    const A = app.window.__app;
+    A.setCountySeed({ 'US-WA': { 'US-WA-061': {
+      name: 'Synthetic county', bounds: { minX: -122.4, maxX: -122, minY: 47.5, maxY: 48 },
+    } } });
+    const first = await A.loadMassFlockAlertSource(false, A.activeScope());
+    const oldAt = Date.now() - 60 * 60000;
+    await A.saveSurgeRetainedPart('mass', {
+      ...first, acquiredAt: oldAt, retainedAt: oldAt,
+    });
+    refresh = true;
+    A.fgWindowReset();
+    A.fgSchedReset(Date.now());
+    A.loadSurge();
+    await waitFor(() => app.$('surgeResults').dataset.sourceMass === 'partial',
+      'completed production Mass publication');
+    await waitFor(() => A.loadSurgeRetained()?.mass?.acquiredAt > oldAt,
+      'completed acquisition timestamp persisted');
+    const retained = A.loadSurgeRetained().mass;
+    assert.equal(retained.retainedAt, oldAt, 'old-row provenance must remain honest');
+    assert.notEqual(retained.arrivalPending, true);
+    assert.ok(app.document.querySelector('#surgeFeed [data-species-code="snogoo"]'),
+      'partial publication dropped the earlier flock');
+    assert.ok(app.document.querySelector('#surgeFeed [data-species-code="margod"]'));
+    const pages = () => app.state.fetches.filter((url) => /bird-list\?.*rank=hc/.test(url)).length;
+    assert.equal(pages(), 2);
+    let clock = retained.acquiredAt + 60000;
+    app.window.Date.now = () => clock;
+    const warm = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(pages(), 2, 'retained old rows made a one-minute-old source reacquire');
+    assert.equal(warm.state, 'partial');
+    assert.equal(warm.acquiredAt, retained.acquiredAt);
+    assert.equal(warm.retainedAt, oldAt);
+    await A.saveSurgeRetainedPart('mass', warm);
+    clock = retained.acquiredAt + A.CHASE_TTL_MS;
+    const expired = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(pages(), 3, 'warm publication slid the acquisition expiry');
+    assert.equal(expired.acquiredAt, clock);
+    await A.saveSurgeRetainedPart('mass', expired);
+    A.fgSchedReset(clock);
+    await A.loadMassFlockAlertSource(true, A.activeScope());
+    assert.equal(pages(), 4, 'explicit refresh must still bypass the cache');
+    await A.saveSurgeRetainedPart('mass', { ...expired, arrivalPending: true });
+    A.fgSchedReset(clock);
+    await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(pages(), 5, 'pending arrival evidence was reused as complete');
+    const decisions = app.window.__dbg.buf.map(row => row.msg)
+      .filter(message => message.startsWith('Bird Gen Mass retained cache:'));
+    assert.ok(decisions.some(message => /reuse; reason fresh/.test(message)));
+    assert.ok(decisions.some(message =>
+      /acquisition age 60000ms; retained row age \d+ms/.test(message)));
+    assert.ok(clock - retained.retainedAt > A.CHASE_TTL_MS);
+    for (const reason of ['expired', 'forced refresh', 'arrival pending']) {
+      assert.ok(decisions.some(message => message.includes('reacquire; reason ' + reason)),
+        'missing precise cache decision: ' + reason);
+    }
+    assert.doesNotMatch(decisions.join('\n'),
+      /snogoo|margod|Snow Goose|L821|LUNRESOLVED|47\.75|-122\.16|Sample Birder/);
+  } finally {
+    app.window.close();
+  }
+});
+
+test('F906 legacy completed Mass cache remains reusable but invalid evidence and timestamps fail closed', async () => {
+  const app = await boot({ fetch: url => /bird-list/.test(url)
+    ? f821Page([{ count: 4000 }]) : /ref\/hotspot\//.test(url) ? f821Hotspots() : [] });
+  try {
+    const A = app.window.__app;
+    const first = await A.loadMassFlockAlertSource(false, A.activeScope());
+    const legacy = { ...first, acquiredAt: undefined };
+    await A.saveSurgeRetainedPart('mass', legacy);
+    await A.loadMassFlockAlertSource(false, A.activeScope());
+    const pages = () => app.state.fetches.filter(url => /bird-list/.test(url)).length;
+    assert.equal(pages(), 1, 'legacy entries with a fresh retained date lost reuse');
+    for (const [extra, reason] of [
+      [{ acquiredAt: Date.now() + 86400000 }, 'invalid acquisition time'],
+      [{ acquiredAt: 'not a timestamp' }, 'invalid acquisition time'],
+      [{ retainedAt: Date.now() + 86400000 }, 'invalid retained time'],
+      [{ evidenceRows: null }, 'invalid evidence'],
+      [{ rows: null }, 'invalid rows'],
+      [{ state: 'notApplicable' }, 'incomplete state'],
+      [{ source: 'unverified' }, 'different source'],
+    ]) {
+      await A.saveSurgeRetainedPart('mass', { ...first, ...extra });
+      const before = pages();
+      await A.loadMassFlockAlertSource(false, A.activeScope());
+      assert.equal(pages(), before + 1, reason + ' must force reacquisition');
+      assert.ok(app.window.__dbg.buf.some(row => row.msg.includes('reacquire; reason ' + reason)));
+    }
+  } finally {
+    app.window.close();
+  }
 });
 
 test('F730 Mass Flock keeps corroborated regional events and boosts chase-distance flocks', async () => {
