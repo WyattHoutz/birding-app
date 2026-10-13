@@ -17695,6 +17695,54 @@ test('F379 MEGA news expires at Bird Gen’s 36-hour now window', async () => {
   app.window.close();
 });
 
+test('F907 a discovered-this-week Little Stint alerts without reviving continuing or expired Mega news', async () => {
+  const now = Date.parse('2026-10-12T12:00:00');
+  const record = (code, name, date, id) => ({
+    speciesCode: code, comName: name, obsDt: date,
+    locId: id, subId: `${id}-${date}`, locName: 'Distant public shore',
+    lat: 46, lng: -124,
+  });
+  const stint = record('litsti', 'Little Stint', '2026-10-08 09:00', 'F907-STINT');
+  const continuing = record('ruff', 'Ruff', '2026-10-10 20:00', 'F907-RUFF');
+  const expired = record('whiwag', 'White Wagtail', '2026-10-07 09:00', 'F907-WAGTAIL');
+  const app = await boot({ storage: {
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: now, region: 'US-WA', sid: 'SN10489', rows: [stint, continuing, expired],
+    }),
+    ebird_aba_archive_v1: JSON.stringify({ 'US-WA': {
+      'amecro|F907-COVER': record('amecro', 'American Crow', '2026-09-13 09:00', 'F907-COVER'),
+      'litsti|F907-STINT': record('litsti', 'Little Stint', '2026-10-06 09:00', 'F907-STINT'),
+      'ruff|F907-RUFF': record('ruff', 'Ruff', '2026-09-30 09:00', 'F907-RUFF'),
+      'whiwag|F907-WAGTAIL': record('whiwag', 'White Wagtail', '2026-10-04 09:00', 'F907-WAGTAIL'),
+    } }),
+  } });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['litsti'], ['Little Stint'], [
+      { code: 'litsti', name: 'Little Stint' },
+      { code: 'ruff', name: 'Ruff' },
+      { code: 'whiwag', name: 'White Wagtail' },
+    ]);
+    app.window.Date.now = () => now;
+    const lane = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
+    const found = lane.all.find((row) => row.code === 'litsti');
+    assert.equal(found.found.days, 6, 'date the discovery, not the latest report');
+    assert.equal(found._fresh, false, 'the latest report is outside 36 hours');
+    assert.equal(found.unseen, false, 'new discoveries also alert for a previously seen species');
+    assert.ok(found.mi > 100, 'exercise a discovery far outside the day-trip area');
+    assert.deepEqual(arr(lane.rows, (row) => row.code), ['litsti'],
+      'a verified discovery this week is news, but continuing and expired discoveries are not');
+    A.renderSurge([], [], [], []);
+    const alert = app.document.querySelector('#surgeFeed > [data-alert-kind="mega"]');
+    assert.ok(alert, 'the eligible discovery must actually produce a Bird Gen alert');
+    assert.match(alert.textContent, /Little Stint/);
+    assert.match(alert.dataset.surgeReasonText, /first reported/i);
+    assert.match(alert.dataset.surgeReasonText, /2026-10-06|Oct(?:ober)? 6|6 Oct(?:ober)?/);
+  } finally {
+    app.window.close();
+  }
+});
+
 test('F294 a successful Mega rarities load clears an earlier Bird Gen failure', async () => {
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({

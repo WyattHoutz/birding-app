@@ -4850,7 +4850,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.150.1';
+      var APP_VERSION = '1.150.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -10700,13 +10700,15 @@
           (by[r.speciesCode] || (by[r.speciesCode] = [])).push(r);
         });
         var freshMs = MEGA_NEWS_MAX_AGE_H * 3600000;
-        function freshRecord(r) {
+        function freshRecord(r, maxAgeHours) {
           var t = Date.parse(String((r && r.obsDt) || '').replace(' ', 'T'));
           var age = Date.now() - t;
-          return isFinite(t) && age >= -86400000 && age <= freshMs;
+          var limit = maxAgeHours == null ? freshMs : maxAgeHours * 3600000;
+          return isFinite(t) && age >= -86400000 && age <= limit;
         }
         function freshNews(m) {
-          return !!(m._fresh && m.news.length);
+          var discoveryFresh = m.found && freshRecord(m, MEGA_FRESH_DAYS * 24);
+          return !!((m._fresh || discoveryFresh) && m.news.length);
         }
         var out = Object.keys(by).map(function (c) {
           var sourceRows = by[c];
@@ -10715,7 +10717,7 @@
             unseen = isSpeciesSeen(c, sourceRows[0] && sourceRows[0].comName) === false;
           } catch (e2) { unseen = true; }
           var candidates = megaLocalityGroups(sourceRows).map(function (items) {
-            var currentEvidence = items.filter(freshRecord);
+            var currentEvidence = items.filter(function (r) { return freshRecord(r); });
             var displayRows = currentEvidence.length ? currentEvidence : items;
             var newest = displayRows.slice().sort(function (a, b) {
               return String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
@@ -10793,8 +10795,10 @@
         //
         // Owner: *"bird gen needs fresh bird buzz and news. its like a alert so
         // nothing should be stwle"*. A mega whose most recent report is a week
-        // old is not news however rare it is — 🦤 Mega rarities is the section
-        // whose job is completeness, and it still lists it.
+        // old is not continuing news however rare it is — 🦤 Mega rarities is
+        // the section whose job is completeness, and it still lists it.
+        // F907: a verified discovery this week is separate news. Keep its
+        // seven-day window without treating old reports as fresh sightings.
         var news = out.filter(freshNews);
         return {
           at: s.at,
@@ -10836,8 +10840,9 @@
       // count independent parties, and eBird files one checklist per member).
       var MEGA_MULTI_REPORTS = 2;
       // F379. MEGA rarities owns the durable, complete list. Bird Gen is the
-      // alert surface, so its mega rows use the same 36-hour definition of
-      // "now" as its crowd and hotspot lanes instead of lingering for a week.
+      // alert surface, so continuing mega rows use the same 36-hour definition
+      // of "now" as its crowd and hotspot lanes. Verified discoveries use the
+      // separate seven-day MEGA_FRESH_DAYS window.
       var MEGA_NEWS_MAX_AGE_H = BL.SURGE.WINDOW_H;
       // ⚠️ F271. THE DAY-TRIP RADIUS, WHICH IS NOT THE CHASE RADIUS.
       //
