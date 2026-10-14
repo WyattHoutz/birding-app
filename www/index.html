@@ -4868,7 +4868,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.152.0';
+      var APP_VERSION = '1.152.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -28009,7 +28009,7 @@
           var captureId = (opts.kind || 'page') + '-' + (++_captureEbirdAttempt);
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
-          var massShapeLast = '', sampleCount = 0;
+          var massShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
           function trace(stage, detail, level) {
             dbg(level || 'info', 'eBird capture ' + captureId + ' · ' + stage
               + (detail ? ' · ' + detail : ''));
@@ -28190,12 +28190,19 @@
                       && value >= 0 && value <= 100000) shape[key] = value;
                 });
                 var detail = JSON.stringify({ reason: reason, errorType: errorType, shape: shape });
+                massMalformedSamples = reason === 'malformed-row'
+                  && shape.list && shape.listBody && shape.speciesSection
+                  && shape.rows > 0 && shape.rows === shape.declared
+                  ? (detail === massShapeLast ? massMalformedSamples + 1 : 1) : 0;
                 if (detail !== massShapeLast) {
                   massShapeLast = detail;
                   trace('high-count parser', detail, 'warn');
                 }
-              } else if (opts.kind !== 'massHighCount' && d.pageShape) {
-                trace('profile shape', JSON.stringify(d.pageShape));
+              } else {
+                massMalformedSamples = 0;
+                if (opts.kind !== 'massHighCount' && d.pageShape) {
+                  trace('profile shape', JSON.stringify(d.pageShape));
+                }
               }
               if (d.kind === 'rank' && d.sourceFragment) {
                 rankSnapshotSave(d.sourceFragment, 'rendered-dom', d.data && d.data.metric);
@@ -28235,6 +28242,7 @@
           addH('browserPageLoaded', function (ev) {
             whenOwned(ev, function () {
               if (!alive()) { stopObsolete(); return; }
+              massMalformedSamples = 0;
               trace('page loaded', 'starting parser samples');
               if (injectTimer) clearTimeout(injectTimer);
               injectTimer = setTimeout(function () { inject(0); }, 500);
@@ -28263,7 +28271,17 @@
             if (done) return;
             try { IB.hide({ id: id }); } catch (e) {}
             if (opts.revealAfterDelay !== false) {
-              revealTimer = setTimeout(reveal, 6000);
+              revealTimer = setTimeout(function () {
+                // A populated but repeatedly rejected Mass page needs a retry,
+                // not a visible browser waiting out the login timeout.
+                if (opts.kind === 'massHighCount' && !revealed && massMalformedSamples >= 2) {
+                  trace('parser failure', 'repeated malformed rows at hidden-loading deadline', 'warn');
+                  finish(new Error('The eBird high-count page still has malformed rows. '
+                    + 'Mass coverage is incomplete; refresh to retry.'));
+                  return;
+                }
+                reveal();
+              }, 6000);
             }
             timer = setTimeout(function () {
               trace('timeout', 'no usable bridge message', 'warn');
@@ -39916,14 +39934,19 @@
       }
       function surgeCascadePairs(cascades) {
         return (cascades || []).map(function (c) {
-          var home = getHome(), lim = chaseMaxMi(), best = null, latest = null;
+          var home = getHome(), lim = chaseMaxMi(), best = null, latest = null, nearest = null;
           var rejected = { noHome: 0, coordinates: 0, privatePlace: 0, outside: 0 };
           (c.recent || []).forEach(function (r) {
             if (!home) { rejected.noHome++; return; }
-            if (!isFinite(+r.lat) || !isFinite(+r.lng)) { rejected.coordinates++; return; }
+            if (r.lat == null || r.lng == null || String(r.lat).trim() === ''
+                || String(r.lng).trim() === '' || !isFinite(+r.lat) || !isFinite(+r.lng)
+                || Math.abs(+r.lat) > 90 || Math.abs(+r.lng) > 180) {
+              rejected.coordinates++; return;
+            }
             var nm = r.locName || r.loc || '';
             if (nm && !BL.isPublicPlace(nm)) { rejected.privatePlace++; return; }
             var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
+            if (nearest == null || d < nearest) nearest = d;
             if (d > lim) { rejected.outside++; return; }
             r._mi = d;
             if (!best || d < best._mi) { best = r; best._mi = d; }
@@ -39934,7 +39957,10 @@
             || !best && (c.recent || []).length;
           if (isCascadeTraceTarget(c)) traceCascadeDecision('places', {
             state: c.locationState || 'unresolved', returned: (c.recent || []).length,
-            rejected: rejected, pair: !omitted, nearby: !!best
+            rejected: rejected, pair: !omitted, nearby: !!best,
+            origin: home ? 'configured-home' : 'missing-home', radiusMi: lim,
+            nearestPublicDistanceBandMi: nearest == null ? null : Math.floor(nearest / 10) * 10,
+            distanceBandWidthMi: 10
           });
           if (omitted) return null;
           return { c: c, near: best, latest: latest };
@@ -40962,7 +40988,25 @@
           if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
-          if (cachedCascades && cachedCascades.state === 'ok') return cachedCascades;
+          if (cachedCascades && cachedCascades.state === 'ok') {
+            var cachedCcLo = (cachedCascades.rows || []).filter(isCascadeTraceTarget)[0];
+            traceCascadeDecision('board', {
+              source: 'cached-enrichment', acquisition: 'not-replayed'
+            });
+            traceCascadeDecision('candidate', {
+              source: 'cached-enrichment', present: !!cachedCcLo,
+              candidates: (cachedCascades.rows || []).length
+            });
+            traceCascadeDecision('identity', {
+              source: 'cached-enrichment', resolved: !!(cachedCcLo && cachedCcLo.code)
+            });
+            traceCascadeDecision('sightings', {
+              source: 'cached-enrichment', acquisition: 'not-replayed',
+              state: cachedCcLo ? cachedCcLo.locationState || 'unresolved' : 'not-present',
+              returned: cachedCcLo ? (cachedCcLo.recent || []).length : 0
+            });
+            return cachedCascades;
+          }
           return fetchRank(rr, new Date().getFullYear(), getDisplayName())
             .then(function (data) {
               var rows = (data && data.rows) || [];
@@ -48499,6 +48543,7 @@
         massFlockAlerts: massFlockAlerts,
         massNews: massNews, massArrivalEvidence: massArrivalEvidence,
         parseMassHighCountPage: parseMassHighCountPage,
+        buildMassHighCountInject: buildMassHighCountInject,
         loadMassFlockAlertSource: loadMassFlockAlertSource,
         loadFavoritePatchAlertSource: loadFavoritePatchAlertSource,
         loadDestinations: loadDestinations,

@@ -66,6 +66,26 @@ UI        → Notable / Targets / Destinations / Excursions / Trip / Birdiest /
             Fresh / Quick outing / Favorites / Conditions / My Year / Settings
 ```
 
+## Bird Gen capture and decision diagnostics
+
+A populated eBird high-count page with repeated identical malformed-row
+rejections fails at the existing six-second hidden-browser reveal deadline,
+instead of exposing that page until the two-minute timeout. Mass coverage stays
+explicitly failed; dated last-good results are retained. No row is silently
+skipped or accepted without its required date, checklist and location structure.
+Changing failures and incomplete inventories keep the normal loading path;
+login prompts still reveal the owned browser. Refresh can retry acquisition.
+
+Under **Settings > Advanced / Debug**, **Capture next CCLO refresh** and
+**Copy CCLO trace** record one ordinary Bird Gen load. Cached enrichment is
+explicitly labelled `cached-enrichment`; it is not presented as a new board or
+sighting acquisition. The places stage reports the configured-home origin,
+radius in miles, rejection counts, and the nearest valid public sighting's
+ten-mile distance band (lower edge plus `distanceBandWidthMi`). Missing or
+invalid coordinates have their own rejection bucket. Names, coordinates,
+place IDs and raw observations remain excluded, and capturing adds no requests.
+An absent card with every public sighting outside the radius remains absent.
+
 ## How it's built (no Mac required)
 
 The `Build unsigned iOS IPA` GitHub Actions workflow compiles the app on a

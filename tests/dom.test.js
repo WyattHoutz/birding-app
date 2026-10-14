@@ -7722,6 +7722,237 @@ test('F916 CCLO decisions distinguish place rejection, source state, merging and
   } finally { app.window.close(); }
 });
 
+function capturedSparseMassPage() {
+  const doc = new JSDOM(fs.readFileSync(
+    path.join(__dirname,'fixtures','high-count-sparse.html'),'utf8'));
+  try {
+    const rows = [...doc.window.document.querySelectorAll('li.countable')];
+    const list = doc.window.document.querySelector('ol');
+    list.innerHTML = '';
+    for (let index=0;index<285;index++) {
+      list.appendChild(rows[index===269 ? 1 : index===270 ? 2 : 0].cloneNode(true));
+    }
+    doc.window.document.querySelector('h3').textContent='Native and Naturalized (285)';
+    return doc.window.document.body.innerHTML;
+  } finally {doc.window.close();}
+}
+
+test('F919 captured sparse-row structure reproduces index 269 without treating redaction placeholders as observations', async () => {
+  const app = await boot();
+  const page = capturedSparseMassPage();
+  const doc = new JSDOM(page);
+  try {
+    assert.throws(() => app.window.__app.parseMassHighCountPage(page,'US-WA'),error => {
+      assert.equal(error.captureReason,'malformed-row');
+      assert.equal(error.captureShape.invalidRow,269);
+      assert.equal(error.captureShape.rows,285);
+      assert.equal(error.captureShape.declared,285);
+      for (const key of ['speciesLink','region','count']) assert.equal(error.captureShape[key],true);
+      for (const key of ['date','checklist','location']) assert.equal(error.captureShape[key],false);
+      return true;
+    });
+    const rows=doc.window.document.querySelectorAll('li.countable');
+    rows[269].replaceWith(rows[268].cloneNode(true));
+    const valid=app.window.__app.parseMassHighCountPage(doc.window.document.body.innerHTML,'US-WA');
+    assert.equal(valid.length,285,'the adjacent structure must pass when every row is complete');
+    assert.equal(valid[269].locationPrivate,true,'unlinked locations must remain private');
+    assert.equal(valid[269].obsDt,'2000-01-01 00:00');
+  } finally {doc.window.close();app.window.close();}
+});
+
+test('F919 repeated sparse Mass rows fail before automatic reveal, close only the owned window, and retain last-good evidence', async () => {
+  let blocked=false, browser;
+  const app=await boot({fetch:url => /bird-list/.test(url)
+    ? blocked ? '<html>anubis_challenge</html>' : f821Page([{count:4000}])
+    : /ref\/hotspot\//.test(url) ? f821Hotspots() : []});
+  const A=app.window.__app, handlers={}, closed=[];
+  let revealDeadline, samples=0, shown=0, closingFails=false;
+  const nativeTimer=app.window.setTimeout.bind(app.window);
+  app.window.setTimeout=(fn,delay,...args) => {
+    if (delay===6000) {revealDeadline=fn;return nativeTimer(() => {},120000);}
+    return nativeTimer(fn,delay===500 ? 25 : delay,...args);
+  };
+  app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+    addListener(name,fn){handlers[name]=fn;return {remove(){}};},
+    openWebView(options){
+      browser=new JSDOM(capturedSparseMassPage(),{url:options.url,runScripts:'outside-only'});
+      browser.window.mobileApp={postMessage(message){
+        samples++;handlers.messageFromWebview({id:'owned-sparse',detail:message.detail});
+      }};
+      setTimeout(() => handlers.browserPageLoaded({id:'owned-sparse'}),0);
+      return Promise.resolve({id:'owned-sparse'});
+    },
+    hide(){},show(){shown++;},
+    close({id}){closed.push(id);return closingFails
+      ? Promise.reject(new Error('controlled native close rejection')) : Promise.resolve();},
+    executeScript({code}){browser.window.eval(code);return Promise.resolve();}
+  }}};
+  try {
+    const first=await A.loadMassFlockAlertSource(false,A.activeScope());
+    assert.equal(first.rows.length,1);
+    await A.saveSurgeRetainedPart('mass',first);
+    blocked=true;
+    for (const rejectClose of [false,true]) {
+      closingFails=rejectClose;samples=0;revealDeadline=null;
+      const pending=A.loadMassFlockAlertSource(true,A.activeScope());
+      await waitFor(() => revealDeadline && samples>=3,'repeated sparse samples');
+      const before=closed.length;
+      revealDeadline();
+      assert.equal(closed.length,before+1,'repeated malformed capture did not settle at the existing reveal deadline');
+      const result=await pending;
+      assert.equal(result.state,'failed');
+      assert.equal(result.rows.length,0,'a rejected page was silently accepted');
+      assert.equal(shown,0,'a populated malformed page was exposed to the owner');
+      assert.ok(closed.every(id => id==='owned-sparse'));
+      const logs=app.window.__dbg.buf.map(row => row.msg).join('\n');
+      assert.match(logs,/parser failure.*hidden-loading deadline/);
+      assert.doesNotMatch(logs,/timeout.*no usable bridge message/);
+      if (rejectClose) assert.match(logs,/close failed.*controlled native close rejection/);
+      else assert.match(logs,/close acknowledged/);
+      await A.saveSurgeRetainedPart('mass',result);
+      assert.equal(A.loadSurgeRetained().mass.rows.length,1,'failure erased last-good evidence');
+      browser.window.close();browser=null;
+    }
+  } finally {if(browser) browser.window.close();app.window.close();}
+});
+
+test('F919 reveal deadline preserves loading, login, changing failures and successful delayed rows', async () => {
+  for (const mode of ['incomplete','login','changing-shape','single-sample','delayed-complete']) {
+    const app=await boot({fetch:() => []});
+    const handlers={};let browser, deadline, samples=0, shown=0, closed=0;
+    const nativeTimer=app.window.setTimeout.bind(app.window);
+    app.window.setTimeout=(fn,delay,...args) => {
+      if (delay===6000) {deadline=fn;return nativeTimer(() => {},120000);}
+      return nativeTimer(fn,delay===500 ? 25 : delay,...args);
+    };
+    const url='https://ebird.org/region/US-WA/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn){handlers[name]=fn;return {remove(){}};},
+      openWebView(){
+        browser=new JSDOM(f821Page([{}]).replace('Count: 600','Count: X-invalid'),
+          {url,runScripts:'outside-only'});
+        browser.window.mobileApp={postMessage(message){
+          handlers.messageFromWebview({id:'readiness',detail:message.detail});
+        }};
+        setTimeout(() => handlers.browserPageLoaded({id:'readiness'}),0);
+        return Promise.resolve({id:'readiness'});
+      },
+      hide(){},show(){shown++;},close(){closed++;return Promise.resolve();},
+      executeScript({code}){
+        if (samples >= (mode==='single-sample' ? 1 : 3)) return Promise.resolve();
+        samples++;
+        if (mode==='incomplete') browser.window.document.querySelector('h3').textContent='Native and Naturalized (2)';
+        if (mode==='login') {
+          handlers.messageFromWebview({id:'readiness',detail:{
+            __ebird:true,kind:'massHighCount',ok:false,needsLogin:true,parseStatus:'LOGIN'
+          }});
+        } else {
+          if (mode==='changing-shape' && samples===3) {
+            browser.window.document.querySelector('.Obs-date').remove();
+          }
+          if (mode==='delayed-complete' && samples===3) browser.window.document.body.innerHTML=f821Page([{}]);
+          browser.window.eval(code);
+        }
+        return Promise.resolve();
+      }
+    }}};
+    try {
+      const pending=app.window.__app.captureEbird({
+        kind:'massHighCount',url,injectAttempts:240,
+        buildInject:() => app.window.__app.buildMassHighCountInject('US-WA',url)
+      });
+      await waitFor(() => deadline && samples>=(mode==='single-sample' ? 1 : 3),mode);
+      deadline();
+      if (mode==='delayed-complete') {
+        assert.equal(closed,1);assert.equal(shown,0);
+      } else {
+        assert.equal(closed,0,mode+' was incorrectly terminated');
+        assert.equal(shown,1,mode+' lost its ordinary loading/login reveal');
+        browser.window.document.body.innerHTML=f821Page([{}]);
+        browser.window.eval(app.window.__app.buildMassHighCountInject('US-WA',url));
+      }
+      assert.equal((await pending).rows.length,1,mode+' lost recoverable capture');
+    } finally {if(browser) browser.window.close();app.window.close();}
+  }
+});
+
+test('F916 radius decisions match independent distances, isolate region settings and reject absent coordinates', async () => {
+  const app=await boot();
+  try {
+    const A=app.window.__app, home={lat:45,lng:0}, radius=35, earthMi=3958.8;
+    app.window.localStorage.setItem(A.homeKey('lat'),String(home.lat));
+    app.window.localStorage.setItem(A.homeKey('lng'),String(home.lng));
+    app.window.localStorage.setItem(A.chaseMiKey(),String(radius));
+    app.window.localStorage.setItem('ebird_chase_mi:mo','5');
+    const stamp=recentObsStamp(), cascade={
+      code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
+      birders:[{name:'PRIVATE',rank:1}],locationState:'ok'
+    };
+    const place=mi => ({lat:home.lat+mi/earthMi*180/Math.PI,lng:0,
+      obsDt:stamp,locName:'Synthetic public marsh'});
+    const trace=() => JSON.parse(app.window.__dbg.buf.filter(r =>
+      r.msg.includes('CCLO') && r.msg.includes(' · places · ')).at(-1).msg.split(' · ').at(-1));
+    for (const mi of [0,10,34.9,35.1,80]) {
+      const row=place(mi), rad=Math.PI/180;
+      const reference=earthMi*Math.acos(Math.min(1,
+        Math.sin(home.lat*rad)*Math.sin(row.lat*rad)
+        +Math.cos(home.lat*rad)*Math.cos(row.lat*rad)*Math.cos((row.lng-home.lng)*rad)));
+      assert.ok(Math.abs(reference-mi)<0.0001,'independent spherical-distance control failed');
+      A.renderSurge([],[{...cascade,recent:[row]}],[],[],[],{leaderboard:'ok'});
+      const facts=trace();
+      assert.equal(facts.pair,reference<=radius);
+      assert.equal(facts.rejected.outside,reference>radius ? 1 : 0);
+      assert.equal(facts.radiusMi,radius,'another region leaked its radius');
+      assert.equal(facts.origin,'configured-home');
+      assert.equal(facts.distanceBandWidthMi,10);
+      assert.ok(Math.abs(facts.nearestPublicDistanceBandMi-mi)<=10);
+    }
+    A.renderSurge([],[{...cascade,recent:[40,50,60,70,80,90].map(place)}],[],[],[],{leaderboard:'ok'});
+    assert.equal(trace().returned,6);
+    assert.equal(trace().rejected.outside,6);
+    assert.equal(trace().pair,false);
+    for (const lat of [null,undefined,'',' ',NaN,91]) {
+      A.renderSurge([],[{...cascade,recent:[{...place(1),lat}]}],[],[],[],{leaderboard:'ok'});
+      assert.equal(trace().rejected.coordinates,1);
+      assert.equal(trace().rejected.outside,0);
+      assert.equal(trace().nearestPublicDistanceBandMi,null);
+    }
+    assert.doesNotMatch(app.window.__dbg.buf.filter(r => r.msg.includes('CCLO')).map(r => r.msg).join('\n'),
+      /PRIVATE|Synthetic public marsh|"lat"|"lng"/);
+  } finally {app.window.close();}
+});
+
+test('F916 cached CCLO traces name the reused enrichment without inventing a fresh board acquisition', async () => {
+  const app=await boot({sample:false,fetch:() => []});
+  try {
+    const A=app.window.__app, stamp=recentObsStamp();
+    await A.saveSurgeSourceCache({
+      cascades:{state:'ok',rows:[{
+        code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
+        birders:[{name:'PRIVATE',rank:1}],locationState:'ok',
+        recent:[{lat:0,lng:0,locName:'Synthetic marsh',obsDt:stamp}]
+      }]}
+    });
+    app.$('ccloTraceArm').click();
+    await A.loadSurge();
+    await waitFor(() => !app.$('ccloTraceCopy').disabled,'cached CCLO summary');
+    const output=JSON.parse(app.$('ccloTraceOutput').textContent);
+    for (const stage of ['board','candidate','identity','sightings']) {
+      assert.equal(output.stages[stage].state,'recorded',stage+' cache provenance was lost');
+      assert.equal(output.stages[stage].facts.source,'cached-enrichment');
+    }
+    assert.equal(output.stages.board.facts.acquisition,'not-replayed');
+    assert.equal(output.stages.board.facts.qualified,undefined,'cached qualification was invented');
+    assert.equal(output.stages.candidate.facts.present,true);
+    assert.equal(output.stages.sightings.facts.returned,1);
+    assert.equal(output.stages.places.facts.rejected.outside,1);
+    assert.equal(output.stages.merge.facts.present,false);
+    assert.equal(app.state.fetches.filter(url => /top100|recent\/chclon/.test(url)).length,0,
+      'diagnostics bought redundant source requests');
+    assert.doesNotMatch(JSON.stringify(output),/PRIVATE|Synthetic marsh|"lat"|"lng"/);
+  } finally {app.window.close();}
+});
+
 test('F919 native high-count diagnostics identify and deduplicate parser shape failures without leaking page content', async () => {
   const app = await boot({fetch:url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : f821Hotspots()});
   let browser;
