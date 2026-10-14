@@ -7703,6 +7703,7 @@ test('F916 CCLO decisions distinguish place rejection, source state, merging and
       assert.equal(trace('places').pair,c.pair);
       assert.equal(trace('places').returned,c.rows.length);
       assert.equal(trace('merge').present,c.pair);
+      assert.equal(trace('merge').dropAt,c.pair ? '' : 'no-cclo-card-before-merge');
       if (c.reject) assert.equal(trace('places').rejected[c.reject],1);
       assert.equal(trace('merge').retained,!!c.state);
     }
@@ -7829,6 +7830,200 @@ test('F919 unreadable native samples keep the two-minute timeout and sanitize br
     assert.match(logs,/"reason":"script-error","errorType":"unknown","shape":\{"rows":1\}/);
     assert.equal((logs.match(/high-count parser/g)||[]).length,1);
     assert.doesNotMatch(logs,/PRIVATE|user close/);
+  } finally {app.window.close();}
+});
+
+test('F922 captures malformed rendered rows independently, redacts twice, and copies only the bounded export', async () => {
+  const app = await boot({sample:false,fetch:() => []});
+  const handlers = {}, closed = [], opened = [];
+  let browser, copied = '';
+  Object.defineProperty(app.window.navigator,'clipboard',{configurable:true,value:{
+    writeText(text) {copied=text;return Promise.resolve();}
+  }});
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(name,fn) {handlers[name]=fn;return {remove(){}};},
+    openWebView(options) {
+      opened.push(options);
+      const html = f821Page([
+        {name:'PRIVATE-CONTROL-BEFORE',locName:'PRIVATE-PLACE-BEFORE',subId:'S123456'},
+        {name:'PRIVATE-FAILING-SPECIES',locName:'PRIVATE-PLACE-FAIL',subId:'PRIVATE-CHECKLIST',date:'not-a-date'},
+        {name:'PRIVATE-CONTROL-AFTER',locName:'PRIVATE-PLACE-AFTER',subId:'S987654'},
+      ]);
+      browser = new JSDOM(html,{url:options.url,runScripts:'outside-only'});
+      browser.window.document.querySelector('li.BirdList-list-list-item')
+        .setAttribute('data-private-marker','PRIVATE-ATTRIBUTE');
+      const script = browser.window.document.createElement('script');
+      script.textContent = 'window.privateMarker="PRIVATE-SCRIPT";';
+      browser.window.document.querySelector('.BirdList').append(script);
+      browser.window.mobileApp = {postMessage(message) {
+        handlers.messageFromWebview({id:'mass-diagnostic-1',detail:message.detail});
+      }};
+      setTimeout(() => handlers.browserPageLoaded({id:'mass-diagnostic-1'}),0);
+      return Promise.resolve({id:'mass-diagnostic-1'});
+    },
+    hide(){},show(){},
+    close(options){closed.push(options.id);return Promise.resolve();},
+    executeScript({code}) {browser.window.eval(code);return Promise.resolve();}
+  }}};
+  try {
+    const beforeKeys = Object.keys(app.window.localStorage).filter(key =>
+      /mass.*capture|cclo.*trace|diagnostic.*html/i.test(key)).sort();
+    const capture = app.$('massPageCapture'), copy = app.$('massPageCopy');
+    capture.click();
+    capture.click();
+    await waitFor(() => !copy.disabled,'redacted high-count capture');
+    const output = JSON.parse(app.$('massPageCaptureOutput').textContent);
+    assert.equal(opened.length,1,'duplicate activation opened a second browser');
+    assert.equal(opened[0].hidden,true);
+    assert.equal(opened[0].url,'https://ebird.org/region/US-WA/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en');
+    assert.deepEqual(closed,['mass-diagnostic-1'],'capture closed anything other than its owned browser');
+    assert.equal(output.label,'Rendered HTML — privacy-redacted');
+    assert.match(app.$('massPageCaptureStatus').textContent,/visual disappearance is not confirmed/);
+    assert.equal(output.status,'captured');
+    assert.equal(output.reason,'malformed-row',
+      'rendered structure must be retained even when production parsing rejects it');
+    assert.equal(output.rowIndex,1);
+    assert.deepEqual(output.rowIndexes,[0,1,2]);
+    assert.equal(output.regionScope,'active-region','precise region code escaped into the export');
+    assert.ok(output.html.length > 0 && output.html.length <= 12000);
+    assert.doesNotMatch(output.html,/PRIVATE|SECRET|S123456|S987654|onerror|data-private-marker|<script/i);
+    assert.match(output.html,/species-code/);
+    assert.match(output.html,/region-match/);
+    assert.match(output.html,/checklist/);
+    assert.match(output.html,/invalid-date/);
+    assert.deepEqual(Object.keys(app.window.localStorage).filter(key =>
+      /mass.*capture|cclo.*trace|diagnostic.*html/i.test(key)).sort(),beforeKeys,
+    'rendered HTML was written to localStorage');
+  } finally {
+    if(browser) browser.window.close();
+    app.window.close();
+  }
+});
+
+test('F922 export omits private markup, reports owned-window cancellation, and surfaces clipboard rejection', async () => {
+  const app = await boot({sample:false,fetch:() => []});
+  const handlers = {}, closed = [];
+  let browser, opens = 0, copied = '';
+  Object.defineProperty(app.window.navigator,'clipboard',{configurable:true,value:{
+    writeText(text) {copied=text;return Promise.resolve();}
+  }});
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(name,fn) {handlers[name]=fn;return {remove(){}};},
+    openWebView(options) {
+      opens++;
+      browser = new JSDOM(f821Page([{name:'PRIVATE',locName:'SECRET'}]),
+        {url:options.url,runScripts:'outside-only'});
+      browser.window.mobileApp = {postMessage(message) {
+        handlers.messageFromWebview({id:'mass-diagnostic-2',detail:message.detail});
+      }};
+      setTimeout(() => handlers.browserPageLoaded({id:'mass-diagnostic-2'}),0);
+      return Promise.resolve({id:'mass-diagnostic-2'});
+    },
+    hide(){},show(){},
+    close(options){closed.push(options.id);return Promise.resolve();},
+    executeScript({code}) {browser.window.eval(code);return Promise.resolve();}
+  }}};
+  try {
+    app.$('massPageCapture').click();
+    await waitFor(() => !app.$('massPageCopy').disabled,'capture ready for clipboard test');
+    const html = JSON.parse(app.$('massPageCaptureOutput').textContent).html;
+    assert.doesNotMatch(html,/PRIVATE|SECRET|S800|L821|<script|<body|href="https:\/\/ebird\.org\/region\/L/);
+    app.$('massPageCopy').click();
+    await waitFor(() => copied.includes('Rendered HTML — privacy-redacted'),'copy success');
+    Object.defineProperty(app.window.navigator,'clipboard',{configurable:true,value:{
+      writeText() {return Promise.reject(new Error('permission denied'));}
+    }});
+    app.$('massPageCopy').click();
+    await waitFor(() => /Copy failed: permission denied/.test(app.$('massPageCaptureStatus').textContent),
+      'clipboard rejection status');
+    assert.equal(opens,1);
+    assert.deepEqual(closed,['mass-diagnostic-2']);
+
+    const cancelledApp = await boot({sample:false,fetch:() => []});
+    const cancelHandlers = {}, cancelClosed = [];
+    cancelledApp.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn) {cancelHandlers[name]=fn;return {remove(){}};},
+      openWebView() {
+        setTimeout(() => {
+          cancelHandlers.closeEvent({id:'unrelated-window'});
+          cancelHandlers.closeEvent({id:'mass-diagnostic-cancel'});
+        },5);
+        return Promise.resolve({id:'mass-diagnostic-cancel'});
+      },
+      hide(){},show(){},
+      close(options){cancelClosed.push(options.id);return Promise.resolve();},
+      executeScript(){return Promise.resolve();}
+    }}};
+    try {
+      cancelledApp.$('massPageCapture').click();
+      await waitFor(() => /capture failed/i.test(cancelledApp.$('massPageCaptureStatus').textContent),
+        'owned-window cancellation');
+      assert.deepEqual(cancelClosed,['mass-diagnostic-cancel'],
+        'unrelated WebView event was allowed to close a window');
+    } finally {cancelledApp.window.close();}
+  } finally {
+    if(browser) browser.window.close();
+    app.window.close();
+  }
+});
+
+test('F923 one armed Bird Gen load exports bounded stage facts through log rollover without inheriting old stages', async () => {
+  const app = await boot({sample:false,fetch:() => []});
+  let copied = '';
+  Object.defineProperty(app.window.navigator,'clipboard',{configurable:true,value:{
+    writeText(text) {copied=text;return Promise.resolve();}
+  }});
+  const A = app.window.__app, arm = app.$('ccloTraceArm'), copy = app.$('ccloTraceCopy');
+  const exportTrace = async () => {
+    copy.click();
+    await waitFor(() => copied.startsWith('{'),'CCLO trace clipboard');
+    return JSON.parse(copied);
+  };
+  try {
+    arm.click();
+    await A.loadSurge();
+    await waitFor(() => !copy.disabled,'first one-load CCLO trace');
+    await A.cascadeSpots([{code:'chclon',species:'Chestnut-collared Longspur'}],[]);
+    const stamp=recentObsStamp();
+    A.renderSurge([], [{
+      code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
+      birders:[{name:'PRIVATE A',rank:1},{name:'PRIVATE B',rank:2}],
+      locationState:'ok',recent:[{
+        lat:47.75,lng:-122.16,locName:'Public marsh',obsDt:stamp,subId:'S12345'
+      }]
+    }],[],[],[],{leaderboard:'ok'});
+    for (let i=0;i<850;i++) app.window.__dbg.push('net',['F923 rollover '+i]);
+    assert.equal(app.window.__dbg.buf.length,800,'test did not exercise the production log cap');
+    const first = await exportTrace();
+    assert.equal(first.complete,true);
+    assert.equal(first.scope,'active-region');
+    assert.equal(app.$('ccloTraceOutput').hidden,false);
+    assert.equal(first.stages.candidate.state,'recorded');
+    assert.equal(first.stages.candidate.facts.present,true);
+    for (const stage of ['board','candidate','identity','sightings','places','merge','visibility']) {
+      assert.ok(['recorded','not-reached'].includes(first.stages[stage].state),
+        'invalid state for stage ' + stage);
+    }
+    assert.equal(first.stages.places.state,'recorded');
+    assert.equal(first.stages.places.facts.pair,true);
+    assert.equal(first.stages.merge.state,'recorded');
+    assert.equal(first.stages.merge.facts.present,true);
+    assert.equal(first.stages.merge.facts.dropAt,'');
+    assert.equal(first.stages.visibility.state,'recorded');
+    assert.doesNotMatch(JSON.stringify(first),/PRIVATE|SECRET|47\.75|-122\.16|Public marsh|S\d{5}|US-WA/);
+    const diagnosticKeys = Object.keys(app.window.localStorage).filter(key =>
+      /cclo.*trace|mass.*capture|diagnostic.*html/i.test(key));
+    assert.deepEqual(diagnosticKeys,[],'trace was persisted instead of remaining in memory');
+
+    arm.click();
+    await A.loadSurge(undefined,true);
+    await waitFor(() => !copy.disabled,'second CCLO trace generation');
+    const second = await exportTrace();
+    assert.notEqual(second.load,first.load,'the trace generation was not replaced');
+    assert.ok(second.load > first.load);
+    assert.ok(['not-reached','recorded'].includes(second.stages.candidate.state));
+    assert.notEqual(second.stages.candidate.facts?.present,true,
+      'a new load inherited the candidate state from the prior generation');
   } finally {app.window.close();}
 });
 

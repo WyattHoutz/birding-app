@@ -4191,6 +4191,22 @@
         <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
         <button id="openDebugBtn" class="secondary" type="button">🐞 Debug log</button>
       </div>
+      <label>CCLO diagnosis</label>
+      <div class="row">
+        <button id="ccloTraceArm" class="secondary" type="button">Capture next CCLO refresh</button>
+        <button id="ccloTraceCopy" class="secondary" type="button" disabled>Copy CCLO trace</button>
+      </div>
+      <p id="ccloTraceStatus" class="hint" role="status">Trace is off. Arm it, then refresh Bird Gen once.</p>
+      <pre id="ccloTraceOutput" class="diagnosticcapture" hidden></pre>
+      <label>eBird high-count page diagnosis</label>
+      <div class="row">
+        <button id="massPageCapture" class="secondary" type="button">Capture rendered page sample</button>
+        <button id="massPageCopy" class="secondary" type="button" disabled>Copy redacted HTML</button>
+      </div>
+      <p id="massPageCaptureStatus" class="hint" role="status">
+        Captures a small, privacy-redacted rendered HTML sample in memory. It requests closure of the owned eBird window; native visual disappearance is not confirmed.
+      </p>
+      <pre id="massPageCaptureOutput" class="diagnosticcapture" hidden></pre>
       <label>Diagnostics</label>
       <div class="row">
         <button id="lifeProbeBtn" class="secondary" type="button">🧪 Test eBird life-list access</button>
@@ -4278,6 +4294,8 @@
     #debugPanel .dbgtools[hidden] { display: none; }
     #debugPanel .dbgtools button { background: #24463a; color: #e6fff4; border: 0;
                                    border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+    .diagnosticcapture { max-height: 16rem; overflow: auto; white-space: pre-wrap;
+                         overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
     html[data-report-export="true"] #debugPanel { display: none !important; }
     /* `overflow:auto` and `-webkit-overflow-scrolling` because a <pre> does not
        scroll on its own the way a textarea did. `user-select: text` so the log
@@ -4850,7 +4868,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.151.0';
+      var APP_VERSION = '1.152.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -28078,16 +28096,26 @@
             if (id) {
               try {
                 if (opts.kind === 'massHighCount') trace('close request', 'owned window');
+                if (opts.onCloseStatus) opts.onCloseStatus('request-started');
                 var closing = IB.close({ id: id });
-                if (opts.kind === 'massHighCount' && closing && closing.then) {
-                  closing = closing.then(function () { trace('close acknowledged', 'native close request resolved'); });
+                if (closing && closing.then) {
+                  closing = closing.then(function () {
+                    if (opts.kind === 'massHighCount') {
+                      trace('close acknowledged', 'native close request resolved');
+                    }
+                    if (opts.onCloseStatus) opts.onCloseStatus('acknowledged');
+                  });
                 }
                 if (closing && closing.catch) closing.catch(function (error) {
                   trace('close failed', (error && error.message) || String(error), 'warn');
+                  if (opts.onCloseStatus) opts.onCloseStatus('failed');
                 });
               } catch (error) {
                 trace('close failed', (error && error.message) || String(error), 'warn');
+                if (opts.onCloseStatus) opts.onCloseStatus('failed');
               }
+            } else if (opts.onCloseStatus) {
+              opts.onCloseStatus('not-opened');
             }
             err ? reject(err) : resolve(data);
           }
@@ -28181,6 +28209,11 @@
                 return;
               }
               if (d.needsLogin) { reveal(); return; }
+              if (opts.kind === 'massPageDiagnostic' && d.terminal) {
+                if (d.ok && d.data) finish(null, d.data);
+                else finish(new Error('The rendered eBird page could not be captured.'));
+                return;
+              }
               if (opts.kind === 'personalList' && d.terminal && !d.ok) {
                 finish(new Error(d.error || 'The signed-in personal list could not be verified.'));
                 return;
@@ -39170,6 +39203,183 @@
         });
       }
 
+      function sanitizeMassCaptureMarkup(html, expectedRegion) {
+        if (typeof html !== 'string' || html.length > 16000) {
+          throw new Error('Rendered sample exceeds its size limit.');
+        }
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var allowedTags = {
+          DIV: 1, SECTION: 1, H3: 1, OL: 1, LI: 1, A: 1, SPAN: 1, TIME: 1
+        };
+        var allowedClasses = {
+          BirdList: 1, 'BirdList-list': 1, 'BirdList-list-list-item': 1,
+          countable: 1, Obs: 1, 'Obs-species': 1, 'Obs-count': 1,
+          'Obs-date': 1, 'Obs-location': 1, 'Obs-location-name': 1,
+          'Species-common': 1
+        };
+        function escaped(value) {
+          return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function safeHref(raw) {
+          var value = String(raw || '');
+          if (/^https:\/\/ebird\.org\/species(?:\/)\[species-code\](?:\/)\[(?:region-match|region-mismatch)\]$/.test(value)
+              || /^https:\/\/ebird\.org\/checklist\/\[checklist\]$/.test(value)
+              || /^https:\/\/ebird\.org\/region\/\[place\]$/.test(value)
+              || value === '[other-link]' || value === '[missing-link]') return value;
+          if (/^https:\/\/ebird\.org\/species(?:\/)[a-z0-9]+(?:\/)[A-Za-z0-9-]+$/.test(value)) {
+            var actual = value.split('/').pop().toUpperCase();
+            return 'https://ebird.org' + '/species/[species-code]/['
+              + (expectedRegion && actual === String(expectedRegion).toUpperCase()
+                ? 'region-match' : 'region-mismatch') + ']';
+          }
+          if (/^https:\/\/ebird\.org\/checklist\/S[0-9]+$/.test(value)) {
+            return 'https://ebird.org/checklist/[checklist]';
+          }
+          if (/^https:\/\/ebird\.org\/region\/L[0-9]+(?:\?.*)?$/.test(value)) {
+            return 'https://ebird.org/region/[place]';
+          }
+          return '[other-link]';
+        }
+        function render(node, context) {
+          if (node.nodeType === 3) {
+            if (context === 'species') return '[species]';
+            if (context === 'location') return '[location]';
+            if (context === 'date') return '[date]';
+            return '';
+          }
+          if (node.nodeType !== 1 || !allowedTags[node.tagName]
+              || /^(SCRIPT|STYLE|IFRAME|OBJECT|INPUT|TEXTAREA|SVG)$/.test(node.tagName)) return '';
+          var classes = String(node.getAttribute('class') || '').split(/\s+/)
+            .filter(function (name) { return allowedClasses[name]; });
+          var classText = classes.length ? ' class="' + escaped(classes.join(' ')) + '"' : '';
+          var nextContext = context;
+          if (classes.indexOf('Obs-species') >= 0 || classes.indexOf('Species-common') >= 0) {
+            nextContext = 'species';
+          } else if (classes.indexOf('Obs-location-name') >= 0) {
+            nextContext = 'location';
+          }
+          if (classes.indexOf('Obs-count') >= 0) {
+            var count = /Count:\s*([0-9][0-9,]*|X)\s*$/i.exec(node.textContent || '');
+            return '<' + node.tagName.toLowerCase() + classText + '>'
+              + (count ? 'Count: ' + (count[1].toUpperCase() === 'X' ? 'X' : '123')
+                : 'Count: [invalid]')
+              + '</' + node.tagName.toLowerCase() + '>';
+          }
+          if (node.tagName === 'H3') {
+            var heading = /(?:Native and Naturalized|Exotic: Provisional)\s*\((\d+)\)/
+              .exec(node.textContent || '');
+            if (!heading) return '<h3>Unclassified species section</h3>';
+            var label = /Exotic: Provisional/.test(node.textContent)
+              ? 'Exotic: Provisional' : 'Native and Naturalized';
+            return '<h3>' + label + ' (' + Math.min(10000, Number(heading[1])) + ')</h3>';
+          }
+          if (node.tagName === 'TIME') {
+            var stamp = String(node.getAttribute('datetime') || '');
+            var dateShape = /^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/.test(stamp)
+              ? '2000-01-01 00:00' : '[invalid-date]';
+            return '<time datetime="' + dateShape + '">[date]</time>';
+          }
+          var attrs = classText;
+          if (node.tagName === 'A') {
+            attrs += ' href="' + escaped(safeHref(node.getAttribute('href'))) + '"';
+          }
+          var children = '';
+          for (var i = 0; i < node.childNodes.length; i++) {
+            children += render(node.childNodes[i], nextContext);
+          }
+          return '<' + node.tagName.toLowerCase() + attrs + '>' + children
+            + '</' + node.tagName.toLowerCase() + '>';
+        }
+        var result = '';
+        for (var i = 0; i < doc.body.childNodes.length; i++) {
+          result += render(doc.body.childNodes[i], '');
+        }
+        if (result.length > 12000) {
+          throw new Error('Sanitized rendered structure exceeds its output limit.');
+        }
+        return result;
+      }
+
+      function sanitizeMassHighCountFragment(html, region) {
+        function escaped(value) {
+          return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        var allowedReasons = ['missing-list', 'incomplete-rows', 'malformed-row',
+          'script-error', 'page-too-large', 'none'];
+        if (typeof html !== 'string' || html.length > 4000000) {
+          return {
+            reason: 'page-too-large', rowIndex: null, declaredRows: null,
+            rowsFound: 0, rowIndexes: [], truncated: true, html: ''
+          };
+        }
+        var parsed = { reason: 'none', shape: {} };
+        try {
+          parseMassHighCountPage(html, region);
+        } catch (error) {
+          parsed.reason = allowedReasons.indexOf(error && error.captureReason) >= 0
+            ? error.captureReason : 'script-error';
+          var shape = error && error.captureShape || {};
+          ['list', 'listBody', 'rows', 'declared', 'speciesSection', 'invalidRow',
+            'speciesLink', 'region', 'count', 'date', 'checklist', 'location']
+            .forEach(function (key) {
+              var value = shape[key];
+              if (typeof value === 'boolean' || Number.isInteger(value)
+                  && value >= 0 && value <= 10000) parsed.shape[key] = value;
+            });
+        }
+        var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+        var root = doc.querySelector('.BirdList');
+        var listBody = root && root.querySelector('.BirdList-list');
+        if (!root || !listBody) {
+          return {
+            reason: parsed.reason === 'none' ? 'missing-list' : parsed.reason,
+            rowIndex: parsed.shape.invalidRow == null ? null : parsed.shape.invalidRow,
+            declaredRows: parsed.shape.declared == null ? null : parsed.shape.declared,
+            rowsFound: parsed.shape.rows == null ? 0 : parsed.shape.rows,
+            rowIndexes: [], truncated: false, html: ''
+          };
+        }
+        var headings = Array.from(root.querySelectorAll('h3')).filter(function (heading) {
+          return /(?:Native and Naturalized|Exotic: Provisional)\s*\(\d+\)/
+            .test(heading.textContent || '');
+        }).slice(0, 4);
+        var rows = Array.from(root.querySelectorAll('li.BirdList-list-list-item.countable'));
+        var focus = Number.isInteger(parsed.shape.invalidRow)
+          ? parsed.shape.invalidRow : (rows.length ? 0 : -1);
+        var indexes = focus < 0 ? [] : [focus]
+          .concat([focus - 1, focus + 1].filter(function (index) {
+            return index >= 0 && index < rows.length;
+          })).sort(function (a, b) { return a - b; });
+        var headerHtml = headings.map(function (heading) {
+          return sanitizeMassCaptureMarkup('<h3>' + escaped(heading.textContent) + '</h3>', region);
+        }).join('');
+        var truncated = false, sampleHtml = '';
+        while (true) {
+          sampleHtml = '<div class="BirdList"><section class="BirdList-list">'
+            + headerHtml + '<ol>' + indexes.map(function (index) {
+              return sanitizeMassCaptureMarkup(rows[index].outerHTML, region);
+            }).join('') + '</ol></section></div>';
+          if (sampleHtml.length <= 12000) break;
+          var neighbor = indexes.slice().reverse().filter(function (index) {
+            return index !== focus;
+          })[0];
+          if (neighbor == null) {
+            throw new Error('The focused rendered row exceeds its output limit.');
+          }
+          indexes.splice(indexes.indexOf(neighbor), 1);
+          truncated = true;
+        }
+        return {
+          reason: parsed.reason,
+          rowIndex: parsed.shape.invalidRow == null ? null : parsed.shape.invalidRow,
+          declaredRows: parsed.shape.declared == null ? null : parsed.shape.declared,
+          rowsFound: parsed.shape.rows == null ? rows.length : parsed.shape.rows,
+          rowIndexes: indexes, truncated: truncated, html: sampleHtml
+        };
+      }
+
       function buildMassHighCountInject(region, expectedUrl) {
         return '(function(){' +
           'function send(detail){try{if(window.mobileApp&&window.mobileApp.postMessage){' +
@@ -39189,6 +39399,180 @@
           'send({__ebird:true,kind:"massHighCount",ok:true,data:{rows:rows,sourceUrl:want.href}});' +
           '}catch(e){send({__ebird:true,kind:"massHighCount",ok:false,parseStatus:"unreadable",' +
           'parseReason:e.captureReason||"script-error",errorType:e.name,pageShape:e.captureShape});}})();';
+      }
+
+      function buildMassHighCountDiagnosticInject(region, expectedUrl) {
+        return '(function(){' +
+          'function send(detail){try{if(window.mobileApp&&window.mobileApp.postMessage){' +
+          'detail.transport="mobileApp";window.mobileApp.postMessage({detail:detail});return;}}catch(_){}' +
+          'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
+          'if(h&&h.postMessage){detail.transport="webkit";h.postMessage({detail:detail});}}' +
+          'try{' + pageKind.toString() + ';' + parseMassHighCountPage.toString() + ';'
+            + sanitizeMassCaptureMarkup.toString() + ';'
+            + sanitizeMassHighCountFragment.toString() + ';' +
+          'var H=document.documentElement?document.documentElement.outerHTML:"";' +
+          'var want=new URL(' + JSON.stringify(expectedUrl) + ');var here=new URL(location.href);' +
+          'var same=here.origin===want.origin&&here.pathname===want.pathname&&' +
+          '["yr","rank","hs_sortBy","locale"].every(function(k){return here.searchParams.get(k)===want.searchParams.get(k);});' +
+          'var kind=pageKind(H);' +
+          'var sample=sanitizeMassHighCountFragment(H,' + JSON.stringify(region) + ');' +
+          'var status=!same?"wrong-page":kind==="LOGIN"?"login-required":kind!=="OPEN"?"unrecognized-page":' +
+            'sample.reason==="page-too-large"?"capture-limit":sample.reason==="missing-list"?' +
+            '"list-not-found":"captured";' +
+          'send({__ebird:true,kind:"massPageDiagnostic",ok:true,terminal:true,' +
+          'needsLogin:status==="login-required",data:{status:status,reason:sample.reason,' +
+          'rowIndex:sample.rowIndex,declaredRows:sample.declaredRows,rowsFound:sample.rowsFound,' +
+          'rowIndexes:sample.rowIndexes,truncated:sample.truncated,html:sample.html}});' +
+          '}catch(e){send({__ebird:true,kind:"massPageDiagnostic",ok:false,terminal:true,' +
+          'data:{status:"capture-failed",reason:"script-error",rowIndex:null,declaredRows:null,' +
+          'rowsFound:0,rowIndexes:[],truncated:false,html:""}});}})();';
+      }
+
+      var _massPageCaptureAttempt = 0, _massPageCaptureActive = false;
+      var _massPageCaptureValue = '';
+      function validateMassHighCountDiagnostic(data, region, captureId) {
+        var statuses = ['captured', 'wrong-page', 'login-required', 'unrecognized-page',
+          'capture-limit', 'list-not-found'];
+        var reasons = ['missing-list', 'incomplete-rows', 'malformed-row',
+          'script-error', 'page-too-large', 'none'];
+        if (!data || statuses.indexOf(data.status) < 0
+            || reasons.indexOf(data.reason) < 0
+            || typeof data.html !== 'string' || data.html.length > 12000
+            || typeof data.truncated !== 'boolean'
+            || !Number.isInteger(data.rowsFound) || data.rowsFound < 0 || data.rowsFound > 10000
+            || data.rowIndex != null && (!Number.isInteger(data.rowIndex)
+              || data.rowIndex < 0 || data.rowIndex > 10000)
+            || data.declaredRows != null && (!Number.isInteger(data.declaredRows)
+              || data.declaredRows < 0 || data.declaredRows > 10000)
+            || !Array.isArray(data.rowIndexes) || data.rowIndexes.length > 3
+            || data.rowIndexes.some(function (index) {
+              return !Number.isInteger(index) || index < 0 || index > 10000;
+            })) {
+          throw new Error('The rendered sample failed host-side validation.');
+        }
+        var safeHtml = sanitizeMassCaptureMarkup(data.html, region);
+        if (data.html && !safeHtml) {
+          throw new Error('The rendered sample contained unsupported structure.');
+        }
+        var record = {
+          label: 'Rendered HTML — privacy-redacted',
+          version: APP_VERSION,
+          captureId: captureId,
+          capturedAt: new Date().toISOString(),
+          regionScope: 'active-region',
+          sourceScope: 'selected high-count list rows only',
+          status: data.status,
+          reason: data.reason,
+          rowIndex: data.rowIndex == null ? null : data.rowIndex,
+          declaredRows: data.declaredRows == null ? null : data.declaredRows,
+          rowsFound: data.rowsFound,
+          rowIndexes: data.rowIndexes,
+          truncated: data.truncated,
+          html: safeHtml
+        };
+        var text = JSON.stringify(record, null, 2);
+        if (text.length > 16000) throw new Error('The rendered sample exceeds its export limit.');
+        return text;
+      }
+
+      function captureMassHighCountDiagnostic() {
+        if (_massPageCaptureActive) return Promise.resolve(false);
+        var scope = activeScope(), region = scope.effectiveRegion;
+        if (!/^[A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(region || '')) {
+          $('massPageCaptureStatus').textContent =
+            'Capture unavailable for this region scope.';
+          return Promise.resolve(false);
+        }
+        _massPageCaptureActive = true;
+        _massPageCaptureValue = '';
+        var generation = ++_massPageCaptureAttempt;
+        var captureId = 'mass-page-' + generation;
+        var button = $('massPageCapture'), copyButton = $('massPageCopy');
+        var output = $('massPageCaptureOutput'), status = $('massPageCaptureStatus');
+        var settled = false, captureSucceeded = false, closeState = 'pending';
+        button.disabled = true;
+        copyButton.disabled = true;
+        output.hidden = true;
+        output.textContent = '';
+        function updateStatus() {
+          if (!settled || !captureSucceeded || generation !== _massPageCaptureAttempt) return;
+          status.textContent = closeState === 'acknowledged'
+            ? 'Capture ready. The owned-window close request was acknowledged; visual disappearance is not confirmed.'
+            : closeState === 'failed'
+              ? 'Capture ready. The owned-window close request failed; close it manually. Visual disappearance is not confirmed.'
+              : closeState === 'not-opened'
+                ? 'Capture ready. No owned browser window was opened to close.'
+                : 'Capture ready. The owned-window close request is pending; visual disappearance is not confirmed.';
+        }
+        var url = 'https://ebird.org/region/' + encodeURIComponent(region)
+          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+        status.textContent = 'Opening the active-region high-count page for a bounded rendered-DOM sample…';
+        return captureEbird({
+          kind: 'massPageDiagnostic',
+          url: url,
+          alive: function () {
+            return generation === _massPageCaptureAttempt && scopeCurrent(scope);
+          },
+          buildInject: function () {
+            return buildMassHighCountDiagnosticInject(region, url);
+          },
+          injectAttempts: 240,
+          revealAfterDelay: false,
+          onStatus: function () {
+            status.textContent = 'Sign in to eBird if prompted; capture resumes on the high-count page.';
+          },
+          onCloseStatus: function (value) {
+            closeState = value;
+            updateStatus();
+          }
+        }).then(function (data) {
+          _massPageCaptureValue = validateMassHighCountDiagnostic(data, region, captureId);
+          output.textContent = _massPageCaptureValue;
+          output.hidden = false;
+          copyButton.disabled = false;
+          captureSucceeded = true;
+          settled = true;
+          updateStatus();
+          return true;
+        }).catch(function (error) {
+          settled = true;
+          status.textContent = 'Rendered page capture failed: '
+            + ((error && error.message) || 'unknown capture error');
+          dbg('warn', 'Rendered high-count diagnostic failed: ' + (error && error.message || error));
+          return false;
+        }).finally(function () {
+          if (generation === _massPageCaptureAttempt) {
+            _massPageCaptureActive = false;
+            button.disabled = false;
+          }
+        });
+      }
+
+      function copyMassHighCountDiagnostic() {
+        if (!_massPageCaptureValue) return Promise.resolve(false);
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          $('massPageCaptureStatus').textContent =
+            'Clipboard is unavailable. Select and copy the redacted sample above.';
+          return Promise.resolve(false);
+        }
+        var copying;
+        try { copying = navigator.clipboard.writeText(_massPageCaptureValue); }
+        catch (error) {
+          $('massPageCaptureStatus').textContent =
+            'Copy failed: ' + ((error && error.message) || 'clipboard rejected the request')
+            + '. Select and copy the redacted sample above.';
+          return Promise.resolve(false);
+        }
+        return Promise.resolve(copying).then(function () {
+          $('massPageCaptureStatus').textContent =
+            'Redacted rendered sample copied. Review it before sharing.';
+          return true;
+        }).catch(function (error) {
+          $('massPageCaptureStatus').textContent =
+            'Copy failed: ' + ((error && error.message) || 'clipboard rejected the request')
+            + '. Select and copy the redacted sample above.';
+          return false;
+        });
       }
 
       function loadMassFlockAlertSource(force, scope, onProgress) {
@@ -39459,7 +39843,66 @@
         });
       }
 
+      var _ccloTraceArmed = false, _ccloTraceCapture = null;
+      var CCLO_TRACE_STAGES = ['board', 'candidate', 'identity', 'sightings',
+        'places', 'merge', 'visibility'];
+      function armCcLoTraceCapture() {
+        _ccloTraceArmed = true;
+        _ccloTraceCapture = null;
+        $('ccloTraceCopy').disabled = true;
+        $('ccloTraceOutput').hidden = true;
+        $('ccloTraceOutput').textContent = '';
+        $('ccloTraceStatus').textContent = _surgeActiveLoad && _surgeActiveLoad.current()
+          ? 'Armed for the next new Bird Gen load. The active load cannot be backfilled; refresh again after it finishes.'
+          : 'Armed for the next Bird Gen refresh. Refresh once to capture one bounded, in-memory trace.';
+      }
+      function beginCcLoTraceCapture(generation) {
+        if (!_ccloTraceArmed) return;
+        _ccloTraceArmed = false;
+        var stages = {};
+        CCLO_TRACE_STAGES.forEach(function (stage) {
+          stages[stage] = { state: 'not-reached' };
+        });
+        _ccloTraceCapture = {
+          version: APP_VERSION,
+          scope: 'active-region',
+          load: generation,
+          startedAt: new Date().toISOString(),
+          complete: false,
+          stages: stages
+        };
+        $('ccloTraceStatus').textContent =
+          'CCLO trace running for this Bird Gen load; no raw observations are retained.';
+      }
+      function finishCcLoTraceCapture(generation) {
+        if (!_ccloTraceCapture || _ccloTraceCapture.load !== generation) return;
+        _ccloTraceCapture.finishedAt = new Date().toISOString();
+        _ccloTraceCapture.complete = true;
+        var ready = !!ccLoTraceText();
+        $('ccloTraceCopy').disabled = !ready;
+        $('ccloTraceOutput').textContent = ready ? ccLoTraceText() : '';
+        $('ccloTraceOutput').hidden = !ready;
+        $('ccloTraceStatus').textContent = ready
+          ? 'CCLO trace ready for this load. Copy it and review before sharing.'
+          : 'CCLO trace exceeded its export bound and was not made copyable.';
+      }
+      function ccLoTraceText() {
+        if (!_ccloTraceCapture || !_ccloTraceCapture.complete) return '';
+        var text = JSON.stringify(_ccloTraceCapture, null, 2);
+        return text.length <= 12000 ? text : '';
+      }
       function traceCascadeDecision(stage, facts) {
+        if (_ccloTraceCapture && _ccloTraceCapture.load === _surgeLoadGeneration
+            && Object.prototype.hasOwnProperty.call(_ccloTraceCapture.stages, stage)) {
+          var safeFacts = JSON.parse(JSON.stringify(facts));
+          _ccloTraceCapture.stages[stage] = JSON.stringify(safeFacts).length <= 1024
+            ? { state: 'recorded', facts: safeFacts }
+            : { state: 'omitted', reason: 'stage-facts-exceeded-limit' };
+          if (_ccloTraceCapture.complete) {
+            var updatedTrace = ccLoTraceText();
+            if (updatedTrace) $('ccloTraceOutput').textContent = updatedTrace;
+          }
+        }
         var message = 'Bird Gen CCLO · load ' + _surgeLoadGeneration + ' · ' + stage
           + ' · ' + JSON.stringify(facts);
         if (_surgeDecisionTrace[stage] === message) return;
@@ -39561,6 +40004,9 @@
             && !migrationRows.length) {
           traceCascadeDecision('merge', {
             present: false, winningKind: '', reasons: [],
+            cascadePair: false, beforeSpeciesMerge: false,
+            afterSpeciesMerge: false, afterFoyMerge: false,
+            afterHybridFilter: false, dropAt: 'no-cclo-card-before-merge',
             source: sourceStates.leaderboard,
             retained: !!(sourceState && sourceState.cascadeRetained)
           });
@@ -39893,8 +40339,17 @@
           row.mega = row.kind === 'mega'
             || isMegaBird(row.speciesKey || row.code, row.speciesNameKey);
         });
+        var ccloBeforeSpeciesMerge = rows.some(function (row) {
+          return (row.speciesKey || row.code) === 'chclon';
+        });
         rows = mergeSurgeSpeciesRows(rows);
+        var ccloAfterSpeciesMerge = rows.some(function (row) {
+          return (row.speciesKey || row.code) === 'chclon';
+        });
         appendFoySurgeReasons(rows, annualFirsts);
+        var ccloAfterFoyMerge = rows.some(function (row) {
+          return (row.speciesKey || row.code) === 'chclon';
+        });
         rows = rows.filter(function (row) {
           if (!row.speciesKey && !row.code && !row.speciesNameKey) return true;
           var taxon = _taxonomyModel && _taxonomyModel.edition === taxonomyEdition()
@@ -39905,6 +40360,22 @@
         var cclo = rows.find(function (row) { return (row.speciesKey || row.code) === 'chclon'; });
         traceCascadeDecision('merge', {
           present: !!cclo, winningKind: cclo ? cclo.kind : '',
+          cascadePair: cascadePairs.some(function (pair) {
+            return isCascadeTraceTarget(pair.c);
+          }),
+          beforeSpeciesMerge: ccloBeforeSpeciesMerge,
+          afterSpeciesMerge: ccloAfterSpeciesMerge,
+          afterFoyMerge: ccloAfterFoyMerge,
+          afterHybridFilter: !!cclo,
+          dropAt: ccloBeforeSpeciesMerge && !ccloAfterSpeciesMerge
+            ? 'species-merge'
+            : ccloAfterSpeciesMerge && !ccloAfterFoyMerge
+              ? 'foy-merge'
+              : ccloAfterFoyMerge && !cclo
+                ? 'taxonomy-hybrid-filter'
+                : !ccloBeforeSpeciesMerge && cascadePairs.some(function (pair) {
+                  return isCascadeTraceTarget(pair.c);
+                }) ? 'no-cclo-row-before-species-merge' : '',
           reasons: cclo ? (cclo.reasons || [{kind:cclo.kind}]).map(function (reason) {
             return reason.kind;
           }) : [],
@@ -40173,6 +40644,8 @@
         }
         var generation = ++_surgeLoadGeneration;
         var loadScope = activeScope(), loadContext = surgeSourceContext();
+        _surgeDecisionTrace = {};
+        beginCcLoTraceCapture(generation);
         var loadRetainedContext = surgeRetainedContext();
         var loadNavigation = _navGeneration, loadCancellation = _workCancelGeneration;
         var stopped = false, autoload = typeof performanceLoadId === 'string';
@@ -40714,6 +41187,7 @@
           }
         }).finally(function () {
           if (generation === _surgeLoadGeneration) {
+            finishCcLoTraceCapture(generation);
             btn.disabled = false;
             _surgeEarlyPaint = null;
           }
@@ -40756,6 +41230,14 @@
         var list = cascades || [];
         var sourceFailed = false, edition = taxonomyEdition();
         function current() { return (!isCurrent || isCurrent()) && edition === taxonomyEdition(); }
+        var ccloInput = list.some(isCascadeTraceTarget);
+        traceCascadeDecision('candidate', {
+          stage: 'species-enrichment input', present: ccloInput, candidates: list.length
+        });
+        if (!ccloInput) traceCascadeDecision('identity', {
+          source: 'species-enrichment input', resolved: false,
+          reason: 'not-present-in-qualified-board'
+        });
         function done() {
           list.sourceFailed = sourceFailed;
           return list;
@@ -47515,6 +47997,37 @@
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
       $('loadSeedBtn').addEventListener('click', function () { loadSeed(true); });
+      $('ccloTraceArm').addEventListener('click', armCcLoTraceCapture);
+      $('ccloTraceCopy').addEventListener('click', function () {
+        var text = ccLoTraceText();
+        if (!text) {
+          $('ccloTraceStatus').textContent = 'No completed CCLO trace is available to copy.';
+          return;
+        }
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          $('ccloTraceStatus').textContent =
+            'Clipboard is unavailable. Select and copy the trace from the diagnostic export above.';
+          return;
+        }
+        var copying;
+        try { copying = navigator.clipboard.writeText(text); }
+        catch (error) {
+          $('ccloTraceStatus').textContent = 'Copy failed: '
+            + ((error && error.message) || 'clipboard rejected the request')
+            + '. Select and copy the trace manually.';
+          return;
+        }
+        Promise.resolve(copying).then(function () {
+          $('ccloTraceStatus').textContent =
+            'CCLO trace copied. Review it before sharing.';
+        }).catch(function (error) {
+          $('ccloTraceStatus').textContent = 'Copy failed: '
+            + ((error && error.message) || 'clipboard rejected the request')
+            + '. Select and copy the trace manually.';
+        });
+      });
+      $('massPageCapture').addEventListener('click', captureMassHighCountDiagnostic);
+      $('massPageCopy').addEventListener('click', copyMassHighCountDiagnostic);
       $('attribMore').addEventListener('click', function () {
         showSection('settingsPanel');
         var p = $('sourcesPanel');
