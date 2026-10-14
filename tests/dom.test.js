@@ -1116,6 +1116,40 @@ test('F868 Leader Board Ticks counts distinct recent birders and moves source ex
   } finally { app.window.close(); }
 });
 
+test('F925 Ticks visibly distinguishes distinct recent counts from the complete source roster', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app, date = recentObsStamp(1).slice(0,10);
+    const first = {name:'First',profileId:'first',rank:1,date};
+    const paired = {name:'Pair A, Pair B',profileId:'paired',rank:2,date,
+      profileUrl:'https://ebird.org/profile/paired'};
+    const old = {name:'Older participant',profileId:'old',rank:3,date:recentObsStamp(20).slice(0,10)};
+    for (const birders of [[first,paired], [old,paired,first,{...first}]]) {
+      const before = app.state.fetches.length;
+      A.renderLastNew({'Western Grebe':{birders,latest:date}},
+        {'Western Grebe':{code:'wesgre'}},'US-WA',{});
+      const card = app.$('lastNewResults').querySelector('[data-last-new-code]');
+      assert.equal(card.querySelector('.spprimary [aria-label]').getAttribute('aria-label'),'Recent birders: 2');
+      assert.equal(card.querySelector('.tickscope')?.textContent,
+        'Count: distinct birders in the last 7 days. Names: all source dates.');
+      const who = card.querySelector('.tickwho');
+      assert.equal(who.querySelector('.lbl').textContent,'Who added it:');
+      assert.equal(who.textContent.split('#1 First').length - 1,
+        birders.filter(b => b.profileId === 'first').length,'duplicate source entries remain in the roster');
+      assert.match(who.textContent,/#2 Pair A, Pair B/,'paired display names remain one source entry');
+      assert.equal(who.querySelector('a[data-href="https://ebird.org/profile/paired"]').textContent,'Pair A, Pair B');
+      if (birders.includes(old)) {
+        assert.match(who.textContent,/#3 Older participant/);
+        assert.ok(who.textContent.indexOf('Older participant') > who.textContent.indexOf('Pair A, Pair B'),
+          'older participants remain after the newest source dates');
+      } else {
+        assert.doesNotMatch(who.textContent,/Older participant/);
+      }
+      assert.equal(app.state.fetches.length,before,'clarifying scopes makes no requests');
+    }
+  } finally { app.window.close(); }
+});
+
 test('F870/F871 FOY uses labeled shared Unseen and auto-expands via the intersection trigger', async () => {
   const app = await boot({sample:false});
   try {

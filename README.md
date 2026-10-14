@@ -226,6 +226,12 @@ powershell -File scripts/gh-retry.ps1 release view v1.3.1 --json body
 
 ## Roadmap
 
+Leaderboard Ticks labels the two scopes on each card: the count is distinct
+birders whose tick dates fall within the last seven days, while "Who added it"
+retains the complete source roster across all source dates. Duplicate source
+entries and paired display names do not inflate the distinct recent count.
+This explanation adds no species or checklist requests.
+
 - **P0** — Capacitor shell + CI → installable `.ipa`. ✅
 - **P1** — Settings (eBird API key + region, on-device) + live notable-sightings
   call via `CapacitorHttp`. ✅

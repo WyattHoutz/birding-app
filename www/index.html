@@ -4868,7 +4868,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.152.1';
+      var APP_VERSION = '1.153.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -31021,6 +31021,8 @@
             + '</strong></span><span class="spmetric"><small>recent<br>birders</small></span></span>',
           sub: '',
           below: (isWatched(code) ? '<div class="hint">On your watchlist for verification</div>' : '')
+            + '<div class="hint tickscope">Count: distinct birders in the last '
+              + RANK_FRESH_DAYS + ' days. Names: all source dates.</div>'
             + '<div class="wholine tickwho"><span class="lbl">Who added it:</span> ' + who + '</div>',
           data: code ? { 'last-new-code': code, 'last-new-name': sp } : {}
         });
