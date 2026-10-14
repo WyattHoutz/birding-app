@@ -4850,7 +4850,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.150.4';
+      var APP_VERSION = '1.151.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -27991,6 +27991,7 @@
           var captureId = (opts.kind || 'page') + '-' + (++_captureEbirdAttempt);
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
+          var massShapeLast = '', sampleCount = 0;
           function trace(stage, detail, level) {
             dbg(level || 'info', 'eBird capture ' + captureId + ' · ' + stage
               + (detail ? ' · ' + detail : ''));
@@ -28071,9 +28072,16 @@
           function finish(err, data) {
             if (done) return;
             cleanup(err ? 'error: ' + ((err && err.message) || err) : 'success');
+            if (opts.kind === 'massHighCount') trace('capture result',
+              (err ? 'failed' : 'success') + '; samples=' + sampleCount
+              + '; rows=' + (data && Array.isArray(data.rows) ? data.rows.length : 0));
             if (id) {
               try {
+                if (opts.kind === 'massHighCount') trace('close request', 'owned window');
                 var closing = IB.close({ id: id });
+                if (opts.kind === 'massHighCount' && closing && closing.then) {
+                  closing = closing.then(function () { trace('close acknowledged', 'native close request resolved'); });
+                }
                 if (closing && closing.catch) closing.catch(function (error) {
                   trace('close failed', (error && error.message) || String(error), 'warn');
                 });
@@ -28115,6 +28123,7 @@
             // Promise; scheduling afterward would turn one bridge hiccup into
             // a permanent one-shot capture.
             try {
+              sampleCount++;
               trace('inject', 'attempt ' + (attempt + 1));
               var request = IB.executeScript({ id: id, code: opts.buildInject(attempt) });
               if (request && request.then) {
@@ -28140,7 +28149,24 @@
                 + (opts.kind === 'identity'
                   ? (d.hasName ? ' · name found' : ' · no name') : '')
                 + (d.onProfile === false ? ' · wrong page' : ''));
-              if (d.pageShape) {
+              if (opts.kind === 'massHighCount' && d.parseStatus === 'unreadable') {
+                var reason = ['missing-list','incomplete-rows','malformed-row']
+                  .indexOf(d.parseReason) >= 0 ? d.parseReason : 'script-error';
+                var errorType = ['Error','TypeError','ReferenceError','SyntaxError','SecurityError']
+                  .indexOf(d.errorType) >= 0 ? d.errorType : 'unknown';
+                var shape = {};
+                ['list','listBody','rows','declared','speciesSection','invalidRow',
+                  'speciesLink','region','count','date','checklist','location'].forEach(function (key) {
+                  var value = d.pageShape && d.pageShape[key];
+                  if (typeof value === 'boolean' || Number.isInteger(value)
+                      && value >= 0 && value <= 100000) shape[key] = value;
+                });
+                var detail = JSON.stringify({ reason: reason, errorType: errorType, shape: shape });
+                if (detail !== massShapeLast) {
+                  massShapeLast = detail;
+                  trace('high-count parser', detail, 'warn');
+                }
+              } else if (opts.kind !== 'massHighCount' && d.pageShape) {
                 trace('profile shape', JSON.stringify(d.pageShape));
               }
               if (d.kind === 'rank' && d.sourceFragment) {
@@ -28183,7 +28209,8 @@
           });
           addH('closeEvent', function (ev) {
             whenOwned(ev, function () {
-              trace('user close', 'before a usable identity arrived', 'warn');
+              trace(opts.kind === 'massHighCount' ? 'window closed' : 'user close',
+                'before usable capture data arrived', 'warn');
               finish(new Error('The eBird window was closed before it finished.'));
             });
           });
@@ -38235,6 +38262,9 @@
         var status = surgeSourceWarning(states);
         if (!pending.length && !status) return '';
         var done = keys.length - pending.length;
+        if (!pending.length) return '<div class="surgesourceprogress" role="status">'
+          + '<div class="label">Bird Gen sources · ' + done + ' of ' + keys.length
+          + ' settled</div><div class="label">' + status + '</div></div>';
         var pct = Math.round(done * 100 / keys.length);
         var label = pending.length ? 'Loading Bird Gen sources' : 'Bird Gen sources';
         return '<div class="surgesourceprogress" role="progressbar"'
@@ -38580,6 +38610,14 @@
               + SURGE_KINDS[_surgeCategory].word.toLowerCase()
               + ' alerts. Select the category again to show all.' : '';
         }
+        var target = feed && feed.querySelector('[data-species-code="chclon"]');
+        traceCascadeDecision('visibility', {
+          category: _surgeCategory || 'all',
+          present: !!target,
+          visible: !!target && !target.hidden,
+          winningKind: target ? target.getAttribute('data-alert-kind') : '',
+          source: box ? box.getAttribute('data-source-leaderboard') : ''
+        });
       }
 
       function resetSurgeCategory() {
@@ -39068,8 +39106,15 @@
           .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
         var doc = new DOMParser().parseFromString(markup, 'text/html');
         var root = doc.querySelector('.BirdList');
+        var shape = { list: !!root, listBody: !!(root && root.querySelector('.BirdList-list')) };
+        function invalid(reason, message) {
+          var error = new Error(message);
+          error.captureReason = reason;
+          error.captureShape = shape;
+          throw error;
+        }
         if (!root || !root.querySelector('.BirdList-list')) {
-          throw new Error('Unreadable high-count bird list.');
+          invalid('missing-list', 'Unreadable high-count bird list.');
         }
         var items = Array.from(root.querySelectorAll('li.BirdList-list-list-item.countable'));
         var declared = 0, hasSpeciesSection = false;
@@ -39081,10 +39126,11 @@
             declared += Number(match[1]);
           }
         });
+        shape.rows = items.length; shape.declared = declared; shape.speciesSection = hasSpeciesSection;
         if (!hasSpeciesSection || items.length !== declared) {
-          throw new Error('High-count species rows are missing or incomplete.');
+          invalid('incomplete-rows', 'High-count species rows are missing or incomplete.');
         }
-        return items.map(function (item) {
+        return items.map(function (item, index) {
           var bird = item.querySelector('.Obs-species a');
           var count = item.querySelector('.Obs-count');
           var time = item.querySelector('.Obs-date time[datetime]');
@@ -39101,7 +39147,16 @@
           var stamp = time && time.getAttribute('datetime');
           if (!speciesMatch || speciesMatch[2] !== region || !countMatch
               || !subMatch || !stamp || !/^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/.test(stamp)
-              || !location) throw new Error('Malformed high-count observation.');
+              || !location) {
+            Object.assign(shape, {
+              invalidRow: index, speciesLink: !!speciesMatch,
+              region: !!speciesMatch && speciesMatch[2] === region,
+              count: !!countMatch, checklist: !!subMatch,
+              date: !!stamp && /^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$/.test(stamp),
+              location: !!location
+            });
+            invalid('malformed-row', 'Malformed high-count observation.');
+          }
           return {
             speciesCode: speciesMatch[1],
             comName: (bird.querySelector('.Species-common') || bird).textContent.trim(),
@@ -39118,9 +39173,10 @@
       function buildMassHighCountInject(region, expectedUrl) {
         return '(function(){' +
           'function send(detail){try{if(window.mobileApp&&window.mobileApp.postMessage){' +
+          'detail.transport="mobileApp";' +
           'window.mobileApp.postMessage({detail:detail});return;}}catch(_){}' +
           'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
-          'if(h&&h.postMessage)h.postMessage({detail:detail});}' +
+          'if(h&&h.postMessage){detail.transport="webkit";h.postMessage({detail:detail});}}' +
           'try{' + pageKind.toString() + ';' + parseMassHighCountPage.toString() + ';' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
           'var want=new URL(' + JSON.stringify(expectedUrl) + ');var here=new URL(location.href);' +
@@ -39131,7 +39187,8 @@
           'needsLogin:kind==="LOGIN",parseStatus:!same?"wrong-page":kind});return;}' +
           'var rows=parseMassHighCountPage(H,' + JSON.stringify(region) + ');' +
           'send({__ebird:true,kind:"massHighCount",ok:true,data:{rows:rows,sourceUrl:want.href}});' +
-          '}catch(e){send({__ebird:true,kind:"massHighCount",ok:false,parseStatus:"unreadable"});}})();';
+          '}catch(e){send({__ebird:true,kind:"massHighCount",ok:false,parseStatus:"unreadable",' +
+          'parseReason:e.captureReason||"script-error",errorType:e.name,pageShape:e.captureShape});}})();';
       }
 
       function loadMassFlockAlertSource(force, scope, onProgress) {
@@ -39402,22 +39459,41 @@
         });
       }
 
+      function traceCascadeDecision(stage, facts) {
+        var message = 'Bird Gen CCLO · load ' + _surgeLoadGeneration + ' · ' + stage
+          + ' · ' + JSON.stringify(facts);
+        if (_surgeDecisionTrace[stage] === message) return;
+        _surgeDecisionTrace[stage] = message;
+        dbg('net', message);
+      }
+      var _surgeDecisionTrace = {};
+      function isCascadeTraceTarget(c) {
+        return c && (c.code === 'chclon'
+          || String(c.species || '').toLowerCase() === 'chestnut-collared longspur');
+      }
       function surgeCascadePairs(cascades) {
         return (cascades || []).map(function (c) {
           var home = getHome(), lim = chaseMaxMi(), best = null, latest = null;
+          var rejected = { noHome: 0, coordinates: 0, privatePlace: 0, outside: 0 };
           (c.recent || []).forEach(function (r) {
-            if (!home || !isFinite(+r.lat) || !isFinite(+r.lng)) return;
+            if (!home) { rejected.noHome++; return; }
+            if (!isFinite(+r.lat) || !isFinite(+r.lng)) { rejected.coordinates++; return; }
             var nm = r.locName || r.loc || '';
-            if (nm && !BL.isPublicPlace(nm)) return;
+            if (nm && !BL.isPublicPlace(nm)) { rejected.privatePlace++; return; }
             var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
-            if (d > lim) return;
+            if (d > lim) { rejected.outside++; return; }
             r._mi = d;
             if (!best || d < best._mi) { best = r; best._mi = d; }
             if (!latest || String(r.obsDt || '').localeCompare(
               String(latest.obsDt || '')) > 0) latest = r;
           });
-          if (c.locationState === 'ok' && !(c.recent || []).length) return null;
-          if (!best && (c.recent || []).length) return null;
+          var omitted = c.locationState === 'ok' && !(c.recent || []).length
+            || !best && (c.recent || []).length;
+          if (isCascadeTraceTarget(c)) traceCascadeDecision('places', {
+            state: c.locationState || 'unresolved', returned: (c.recent || []).length,
+            rejected: rejected, pair: !omitted, nearby: !!best
+          });
+          if (omitted) return null;
           return { c: c, near: best, latest: latest };
         }).filter(Boolean);
       }
@@ -39475,13 +39551,6 @@
         var sourceWarning = '';
         var sourceProgress = surgeSourceProgress(sourceStates);
         var coverage = sourceState && sourceState.massCoverage;
-        var sampleCoverage = coverage
-          ? '<div class="hint">Mass flock coverage: ' + esc(/candidate species|daily samples/i.test(coverage)
-              ? 'Retained evidence from an older sampled source; current-page coverage not verified'
-              : coverage)
-            + '. Regional maxima are not exhaustive and can hide other flocks; large counts do not'
-            + ' by themselves establish seasonal rarity.</div>'
-          : '';
         markSurgeSourceStates(box, sourceStates);
         var annualFirsts = sourceState && sourceState.foyRows || foyPendingRows();
         if (!megaRows.length && !needs.length && !events.length
@@ -39490,8 +39559,14 @@
             && !massRows.length
             && !annualFirsts.length
             && !migrationRows.length) {
+          traceCascadeDecision('merge', {
+            present: false, winningKind: '', reasons: [],
+            source: sourceStates.leaderboard,
+            retained: !!(sourceState && sourceState.cascadeRetained)
+          });
           LANE_DOCS.feed.context = window.BirdInfoDialogs.birdGenContext({
             count: 0,
+            massCoverage: coverage,
             megaAge: mega ? megaAge(mega.at) : ''
           }, esc);
           box.innerHTML = surgeControls()
@@ -39511,8 +39586,7 @@
               + BL.SURGE.WINDOW_H + ' hours at ' + BL.SURGE.MIN_RATIO
               + '× the local norm, or ' + BL.SURGE.NOVEL_OBSERVERS
               + '+ independent observers on a bird with no recent reports.</div>'
-            : '<div class="status">No alerts are available from the sources that loaded.</div>')
-            + sampleCoverage;
+            : '<div class="status">No alerts are available from the sources that loaded.</div>');
           wireSurgeControls();
           return 0;
         }
@@ -39568,7 +39642,7 @@
             code: e.code,
             alpha: e.alpha || alphaFor(e.code),
             rare: true,
-            noteHeader: 'CELEBRITY: An unseen rarity has multiple sightings!',
+            noteHeader: 'CELEBRITY: A rarity has multiple sightings!',
             count: hasLatestTuple ? e.latestCount : e.count,
             sub: [
               obs ? obs + ' sighting' + (obs === 1 ? '' : 's') : '',
@@ -39576,7 +39650,7 @@
             ].filter(Boolean).join(' · '),
             eventCount: hasLatestTuple ? e.latestCount : e.count,
             distance: surgeDistanceText(latestMi),
-            why: '<b>You still need it</b> · eBird marked it notable inside your chase radius',
+            why: 'eBird marked it notable inside your chase radius',
             where: latestName
               ? surgePlaceLink(latestName, latestLocId) : '',
             when: e.latestStr || e.whenStr,
@@ -39821,6 +39895,22 @@
         });
         rows = mergeSurgeSpeciesRows(rows);
         appendFoySurgeReasons(rows, annualFirsts);
+        rows = rows.filter(function (row) {
+          if (!row.speciesKey && !row.code && !row.speciesNameKey) return true;
+          var taxon = _taxonomyModel && _taxonomyModel.edition === taxonomyEdition()
+            && _taxonomyModel.byCode[row.speciesKey || row.code];
+          return !(taxon && taxon.category === 'hybrid')
+            && BL.taxonKind(row.speciesNameKey || '', '') !== 'hybrid';
+        });
+        var cclo = rows.find(function (row) { return (row.speciesKey || row.code) === 'chclon'; });
+        traceCascadeDecision('merge', {
+          present: !!cclo, winningKind: cclo ? cclo.kind : '',
+          reasons: cclo ? (cclo.reasons || [{kind:cclo.kind}]).map(function (reason) {
+            return reason.kind;
+          }) : [],
+          source: sourceStates.leaderboard,
+          retained: !!(sourceState && sourceState.cascadeRetained)
+        });
         var birdAlertCount = rows.filter(function (row) {
           return row.kind !== 'migration';
         }).length;
@@ -39835,6 +39925,7 @@
         });
         LANE_DOCS.feed.context = window.BirdInfoDialogs.birdGenContext({
           count: rows.length,
+          massCoverage: coverage,
           megaAge: mega ? megaAge(mega.at) : ''
         }, esc);
         var html = surgeControls()
@@ -39856,7 +39947,7 @@
               : '<div class="status">No bird alerts are available from the sources that loaded.</div>')
             : '')
           ;
-        box.innerHTML = html + sampleCoverage;
+        box.innerHTML = html;
         wireSurgeControls();
         if (!(sourceState && sourceState.deferPhotos)) hydratePhotos(box);
         return rows.length;
@@ -40186,6 +40277,9 @@
             var keep = previous.rows.filter(function (row) {
               if (key === 'favorite') return (result.refreshedLocIds || []).indexOf(row.locId) < 0;
               if (key === 'mass') return !fresh.some(function (next) { return next.code === row.code; });
+              if (key === 'cascades') return !fresh.some(function (next) {
+                return next.species === row.species;
+              });
               return false;
             });
             result = Object.assign({}, result, {
@@ -40219,6 +40313,7 @@
             _merged,
             Object.assign({}, states, {
               massCoverage: surgeModel.mass.coverage, deferPhotos: !renderReady,
+              cascadeRetained: !!surgeModel.cascades.retainedAt,
               foyRows: foySource.rows
             }),
             surgeModel.observed.patches,
@@ -40397,17 +40492,33 @@
           if (cachedCascades && cachedCascades.state === 'ok') return cachedCascades;
           return fetchRank(rr, new Date().getFullYear(), getDisplayName())
             .then(function (data) {
+              var rows = (data && data.rows) || [];
+              var cascades = BL.tickCascades(rows, parseRecentTick);
+              var names = Object.create(null);
+              var dated = rows.filter(function (row) {
+                var tick = parseRecentTick(row.recent);
+                if (!isCascadeTraceTarget(tick)) return false;
+                names[row.name] = true;
+                return true;
+              });
+              traceCascadeDecision('board', {
+                rows: rows.length, matchedDatedRows: dated.length,
+                distinctBirders: Object.keys(names).length,
+                qualified: cascades.some(isCascadeTraceTarget)
+              });
               return {
                 state: 'ok',
-                rows: BL.tickCascades((data && data.rows) || [], parseRecentTick)
+                rows: cascades
               };
             }).catch(function (e) {
               dbg('warn', 'Bird gen leaderboard source: ' + ((e && e.message) || e));
               return { state: 'failed', rows: [] };
             }).then(function (board) {
               if (board.state !== 'ok') return board;
-              return pObserved.then(function () {
-                return cascadeSpots(board.rows, _merged)
+              return pObservedStarted.then(function () {
+                return cascadeSpots(board.rows, _merged, function (rows) {
+                  if (current()) publishSource('cascades', { state: 'partial', rows: rows });
+                }, current)
                   .then(function (rows) {
                     return { state: rows.sourceFailed ? 'failed' : 'ok', rows: rows };
                   });
@@ -40613,8 +40724,10 @@
       // carries a species name, a date, and nothing else. That makes the lane
       // the only one in this section you could not act on.
       //
-      // Codes are resolved in two tiers. First the merged observations this
-      // section ALREADY fetched, which is free. That was once the only tier,
+      // Existing normalized observations and the current canonical taxonomy
+      // resolve exact, unambiguous names without network work. Known sightings
+      // publish independently of the regional index needed by unknown names.
+      // Merged observations were once the only tier,
       // on the reasoning that a bird missing from every local feed must be
       // from a county the feeds never cover — which is this lane's whole
       // purpose, so failing to link it was "expected rather than a failure".
@@ -40639,45 +40752,49 @@
       // Each resolved species then costs ONE species-scoped state feed, which
       // is not collapsed to one observation per species and so turns a name
       // into somewhere to stand. The lane typically holds 2-3 species.
-      function cascadeSpots(cascades, merged) {
+      function cascadeSpots(cascades, merged, onProgress, isCurrent) {
         var list = cascades || [];
-        var sourceFailed = false;
+        var sourceFailed = false, edition = taxonomyEdition();
+        function current() { return (!isCurrent || isCurrent()) && edition === taxonomyEdition(); }
         function done() {
           list.sourceFailed = sourceFailed;
           return list;
         }
         if (!list.length) return Promise.resolve(done());
         var region = getRegion();
-        var byName = {};
+        var byName = Object.create(null);
         var add = function (name, code) {
           if (!name || !code) return;
           var n = String(name).toLowerCase();
-          if (!byName[n]) byName[n] = code;
-          // Board names carry no parenthetical form, so index the base name
-          // too — it is how a form-level feed row still answers for its parent.
-          var b = baseSpeciesName(name).toLowerCase();
-          if (b && !byName[b]) byName[b] = code;
+          if (!Object.prototype.hasOwnProperty.call(byName, n)) byName[n] = code;
+          else if (byName[n] !== code) byName[n] = '';
         };
-        (merged || []).forEach(function (r) { if (r) add(r.comName, r.speciesCode); });
-        var resolve = function () {
+        (merged || []).forEach(function (r) {
+          if (r) add(r.name || r.comName, r.code || r.speciesCode);
+        });
+        if (_taxonomyModel && _taxonomyModel.edition === edition) {
+          Object.keys(_taxonomyModel.byCode).forEach(function (code) {
+            var row = _taxonomyModel.byCode[code];
+            if (!_taxonomyUnresolved[code]) add(row.name, code);
+          });
+        }
+        var resolve = function (source) {
           list.forEach(function (c) {
-            if (c.code) return;
-            var n = String(c.species || '').toLowerCase();
-            c.code = byName[n] || byName[baseSpeciesName(c.species || '').toLowerCase()] || '';
+            if (!c.code) {
+              var n = String(c.species || '').toLowerCase();
+              c.code = byName[n] || '';
+            }
+            if (isCascadeTraceTarget(c)) traceCascadeDecision('identity', {
+              source: source, resolved: !!c.code
+            });
           });
           return list.filter(function (c) { return c.code; });
         };
-        var known = resolve();
+        var known = resolve('existing');
         var missing = list.length - known.length;
-        var seed = missing
-          ? loadSpeciesIndex(region).then(function (rows) {
-              (rows || []).forEach(function (r) { add(r.name, r.code); });
-              return resolve();
-            }).catch(function () { sourceFailed = true; return known; })
-          : Promise.resolve(known);
-        return seed.then(function (found) {
-          if (!found.length) return done();
+        function acquire(found) {
           return pool(found, 2, function (c) {
+            if (!current()) { sourceFailed = true; return; }
             // includeProvisional, and it is load-bearing. MEASURED against the
             // live API: the WA feed for `norwat` returns 10 rows without it and
             // 11 WITH it, and the extra one is Juanita Bay Park (S385238349,
@@ -40698,12 +40815,39 @@
                   return String(b.obsDt).localeCompare(String(a.obsDt));
                 });
                 c.locationState = 'ok';
-              }).catch(function () {
+              }).catch(function (error) {
                 c.locationState = 'failed';
                 sourceFailed = true;
+                dbg('warn', 'Bird gen cascade sightings: ' + netErr(error));
+              }).then(function () {
+                if (!current()) {
+                  c.code = ''; c.recent = []; c.locationState = 'failed'; sourceFailed = true;
+                  return;
+                }
+                if (isCascadeTraceTarget(c)) traceCascadeDecision('sightings', {
+                  state: c.locationState, returned: (c.recent || []).length
+                });
+                if (onProgress) onProgress(list.filter(function (row) {
+                  return row.locationState === 'ok' || row.locationState === 'failed';
+                }));
               });
-          }).then(done);
-        }).catch(function () { sourceFailed = true; return done(); });
+          });
+        }
+        var knownWork = acquire(known);
+        var seed = missing ? Promise.resolve().then(function () {
+          return loadSpeciesIndex(region);
+        }).then(function (rows) {
+          if (!current()) { sourceFailed = true; return []; }
+          (rows || []).forEach(function (r) { add(r.name, r.code); });
+          return resolve('regional').filter(function (row) { return known.indexOf(row) < 0; });
+        }).catch(function (error) {
+          sourceFailed = true;
+          dbg('warn', 'Bird gen cascade identities: ' + netErr(error));
+          return [];
+        }) : Promise.resolve([]);
+        return Promise.all([knownWork, seed]).then(function (results) {
+          return acquire(results[1]);
+        }).then(done);
       }
       // The board's "recent" column, parsed the same way report._LAST_NEW_RE      // does. Supplied to tickCascades rather than baked into it because both
       // repos already own this regex and neither should own the other's.
@@ -41414,11 +41558,7 @@
             : '<small>Personal history unavailable</small>') + '</div>'
           + (_myYearRefreshState === 'checking'
             ? '<p data-personal-progress role="status">Reading the exact personal list; saved rows remain available.</p>'
-              + '<progress aria-label="' + esc('Loading exact personal list for ' + scope.label) + '"></progress>' : '')
-          + '<p class="meta">Official personal membership, including Watch List birds. '
-          + 'Newest supplied dates appear first; Escapees are listed separately and do not count toward the species total. '
-          + 'Dates and checklist links appear only when returned by eBird; reload the personal list to recover dates from older saved rows. Undated birds remain recorded. '
-          + 'Imported annual evidence does not establish a complete life list.</p>';
+              + '<progress aria-label="' + esc('Loading exact personal list for ' + scope.label) + '"></progress>' : '');
         paintPersonalCoverage(section);
         var total = entries.length;
         // Through the SHARED medium card, not a hand-rolled lookalike. This used

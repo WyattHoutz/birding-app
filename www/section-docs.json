@@ -691,6 +691,7 @@
         "validated official taxonomy, returned account/geography/period/count and optional dates/checklist links"
       ],
       "how": [
+        "Official personal membership, including Watch List birds. Newest supplied dates appear first; Escapees are listed separately and do not count toward the species total. Dates and checklist links appear only when returned by eBird; reload the personal list to recover dates from older saved rows. Undated birds remain recorded. Imported annual evidence does not establish a complete life list.",
         "Oldest is numbered 1; newest is listed first. The ordinal uses the same type size and weight as the adjacent species title and stays on the same line whenever the title fits. Each bird name opens Species Stakeout, each public hotspot name opens Stakeout hotspot, and the date plus all-obs action retain the corresponding eBird evidence.",
         "Every species row has an Add watch or Remove watch action in the rightmost column. It updates the device-local global watchlist and repaints Year List/Life List immediately without refetching, removing the official row or reducing its count.",
         "Huge text and narrow cards give the bird title its own full-width row below the photo. Watch actions retain a dedicated rightmost column and a full tap target without reducing text size.",

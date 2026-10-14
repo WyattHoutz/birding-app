@@ -7559,10 +7559,387 @@ test('F880 shared Recent and complete-history Unseen filter the actual board car
   } finally {app.window.close();}
 });
 
-test('F881 opt-in fragments exclude all source text, links, forms, scripts and values and obey retention limits', async () => {
+test('F911 normalized merged identities start and publish independently of a held regional index', async () => {
+  let releaseIndex;
+  const app = await boot({fetch(url) {
+    if (/product\/spplist/.test(url)) return new Promise(resolve => { releaseIndex = resolve; });
+    if (/recent\/chclon/.test(url)) return [{obsDt:recentObsStamp(),lat:47.75,lng:-122.16,locName:'Public marsh'}];
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    const merged = app.window.BirdLogic.mergeSnapshot([{kind:'notable',src:'synthetic',rows:[{
+      speciesCode:'chclon',comName:'Chestnut-collared Longspur',subId:'S911',locId:'L911',
+      obsDt:recentObsStamp(),lat:47.75,lng:-122.16
+    }]}]);
+    assert.equal(merged[0].speciesCode,undefined,'exercise the real normalized contract');
+    let published;
+    const work = A.cascadeSpots([{species:'Chestnut-collared Longspur'},
+      {species:'Unresolved synthetic bird'}],merged,rows => { published = rows; });
+    await waitFor(() => releaseIndex && published && published.some(r => r.code === 'chclon'),
+      'known species publication while the regional index is held');
+    assert.equal(published.find(r => r.code === 'chclon').locationState,'ok');
+    releaseIndex({__status:400,__body:{error:'controlled reference failure'}});
+    const result = await work;
+    assert.equal(result.sourceFailed,true);
+    assert.equal(result[1].code,'','reference failure cannot invent identity');
+    assert.equal(result[0].recent.length,1);
+  } finally { if (releaseIndex) releaseIndex([]); app.window.close(); }
+});
+
+test('F911 production Bird Gen paints a known Cascade before unrelated identity and observation sources settle', async () => {
+  let releaseIndex, releaseObservations;
+  const observations = new Promise(resolve => { releaseObservations = resolve; });
+  const index = new Promise(resolve => { releaseIndex = resolve; });
+  const name = 'Chestnut-collared Longspur', unknown = 'Unresolved synthetic bird';
+  const date = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const board = [name,name,unknown,unknown].map((species,i) => ({
+    rank:i+1,name:'Synthetic birder '+i,profileId:'P'+i,species:200-i,checklists:400-i,
+    recent:species+' ('+date+')'
+  }));
+  const app = await boot({fetch(url) {
+    if (/recent\/notable/.test(url)) return observations;
+    if (/product\/spplist/.test(url)) return index;
+    if (/top100/.test(url)) return dualRankFixture('spp',board,'US-WA',String(new Date().getFullYear()));
+    if (/recent\/chclon/.test(url)) return [{speciesCode:'chclon',comName:name,obsDt:recentObsStamp(),
+      locId:'L911',locName:'Public marsh',lat:47.75,lng:-122.16,subId:'S911'}];
+    if (/bird-list/.test(url)) return f821Page();
+    return [];
+  }});
+  try {
+    await seedSeen(app,[],[],[{code:'chclon',name}]);
+    await app.window.__app.ebird('data/obs/US-WA/recent/chclon?back=30&detail=full&includeProvisional=true');
+    const load = app.window.__app.loadSurge();
+    await waitFor(() => app.$('surgeResults').querySelector('[data-species-code="chclon"]'),
+      'visible known card before unrelated held dependencies');
+    assert.ok(app.window.__dbg.buf.some(r => /GET product\/spplist/.test(r.msg)),
+      'unresolved identities still queue their regional lookup behind the unchanged limiter');
+    assert.equal(app.$('surgeResults').dataset.sourceLeaderboard,'partial');
+    assert.notEqual(app.$('surgeResults').dataset.sourceObservations,'ok');
+    releaseIndex({__status:400,__body:{error:'controlled reference failure'}});
+    releaseObservations([]);
+    await load;
+    assert.ok(app.$('surgeResults').querySelector('[data-species-code="chclon"]'));
+    assert.equal(app.$('surgeResults').dataset.sourceLeaderboard,'failed');
+    assert.ok(app.window.__dbg.buf.some(r => /CCLO.*board.*"qualified":true/.test(r.msg)));
+  } finally { if (releaseIndex) releaseIndex([]); releaseObservations([]); app.window.close(); }
+});
+
+test('F911 canonical identity rejects ambiguous names and guessed form aliases, and suppresses stale publication', async () => {
+  let release;
+  const app = await boot({fetch:url => /recent\/held(?:identity|edition)/.test(url)
+    ? new Promise(resolve => {release=resolve;}) : []});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[],[],[
+      {code:'ambiga',name:'Ambiguous synthetic bird'},
+      {code:'ambigb',name:'Ambiguous synthetic bird'},
+      {code:'formparent',name:'Canonical parent'},
+      {code:'formchild',name:'Canonical parent (Test)',category:'issf',reportAs:'formparent'}
+    ]);
+    app.window.localStorage.setItem(A.speciesCacheKey('US-WA'),
+      JSON.stringify({at:Date.now(),expected:0,rows:[]}));
+    const rows = await A.cascadeSpots([
+      {species:'Ambiguous synthetic bird'},
+      {species:'Canonical parent (Test)'},
+      {species:'Canonical parent (Unrecognized form)'},
+      {species:'Canonical parent'}
+    ],[]);
+    assert.deepEqual(arr(rows,r => r.code),['','formchild','','formparent']);
+    assert.equal(app.state.fetches.filter(url => /product\/spplist/.test(url)).length,0);
+    let current = true, updates = 0;
+    const pending = A.cascadeSpots([{species:'Held identity',code:'heldidentity'}],[],
+      () => {updates++;},() => current);
+    await waitFor(() => release,'held known species');
+    current = false;
+    release([{obsDt:recentObsStamp()}]);
+    const stale = await pending;
+    assert.equal(updates,0);
+    assert.equal(stale.sourceFailed,true);
+    assert.equal(stale[0].code,'');
+    current = true;
+    release = null;
+    const oldEdition = A.cascadeSpots([{species:'Held edition',code:'heldedition'}],[],
+      () => {updates++;},() => current);
+    await waitFor(() => release,'known species held across an edition change');
+    app.window.localStorage.setItem('bc_taxonomy_v1',
+      JSON.stringify({edition:'2027.0',checkedAt:Date.now(),previousEdition:''}));
+    await A.restoreTaxonomyNames();
+    release([{obsDt:recentObsStamp()}]);
+    const obsolete = await oldEdition;
+    assert.equal(updates,0,'changed taxonomy edition cannot publish a late sighting');
+    assert.equal(obsolete.sourceFailed,true);
+    assert.equal(obsolete[0].code,'');
+    const before = app.state.fetches.length;
+    const outdated = await A.cascadeSpots([{species:'Canonical parent'}],[]);
+    assert.equal(outdated[0].code,'','previous-edition canonical names cannot resolve a current identity');
+    assert.equal(app.state.fetches.slice(before).filter(url => /recent\/formparent/.test(url)).length,0);
+  } finally { if(release) release([]); app.window.close(); }
+});
+
+test('F916 CCLO decisions distinguish place rejection, source state, merging and category visibility without payloads', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, stamp = recentObsStamp();
+    const trace = stage => {
+      const log = app.window.__dbg.buf.filter(r => r.msg.includes('CCLO') && r.msg.includes(' · '+stage+' · ')).at(-1);
+      assert.ok(log,'missing '+stage+' trace');
+      return JSON.parse(log.msg.split(' · ').at(-1));
+    };
+    const base = {lat:47.75,lng:-122.16,locName:'Public marsh',obsDt:stamp,subId:'SECRET'};
+    const cascade = {code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
+      birders:[{name:'PRIVATE A',rank:1},{name:'PRIVATE B',rank:2}],locationState:'ok'};
+    const cases = [
+      {rows:[base],pair:true},
+      {rows:[],pair:false},
+      {rows:[{...base,lat:0,lng:0}],pair:false,reject:'outside'},
+      {rows:[{...base,lat:undefined}],pair:false,reject:'coordinates'},
+      {rows:[{...base,locName:'Private residence'}],pair:false,reject:'privatePlace'},
+      {rows:[],pair:true,state:'failed'}
+    ];
+    for (const c of cases) {
+      A.renderSurge([],[{...cascade,recent:c.rows,locationState:c.state||'ok'}],[],[],[],
+        {leaderboard:c.state||'ok',cascadeRetained:!!c.state});
+      assert.equal(trace('places').pair,c.pair);
+      assert.equal(trace('places').returned,c.rows.length);
+      assert.equal(trace('merge').present,c.pair);
+      if (c.reject) assert.equal(trace('places').rejected[c.reject],1);
+      assert.equal(trace('merge').retained,!!c.state);
+    }
+    const lalo = {...cascade,code:'laplon',species:'Lapland Longspur',recent:[base]};
+    A.renderSurge([],[{...cascade,recent:[base]},lalo],[],
+      [{code:'chclon',name:cascade.species,whenStr:stamp,reports:4}],[],{leaderboard:'ok'});
+    assert.equal(trace('merge').winningKind,'need');
+    assert.deepEqual(trace('merge').reasons,['need','cascade']);
+    app.click(app.$('surgeResults').querySelector('[data-count-kind="cascade"]'));
+    assert.equal(trace('visibility').present,true);
+    assert.equal(trace('visibility').visible,false);
+    app.click(app.$('surgeResults').querySelector('[data-count-kind="cascade"]'));
+    assert.equal(trace('visibility').visible,true);
+    const diagnostics = app.window.__dbg.buf.filter(r => r.msg.includes('CCLO')).map(r => r.msg).join('\n');
+    assert.doesNotMatch(diagnostics,/PRIVATE|SECRET|47\.75|-122\.16|Public marsh/);
+  } finally { app.window.close(); }
+});
+
+test('F919 native high-count diagnostics identify and deduplicate parser shape failures without leaking page content', async () => {
+  const app = await boot({fetch:url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : f821Hotspots()});
+  let browser;
+  try {
+    const handlers = {}, samples = [];
+    let injections = 0, closed = 0, capturedCode = '';
+    app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn) { handlers[name]=fn; return {remove(){}}; },
+      openWebView(options) {
+        browser = new JSDOM(f821Page([{name:'PRIVATE',locName:'SECRET'}])
+          .replace('Count: 600','Count: TOKEN'),{url:options.url,runScripts:'outside-only'});
+        browser.window.mobileApp = {postMessage(message) {
+          samples.push(message.detail);
+          handlers.messageFromWebview({id:'mass919',detail:message.detail});
+        }};
+        setTimeout(() => handlers.browserPageLoaded({id:'mass919'}),0);
+        return Promise.resolve({id:'mass919'});
+      },
+      hide(){},show(){},close(){closed++;return Promise.resolve();},
+      executeScript({code}) {
+        capturedCode = code;
+        injections++;
+        if (injections === 3) browser.window.document.body.innerHTML = f821Page([{}]);
+        browser.window.eval(code);
+        return Promise.resolve();
+      }
+    }}};
+    const result = await app.window.__app.loadMassFlockAlertSource(false,app.window.__app.activeScope());
+    assert.notEqual(result.state,'failed');
+    assert.equal(injections,3);
+    assert.equal(closed,1);
+    assert.equal(samples[0].parseReason,'malformed-row');
+    assert.equal(samples[0].pageShape.count,false);
+    assert.equal(samples[0].pageShape.rows,1);
+    assert.equal(samples[0].transport,'mobileApp');
+    const logs = app.window.__dbg.buf.filter(r => r.msg.includes('eBird capture')).map(r => r.msg);
+    assert.equal(logs.filter(msg => msg.includes('high-count parser')).length,1,
+      'unchanged structural failures must not spam details every sample');
+    assert.match(logs.join('\n'),/capture result.*success; samples=3; rows=1/);
+    assert.match(logs.join('\n'),/close acknowledged/);
+    assert.doesNotMatch(logs.join('\n'),/PRIVATE|SECRET|TOKEN|<li|<html/);
+    for (const [markup,reason] of [
+      ['<html><body>PRIVATE</body></html>','missing-list'],
+      [f821Page([{}]).replace('Native and Naturalized (1)','Native and Naturalized (2)'),'incomplete-rows'],
+      [f821Page(),null]
+    ]) {
+      browser.window.document.body.innerHTML = markup;
+      browser.window.eval(capturedCode);
+      const value = samples.at(-1);
+      if (reason) {
+        assert.equal(value.ok,false);
+        assert.equal(value.parseReason,reason);
+        assert.doesNotMatch(JSON.stringify(value),/PRIVATE|SECRET|TOKEN/);
+      } else {
+        assert.equal(value.ok,true,'a verified empty list remains a successful parse');
+        assert.equal(value.data.rows.length,0);
+      }
+    }
+    const parser = browser.window.DOMParser;
+    browser.window.DOMParser = function () {throw new browser.window.TypeError('PRIVATE exception');};
+    browser.window.eval(capturedCode);
+    assert.equal(samples.at(-1).parseReason,'script-error');
+    assert.equal(samples.at(-1).errorType,'TypeError');
+    assert.doesNotMatch(JSON.stringify(samples.at(-1)),/PRIVATE/);
+    browser.window.DOMParser = parser;
+  } finally { if(browser) browser.window.close(); app.window.close(); }
+});
+
+test('F919 unreadable native samples keep the two-minute timeout and sanitize bridge diagnostics', async () => {
+  const app = await boot({fetch:url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : []});
+  const handlers = {}, removed = [];
+  let budget = 0, closed = 0, injections = 0;
+  const timer = app.window.setTimeout.bind(app.window);
+  app.window.setTimeout = (fn,delay,...args) => {
+    if (delay === 120000) {budget=delay;return timer(fn,1600,...args);}
+    return timer(fn,delay,...args);
+  };
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(name,fn){handlers[name]=fn;return {remove(){removed.push(name);}};},
+    openWebView(){
+      setTimeout(() => handlers.browserPageLoaded({id:'mass-timeout'}),10);
+      return Promise.resolve({id:'mass-timeout'});
+    },
+    hide(){},show(){},close(){closed++;return Promise.resolve();},
+    executeScript(){
+      injections++;
+      handlers.messageFromWebview({id:'mass-timeout',detail:{
+        __ebird:true,kind:'massHighCount',ok:false,parseStatus:'unreadable',
+        parseReason:'PRIVATE error message',errorType:'PRIVATE error type',
+        pageShape:{rows:1,declared:-1,location:'PRIVATE address',html:'PRIVATE body'}
+      }});
+      return Promise.resolve();
+    }
+  }}};
+  try {
+    const result = await app.window.__app.loadMassFlockAlertSource(false,app.window.__app.activeScope());
+    assert.equal(result.state,'failed');
+    assert.equal(result.rows.length,0);
+    assert.equal(budget,120000);
+    assert.ok(injections >= 2);
+    assert.equal(closed,1);
+    assert.equal(removed.length,4);
+    const logs = app.window.__dbg.buf.map(r => r.msg).join('\n');
+    assert.match(logs,/timeout.*no usable bridge message/);
+    assert.match(logs,/capture result.*failed; samples=\d+; rows=0/);
+    assert.match(logs,/"reason":"script-error","errorType":"unknown","shape":\{"rows":1\}/);
+    assert.equal((logs.match(/high-count parser/g)||[]).length,1);
+    assert.doesNotMatch(logs,/PRIVATE|user close/);
+  } finally {app.window.close();}
+});
+
+test('F912 Celebrity wording stays neutral for unknown, seen, unseen and watched membership', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    const needs = [{code:'verfly',name:'Vermilion Flycatcher',reports:4,
+      locName:'Public marsh',locId:'L1',whenStr:recentObsStamp(),distMi:5}];
+    for (const state of ['unknown','seen','unseen','watched']) {
+      if (state === 'seen') await seedSeen(app,['verfly'],['Vermilion Flycatcher']);
+      if (state === 'unseen') await seedSeen(app,[]);
+      if (state === 'watched') A.setWatchlist([{code:'verfly',name:'Vermilion Flycatcher'}]);
+      A.renderSurge([],[],[],needs,[],{observations:'partial'});
+      const row = app.$('surgeResults').querySelector('[data-alert-kind="need"]');
+      assert.ok(row,state);
+      assert.match(row.textContent,/A rarity has multiple sightings!/);
+      assert.doesNotMatch(row.textContent + row.dataset.surgeReasonText,/unseen rarity|You still need it/i);
+      assert.match(row.dataset.surgeReasonText,/eBird marked it notable inside your chase radius/);
+    }
+  } finally { app.window.close(); }
+});
+
+test('F913 Bird Gen excludes hybrids across species lanes while retaining species and forms', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, stamp = recentObsStamp();
+    await seedSeen(app,[],[],[{code:'testhyb',name:'Synthetic taxon',category:'hybrid'}]);
+    for (const name of ['Western x Glaucous-winged Gull (hybrid)','Synthetic taxon',
+      'Vermilion Flycatcher','Vermilion Flycatcher (form)']) {
+      const code = name === 'Synthetic taxon' ? 'testhyb' : 'verfly';
+      const excluded = /hybrid|Synthetic/.test(name);
+      const row = {code,name,reports:4,observers:7,checklists:7,ratio:4,
+        locName:'Public marsh',loc:'Public marsh',locId:'L1',
+        when:stamp,whenStr:stamp,latest:stamp,distMi:3,count:1,
+        distanceMi:3,found:stamp.slice(0,10),evidenceCount:4,minCount:400,maxCount:400,
+        date:stamp.slice(0,10),observedAt:stamp,previousReadDate:stamp.slice(0,10)};
+      const cascade = {code,species:name,latest:stamp.slice(0,10),
+        birders:[{name:'A',rank:1},{name:'B',rank:2}],locationState:'failed'};
+      for (const kind of ['need','crowd','cascade','favorite','foy','mass']) {
+        A.renderSurge(kind === 'crowd' ? [row] : [],
+          kind === 'cascade' ? [cascade] : [],[],kind === 'need' ? [row] : [],[],
+          {foyRows:kind === 'foy' ? [row] : []},
+          [],kind === 'favorite' ? [row] : [],kind === 'mass' ? [row] : []);
+        const found = app.$('surgeResults').querySelector('[data-alert-kind="' + kind + '"]');
+        if (!excluded) assert.ok(found,kind + ': ' + name);
+        else assert.equal(found,null,kind + ': ' + name);
+      }
+    }
+  } finally { app.window.close(); }
+});
+
+test('F914 settled warnings are static status, while real pending sources retain progress', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    const states = {mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
+      favorites:'ok',mass:'partial',foy:'ok'};
+    for (const mass of ['partial','failed','ok']) {
+      A.renderSurge([],[],[],[],[],{...states,mass});
+      const box = app.$('surgeResults');
+      assert.equal(box.querySelector('[role="progressbar"],.track'),null);
+      if (mass !== 'ok') {
+        assert.match(box.querySelector('[role="status"]').textContent,/7 of 7 settled/);
+        assert.match(box.textContent,mass === 'failed' ? /Mass flock feeds failed/ : /incomplete or capped/);
+      }
+    }
+    A.renderSurge([],[],[],[],[],{...states,leaderboard:'loading'});
+    assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'6');
+  } finally { app.window.close(); }
+});
+
+test('F915 dynamic Mass coverage lives in feed info for empty and progressively populated results', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    for (const count of [0,5,7]) {
+      const coverage = count + ' locations could not be resolved safely; <private> is text';
+      const needs = count ? [{code:'verfly',name:'Vermilion Flycatcher',whenStr:recentObsStamp()}] : [];
+      A.renderSurge([],[],[],needs,[],{mass:'partial',massCoverage:coverage});
+      assert.doesNotMatch(app.$('surgeResults').textContent,/Mass flock coverage:|resolved safely/);
+      app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+      const sheet = app.$('appSheet');
+      assert.ok(sheet.textContent.includes(coverage));
+      assert.match(sheet.textContent,/not exhaustive.*seasonal rarity/s);
+      assert.equal(sheet.querySelector('private'),null,'coverage must remain escaped text');
+    }
+  } finally { app.window.close(); }
+});
+
+test('F917 personal membership explanation moves to Year List help without changing totals', async () => {
+  const app = await boot();
+  try {
+    await seedSeen(app,['verfly'],['Vermilion Flycatcher']);
+    await app.window.__app.loadMyYear();
+    const section = app.$('myYearBody').closest('section');
+    assert.doesNotMatch(app.$('myYearBody').textContent,/Official personal membership/);
+    assert.match(app.$('myYearBody').textContent,/1 recorded species/);
+    app.click(section.querySelector('.docbtn'));
+    await waitFor(() => /Official personal membership/.test(section.querySelector('.sectiondoc').textContent),
+      'Year List membership help');
+    assert.match(section.querySelector('.sectiondoc').textContent,/Watch List birds.*Escapees.*Undated birds.*complete life list/s);
+    assert.ok(section.querySelector('.myYearEbirdLink'));
+  } finally { app.window.close(); }
+});
+
+test('F881/F918 opt-in fragments exclude source data even when metadata timestamps contain the sample rank', async () => {
   const app=await boot({sample:false});
   try {
     const A=app.window.__app, ls=app.window.localStorage;
+    app.window.Date.now = () => 1791927284213;
     const html='<div class="ResultsStats"><div class="ResultsStats-index">213.</div>'
       + '<h5 id="PRIVATE" class="u-margin-none">PRIVATE</h5>'
       + '<a href="https://ebird.org/profile/SECRET?token=TOKEN">PRIVATE</a>'
@@ -7575,18 +7952,30 @@ test('F881 opt-in fragments exclude all source text, links, forms, scripts and v
     assert.equal(saved.length,6);
     assert.equal(saved[0].transport,'http-response');
     assert.match(saved[0].fragment,/ResultsStats-index/);
-    assert.doesNotMatch(JSON.stringify(saved),/PRIVATE|SECRET|TOKEN|PASSWORD|213|href|script|input/);
+    function assertSanitized(records) {
+      records.forEach(record => {
+        assert.deepEqual(Object.keys(record).sort(),['fragment','metric','time','transport','version']);
+        assert.equal(record.version,/var APP_VERSION = '([^']+)'/.exec(HTML)[1]);
+        assert.equal(record.time,1791927284213);
+        assert.ok(['spp','cl'].includes(record.metric));
+        assert.ok(['http-response','rendered-dom'].includes(record.transport));
+        assert.doesNotMatch(record.fragment,/PRIVATE|SECRET|TOKEN|PASSWORD|213|href|script|input/);
+      });
+    }
+    assertSanitized(saved);
     ls.setItem('bc_rank_snapshots_v1',JSON.stringify([{...saved[0],fragment:html,extra:'SECRET'}]));
-    assert.doesNotMatch(JSON.stringify(A.rankSnapshotRead()),/PRIVATE|SECRET|TOKEN|PASSWORD|213|href|script|input/);
+    const repaired = A.rankSnapshotRead();
+    assert.equal(repaired.length,1,'the malformed fragment must be sanitized, not silently skipped');
+    assertSanitized(repaired);
     ls.setItem('bc_rank_snapshots_v1',JSON.stringify(saved));
     A.rankSnapshotSave('x'.repeat(2000001),'http-response','cl');
     assert.equal(A.rankSnapshotRead().length,6);
     ls.setItem('bc_rank_snapshots_v1',JSON.stringify([
-      {...saved[0],time:Date.now()-86400001},
-      {...saved[0],time:Date.now()+86400000},
+      {...saved[0],time:app.window.Date.now()-86400001},
+      {...saved[0],time:app.window.Date.now()+86400000},
       {...saved[0],fragment:'x'.repeat(12001)},
       {...saved[0],transport:'untrusted'},
-      {time:Date.now(),fragment:'unexpected'}
+      {time:app.window.Date.now(),fragment:'unexpected'}
     ]));
     assert.equal(A.rankSnapshotRead().length,0);
     app.click(app.$('dbgClear'));
@@ -15997,9 +16386,11 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   const showAll = [...app.$('surgeResults').querySelectorAll('button')]
     .find((button) => /Show all 5 mass flocks/.test(button.textContent));
   assert.equal(showAll, undefined, 'F843 must remove the expansion button, not hide eligible flocks');
-  assert.match(app.$('surgeResults').textContent,
+  assert.doesNotMatch(app.$('surgeResults').textContent,/12 of 13 high-count table rows/);
+  app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+  assert.match(app.$('appSheet').textContent,
     /12 of 13 high-count table rows.*not exhaustive/s,
-    'Show all removed the sampling/coverage disclosure');
+    'feed help must retain the latest source coverage disclosure');
   app.window.close();
 });
 
@@ -16167,7 +16558,8 @@ test('F825 obsolete high-count refresh and legacy sampled coverage are absent in
       massCoverage: '5 of 5 candidate species; 7 of 7 daily samples' }, [], [], []);
     assert.equal(app.$('surgeResults').querySelector('[data-surge-deep-history]'), null);
     assert.doesNotMatch(app.$('surgeResults').textContent, /Refresh high-count flocks|daily samples|candidate species/);
-    assert.match(app.$('surgeResults').textContent, /older sampled source|current-page coverage not verified/);
+    app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+    assert.match(app.$('appSheet').textContent, /older sampled source|current-page coverage not verified/);
     assert.ok(app.$('surgeBtn'), 'ordinary Bird Gen refresh remains reachable');
   }
   app.window.close();
@@ -18390,7 +18782,9 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
   const settled = box.querySelector('.surgesourceprogress');
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
-  assert.equal(settled.getAttribute('aria-valuenow'), '7');
+  assert.equal(settled.getAttribute('role'), 'status');
+  assert.equal(settled.querySelector('.track'), null);
+  assert.match(settled.textContent, /7 of 7 settled/);
   assert.match(settled.textContent, /Top 100 leaderboard failed/);
   assert.doesNotMatch(settled.textContent, /Loading Bird Gen sources/,
     'settled failure disclosure must not pretend work is still loading');

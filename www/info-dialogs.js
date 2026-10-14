@@ -239,7 +239,14 @@
     var mega = context.megaAge
       ? ' Mega snapshot ' + escapeWith(escapeHtml, context.megaAge) + '.'
       : ' No mega snapshot loaded.';
-    return '<p><b>Current feed:</b> ' + count + '.' + mega + '</p>';
+    var coverage = context.massCoverage;
+    if (coverage && /candidate species|daily samples/i.test(coverage)) {
+      coverage = 'Retained evidence from an older sampled source; current-page coverage not verified';
+    }
+    return '<p><b>Current feed:</b> ' + count + '.' + mega + '</p>'
+      + (coverage ? '<p><b>Mass flock coverage:</b> ' + escapeWith(escapeHtml, coverage)
+        + '. Regional maxima are not exhaustive and can hide other flocks; large counts do not'
+        + ' by themselves establish seasonal rarity.</p>' : '');
   }
 
   function sectionNoteHtml(warning, escapeHtml) {
