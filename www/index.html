@@ -497,7 +497,6 @@
       padding-inline-start: 1em; text-indent: -1em;
     }
     .stakeoutFlatChecklists > li > .cksummary > .ckmain * { text-indent: 0; }
-    .locality-marker .pinbubble { border-radius: 4px; background: var(--safe-blue); }
     .stakeoutPinCue { font-weight: 700; white-space: nowrap; }
     /* F138: `var(--link)`, not two hard-coded Okabe-Ito blues plus a SECOND
        dark-mode media query. `--link` already holds exactly this value per
@@ -4868,7 +4867,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.153.0';
+      var APP_VERSION = '1.154.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -15781,21 +15780,27 @@
 
       function spLookupOrderedPlaces(places) {
         var all = (places || []).slice();
-        if (!_spLookupWithinChase) return all;
+        if (_spLookupWithinChase) {
+          all = all.map(function (place) {
+            if (!place.localityKey) return spLookupPlaceReachable(place) ? place : null;
+            var checklists = place.checklists.filter(function (ck) {
+              return spLookupPlaceReachable(ck.sourcePlace);
+            });
+            if (!checklists.length) return null;
+            var sources = checklists.map(function (ck) { return ck.sourcePlace; });
+            var closest = sources.slice().sort(function (a, b) { return a.distMi - b.distMi; })[0];
+            var representative = rarityLocalPlace(sources, closest);
+            return Object.assign({}, place, representative, {
+              checklists: checklists, distMi: closest.distMi,
+              dateStr: checklists[0].dateStr, nReports: checklists.length
+            });
+          }).filter(Boolean);
+        }
+        var ordinal = 0;
         return all.map(function (place) {
-          if (!place.localityNumber) return spLookupPlaceReachable(place) ? place : null;
-          var checklists = place.checklists.filter(function (ck) {
-            return spLookupPlaceReachable(ck.sourcePlace);
-          });
-          if (!checklists.length) return null;
-          var sources = checklists.map(function (ck) { return ck.sourcePlace; });
-          var closest = sources.slice().sort(function (a, b) { return a.distMi - b.distMi; })[0];
-          var representative = rarityLocalPlace(sources, closest);
-          return Object.assign({}, place, representative, {
-            checklists: checklists, distMi: closest.distMi,
-            dateStr: checklists[0].dateStr, nReports: checklists.length
-          });
-        }).filter(Boolean);
+          if (!place.localityKey) return place;
+          return Object.assign({}, place, { localityNumber: ++ordinal });
+        });
       }
 
       function spLookupEvidenceRows(places, grouped) {
@@ -21912,6 +21917,21 @@
           var sp = locSpeciesSplit(o.locId, o.species);
           unseen = sp.unseen; seen = sp.seen; unknown = sp.unknown;
         }
+        var watchedTargets = unseen.filter(function (row) {
+          return isWatched(row.code || row.speciesCode);
+        }).length;
+        var genuinelyUnseenTargets = unseen.length - watchedTargets;
+        var unseenLabel = o.speciesLabel || (unseen.length + ' unseen 🔍');
+        if (watchedTargets) {
+          var composition = [];
+          if (genuinelyUnseenTargets) {
+            composition.push(genuinelyUnseenTargets + ' unseen');
+          }
+          composition.push(watchedTargets + ' WATCH target'
+            + (watchedTargets === 1 ? '' : 's'));
+          unseenLabel = (o.speciesLabel ? String(o.speciesLabel) + ' · ' : '')
+            + composition.join(' · ');
+        }
         var html = HotspotCards.medium({
           num: o.n, name: name, sub: facts,
           // Distance has its own column on the medium card, so it is passed
@@ -21924,8 +21944,7 @@
           // every hotspot list in the app, because they all build through this.
           distQ: distQ(o.lat, o.lng),
           unseen: unseen.length ? speciesListHtml(unseen, { presorted: o.presorted, unseen: true }) : '',
-          unseenLabel: unseen.length
-            ? esc(o.speciesLabel || (unseen.length + ' unseen 🔍')) : '',
+          unseenLabel: unseen.length ? esc(unseenLabel) : '',
           unknown: unknown.length ? speciesListHtml(unknown) : '',
           unknownLabel: personalUnknownLabel(unknown.length),
           // The count lives in the summary because it is the only thing you
@@ -24015,7 +24034,6 @@
           });
         });
         places.sort(function (a, b) { return a.localityKey.localeCompare(b.localityKey); });
-        places.forEach(function (p, i) { p.localityNumber = i + 1; });
         return { code: ordered[0].code, name: ordered[0].name, places: places,
           nPlaces: places.length, nReports: ordered.length,
           anyUnconfirmed: ordered.some(function (r) { return r.valid === false; }),
@@ -46719,7 +46737,26 @@
         try { add('text scale: ' + getUiScale() + '×'); } catch (e) {}
         try { add('region: ' + getRegion()); } catch (e) {}
         try { var h = getHome(); add('home: ' + (h ? (h.lat + ', ' + h.lng) : 'NOT SET (feeds are region-wide)')); } catch (e) {}
+        try { add('chase radius: ' + chaseMaxMi() + ' mi'); } catch (e) {}
         try { var k = getKey(); add('apiKey: ' + (k ? ('set, len ' + k.length) : 'MISSING')); } catch (e) {}
+        // dbgContext is included only in a diagnostic the reader explicitly
+        // copies. These exact membership codes are intentionally not telemetry.
+        try {
+          var _scope = activeScope();
+          var _official = personalListEvidence(_scope, true);
+          var _seenCodes = Object.keys(_official.exact || {}).sort();
+          var _seenState = _official.complete ? 'complete'
+            : (_official.state || 'unavailable');
+          if (_official.stale) _seenState += ', saved snapshot stale';
+          add('seen species codes (' + personalBasisLabel() + ' · ' + _scope.label
+            + '; ' + _seenState + '): ' + _seenCodes.length
+            + ' [' + _seenCodes.join(', ') + ']');
+        } catch (e) {}
+        try {
+          var _watchCodes = Object.keys(watchCodes()).sort();
+          add('WATCH species codes: ' + _watchCodes.length
+            + ' [' + _watchCodes.join(', ') + ']');
+        } catch (e) {}
         // The seen list is the number readers query most, and until now it said
       // only a total - which cannot explain a disagreement with eBird. Three
       // things were missing, and all three were already on the device:

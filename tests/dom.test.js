@@ -6324,6 +6324,53 @@ function ownedPersonalListFixture({ region = 'US-WA', period = 'year', count = 1
     + '</main></body></html>';
 }
 
+test('F886 copied diagnostic context includes scoped exact seen/WATCH codes and chase settings only', async () => {
+  const apiKey = 'LOCAL-API-KEY-TEST-886';
+  const app = await boot({sample:false,storage:{
+    ebird_api_key:apiKey,
+    ebird_display_name:'Sample Observer',
+    'ebird_home_lat:wa':'47.75',
+    'ebird_home_lng:wa':'-122.16',
+    'ebird_chase_mi:wa':'35',
+    ebird_watchlist_v1:JSON.stringify([
+      {code:'shbdow',name:'Short-billed Dowitcher'},
+      {code:'amecro',name:'American Crow'}
+    ])
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,['snogoo','amecro'],['Snow Goose','American Crow']);
+    const before = app.state.fetches.length;
+    const context = () => A.dbgContext();
+    let text = context();
+    assert.match(text,/home: 47\.75, -122\.16/);
+    assert.match(text,/chase radius: 35 mi/);
+    assert.match(text,/seen species codes \(2026 Year List · Washington; complete\): 2 \[amecro, snogoo\]/,
+      'official exact membership is sorted and includes the WATCH-held code');
+    assert.match(text,/WATCH species codes: 2 \[amecro, shbdow\]/,
+      'WATCH membership is separately sorted and counted');
+    assert.match(text,new RegExp('apiKey: set, len ' + apiKey.length));
+    assert.doesNotMatch(text,/LOCAL-API-KEY-TEST-886|ebird\.org\/lifelist/);
+
+    await seedSeen(app,['norcar'],['Northern Cardinal']);
+    assert.match(context(),/seen species codes \(2026 Year List · Washington; complete\): 1 \[norcar\]/,
+      'changing the official personal list changes the copied code line');
+    A.setWatchlist([{code:'baleag',name:'Bald Eagle'}]);
+    assert.match(context(),/WATCH species codes: 1 \[baleag\]/,
+      'changing WATCH membership changes only its code line');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47.80');
+    assert.match(context(),/home: 47\.8, -122\.16/,
+      'the configured Home change appears in context');
+    app.window.localStorage.setItem(A.CHASE_MI_KEY + ':' + A.getReportSlug(),'50');
+    assert.match(context(),/chase radius: 50 mi/,
+      'the configured radius change appears in context');
+    assert.equal(app.state.fetches.length,before,
+      'building the copied diagnostic makes no network requests');
+  } finally {
+    app.window.close();
+  }
+});
+
 test('F838 diagnostic buttons isolate direct methods and never save personal evidence', async () => {
   const urls = [];
   const app = await boot({sample:false,fetch(url) {
@@ -10469,10 +10516,19 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
     } });
     try {
       const A=app.window.__app;
+      app.window.localStorage.setItem(A.homeKey('lat'),'47.95');
+      app.window.localStorage.setItem(A.homeKey('lng'),'-122.16');
+      app.window.localStorage.setItem(A.chaseMiKey(),'10');
       installSpuhFixture(app);
       A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK), rows);
       await A.lookupSpecies('verfly','Vermilion Flycatcher');
       A.setSpeciesLookupWithinChase(false);
+      assert.match(HTML, /\.dest \.rank \{[^}]*border-radius:\s*999px[^}]*background:\s*#e5484d/,
+        'the locality group reference is a red circular badge');
+      assert.match(HTML, /\.pinbubble \{[^}]*border-radius:\s*50%[^}]*background:\s*var\(--pin,\s*#e5484d\)/,
+        'map locality badges use the matching circular red pin style');
+      assert.doesNotMatch(HTML, /\.locality-marker \.pinbubble\s*\{/,
+        'locality markers do not override the group-matching pin style');
       const identity = new Map();
       for (const grouped of [true,false]) {
         A.setSpeciesLookupGrouped(grouped);
@@ -10506,7 +10562,7 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
               .find(p=>p.dataset.pinPlace===row.dataset.pinPlace);
             assert.ok(pin,'each row refers to its actual locality marker');
             if (!grouped) assert.equal(row.querySelector('.stakeoutPinCue').textContent,'Locality '+pin.textContent);
-            assert.ok(pin.classList.contains('locality-marker'),'locality has a distinct marker shape');
+            assert.ok(pin.classList.contains('locality-marker'),'map marker retains its locality identity');
             if (identity.has(source.subId)) assert.equal(row.dataset.pinNumber,identity.get(source.subId));
             identity.set(source.subId,row.dataset.pinNumber);
           } else {
@@ -10519,6 +10575,12 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
         'the public/personal 52-report case is one established four-mile locality');
       assert.notEqual(identity.get('S895-DISTANT'),identity.get('S895-0'));
       signatures.push([...identity].sort());
+      A.setSpeciesLookupWithinChase(true);
+      A.setSpeciesLookupGrouped(true);
+      const nearbyGroups = [...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')];
+      assert.equal(nearbyGroups.length,1,'the 10-mile view filters the distant and unlocated groups');
+      assert.equal(/Locality (\d+)/.exec(nearbyGroups[0].textContent)?.[1],'1',
+        'F924 a filtered group receives the first visible ordinal, not its former regional ordinal');
       const before=[...app.$('spLookupRecent').querySelectorAll('.cklcard-sm')].map(r=>r.dataset.evSub);
       A.renderSpeciesLookup();
       assert.deepEqual([...app.$('spLookupRecent').querySelectorAll('.cklcard-sm')].map(r=>r.dataset.evSub),before,
@@ -40233,7 +40295,11 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
     'distance sort is exercised, not a second identical date case');
   A.setSpeciesLookupGrouped(true);
   function assertGrouped() {
-    for (const row of app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')) {
+    const groups = [...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')];
+    const numbers = groups.map(row => /Locality (\d+)/.exec(row.textContent)?.[1]);
+    assert.deepEqual(numbers, groups.map((_, index) => String(index + 1)),
+      'F924 visible group labels are sequential in the current filtered order');
+    for (const row of groups) {
       const number = row.querySelector('.hsnum')?.textContent;
       const marker = arr(app.$('spLookupMap').querySelectorAll('.leaflet-marker-icon'))
         .find(pin => pin.textContent === number);
@@ -41946,6 +42012,48 @@ test('F854/F855 hydrated patch targets exclude hybrids and render WATCH once', a
     assert.equal(card.querySelectorAll('.hsunseen .watchflag').length, 1);
   }
   app.window.close();
+});
+
+test('F885 shared hotspot heading distinguishes unseen, WATCH-only, and mixed targets', async () => {
+  const app = await boot({storage:{ebird_watchlist_v1:JSON.stringify([
+    {code:'shbdow',name:'Short-billed Dowitcher'},
+    {code:'snogoo',name:'Snow Goose'}
+  ])}});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,['shbdow','snogoo','amecro'],[
+      'Short-billed Dowitcher','Snow Goose','American Crow'
+    ]);
+    const watchRows = [
+      {code:'shbdow',comName:'Short-billed Dowitcher'},
+      {code:'snogoo',comName:'Snow Goose'}
+    ];
+    const makeCard = (species, facts=[]) => A.hotspotCard({
+      n:1,locId:'L885',locName:'Representative patch',facts,species
+    });
+
+    const watchOnly = makeCard(watchRows,['2 targets']);
+    assert.equal(watchOnly.querySelector('.meta').textContent,'2 targets',
+      'the scored target summary is preserved');
+    assert.equal(watchOnly.querySelector('.hsunseen .hslabel').textContent,'2 WATCH targets');
+    assert.equal(watchOnly.querySelectorAll('.hsunseen .watchflag').length,2,
+      'both WATCH rows keep their existing labels');
+    assert.doesNotMatch(watchOnly.querySelector('.hsunseen .hslabel').textContent,/unseen/i);
+
+    const unseenOnly = makeCard([{code:'norcar',comName:'Northern Cardinal'}]);
+    assert.equal(unseenOnly.querySelector('.hsunseen .hslabel').textContent,'1 unseen 🔍',
+      'ordinary unseen-only copy remains unchanged');
+
+    const mixed = makeCard([
+      {code:'snogoo',comName:'Snow Goose'},
+      {code:'norcar',comName:'Northern Cardinal'}
+    ]);
+    assert.equal(mixed.querySelector('.hsunseen .hslabel').textContent,
+      '1 unseen · 1 WATCH target');
+    assert.equal(mixed.querySelectorAll('.hsunseen .watchflag').length,1);
+  } finally {
+    app.window.close();
+  }
 });
 
 test('F818/F833 WATCH explains explicit Watch exceptions in standalone and nested personal-target rows only', async () => {

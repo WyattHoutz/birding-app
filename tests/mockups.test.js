@@ -225,7 +225,7 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
     at: 'easyBtn', expectedAt: 'easyBtn', ready: true, isStatic: false,
     sectionVisible: true, hostVisible: true, data: true, text: 120,
     controls: 2, inCapture: true, loading: [], disabled: [], missing: [],
-    mapReady: true, globalLoading: false,
+    mapReady: true, globalLoading: false, captureMissing: [],
   };
   assert.deepEqual(mockups.shotReadinessProblems(ready), [],
     'a populated data section is ready');
@@ -243,6 +243,10 @@ test('blank-shot decisions reject missing data instead of merely existing in sou
     ...ready, missing: ['#easyResults .hscard'],
   }), ['missing expected components'],
   'a generic card cannot replace the production shape a shot promises');
+  assert.deepEqual(mockups.shotReadinessProblems({
+    ...ready, captureMissing: ['#stakeHsResults .stakeHsNearbyChecklists .cklcard-sm'],
+  }), ['expected content outside capture'],
+  'expected evidence below a fixed screenshot cap cannot pass readiness');
   assert.deepEqual(mockups.shotReadinessProblems({
     ...ready, hostHeight: 341, maxHostHeight: 340,
   }), ['oversized result host'],
@@ -844,6 +848,36 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     assert.match(shot.prep, /high-visibility/);
     assert.match(shot.prep, /\.hero/);
   }
+});
+
+test('F901 Stakeout Patch release capture includes source-labelled private checklist evidence', () => {
+  const spec = mockups.STUB_SPEC.stakeHsBtn;
+  const shot = mockups.SECTION_SHOTS.find((item) => item.at === 'stakeHsBtn');
+  assert.ok(shot, 'the production Stakeout Patch section has no release capture');
+  assert.equal(shot.fullPage, true,
+    'the capped section capture omits the nearby personal checklist rows');
+  assert.deepEqual(spec.requiredInCapture, [
+    '#stakeHsResults .stakeHsNearbyChecklists',
+    '#stakeHsResults .stakeHsNearbyChecklists .cklcard-sm[data-ev-place="Synthetic nearby personal location"]',
+    '#stakeHsResults .stakeHsNearbyChecklists .privateflag',
+    '#stakeHsResults .stakeHsNearbyChecklists .rareflag',
+  ]);
+  assert.deepEqual(shot.requiredInCapture, spec.requiredInCapture,
+    'the release capture does not carry its lower-content bounds contract');
+
+  const fixture = source.slice(
+    source.indexOf("} else if (spec.kind === 'hotspot-search')"),
+    source.indexOf("} else if (at === 'iconicBtn')")
+  );
+  assert.match(fixture, /Nearby personal locations/);
+  assert.match(fixture, /data-ev-place="Synthetic nearby personal location"/);
+  assert.match(fixture, /location_private:true/);
+  assert.match(fixture, /kind:'Rarity'/);
+  assert.match(fixture, /heading\.textContent\.trim\(\) === 'Nearby personal locations'/);
+  assert.match(fixture, /nearbyRow\.querySelector\('\.privateflag'\)/);
+  assert.match(fixture, /nearbyRow\.querySelector\('\.rareflag'\)/);
+  assert.match(source, /expected content outside capture/,
+    'readiness must fail when required nearby evidence falls below the crop');
 });
 
 test('F795 Favorite mockup guards Remove placement and its 44px hit target', () => {

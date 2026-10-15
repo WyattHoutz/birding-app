@@ -176,7 +176,17 @@ const STUB_SPEC = {
       '#spLookupIdHelp .spuhtaxlevel[data-rank="species"]'] },
   stakeHsBtn:     { kind: 'hotspot-search', host: 'stakeHsResults', map: 'stakeHsMap',
     expects: ['#stakeHsResults .hscard-lg', '#stakeHsResults #stakeHsMap',
-      '#stakeHsResults .stakeHsIntroActions', '#stakeHsResults .stakeHsChecklistCards'] },
+      '#stakeHsResults .stakeHsIntroActions', '#stakeHsResults .stakeHsChecklistCards',
+      '#stakeHsResults .rankhead b',
+      '#stakeHsResults .stakeHsNearbyChecklists .cklcard-sm[data-ev-place="Synthetic nearby personal location"]',
+      '#stakeHsResults .stakeHsNearbyChecklists .privateflag',
+      '#stakeHsResults .stakeHsNearbyChecklists .rareflag'],
+    requiredInCapture: [
+      '#stakeHsResults .stakeHsNearbyChecklists',
+      '#stakeHsResults .stakeHsNearbyChecklists .cklcard-sm[data-ev-place="Synthetic nearby personal location"]',
+      '#stakeHsResults .stakeHsNearbyChecklists .privateflag',
+      '#stakeHsResults .stakeHsNearbyChecklists .rareflag',
+    ] },
   iconicBtn:      { kind: 'hotspot',       host: 'iconicResults' },
   hotBtn:         { kind: 'hotspot',       host: 'hotResults', map: 'hotMap' },
   coldBtn:        { kind: 'hotspot',       host: 'coldResults', map: 'coldMap' },
@@ -223,12 +233,13 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     title: item.label + (item.sub ? ' — ' + item.sub : ''),
     kind: spec && spec.kind,
     host: item.at === 'rankBtn' ? 'sec-rankBtn' : spec && spec.host,
-    fullPage: item.at === 'rankBtn',
+    fullPage: item.at === 'rankBtn' || item.at === 'stakeHsBtn',
     map: spec && spec.map,
     scrollTo: spec && spec.scrollTo,
     maxHostHeight: spec && spec.maxHostHeight,
     minControls: spec && spec.minControls,
     expects: (spec && spec.expects) || [],
+    requiredInCapture: (spec && spec.requiredInCapture) || [],
     allowDisabled: (spec && spec.allowDisabled) || [],
     prepTimeoutMs: item.at === 'spLookupBtn' ? 45000 : undefined,
     prep: `var spec = ${JSON.stringify(spec || null)};
@@ -859,6 +870,9 @@ function shotReadinessProblems(ready) {
   if (ready && ready.globalLoading) problems.push('global loading');
   if (ready && ready.disabled && ready.disabled.length) problems.push('disabled controls');
   if (ready && ready.missing && ready.missing.length) problems.push('missing expected components');
+  if (ready && ready.captureMissing && ready.captureMissing.length) {
+    problems.push('expected content outside capture');
+  }
   if (ready && !ready.mapReady) problems.push('map not ready');
   if (ready && ready.isStatic) {
     var minControls = ready.minControls == null ? 3 : ready.minControls;
@@ -2382,6 +2396,16 @@ const BOOTSTRAP = `
       if (!host.querySelector('.stakeHsNearbyChecklists .privateflag')) {
         throw new Error('Nearby personal-location checklist fixture did not render');
       }
+      var nearbyHeading = [].find.call(host.querySelectorAll('.rankhead b'), function (heading) {
+        return heading.textContent.trim() === 'Nearby personal locations';
+      });
+      var nearbyRow = host.querySelector(
+        '.stakeHsNearbyChecklists .cklcard-sm[data-ev-place="Synthetic nearby personal location"]');
+      if (!nearbyHeading || nearbyHeading.textContent.trim() !== 'Nearby personal locations'
+          || !nearbyRow || !nearbyRow.querySelector('.privateflag')
+          || !nearbyRow.querySelector('.rareflag')) {
+        throw new Error('Nearby personal checklist lost its source place or PRIVATE/RARE labels');
+      }
       document.getElementById('stakeHsStatus').textContent =
         '4 recent checklists · 10:03 PM';
       markHost(host, label);
@@ -3467,6 +3491,7 @@ async function main() {
       const readyProbe = await c.send('Runtime.evaluate', {
         expression: `(function () {
           var d = document.getElementById('f').contentDocument;
+          var w = d && d.defaultView;
           var anchor = d.getElementById(${JSON.stringify(shot.at)});
           var sec = anchor && anchor.closest ? anchor.closest('section') : null;
           if (!sec) return JSON.stringify({ error: 'missing section' });
@@ -3500,6 +3525,16 @@ async function main() {
           var missing = expected.filter(function (selector) {
             return !d.querySelector(selector);
           });
+          var captureHeight = ${shot.fullPage ? 'Math.max(600, d.documentElement.scrollHeight)' : HEIGHT};
+          var captureExpected = ${JSON.stringify(shot.requiredInCapture || [])};
+          var captureMissing = captureExpected.filter(function (selector) {
+            var el = d.querySelector(selector);
+            if (!el) return true;
+            var rect = el.getBoundingClientRect();
+            var top = rect.top + w.scrollY;
+            var bottom = rect.bottom + w.scrollY;
+            return top < 0 || bottom > captureHeight;
+          });
           return JSON.stringify({
             at: sec.dataset.mockAt || '',
             ready: sec.dataset.mockReady === 'true',
@@ -3510,7 +3545,9 @@ async function main() {
             hostHeight: +hr.height.toFixed(1),
             text: (host.innerText || '').replace(/\\s+/g, ' ').trim().length,
             controls: host.querySelectorAll('button,input,select,a[href],details').length,
-            inCapture: hr.bottom > 0 && hr.top < ${HEIGHT},
+            inCapture: hr.bottom > 0 && hr.top < captureHeight,
+            captureHeight: captureHeight,
+            captureMissing: captureMissing,
             globalLoading: globalLoading,
             loading: loading,
             disabled: disabled,
