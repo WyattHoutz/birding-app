@@ -35497,6 +35497,138 @@ test('a full store gives up its cheapest caches, not the wave', async () => {
   app.window.close();
 });
 
+test('F927 cache recovery and diagnostics scan profile-visible keys linearly', async () => {
+  const app = await boot({sample:false});
+  const W = app.window, A = W.__app, raw = W.localStorage;
+  const originalKey = W.Storage.prototype.key;
+  let reads = 0, budget = 0;
+  W.Storage.prototype.key = function (index) {
+    if (budget && ++reads > budget) throw new Error('F927 enumeration budget exceeded');
+    return originalKey.call(this, index);
+  };
+  function bounded(label, scans, fn) {
+    reads = 0;
+    budget = scans * raw.length;
+    try {
+      return fn();
+    } finally {
+      const limit = budget;
+      budget = 0;
+      assert.ok(reads > 0 && reads <= limit,
+        `${label}: ${reads} raw key reads, linear budget ${limit}`);
+    }
+  }
+  try {
+    for (const profile of ['', '2']) {
+      raw.clear();
+      raw.setItem(A.BC_PROFILE_PTR, profile);
+      raw.setItem('ebird_report', 'wa');
+      raw.setItem('bcp:2:ebird_report', 'wa');
+      raw.setItem('only_default:protected', 'default data');
+      raw.setItem('bcp:2:only_named:protected', 'named data');
+      raw.setItem('bcp:3:only_other:protected', 'another profile');
+      for (let i = raw.length; i < 567; i++) {
+        raw.setItem('ebird_locsp_v1:F927-' + i, 'synthetic protected cache');
+      }
+      const snapshot = Array.from({length:raw.length}, (_, i) => {
+        const key = originalKey.call(raw, i);
+        return [key, raw.getItem(key)];
+      });
+      assert.equal(bounded('recovery', 14, () => A.freeCacheSpace(100)), 0);
+      const report = bounded('storage report', 1, () => A.storeReport()).join('\n');
+      assert.match(report, profile ? /only_named:/ : /only_default:/);
+      assert.doesNotMatch(report, profile ? /only_default:|only_other:/ : /only_named:|only_other:/);
+      assert.ok(bounded('composition', 1, () => A.storeComposition()));
+      bounded('checklist pruning', 1, () => A.pruneChecklistCache());
+      bounded('retired checklist pruning', 1, () => A.sweepRetiredChecklistCaches());
+      bounded('chase pruning', 1, () => A.pruneChaseSnapshots());
+      assert.equal(raw.length, snapshot.length, 'recovery discarded protected data');
+      snapshot.forEach(([key, value]) => assert.equal(raw.getItem(key), value, key));
+
+      reads = 0;
+      budget = raw.length;
+      assert.equal(await A.zcGet('f927_missing:' + profile), null);
+      const missReads = reads, missBudget = budget;
+      budget = 0;
+      assert.ok(missReads > 0 && missReads <= missBudget,
+        `cache-miss diagnostic: ${missReads} raw key reads, linear budget ${missBudget}`);
+      assert.match(bounded('cache activity', 1, () => A.zcActivityReport()).join('\n'),
+        /f927_missing:/);
+    }
+  } finally {
+    budget = 0;
+    W.Storage.prototype.key = originalKey;
+    W.close();
+  }
+});
+
+test('F927 cold checklist comments paint after one bounded recovery and remain usable in memory', async () => {
+  for (const condition of ['space', 'reclaimable', 'full']) {
+    const sub = 'S927' + condition;
+    let requests = 0;
+    const app = await boot({sample:false, fetch(url) {
+      if (!url.includes('product/checklist/view/' + sub)) return null;
+      requests++;
+      return {subId:sub, obsDt:recentObsStamp(0), comments:'Checklist note',
+        obs:[{speciesCode:'amerob', comments:'Species note'}]};
+    }});
+    const W = app.window, A = W.__app, raw = W.localStorage;
+    const proto = W.Storage.prototype, originalSet = proto.setItem, originalKey = proto.key;
+    let writes = 0, reads = 0, limit = 0;
+    try {
+      raw.clear();
+      raw.setItem('ebird_api_key', 'TESTKEY');
+      raw.setItem('ebird_report', 'wa');
+      A.setRarityNotes(true);
+      for (let i = raw.length; i < 567; i++) {
+        raw.setItem('ebird_locsp_v1:F927-' + i, 'synthetic protected cache');
+      }
+      if (condition === 'reclaimable') raw.setItem('ebird_photos_neg_v1', 'x'.repeat(4096));
+      limit = raw.length * 15; // One recovery (14 namespaces), then one composition scan.
+      proto.key = function (index) {
+        if (++reads > limit) throw new Error('F927 response enumeration budget exceeded');
+        return originalKey.call(this, index);
+      };
+      proto.setItem = function (key, value) {
+        if (key === A.CKL_NS + sub) {
+          writes++;
+          if (condition === 'full' || (condition === 'reclaimable'
+              && raw.getItem('ebird_photos_neg_v1') !== null)) {
+            throw new W.DOMException('fixture quota', 'QuotaExceededError');
+          }
+        }
+        return originalSet.call(this, key, value);
+      };
+      const host = app.$('results');
+      const row = () => '<li data-ev-sub="' + sub + '" data-ev-code="amerob">'
+        + '<span class="rarewhere"></span></li>';
+      host.innerHTML = row();
+      await A.hydrateChecklistEvidence(host);
+      assert.match(host.textContent, /Species note/);
+      assert.match(host.textContent, /Checklist note/);
+      assert.equal(host.querySelector('.evnoteloading'), null);
+      assert.equal(requests, 1);
+      assert.equal(writes, condition === 'reclaimable' ? 2 : 1,
+        condition + ': checklistView repeated cklWrite recovery');
+      assert.ok(reads <= limit, `${condition}: ${reads} raw key reads exceeded ${limit}`);
+      assert.equal(raw.getItem(A.CKL_NS + sub) !== null, condition !== 'full');
+      assert.equal(raw.getItem('ebird_locsp_v1:F927-10'), 'synthetic protected cache');
+      const coldReads = reads, coldWrites = writes;
+      host.insertAdjacentHTML('beforeend', row());
+      await A.hydrateChecklistEvidence(host);
+      assert.equal(host.querySelectorAll('.evnotebq').length, 4,
+        'a newly appended row must receive both cached comments');
+      assert.equal(requests, 1, 'an in-memory checklist must not be fetched again');
+      assert.equal(writes, coldWrites, 'an in-memory checklist must not repeat persistence');
+      assert.equal(reads, coldReads, 'an in-memory checklist must not repeat enumeration');
+    } finally {
+      proto.setItem = originalSet;
+      proto.key = originalKey;
+      W.close();
+    }
+  }
+});
+
 test('F532 quota recovery retries Fresh Ticks, Common Birds, and checklist writes', async () => {
   const app = await boot();
   const A = app.window.__app, W = app.window;

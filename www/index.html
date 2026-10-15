@@ -17042,8 +17042,9 @@
       function pruneChaseSnapshots() {
         var keep = chaseKey(getReport().slug), drop = [];
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i);
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             if (k && k.indexOf(CHASE_NS) === 0 && k.indexOf(':' + todayStr()) < 0) drop.push(k);
           }
           drop.forEach(function (k) { if (k !== keep) localStorage.removeItem(k); });
@@ -24570,8 +24571,10 @@
       function storeKeys(prefix) {
         var out = [];
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i);
+          // The profile shim enumerates the store for each length/key access.
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             if (k && k.indexOf(prefix) === 0) out.push(k);
           }
         } catch (e) { /* enumeration failed; nothing to offer */ }
@@ -24605,8 +24608,9 @@
       function storeComposition() {
         var by = {};
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i) || '';
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             var v = localStorage.getItem(k) || '';
             var name = keyNs(k) || k;
             by[name] = (by[name] || 0) + k.length + v.length;
@@ -24650,8 +24654,9 @@
       function storeReport() {
         var by = {}, total = 0, lines = [];
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i) || '';
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             var v = localStorage.getItem(k) || '';
             var n = k.length + v.length;
             total += n;
@@ -24758,8 +24763,9 @@
       }
       function zcSampleKey(ns, notThisOne) {
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i) || '';
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             if (k !== notThisOne && k.indexOf(ns) === 0) return k;
           }
         } catch (e) {}
@@ -24788,8 +24794,9 @@
         // signature: entries accumulating against reads that never land.
         var held = {};
         try {
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i) || '';
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             var ns = keyNs(k) || '(singles)';
             held[ns] = (held[ns] || 0) + 1;
           }
@@ -25103,8 +25110,9 @@
       function sweepRetiredChecklistCaches() {
         try {
           var drop = [];
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i);
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             if (!k) continue;
             for (var j = 0; j < CKL_NS_RETIRED.length; j++) {
               if (k.indexOf(CKL_NS_RETIRED[j]) === 0) { drop.push(k); break; }
@@ -25117,8 +25125,9 @@
       function pruneChecklistCache() {
         try {
           var today = todayStr(), drop = [], keep = [];
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i);
+          var keys = bcVisibleKeys();
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
             if (!k || k.indexOf(CKL_NS) !== 0) continue;
             var o = cklEntry(k);
             if (BirdLogic.checklistCacheFresh(o, today)) keep.push({ k: k, d: (o && o.d) || '' });
@@ -25222,37 +25231,15 @@
                 for (var kk in mc) { if (mc[kk]) return true; }
                 return false;
               });
-              // ⚠️ PACKED PAYLOAD, PLAIN ENVELOPE (F247). One helper, so the
-              // retry below cannot drift from the first attempt.
               cklWrite(sub, d, hasMedia, v);
               // Counted as it grows, and trimmed IN SESSION. The prune used to
               // run only at boot, so a long session accumulated without limit
               // and the chase snapshot was what failed first.
               if ((++_cklWrites % 40) === 0) pruneChecklistCache();
             } catch (e) {
-              // ⚠️ F247. IT FREED SPACE AND THEN DID NOT USE IT.
-              //
-              // This made room for 60 entries and never retried the write, so the
-              // checklist that triggered the eviction was still lost — it simply
-              // donated its room to whatever wrote next. That is the worst of both:
-              // the cost of the eviction, none of the benefit, and a log line
-              // saying only "not cached". On the device log of 2026-08-29 this
-              // fired as "freed 19 cached items to make room" immediately followed
-              // by "checklist not cached: QuotaExceededError".
-              //
-              // A checklist is settled historic data. Re-buying it costs a call
-              // against a 22-per-60s window, which is the budget the 429 backoff
-              // is made of — so a write worth attempting once is worth attempting
-              // twice.
-              var freed = freeCacheSpace(60);
-              try {
-                cklWrite(sub, d, hasMedia, v);
-              } catch (e2) {
-                try {
-                  dbg('warn', 'checklist not cached after freeing ' + freed + ': '
-                    + (e2 && e2.name) + ' · store holds ' + storeComposition());
-                } catch (_) {}
-              }
+              // cklWrite already reclaims and retries; keep the fetched comments in memory.
+              dbg('warn', 'checklist not cached: '
+                + (e && e.name) + ' · store holds ' + storeComposition());
             }
             return v;
           })
@@ -48753,6 +48740,8 @@
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistView: checklistView, seedChecklistView: seedChecklistView,
         pruneChecklistCache: pruneChecklistCache,
+        sweepRetiredChecklistCaches: sweepRetiredChecklistCaches,
+        pruneChaseSnapshots: pruneChaseSnapshots,
         checklistLink: checklistLink, checklistUrl: checklistUrl,
         rarityNotes: rarityNotes, setRarityNotes: setRarityNotes,
         rarityControls: rarityControls, wireRarityControls: wireRarityControls,
