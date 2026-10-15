@@ -372,6 +372,12 @@ const EXTRA_SHOTS = [
 // Review-only states do not increase the derived mandatory release contract.
 // They are available through --only when a change needs a focused image.
 const REVIEW_SHOTS = [
+  { id: 'f928-watch-patches', at: 'destBtn',
+    title: "Today's patches - screenshot-based WATCH-only examples",
+    host: 'destResults', fullPage: true, freshApp: true,
+    prep: `var sec = document.getElementById('destBtn').closest('section');
+           A.showSection(sec.id);
+           return FIX.prepareWatchPatches(A, document, sec);` },
   { id: 'nearby-competitors-f857', at: 'rankBtn',
     title: 'F857 — compact nearby competitors and target answers',
     host: 'sec-rankBtn', fullPage: true, freshApp: true,
@@ -1000,15 +1006,15 @@ const BOOTSTRAP = `
     var style = document.createElement('style');
     style.id = 'releaseMockStyle';
     style.textContent =
-      '.mockfixture{border:2px solid var(--ink);border-radius:12px;padding:10px;background:var(--card)}'
+      '.mockfixture{background:var(--card)}'
       + '.mocklabel{font-size:calc(11px * var(--s));font-weight:800;letter-spacing:.06em;margin:8px 0}'
       + '.mockrow{border-top:1px solid var(--line);padding:9px 2px;'
       + 'font-size:calc(14px * var(--s));line-height:1.45}'
       + '.mockrow:first-of-type{border-top:0}.mockrow b{display:block;font-size:calc(16px * var(--s))}'
-      + '.mockmap{height:calc(190px * var(--s));border:2px solid var(--safe-blue);border-radius:11px;'
+      + '.mockmap{height:calc(190px * var(--s));'
       + 'background:linear-gradient(135deg,var(--card) 0 48%,var(--note-bg) 48% 52%,var(--card) 52%);'
       + 'display:grid;place-items:center;text-align:center;font-weight:800;margin:8px 0}'
-      + '.mockstate{display:inline-block;border:2px dashed var(--warn);border-radius:6px;'
+      + '.mockstate{display:inline-block;'
       + 'padding:2px 6px;font-size:calc(11px * var(--s));font-weight:800;margin-left:5px}';
     style.textContent += '#spLookupMap .mockmap{height:100%;margin:0;box-sizing:border-box}';
     document.head.appendChild(style);
@@ -1016,6 +1022,41 @@ const BOOTSTRAP = `
   function mockPhoto(code) {
     return '<span class="thumb"><img class="birdpic" src="'
       + fixtureIconPath(code, BIRD_ICON_EXT) + '" alt=""></span>';
+  }
+  async function prepareWatchPatches(A, document, sec) {
+    ensureMockStyle(document);
+    var birds = [
+      {code:'chispa', name:'Chipping Sparrow'},
+      {code:'merlin', name:'Merlin'},
+      {code:'amepip', name:'American Pipit'},
+      {code:'gresca', name:'Greater Scaup'}
+    ];
+    var seen = JSON.parse(JSON.stringify(window.__SEED_BIRDLIST__.seenByReport.wa));
+    birds.forEach(function (bird) {
+      if (!seen.yearList.some(function (row) { return row.code === bird.code; })) {
+        seen.yearList.push(bird);
+      }
+    });
+    await preparePersonalFixture(A, window, seen, birds);
+    A.setWatchlist(birds);
+    var groups = [
+      {locName:'Juanita Bay Park', species:birds.slice(0, 2)},
+      {locName:'Marymoor Park', species:birds.slice(2, 3)},
+      {locName:"Sprague's Pond Mini Park", species:birds.slice(3, 4)}
+    ];
+    var host = document.getElementById('destResults');
+    A.renderDestinations(groups, null, host, true);
+    fixtureStatus(sec, 'Screenshot-based reconstruction; synthetic personal inputs');
+    markHost(host, 'Screenshot-based WATCH-only patches');
+    // Inspect the actual rendered text, not a second reconstruction template.
+    if (/\\d+ unseen/.test(host.textContent)
+        || !/2 WATCH targets/.test(host.textContent)
+        || !/1 WATCH target/.test(host.textContent)) {
+      throw new Error('Screenshot-based patch reconstruction lost WATCH-only composition');
+    }
+    sec.dataset.mockAt = 'destBtn';
+    sec.dataset.mockReady = 'true';
+    return true;
   }
   function fixtureStatus(sec, label) {
     var status = sec.querySelector('.status');
@@ -3219,6 +3260,7 @@ const BOOTSTRAP = `
     fillMegaIndex: fillMegaIndex,
     prepareF629Nightly: prepareF629Nightly,
     prepareF629BirdGen: prepareF629BirdGen,
+    prepareWatchPatches: prepareWatchPatches,
     prepareCompare: prepareCompare,
     prepareStakeoutReports: prepareStakeoutReports,
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,

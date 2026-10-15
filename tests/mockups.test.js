@@ -84,7 +84,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
     1 + mockups.CONTRACT.menu.length + mockups.EXTRA_SHOTS.length,
     'Contents + every section + explicit extra states');
   assert.deepEqual(mockups.REVIEW_SHOTS.map((shot) => shot.id),
-    ['nearby-competitors-f857', 'nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
+    ['f928-watch-patches', 'nearby-competitors-f857', 'nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
     'stakeoutchecklists-progressive', 'stakeoutmixed-f634', 'stakeoutpins-f837',
     'stakeoutspts-notes-off', 'stakeoutspts-notes-on', 'stakeoutnotes-popup',
       'onboardingregion', 'onboardinghome',
@@ -282,8 +282,6 @@ test('fixture families use shared card components and accessible state labels', 
     'stub content labels itself rather than resembling live data');
   assert.match(source, /NEEDED|NEW REPORT/,
     'fixture states are written in words, not encoded by colour alone');
-  assert.match(source, /border:2px dashed var\(--warn\)/,
-    'the state also carries a non-colour border-style channel');
 });
 
 test('F504-F509 release fixtures show the current Twitches and Nemesis card contract', () => {
@@ -402,6 +400,41 @@ test('Hawaii patch fallback mockups render in the Hawaii report', () => {
   assert.match(source, /Captain Zodiac pelagic—C/);
   assert.match(source, /subnational2Code: 'US-HI-007'/);
   assert.match(source, /Distance did not preserve all regional evidence/);
+});
+
+test('F928 outreach fixture decoration does not invent outlined bubbles', () => {
+  const { JSDOM } = require('jsdom');
+  const start = source.indexOf('  function ensureMockStyle(document) {');
+  const end = source.indexOf('\n  function mockPhoto', start);
+  assert.ok(start >= 0 && end > start);
+  function checkStyle(styleSource) {
+    const dom = new JSDOM('<!doctype html><head></head><body></body>');
+    try {
+      const apply = new Function(styleSource + '; return ensureMockStyle;')();
+      apply(dom.window.document);
+      const rules = [...dom.window.document.styleSheets[0].cssRules];
+      for (const selector of ['.mockfixture', '.mockstate', '.mockmap']) {
+        const rule = rules.find(item => item.selectorText === selector);
+        assert.ok(rule, selector + ' fixture rule missing');
+        assert.equal(rule.style.getPropertyValue('border'), '', selector + ' has a mockup-only border');
+        assert.equal(rule.style.getPropertyValue('border-radius'), '', selector + ' has a mockup-only bubble');
+      }
+      assert.match(source, /REPRESENTATIVE STUB DATA/,
+        'demo provenance must remain explicit after removing decoration');
+    } finally {
+      dom.window.close();
+    }
+  }
+  const styleSource = source.slice(start, end);
+  checkStyle(styleSource);
+  for (const selector of ['.mockfixture', '.mockstate', '.mockmap']) {
+    for (const declaration of ['border:2px solid black;', 'border-radius:12px;']) {
+      const mutated = styleSource.replace(selector + '{', selector + '{' + declaration);
+      assert.notEqual(mutated, styleSource);
+      assert.throws(() => checkStyle(mutated), /mockup-only/,
+        selector + ' restored decoration must fail the guard');
+    }
+  }
 });
 
 test('F329/F342/F345 release mockups show the completed new facts', () => {
