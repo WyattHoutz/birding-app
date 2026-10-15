@@ -4867,7 +4867,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.154.0';
+      var APP_VERSION = '1.155.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -24650,7 +24650,19 @@
       // WKWebView default. It is labelled as an assumption on the line itself
       // so nobody later quotes it as something we measured.
       var STORE_BUDGET_KB = 5 * 1024;
-      var _storePressure = { failedBytes: 0, reclaimedBytes: 0, retryStored: false };
+      var _storePressure = { reclaimedChars: 0, latest: null };
+      function storageErrorName(error) {
+        var name = error && error.name;
+        return typeof name === 'string' && name
+          ? name.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 48) || 'UnknownError'
+          : 'UnknownError';
+      }
+      function isQuotaExceeded(error) {
+        var name = error && error.name;
+        var code = Number(error && error.code);
+        return name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+          || code === 22 || code === 1014;
+      }
       function storeReport() {
         var by = {}, total = 0, lines = [];
         try {
@@ -24672,10 +24684,19 @@
         var names = Object.keys(by).sort(function (a, b) { return by[b].b - by[a].b; });
         lines.push('cache estimate: ' + Math.round(total / 1024) + ' KB of UTF-16 characters across '
           + names.length + ' namespaces (actual WKWebView quota/headroom is not readable)');
-        lines.push(_storePressure.failedBytes
-          ? 'demonstrated write pressure: ' + Math.round(_storePressure.failedBytes / 1024)
-            + ' KB write failed; reclaimed ' + Math.round(_storePressure.reclaimedBytes / 1024)
-            + ' KB measured payload; retry ' + (_storePressure.retryStored ? 'stored' : 'failed')
+        var pressure = _storePressure.latest;
+        lines.push(pressure
+          ? 'demonstrated write pressure: latest ' + pressure.namespace + ' write '
+            + 'payload ' + pressure.payloadChars + ' UTF-16 chars + key ' + pressure.keyChars
+            + ' = ' + pressure.failedChars + ' total chars; initial ' + pressure.initialError
+            + '; latest reclaim ' + pressure.reclaimedChars + ' measured payload chars; session reclaim '
+            + _storePressure.reclaimedChars + ' measured payload chars; retry '
+            + (pressure.retryAttempted
+              ? (pressure.retryStored ? 'stored' : 'failed')
+                + (pressure.retryError ? ' (' + pressure.retryError + ')' : '')
+              : 'not attempted'
+                + (pressure.retryError ? ' (' + pressure.retryError + ')' : ''))
+            + '; read-back ' + pressure.readBack
           : 'demonstrated write pressure: none this session; writable headroom is unknown');
         lines.push('  entries      KB   mean  gzip  namespace');
         names.forEach(function (nm) {
@@ -24921,7 +24942,13 @@
             initialFailed: details.initialFailed === true,
             reclaimedChars: details.reclaimedChars || 0,
             retryAttempted: details.retryAttempted === true,
-            retryStored: details.retryStored === true
+            retryStored: details.retryStored === true,
+            writeChars: details.writeChars || 0,
+            keyChars: details.keyChars || key.length,
+            payloadChars: details.payloadChars || payload.length,
+            initialError: details.initialError || '',
+            retryError: details.retryError || '',
+            readBack: details.readBack || 'not attempted'
           });
           if (stored) return true;
           {
@@ -24940,9 +24967,19 @@
               // Once per session: the composition is the same answer every
               // time within a run, and repeating it would bury the writes
               // that failed.
-              dbg('warn', 'cache not stored (' + key.split(':')[0] + ', '
+              dbg('warn', 'cache not stored (' + (keyNs(key) || '(singles)') + ', '
                 + Math.round(payload.length / 1024) + ' KB): '
-                + 'QuotaExceededError'
+                + (details.initialError || 'UnknownError')
+                + '; payload ' + (details.payloadChars || payload.length) + ' UTF-16 chars + key '
+                + (details.keyChars || key.length) + ' = '
+                + (details.writeChars || key.length + payload.length) + ' total chars'
+                + '; reclaimed ' + (details.reclaimedChars || 0) + ' chars'
+                + '; retry ' + (details.retryAttempted
+                  ? (details.retryStored ? 'stored' : 'failed')
+                    + (details.retryError ? ' (' + details.retryError + ')' : '')
+                  : 'not attempted'
+                    + (details.retryError ? ' (' + details.retryError + ')' : ''))
+                + '; read-back ' + (details.readBack || 'not attempted')
                 + (_zcSaidComposition ? '' : ' · store holds ' + storeComposition()));
               _zcSaidComposition = true;
               return false;
@@ -25006,34 +25043,98 @@
           localStorage.setItem(key, payload);
           if (details) {
             details.stored = true;
+            details.writeChars = need;
+            details.keyChars = key.length;
+            details.payloadChars = payload.length;
+            details.initialError = '';
             details.initialFailed = false;
             details.reclaimedChars = 0;
             details.retryAttempted = false;
             details.retryStored = false;
+            details.retryError = '';
+            details.readBack = 'not needed';
           }
           return true;
         } catch (first) {
-          _storePressure.failedBytes = need;
-          _storePressure.retryStored = false;
+          var pressure = {
+            namespace: keyNs(key) || '(singles)',
+            failedChars: need,
+            keyChars: key.length,
+            payloadChars: payload.length,
+            initialError: storageErrorName(first),
+            reclaimedChars: 0,
+            retryAttempted: false,
+            retryStored: false,
+            retryError: 'not attempted',
+            readBack: 'not attempted'
+          };
+          _storePressure.latest = pressure;
+          if (!isQuotaExceeded(first)) {
+            pressure.retryError = 'initial error was not quota';
+            if (details) {
+              details.stored = false;
+              details.writeChars = need;
+              details.keyChars = key.length;
+              details.payloadChars = payload.length;
+              details.initialError = pressure.initialError;
+              details.initialFailed = true;
+              details.reclaimedChars = 0;
+              details.retryAttempted = false;
+              details.retryStored = false;
+              details.retryError = pressure.retryError;
+              details.readBack = 'not attempted';
+            }
+            return false;
+          }
           var reclaimed = freeCacheSpace(need);
-          _storePressure.reclaimedBytes += reclaimed;
+          pressure.reclaimedChars = reclaimed;
+          _storePressure.reclaimedChars += reclaimed;
           if (details) {
             details.stored = false;
+            details.writeChars = need;
+            details.keyChars = key.length;
+            details.payloadChars = payload.length;
+            details.initialError = pressure.initialError;
             details.initialFailed = true;
             details.reclaimedChars = reclaimed;
-            details.retryAttempted = reclaimed > 0;
+            details.retryAttempted = false;
             details.retryStored = false;
+            details.retryError = pressure.retryError;
+            details.readBack = 'not attempted';
           }
-          if (!reclaimed) return false;
+          if (!reclaimed) {
+            pressure.retryError = 'no cache reclaimed';
+            if (details) details.retryError = pressure.retryError;
+            return false;
+          }
+          pressure.retryAttempted = true;
+          pressure.retryError = '';
           try {
             localStorage.setItem(key, payload);
-            _storePressure.retryStored = true;
+            pressure.retryStored = true;
             if (details) {
-              details.stored = true;
+              details.retryAttempted = true;
               details.retryStored = true;
+              details.retryError = '';
             }
-            return true;
+            try {
+              var matches = localStorage.getItem(key) === payload;
+              pressure.readBack = matches ? 'verified' : 'mismatch';
+              if (details) details.readBack = pressure.readBack;
+              if (!matches) return false;
+              if (details) details.stored = true;
+              return true;
+            } catch (readError) {
+              pressure.readBack = 'error (' + storageErrorName(readError) + ')';
+              if (details) details.readBack = pressure.readBack;
+              return false;
+            }
           } catch (second) {
+            pressure.retryError = storageErrorName(second);
+            if (details) {
+              details.retryAttempted = true;
+              details.retryError = pressure.retryError;
+            }
             return false;
           }
         }

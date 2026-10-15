@@ -608,6 +608,64 @@ test('fixture photos use the extension of the bundled icon they render', () => {
     'the browser fixture must use the same extension-aware resolver the test drives');
 });
 
+test('F920 fixture photos preserve an in-flight production request for the same bundled icon', () => {
+  const image = {
+    classList: { contains: () => false },
+    currentSrc: '',
+    src: 'https://mockup.test/assets/birds/ruff.jpg',
+  };
+  assert.equal(mockups.fixtureImageNeedsRefresh(
+    image, 'assets/birds/ruff.jpg', 'https://mockup.test/index.html'), false,
+  'matching source stays untouched even before the browser reports loaded dimensions');
+  assert.equal(mockups.fixtureImageNeedsRefresh(
+    image, 'assets/birds/baisan.jpg', 'https://mockup.test/index.html'), true,
+  'a different bird source must be set');
+  assert.equal(mockups.fixtureImageNeedsRefresh(
+    { ...image, classList: { contains: (name) => name === 'isfallback' } },
+    'assets/birds/ruff.jpg', 'https://mockup.test/index.html'), true,
+  'a loaded fallback icon is not accepted as the requested bird photo');
+
+  const fill = source.slice(source.indexOf('async function fillFixturePhotos('),
+    source.indexOf('async function prepareTwitches(',
+      source.indexOf('async function fillFixturePhotos(')));
+  assert.match(fill, /fixtureImageNeedsRefresh\(img, source, document\.baseURI\)/);
+  assert.match(fill, /if \(needsSource\) img\.src = source/);
+  assert.match(fill, /await decodeFixtureImage\(img, source\)/);
+});
+
+test('F920 fixture image decode retries once but still requires decoded pixels', async () => {
+  let attempts = 0;
+  let source = '';
+  const recovered = {
+    naturalWidth: 0,
+    decode: async () => {
+      attempts++;
+      if (attempts === 1) throw new Error('transient request failure');
+      recovered.naturalWidth = 240;
+    },
+  };
+  Object.defineProperty(recovered, 'src', {
+    get: () => source,
+    set: (value) => { source = value; },
+  });
+  await mockups.decodeFixtureImage(recovered, 'assets/birds/ruff.jpg');
+  assert.equal(attempts, 2);
+  assert.equal(source, 'assets/birds/ruff.jpg?fixture-retry=1');
+  assert.equal(recovered.naturalWidth, 240);
+
+  let emptyAttempts = 0;
+  const empty = {
+    naturalWidth: 0,
+    src: '',
+    decode: async () => { emptyAttempts++; },
+  };
+  await assert.rejects(
+    mockups.decodeFixtureImage(empty, 'assets/birds/baisan.jpg'),
+    /initial decode failed .* bounded retry failed .* zero natural width/
+  );
+  assert.equal(emptyAttempts, 2, 'a second zero-width result must remain a fixture failure');
+});
+
 test('Washington mock data follows the owner-provided September 2 seen snapshot', () => {
   assert.equal(waSeen.region, 'US-WA');
   assert.equal(waSeen.asOf, '2026-09-02');

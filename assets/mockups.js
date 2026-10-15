@@ -59,6 +59,32 @@ function fixtureIconPath(code, extensions = BUNDLED_ICON_EXTENSIONS) {
   return 'assets/birds/' + code + ext;
 }
 
+function fixtureImageNeedsRefresh(img, src, baseURI) {
+  if (!img || img.classList.contains('isfallback')) return true;
+  const currentPath = new URL(img.currentSrc || img.src, baseURI).pathname;
+  const expectedPath = new URL(src, baseURI).pathname;
+  return currentPath !== expectedPath;
+}
+
+async function decodeFixtureImage(img, src) {
+  async function decodeOnce() {
+    await img.decode();
+    if (!img.naturalWidth) throw new Error('decode resolved with zero natural width');
+  }
+  try {
+    await decodeOnce();
+    return;
+  } catch (firstError) {
+    img.src = src + '?fixture-retry=1';
+    try {
+      await decodeOnce();
+    } catch (retryError) {
+      throw new Error('initial decode failed (' + firstError.message
+        + '); bounded retry failed (' + retryError.message + ')', { cause: retryError });
+    }
+  }
+}
+
 async function preparePersonalFixture(A, window, seen, taxa = []) {
   const rows = new Map(seen.yearList.map(row => [row.code, {
     speciesCode: row.code, comName: row.name, sciName: '', category: 'species'
@@ -913,6 +939,8 @@ const BOOTSTRAP = `
   var MEGA_STAKEOUT = ${JSON.stringify(MEGA_STAKEOUT)};
   var BIRD_ICON_EXT = ${JSON.stringify(BUNDLED_ICON_EXTENSIONS)};
   var fixtureIconPath = ${fixtureIconPath.toString()};
+  var fixtureImageNeedsRefresh = ${fixtureImageNeedsRefresh.toString()};
+  var decodeFixtureImage = ${decodeFixtureImage.toString()};
   var preparePersonalFixture = ${preparePersonalFixture.toString()};
   var RealDate = Date;
   var MOCK_NOW = RealDate.parse('2026-09-02T18:00:00-07:00');
@@ -1797,17 +1825,42 @@ const BOOTSTRAP = `
   }
   async function fillFixturePhotos(host, document) {
     await Promise.all([].map.call(host.querySelectorAll('.thumb[data-code]'), async function (slot) {
-      var img = document.createElement('img');
-      img.className = 'birdpic';
+      var code = slot.getAttribute('data-code');
+      var source = fixtureIconPath(code, BIRD_ICON_EXT);
+      var img = slot.querySelector('img.birdpic');
+      var needsSource = fixtureImageNeedsRefresh(img, source, document.baseURI);
+      if (!img || img.classList.contains('isfallback')) {
+        img = document.createElement('img');
+        img.className = 'birdpic';
+        slot.replaceChildren(img);
+      }
       img.alt = slot.getAttribute('data-bird') || '';
-      img.src = fixtureIconPath(slot.getAttribute('data-code'), BIRD_ICON_EXT);
-      slot.replaceChildren(img);
+      var lifecycle = [];
+      img.addEventListener('load', function () {
+        lifecycle.push('load(width=' + img.naturalWidth + ')');
+      });
+      img.addEventListener('error', function () {
+        lifecycle.push('error(width=' + img.naturalWidth + ')');
+      });
+      if (needsSource) img.src = source;
       try {
-        await img.decode();
+        await decodeFixtureImage(img, source);
       } catch (error) {
+        var resources = window.performance.getEntriesByName(img.currentSrc || img.src)
+          .map(function (entry) {
+            return {
+              transferSize: entry.transferSize,
+              encodedBodySize: entry.encodedBodySize,
+              decodedBodySize: entry.decodedBodySize,
+              duration: entry.duration
+            };
+          });
         throw new Error('Fixture photo could not decode: ' + img.src
           + ' (complete=' + img.complete + ', width=' + img.naturalWidth
-          + ', connected=' + img.isConnected + ', slot=' + slot.innerHTML + ')',
+          + ', connected=' + img.isConnected + ', lifecycle=' + lifecycle.join(',')
+          + ', resources=' + JSON.stringify(resources)
+          + ', decode=' + (error.name || 'Error') + ': ' + error.message
+          + ', slot=' + slot.innerHTML + ')',
           { cause: error });
       }
     }));
@@ -3338,6 +3391,7 @@ const BOOTSTRAP = `
 
 // ------------------------------------------------------------------- server
 let onShot = null;
+const assetResponses = new Map();
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (url === '/__harness') {
@@ -3350,6 +3404,11 @@ const server = http.createServer((req, res) => {
   let rel = url.replace(/^\//, '') || 'index.html';
   const file = path.join(WWW, rel);
   if (!file.startsWith(WWW) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    if (url.startsWith('/assets/birds/')) {
+      const rows = assetResponses.get(url) || [];
+      rows.push({ status: 404, bytes: Buffer.byteLength('nope'), contentType: 'text/plain' });
+      assetResponses.set(url, rows);
+    }
     res.writeHead(404); res.end('nope'); return;
   }
   const ext = path.extname(file).toLowerCase();
@@ -3359,8 +3418,15 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[ext] });
     res.end(html); return;
   }
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
-  res.end(fs.readFileSync(file));
+  const contentType = MIME[ext] || 'application/octet-stream';
+  const content = fs.readFileSync(file);
+  if (url.startsWith('/assets/birds/')) {
+    const rows = assetResponses.get(url) || [];
+    rows.push({ status: 200, bytes: content.length, contentType: contentType });
+    assetResponses.set(url, rows);
+  }
+  res.writeHead(200, { 'Content-Type': contentType });
+  res.end(content);
 });
 
 // ---------------------------------------------------------------------- CDP
@@ -3373,10 +3439,13 @@ function cdp(wsUrl) {
   }
 
   const ws = new WebSocket(wsUrl);
-  let id = 0; const waiting = new Map();
+  let id = 0; const waiting = new Map(), eventHandlers = new Map();
   ws.on('message', (m) => {
     const msg = JSON.parse(m.toString());
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)(msg); waiting.delete(msg.id); }
+    else if (msg.method && eventHandlers.has(msg.method)) {
+      eventHandlers.get(msg.method).forEach((handler) => handler(msg.params, msg.sessionId));
+    }
   });
   const ready = new Promise((r) => ws.on('open', r));
   return {
@@ -3386,6 +3455,11 @@ function cdp(wsUrl) {
       waiting.set(n, (msg) => (msg.error ? rej(new Error(method + ': ' + msg.error.message)) : res(msg.result)));
       ws.send(JSON.stringify({ id: n, method, params, sessionId }));
     }),
+    onEvent: (method, handler) => {
+      const handlers = eventHandlers.get(method) || [];
+      handlers.push(handler);
+      eventHandlers.set(method, handlers);
+    },
     close: () => ws.close(),
   };
 }
@@ -3472,7 +3546,29 @@ async function main() {
   const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });
   await c.send('Page.enable', {}, sessionId);
+  await c.send('Network.enable', {}, sessionId);
   await c.send('Runtime.enable', {}, sessionId);
+  const birdRequests = new Map(), birdNetworkEvents = [];
+  c.onEvent('Network.requestWillBeSent', (params, eventSession) => {
+    if (eventSession !== sessionId || !params.request.url.includes('/assets/birds/')) return;
+    birdRequests.set(params.requestId, params.request.url);
+    birdNetworkEvents.push({ event: 'request', url: params.request.url });
+  });
+  c.onEvent('Network.responseReceived', (params, eventSession) => {
+    if (eventSession !== sessionId || !params.response.url.includes('/assets/birds/')) return;
+    birdNetworkEvents.push({
+      event: 'response', url: params.response.url,
+      status: params.response.status, mimeType: params.response.mimeType
+    });
+  });
+  c.onEvent('Network.loadingFailed', (params, eventSession) => {
+    if (eventSession !== sessionId || !birdRequests.has(params.requestId)) return;
+    birdNetworkEvents.push({
+      event: 'failed', url: birdRequests.get(params.requestId),
+      errorText: params.errorText, canceled: params.canceled || false,
+      blockedReason: params.blockedReason || ''
+    });
+  });
   await c.send('Emulation.setTimezoneOverride', {
     timezoneId: 'America/Los_Angeles',
   }, sessionId);
@@ -3526,6 +3622,14 @@ async function main() {
     const verdict = r.result && r.result.value;
     if (verdict !== 'ok') {
       console.error('  !! ' + shot.id + ': ' + verdict);
+      const failedAsset = String(verdict).match(/\/assets\/birds\/[^ )]+/);
+      if (failedAsset) {
+        const assetPath = failedAsset[0].split('?')[0];
+        console.error('  .. fixture asset responses: '
+          + JSON.stringify(assetResponses.get(assetPath) || []));
+        console.error('  .. browser asset network: '
+          + JSON.stringify(birdNetworkEvents.filter((event) => event.url.includes(assetPath))));
+      }
       continue;
     }
     await new Promise((r2) => setTimeout(r2, 700));
@@ -3751,7 +3855,8 @@ async function main() {
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  fixtureIconPath, preparePersonalFixture, shotReadinessProblems, shotLooksBlank,
+  fixtureIconPath, fixtureImageNeedsRefresh, decodeFixtureImage, preparePersonalFixture,
+  shotReadinessProblems, shotLooksBlank,
   mockupRunPassed, withTimeout
 };
 

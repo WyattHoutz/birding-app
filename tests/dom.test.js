@@ -35681,7 +35681,84 @@ test('F532 quota recovery retries Fresh Ticks, Common Birds, and checklist write
   const report = A.storeReport().join('\n');
   assert.match(report, /actual WKWebView quota\/headroom is not readable/);
   assert.match(report, /demonstrated write pressure: .*retry stored/);
+  assert.match(report, /read-back verified/,
+    'the recovered write was not confirmed from storage');
   app.window.close();
+});
+
+test('F921 non-quota storage failures preserve caches and identify the failed write', async () => {
+  const app = await boot();
+  const W = app.window, A = W.__app;
+  const proto = Object.getPrototypeOf(W.localStorage);
+  const originalSet = proto.setItem;
+  const disposable = 'ebird_photos_neg_v1:f921-control';
+  const target = 'bc_f921_test:write';
+  W.localStorage.setItem(disposable, 'keep until a quota failure');
+  let attempts = 0;
+  proto.setItem = function (key, value) {
+    if (key === target) {
+      attempts++;
+      throw new W.DOMException('blocked fixture write', 'SecurityError');
+    }
+    return originalSet.call(this, key, value);
+  };
+  try {
+    assert.equal(await A.zcPut(target, { control: 'non-quota failure' }), false);
+  } finally {
+    proto.setItem = originalSet;
+  }
+  assert.equal(attempts, 1, 'a non-quota error triggered a destructive retry');
+  assert.equal(W.localStorage.getItem(disposable), 'keep until a quota failure',
+    'the quota-recovery path evicted cache for an unrelated storage error');
+  const report = A.storeReport().join('\n');
+  const pressure = report.split('\n').find((line) => line.includes('latest bc_f921_test:'));
+  assert.ok(pressure, 'the storage report omitted the failed write namespace');
+  const sizes = pressure.match(/write payload (\d+) UTF-16 chars \+ key (\d+) = (\d+) total chars/);
+  assert.ok(sizes, 'the report omitted exact encoded payload and key sizes');
+  assert.equal(Number(sizes[2]), target.length);
+  assert.equal(Number(sizes[1]) + Number(sizes[2]), Number(sizes[3]));
+  assert.match(pressure, /initial SecurityError/);
+  assert.match(report, /retry not attempted \(initial error was not quota\)/);
+  const warnings = W.__dbg.buf.map((row) => row.msg).join('\n');
+  assert.match(warnings,
+    /cache not stored \(bc_f921_test:, \d+ KB\): SecurityError; payload \d+ UTF-16 chars \+ key \d+ = \d+ total chars/);
+  assert.match(warnings, /retry not attempted \(initial error was not quota\)/);
+  assert.doesNotMatch(warnings, /non-quota failure/,
+    'a failed storage diagnostic logged payload content');
+  W.close();
+});
+
+test('F921 recovered storage writes require an immediate matching read-back', async () => {
+  const app = await boot();
+  const W = app.window, A = W.__app;
+  const proto = Object.getPrototypeOf(W.localStorage);
+  const originalSet = proto.setItem, originalGet = proto.getItem;
+  const disposable = 'ebird_photos_neg_v1:f921-readback';
+  const target = 'bc_f921_readback:write';
+  W.localStorage.setItem(disposable, 'reclaimable fixture cache');
+  let attempts = 0;
+  proto.setItem = function (key, value) {
+    if (key === target && ++attempts === 1) {
+      throw new W.DOMException('fixture quota', 'QuotaExceededError');
+    }
+    return originalSet.call(this, key, value);
+  };
+  proto.getItem = function (key) {
+    if (key === target && attempts > 1) return null;
+    return originalGet.call(this, key);
+  };
+  let stored;
+  try {
+    stored = await A.zcPut(target, { control: 'read-back mismatch' });
+  } finally {
+    proto.setItem = originalSet;
+    proto.getItem = originalGet;
+  }
+  assert.equal(attempts, 2, 'the quota-recovery retry did not run exactly once');
+  assert.equal(stored, false, 'an unverified retry was reported as a durable success');
+  assert.ok(W.localStorage.getItem(target), 'the controlled retry did not write its payload');
+  assert.match(A.storeReport().join('\n'), /retry stored; read-back mismatch/);
+  W.close();
 });
 
 
