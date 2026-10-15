@@ -140,6 +140,33 @@ test('popup prose is read from separate shared sources', () => {
     'the catalogued sheet no longer assigns counts to the verified backbone');
 });
 
+test('F933 Bird Gen alert key describes every registered category, including inactive categories', () => {
+  assert.ok(INFO.alertKinds, 'the app and information dialog must share the category registry');
+  assert.match(HTML, /var SURGE_KINDS = window\.BirdInfoDialogs\.alertKinds/,
+    'the feed must use the same category identities and tags as its key');
+  const content = INFO.render('bird-gen-feed', {}, { BirdLogic: BL });
+  const dom = new JSDOM(content.bodyHtml);
+  try {
+    const rows = [...dom.window.document.querySelectorAll('[data-alert-key-kind]')];
+    assert.deepEqual(rows.map((row) => row.dataset.alertKeyKind).sort(),
+      Object.keys(INFO.alertKinds).sort(), 'even currently inactive categories need a key');
+    for (const [kind, meta] of Object.entries(INFO.alertKinds)) {
+      const row = rows.find((item) => item.dataset.alertKeyKind === kind);
+      assert.ok(meta.name && meta.description, `${kind} needs a full name and description`);
+      assert.ok(row.querySelector('b').textContent.includes(meta.word), `${kind} tag missing`);
+      assert.ok(row.querySelector('b').textContent.includes(meta.name), `${kind} name missing`);
+      assert.ok(row.textContent.includes(meta.description), `${kind} explanation missing`);
+    }
+    for (const kind of ['migration', 'foy']) {
+      assert.ok(rows.some((row) => row.dataset.alertKeyKind === kind), `${kind} was omitted`);
+    }
+    const catalog = GENERATOR.buildCatalog();
+    assert.match(catalog, /data-alert-type-key/, 'the shared catalog must include the real key');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('the generated catalog has exact bidirectional section and sheet coverage', () => {
   const data = GENERATOR.inventory();
   assert.equal(data.sections.length, CONTRACT.menu.length,

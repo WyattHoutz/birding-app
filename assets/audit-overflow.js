@@ -1306,6 +1306,7 @@ const AUDIT = `<script>
             && periodBox.height >= 44 && scope.width >= 44 && scope.height >= 44,
           rowGap:identityBox.top - Math.max(brand.bottom, scope.bottom, periodBox.bottom),
           headerHeight:compactHeight, spacingControlHeight:spacedHeight,
+          topBorder:parseFloat(getComputedStyle(headerNode).borderTopWidth),
           spacingSaved:spacedHeight - compactHeight,
           twoRows:name.top >= Math.max(brand.bottom, scope.bottom, periodBox.bottom) - 1,
           nameWidth:name.width,
@@ -1340,6 +1341,55 @@ const AUDIT = `<script>
       if (savedRanks == null) localStorage.removeItem(A.RANK_CACHE_KEY);
       else localStorage.setItem(A.RANK_CACHE_KEY, savedRanks);
       A.renderMenuIdentity();
+      A.showSection('sec-surgeBtn');
+      A.renderSurge([], [], [], [], [], {
+        mega:'notApplicable', observations:'ok', leaderboard:'notApplicable',
+        hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
+        foy:'notApplicable'
+      });
+      document.querySelector('#surgeResults .lanehelp[data-lane="feed"]').click();
+      var alertKey = document.querySelector('#appSheet [data-alert-type-key]');
+      if (!alertKey) throw new Error('F933 Bird Gen information button did not open its key');
+      var keyScan = scan('(F933 Bird Gen alert-type key)');
+      keyScan.alertKey = {
+        expected:Object.keys(window.BirdInfoDialogs.alertKinds).sort(),
+        actual:[].map.call(alertKey.querySelectorAll('[data-alert-key-kind]'), function (row) {
+          return row.getAttribute('data-alert-key-kind');
+        }).sort(),
+        clipped:[].some.call(alertKey.querySelectorAll('li'), function (row) {
+          return row.scrollWidth > row.clientWidth + 1;
+        })
+      };
+      out.push(keyScan);
+      document.querySelector('#appSheet .sheetclose').click();
+      var ppteDate = new Date(); ppteDate.setDate(ppteDate.getDate() - 3);
+      var ppteDay = ppteDate.getFullYear() + '-' + String(ppteDate.getMonth()+1).padStart(2,'0')
+        + '-' + String(ppteDate.getDate()).padStart(2,'0');
+      var ppteEvidence = [];
+      ['verfly','swaspa'].forEach(function(code,bird) {
+        [0,1].forEach(function(person) {
+          ppteEvidence.push({kind:'Rarity',code:code,
+            name:bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
+            obsId:'OBS-AUDIT-' + bird + person,subId:'S' + (81001+person),
+            observer:'Sample reporter ' + person,dateStr:ppteDay+' 09:00',
+            loc:person ? '123 Sample St SE' : 'Sample Street SE',
+            lat:47+person*.00018,lon:-122});
+        });
+      });
+      var ppteEvents = A.ppteEvents(ppteEvidence);
+      A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:ppteEvents});
+      var ppteScan = scan('(F931 Patagonia picnic table effect)');
+      ppteScan.ppte = {
+        cards:document.querySelectorAll('#surgeFeed [data-alert-kind="ppte"]').length,
+        species:document.querySelectorAll('#surgeFeed [data-ppte-species] .splink').length,
+        fullName:document.querySelector('#surgeFeed [data-alert-kind="ppte"] .surgealerttitle').textContent
+          === 'Patagonia picnic table effect',
+        actions:[].map.call(document.querySelectorAll('#surgeFeed [data-ppte-open]'), function(button) {
+          var rect=button.getBoundingClientRect();
+          return {width:rect.width,height:rect.height};
+        })
+      };
+      out.push(ppteScan);
       A.showSection('helpPanel');
       var feeds = window.BirdLogic.planSpeciesFeeds(A.chaseProfile(),
         Array.from({ length: 60 }, function (_, index) { return 'eta' + index; }));
@@ -2502,6 +2552,7 @@ server.listen(0, '127.0.0.1', () => {
         console.log('   F852/F853 HEADER GEOMETRY ' + JSON.stringify(header));
         if (!header.twoRows || header.nameWidth <= 0 || !header.periodFirst
             || !header.justified || header.nameClipped || !header.fullWidth || !header.compact || !header.fullCounts
+            || header.topBorder !== 0
             || header.basis !== (header.mode === 'all' ? 'All Time' : String(new Date().getFullYear()))
             || header.region !== 'US-WA' || !header.separated || Math.abs(header.rowGap) > 1
             || Math.abs(header.spacingSaved - 12) > 1
@@ -2513,6 +2564,17 @@ server.listen(0, '127.0.0.1', () => {
           bad++;
           console.log('   F805/F812 HEADER controls, basis or two-row geometry failed: '
             + JSON.stringify(header));
+        }
+        if (r.alertKey && (r.alertKey.clipped
+            || JSON.stringify(r.alertKey.actual) !== JSON.stringify(r.alertKey.expected))) {
+          bad++;
+          console.log('   F933 Bird Gen key is missing categories or clips: ' + JSON.stringify(r.alertKey));
+        }
+        if (r.ppte && (r.ppte.cards !== 1 || r.ppte.species !== 2 || !r.ppte.fullName
+            || r.ppte.actions.length !== 1
+            || r.ppte.actions.some(action => action.width < 44 || action.height < 44))) {
+          bad++;
+          console.log('   F931 PPTE heading, linked totals or action geometry failed: ' + JSON.stringify(r.ppte));
         }
       }
       if(r.patchNames){

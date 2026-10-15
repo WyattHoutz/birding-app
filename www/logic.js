@@ -1771,27 +1771,28 @@
     order.forEach(function (sp) {
       var g = groups[sp];
       if (g.birders.length < minB) return;
-      // All the ticks must fall inside one window, or this is just a common
-      // bird that people happen to add at different times of year.
-      var a = new Date(g.earliest).getTime(), b = new Date(g.latest).getTime();
-      if (isFinite(a) && isFinite(b) && (b - a) > windowDays * 86400000) return;
-      // ⚠️ F264. ...AND THE WINDOW MUST BE RECENT. The check above is relative:
-      // it says the ticks are close TO EACH OTHER, never that they are close to
-      // TODAY. Without this a tight cluster from a month ago is news forever,
-      // which is exactly what made the lane read as stale.
-      //
-      // ⚠️ WHOLE CALENDAR DAYS, from the LOCAL date, because report.py compares
-      // `date.today() - date.fromisoformat(latest)` and that is a day count.
-      // Comparing raw timestamps instead made the two disagree by half a day
-      // and the parity suite caught it immediately: a cluster exactly at the
-      // bound passed in Python and failed in JS.
-      if (isFinite(b) && maxAge > 0) {
-        var _n = new Date(nowMs);
-        var _nowDay = Date.UTC(_n.getFullYear(), _n.getMonth(), _n.getDate());
-        if ((_nowDay - b) > maxAge * 86400000) return;
+      var dated = g.birders.map(function (birder) {
+        return { birder: birder, time: new Date(birder.date).getTime() };
+      }).filter(function (item) { return isFinite(item.time); })
+        .sort(function (a, b) { return b.time - a.time; });
+      var now = new Date(nowMs);
+      var nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+      // Older additions must not veto a recent burst. Keep the newest
+      // qualifying window, with the same calendar-day age and spread limits.
+      for (var i = 0; i < dated.length; i++) {
+        var latest = dated[i];
+        if (maxAge > 0 && nowDay - latest.time > maxAge * 86400000) continue;
+        var window = dated.slice(i).filter(function (item) {
+          return latest.time - item.time <= windowDays * 86400000;
+        });
+        if (window.length < minB) continue;
+        g.birders = window.map(function (item) { return item.birder; });
+        g.latest = latest.birder.date;
+        g.earliest = window[window.length - 1].birder.date;
+        g.birders.sort(function (x, y) { return (x.rank || 9999) - (y.rank || 9999); });
+        out.push(g);
+        break;
       }
-      g.birders.sort(function (x, y) { return (x.rank || 9999) - (y.rank || 9999); });
-      out.push(g);
     });
     out.sort(function (x, y) {
       if (y.birders.length !== x.birders.length) return y.birders.length - x.birders.length;

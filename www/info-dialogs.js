@@ -24,6 +24,68 @@
     return (typeof fn === 'function' ? fn : defaultEscape)(value);
   }
 
+  var ALERT_KINDS = {
+    mega: {
+      priority: 0, word: 'MEGA', glyph: '🦤', name: 'Mega rarities',
+      description: 'ABA Code 3+ rarities with qualifying new-locality or nearby-unseen evidence.'
+    },
+    migration: {
+      priority: 1, word: 'MIGRATION', glyph: '🌙', name: 'Migration news',
+      description: 'County migration forecasts, heavy overnight movement, observed arrivals or expected departures. Expected movement is not a confirmed sighting.'
+    },
+    mass: {
+      priority: 2, word: 'MASS FLOCK', glyph: '🪶', name: 'Mass flocks',
+      description: 'Large recent counts at verified public hotspots, qualifying as nearby unseen news or an evidence-backed new report.'
+    },
+    need: {
+      priority: 3, word: 'CELEBRITY', glyph: '🎯', name: 'Celebrity birds',
+      description: 'Locally notable birds with multiple qualifying sightings within chase distance, whether already seen or not.'
+    },
+    crowd: {
+      priority: 4, word: 'CROWD', glyph: '🐦', name: 'Species drawing a crowd',
+      description: 'Non-rarities attracting unusually many distinct observers at one place, relative to that species and place.'
+    },
+    cascade: {
+      priority: 5, word: 'CASCADE', glyph: '🏆', name: 'Leaderboard cascades',
+      description: 'Several Top 100 birders recently added the same species within a qualifying short window; sighting evidence supplies the destination.'
+    },
+    favorite: {
+      priority: 6, word: 'FAVORITE PATCH', glyph: '★', name: 'Favorite Patch birds',
+      description: 'Fresh birds missing from your selected personal list, reported at one of your saved patches.'
+    },
+    hotspot: {
+      priority: 7, word: 'HOTSPOT', glyph: '📍', name: 'Unusually busy hotspots',
+      description: 'Places drawing more reporting activity than their own usual baseline, regardless of which species caused it.'
+    },
+    patch: {
+      priority: 8, word: 'TOP PATCH', glyph: '🥇', name: 'High-yield top patches',
+      description: 'The highest-yield destinations from the complete current chase view, compared with that view’s median patch score.'
+    },
+    foy: {
+      priority: 9, word: 'FOY', glyph: '📅', name: 'First-of-year reports',
+      description: 'Newly learned first regional reports this year. These can describe earlier dates and do not establish current presence.'
+    },
+    ppte: {
+      priority: 10, word: 'PPTE',
+      glyph: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h18M8 8 4 21M16 8l4 13M1 15h22"/></svg>',
+      name: 'Patagonia picnic table effect',
+      description: 'Two or more RBA rarities at the same actual site and observation day, each with multiple checklists and reporting names. Co-occurrence does not prove that one discovery caused another.'
+    }
+  };
+
+  function alertTypeKey() {
+    return '<h3>Alert-type key</h3><ul class="doclist" data-alert-type-key>'
+      + Object.keys(ALERT_KINDS).sort(function (a, b) {
+        return ALERT_KINDS[a].priority - ALERT_KINDS[b].priority;
+      }).map(function (kind) {
+        var meta = ALERT_KINDS[kind];
+        return '<li data-alert-key-kind="' + defaultEscape(kind) + '"><b>'
+          + '<span aria-hidden="true">' + meta.glyph + '</span> '
+          + defaultEscape(meta.word) + ' — ' + defaultEscape(meta.name)
+          + '</b><br>' + defaultEscape(meta.description) + '</li>';
+      }).join('') + '</ul>';
+  }
+
   function laneDocs(BL) {
     if (!BL || !BL.SURGE || !BL.CASCADE) {
       throw new Error('BirdLogic alert constants are required for info dialogs');
@@ -179,7 +241,7 @@
     };
     docs.feed = {
       title: '🔔 Bird Gen',
-      body: '<p>One feed sorts every active alert by <b>newest observation or event '
+      body: alertTypeKey() + '<p>One feed sorts every active alert by <b>newest observation or event '
         + 'date/time first</b>, including newly loaded sources. Category priority '
         + 'and stable bird/place/checklist identity break equal-time ties. Missing '
         + 'or invalid dates sort last; a date without a time is labelled honestly. '
@@ -434,6 +496,7 @@
   }
 
   return {
+    alertKinds: ALERT_KINDS,
     catalog: CATALOG,
     excluded: EXCLUDED,
     laneDocs: laneDocs,

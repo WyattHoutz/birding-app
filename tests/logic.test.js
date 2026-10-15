@@ -1314,6 +1314,35 @@ test('tickCascades: two of the top 100 adding the same bird in days is a mega', 
     'a tight cluster three weeks old is not an alert');
 });
 
+test('F934 tickCascades finds the newest qualifying recent window despite older additions', () => {
+  const parse = s => ({species:'Chestnut-collared Longspur',date:s});
+  const dates = ['2026-10-10','2026-10-10','2026-10-10',
+    '2026-10-11','2026-10-11','2026-10-11','2026-10-11','2026-10-11',
+    '2026-10-12','2026-10-12','2026-10-12','2026-10-12','2026-10-14'];
+  const rows = dates.map((date,i)=>({name:'Birder '+i,rank:i+1,recent:date}));
+  const now = {nowMs:new Date(2026,9,15,12).getTime()};
+  const out = BL.tickCascades(rows,parse,now);
+  assert.equal(out.length,1);
+  assert.equal(out[0].birders.length,10);
+  assert.equal(out[0].earliest,'2026-10-11');
+  assert.equal(out[0].latest,'2026-10-14');
+  assert.deepEqual(out[0].birders.map(b=>b.rank),[4,5,6,7,8,9,10,11,12,13]);
+  assert.deepEqual(BL.tickCascades(rows,parse,{
+    nowMs:new Date(2026,9,30,12).getTime(),
+  }),[],'a historical cluster still expires');
+  const separated = [
+    {name:'A',rank:1,recent:'2026-10-10'},
+    {name:'B',rank:2,recent:'2026-10-11'},
+    {name:'C',rank:3,recent:'2026-10-15'},
+  ];
+  assert.equal(BL.tickCascades(separated,parse,now)[0].latest,'2026-10-11',
+    'a later isolated addition must not hide an otherwise qualifying window');
+  assert.deepEqual(BL.tickCascades([
+    {name:'A',rank:1,recent:'2026-10-10'},
+    {name:'B',rank:2,recent:'2026-10-15'},
+  ],parse,now),[],'two separated single additions still do not qualify');
+});
+
 test('tickCascades: the same bird added months apart is not a cascade', () => {
   const parse = (s) => {
     const m = /^(.*?)\s*\((\d{4}-\d{2}-\d{2})\)$/.exec(s);

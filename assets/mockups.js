@@ -393,6 +393,64 @@ const EXTRA_SHOTS = [
            return FIX.prepareStakeoutSpts(A, document, sec, false).then(function () {
              A.setSpeciesLookupGrouped(false);
            });` },
+  { id: 'ppte', at: 'surgeBtn',
+    title: 'Bird Gen — Patagonia picnic table effect',
+    host: 'surgeResults', fullPage: true,
+    expects: ['#surgeResults [data-alert-kind="ppte"]',
+      '#surgeResults [data-ppte-open]', '#surgeResults [data-ppte-species]'],
+    prep: `FIX.before('surgeBtn', A, document);
+           var sec = document.getElementById('surgeBtn').closest('section');
+           A.showSection(sec.id);
+           var date = new Date(A.todayStr() + 'T12:00:00'); date.setDate(date.getDate() - 3);
+           var day = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0')
+             + '-' + String(date.getDate()).padStart(2,'0');
+           var rows = [];
+           ['verfly','swaspa'].forEach(function(code, bird) {
+             [0,1].forEach(function(person) {
+               rows.push({kind:'Rarity', code:code,
+                 name:bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
+                 obsId:'OBS-MOCK-P-' + bird + person, subId:'S' + (81001+person),
+                 observer:'Sample reporter ' + person, dateStr:day + ' 09:00',
+                 loc:person ? '123 Sample St SE' : 'Sample Street SE',
+                 lat:47+person*.00018, lon:-122});
+             });
+           });
+           var publicRows = rows.map(function(row,i) {
+             return Object.assign({}, row, {obsId:'OBS-MOCK-H-' + i,
+               loc:'Example public patch', lat:47.7, lon:-122.3});
+           });
+           var events = A.ppteEvents(rows.concat(publicRows), {hotspots:[
+             {locId:'L999999999',locName:'Example public patch',lat:47.7,lng:-122.3}
+           ]});
+           if (events.length !== 2) throw new Error('PPTE fixture must qualify two separate sites: '
+             + JSON.stringify({today:A.todayStr(),day:day,events:events}));
+           A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:events});
+           if (A.fgProgressReset) A.fgProgressReset();
+           document.getElementById('surgeResults').setAttribute('data-mock-data','true');
+           sec.dataset.mockAt = 'surgeBtn'; sec.dataset.mockReady = 'true';
+           return true;` },
+  { id: 'birdgenkey', at: 'surgeBtn',
+    title: 'Bird Gen — alert-type key',
+    host: 'appSheet',
+    expects: ['#appSheet:not([hidden]) [data-alert-type-key]',
+      '#appSheet [data-alert-key-kind="migration"]',
+      '#appSheet [data-alert-key-kind="foy"]'],
+    prep: `FIX.before('surgeBtn', A, document);
+           var sec = document.getElementById('surgeBtn').closest('section');
+           A.showSection(sec.id);
+           A.renderSurge([], [], [], [], [], {
+             mega:'notApplicable', observations:'ok', leaderboard:'notApplicable',
+             hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
+             foy:'notApplicable'
+           });
+           document.querySelector('#surgeResults .lanehelp[data-lane="feed"]').click();
+           var host = document.getElementById('appSheet');
+           if (!host || host.hidden) throw new Error('Bird Gen alert key did not open');
+           if (A.fgProgressReset) A.fgProgressReset();
+           host.setAttribute('data-mock-data', 'true');
+           sec.dataset.mockAt = 'surgeBtn';
+           sec.dataset.mockReady = 'true';
+           return true;` },
 ];
 
 // Review-only states do not increase the derived mandatory release contract.

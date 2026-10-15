@@ -130,6 +130,20 @@ test('F506 release mockups require the full Stakeout card with Notes off and on'
   assert.match(indexSource, /#spLookupMap \{ aspect-ratio: 16 \/ 7; \}/);
 });
 
+test('F931/F933 release galleries include production PPTE and complete alert-key states', () => {
+  for (const id of ['ppte', 'birdgenkey']) {
+    const shot = mockups.EXTRA_SHOTS.find(item => item.id === id);
+    assert.ok(shot, `${id} must be mandatory in every release gallery, not review-only`);
+    assert.ok(mockups.SHOTS.includes(shot));
+    assert.match(shot.prep, /A\.renderSurge\(/);
+  }
+  const ppte = mockups.EXTRA_SHOTS.find(item => item.id === 'ppte');
+  assert.match(ppte.prep, /A\.ppteEvents\(/);
+  assert.ok(ppte.expects.includes('#surgeResults [data-ppte-open]'));
+  const key = mockups.EXTRA_SHOTS.find(item => item.id === 'birdgenkey');
+  assert.ok(key.expects.includes('#appSheet:not([hidden]) [data-alert-type-key]'));
+});
+
 test('every menu section declares representative fixture data or an intentional static surface', () => {
   const expected = mockups.CONTRACT.menu.map((item) => item.at).sort();
   const declared = Object.keys(mockups.STUB_SPEC).sort();

@@ -1134,6 +1134,11 @@ test('F925 Ticks visibly distinguishes distinct recent counts from the complete 
         'Count: distinct birders in the last 7 days. Names: all source dates.');
       const who = card.querySelector('.tickwho');
       assert.equal(who.querySelector('.lbl').textContent,'Who added it:');
+      const total = birders.includes(old) ? 3 : 2;
+      assert.equal(Number(who.querySelector('[data-tick-total]')?.dataset.tickTotal), total,
+        'F930 the all-date total uses distinct source identities, not duplicate rows or recent dates');
+      assert.equal(who.querySelector('.ticktotal').textContent,
+        `${total} total contributors (all dates)`);
       assert.equal(who.textContent.split('#1 First').length - 1,
         birders.filter(b => b.profileId === 'first').length,'duplicate source entries remain in the roster');
       assert.match(who.textContent,/#2 Pair A, Pair B/,'paired display names remain one source entry');
@@ -7758,6 +7763,37 @@ test('F911 canonical identity rejects ambiguous names and guessed form aliases, 
   } finally { if(release) release([]); app.window.close(); }
 });
 
+test('F934 production Bird Gen surfaces the measured CCLO date histogram with in-range evidence', async () => {
+  const name = 'Chestnut-collared Longspur';
+  const ages = [5,5,5,4,4,4,4,4,3,3,3,3,1];
+  const board = ages.map((age,i) => {
+    const date = new Date();
+    date.setDate(date.getDate()-age);
+    return {rank:i+1,name:'Synthetic birder '+i,profileId:'P'+i,species:200-i,
+      checklists:400-i,recent:name+' ('+date.toLocaleDateString('en-US',{
+        month:'short',day:'numeric',year:'numeric'})+')'};
+  });
+  const app = await boot({fetch(url) {
+    if (/top100/.test(url)) return dualRankFixture('spp',board,'US-WA',String(new Date().getFullYear()));
+    if (/recent\/chclon/.test(url)) return [{speciesCode:'chclon',comName:name,
+      obsDt:recentObsStamp(),locId:'L916',locName:'Public marsh',
+      lat:47.75,lng:-122.16,subId:'S916'}];
+    if (/bird-list/.test(url)) return f821Page();
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[],[],[{code:'chclon',name}]);
+    await A.ebird('data/obs/US-WA/recent/chclon?back=30&detail=full&includeProvisional=true');
+    await A.loadSurge();
+    const card = app.$('surgeResults').querySelector('[data-species-code="chclon"]');
+    assert.ok(card,'qualifying live-shaped CCLO evidence must reach a visible Bird Gen card');
+    assert.equal(card.hidden,false);
+    assert.ok((card.getAttribute('data-surge-reasons')||'').split(',').includes('cascade'));
+    assert.ok(app.window.__dbg.buf.some(r=>/CCLO.*board.*"qualified":true/.test(r.msg)));
+  } finally {app.window.close();}
+});
+
 test('F916 CCLO decisions distinguish place rejection, source state, merging and category visibility without payloads', async () => {
   const app = await boot();
   try {
@@ -8393,18 +8429,19 @@ test('F914 settled warnings are static status, while real pending sources retain
   try {
     const A = app.window.__app;
     const states = {mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
-      favorites:'ok',mass:'partial',foy:'ok'};
+      favorites:'ok',mass:'partial',foy:'ok',ppte:'ok'};
+    const total = Object.keys(states).length;
     for (const mass of ['partial','failed','ok']) {
       A.renderSurge([],[],[],[],[],{...states,mass});
       const box = app.$('surgeResults');
       assert.equal(box.querySelector('[role="progressbar"],.track'),null);
       if (mass !== 'ok') {
-        assert.match(box.querySelector('[role="status"]').textContent,/7 of 7 settled/);
+        assert.ok(box.querySelector('[role="status"]').textContent.includes(`${total} of ${total} settled`));
         assert.match(box.textContent,mass === 'failed' ? /Mass flock feeds failed/ : /incomplete or capped/);
       }
     }
     A.renderSurge([],[],[],[],[],{...states,leaderboard:'loading'});
-    assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'6');
+    assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),String(total - 1));
   } finally { app.window.close(); }
 });
 
@@ -9156,7 +9193,7 @@ test('rankings: your own row on the board is highlighted', async () => {
 test("Unified Twitches starts from every rarity-wave row without a second raw feed", () => {
   const src = HTML.slice(HTML.indexOf('function refresh()'),
     HTML.indexOf('function loadTargets('));
-  assert.match(src, /var sourceRows = \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
+  assert.match(src, /var sourceRows = focusedPpte \? focusedPpte\.event\.evidenceRows : \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
     'the unified surface does not start from the complete shared rarity wave');
   assert.match(src, /buildBirdReportGroups\(records, home\)/,
     'Grouped mode does not project the same rows into the shared bird/hotspot/checklist view');
@@ -10957,6 +10994,233 @@ test('the checklist id is really bigger than a plain external link', () => {
 // Pinned to the PROPERTY — the waiting state must differ from the settled ones
 // by something other than its wording — rather than to the markup, because a
 // guard that names one class breaks the moment the spinner is restyled.
+function ppteFixture(day = recentObsStamp(3).slice(0, 10)) {
+  return ['verfly', 'swaspa'].flatMap((code, bird) => [0, 1].map(person => ({
+    kind: 'Rarity', code, name: bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
+    obsId: `OBS-PPTE-${bird}-${person}`, subId: `S${12001 + person}`,
+    observer: `Test reporter ${person + 1}`, dateStr: `${day} 09:00`,
+    loc: person ? '123 Sample St SE, Test County' : 'Sample Street SE, Test County',
+    lat: 47 + person * 0.00018, lon: -122, count: 99, __stateRba: true,
+  })));
+}
+
+test('F931 PPTE automatically joins corroborated site aliases without inflating reports', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, rows = ppteFixture();
+    const event = A.ppteEvents(rows)[0];
+    assert.ok(event, 'the co-reported pair must establish the nearby street/address alias');
+    assert.equal(A.ppteEvents(rows).length, 1);
+    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 2]);
+    assert.ok(event.species.every(bird => bird.checklists === 2 && bird.reportingNames === 2));
+    assert.equal(event.publicHotspot, null, 'a readable place name is not proof of a public hotspot');
+    assert.equal(A.ppteEvents(rows.concat(rows))[0].species[0].reports, 2);
+    const added = A.ppteEvents(rows.concat([{ ...rows[2], obsId: 'OBS-additional' }]))[0];
+    assert.equal(added.species.find(bird => bird.code === rows[2].code).reports, 3);
+    assert.equal(added.species.find(bird => bird.code === rows[2].code).checklists, 2);
+    for (const change of [
+      row => ({ ...row, observer: 'Same reporter' }),
+      row => ({ ...row, observer: '' }),
+      row => ({ ...row, subId: 'S1' }),
+      row => ({ ...row, dateStr: row.code === 'verfly' ? recentObsStamp(2) : row.dateStr }),
+      row => ({ ...row, loc: row.observer.endsWith('1') ? 'First Park' : 'Different Park' }),
+      row => ({ ...row, locId: row.observer.endsWith('1') ? 'L111' : 'L222' }),
+      row => ({ ...row, lat: row.observer.endsWith('1') ? 47 : 47.03 }),
+      row => ({ ...row, lat: null, lon: null }),
+      row => ({ ...row, dateStr: recentObsStamp(20) }),
+    ]) assert.equal(A.ppteEvents(rows.map(change)).length, 0, change.toString());
+    assert.equal(A.ppteEvents(rows.filter(row => row.code === 'verfly')).length, 0);
+    assert.equal(A.ppteEvents(rows.filter(row => row.code === 'verfly').map(row => ({
+      ...row, loc: 'Same actual site', lat: 47, lon: -122
+    }))).length, 0, 'one species must fail even when its site identity is unambiguous');
+    assert.equal(A.ppteEvents(rows.filter((row, index) => index % 2 === 0)).length, 0);
+    const parent = rows.map((row, index) => ({ ...row,
+      loc: index % 2 ? 'Sample Park--West Point' : 'Sample Park',
+      lat: index % 2 ? 47.01 : 47 }));
+    assert.equal(A.ppteEvents(parent).length, 1,
+      'an explicit parent/subsite relationship is not a generic proximity match');
+  } finally { app.window.close(); }
+});
+
+test('F931 PPTE latest report and verified public destination stay inside the matched event', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, rows = ppteFixture(), day = rows[0].dateStr.slice(0, 10);
+    const latest = { ...rows[1], obsId: 'OBS-latest', dateStr: recentObsStamp(1), lat: 47.00017 };
+    const unrelated = { ...latest, obsId: 'OBS-unrelated', loc: 'Elsewhere', lat: 48 };
+    const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
+    const event = A.ppteEvents(rows.concat([latest, unrelated]), { hotspots: [hotspot] })[0];
+    assert.equal(event.day, day);
+    assert.equal(event.latest, latest.dateStr);
+    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 2],
+      'later solo evidence advances recency, not the qualifying-day totals');
+    assert.equal(event.publicHotspot.locId, 'L333');
+    assert.equal(A.ppteEvents(rows, { hotspots: [{ ...hotspot, lat: 47.00001 }] })[0].publicHotspot, null,
+      'a nearby hotspot must not replace the actual reported place');
+    assert.equal(A.ppteEvents(rows.map(row => ({ ...row, location_private: true })),
+      { hotspots: [hotspot] })[0].publicHotspot, null);
+    const privateCopies = rows.concat(rows.map(row => ({ ...row, location_private: true })));
+    assert.equal(A.ppteEvents(privateCopies, { hotspots: [hotspot] })[0].publicHotspot, null,
+      'an explicitly private duplicate dominates an unknown copy');
+    assert.equal(A.ppteEvents(rows, { hotspots: [hotspot, {
+      locId: 'L444', locName: '123 Sample St SE', lat: 47.00018, lng: -122
+    }] }).length, 0, 'directory-proven distinct public sites must not merge as street aliases');
+  } finally { app.window.close(); }
+});
+
+test('F931 PPTE renders full heading, report totals and focused Twitches without changing saved filters', async () => {
+  const prefs = { year: 'unseen', distance: 'near' };
+  const app = await boot({ sample: false, storage: { ebird_rarity_filters_v1: JSON.stringify(prefs) } });
+  try {
+    const A = app.window.__app, doc = app.window.document, rows = ppteFixture();
+    await seedSeen(app, ['verfly', 'swaspa'], ['Vermilion Flycatcher', 'Swamp Sparrow']);
+    const event = A.ppteEvents(rows)[0];
+    A.renderSurge([], [], [], [], [], { mega: 'notApplicable', ppte: 'ok', ppteRows: [event] });
+    const card = doc.querySelector('[data-alert-kind="ppte"]');
+    assert.ok(card);
+    assert.match(card.querySelector('.surgealerttitle').textContent, /Patagonia picnic table effect/);
+    assert.equal(card.querySelector('.surgebadge').textContent, 'PPTE');
+    assert.equal(card.querySelectorAll('[data-ppte-species]').length, 2);
+    assert.ok([...card.querySelectorAll('[data-ppte-species]')].every(row => /2 reports/.test(row.textContent)));
+    assert.equal(card.querySelectorAll('[data-ppte-species] .splink[data-sp]').length, 2);
+    assert.match(card.textContent, /Report totals and pair qualification/);
+    assert.match(card.textContent, /Latest report/);
+    doc.querySelector('[data-count-kind="ppte"]').click();
+    assert.equal(card.hidden, false);
+    const before = app.state.fetches.length;
+    card.querySelector('[data-ppte-open]').click();
+    await waitFor(() => doc.querySelector('[data-ppte-context]'), 'event-specific Twitches context');
+    assert.equal(app.$('sec-refreshBtn').hidden, false);
+    assert.equal(doc.querySelectorAll('#results .twitchcard').length, 4,
+      'all four reports remain available despite saved unseen/near filters');
+    assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), prefs);
+    assert.ok(!app.state.fetches.slice(before).some(url => /alert\/rba|data\/obs|product\/lists/.test(url)),
+      'opening the event reuses retained RBA evidence, not another sightings/checklist fetch');
+    app.$('status').querySelector('[data-ppte-clear]').click();
+    assert.equal(A.ppteTwitchContext(), null);
+    A.openPpteEvent(event);
+    A.showMenu();
+    assert.equal(A.ppteTwitchContext(), null, 'event context cannot leak into a later visit');
+  } finally { app.window.close(); }
+});
+
+test('F931 PPTE source supplements capped/statewide rows with county evidence and reports failures honestly', async () => {
+  const rows = ppteFixture();
+  const sourceRows = rows.map(row => {
+    const date = new Date(row.dateStr.replace(' ', 'T'));
+    return { code: row.code, name: row.name, subId: row.subId,
+      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} 09:00`,
+      lat: row.lat, lng: row.lon, place: row.loc, observer: row.observer, count: row.count };
+  });
+  const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
+  let phase = 'county-needed';
+  const app = await boot({ sample: false, fetch(url) {
+    if (/alert\/rba\//.test(url)) {
+      if (phase === 'failed') return { __status: 503 };
+      if (/\/US-WA\?/.test(url)) {
+        return phase === 'capped' ? megaAlertHtml(sourceRows).repeat(125)
+          : megaAlertHtml(sourceRows.slice(0, 2));
+      }
+      return megaAlertHtml(sourceRows);
+    }
+    if (/ref\/hotspot\/US-WA/.test(url)) return [hotspot];
+    return null;
+  } });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, []);
+    const paints = [];
+    const first = await A.loadPpteAlertSource(true, () => true, source => paints.push(source));
+    assert.equal(first.rows.length, 1, 'county evidence restores the pair absent from the state-only page');
+    assert.equal(first.rows[0].publicHotspot.locId, 'L333');
+    assert.equal(paints[0].rows[0].publicHotspot, null,
+      'otherwise valid alerts publish before optional hotspot identity is resolved');
+    assert.ok(app.state.fetches.some(url => /alert\/rba\/US-WA-\d{3}/.test(url)));
+    phase = 'capped';
+    const capped = await A.loadPpteAlertSource(true, () => true);
+    assert.equal(capped.state, 'partial');
+    assert.match(capped.coverage, /row cap.*not exhaustive/);
+    assert.deepEqual(Array.from(capped.rows[0].species, bird => bird.reports), [2, 2],
+      'repeated observations across state/county sources do not multiply report totals');
+    await A.saveSurgeRetainedPart('ppte', first);
+    assert.equal(A.loadSurgeRetained().ppte.rows.length, 1);
+    phase = 'failed';
+    const failed = await A.loadPpteAlertSource(true, () => true);
+    assert.equal(failed.state, 'failed');
+    assert.match(failed.coverage, /Unavailable RBA feeds/);
+    assert.equal(await A.saveSurgeRetainedPart('ppte', failed), false);
+    assert.equal(A.loadSurgeRetained().ppte.rows.length, 1, 'failure does not poison last-good evidence');
+    const old = rows.map(row => ({ ...row, dateStr: recentObsStamp(20) }));
+    await A.saveSurgeRetainedPart('ppte', { state: 'ok', rows: [], evidenceRows: old });
+    assert.equal(A.loadSurgeRetained().ppte.rows.length, 0, 'old evidence cannot return on reopen');
+    A.openPpteEvent(first.rows[0]);
+    assert.equal(app.$('sec-stakeHsBtn').hidden, false);
+    assert.equal(app.$('stakeHs').value, hotspot.locName);
+    await waitFor(() => app.$('stakeHsResults').children.length > 0,
+      'the cached RBA evidence paints the selected public patch before teardown');
+  } finally { app.window.close(); }
+});
+
+test('F931 production Bird Gen retains one PPTE event through partial and failed refreshes, then clears a successful empty source', async () => {
+  const rows = ppteFixture();
+  const sourceRows = rows.map(row => {
+    const date = new Date(row.dateStr.replace(' ', 'T'));
+    return { code: row.code, name: row.name, subId: row.subId,
+      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} 09:00`,
+      lat: row.lat, lng: row.lon, place: row.loc, observer: row.observer, count: row.count };
+  });
+  let phase = 'complete';
+  const app = await boot({ sample: false, storage: f801Days(), fetch(url) {
+    if (/alert\/rba\//.test(url)) {
+      if (phase === 'failed' || (phase === 'partial' && !/\/US-WA\?/.test(url))) {
+        return { __status: 503 };
+      }
+      if (phase === 'empty') return '<div class="Observation"></div>';
+      return megaAlertHtml(phase === 'partial' ? sourceRows.slice(0, 2) : sourceRows);
+    }
+    if (/ref\/hotspot\/US-WA/.test(url)) return [
+      { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 }
+    ];
+    return [];
+  } });
+  try {
+    const A = app.window.__app, box = app.$('surgeResults');
+    await seedSeen(app, []);
+    async function settled() {
+      await waitFor(() => {
+        const samples = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples;
+        return samples.length && ['ok', 'failed'].includes(samples[samples.length - 1].outcome);
+      }, 'all production Bird Gen sources settle', 60000).catch(error => {
+        error.message += '\n' + JSON.stringify({ phase,
+          samples: A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples,
+          tail: app.window.__dbg.buf.slice(-15).map(row => row.msg) });
+        throw error;
+      });
+    }
+    await A.loadSurge();
+    await settled();
+    assert.equal(box.dataset.sourcePpte, 'ok');
+    assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 1,
+      'public resolution must replace the provisional identity, not duplicate it');
+    assert.match(box.querySelector('[data-ppte-open]').textContent, /Stakeout Patch/);
+    for (phase of ['partial', 'failed']) {
+      app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+      await settled();
+      assert.equal(box.dataset.sourcePpte, phase);
+      assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 1);
+      assert.match(box.textContent, /Unavailable RBA feeds/);
+      assert.equal(A.loadSurgeRetained().ppte.rows.length, 1,
+        'missing or failed evidence must not destroy the last-good event');
+    }
+    phase = 'empty';
+    app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+    await settled();
+    assert.equal(box.dataset.sourcePpte, 'ok');
+    assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 0);
+    assert.equal(A.loadSurgeRetained().ppte.rows.length, 0);
+  } finally { app.window.close(); }
+});
+
 test('a section still fetching does not look like a section that found nothing', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -15826,9 +16090,11 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
   assert.equal(app.$('surgeResults').dataset.sourceLeaderboard, 'ok');
   assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'ok');
   releaseFavorite([]);
+  const expectedSources = ['birdcast', 'favorites', 'foy', 'hotspots',
+    'leaderboard', 'mass', 'mega', 'observations', 'ppte'];
   await waitFor(() => app.window.__audit.events()
     .filter((row) => row.event === 'report_source_settled' && row.attrs.source !== 'mega')
-    .length === 7, 'all non-Mega source settlements');
+    .length === expectedSources.length - 1, 'all non-Mega source settlements');
   await new Promise((resolve) => setTimeout(resolve, 1000));
   let samples = A.performanceReport({ sectionId: 'sec-surgeBtn' }).samples;
   assert.equal(samples.length, 1);
@@ -15841,7 +16107,7 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
   const sourceEvents = app.window.__audit.events()
     .filter((row) => row.event === 'report_source_settled' && row.attrs.load_id === firstId);
   assert.deepEqual(Array.from(sourceEvents, (row) => row.attrs.source).sort(),
-    ['birdcast', 'favorites', 'foy', 'hotspots', 'leaderboard', 'mass', 'mega', 'observations']);
+    expectedSources);
   const finished = app.window.__audit.events()
     .find((row) => row.event === 'report_load_complete' && row.attrs.load_id === firstId);
   assert.match(finished.attrs.completion_scope, /photos excluded/);
@@ -16160,7 +16426,7 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
     if (/bird-list/.test(url)) return f821Page();
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
-    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    if (/alert\/(?:summary|rba\/)/.test(url)) return '<div class="Observation"></div>';
     return /data\/obs\/LF801REOPEN/.test(url) ? [{
       speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801REOPEN',
       obsDt: f801Day() + ' 00:01', subId: 'SF801REOPEN', howMany: 2,
@@ -19286,13 +19552,15 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
     return box.dataset.sourceLeaderboard !== 'loading'
       && box.dataset.sourceHotspots !== 'loading'
       && box.dataset.sourceMass !== 'loading'
-      && box.dataset.sourceFoy !== 'loading';
+      && box.dataset.sourceFoy !== 'loading'
+      && box.dataset.sourcePpte !== 'loading';
   }, 'the optional Bird Gen sources to settle around the held Mega refresh');
   const progress = box.querySelector('.surgesourceprogress[role="progressbar"]');
   assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
-  assert.equal(progress.getAttribute('aria-valuenow'), '6');
-  assert.equal(progress.getAttribute('aria-valuemax'), '7');
-  assert.match(progress.textContent, /6 of 7 settled/i);
+  const sourceCount = Object.keys(box.dataset).filter(key => /^source[A-Z]/.test(key)).length;
+  assert.equal(progress.getAttribute('aria-valuenow'), String(sourceCount - 1));
+  assert.equal(progress.getAttribute('aria-valuemax'), String(sourceCount));
+  assert.ok(progress.textContent.includes(`${sourceCount - 1} of ${sourceCount} settled`));
   assert.equal(app.$('loadBar').hidden, false,
     'the shared loading bar disappeared while Bird Gen still owns the held Mega refresh');
   assert.match(app.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/,
@@ -19306,7 +19574,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
   assert.equal(settled.getAttribute('role'), 'status');
   assert.equal(settled.querySelector('.track'), null);
-  assert.match(settled.textContent, /7 of 7 settled/);
+  assert.ok(settled.textContent.includes(`${sourceCount} of ${sourceCount} settled`));
   assert.match(settled.textContent, /Top 100 leaderboard failed/);
   assert.doesNotMatch(settled.textContent, /Loading Bird Gen sources/,
     'settled failure disclosure must not pretend work is still loading');
@@ -40103,6 +40371,13 @@ test('the unified Bird gen help keeps every former lane rule reachable', async (
   }], [], [], [], [], sourceState);
   assert.equal(app.$('surgeResults').querySelectorAll('.lanehelp[data-lane="feed"]').length, 1,
     'the populated alert feed must have exactly one help entry point');
+  app.$('surgeResults').querySelector('.lanehelp[data-lane="feed"]').click();
+  const key = app.window.document.querySelector('.sheetbody [data-alert-type-key]');
+  assert.ok(key, 'F933 the real information button must open the alert-type key');
+  assert.deepEqual([...key.querySelectorAll('[data-alert-key-kind]')]
+    .map((row) => row.dataset.alertKeyKind).sort(),
+  Object.keys(app.window.BirdInfoDialogs.alertKinds).sort(),
+  'the live dialog describes every type, not only the currently visible categories');
 
   // WIRED. A button that opens nothing is the bug this app keeps re-learning.
   assert.match(HTML, /closest\('\.lanehelp'\)/, 'the lane help buttons have no handler');
@@ -46004,6 +46279,109 @@ test('F722 a county switch immediately replaces the parent standing with labelle
   assert.match(app.$('hdrId').getAttribute('aria-label') || '', /King.*Species rank Loading/i,
     'the compact pending text does not name its scope accessibly');
   app.window.close();
+});
+
+test('F929 an acquired standing survives failed persistence and later becomes durable', async () => {
+  const app = await boot({storage:{ebird_display_name:'Sample Observer'}});
+  const A = app.window.__app, W = app.window;
+  const owner = A.personalListOwner(), period = String(new Date().getFullYear());
+  const request = {region:'US-WA',metric:'spp',max:500};
+  const key = A.rankCacheOwnerKey(request,period,'Sample Observer');
+  const board = rank => ({region:'US-WA',period,metric:'spp',
+    profile:owner.profile,ownerRevision:owner.identityRevision,
+    me:{name:'Sample Observer',rank,species:222}});
+  const original = W.Storage.prototype.setItem;
+  let blocked = false;
+  try {
+    A.rankCachePut(key,board(12));
+    W.Storage.prototype.setItem = function (k,v) {
+      if (blocked && k === A.bcReal(A.RANK_CACHE_KEY)) {
+        throw new W.DOMException('Synthetic quota control','QuotaExceededError');
+      }
+      return original.call(this,k,v);
+    };
+    blocked = true;
+    A.rankCachePut(key,board(27));
+    A.headerIdentityRefresh();
+    assert.match(app.$('hdrId').textContent,/#27/);
+    const persisted = JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY)||'{}')[key];
+    assert.notEqual(persisted && persisted.data.me.rank,27);
+    const before = app.state.fetches.length;
+    assert.equal((await A.fetchRank(request,period,'Sample Observer',false)).me.rank,27);
+    assert.equal(app.state.fetches.length,before,'a session hit must not refetch');
+    assert.ok(W.__dbg.buf.some(r=>/Leaderboard.*session.only/i.test(r.msg)),
+      'failed persistence must be reported, not mistaken for a durable write');
+
+    blocked = false;
+    A.rankCachePut('another-board',{region:'US-MO',period,metric:'spp'});
+    assert.equal(JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY))[key].data.me.rank,27,
+      'a recovered write must persist the acquired standing too');
+    const durable = JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY));
+    durable[key].data.me.rank = 31;
+    W.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify(durable));
+    A.headerIdentityRefresh();
+    assert.match(app.$('hdrId').textContent,/#31/,'successful persistence must clear stale memory');
+  } finally {W.Storage.prototype.setItem=original;W.close();}
+});
+
+test('F929 session standings retain ownership, metric, period, day and entry bounds', async () => {
+  const app = await boot({storage:{ebird_display_name:'Sample Observer'}});
+  const A = app.window.__app, W = app.window, owner = A.personalListOwner();
+  const period = String(new Date().getFullYear());
+  const board = () => ({region:'US-WA',period,metric:'spp',
+    profile:owner.profile,ownerRevision:owner.identityRevision,
+    me:{name:'Sample Observer',rank:27,species:222}});
+  const original = W.Storage.prototype.setItem, NativeDate = W.Date;
+  try {
+    W.Storage.prototype.setItem = function (k,v) {
+      if (k === A.bcReal(A.RANK_CACHE_KEY)) {
+        throw new W.DOMException('Synthetic quota control','QuotaExceededError');
+      }
+      return original.call(this,k,v);
+    };
+    for (const change of [
+      {region:'US-MO'}, {metric:'cl'}, {period:'all'}, {profile:'another-profile'},
+      {ownerRevision:owner.identityRevision+1}, {me:{name:'Another Birder',rank:27}},
+    ]) {
+      A.rankCachePut('fixture',Object.assign(board(),change));
+      A.headerIdentityRefresh();
+      assert.doesNotMatch(app.$('hdrId').textContent,/#27/,
+        'session data must not bypass '+Object.keys(change).join(','));
+    }
+    A.rankCachePut('fixture',board());
+    A.headerIdentityRefresh();
+    assert.match(app.$('hdrId').textContent,/#27/);
+    for (let i=0;i<80;i++) A.rankCachePut('other-'+i,Object.assign(board(),{region:'US-MO'}));
+    A.headerIdentityRefresh();
+    assert.equal(Object.keys(A.rankCacheEntries()).length,80,
+      'session cache must keep the existing 80-entry bound');
+    A.rankCachePut('fixture',board());
+    const tomorrow = NativeDate.now()+86400000;
+    W.Date = class extends NativeDate {
+      constructor(...args) {super(...(args.length ? args : [tomorrow]));}
+      static now() {return tomorrow;}
+    };
+    A.headerIdentityRefresh();
+    assert.doesNotMatch(app.$('hdrId').textContent,/#27/,'yesterday is not a current standing');
+  } finally {W.Date=NativeDate;W.Storage.prototype.setItem=original;W.close();}
+});
+
+test('F926 header has no decorative top strip and keeps its explicit period label', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window, header = W.document.querySelector('header');
+  try {
+    for (const display of ['default','large','high-visibility']) {
+      W.document.documentElement.dataset.display=display;
+      for (const period of ['current','all']) {
+        A.setPersonalPeriod(period);
+        A.headerScopeRefresh();
+        assert.equal(parseFloat(W.getComputedStyle(header).borderTopWidth)||0,0);
+        assert.match(app.$('hdrPeriod').textContent,
+          period==='all' ? /All Time/ : new RegExp(String(new Date().getFullYear())));
+        assert.match(app.$('hdrPeriod').getAttribute('aria-label'),/Time period:/);
+      }
+    }
+  } finally {W.close();}
 });
 
 // --- F190: the icon pipeline must not eat its own source -------------------
