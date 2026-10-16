@@ -463,11 +463,13 @@ const EXTRA_SHOTS = [
                  throw new Error('PPTE title links must not be underlined');
                }
              });
+             var headlineWeight = document.defaultView.getComputedStyle(
+               card.querySelector('.surgealerttitle')).fontWeight;
              Array.from(card.querySelectorAll('.ppte-connector')).forEach(function(word) {
                var css = document.defaultView.getComputedStyle(word);
-               if (css.fontWeight !== '400'
+               if (css.fontWeight !== headlineWeight
                    || css.color !== document.defaultView.getComputedStyle(document.body).color) {
-                 throw new Error('PPTE connectors must use normal-weight ink text');
+                 throw new Error('PPTE connectors must inherit headline weight and use ink text');
                }
              });
            });

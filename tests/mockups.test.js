@@ -55,16 +55,18 @@ test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery
   }
 });
 
-test('F951 all-alert Bird Gen mockup renders every category with a distant Cascade and known identities', {timeout:120000}, () => {
+test('F951 all-alert Bird Gen and F964 PPTE mockups render production headlines and all categories', {timeout:120000}, () => {
   const output=fs.mkdtempSync(path.join(os.tmpdir(),'birdgen-f951-'));
   try {
     for (const [width,scale] of [[402,1],[320,1.75]]) {
       const result=spawnSync(process.execPath,[
-        path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all',
+        path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all,ppte',
         '--width',String(width),'--scale',String(scale),'--out',output
       ],{cwd:ROOT,encoding:'utf8',timeout:110000});
       assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
-      assert.match(result.stdout,/1 mockup\(s\)/);
+      assert.match(result.stdout,/2 mockup\(s\)/);
+      assert.ok(fs.existsSync(path.join(output,'ppte-'+width+'px.png')),
+        'the dedicated PPTE release fixture must pass its real preparation guards');
       const image=fs.readFileSync(path.join(output,'f951-birdgen-all-'+width+'px.png'));
       assert.equal(image.readUInt32BE(16),width*2,'CSS pixels use the existing 2x capture scale');
       assert.ok(image.readUInt32BE(20)>1600,'every category must be captured, not cropped');
