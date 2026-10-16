@@ -10607,11 +10607,11 @@
         // An unscoped snapshot is the whole continent and would put a Florida
         // mega in a Washington lane, so it is not stored at all. Storing it and
         // filtering later would leave the lane one bug away from that.
-        if (!scoped) return;
+        if (!scoped) return false;
         var region = regionOverride || getRegion();
         var sid = sidOverride || getAbaSid();
         try {
-          localStorage.setItem(MEGA_SNAP_KEY, JSON.stringify({
+          var serialized = JSON.stringify({
             at: Date.now(), region: region, sid: sid,
             rows: (rows || []).slice(0, 200).map(function (r) {
               return {
@@ -10621,10 +10621,18 @@
                 subId: r.subId || '', lat: r.lat, lng: r.lng,
               };
             }),
-          }));
+          });
+          localStorage.setItem(MEGA_SNAP_KEY, serialized);
+          if (localStorage.getItem(MEGA_SNAP_KEY) !== serialized) {
+            throw new Error('Snapshot read-back did not match.');
+          }
           delete _megaLazyByKey[region + '|' + sid];
           if (typeof _surgeRepaint === 'function') _surgeRepaint();
-        } catch (e) { dbg('warn', 'mega snapshot not stored: ' + (e && e.message)); }
+          return true;
+        } catch (e) {
+          dbg('warn', 'mega snapshot not stored: ' + (e && e.message));
+          return false;
+        }
       }
       // ⚠️ F263. ONE DEFINITION OF "WHICH ROWS ARE THIS STATE'S".
       //
@@ -10711,11 +10719,6 @@
           + '&sortBy=obsDt&o=desc';
         var releaseProgress = holdProgress('Refreshing Bird Gen Mega snapshot');
         entry.promise = fetchPublicHTML(url).then(function (html) {
-          var list = parseAlertHTML(html);
-          if (!list.length && !/class="Observation"/.test(html)) {
-            entry.outcome = 'failed';
-            return false;
-          }
           // A result for a report the reader has already left must not replace
           // the current region's single snapshot. Drop the attempt so a return
           // to this region can try again.
@@ -10723,6 +10726,7 @@
             delete _megaLazyByKey[key];
             return false;
           }
+          var list = verifiedMegaAlertRows(html);
           var scoped = !report.isRarityTracker && /^US-[A-Z]{2}$/.test(region);
           var rows = scoped
             ? list.filter(function (o) { return o.subnational1Code === region; })
@@ -10731,10 +10735,13 @@
             entry.outcome = 'notApplicable';
             return false;
           }
-          saveMegaSnapshot(rows, scoped, region, sid);
-          dbg('net', 'mega snapshot refreshed · ' + rows.length + ' rows');
-          entry.outcome = 'saved';
-          return true;
+          var stored = saveMegaSnapshot(rows, scoped, region, sid);
+          dbg(stored ? 'net' : 'warn', 'mega snapshot '
+            + (stored ? 'refreshed' : 'not stored') + ' · parsed ' + list.length
+            + ' source rows · regional ' + rows.length + ' rows · persistence '
+            + (stored ? 'verified' : 'failed'));
+          entry.outcome = stored ? 'saved' : 'failed';
+          return stored;
         }).catch(function (e) {
           // ⚠️ Silent to the READER, loud in the log. The lane still has its
           // old rows and still says how old they are, so a failed refresh
@@ -11297,6 +11304,26 @@
         });
       }
 
+      function ppteRetainedHotspots(records, hotspots) {
+        var ids = Object.create(null), points = Object.create(null);
+        function pointKey(lat, lng) {
+          if (lat == null || lng == null || lat === '' || lng === '') return '';
+          return isFinite(Number(lat)) && isFinite(Number(lng))
+            ? Number(lat).toFixed(6) + ',' + Number(lng).toFixed(6) : '';
+        }
+        (records || []).forEach(function (row) {
+          if (row.locId) ids[row.locId] = true;
+          var key = pointKey(row.lat, row.lon);
+          if (key) points[key] = true;
+        });
+        // Keep every coordinate candidate, including ambiguous same-name matches.
+        return (hotspots || []).filter(function (hotspot) {
+          return ids[hotspot.locId] || points[pointKey(hotspot.lat, hotspot.lng)];
+        }).map(function (hotspot) {
+          return { locId: hotspot.locId, locName: hotspot.locName,
+            lat: hotspot.lat, lng: hotspot.lng };
+        });
+      }
       function ppteEvents(records, options) {
         options = options || {};
         var today = options.today || todayStr();
@@ -11632,6 +11659,7 @@
           return loadHotspotIndex(scope.parentRegion, navWork('PPTE public-hotspot identity'), false)
             .then(function (hotspots) {
               if (!current()) return { state: 'cancelled', rows: [] };
+              hotspots = ppteRetainedHotspots(evidence, hotspots);
               return Object.assign({}, result, { rows: ppteEvents(evidence, { hotspots: hotspots }),
                 hotspots: hotspots });
             }).catch(function (error) {
@@ -27643,6 +27671,19 @@
         if (m) return { code: 'CA-' + m[1], country: country || 'Canada' };
         return { code: '', country: country };
       }
+      function verifiedMegaAlertRows(html) {
+        var kind = pageKind(html);
+        if (kind !== 'OPEN') throw new Error('Alert page requires website access (' + kind + ').');
+        var list = parseAlertHTML(html);
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var found = doc.querySelectorAll('.Observation').length;
+        dbg('net', 'mega alert source · classification ' + kind
+          + ' · observation elements ' + found + ' · parsed ' + list.length);
+        if (!found || list.length !== found) {
+          throw new Error('Alert observations could not be verified; keeping the previous snapshot.');
+        }
+        return list;
+      }
       function parseAlertHTML(html) {
         var startRe = /<div id="obs-(OBS\d+)" class="Observation"/g, starts = [], m;
         while ((m = startRe.exec(html))) starts.push({ idx: m.index, id: m[1] });
@@ -28411,6 +28452,7 @@
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
           var massShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
+          var revealDeadlineReached = false;
           function trace(stage, detail, level) {
             dbg(level || 'info', 'eBird capture ' + captureId + ' · ' + stage
               + (detail ? ' · ' + detail : ''));
@@ -28526,6 +28568,14 @@
           function stopObsolete() {
             finish(new Error('The eBird capture was superseded by a new report.'));
           }
+          function failMalformedMass(stage) {
+            if (opts.kind !== 'massHighCount' || !revealDeadlineReached
+                || massMalformedSamples < 2) return false;
+            trace('parser failure', 'repeated malformed rows ' + stage, 'warn');
+            finish(new Error('The eBird high-count page still has malformed rows. '
+              + 'Mass coverage is incomplete; refresh to retry.'));
+            return true;
+          }
           function reveal() {
             if (done || !id || revealed) return;
             if (!alive()) { stopObsolete(); return; }
@@ -28617,6 +28667,7 @@
                 return;
               }
               if (d.needsLogin) { reveal(); return; }
+              if (failMalformedMass('after hidden-loading deadline')) return;
               if (opts.kind === 'massPageDiagnostic' && d.terminal) {
                 if (d.ok && d.data) finish(null, d.data);
                 else finish(new Error('The rendered eBird page could not be captured.'));
@@ -28675,12 +28726,8 @@
               revealTimer = setTimeout(function () {
                 // A populated but repeatedly rejected Mass page needs a retry,
                 // not a visible browser waiting out the login timeout.
-                if (opts.kind === 'massHighCount' && !revealed && massMalformedSamples >= 2) {
-                  trace('parser failure', 'repeated malformed rows at hidden-loading deadline', 'warn');
-                  finish(new Error('The eBird high-count page still has malformed rows. '
-                    + 'Mass coverage is incomplete; refresh to retry.'));
-                  return;
-                }
+                revealDeadlineReached = true;
+                if (failMalformedMass('at hidden-loading deadline')) return;
                 reveal();
               }, 6000);
             }
@@ -29251,6 +29298,24 @@
       // (the last read of the day wins, matching the report's daily cache).
       var RANKHIST_NS = 'ebird_rankhist:', RANKHIST_MAX = 180;
       function rankHistKey(region) { return RANKHIST_NS + String(region || ''); }
+      function rankingHistoryOwner(region, period, metric, name) {
+        return [region, period, metric, bcProfile(), identityRevision(), name].join('|');
+      }
+      var _rankingHistoryWrites = Object.create(null);
+      function saveRankingHistory(key, history, label) {
+        try {
+          var serialized = JSON.stringify(history);
+          localStorage.setItem(key, serialized);
+          if (localStorage.getItem(key) !== serialized) throw new Error('History read-back did not match.');
+          _rankingHistoryWrites[key] = 'verified';
+          return true;
+        } catch (error) {
+          _rankingHistoryWrites[key] = 'failed';
+          dbg('warn', label + ' history could not be saved; the displayed update is not durable: '
+            + (error && error.name || 'Error'));
+          return false;
+        }
+      }
 
   // ---- F125: how each birder on the board has moved -----------------------
   //
@@ -29283,7 +29348,7 @@
     if (hist.length && hist[hist.length - 1].d === day) hist[hist.length - 1] = entry;
     else hist.push(entry);
     if (hist.length > BOARDHIST_MAX) hist = hist.slice(hist.length - BOARDHIST_MAX);
-    try { localStorage.setItem(boardHistKey(region), JSON.stringify(hist)); } catch (e) {}
+    saveRankingHistory(boardHistKey(region), hist, 'Top 100');
     return hist;
   }
   // One birder's history in the shape rankDeltas already understands, so the
@@ -29460,7 +29525,7 @@
         if (hist.length && hist[hist.length - 1].d === day) hist[hist.length - 1] = entry;
         else hist.push(entry);
         if (hist.length > RANKHIST_MAX) hist = hist.slice(hist.length - RANKHIST_MAX);
-        try { localStorage.setItem(rankHistKey(region), JSON.stringify(hist)); } catch (e) {}
+        saveRankingHistory(rankHistKey(region), hist, 'Personal rank');
         return hist;
       }
       // A rank TREND is inverted: rank 211 -> 208 is an improvement, so the
@@ -29871,7 +29936,7 @@
         var metric = data.metric === 'cl' ? 'cl' : 'spp';
         var metricLabel = metric === 'cl' ? 'Complete checklists' : 'Species';
         var period = data.period || String(new Date().getFullYear());
-        var historyOwner = [region, period, metric, bcProfile(), identityRevision(), name].join('|');
+        var historyOwner = rankingHistoryOwner(region, period, metric, name);
         var label = rankRegionName(region), year = new Date().getFullYear();
         var board = data.url || url;
 
@@ -32299,9 +32364,7 @@
         // to the in-app login flow only if the direct read fails.
         return fetchPublicHTML(url, false, controller && controller.signal)
           .then(function (html) {
-            var list = parseAlertHTML(html);
-            if (!list.length && !/class="Observation"/.test(html)) throw new Error('alert page not readable');
-            return list;
+            return verifiedMegaAlertRows(html);
           })
           .catch(function (e) {
             if (!stillCurrent()) throw superseded();
@@ -32315,7 +32378,9 @@
           })
           .then(function (list) {
             if (!stillCurrent()) throw superseded();
-            list = Array.isArray(list) ? list : [];
+            if (!Array.isArray(list) || !list.length) {
+              throw new Error('Alert observations could not be verified; keeping the previous snapshot.');
+            }
             // report.py::section_state_aba_rarities filters the continent-wide
             // alert to the active report's state and groups by species. Rarity
             // trackers (lower48/aba) have no state, so they keep the full feed.
@@ -38476,6 +38541,12 @@
             cache = { context: context, parts: {} };
           }
           cache.parts[key] = { at: value.retainedAt || Date.now(), value: value };
+          var ppte = cache.parts.ppte;
+          if (ppte && ppte.value && Array.isArray(ppte.value.hotspots)) {
+            ppte.value = Object.assign({}, ppte.value, {
+              hotspots: ppteRetainedHotspots(ppte.value.evidenceRows, ppte.value.hotspots)
+            });
+          }
           return zcPut(storageKey, cache, function (write) {
             if (write.cancelled) return;
             var retry = !write.initialFailed ? 'not needed'
@@ -47276,10 +47347,18 @@
         // actually opened - so a blank column can mean "no history yet"
         // rather than "broken", and those need different answers.
         try {
-          var _bh = boardHistRead(getRegion());
+          var _historyRegion = rankPrimaryRegion().region, _historyPeriod = personalBoardPeriod();
+          var _historyOwner = rankingHistoryOwner(_historyRegion, _historyPeriod,
+            _rankMetric, getDisplayName());
+          var _bh = boardHistRead(_historyOwner);
           add('board snapshots: ' + _bh.length
             + (_bh.length ? ' (' + _bh[0].d + ' \u2192 ' + _bh[_bh.length - 1].d + ')' : '')
             + (_bh.length < 2 ? ' \u2014 needs 2 for arrows' : ''));
+          add('board history scope: ' + _historyRegion + ' / ' + _historyPeriod
+            + ' / ' + (_rankMetric === 'cl' ? 'complete checklists' : 'species'));
+          add('history persistence this session: personal rank '
+            + (_rankingHistoryWrites[rankHistKey(_historyOwner)] || 'not attempted')
+            + '; Top 100 ' + (_rankingHistoryWrites[boardHistKey(_historyOwner)] || 'not attempted'));
         } catch (e) {}
         // F2. A block that leaves no trace is a block nobody fixes: the eBirder
         // field size vanished from the card and the app said nothing at all.
@@ -49112,6 +49191,8 @@
         renderMigrationEvent: renderMigrationEvent,
         migFetchDate: migFetchDate, migSampleKey: migSampleKey,
         renderRankings: renderRankings, boardDeltasFor: boardDeltasFor,
+        rankingHistoryOwner: rankingHistoryOwner, boardHistRead: boardHistRead,
+        boardHistRecord: boardHistRecord,
         buildTideRows: buildTideRows, renderTides: renderTides,
         tideNow: tideNow, tideCountdown: tideCountdown, tidePrime: tidePrime,
         buildQuickOuting: buildQuickOuting, isSpeciesSeen: isSpeciesSeen,
@@ -49372,6 +49453,7 @@
         stateRbaRecord: stateRbaRecord,
         stateRbaRecords: stateRbaRecords, mergeRarityRecords: mergeRarityRecords,
         ppteEvents: ppteEvents, loadPpteAlertSource: loadPpteAlertSource,
+        ppteRetainedHotspots: ppteRetainedHotspots,
         openPpteEvent: openPpteEvent, ppteTwitchContext: ppteTwitchContext,
         stakeoutRarityEvidenceRows: stakeoutRarityEvidenceRows,
         stakeoutPatchRbaRows: stakeoutPatchRbaRows,

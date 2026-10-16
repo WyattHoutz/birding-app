@@ -99,6 +99,231 @@ function megaAlertHtml(rows) {
     </div>`).join('');
 }
 
+function otherStateMegaAlertHtml() {
+  return megaAlertHtml([{
+    code: 'mallar3', name: 'Synthetic source bird', subId: 'S948001',
+    when: recentObsStamp(), lat: 45, lng: -123, place: 'Public fixture lake',
+  }]).replace(', Washington, United States', ', Oregon, United States');
+}
+
+test('F948 Mega validates source rows and reports actual durable persistence', async () => {
+  const previous = JSON.stringify({
+    at: Date.now() - 72 * 3600000, region: 'US-WA', sid: 'SN10489', rows: [],
+  });
+  let body = '';
+  const app = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: previous },
+    fetch: url => /alert\/summary/.test(url) ? body : [] });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    for (body of [
+      '<html>anubis_challenge</html>', '<div class="Observation"></div>',
+      '<html>unrecognized empty page</html>',
+      otherStateMegaAlertHtml() + '<div class="Observation"></div>',
+    ]) {
+      assert.equal(await A.lazyRefreshMegaSnapshot(), false, body);
+      assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous);
+    }
+    await A.loadAbaAlert();
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous,
+      'foreground loading must not replace last-good data with a partially parsed source');
+    body = otherStateMegaAlertHtml();
+    proto.setItem = function (key, value) {
+      if (key === A.MEGA_SNAP_KEY) throw new W.DOMException('synthetic quota', 'QuotaExceededError');
+      return set.call(this, key, value);
+    };
+    assert.equal(await A.lazyRefreshMegaSnapshot(), false);
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous);
+    assert.equal(A.megaAlertSourceState(A.megaLane([])), 'failed');
+    assert.match(W.__dbg.buf.map(row => row.msg).join('\n'),
+      /mega snapshot not stored · parsed 1 source rows · regional 0 rows · persistence failed/);
+    proto.setItem = set;
+    assert.equal(await A.lazyRefreshMegaSnapshot(), true, 'reload retries failed persistence');
+    assert.deepEqual(JSON.parse(W.localStorage.getItem(A.MEGA_SNAP_KEY)).rows, []);
+    assert.match(W.__dbg.buf.map(row => row.msg).join('\n'),
+      /mega snapshot refreshed · parsed 1 source rows · regional 0 rows · persistence verified/);
+    proto.setItem = function (key, value) {
+      if (key !== A.MEGA_SNAP_KEY) return set.call(this, key, value);
+    };
+    assert.equal(A.saveMegaSnapshot([{ speciesCode: 'mallar3' }], true), false,
+      'silent write loss must fail read-back');
+  } finally { proto.setItem = set; W.close(); }
+});
+
+test('F949 late malformed Mass receipts close after reveal while recoverable pages remain usable', async () => {
+  for (const recover of [false, true]) {
+    const app = await boot();
+    const A = app.window.__app, handlers = {}, closed = [];
+    let deadline, shown = 0;
+    const nativeTimer = app.window.setTimeout.bind(app.window);
+    app.window.setTimeout = (fn, delay, ...args) => {
+      if (delay === 6000) { deadline = fn; return nativeTimer(() => {}, 120000); }
+      return nativeTimer(fn, delay, ...args);
+    };
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+      addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+      openWebView() { return Promise.resolve({ id: 'late-mass' }); },
+      hide() {}, show() { shown++; },
+      close({ id }) { closed.push(id); return Promise.resolve(); },
+    } } };
+    try {
+      const pending = A.captureEbird({ kind: 'massHighCount',
+        url: 'https://ebird.org/region/US-WA/bird-list', buildInject: () => '' })
+        .then(data => ({ data }), error => ({ error }));
+      await waitFor(() => deadline, 'Mass reveal deadline');
+      deadline();
+      assert.equal(shown, 1);
+      const message = {
+        __ebird: true, kind: 'massHighCount', ok: false, parseStatus: 'unreadable',
+        parseReason: 'malformed-row', errorType: 'Error',
+        pageShape: { list: true, listBody: true, speciesSection: true,
+          rows: 288, declared: 288, invalidRow: 272,
+          speciesLink: true, region: true, count: true,
+          date: false, checklist: false, location: false },
+      };
+      const send = (detail, id = 'late-mass') => handlers.messageFromWebview({ id, detail });
+      send(message, 'unrelated-window');
+      send(message);
+      assert.equal(closed.length, 0, 'a single malformed receipt must not close');
+      if (recover) {
+        send({ ...message, parseStatus: 'LOGIN', needsLogin: true });
+        send(message);
+        send({ ...message, parseReason: 'incomplete-rows' });
+        send(message);
+        send({ ...message, pageShape: { ...message.pageShape, invalidRow: 273 } });
+        assert.equal(closed.length, 0, 'login, incomplete and changing shapes remain recoverable');
+        send({ __ebird: true, kind: 'massHighCount', ok: true, data: { rows: [] } });
+        assert.deepEqual((await pending).data.rows, []);
+      } else {
+        send(message);
+        assert.deepEqual(closed, ['late-mass'], 'stable late rejection must not wait for timeout');
+        assert.match((await pending).error.message, /Mass coverage is incomplete/);
+        assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'),
+          /parser failure.*after hidden-loading deadline/);
+      }
+      assert.deepEqual(closed, ['late-mass']);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F940 compact PPTE identities preserve exact matches, ambiguity and private locations', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, evidence = ppteFixture();
+    const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
+    const directory = [hotspot, ...Array.from({ length: 1200 }, (_, i) => ({
+      locId: 'L-UNRELATED-' + i, locName: 'Unrelated public site ' + i,
+      lat: 46, lng: -123, numSpeciesAllTime: i, latestObsDt: '2000-01-01',
+    }))];
+    const compact = A.ppteRetainedHotspots(evidence, directory);
+    assert.equal(compact.length, 1);
+    for (const rows of [evidence, evidence.map(row => ({ ...row, location_private: true })),
+      evidence.map(row => ({ ...row, locId: 'L333', lat: 48, lon: -124 }))]) {
+      assert.deepEqual(JSON.parse(JSON.stringify(A.ppteEvents(rows, {
+        hotspots: A.ppteRetainedHotspots(rows, directory),
+      }))), JSON.parse(JSON.stringify(A.ppteEvents(rows, { hotspots: directory }))));
+    }
+    assert.equal(A.ppteEvents(evidence, { hotspots: compact })[0].publicHotspot.locId, 'L333');
+    const ambiguous = directory.concat([{ ...hotspot, locId: 'L444' }]);
+    assert.equal(A.ppteRetainedHotspots(evidence, ambiguous).length, 2);
+    assert.equal(A.ppteEvents(evidence, {
+      hotspots: A.ppteRetainedHotspots(evidence, ambiguous),
+    })[0].publicHotspot, null, 'compaction must not invent a unique public match');
+    assert.equal(A.ppteRetainedHotspots([{ lat: null, lon: null }], [
+      { ...hotspot, lat: 0, lng: 0 },
+    ]).length, 0);
+    assert.ok(JSON.stringify(compact).length < JSON.stringify(directory).length / 100);
+  } finally { app.window.close(); }
+});
+
+test('F940 retained writes compact legacy directories under quota without deleting history', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    const evidence = ppteFixture();
+    const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
+    const hotspots = [hotspot, ...Array.from({ length: 1200 }, (_, i) => ({
+      locId: 'L-UNRELATED-' + i, locName: 'Unrelated public site ' + i, lat: 46, lng: -123,
+    }))];
+    const protectedValues = {
+      'ebird_rankhist:protected': '[{"d":"2000-01-01","rank":9}]',
+      'bc_board_v1:protected': '[{"d":"2000-01-01","r":{"Synthetic":9}}]',
+      ebird_watchlist_v1: '[]', ebird_favs: '[]', 'ebird_own_seen:protected': '{"saved":true}',
+    };
+    for (const [key, value] of Object.entries(protectedValues)) W.localStorage.setItem(key, value);
+    assert.equal(await A.saveSurgeRetainedPart('ppte', {
+      state: 'ok', evidenceRows: evidence, rows: A.ppteEvents(evidence, { hotspots }), hotspots,
+    }), true);
+    const key = Object.keys(W.localStorage).find(key => key.startsWith('ebird_surge_retained_v1:'));
+    const legacy = await A.unpackJson(W.localStorage.getItem(key));
+    legacy.parts.ppte.value.hotspots = hotspots;
+    assert.equal(await A.zcPut(key, legacy), true);
+    const before = W.localStorage.getItem(key).length;
+    proto.setItem = function (target, value) {
+      if (target === key && String(value).length > 24000) {
+        throw new W.DOMException('synthetic quota', 'QuotaExceededError');
+      }
+      return set.call(this, target, value);
+    };
+    assert.equal(await A.zcPut(key, legacy), false, 'uncompacted control must exceed quota');
+    assert.equal(await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] }), true,
+      'another part update must compact legacy PPTE before saving the combined snapshot');
+    const after = W.localStorage.getItem(key).length;
+    const saved = await A.unpackJson(W.localStorage.getItem(key));
+    assert.equal(saved.parts.ppte.value.hotspots.length, 1);
+    assert.equal(A.loadSurgeRetained().ppte.rows[0].publicHotspot.locId, 'L333');
+    assert.ok(after < 24000 && before > 24000);
+    for (const [protectedKey, value] of Object.entries(protectedValues)) {
+      assert.equal(W.localStorage.getItem(protectedKey), value, protectedKey);
+    }
+    console.log('F940 synthetic retained chars: ' + before + ' -> ' + after);
+  } finally { proto.setItem = set; W.close(); }
+});
+
+test('F940 F950 history diagnostics use active ownership and distinguish failed durable writes', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    A.setDisplayNameValue('Synthetic history owner', 'test');
+    const period = A.personalBoardPeriod();
+    const owner = A.rankingHistoryOwner('US-WA', period, 'spp', A.getDisplayName());
+    assert.equal(owner, ['US-WA', period, 'spp', A.bcProfile(), A.identityRevision(),
+      A.getDisplayName()].join('|'));
+    const old = [{ d: '2000-01-01', r: { Synthetic: 20 } }];
+    W.localStorage.setItem('bc_board_v1:US-WA', JSON.stringify(old));
+    for (const [p, m, name] of [[period, 'cl', A.getDisplayName()],
+      ['AAAA', 'spp', A.getDisplayName()], [period, 'spp', 'Another identity']]) {
+      W.localStorage.setItem('bc_board_v1:' + A.rankingHistoryOwner('US-WA', p, m, name),
+        JSON.stringify(old));
+    }
+    assert.match(A.dbgContext(), /board snapshots: 0/);
+    A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+    A.rankHistRecord(owner, { rank: 4, species: 100 });
+    assert.match(A.dbgContext(), /board snapshots: 1/);
+    assert.match(A.dbgContext(), /personal rank verified; Top 100 verified/);
+    const rankKey = 'ebird_rankhist:' + owner, boardKey = 'bc_board_v1:' + owner;
+    const saved = [W.localStorage.getItem(rankKey), W.localStorage.getItem(boardKey)];
+    proto.setItem = function (key, value) {
+      if (key === rankKey || key === boardKey) {
+        throw new W.DOMException('synthetic quota', 'QuotaExceededError');
+      }
+      return set.call(this, key, value);
+    };
+    assert.equal(A.rankHistRecord(owner, { rank: 3, species: 101 }).at(-1).rank, 3);
+    A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+    assert.deepEqual([W.localStorage.getItem(rankKey), W.localStorage.getItem(boardKey)], saved);
+    assert.match(A.dbgContext(), /personal rank failed; Top 100 failed/);
+    const log = W.__dbg.buf.map(row => row.msg).join('\n');
+    assert.match(log, /Personal rank history could not be saved/);
+    assert.match(log, /Top 100 history could not be saved/);
+    assert.doesNotMatch(log, /Synthetic history owner/);
+    proto.setItem = set;
+    A.rankHistRecord(owner, { rank: 3, species: 101 });
+    A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+    assert.match(A.dbgContext(), /personal rank verified; Top 100 verified/);
+    assert.equal(W.localStorage.getItem('bc_board_v1:US-WA'), JSON.stringify(old));
+  } finally { proto.setItem = set; W.close(); }
+});
+
 async function settleMegaEntry(app, code) {
   const A = app.window.__app;
   for (let pass = 0; pass < 3; pass++) {
@@ -1285,7 +1510,7 @@ test('F815 live Bird Gen acquires FOY after primary startup and owns its pending
     if (/\/bird-list\?yr=cur&rank=lrec/.test(url)) {
       return new Promise(resolve => { releaseFirst = resolve; });
     }
-    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
     return [];
   }});
   const A = app.window.__app;
@@ -16353,7 +16578,7 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
   assert.equal(samples.length, 1);
   assert.equal(samples[0].outcome, 'incomplete', 'DOM quiet ended an owned pending load');
   assert.notEqual(samples[0].primary_ready_ms, null);
-  releaseMega('<div class="Observation"></div>');
+  releaseMega(otherStateMegaAlertHtml());
   await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
     .samples[0].outcome === 'ok', 'complete owned lifecycle');
   const firstId = samples[0].load_id;
@@ -16679,7 +16904,8 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
     if (/bird-list/.test(url)) return f821Page();
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
-    if (/alert\/(?:summary|rba\/)/.test(url)) return '<div class="Observation"></div>';
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
     return /data\/obs\/LF801REOPEN/.test(url) ? [{
       speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801REOPEN',
       obsDt: f801Day() + ' 00:01', subId: 'SF801REOPEN', howMany: 2,
@@ -19055,7 +19281,7 @@ test('F274 every current load can subscribe to one in-flight mega refresh', asyn
     return new Promise((resolve) => {
       resolveFetch = () => resolve({
         ok: true, status: 200,
-        text: () => Promise.resolve('<div class="Observation"></div>'),
+        text: () => Promise.resolve(otherStateMegaAlertHtml()),
       });
     });
   };
@@ -19090,7 +19316,7 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
     }
     return Promise.resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve('<div class="Observation"></div>'),
+      text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
   };
 
@@ -19296,7 +19522,7 @@ test('F294 a successful Mega rarities load clears an earlier Bird Gen failure', 
     if (calls === 1) return Promise.reject(new Error('offline'));
     return Promise.resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve('<div class="Observation"></div>'),
+      text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
   };
 
@@ -19351,7 +19577,7 @@ test('F274 mega refresh ownership is keyed by region, not one global attempt', a
     if (/ebird\.org/.test(String(url))) calls++;
     return Promise.resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve('<div class="Observation"></div>'),
+      text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
   };
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
@@ -19386,7 +19612,7 @@ test('a foreground ABA response cannot be saved under a newer alert SID', async 
   app.window.fetch = () => new Promise((resolve) => {
     resolveFetch = () => resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve('<div class="Observation"></div>'),
+      text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
   });
   const load = A.loadAbaAlert();
@@ -19728,7 +19954,7 @@ test('F309 refreshing Bird Gen preserves current cards while feeds update', asyn
   ]) }, fetch(url) {
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
-    if (/alert\/summary/.test(url)) return '<div class="Observation"></div>';
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
     return /data\/obs\/LF309/.test(url) ? [{
       speciesCode: 'vesspa', comName: 'Vesper Sparrow', locId: 'LF309',
       obsDt: f801Day() + ' 00:01', subId: 'SF309', howMany: 2,
@@ -19772,7 +19998,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
           ok: true,
           status: 200,
           headers: { get: () => null },
-          text: () => Promise.resolve('<html><body><div class="Observation"></div></body></html>'),
+          text: () => Promise.resolve(otherStateMegaAlertHtml()),
           json: () => Promise.resolve({}),
         });
       });
@@ -19857,7 +20083,7 @@ test('F754 Mega progress hold settles after failure and scope cancellation', asy
   cancelled.window.fetch = () => new Promise((resolve) => {
     resolveMega = () => resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve('<html><body><div class="Observation"></div></body></html>'),
+      text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
   });
   const cancelledRefresh = cancelled.window.__app.lazyRefreshMegaSnapshot(
