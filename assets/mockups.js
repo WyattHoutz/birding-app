@@ -221,7 +221,6 @@ const STUB_SPEC = {
     expects: ['#abaControls.raritycontrols > #abaViewPick.twitchviewbar',
       '#abaViewPick + #abaStatus', '#abaStatus + .abascoperow',
       '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
-      '#abaScopePick.pressbtn[data-abascope]',
       '#abaSortPick [data-abasort="date"]',
       '#abaSortPick [data-abasort="distance"]',
       '#abaResults li[data-mega-code][data-mega-view]',
@@ -395,13 +394,14 @@ const EXTRA_SHOTS = [
            });` },
   { id: 'ppte', at: 'surgeBtn',
     title: 'Bird Gen — Patagonia picnic table effect',
-    host: 'surgeResults', fullPage: true,
+    host: 'surgeResults', fullPage: true, freshApp: true,
     expects: ['#surgeResults [data-alert-kind="ppte"]',
-      '#surgeResults [data-ppte-open]', '#surgeResults [data-ppte-species]'],
+      '#surgeResults .ppte-event-link', '#surgeResults .surgealerttitle .splink',
+      '#surgeResults .ppte-bird-composite'],
     prep: `FIX.before('surgeBtn', A, document);
            var sec = document.getElementById('surgeBtn').closest('section');
            A.showSection(sec.id);
-           var date = new Date(A.todayStr() + 'T12:00:00'); date.setDate(date.getDate() - 3);
+           var date = new Date(A.todayStr() + 'T12:00:00'); date.setDate(date.getDate() - 2);
            var day = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0')
              + '-' + String(date.getDate()).padStart(2,'0');
            var rows = [];
@@ -410,11 +410,19 @@ const EXTRA_SHOTS = [
                rows.push({kind:'Rarity', code:code,
                  name:bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
                  obsId:'OBS-MOCK-P-' + bird + person, subId:'S' + (81001+person),
-                 observer:'Sample reporter ' + person, dateStr:day + ' 09:00',
+                 observer:'Sample reporter ' + person, dateStr:day + ' '
+                   + String(9+person).padStart(2,'0') + ':00',
                  loc:person ? '123 Sample St SE' : 'Sample Street SE',
                  lat:47+person*.00018, lon:-122});
              });
            });
+           var prior = new Date(date); prior.setDate(prior.getDate()-1);
+           var priorDay = prior.getFullYear() + '-' + String(prior.getMonth()+1).padStart(2,'0')
+             + '-' + String(prior.getDate()).padStart(2,'0');
+           rows.push(Object.assign({}, rows[1], {obsId:'OBS-MOCK-P-support',subId:'S81003',
+             observer:'Sample reporter 2',dateStr:day+' 11:00'}));
+           rows.push(Object.assign({}, rows[0], {obsId:'OBS-MOCK-P-earlier',subId:'S81004',
+             dateStr:priorDay+' 08:00'}));
            var publicRows = rows.map(function(row,i) {
              return Object.assign({}, row, {obsId:'OBS-MOCK-H-' + i,
                loc:'Example public patch', lat:47.7, lon:-122.3});
@@ -422,9 +430,76 @@ const EXTRA_SHOTS = [
            var events = A.ppteEvents(rows.concat(publicRows), {hotspots:[
              {locId:'L999999999',locName:'Example public patch',lat:47.7,lng:-122.3}
            ]});
+           var speciesKey = A.speciesCacheKey(A.getObsRegion());
+           var speciesIndex = JSON.parse(localStorage.getItem(speciesKey) || '{"rows":[]}');
+           [{code:'swaspa',name:'Swamp Sparrow',alpha:'SWSP'},
+             {code:'verfly',name:'Vermilion Flycatcher',alpha:'VEFL'}].forEach(function(bird) {
+             var existing = speciesIndex.rows.find(function(row) { return row.code === bird.code; });
+             if (existing) existing.alpha = bird.alpha;
+             else speciesIndex.rows.push(bird);
+           });
+           localStorage.setItem(speciesKey,JSON.stringify(speciesIndex));
            if (events.length !== 2) throw new Error('PPTE fixture must qualify two separate sites: '
              + JSON.stringify({today:A.todayStr(),day:day,events:events}));
-           A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:events});
+           events.forEach(function(event) {
+             if (event.species.map(function(bird) { return bird.reports; }).join(',') !== '2,3'
+                 || event.anchorSightings !== 4) throw new Error('PPTE fixture inflated its supporting reports');
+           });
+           A.renderSurge([],[],[],[],[],{
+             mega:'ok',observations:'ok',leaderboard:'notApplicable',hotspots:'notApplicable',
+             favorites:'notApplicable',mass:'notApplicable',foy:'notApplicable',ppte:'ok',
+             ppteRows:events
+           });
+           var result = document.getElementById('surgeResults');
+           if (result.querySelector('[role="progressbar"]')) throw new Error('PPTE fixture sources did not settle');
+           Array.from(result.querySelectorAll('[data-alert-kind="ppte"]')).forEach(function(card) {
+             if (card.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length !== 2
+                 || !card.querySelector('.ppte-evidence time')) throw new Error('PPTE metadata or RARE tags missing');
+             if (!card.querySelector('.ppte-evidence [data-ppte-distance-text]')) {
+               throw new Error('PPTE known distance missing from qualification text');
+             }
+             Array.from(card.querySelectorAll('.surgealerttitle a')).forEach(function(link) {
+               if (document.defaultView.getComputedStyle(link).textDecorationLine !== 'none') {
+                 throw new Error('PPTE title links must not be underlined');
+               }
+             });
+             Array.from(card.querySelectorAll('.ppte-connector')).forEach(function(word) {
+               var css = document.defaultView.getComputedStyle(word);
+               if (css.fontWeight !== '400'
+                   || css.color !== document.defaultView.getComputedStyle(document.body).color) {
+                 throw new Error('PPTE connectors must use normal-weight ink text');
+               }
+             });
+           });
+           Array.from(result.querySelectorAll('[data-alert-kind="ppte"] .surgealerttitle a')).forEach(function(link) {
+             var text = link.firstChild;
+             var words = /[A-Za-z]+/g, match;
+             while ((match = words.exec(text.textContent))) {
+               var range = document.createRange();
+               range.setStart(text, match.index);
+               range.setEnd(text, match.index + match[0].length);
+               if (range.getClientRects().length > 1) {
+                 throw new Error('PPTE headline breaks inside a word: ' + match[0]);
+               }
+             }
+           });
+           Array.from(result.querySelectorAll('.ppte-bird-composite')).forEach(function(icon) {
+             var outer = icon.getBoundingClientRect();
+             Array.from(icon.children).filter(function(frame) { return frame.classList.contains('thumb'); })
+               .forEach(function(frame) {
+                 var rect = frame.getBoundingClientRect();
+                 var css = document.defaultView.getComputedStyle(frame);
+                 if (!(outer.width > 0 && outer.height > 0)
+                     || Math.abs(rect.width - rect.height) > 0.2
+                     || Math.abs(rect.width - outer.width * 2 / 3) > 0.2
+                     || rect.left < outer.left - 0.2 || rect.right > outer.right + 0.2
+                     || rect.top < outer.top - 0.2 || rect.bottom > outer.bottom + 0.2
+                     || css.borderLeftWidth !== '1px' || css.borderLeftColor !== 'rgb(17, 17, 17)') {
+                   throw new Error('PPTE composite frame escaped its diagonal slot: '
+                     + JSON.stringify({outer:outer.toJSON(),frame:rect.toJSON(),border:css.borderLeft}));
+                 }
+               });
+           });
            if (A.fgProgressReset) A.fgProgressReset();
            document.getElementById('surgeResults').setAttribute('data-mock-data','true');
            sec.dataset.mockAt = 'surgeBtn'; sec.dataset.mockReady = 'true';
@@ -892,18 +967,6 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            return FIX.prepareStakeoutReports(A, document, sec);` },
-  { id: 'megaaba', at: 'abaBtn',
-    title: 'Mega rarities — ABA area, Newest',
-    host: 'abaResults',
-    prep: `A.setActiveReport('wa');
-           FIX.before('abaBtn', A, document);
-           var spec = ${JSON.stringify(STUB_SPEC.abaBtn)};
-           var anchor = document.getElementById('abaBtn');
-           var sec = anchor.closest('section');
-           A.showSection(sec.id);
-           await FIX.prepare('abaBtn', spec, A, document, sec);
-           document.querySelector('#abaScopePick [data-abascope="aba"]').click();
-           return true;` },
   { id: 'meganearest', at: 'abaBtn',
     title: 'Mega rarities — Washington, Nearest',
     host: 'abaResults',
@@ -1633,11 +1696,10 @@ const BOOTSTRAP = `
     localStorage.removeItem(A.ABA_ARCHIVE_KEY);
     seedMegaFixture(A, f);
     A.abaArchiveAdd(f.region, second.stateRows);
-    A.setAbaScope('state');
     A.setAbaSort('date');
     localStorage.setItem('ebird_mega_view_v1', 'list');
     function repaint() {
-      A.renderAbaAlert(alertRows, url, true, A.abaScope() === 'aba', meta, repaint);
+      A.renderAbaAlert(alertRows, url, true, false, meta, repaint);
       markHost(document.getElementById('abaResults'), label);
     }
     repaint();

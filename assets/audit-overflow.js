@@ -1362,7 +1362,7 @@ const AUDIT = `<script>
       };
       out.push(keyScan);
       document.querySelector('#appSheet .sheetclose').click();
-      var ppteDate = new Date(); ppteDate.setDate(ppteDate.getDate() - 3);
+      var ppteDate = new Date(A.todayStr() + 'T12:00:00'); ppteDate.setDate(ppteDate.getDate() - 2);
       var ppteDay = ppteDate.getFullYear() + '-' + String(ppteDate.getMonth()+1).padStart(2,'0')
         + '-' + String(ppteDate.getDate()).padStart(2,'0');
       var ppteEvidence = [];
@@ -1371,22 +1371,54 @@ const AUDIT = `<script>
           ppteEvidence.push({kind:'Rarity',code:code,
             name:bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
             obsId:'OBS-AUDIT-' + bird + person,subId:'S' + (81001+person),
-            observer:'Sample reporter ' + person,dateStr:ppteDay+' 09:00',
+            observer:'Sample reporter ' + person,dateStr:ppteDay+' '
+              + String(9+person).padStart(2,'0') + ':00',
             loc:person ? '123 Sample St SE' : 'Sample Street SE',
             lat:47+person*.00018,lon:-122});
         });
       });
+      var pptePrior = new Date(ppteDate); pptePrior.setDate(pptePrior.getDate()-1);
+      var pptePriorDay = pptePrior.getFullYear() + '-' + String(pptePrior.getMonth()+1).padStart(2,'0')
+        + '-' + String(pptePrior.getDate()).padStart(2,'0');
+      ppteEvidence.push(Object.assign({},ppteEvidence[1],{
+        obsId:'OBS-AUDIT-support',subId:'S81003',observer:'Sample reporter 2',dateStr:ppteDay+' 11:00'}));
+      ppteEvidence.push(Object.assign({},ppteEvidence[0],{
+        obsId:'OBS-AUDIT-earlier',subId:'S81004',dateStr:pptePriorDay+' 08:00'}));
       var ppteEvents = A.ppteEvents(ppteEvidence);
+      if (ppteEvents.length !== 1 || ppteEvents[0].anchorSightings !== 4) {
+        throw new Error('F943 PPTE fixture must establish one Celebrity-style event');
+      }
       A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:ppteEvents});
       var ppteScan = scan('(F931 Patagonia picnic table effect)');
+      var ppteCard = document.querySelector('#surgeFeed [data-alert-kind="ppte"]');
+      if (!ppteCard) throw new Error('F943 qualified PPTE fixture did not render');
+      var ppteTitle = ppteCard.querySelector('.surgealerttitle');
+      var ppteTime = ppteCard.querySelector('.ppte-evidence time');
+      var ppteDistance = ppteCard.getAttribute('data-ppte-distance');
+      var ppteDistanceText = ppteCard.querySelector('[data-ppte-distance-text]');
       ppteScan.ppte = {
         cards:document.querySelectorAll('#surgeFeed [data-alert-kind="ppte"]').length,
-        species:document.querySelectorAll('#surgeFeed [data-ppte-species] .splink').length,
-        fullName:document.querySelector('#surgeFeed [data-alert-kind="ppte"] .surgealerttitle').textContent
-          === 'Patagonia picnic table effect',
-        actions:[].map.call(document.querySelectorAll('#surgeFeed [data-ppte-open]'), function(button) {
-          var rect=button.getBoundingClientRect();
-          return {width:rect.width,height:rect.height};
+        species:document.querySelectorAll('#surgeFeed .surgealerttitle .splink').length,
+        fullNames:!!ppteTitle && ['Swamp Sparrow','Vermilion Flycatcher','Sample Street SE']
+          .every(function(name) { return ppteTitle.textContent.indexOf(name) >= 0; }),
+        rareTags:ppteCard.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length,
+        date:!!ppteTime && ppteTime.getAttribute('datetime') === ppteDay,
+        reports:[].map.call(ppteCard.querySelectorAll('[data-ppte-report-code]'), function(row) {
+          return row.getAttribute('data-ppte-report-code') + ':' + row.getAttribute('data-ppte-report-count');
+        }).join(','),
+        distance:ppteDistance == null || ppteDistance === '' ? !ppteDistanceText
+          : !!ppteDistanceText && ppteDistanceText.textContent === Number(ppteDistance).toFixed(1)+'mi away',
+        composite:ppteCard.querySelectorAll('.ppte-bird-composite > .thumb').length,
+        actions:[].map.call(ppteCard.querySelectorAll('.surgealerttitle a'), function(link) {
+          var rect=link.getBoundingClientRect(), text=link.firstChild, words=/[A-Za-z]+/g, match, broken=false;
+          while (text && (match=words.exec(text.textContent))) {
+            var range=document.createRange();
+            range.setStart(text,match.index); range.setEnd(text,match.index+match[0].length);
+            if (range.getClientRects().length > 1) broken=true;
+          }
+          return {width:rect.width,height:rect.height,tabIndex:link.tabIndex,wordBroken:broken,
+            underlined:document.defaultView.getComputedStyle(link).textDecorationLine !== 'none',
+            clipped:rect.left < 0 || rect.right > ppteScan.vw + 0.5};
         })
       };
       out.push(ppteScan);
@@ -2533,6 +2565,10 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F805/F812 FIXTURE missing Current year / All time header geometry');
     }
+    if (report.filter((r) => r.ppte).length !== 1 || report.filter((r) => r.alertKey).length !== 1) {
+      bad++;
+      console.log('   F931/F933 FIXTURE missing PPTE or alert-type key coverage');
+    }
     report.forEach((r) => {
       if (r.fixtureError) {
         bad++;
@@ -2565,17 +2601,19 @@ server.listen(0, '127.0.0.1', () => {
           console.log('   F805/F812 HEADER controls, basis or two-row geometry failed: '
             + JSON.stringify(header));
         }
-        if (r.alertKey && (r.alertKey.clipped
+      }
+      if (r.alertKey && (r.alertKey.clipped
             || JSON.stringify(r.alertKey.actual) !== JSON.stringify(r.alertKey.expected))) {
-          bad++;
-          console.log('   F933 Bird Gen key is missing categories or clips: ' + JSON.stringify(r.alertKey));
-        }
-        if (r.ppte && (r.ppte.cards !== 1 || r.ppte.species !== 2 || !r.ppte.fullName
-            || r.ppte.actions.length !== 1
-            || r.ppte.actions.some(action => action.width < 44 || action.height < 44))) {
-          bad++;
-          console.log('   F931 PPTE heading, linked totals or action geometry failed: ' + JSON.stringify(r.ppte));
-        }
+        bad++;
+        console.log('   F933 Bird Gen key is missing categories or clips: ' + JSON.stringify(r.alertKey));
+      }
+      if (r.ppte && (r.ppte.cards !== 1 || r.ppte.species !== 2 || !r.ppte.fullNames
+          || r.ppte.rareTags !== 2 || !r.ppte.date || r.ppte.reports !== 'swaspa:2,verfly:3'
+          || !r.ppte.distance || r.ppte.composite !== 2 || r.ppte.actions.length !== 3
+          || r.ppte.actions.some(action => action.width <= 0 || action.height <= 0
+            || action.tabIndex !== 0 || action.underlined || action.wordBroken || action.clipped))) {
+        bad++;
+        console.log('   F939/F944 PPTE headline, metadata or link geometry failed: ' + JSON.stringify(r.ppte));
       }
       if(r.patchNames){
         console.log('   F865 PATCH NAME FIT '+JSON.stringify(r.patchNames));

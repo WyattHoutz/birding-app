@@ -56,6 +56,17 @@ function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+test('F942 Mountain Chickadee retains its source-pinned owner-selected full-box crop', () => {
+  assert.match(tableBody('OVERRIDES'),
+    /'mouchi\.jpg': \(0\.183, 0\.0039, 0\.878, 0\.9746\)/);
+  assert.match(tableBody('OVERRIDE_SRC_SHA'),
+    /'mouchi\.jpg': '45fbfde1f7dca84f'/);
+  const output = fs.readFileSync(path.join(ROOT, 'www', 'assets', 'birds', 'mouchi.jpg'));
+  assert.deepEqual(jpegSize(output), { w: 174, h: 174 });
+  assert.equal(sha256Hex(output),
+    '348b5eba6600d4f034dc21ad5bf969ac743fa08fbdb85ca0e8d73f7236ac13f5');
+});
+
 test('F829 Pygmy Nuthatch preserves the full credited bird instead of clipping its face', () => {
   assert.match(tableBody('FIT_OVERRIDES'), /['"]pygnut\.jpg['"]/,
     'Pygmy Nuthatch can return to the face-clipping automatic square');

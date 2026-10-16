@@ -104,6 +104,7 @@ ANALYSIS_LONG_SIDE = 160
 #
 # Each entry states what was seen and why the automatic answer was wrong.
 OVERRIDES = {
+    'mouchi.jpg': (0.183, 0.0039, 0.878, 0.9746),
     # Yellow-billed Pintail lying in dry reeds.  The duck's plumage is the
     # same browns as the reed bed, so colour distance cannot separate them and
     # the reeds' texture wins on gradient; the window went right and kept
@@ -322,6 +323,7 @@ FIT_CROP_OVERRIDES = {
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    'mouchi.jpg': '45fbfde1f7dca84f',
     'pygnut.jpg': 'a02b9d232a5656e6',
     'reshaw.jpg': '0c528c1c259026f4',
     'eskcur.jpg': '2c5423fe92bb7751',

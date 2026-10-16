@@ -91,7 +91,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'birdgenloading', 'hawaiiemptybirdgen', 'hawaiiemptyticks',
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo',
-      'stakeoutreports', 'megaaba', 'meganearest',
+      'stakeoutreports', 'meganearest',
       'f629-nightly', 'f629-birdgen', 'f630-birdgen-top'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
@@ -139,7 +139,8 @@ test('F931/F933 release galleries include production PPTE and complete alert-key
   }
   const ppte = mockups.EXTRA_SHOTS.find(item => item.id === 'ppte');
   assert.match(ppte.prep, /A\.ppteEvents\(/);
-  assert.ok(ppte.expects.includes('#surgeResults [data-ppte-open]'));
+  assert.ok(ppte.expects.includes('#surgeResults .ppte-event-link'));
+  assert.ok(ppte.expects.includes('#surgeResults .ppte-bird-composite'));
   const key = mockups.EXTRA_SHOTS.find(item => item.id === 'birdgenkey');
   assert.ok(key.expects.includes('#appSheet:not([hidden]) [data-alert-type-key]'));
 });
@@ -322,7 +323,6 @@ test('F551 Mega rarity mockups exercise the current direct photo slot and contro
     '#abaViewPick + #abaStatus',
     '#abaStatus + .abascoperow',
     '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
-    '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',
@@ -335,11 +335,11 @@ test('F551 Mega rarity mockups exercise the current direct photo slot and contro
     source.indexOf('function fillRankingHost('));
   assert.match(setup, /A\.renderAbaAlert\(/,
     'the gallery must drive the production Mega renderer, not hand-roll its rows');
-  assert.match(setup, /A\.setAbaScope\('state'\)/);
+  assert.doesNotMatch(setup, /setAbaScope|abaScopePick/);
   assert.match(setup, /A\.setAbaSort\('date'\)/);
   assert.match(setup,
-    /A\.renderAbaAlert\(alertRows, url, true, A\.abaScope\(\) === 'aba', meta, repaint\)/,
-    'scope and sort review states must repaint the same fixture without starting a fetch');
+    /A\.renderAbaAlert\(alertRows, url, true, false, meta, repaint\)/,
+    'regional sort review states must repaint the same fixture without starting a fetch');
   assert.match(setup,
     /row\.obsDt = '2026-09-02 12:00'[\s\S]*row\.lat = 47\.66[\s\S]*row\.lng = -122\.12/,
     'the Nearest review needs a genuinely closer, older row so its order visibly changes');
@@ -936,7 +936,6 @@ test('Pro patches and Stakeout bird exercise their production component shapes',
     '#abaViewPick + #abaStatus',
     '#abaStatus + .abascoperow',
     '#abaViewPick [data-megaview="list"][aria-pressed="true"]',
-    '#abaScopePick.pressbtn[data-abascope]',
     '#abaSortPick [data-abasort="date"]',
     '#abaSortPick [data-abasort="distance"]',
     '#abaResults li[data-mega-code][data-mega-view]',

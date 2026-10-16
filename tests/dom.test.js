@@ -1648,10 +1648,8 @@ test('F798 cached Mega controls repaint while live refresh is pending or failed'
     app.document.querySelector('#abaSortPick [data-abasort="date"]').click();
     assert.equal(app.document.querySelector(
       '#abaReportResults > li').getAttribute('data-mega-code'), 'shtsan');
-    app.document.querySelector('#abaScopePick').click();
-    assert.equal(app.document.querySelector('#abaScopePick').getAttribute('aria-pressed'), 'false');
-    assert.match(app.$('abaStatus').textContent, /ABA-wide.*pending.*cached.*region/i,
-      'a regional snapshot must not be claimed as a complete continent-wide answer');
+    assert.equal(app.document.querySelector('#abaScopePick'), null);
+    assert.doesNotMatch(app.$('abaStatus').textContent, /ABA-wide.*pending/i);
     rejectFetch(new Error('offline fixture'));
     await load;
     app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
@@ -1661,6 +1659,63 @@ test('F798 cached Mega controls repaint while live refresh is pending or failed'
       'local interaction must not erase the refresh error');
     assert.equal(app.$('abaBtn').disabled, false);
   } finally { app.window.close(); }
+});
+
+test('F935 fresh and cached Mega paints keep regional evidence despite legacy ABA preferences', async () => {
+  const html = megaAlertHtml([
+    { code: 'ruff', name: 'Ruff', when: 'Oct 14, 2026 10:00',
+      place: 'Hoquiam', subId: 'S93501', lat: 46.98, lng: -123.89, count: 1 },
+    { code: 'limpki', name: 'Limpkin', when: 'Oct 14, 2026 11:00',
+      place: 'Outside patch', subId: 'S93502', lat: 27.95, lng: -81.72, count: 1 },
+  ]).replace('Outside patch, Washington, United States',
+    'Outside patch, Florida, United States');
+  let finishLive;
+  let reads = 0;
+  const app = await boot({
+    fetch(url) {
+      if (/ebird\.org\/alert\/summary/.test(String(url))) {
+        reads++;
+        return new Promise((resolve) => { finishLive = resolve; });
+      }
+      return [];
+    },
+  });
+  const A = app.window.__app;
+  try {
+    app.window.localStorage.setItem('ebird_aba_scope_v1', 'aba');
+    assert.equal(A.abaScope(), 'state');
+    app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
+      at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      rows: [{ speciesCode: 'ruff', comName: 'Ruff',
+        obsDt: '2026-10-13 10:00', locName: 'Cached Hoquiam',
+        subId: 'S935CACHE', lat: 46.98, lng: -123.89 }],
+    }));
+    const load = A.loadAbaAlert();
+    assert.match(app.$('abaResults').textContent, /Ruff/);
+    assert.equal(app.document.querySelector('#abaScopePick'), null);
+    app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+    assert.match(app.$('abaResults').textContent, /Ruff/,
+      'valid regional snapshots need not repeat subnational codes on every row');
+    app.window.localStorage.setItem('ebird_aba_scope_v1', 'aba');
+    await waitFor(() => !!finishLive, 'the pending direct alert read');
+    finishLive(html);
+    await load;
+    assert.match(app.$('abaResults').textContent, /Hoquiam/);
+    assert.doesNotMatch(app.$('abaResults').textContent, /Limpkin|Outside patch/);
+    assert.match(app.$('abaStatus').textContent, /1 ABA Code 3\+ species/);
+    const stamp = app.$('abaStatus').textContent;
+    app.document.querySelector('#abaSortPick [data-abasort="distance"]').click();
+    app.document.querySelector('#abaViewPick [data-megaview="list"]').click();
+    assert.doesNotMatch(app.$('abaResults').textContent, /Limpkin|Outside patch/);
+    assert.equal(app.document.querySelector('#abaScopePick'), null);
+    assert.equal(app.$('abaStatus').textContent, stamp,
+      'local projections preserve the response timestamp');
+    assert.equal(reads, 1, 'removing the filter adds no acquisition');
+    await settleMegaEntry(app, 'ruff');
+  } finally {
+    if (finishLive) finishLive(html);
+    app.window.close();
+  }
 });
 
 test('F799 report transitions preserve the Mega status and control wrapper', async () => {
@@ -4319,8 +4374,8 @@ test('a capped ABA alert is stated, and measured before the state filter', () =>
   const iScope = load.indexOf('var stateRows = scoped');
   assert.ok(iFlag > -1, 'the app must detect truncation at all');
   assert.ok(iScope > -1, 'the state filter must still exist');
-  assert.match(load, /var rows = wide \? list : stateRows/,
-    'and the ABA-wide view must be the UNFILTERED list, not a second fetch');
+  assert.match(load, /var rows = stateRows/,
+    'regional Mega views use the existing projection, without another fetch');
   assert.ok(iFlag < iScope,
     'truncation is measured on the raw feed — filtering first is exactly what hid it');
   assert.match(load, /_abaTruncated = list\.length >= ABA_ALERT_MAX_ROWS/,
@@ -8445,6 +8500,34 @@ test('F914 settled warnings are static status, while real pending sources retain
   } finally { app.window.close(); }
 });
 
+test('F941 terminal PPTE partials settle without claiming complete coverage', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    const states = { mega: 'ok', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
+      favorites: 'ok', mass: 'failed', foy: 'ok', ppte: 'partial' };
+    A.renderSurge([], [], [], [], [], states);
+    const box = app.$('surgeResults');
+    assert.equal(box.querySelector('[role="progressbar"], .track'), null);
+    assert.match(box.querySelector('[role="status"]').textContent, /8 of 8 settled/);
+    assert.match(box.textContent, /Patagonia picnic table effect RBA feeds have incomplete or capped coverage/);
+    assert.match(box.textContent, /Mass flock feeds failed/);
+    assert.doesNotMatch(box.textContent, /Patagonia picnic table effect RBA feeds still loading/);
+    assert.equal(box.getAttribute('data-source-ppte'), 'partial');
+    assert.equal(box.getAttribute('data-sources-complete'), 'false');
+    for (const key of ['ppte', 'mega']) {
+      A.renderSurge([], [], [], [], [], { ...states, [key]: 'loading' });
+      assert.equal(box.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '7');
+    }
+    A.renderSurge([], [], [], [], [], { ...states, mega: 'partial' });
+    assert.ok(box.querySelector('[role="progressbar"]'),
+      'a still-pending Mega partial is not a terminal PPTE response');
+    A.renderSurge([], [], [], [], [], { ...states, ppte: 'ok', mass: 'ok' });
+    assert.equal(box.getAttribute('data-sources-complete'), 'true',
+      'the complete control distinguishes settled acquisition from complete coverage');
+  } finally { app.window.close(); }
+});
+
 test('F915 dynamic Mass coverage lives in feed info for empty and progressively populated results', async () => {
   const app = await boot();
   try {
@@ -10994,15 +11077,101 @@ test('the checklist id is really bigger than a plain external link', () => {
 // Pinned to the PROPERTY — the waiting state must differ from the settled ones
 // by something other than its wording — rather than to the markup, because a
 // guard that names one class breaks the moment the spinner is restyled.
-function ppteFixture(day = recentObsStamp(3).slice(0, 10)) {
-  return ['verfly', 'swaspa'].flatMap((code, bird) => [0, 1].map(person => ({
+function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
+  const rows = ['verfly', 'swaspa'].flatMap((code, bird) => [0, 1].map(person => ({
     kind: 'Rarity', code, name: bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
     obsId: `OBS-PPTE-${bird}-${person}`, subId: `S${12001 + person}`,
-    observer: `Test reporter ${person + 1}`, dateStr: `${day} 09:00`,
+    observer: `Test reporter ${person + 1}`, dateStr: `${day} ${String(9 + person).padStart(2, '0')}:00`,
     loc: person ? '123 Sample St SE, Test County' : 'Sample Street SE, Test County',
     lat: 47 + person * 0.00018, lon: -122, count: 99, __stateRba: true,
   })));
+  const before = new Date(day + 'T12:00:00Z');
+  before.setUTCDate(before.getUTCDate() - 1);
+  return rows.concat([
+    { ...rows[1], obsId: 'OBS-PPTE-support', subId: 'S12003',
+      observer: 'Test reporter 3', dateStr: `${day} 11:00` },
+    { ...rows[0], obsId: 'OBS-PPTE-earlier', subId: 'S12004',
+      dateStr: `${before.toISOString().slice(0, 10)} 08:00` },
+  ]);
 }
+
+test('F943 PPTE needs a celebrity-style anchor, subsequent rarity and per-bird freshness', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, rows = ppteFixture(), day = rows[0].dateStr.slice(0, 10);
+    const event = A.ppteEvents(rows)[0];
+    assert.ok(event, 'a locally rare celebrity-style anchor can qualify without a Mega');
+    assert.equal(event.anchorCode, 'verfly');
+    assert.equal(event.anchorSightings, app.window.BirdLogic.NEED_MIN_SIGHTINGS);
+    assert.equal(A.ppteEvents(rows.slice(0, 4)).length, 0, 'two corroborated rarities alone are insufficient');
+    assert.equal(A.ppteEvents(rows.slice(0, 5)).length, 0, 'three anchor visits are not Celebrity support');
+    assert.equal(A.ppteEvents(rows.filter(row => row.obsId !== 'OBS-PPTE-support')).length, 0,
+      'an earlier date plus three separate visits still fails the Celebrity threshold');
+    assert.equal(A.ppteEvents(rows.map(row => row.obsId === 'OBS-PPTE-earlier'
+      ? { ...row, dateStr: `${day} 08:00` } : row)).length, 0,
+    'four same-day anchor visits do not establish the earlier-date reporting sequence');
+    assert.equal(A.ppteEvents(rows.map(row => row.code === 'verfly'
+      ? { ...row, dateStr: row.dateStr.slice(0, 10) + ' 09:00' } : row)).length, 0,
+    'different names/checklists and site aliases cannot multiply shared same-minute visits');
+    const shared = [0, 1, 2, 3].flatMap(person => rows.slice(0, 4).map((row, index) => ({
+      ...row, obsId: `OBS-PPTE-party-${person}-${index}`, subId: `S${13000 + person * 4 + index}`,
+      loc: `${123 + person} Sample St SE`, lat: 47 + person * 0.00001, dateStr: `${day} 09:00`,
+    }))).concat([rows.at(-1)]);
+    assert.equal(A.ppteEvents(shared).length, 0,
+      'a shared visit reported under four matching address aliases is not four independent visits');
+    const freshAnchor = { ...rows[0], obsId: 'OBS-PPTE-current', subId: 'S12005',
+      dateStr: recentObsStamp(0) };
+    const extended = rows.concat([freshAnchor]);
+    const today = new Date(A.todayStr() + 'T12:00:00Z');
+    today.setUTCDate(today.getUTCDate() + 1);
+    assert.equal(A.ppteEvents(extended, { today: today.toISOString().slice(0, 10) }).length, 1,
+      'a companion report exactly three calendar-date days old is included');
+    today.setUTCDate(today.getUTCDate() + 1);
+    assert.equal(A.ppteEvents(extended, { today: today.toISOString().slice(0, 10) }).length, 0,
+      'a recent anchor cannot conceal an older-than-three-day companion');
+    assert.equal(A.ppteEvents(rows.concat(rows))[0].anchorSightings, event.anchorSightings);
+  } finally { app.window.close(); }
+});
+
+test('F943 PPTE ranks by actual distance without hiding farther events or treating unknown as nearby', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, event = A.ppteEvents(ppteFixture())[0];
+    function at(id, lat, latest) {
+      return { ...event, id, latest, publicHotspot: null,
+        evidenceRows: event.evidenceRows.map(row => ({ ...row, lat, lon: lat == null ? null : -122 })) };
+    }
+    const near = at('near', 47.05, recentObsStamp(2));
+    const far = at('far', 48, recentObsStamp(0));
+    const unknown = at('unknown', null, recentObsStamp(0));
+    function render() {
+      A.renderSurge([], [], [], [], [], {
+        mega: 'notApplicable', ppte: 'ok', ppteRows: [unknown, far, near],
+      });
+      return [...app.document.querySelectorAll('[data-alert-kind="ppte"]')];
+    }
+    A.useFoundAnchor({ lat: 47, lng: -122 }, 'First origin');
+    app.window.localStorage.setItem(A.chaseMiKey(), '25');
+    let cards = render();
+    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['near', 'far', 'unknown']);
+    for (const [index, lat] of [[0, 47.05], [1, 48]]) {
+      const expected = app.window.BirdLogic.haversineMi(47, -122, lat, -122);
+      const text = cards[index].querySelector('.ppte-evidence [data-ppte-distance-text]');
+      assert.ok(text, 'known distance must appear in the qualification sentence');
+      assert.equal(text.textContent,
+        expected.toFixed(1) + 'mi away', 'known distances remain visible even beyond the chase radius');
+    }
+    assert.equal(cards[2].querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
+    A.useFoundAnchor({ lat: 48, lng: -122 }, 'Changed origin');
+    cards = render();
+    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'near', 'unknown']);
+    assert.equal(cards[0].querySelector('[data-ppte-distance-text]').textContent, '0.0mi away');
+    A.resetTransientAnchor();
+    app.window.localStorage.removeItem(A.homeKey('lat'));
+    app.window.localStorage.removeItem(A.homeKey('lng'));
+    assert.equal(render().length, 3, 'missing origin must not remove qualifying regional opportunities');
+  } finally { app.window.close(); }
+});
 
 test('F931 PPTE automatically joins corroborated site aliases without inflating reports', async () => {
   const app = await boot({ sample: false });
@@ -11011,8 +11180,8 @@ test('F931 PPTE automatically joins corroborated site aliases without inflating 
     const event = A.ppteEvents(rows)[0];
     assert.ok(event, 'the co-reported pair must establish the nearby street/address alias');
     assert.equal(A.ppteEvents(rows).length, 1);
-    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 2]);
-    assert.ok(event.species.every(bird => bird.checklists === 2 && bird.reportingNames === 2));
+    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 3]);
+    assert.ok(event.species.every(bird => bird.checklists >= 2 && bird.reportingNames >= 2));
     assert.equal(event.publicHotspot, null, 'a readable place name is not proof of a public hotspot');
     assert.equal(A.ppteEvents(rows.concat(rows))[0].species[0].reports, 2);
     const added = A.ppteEvents(rows.concat([{ ...rows[2], obsId: 'OBS-additional' }]))[0];
@@ -11052,7 +11221,7 @@ test('F931 PPTE latest report and verified public destination stay inside the ma
     const event = A.ppteEvents(rows.concat([latest, unrelated]), { hotspots: [hotspot] })[0];
     assert.equal(event.day, day);
     assert.equal(event.latest, latest.dateStr);
-    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 2],
+    assert.deepEqual(Array.from(event.species, bird => bird.reports), [2, 3],
       'later solo evidence advances recency, not the qualifying-day totals');
     assert.equal(event.publicHotspot.locId, 'L333');
     assert.equal(A.ppteEvents(rows, { hotspots: [{ ...hotspot, lat: 47.00001 }] })[0].publicHotspot, null,
@@ -11068,31 +11237,55 @@ test('F931 PPTE latest report and verified public destination stay inside the ma
   } finally { app.window.close(); }
 });
 
-test('F931 PPTE renders full heading, report totals and focused Twitches without changing saved filters', async () => {
+test('F944 PPTE bird-name headlines retain focused Twitches without noisy lists or saved-filter changes', async () => {
   const prefs = { year: 'unseen', distance: 'near' };
   const app = await boot({ sample: false, storage: { ebird_rarity_filters_v1: JSON.stringify(prefs) } });
   try {
     const A = app.window.__app, doc = app.window.document, rows = ppteFixture();
     await seedSeen(app, ['verfly', 'swaspa'], ['Vermilion Flycatcher', 'Swamp Sparrow']);
+    app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
+      t: Date.now(), rows: [
+        { code: 'swaspa', name: 'Swamp Sparrow', alpha: 'SWSP' },
+        { code: 'verfly', name: 'Vermilion Flycatcher', alpha: 'VEFL' },
+      ],
+    }));
     const event = A.ppteEvents(rows)[0];
     A.renderSurge([], [], [], [], [], { mega: 'notApplicable', ppte: 'ok', ppteRows: [event] });
     const card = doc.querySelector('[data-alert-kind="ppte"]');
     assert.ok(card);
-    assert.match(card.querySelector('.surgealerttitle').textContent, /Patagonia picnic table effect/);
+    assert.match(card.querySelector('.surgealerttitle').textContent,
+      /Swamp SparrowRARE and Vermilion FlycatcherRARE at Sample Street SE/);
     assert.equal(card.querySelector('.surgebadge').textContent, 'PPTE');
-    assert.equal(card.querySelectorAll('[data-ppte-species]').length, 2);
-    assert.ok([...card.querySelectorAll('[data-ppte-species]')].every(row => /2 reports/.test(row.textContent)));
-    assert.equal(card.querySelectorAll('[data-ppte-species] .splink[data-sp]').length, 2);
-    assert.match(card.textContent, /Report totals and pair qualification/);
-    assert.match(card.textContent, /Latest report/);
+    assert.equal(card.querySelectorAll('[data-ppte-species], button, .surgefacts').length, 0);
+    assert.ok(card.querySelector('.ppte-evidence'), 'small-print qualifying evidence remains available');
+    assert.equal(card.querySelector('.ppte-evidence time').getAttribute('datetime'), event.day);
+    assert.deepEqual([...card.querySelectorAll('[data-ppte-report-code]')]
+      .map(node => [node.getAttribute('data-ppte-report-code'), node.getAttribute('data-ppte-report-count')]),
+    [['swaspa', '2'], ['verfly', '3']]);
+    assert.match(card.querySelector('.ppte-evidence').textContent, /2 obs.*3 obs/);
+    assert.match(card.querySelector('.ppte-evidence').textContent, /SWSP ×2 obs; VEFL ×3 obs/);
+    assert.equal(card.querySelectorAll('.surgealerttitle .splink[data-sp]').length, 2);
+    assert.deepEqual([...card.querySelectorAll('.surgealerttitle .splink[data-sp]')]
+      .map(link => link.getAttribute('data-sp')), ['swaspa', 'verfly']);
+    assert.equal(card.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length, 2);
+    assert.deepEqual([...card.querySelectorAll('.ppte-connector')].map(node => node.textContent),
+      [' and ', ' at ']);
+    for (const link of card.querySelectorAll('.surgealerttitle .splink')) {
+      assert.equal(link.tabIndex, 0);
+      assert.match(link.getAttribute('aria-label'), /in Stakeout bird/);
+    }
+    assert.doesNotMatch(card.textContent, /Report totals|Latest report|pair qualification|2 reports/);
+    assert.equal(card.querySelector('.name').getAttribute('role'), null,
+      'separate destinations must not sit inside a competing whole-heading link');
     doc.querySelector('[data-count-kind="ppte"]').click();
     assert.equal(card.hidden, false);
     const before = app.state.fetches.length;
-    card.querySelector('[data-ppte-open]').click();
+    card.querySelector('[data-ppte-open]').dispatchEvent(
+      new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await waitFor(() => doc.querySelector('[data-ppte-context]'), 'event-specific Twitches context');
     assert.equal(app.$('sec-refreshBtn').hidden, false);
-    assert.equal(doc.querySelectorAll('#results .twitchcard').length, 4,
-      'all four reports remain available despite saved unseen/near filters');
+    assert.equal(doc.querySelectorAll('#results .twitchcard').length, 5,
+      'all five qualification-day reports remain available despite saved unseen/near filters');
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), prefs);
     assert.ok(!app.state.fetches.slice(before).some(url => /alert\/rba|data\/obs|product\/lists/.test(url)),
       'opening the event reuses retained RBA evidence, not another sightings/checklist fetch');
@@ -11104,12 +11297,72 @@ test('F931 PPTE renders full heading, report totals and focused Twitches without
   } finally { app.window.close(); }
 });
 
+test('F939/F943 PPTE composites and chase wording use the actual event without filtering farther alerts', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    const event = A.ppteEvents(ppteFixture())[0];
+    function render(value = event) {
+      A.renderSurge([], [], [], [], [], { mega: 'notApplicable', ppte: 'ok', ppteRows: [value] });
+      const card = app.document.querySelector('[data-alert-kind="ppte"]');
+      assert.ok(card, 'chase wording must not become a radius filter');
+      return card;
+    }
+    A.useFoundAnchor({ lat: 47, lng: -122 }, 'Event origin');
+    app.window.localStorage.setItem(A.chaseMiKey(), '25');
+    let card = render();
+    assert.match(card.querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
+    assert.equal(card.querySelectorAll('.ppte-bird-composite > .thumb').length, 2);
+    assert.equal(card.querySelector('.ppte-extra-birds'), null);
+    assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Swamp Sparrow.*Vermilion Flycatcher/);
+    assert.ok(card.querySelector('.surgekind-ppte svg'), 'the bordered category keeps its table symbol');
+    A.useFoundAnchor({ lat: 47.5, lng: -122 }, 'Different origin');
+    card = render();
+    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    app.window.localStorage.removeItem(A.speciesCacheKey(A.getObsRegion()));
+    card = render();
+    assert.match(card.querySelector('.ppte-evidence').textContent, /swaspa ×2 obs; verfly ×3 obs/,
+      'missing banding metadata uses the real eBird codes, not invented abbreviations');
+    app.window.localStorage.setItem(A.chaseMiKey(), '100');
+    card = render();
+    assert.match(card.querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
+    card = render({ ...event, publicHotspot: null,
+      evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: null, lon: null })) });
+    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(card.querySelector('[data-ppte-distance-text]'), null);
+    const publicEvent = { ...event,
+      publicHotspot: { locId: 'L333', locName: 'Exact public patch', lat: 47.5, lng: -122 } };
+    card = render(publicEvent);
+    assert.equal(card.querySelector('[data-ppte-distance-text]').textContent, '0.0mi away',
+      'verified hotspot coordinates take precedence over an individual evidence point');
+    assert.equal(card.querySelector('.surgealerttitle .hslink').getAttribute('data-loc'), 'L333');
+    assert.equal(card.querySelector('.surgealerttitle .hslink').tabIndex, 0);
+    assert.match(card.querySelector('.surgealerttitle .hslink').getAttribute('aria-label'), /Stakeout patches/);
+    assert.match(card.querySelector('.surgealerttitle').textContent, /at Exact public patch/);
+    assert.equal(card.querySelector('[data-ppte-open]'), null);
+    const five = { ...publicEvent, species: event.species.concat([
+      { code: 'sabgul', name: "Sabine's Gull", reports: 2 }, { code: 'eargre', name: 'Eared Grebe', reports: 2 },
+      { code: 'reshaw', name: 'Red-shouldered Hawk', reports: 2 },
+    ]) };
+    card = render(five);
+    assert.equal(card.querySelectorAll('.ppte-bird-composite > .thumb').length, 2);
+    assert.equal(card.querySelector('.ppte-extra-birds').textContent, '+3');
+    assert.match(card.querySelector('.surgealerttitle').textContent, /\+3 more at/);
+    assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Red-shouldered Hawk/);
+    A.resetTransientAnchor();
+    app.window.localStorage.removeItem(A.homeKey('lat'));
+    app.window.localStorage.removeItem(A.homeKey('lng'));
+    card = render();
+    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+  } finally { app.window.close(); }
+});
+
 test('F931 PPTE source supplements capped/statewide rows with county evidence and reports failures honestly', async () => {
   const rows = ppteFixture();
   const sourceRows = rows.map(row => {
     const date = new Date(row.dateStr.replace(' ', 'T'));
     return { code: row.code, name: row.name, subId: row.subId,
-      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} 09:00`,
+      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
       lat: row.lat, lng: row.lon, place: row.loc, observer: row.observer, count: row.count };
   });
   const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
@@ -11140,7 +11393,7 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
     const capped = await A.loadPpteAlertSource(true, () => true);
     assert.equal(capped.state, 'partial');
     assert.match(capped.coverage, /row cap.*not exhaustive/);
-    assert.deepEqual(Array.from(capped.rows[0].species, bird => bird.reports), [2, 2],
+    assert.deepEqual(Array.from(capped.rows[0].species, bird => bird.reports), [2, 3],
       'repeated observations across state/county sources do not multiply report totals');
     await A.saveSurgeRetainedPart('ppte', first);
     assert.equal(A.loadSurgeRetained().ppte.rows.length, 1);
@@ -11166,7 +11419,7 @@ test('F931 production Bird Gen retains one PPTE event through partial and failed
   const sourceRows = rows.map(row => {
     const date = new Date(row.dateStr.replace(' ', 'T'));
     return { code: row.code, name: row.name, subId: row.subId,
-      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} 09:00`,
+      when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
       lat: row.lat, lng: row.lon, place: row.loc, observer: row.observer, count: row.count };
   });
   let phase = 'complete';
@@ -11202,7 +11455,7 @@ test('F931 production Bird Gen retains one PPTE event through partial and failed
     assert.equal(box.dataset.sourcePpte, 'ok');
     assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 1,
       'public resolution must replace the provisional identity, not duplicate it');
-    assert.match(box.querySelector('[data-ppte-open]').textContent, /Stakeout Patch/);
+    assert.equal(box.querySelector('.surgealerttitle .hslink').getAttribute('data-loc'), 'L333');
     for (phase of ['partial', 'failed']) {
       app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
       await settled();
@@ -31917,10 +32170,11 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
 
   openMega();
   await settleMegaEntry(app, 'semsan');
-  A.setAbaScope('aba');
-  assert.equal(A.megaViewState().view, null, 'scope change invalidates the view registry');
-  assert.equal(A.megaViewState().origin, null);
-  A.setAbaScope('state');
+  const regionalView = A.megaViewState().view;
+  app.window.localStorage.setItem('ebird_aba_scope_v1', 'aba');
+  assert.equal(A.abaScope(), 'state', 'legacy scope preferences are ignored');
+  assert.equal(A.megaViewState().view, regionalView);
+  assert.ok(A.megaViewState().origin, 'an obsolete preference cannot invalidate the active route');
 
   openMega();
   await settleMegaEntry(app, 'semsan');
@@ -32015,7 +32269,7 @@ test('the Mega index routes every row and species name to exact-code Stakeout an
   app.window.close();
 });
 
-test('F326 a late Mega repaint keeps the selected ABA scope with F304 routing', async () => {
+test('F935 late Mega repaints ignore legacy ABA scope and retain F304 routing', async () => {
   const app = await boot();
   const doc = app.window.document;
   const A = app.window.__app;
@@ -32036,33 +32290,28 @@ test('F326 a late Mega repaint keeps the selected ABA scope with F304 routing', 
       'https://ebird.org/alert/summary?sid=X', true, wide, paint);
   }
 
-  A.setAbaScope('state');
+  app.window.localStorage.setItem('ebird_aba_scope_v1', 'aba');
   paint();
   assert.deepEqual(
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
     ['Ruff'], 'the state projection starts with Washington rows only');
 
-  doc.querySelector('#abaScopePick[data-abascope="aba"]')
-    .dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
-  assert.equal(paints, 2, 'changing scope repaints locally instead of scraping again');
-  assert.deepEqual(
-    [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
-    ['Limpkin', 'Ruff'], 'the ABA projection includes the out-of-state species');
-  assert.equal(
-    doc.querySelector('#abaScopePick').getAttribute('aria-pressed'),
-    'false', 'the ABA-wide scope is explicit without relying on colour');
+  assert.equal(doc.querySelector('#abaScopePick'), null,
+    'there is no replacement region or chase filter');
+  app.window.localStorage.setItem('ebird_aba_scope_v1', 'aba');
 
   paint();
   assert.deepEqual(
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
-    ['Limpkin', 'Ruff'], 'a late repaint cannot revert to the Washington list');
+    ['Ruff'], 'a late repaint cannot restore the obsolete ABA-wide projection');
+  assert.equal(paints, 2);
 
   const load = HTML.slice(HTML.indexOf('function loadAbaAlert('),
     HTML.indexOf('function renderAbaAlert('));
-  assert.match(load, /function paint\(\)[\s\S]*abaScope\(\) === 'aba'/,
-    'every async repaint derives scope at paint time');
+  assert.match(load, /function paint\(\)[\s\S]*var rows = stateRows/,
+    'every async repaint uses the regional evidence');
   assert.match(load, /scope: abaScope\(\)/,
-    'each F304 view key records the scope chosen for that repaint');
+    'each F304 view key records the permanent regional scope');
   assert.doesNotMatch(load, /Promise\.all\(Object\.keys\(species/,
     'scope repainting cannot restore eager hidden-species detail hydration');
   assert.match(load, /var fetchedAt = nowTime\(\)/,
@@ -38102,7 +38351,6 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
   }
   for (const name of [
     'watchScopeControl', 'renderRecentChecklistFilters',
-    'abaScopeControl',
   ]) {
     const start = HTML.indexOf('function ' + name + '(');
     assert.ok(start >= 0, name + ' is missing');
@@ -47188,11 +47436,10 @@ test('the Mega rarities verdict names every place its rows can be lost', () => {
     'and whether the continent-wide alert hit its 500-row cap');
   assert.match(call, /stateRows\.length \+ ' cleared the '/,
     'and how many survived the region filter');
-  // F209: the ABA-wide view turns the filter OFF, so the verdict has to say
-  // which view it is describing. "6 species" means two different things at the
-  // two scopes, and a verdict that cannot be told apart is not evidence.
-  assert.match(call, /ABA-WIDE view/,
-    'and it must name the scope, because the row count means different things at each');
+  assert.doesNotMatch(call, /ABA-WIDE view/,
+    'the regional verdict must not advertise the retired ABA-wide projection');
+  assert.match(call, /unfiltered[\s\S]*has no state/,
+    'flat rarity trackers must still identify their unfiltered source');
   // Not rows.length again: that would restate a number already printed and
   // would still read "6 rendered" while the list was empty.
   assert.match(call, /_abaUl \? _abaUl\.children\.length : 0/,

@@ -69,7 +69,7 @@
       priority: 10, word: 'PPTE',
       glyph: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h18M8 8 4 21M16 8l4 13M1 15h22"/></svg>',
       name: 'Patagonia picnic table effect',
-      description: 'Two or more RBA rarities at the same actual site and observation day, each with multiple checklists and reporting names. Co-occurrence does not prove that one discovery caused another.'
+      description: 'A celebrity-style rarity plus a subsequently reported rarity at the same actual site, not merely two rare birds together. The attracting bird needs the Celebrity threshold of four separate recent sightings; shared same-minute visits count once across site aliases. Each bird needs a latest report-date age of at most three calendar days, plus two checklists and two reporting names on the same qualification day. The anchor must appear on an earlier captured date; this does not prove first discovery or causation. Mega status is not required. Qualifying PPTE events are ordered nearest first, with unknown distances last; farther events remain visible. Bird and place links have no underline. Bird names open Stakeout bird; the place opens the exact public patch or focused Twitches evidence. Small print gives the qualification date, known straight-line distance from the selected origin and qualification-day report counts, not individual birds. Unknown distance is omitted. Only known inside-radius events mention the chase area.'
     }
   };
 

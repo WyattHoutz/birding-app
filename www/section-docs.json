@@ -224,11 +224,11 @@
         "Mega is a species index. Its photo, name, chevron and otherwise-unclaimed row space all open Stakeout bird for that exact eBird species code.",
         "Alert, detail-feed and device-archive duplicates merge field by field, so alert observer/review fields survive alongside detail-feed location ids, scientific names, evidence and comments.",
         "A transient in-memory context is scoped by report, region, alert SID, ABA scope and load generation. Older state, ABA-wide or lazy callbacks cannot repaint a newer view, and no Mega rows or promises are serialized into storage or the DOM.",
-        "Washington/ABA scope and Newest/Nearest sort are local projections of the fetched alert. They repaint without another scrape; a scope change gets a distinct context key while a sort change reuses the current view.",
+        "Mega rarities always uses the selected report's region; obsolete saved ABA-wide preferences are ignored. List/Group and Newest/Nearest repaint the same acquired regional evidence without another scrape. Flat rarity trackers keep their existing unfiltered feed.",
         "The one Stakeout medium species card paints held Mega evidence immediately, before its ordinary current-place request settles: ABA Code 3+ context, exact latest report and device-held report history.",
         "Regional detail, ABA-wide spread, finder-checklist detail, GBIF history and Wikipedia remain lazy for the selected species only. Stakeout reuses that selected view's one regional promise instead of issuing a second differently shaped request, and a failed regional read remains an error rather than becoming a false no-reports answer.",
         "Species are kept only if the ABA checklist codes them 3 or higher.",
-        "Back returns to the matching Mega list only while that exact view is current; ordinary Stakeout searches, Close, report/SID/scope changes and newer Mega loads clear the origin."
+        "Back returns to the matching Mega list only while that exact view is current; ordinary Stakeout searches, Close, report/SID changes and newer Mega loads clear the origin."
       ],
       "limits": [
         "Review status changes; a record shown here may later be reclassified.",
