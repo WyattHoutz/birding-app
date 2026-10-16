@@ -6,6 +6,8 @@ import Capacitor
 class ViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(FullReportPlugin())
+        bridge?.registerPluginInstance(BirdGenNotificationsPlugin())
+        bridge?.notificationRouter.localNotificationHandler = BirdGenNotificationService.shared
     }
 }
 

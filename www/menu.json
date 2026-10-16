@@ -1,5 +1,7 @@
 [
   {"at":"surgeBtn","icon":"🔔","title":"Bird Gen","subtitle":"Talk and news","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
+  {"at":"massBtn","icon":"🦆","title":"Mass Flocks","subtitle":"All qualifying high-count flocks","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
+  {"at":"ppteBtn","icon":"🧺","title":"Patagonia Picnic Table Effect","subtitle":"Corroborated rarity gatherings","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
   {"at":"refreshBtn","icon":"🚨","title":"Twitches","subtitle":"Rare Bird Alerts (RBA)","needs":"geo","group":"Buzz - Celebrity and Rare Bird News"},
   {"at":"allUnseenBtn","icon":"🦅","title":"Nemesis birds","subtitle":"Closest unseen birds reported now","needs":"county","group":"Buzz - Celebrity and Rare Bird News"},
   {"at":"activeBtn","icon":"🚨","title":"Twitches this week","subtitle":"Rarities this week","group":"Buzz - Celebrity and Rare Bird News","enabled":false},

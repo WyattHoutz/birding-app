@@ -78,6 +78,18 @@ test("F957 Ross's Goose preserves the complete credited source, including its ta
   assert.match(credits,/\| `rosgoo` \|.*Andrew C.*CC BY 2\.0/);
 });
 
+test('F978 Surf Scoter keeps its complete credited source, including the tail', () => {
+  assert.match(tableBody('FIT_OVERRIDES'), /'sursco\.png'/);
+  assert.match(tableBody('OVERRIDE_SRC_SHA'), /'sursco\.png': 'f3fe9b2c399dd05c'/);
+  const output = fs.readFileSync(path.join(ROOT, 'www', 'assets', 'birds', 'sursco.png'));
+  assert.deepEqual(imageSize(output), { w: 167, h: 167 });
+  assert.equal(sha256Hex(output),
+    '4ad41baac9a08cf262b8e21c0c1ea6383b862275e47d67a25c35fd166d875cc7');
+  const credits = fs.readFileSync(path.join(ROOT, 'www', 'assets', 'birds', 'CREDITS.md'), 'utf8');
+  assert.match(credits, /\| `sursco` \| Surf scoter \| Chuck Homler, Focus On Wildlife \| CC BY-SA 4\.0 \|/);
+  assert.match(credits, /Surf_Scoter_Drake_LBI\.png/);
+});
+
 test('F829 Pygmy Nuthatch preserves the full credited bird instead of clipping its face', () => {
   assert.match(tableBody('FIT_OVERRIDES'), /['"]pygnut\.jpg['"]/,
     'Pygmy Nuthatch can return to the face-clipping automatic square');

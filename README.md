@@ -68,13 +68,14 @@ UI        → Notable / Targets / Destinations / Excursions / Trip / Birdiest /
 
 ## Bird Gen capture and decision diagnostics
 
-A populated eBird high-count page with repeated identical malformed-row
-rejections fails at the existing six-second hidden-browser reveal deadline,
-instead of exposing that page until the two-minute timeout. Mass coverage stays
-explicitly failed; dated last-good results are retained. No row is silently
-skipped or accepted without its required date, checklist and location structure.
-Changing failures and incomplete inventories keep the normal loading path;
-login prompts still reveal the owned browser. Refresh can retry acquisition.
+The eBird high-count parser validates each inventory row independently. Usable
+rows remain visible when other rows are rejected, with explicit incomplete
+coverage, a rejected-row count and bounded source/row/reason diagnostics.
+Rejected rows are never accepted without the required date, checklist and
+location structure. Failed acquisition retains dated last-good evidence; only
+a verified complete empty inventory clears it. Repeated identical malformed
+inventories retain the existing six-second hidden-browser failure path.
+Login prompts still reveal the owned browser, and Refresh retries acquisition.
 
 Under **Settings > Advanced / Debug**, **Capture next CCLO refresh** and
 **Copy CCLO trace** record one ordinary Bird Gen load. Cached enrichment is
@@ -85,6 +86,24 @@ ten-mile distance band (lower edge plus `distanceBandWidthMi`). Missing or
 invalid coordinates have their own rejection bucket. Names, coordinates,
 place IDs and raw observations remain excluded, and capturing adds no requests.
 An absent card with every public sighting outside the radius remains absent.
+
+### On-device Bird Gen notifications
+
+In the installed iPhone app, Settings offers an explicit notification opt-in.
+Ordinary startup never asks for permission. A foreground Bird Gen refresh can
+notify for any admitted alert category; best-effort native background checks
+currently cover **Celebrity and Crowd only**, not the complete feed. iOS chooses
+when background work runs, so timely checks or delivery are not guaranteed.
+No off-device notification server is used.
+
+The first snapshot is a quiet baseline. Incomplete, capped or malformed
+background coverage withholds Crowd rather than treating missing evidence as
+absence. The broader Mass Flocks and Patagonia Picnic Table Effect browsing
+pages do not broaden notification eligibility. Native credentials stay in
+this-device-only Keychain storage; switching profile or region changes the
+active scope. Off removes that profile's native copy without clearing web
+settings or personal histories. Browser previews cannot send these native
+notifications.
 
 ## How it's built (no Mac required)
 
@@ -116,9 +135,10 @@ nothing on anyone's phone. On `git push origin main`, `ios-build.yml` runs:
 | 4 | independent `post-release.yml` | Ubuntu | After the IPA workflow succeeds, checks out its exact SHA, re-downloads and verifies the published IPA, then renders iPhone 11, iPhone 17 Pro, and iPhone 17 Pro Huge-text galleries and attaches `BirdChaser-mockups.zip` |
 
 So the version in `package.json` decides the tag name, and bumping it *is*
-cutting the release. The job is idempotent — safe on every push, including ones
-that don't touch the version. ⚠️ Push two version bumps at once and only the
-newest is ever released.
+cutting the release. A rerun is idempotent only for the same commit. Once a
+Release exists, any later push requires a version bump, including test-only or
+documentation changes. ⚠️ Push two version bumps at once and only the newest
+is ever released.
 
 The fourth stage is deliberately a separate `workflow_run`. The installable
 Release already exists before it starts, so a mockup failure cannot delay,

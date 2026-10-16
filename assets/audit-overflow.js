@@ -894,12 +894,14 @@ const AUDIT = `<script>
                 && evidenceStyle.fontSize === extraStyle.fontSize
                 && evidenceStyle.display !== 'block' && evidenceStyle.display !== 'inline-block';
             }),
-          semiboldHeadline: !!title && getComputedStyle(title).fontWeight === '600'
+          selectiveHeadline: !!title && getComputedStyle(title).fontWeight === '400'
             && [].every.call(title.querySelectorAll('a'), function (link) {
-              var bird = link.matches('.splink') || link.closest('.surgebirdname');
-              return getComputedStyle(link).fontWeight === (bird ? '700' : '600');
+              var named = link.matches('.splink,.hslink,.ppte-event-link')
+                || link.closest('.surgebirdname');
+              return getComputedStyle(link).fontWeight === (named ? '700' : '400')
+                && getComputedStyle(link).textDecorationLine === 'none';
             })
-            && [].every.call(title.querySelectorAll('.surgebirdname, .splink'), function (bird) {
+            && [].every.call(title.querySelectorAll('.surgebirdname,.splink,.hslink,.ppte-event-link'), function (bird) {
               var birdStyle = getComputedStyle(bird);
               return birdStyle.fontWeight === '700'
                 && birdStyle.color === getComputedStyle(card.querySelector('.name')).color;
@@ -1258,16 +1260,55 @@ const AUDIT = `<script>
       if(savedYear===null)localStorage.removeItem(A.personalListKey(yearOwner));
       else localStorage.setItem(A.personalListKey(yearOwner),savedYear);
       A.showSection('sec-lastNewBtn');
-      A.renderLastNew({'Western Grebe':{birders:[{name:'Representative',profileId:'F868',
-        rank:1,date:A.todayStr()}],latest:A.todayStr()}},
+      localStorage.setItem('bc_lastnew_display_v1',JSON.stringify({sort:'date'}));
+      var tickEarlier = new Date(); tickEarlier.setDate(tickEarlier.getDate()-20);
+      A.renderLastNew({'Western Grebe':{birders:[
+        {name:'Representative with a long contributor name',profileId:'F868',rank:120,date:A.todayStr()},
+        {name:'Earlier representative',profileId:'F970',rank:2,date:tickEarlier.toISOString().slice(0,10)}
+      ],latest:A.todayStr()}},
         {'Western Grebe':{code:'wesgre',obs:[]}},'US-WA',{});
       var tickScan=scan('(F868 compact ticks)');
       tickScan.tickPhoto=document.querySelector('#lastNewResults .thumb').getBoundingClientRect().width;
+      var tickReference=document.createElement('ul');
+      tickReference.className='obs big xl';
+      tickReference.innerHTML=SpeciesCards.medium({name:'Shared medium image reference',
+        icon:'<span class="thumb"></span>'});
+      document.getElementById('sec-lastNewBtn').appendChild(tickReference);
+      tickScan.tickSharedPhoto=tickReference.querySelector('.thumb').getBoundingClientRect().width;
+      tickReference.remove();
       var tickPrimary=document.querySelector('#lastNewResults .spprimary');
       tickScan.tickPrimaryOffset=A.getDisplayProfile()==='high-visibility' ? null
         : tickPrimary.getBoundingClientRect().top
           -document.querySelector('#lastNewResults .thumb').getBoundingClientRect().top;
       out.push(tickScan);
+      var tickRoster = document.querySelector('#lastNewResults details.tickwho');
+      if (!tickRoster || tickRoster.open) throw new Error('F970 roster must start collapsed');
+      tickRoster.querySelector('summary').click();
+      var expandedTicks=scan('(F970 expanded contributors)');
+      expandedTicks.tickContributors={
+        open:tickRoster.open,
+        ranks:[].map.call(tickRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
+          return row.getAttribute('data-tick-birder-rank');
+        }).join(','),
+        recent:tickRoster.querySelectorAll('[data-tick-recent="true"]').length,
+        total:tickRoster.querySelector('[data-tick-total]').getAttribute('data-tick-total'),
+        tapHeight:tickRoster.querySelector('summary').getBoundingClientRect().height,
+        visibleRows:[].every.call(tickRoster.querySelectorAll('.tickcontributors > li'),function(row){
+          var rect=row.getBoundingClientRect();
+          return rect.height>0 && rect.left>=0 && rect.right<=expandedTicks.vw+0.5;
+        })
+      };
+      out.push(expandedTicks);
+      document.querySelector('#lastNewSort [data-ticksort="count"]').click();
+      var countRoster=document.querySelector('#lastNewResults details.tickwho');
+      var countTicks=scan('(F974 Count contributors)');
+      countTicks.tickRankOrder=[].map.call(countRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
+        return row.getAttribute('data-tick-birder-rank');
+      }).join(',');
+      countTicks.tickRosterOpen=countRoster.open;
+      countTicks.tickMetric=document.querySelector('#lastNewResults [data-tick-metric]').getAttribute('data-tick-metric');
+      out.push(countTicks);
+      document.querySelector('#lastNewSort [data-ticksort="date"]').click();
       A.showSection('sec-surgeBtn');
       document.getElementById('surgeResults').innerHTML='<ul id="surgeFeed" class="obs card-sm surgefeed">'
         + A.surgeAlertCard({kind:'need',icon:window.BirdIcons.photoSlot('Western Grebe','wesgre'),
@@ -2653,8 +2694,17 @@ server.listen(0, '127.0.0.1', () => {
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }
-        if(r.tickPhoto!=null && Math.abs(r.tickPhoto-Math.min(72*Number(SCALE),.22*WIDTH))>.5){
-          bad++;console.log('   F868 tick photo did not use compact scoped sizing: '+r.tickPhoto);
+        if(r.tickContributors && (!r.tickContributors.open || r.tickContributors.ranks!=='120,2'
+            || r.tickContributors.recent!==1 || r.tickContributors.total!=='2'
+            || r.tickContributors.tapHeight<44 || !r.tickContributors.visibleRows)){
+          bad++;console.log('   F970/F974 expanded contributors lost native disclosure, date order, scoped counts or readable rows');
+        }
+        if(r.tickRankOrder!=null && (r.tickRankOrder!=='2,120' || !r.tickRosterOpen || r.tickMetric!=='count')){
+          bad++;console.log('   F974 Count must show rank-sorted contributors and preserve its opened roster');
+        }
+        if(r.tickPhoto!=null && (!(r.tickSharedPhoto>0) || Math.abs(r.tickPhoto-r.tickSharedPhoto)>.5)){
+          bad++;console.log('   F977 tick photo differs from shared Twitches medium sizing: '
+            +r.tickPhoto+' vs '+r.tickSharedPhoto);
         }
         if(r.tickPhoto!=null) console.log('   F868 PHOTO '+r.tickPhoto);
         if(r.tickPrimaryOffset!=null && Math.abs(r.tickPrimaryOffset)>.5){
@@ -2860,7 +2910,8 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (r.alertEvidence && r.alertEvidence.some(evidence => Object.values(evidence).some(value => !value))) {
         bad++;
-        console.log('   F954 facts must precede and match extra evidence; headlines stay semibold without inline rarity tags and checklist IDs stay labeled');
+        console.log('   F954/F967 facts must match extra evidence; headlines use selective bird/place emphasis and labeled checklists: '
+          + JSON.stringify(r.alertEvidence));
       }
       if (r.hotspotQr) {
         console.log('   F845 HOTSPOT QR GEOMETRY ' + JSON.stringify(r.hotspotQr));

@@ -175,6 +175,12 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 // the last release. A mockup is for LAYOUT, and layout does not need live data.
 const STUB_SPEC = {
   surgeBtn:       { kind: 'birdgen',       host: 'surgeResults' },
+  massBtn:        { kind: 'events',        host: 'massResults',
+    expects: ['#massResults [data-flock-code]', '#massResults .thumb',
+      '#massResults .hslink'] },
+  ppteBtn:        { kind: 'events',        host: 'ppteResults',
+    expects: ['#ppteResults [data-ppte-event]', '#ppteResults .ppte-bird-composite',
+      '#ppteResults [data-event-open]'] },
   wxBtn:          { kind: 'weather',       host: 'wxForecast' },
   rankBtn:        { kind: 'ranking',       host: 'rankResults' },
   patchBtn:       { kind: 'patches',       host: 'patchResults',
@@ -280,6 +286,109 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
 });
 
 const EXTRA_SHOTS = [
+  { id: 'f970-ticks-expanded', at: 'lastNewBtn',
+    title: 'Leaderboard Ticks — mode-sorted contributors with source ages and NEW badges',
+    host: 'lastNewResults', fullPage: true, freshApp: true,
+    expects: ['#lastNewResults details.tickwho[open] > .tickcontributors',
+      '#lastNewResults .tickrecenttotal', '#lastNewResults .ticktotal'],
+    prep: `FIX.before('lastNewBtn', A, document);
+           var sec = document.getElementById('lastNewBtn').closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('lastNewBtn', ${JSON.stringify(STUB_SPEC.lastNewBtn)},
+             A, document, sec);
+           var metric = document.querySelector('#lastNewResults [data-tick-metric="date"]');
+           var age = metric && metric.querySelector('time strong');
+           var count = metric && metric.querySelector('.spmetric-count strong');
+           if (!age || !count || age.textContent !== 'Today'
+               || parseFloat(getComputedStyle(age).fontSize) <= parseFloat(getComputedStyle(count).fontSize)) {
+             throw new Error('F971 Date mode must emphasize board age above its smaller recent count');
+           }
+           var reference = document.getElementById('results');
+           var photoControl = document.createElement('ul');
+           photoControl.className = 'obs xl';
+           photoControl.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;width:'
+             + document.getElementById('lastNewResults').clientWidth + 'px';
+           photoControl.innerHTML = A.birdReportListCard({
+             code:'laplon',name:'Lapland Longspur',dateStr:A.todayStr(),distMi:2.5
+           }, {});
+           sec.appendChild(photoControl);
+           var actualPhoto = document.querySelector('#lastNewResults > [data-sp] > .name > .thumb')
+             .getBoundingClientRect();
+           var standardTwitchPhoto = photoControl.querySelector('.thumb').getBoundingClientRect();
+           photoControl.remove();
+           if (actualPhoto.width <= 0 || standardTwitchPhoto.width <= 0
+               || Math.abs(actualPhoto.width - standardTwitchPhoto.width) > 0.5
+               || Math.abs(actualPhoto.height - standardTwitchPhoto.height) > 0.5) {
+             throw new Error('F977 Ticks photo must match the standard Twitches medium photo: '
+               + JSON.stringify({ticks:[actualPhoto.width,actualPhoto.height],
+                 twitches:[standardTwitchPhoto.width,standardTwitchPhoto.height]}));
+           }
+           reference.innerHTML = A.birdReportMetric({dateStr:'2026-08-30',distMi:2.5}, 'date');
+           var referenceMetrics = reference.querySelector('.spmetricstack').children;
+           var datedMetric = document.querySelectorAll('#lastNewResults .spmetricstack')[1];
+           Array.from(datedMetric.children).forEach(function(value,index) {
+             var referenceValue = referenceMetrics[index];
+             ['flexDirection','alignItems','gap'].forEach(function(property) {
+               if (getComputedStyle(value)[property] !== getComputedStyle(referenceValue)[property]) {
+                 throw new Error('F973 Ticks metric differs from Twitches: ' + property);
+               }
+             });
+             ['strong','small'].forEach(function(tag) {
+               var actual = value.querySelector(tag), expected = referenceValue.querySelector(tag);
+               ['fontSize','fontWeight','lineHeight','marginTop'].forEach(function(property) {
+                 if (index === 0 && tag === 'strong'
+                     && (property === 'fontSize' || property === 'lineHeight')) return;
+                 if (getComputedStyle(actual)[property] !== getComputedStyle(expected)[property]) {
+                   throw new Error('F973 Ticks typography differs from Twitches: ' + tag + ' ' + property);
+                 }
+               });
+               if (tag === 'small' && actual.getBoundingClientRect().top
+                   < value.querySelector('strong').getBoundingClientRect().bottom - 0.5) {
+                 throw new Error('F973 metric unit must start below its value');
+               }
+             });
+           });
+           if (parseFloat(getComputedStyle(age).fontSize)
+               >= parseFloat(getComputedStyle(referenceMetrics[0].querySelector('strong')).fontSize)) {
+             throw new Error('F975 Date age must be smaller than the Twitches primary value');
+           }
+           document.querySelector('#lastNewSort [data-ticksort="count"]').click();
+           var countMetrics = Array.from(document.querySelectorAll('#lastNewResults [data-tick-metric]'));
+           if (countMetrics.length !== 4 || countMetrics.some(function(node,index) {
+             return node.dataset.tickMetric !== 'count' || !node.querySelector('time')
+               || !node.firstElementChild.classList.contains('spmetric-count')
+               || getComputedStyle(node.querySelector('time strong')).fontSize
+                 !== getComputedStyle(referenceMetrics[1].querySelector('strong')).fontSize
+               || Number(node.querySelector('strong').textContent) !== [11,10,6,5][index];
+           })) throw new Error('F971 Count mode lost its prominent distinct recent count');
+           document.querySelector('#lastNewSort [data-ticksort="date"]').click();
+           await FIX.fillFixturePhotos(document.getElementById('lastNewResults'), document);
+           var roster = document.querySelector('#lastNewResults details.tickwho');
+           if (!roster || roster.open) throw new Error('F970 contributor lists must start collapsed');
+           roster.querySelector('summary').click();
+           if (!roster.open) throw new Error('F970 native summary did not expand its contributor list');
+           var ranks = Array.from(roster.querySelectorAll('[data-tick-birder-rank]'),
+             function(row) { return Number(row.dataset.tickBirderRank); });
+           if (ranks.length !== 16 || ranks[0] !== 1 || ranks[1] !== 4
+               || roster.querySelectorAll('[data-tick-recent="true"]').length !== 11
+               || roster.querySelectorAll('[data-tick-recent="false"]').length !== 5) {
+             throw new Error('F970 expanded contributors lost rank order or source-date scopes');
+           }
+           var rows = Array.from(roster.querySelectorAll('.tickcontributors > li'));
+           rows.forEach(function(row,index) {
+             var style = getComputedStyle(row), link = row.querySelector('a');
+             if (style.paddingTop !== '0px' || style.paddingBottom !== '0px'
+                 || link && getComputedStyle(link).marginTop !== '0px'
+                 || index && row.getBoundingClientRect().top
+                   - rows[index-1].getBoundingClientRect().bottom > 0.5) {
+               throw new Error('F973 contributor list has extra vertical whitespace');
+             }
+           });
+           if (roster.querySelectorAll('.tickcontributors .newflag').length !== 11
+               || rows.some(function(row) { return !row.querySelector('time'); })) {
+             throw new Error('F974 contributor source ages or NEW badges are missing');
+           }
+           return true;` },
   { id: 'megagroup', at: 'abaBtn', title: 'Mega — Group, shared large species cards',
     host: 'abaResults', fullPage: true, freshApp: true,
     expects: ['#abaViewPick [data-megaview="grouped"][aria-pressed="true"]',
@@ -1151,21 +1260,23 @@ const REVIEW_SHOTS = [
            host.querySelectorAll('#surgeFeed > li').forEach(function(card) {
              var title = card.querySelector('.surgealerttitle');
              if (!title || card.querySelector('.surgebirdtag')
-                 || document.defaultView.getComputedStyle(title).fontWeight !== '600'
+                 || document.defaultView.getComputedStyle(title).fontWeight !== '400'
                  || Math.abs(parseFloat(document.defaultView.getComputedStyle(title).fontSize)
                    - 16 * parseFloat(document.defaultView.getComputedStyle(document.documentElement)
                      .getPropertyValue('--s'))) > 0.1
                  || Array.from(title.querySelectorAll('a')).some(function(link) {
                    var style = document.defaultView.getComputedStyle(link);
-                   var bird = link.matches('.splink') || link.closest('.surgebirdname');
-                   return style.fontWeight !== (bird ? '700' : '600')
+                   var named = link.matches('.splink,.hslink,.ppte-event-link')
+                     || link.closest('.surgebirdname');
+                   return style.fontWeight !== (named ? '700' : '400')
+                     || style.textDecorationLine !== 'none'
                      || style.fontSize !== document.defaultView.getComputedStyle(title).fontSize;
                  })
-                 || Array.from(title.querySelectorAll('.surgebirdname, .splink')).some(function(bird) {
+                 || Array.from(title.querySelectorAll('.surgebirdname,.splink,.hslink,.ppte-event-link')).some(function(bird) {
                    var style = document.defaultView.getComputedStyle(bird);
                    return style.fontWeight !== '700'
                      || style.color !== document.defaultView.getComputedStyle(card.querySelector('.name')).color;
-                 })) throw new Error('F954 species must be bold in their original color within semibold headlines');
+                 })) throw new Error('F967 bird/place names must be bold accent links within regular headlines');
              if (card.dataset.alertKind === 'ppte') return;
              var extra = card.querySelector('.surgeexplainextra');
              var facts = extra && extra.querySelector('.surgefacts');
@@ -2264,7 +2375,49 @@ const BOOTSTRAP = `
       return true;
     }
     if (!spec.preserveHost) host.innerHTML = '';
-    if (spec.kind === 'birdgen') {
+    if (spec.kind === 'events') {
+      if (at === 'massBtn') {
+        var flocks = A.massFlockAlerts([
+          {speciesCode:'snogoo',comName:'Snow Goose',howMany:1200,
+            obsDt:A.todayStr()+' 08:00',subId:'S980001',locId:'L1',
+            locName:'Skagit Wildlife Area',lat:48.7,lng:-122.5,subnational1Code:'US-WA'},
+          {speciesCode:'brant',comName:'Brant',howMany:650,
+            obsDt:A.todayStr()+' 09:00',subId:'S980002',locId:'L2',
+            locName:'Semiahmoo Park',lat:48.99,lng:-122.77,subnational1Code:'US-WA'}
+        ],{region:'US-WA',singleObservation:true});
+        A.renderEventFeed('mass',{state:'partial',rows:flocks,
+          coverage:'288 of 289 high-count rows usable; 1 excluded; error details logged.'});
+        if(flocks.length!==2 || !/held back/.test(host.textContent)) {
+          throw new Error('Mass browsing fixture lost qualifying held-back flocks');
+        }
+      } else {
+        var effectDay=A.todayStr(), prior=new Date(effectDay+'T12:00:00Z');
+        prior.setUTCDate(prior.getUTCDate()-1);
+        var effectRows=[];
+        ['verfly','swaspa'].forEach(function(code,bird){
+          [0,1].forEach(function(person){
+            effectRows.push({kind:'Rarity',code:code,
+              name:bird?'Swamp Sparrow':'Vermilion Flycatcher',
+              obsId:'OBS-E-'+bird+person,subId:'S'+(980011+person),
+              observer:'Representative birder '+person,
+              dateStr:effectDay+' '+(10+person)+':00',
+              loc:'Sample Street SE',lat:47,lon:-122});
+          });
+        });
+        effectRows.push(Object.assign({},effectRows[1],{obsId:'OBS-E-support',
+          subId:'S980013',observer:'Representative birder 2',dateStr:effectDay+' 12:00'}));
+        effectRows.push(Object.assign({},effectRows[0],{obsId:'OBS-E-prior',
+          subId:'S980014',dateStr:prior.toISOString().slice(0,10)+' 08:00'}));
+        var effects=A.ppteEvents(effectRows);
+        if(effects.length!==1 || effects[0].anchorSightings!==4) {
+          throw new Error('PPTE browsing fixture did not meet unchanged corroboration');
+        }
+        A.renderEventFeed('ppte',{state:'partial',rows:effects,
+          coverage:'One RBA page reaches its row cap; coverage is not exhaustive.'});
+      }
+      await fillFixturePhotos(host,document);
+      markHost(host,label);
+    } else if (spec.kind === 'birdgen') {
       await preparePersonalFixture(A, document.defaultView,
         window.__SEED_BIRDLIST__.seenByReport.wa, WA_SEEN_STUB.birds.concat([
           {code:'chclon',name:'Chestnut-collared Longspur',alpha:'CCLO',
@@ -2697,26 +2850,39 @@ const BOOTSTRAP = `
       if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
       else if (at === 'lastNewBtn') {
         var tickTaxa = [
-          {code:'norwat',name:'Northern Waterthrush',sci:'Parkesia noveboracensis',alpha:'NOWA'},
-          {code:'solsan',name:'Solitary Sandpiper',sci:'Tringa solitaria',alpha:'SOSA'}
+          {code:'amgplo',name:'American Golden-Plover',sci:'Pluvialis dominica',alpha:'AMGP',recent:11,total:16,age:0},
+          {code:'laplon',name:'Lapland Longspur',sci:'Calcarius lapponicus',alpha:'LALO',recent:10,total:11,age:1},
+          {code:'gwfgoo',name:'Greater White-fronted Goose',sci:'Anser albifrons',alpha:'GWFG',recent:6,total:11,age:3},
+          {code:'sursco',name:'Surf Scoter',sci:'Melanitta perspicillata',alpha:'SUSC',recent:5,total:7,age:4}
         ];
         await preparePersonalFixture(A, document.defaultView,
           window.__SEED_BIRDLIST__.seenByReport.wa, tickTaxa);
         var tickDay = A.todayStr(), groups = {}, info = {};
+        function tickDate(age) {
+          return new Date(Date.parse(tickDay) - age * 86400000).toISOString().slice(0,10);
+        }
         tickTaxa.forEach(function (bird,index) {
-          var birder = {name:'Representative birder',profileId:'tick-'+index,
-            profileUrl:'https://ebird.org/profile/tick-'+index,rank:index+1,date:tickDay};
-          groups[bird.name] = {latest:tickDay,birders:[birder,
-            {name:'Second representative',profileId:'tick-second-'+index,rank:index+3,date:tickDay}]};
-          info[bird.name] = {code:bird.code,obs:[{obsDt:tickDay+' 08:40',
+          var latestDay = tickDate(bird.age), birders = [];
+          for (var i = 0; i < bird.total; i++) {
+            birders.push({name:'Representative birder '+(i+1),profileId:'tick-'+index+'-'+i,
+              profileUrl:'https://ebird.org/profile/tick-'+index+'-'+i,rank:i+1,
+              date:tickDate(i < bird.recent ? bird.age+i%3 : 20+i-bird.recent)});
+          }
+          groups[bird.name] = {latest:latestDay,birders:birders.reverse()};
+          info[bird.name] = {code:bird.code,obs:[{obsDt:latestDay+' 08:40',
             subId:'S868'+index,lat:47.658,lng:-122.118,
             locName:'Marymoor Park--Audubon Bird Loop',locId:'L2'}]};
         });
         A.renderLastNew(groups,info,'US-WA',{});
         await fillFixturePhotos(host,document);
-        if (host.querySelectorAll('.spprimary [aria-label="Recent birders: 2"]').length!==2
+        var tickCards=Array.from(host.querySelectorAll(':scope > [data-sp]'));
+        if (tickCards.length!==tickTaxa.length || tickCards.some(function(card,index) {
+              return !card.querySelector('[aria-label="Recent birders: '+tickTaxa[index].recent+'"]')
+                || Number(card.querySelector('[data-tick-total]').dataset.tickTotal)!==tickTaxa[index].total;
+            })
+            || host.querySelectorAll('details.tickwho:not([open])').length!==4
             || host.querySelector('.lastnewcoverage')) {
-          throw new Error('Leader Board Ticks fixture lost distinct recent counts or compact coverage');
+          throw new Error('Leaderboard Ticks fixture lost scoped counts, collapsed names or compact coverage');
         }
         markHost(host,label);
       }

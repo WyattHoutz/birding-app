@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -55,18 +56,22 @@ test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery
   }
 });
 
-test('F951 all-alert Bird Gen and F964 PPTE mockups render production headlines and all categories', {timeout:120000}, () => {
+test('F951/F967/F970/F971 Bird Gen, PPTE and Date/Count Ticks render production styles', {timeout:120000}, () => {
   const output=fs.mkdtempSync(path.join(os.tmpdir(),'birdgen-f951-'));
   try {
     for (const [width,scale] of [[402,1],[320,1.75]]) {
       const result=spawnSync(process.execPath,[
-        path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all,ppte',
+        path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all,ppte,section-lastNewBtn,f970-ticks-expanded,section-massBtn,section-ppteBtn',
         '--width',String(width),'--scale',String(scale),'--out',output
       ],{cwd:ROOT,encoding:'utf8',timeout:110000});
       assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
-      assert.match(result.stdout,/2 mockup\(s\)/);
+      assert.match(result.stdout,/6 mockup\(s\)/);
       assert.ok(fs.existsSync(path.join(output,'ppte-'+width+'px.png')),
         'the dedicated PPTE release fixture must pass its real preparation guards');
+      for (const id of ['section-lastNewBtn','f970-ticks-expanded','section-massBtn','section-ppteBtn']) {
+        assert.ok(fs.existsSync(path.join(output,id+'-'+width+'px.png')),
+          id+' must exercise its actual default/expanded contributor state');
+      }
       const image=fs.readFileSync(path.join(output,'f951-birdgen-all-'+width+'px.png'));
       assert.equal(image.readUInt32BE(16),width*2,'CSS pixels use the existing 2x capture scale');
       assert.ok(image.readUInt32BE(20)>1600,'every category must be captured, not cropped');
@@ -173,7 +178,7 @@ test('every menu section declares representative fixture data or an intentional 
   const allowed = new Set([
     'birdgen', 'weather', 'bird', 'ranking', 'hotspot', 'favorites', 'species-search',
     'hotspot-search', 'stakeout-merged', 'mega-index', 'patches',
-    'checklists', 'birdcast', 'help', 'migration', 'foy', 'static',
+    'checklists', 'birdcast', 'help', 'migration', 'foy', 'events', 'static',
   ]);
   for (const shot of mockups.SECTION_SHOTS) {
     assert.ok(allowed.has(shot.kind),
@@ -500,12 +505,22 @@ test('F867 leaderboard fixture restores its synthetic profile proof before later
     'restore only after the production renderer has consumed the temporary proof');
 });
 
-test('F868 and F870 gallery fixtures use production Ticks and resolved FOY taxonomy', () => {
+test('F868 and F870 gallery fixtures use production Ticks, F976 screenshot birds and resolved FOY taxonomy', () => {
   const ticks = source.slice(source.indexOf("else if (at === 'lastNewBtn') {"),
     source.indexOf("else if (at === 'myYearBody') {"));
   assert.match(ticks, /A\.renderLastNew\(groups,info,'US-WA',\{\}\)/);
-  assert.match(ticks, /Recent birders: 2/);
-  assert.match(ticks, /profileId:'tick-second-'/);
+  assert.match(ticks, /Recent birders: '\s*\+\s*tickTaxa\[index\]\.recent/);
+  assert.match(ticks, /profileId:'tick-'\+index\+'-'\+i/);
+  const literal = ticks.match(/\bvar tickTaxa\s*=\s*(\[[\s\S]*?\]);/);
+  assert.ok(literal, 'the screenshot species must have a declared fixture contract');
+  const taxa = vm.runInNewContext(literal[1]);
+  assert.deepEqual(Array.from(taxa, (bird) =>
+    [bird.code, bird.name, bird.recent, bird.total]), [
+    ['amgplo', 'American Golden-Plover', 11, 16],
+    ['laplon', 'Lapland Longspur', 10, 11],
+    ['gwfgoo', 'Greater White-fronted Goose', 6, 11],
+    ['sursco', 'Surf Scoter', 5, 7],
+  ]);
   assert.match(ticks, /await fillFixturePhotos\(host,document\)/);
   const foy = source.slice(source.indexOf("} else if (spec.kind === 'foy') {"),
     source.indexOf("} else if (spec.kind === 'bird') {"));

@@ -26,6 +26,22 @@
   ],
   "menu": [
     {
+      "at": "massBtn",
+      "label": "🦆 Mass Flocks",
+      "report": null,
+      "map": null,
+      "sub": "All qualifying high-count flocks",
+      "why": "app-only: browse the existing Mass Flock qualification without Bird Gen's personal proximity/new-arrival admission gate; source and public-location rules remain unchanged"
+    },
+    {
+      "at": "ppteBtn",
+      "label": "🧺 Patagonia Picnic Table Effect",
+      "report": null,
+      "map": null,
+      "sub": "Corroborated rarity gatherings",
+      "why": "app-only: a dedicated view of all existing qualified PPTE events, independent of Bird Gen's category view and ranking; it does not weaken corroboration or public-location identity"
+    },
+    {
       "at": "surgeBtn",
       "label": "🔔 Bird Gen",
       "report": "## 🔔 Bird Gen — Talk and news",

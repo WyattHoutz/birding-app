@@ -20,6 +20,35 @@
     "can never infer from the output."
   ],
   "docs": {
+    "massBtn": {
+      "summary": "All qualifying high-count flocks in the active region, including those without a Bird Gen news qualifier.",
+      "inputs": ["the same current-month regional High Count page, verified public-hotspot directory and retained Mass evidence used by Bird Gen"],
+      "how": [
+        "Reuse Mass Flock count, recency, scope, independent-visit and public-location qualification. The current High Count source explicitly permits single-observation evidence.",
+        "Do not apply Bird Gen's personal proximity/new-arrival admission gate. Each flock states whether it currently earns Bird Gen admission.",
+        "Reuse retained evidence and source freshness. Failed, partial, retained and verified-empty results remain distinct. Excluded malformed rows are counted and logged with bounded privacy-redacted details.",
+        "Bird and public-place links open the existing Stakeout pages; dates retain their supporting checklist links."
+      ],
+      "limits": [
+        "Current-month high counts are not an exhaustive daily observation inventory. Unresolved or private locations are not promoted to public destinations.",
+        "More inclusive browsing does not broaden Bird Gen notification eligibility."
+      ]
+    },
+    "ppteBtn": {
+      "summary": "A dedicated feed of all qualified Patagonia Picnic Table Effect rarity gatherings.",
+      "inputs": ["the existing active-region/county RBA sources, matched public-hotspot identities and retained PPTE evidence"],
+      "how": [
+        "Reuse the exact PPTE qualification: a celebrity-style rarity anchor followed by another rarity, with separate checklist and reporting-name corroboration and per-bird recency.",
+        "Show qualified events independently of Bird Gen's category selection or ranking; do not relax the event definition to manufacture a longer feed.",
+        "Only exactly matched public hotspot identities become hotspot destinations. Other events open their scoped Twitches evidence, without publishing a private street address.",
+        "Retain still-relevant last-good evidence after failed or partial acquisition and disclose the source state and timestamp."
+      ],
+      "limits": [
+        "A reporting sequence does not establish causation, physical presence now or independent birding parties.",
+        "Capped and failed RBA sources mean coverage is incomplete, not that the region has no qualifying events.",
+        "The name refers to the roadside rest area near Patagonia, Arizona."
+      ]
+    },
     "surgeBtn": {
       "report": "## 🔔 Bird Gen — Talk and news",
       "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Chronology-first ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",

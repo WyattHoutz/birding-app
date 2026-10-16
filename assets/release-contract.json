@@ -2,6 +2,7 @@
   "requiredFiles": [
     "index.html",
     "logic.js",
+    "birdgen-notifications.js",
     "taxonomy.js",
     "aba-regions.js",
     "ebird-events.js",
@@ -41,6 +42,10 @@
   "requiredText": {
     "index.html": [
       "APP_VERSION = '${version}'",
+      "<script src=\"birdgen-notifications.js\"></script>",
+      "id=\"birdGenNotifyToggle\"",
+      "id=\"massResults\"",
+      "id=\"ppteResults\"",
       "<script src=\"taxonomy.js\"></script>",
       "<script src=\"aba-regions.js\"></script>",
       "<script src=\"ebird-events.js\"></script>",

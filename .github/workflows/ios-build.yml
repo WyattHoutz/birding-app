@@ -95,6 +95,11 @@ jobs:
           grep -q 'UIActivityViewController' ios/App/App/ViewController.swift
           grep -q 'captureDiagnosticScreenshot' ios/App/App/ViewController.swift
           grep -q 'shareDiagnosticPackage' ios/App/App/ViewController.swift
+          grep -q 'registerPluginInstance(BirdGenNotificationsPlugin())' ios/App/App/ViewController.swift
+          grep -q 'notificationRouter.localNotificationHandler = BirdGenNotificationService.shared' ios/App/App/ViewController.swift
+          grep -q 'BirdGenNotifications.swift in Sources' ios/App/App.xcodeproj/project.pbxproj
+          grep -q 'BirdGenNotificationService.install()' ios/App/App/AppDelegate.swift
+          python3 -c 'import pathlib,plistlib,re; p=pathlib.Path("ios/App/App"); info=plistlib.loads((p/"Info.plist").read_bytes()); identifier=re.search(r"static let taskIdentifier = \"([^\"]+)\"", (p/"BirdGenNotifications.swift").read_text()).group(1); assert "fetch" in info.get("UIBackgroundModes", []); assert identifier in info.get("BGTaskSchedulerPermittedIdentifiers", [])'
 
       # Same reason: Info.plist is regenerated, so the location usage string
       # cannot be committed. Without it CoreLocation refuses the request WITHOUT
@@ -136,6 +141,10 @@ jobs:
           EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
           strings "$APP_PATH/$EXECUTABLE" > build/full-report-symbols.txt
           grep -q 'FullReportPlugin' build/full-report-symbols.txt
+          grep -q 'BirdGenNotificationsPlugin' build/full-report-symbols.txt
+          grep -q 'BirdGenNotificationService' build/full-report-symbols.txt
+          test -f "$APP_PATH/public/birdgen-notifications.js"
+          python3 -c 'import pathlib,plistlib,sys; info=plistlib.loads((pathlib.Path(sys.argv[1])/"Info.plist").read_bytes()); assert "fetch" in info.get("UIBackgroundModes", [])' "$APP_PATH"
 
       - name: Package .app into an unsigned .ipa
         run: |
