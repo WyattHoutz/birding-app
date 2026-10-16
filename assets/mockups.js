@@ -453,8 +453,8 @@ const EXTRA_SHOTS = [
            var result = document.getElementById('surgeResults');
            if (result.querySelector('[role="progressbar"]')) throw new Error('PPTE fixture sources did not settle');
            Array.from(result.querySelectorAll('[data-alert-kind="ppte"]')).forEach(function(card) {
-             if (card.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length !== 2
-                 || !card.querySelector('.ppte-evidence time')) throw new Error('PPTE metadata or RARE tags missing');
+             if (card.querySelector('.surgealerttitle .surgebirdtag')
+                 || !card.querySelector('.ppte-evidence time')) throw new Error('PPTE metadata missing or inline rarity tags restored');
              if (!card.querySelector('.ppte-evidence [data-ppte-distance-text]')) {
                throw new Error('PPTE known distance missing from qualification text');
              }
@@ -1000,6 +1000,199 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            await FIX.prepareF629BirdGen(A, document, sec);
+           return true;` },
+  { id: 'f951-birdgen-all', at: 'surgeBtn',
+    title: 'Bird Gen — every alert type, including a distant Cascade (representative data)',
+    host: 'surgeResults', fullPage: true, freshApp: true,
+    prep: `FIX.before('surgeBtn', A, document);
+           var sec = document.getElementById('surgeBtn').closest('section');
+           A.showSection(sec.id);
+           await FIX.prepare('surgeBtn', ${JSON.stringify(STUB_SPEC.surgeBtn)}, A, document, sec);
+           var today = A.todayStr();
+           var at = function(time) { return today + ' ' + time; };
+           var birders = Array.from({length:12}, function(_,i) {
+             return {name:'Sample Top 100 birder '+(i+1),rank:i+1,
+               date:i < 7 ? '2026-08-28' : today};
+           });
+           A.renderSurge(
+             [{code:'tufpuf',name:'Tufted Puffin',observers:8,checklists:10,
+               ratio:4,loc:'Example public waterfront',locId:'LMOCKCROWD',
+               latest:at('17:46'),subId:'SMOCKCROWD',distMi:16}],
+             [{species:'Chestnut-collared Longspur',code:'chclon',alpha:'CCLO',
+               birders:birders,earliest:'2026-08-28',latest:today,locationState:'ok',
+               recent:[{obsDt:at('15:30'),locName:'Example distant public marsh',
+                 locId:'LMOCKCCLO',lat:48.82,lng:-122.14,subId:'SMOCKCCLO',howMany:1}]}],
+             [{loc:'Example busy public patch',locId:'LHOT',observers:9,
+               ratio:4,reason:'surge',latest:at('17:00')}],
+             [{code:'amgplo',name:'American Golden-Plover',sightings:4,nPlaces:2,
+               distMi:21.9,locName:'Example public mudflats',locId:'LMOCKCELEB',
+               latestStr:at('16:00'),latestSubId:'SMOCKCELEB'}],
+             [],
+             {mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
+               favorites:'ok',mass:'ok',foy:'ok',ppte:'ok',deferPhotos:true,
+               foyRows:[{code:'amepip',name:'American Pipit',date:'2026-08-31',
+                 observedAt:'2026-08-31 08:00',previousReadDate:'2026-08-30',
+                 locName:'Example annual-first public field',locId:'LMOCKFOY',
+                 learnedAt:new document.defaultView.Date().toISOString(),subId:'SMOCKFOY'}],
+               ppteRows:[{id:'mock-ppte',day:today,latest:at('13:00'),
+                 loc:'Example public picnic-table patch',
+                 publicHotspot:{locId:'LMOCKPPTE',locName:'Example public picnic-table patch',
+                   lat:47.7,lng:-122.3},
+                 evidenceRows:[],species:[
+                   {code:'verfly',name:'Vermilion Flycatcher',reports:4},
+                   {code:'swaspa',name:'Swamp Sparrow',reports:2}]}]},
+             [{locId:'LMOCKTOP',locName:'Example public shore',dist:8.4,
+               band:'high yield',species:[{code:'shtsan',comName:'Sharp-tailed Sandpiper',
+                 count:1,dateStr:at('16:45'),subId:'SMOCKTOP'},
+                 {code:'semsan',comName:'Semipalmated Sandpiper',count:1,dateStr:at('16:30')},
+                 {code:'whiwag',comName:'White Wagtail',count:1,dateStr:at('16:15')},
+                 {code:'amgplo',comName:'American Golden-Plover',count:1,dateStr:at('16:00')}]}],
+             [{code:'norwat',name:'Northern Waterthrush',locId:'LMOCKFAV',
+               locName:'Example saved public patch',lat:47.75,lng:-122.16,
+               count:1,when:at('14:15'),checklistId:'SMOCKFAV'}],
+             [{code:'snogoo',name:'Snow Goose',minCount:350,maxCount:480,
+               singleObservation:false,evidenceCount:3,distanceMi:12,insideChase:true,
+               found:{day:today,since:'2026-08-03'},locId:'LMOCKMASS',
+               locName:'Example public estuary',lat:47.8,lng:-122.2,
+               when:at('17:30'),time:Date.parse(today+'T17:30:00'),checklistId:'SMOCKMASS'}]);
+           var host = document.getElementById('surgeResults');
+           var kinds = Object.keys(document.defaultView.BirdInfoDialogs.alertKinds);
+           kinds.forEach(function(kind) {
+             if (!host.querySelector('[data-alert-kind="'+kind+'"]')) {
+               throw new Error('All-alert mockup is missing '+kind);
+             }
+           });
+           if (!host.textContent.includes('Outside your chase area')) {
+             throw new Error('All-alert mockup lost distant Cascade context');
+           }
+           if (/taxonomy unknown/i.test(host.textContent)) {
+             throw new Error('All-alert mockup has incomplete species identities');
+           }
+           if (host.querySelector('[data-alert-kind="mass"] .surgealerttitle').textContent
+               !== 'Flock of Snow Goose at Example public estuary') {
+             throw new Error('F954 flock headline must include its plain-text place');
+           }
+           var busy = host.querySelector('[data-alert-kind="hotspot"]');
+           var patchBirds = host.querySelectorAll('[data-alert-kind="patch"] .surgepatchgrid > .thumb');
+           if (patchBirds.length !== 4
+               || new Set(Array.from(patchBirds,function(tile) {return tile.dataset.code;})).size !== 4) {
+             throw new Error('F956 Top Patch must show four distinct birds from its own patch fixture');
+           }
+           var patchRects = Array.from(patchBirds,function(tile) {return tile.getBoundingClientRect();});
+           var patchFrame = patchBirds[0].closest('.surgepatchthumb').getBoundingClientRect();
+           if (Math.abs(patchRects[0].top-patchRects[1].top) > .5
+               || Math.abs(patchRects[0].left-patchRects[2].left) > .5
+               || patchRects[1].left <= patchRects[0].left
+               || patchRects[2].top <= patchRects[0].top
+               || patchRects.some(function(rect) {
+                 return rect.width <= 0 || rect.height <= 0 || rect.left < patchFrame.left-.5
+                   || rect.right > patchFrame.right+.5 || rect.bottom > patchFrame.bottom+.5;
+               })) throw new Error('F956 patch images must form a contained two-by-two grid: '
+                 + JSON.stringify({frame:patchFrame,tiles:patchRects}));
+           if (busy.querySelector('.surgebadge').textContent !== 'BUSY PATCH'
+               || busy.querySelectorAll('.surgehotspotpeople > span').length !== 9
+               || busy.querySelector('.surgehotspotmult').textContent !== '4×') {
+             throw new Error('F960 BUSY PATCH must show the repeated crowd and actual multiplier');
+           }
+           var foyTitle = host.querySelector('[data-alert-kind="foy"] .surgealerttitle');
+           if (foyTitle.textContent !== 'First of the year American Pipit at Example annual-first public field'
+               || foyTitle.querySelector('.hslink').dataset.loc !== 'LMOCKFOY') {
+             throw new Error('F962 FOY must retain the annual-first public place');
+           }
+           var megaTitles = Array.from(host.querySelectorAll('[data-alert-kind="mega"] .surgealerttitle'));
+           if (!megaTitles.length || megaTitles.some(function(title) {
+             return !title.firstChild || title.firstChild.textContent !== 'Mega rarity ';
+           })) throw new Error('F963 Mega headlines must begin with Mega rarity');
+           if (host.querySelector('[data-alert-kind="need"] .surgealerttitle').textContent
+               !== 'Celebrity bird American Golden-Plover at Example public mudflats') {
+             throw new Error('F954 Celebrity headlines must retain the requested prefix and place');
+           }
+           [['crowd','Crowding to see '],['cascade','Leaderboard lit up by ']].forEach(function(entry) {
+             if (host.querySelector('[data-alert-kind="'+entry[0]+'"] .surgealerttitle')
+                 .firstChild.textContent !== entry[1]) {
+               throw new Error('F954 '+entry[0]+' headline lost its requested prefix');
+             }
+           });
+           if (host.querySelector('[data-alert-kind="favorite"] .surgealerttitle').textContent
+               !== 'Northern Waterthrush at favorite patch Example saved public patch') {
+             throw new Error('F954 Favorite headline lost its patch context');
+           }
+           host.querySelectorAll('.birdcast-flight-label').forEach(function(label) {
+             var sky = label.closest('.birdcast-flight');
+             var labelStyle = document.defaultView.getComputedStyle(label);
+             var moonStyle = document.defaultView.getComputedStyle(sky.querySelector('.birdcast-flight-moon'));
+             if (labelStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+                 || labelStyle.backgroundImage !== 'none'
+                 || labelStyle.color !== moonStyle.backgroundColor) {
+               throw new Error('F961 migration labels must share the sky and moon palette');
+             }
+           });
+           var foyBadge = host.querySelector('.surgebadge-foy');
+           var migrationBadge = host.querySelector('.surgebadge-migration');
+           var migrationFlight = host.querySelector('.birdcast-flight');
+           var migrationBadgeStyle = document.defaultView.getComputedStyle(migrationBadge);
+           if (!document.defaultView.getComputedStyle(migrationFlight).backgroundImage
+                 .endsWith(migrationBadgeStyle.backgroundImage)
+               || migrationBadgeStyle.backgroundImage === 'none'
+               || migrationBadgeStyle.color !== document.defaultView.getComputedStyle(
+                 migrationFlight.querySelector('.birdcast-flight-moon')).backgroundColor) {
+             throw new Error('F961 migration badge must match the icon blue sky and yellow moon');
+           }
+           var foyStyle = document.defaultView.getComputedStyle(foyBadge);
+           if (foyBadge.textContent !== 'foy' || foyStyle.color !== 'rgb(255, 255, 255)'
+               || foyStyle.backgroundColor !== 'rgb(0, 59, 92)'
+               || ['Top','Right','Bottom','Left'].some(function(side) {
+                 return foyStyle['border'+side+'Width'] !== '2px'
+                   || foyStyle['border'+side+'Style'] !== 'solid'
+                   || foyStyle['border'+side+'Color'] !== 'rgb(86, 180, 233)';
+               })) throw new Error('F958 FOY badge must retain its dark fill, white label and blue outline');
+           host.querySelectorAll('#surgeFeed > li').forEach(function(card) {
+             var title = card.querySelector('.surgealerttitle');
+             if (!title || card.querySelector('.surgebirdtag')
+                 || document.defaultView.getComputedStyle(title).fontWeight !== '600'
+                 || Math.abs(parseFloat(document.defaultView.getComputedStyle(title).fontSize)
+                   - 16 * parseFloat(document.defaultView.getComputedStyle(document.documentElement)
+                     .getPropertyValue('--s'))) > 0.1
+                 || Array.from(title.querySelectorAll('a')).some(function(link) {
+                   var style = document.defaultView.getComputedStyle(link);
+                   var bird = link.matches('.splink') || link.closest('.surgebirdname');
+                   return style.fontWeight !== (bird ? '700' : '600')
+                     || style.fontSize !== document.defaultView.getComputedStyle(title).fontSize;
+                 })
+                 || Array.from(title.querySelectorAll('.surgebirdname, .splink')).some(function(bird) {
+                   var style = document.defaultView.getComputedStyle(bird);
+                   return style.fontWeight !== '700'
+                     || style.color !== document.defaultView.getComputedStyle(card.querySelector('.name')).color;
+                 })) throw new Error('F954 species must be bold in their original color within semibold headlines');
+             if (card.dataset.alertKind === 'ppte') return;
+             var extra = card.querySelector('.surgeexplainextra');
+             var facts = extra && extra.querySelector('.surgefacts');
+             if (!facts || extra.firstElementChild !== facts
+                 || card.querySelector('.name .surgefacts')) {
+               throw new Error('F954 facts must precede existing extra below the headline');
+             }
+             var expected = document.defaultView.getComputedStyle(extra);
+             var actual = document.defaultView.getComputedStyle(facts);
+             ['fontSize','lineHeight','fontFamily','fontWeight','color'].forEach(function(property) {
+               if (actual[property] !== expected[property]) {
+                 throw new Error('F954 extra typography mismatch: '+property);
+               }
+             });
+             if (actual.display !== 'inline' || actual.fontWeight !== '400'
+                 || Array.from(extra.querySelectorAll('*')).some(function(node) {
+                   var style = document.defaultView.getComputedStyle(node);
+                   return style.fontWeight !== '400' || style.fontSize !== expected.fontSize
+                     || style.display === 'block' || style.display === 'inline-block';
+                 })) throw new Error('F954 evidence must be regular-weight inline text at one size');
+           });
+           await FIX.fillFixturePhotos(host, document);
+           host.setAttribute('data-mock-data','true');
+           var label = document.createElement('div');
+           label.className = 'mocklabel';
+           label.textContent = 'REPRESENTATIVE STUB DATA — all 11 alert types, not current sightings';
+           host.prepend(label);
+           if (A.fgProgressReset) A.fgProgressReset();
+           sec.dataset.mockAt = 'surgeBtn'; sec.dataset.mockReady = 'true';
            return true;` },
 ];
 
@@ -2071,7 +2264,12 @@ const BOOTSTRAP = `
     if (!spec.preserveHost) host.innerHTML = '';
     if (spec.kind === 'birdgen') {
       await preparePersonalFixture(A, document.defaultView,
-        window.__SEED_BIRDLIST__.seenByReport.wa, WA_SEEN_STUB.birds);
+        window.__SEED_BIRDLIST__.seenByReport.wa, WA_SEEN_STUB.birds.concat([
+          {code:'chclon',name:'Chestnut-collared Longspur',alpha:'CCLO',
+            sci:'Calcarius ornatus'},
+          {code:'tufpuf',name:'Tufted Puffin',alpha:'TUPU',sci:'Fratercula cirrhata'},
+          {code:'amepip',name:'American Pipit',alpha:'AMPI',sci:'Anthus rubescens'}
+        ]));
       var reportSeen = A.getReportSeen();
       if (!reportSeen.baisan || reportSeen.amgplo) {
         throw new Error('Washington seen fixture did not reach getReportSeen');
@@ -2090,9 +2288,13 @@ const BOOTSTRAP = `
         [], [
           { species: 'Common Tern', code: 'comter', alpha: 'COTE',
             birders: [
-              { name: 'Mike & MerryLynn Denny', rank: 33 },
-              { name: 'RJ Baltierra', rank: 61 }
+              { name: 'Mike & MerryLynn Denny', rank: 33, date:'2026-08-30' },
+              { name: 'RJ Baltierra', rank: 61, date:'2026-09-02' },
+              { name: 'Sample third birder', rank: 62, date:'2026-09-01' },
+              { name: 'Sample fourth birder', rank: 63, date:'2026-09-01' },
+              { name: 'Sample fifth birder', rank: 64, date:'2026-09-02' }
             ],
+            earliest:'2026-08-30',
             latest: '2026-09-02 14:19',
             recent: [
               { obsDt: '2026-09-02 14:19',
@@ -2188,13 +2390,14 @@ const BOOTSTRAP = `
       }
       var cards = Array.prototype.slice.call(document.querySelectorAll('#surgeFeed > li'));
       if (!cards.length || cards.some(function (row) {
-        return !row.querySelector(':scope > .name > .ntext > .sub > .surgefacts')
+        return !row.querySelector(':scope > .surgeexplain > .surgeexplainextra > .surgefacts')
           || !row.querySelector(':scope > .surgeexplain > b');
       })) throw new Error('Bird Gen release fixture lost its second or third line');
       var mega = document.querySelector('#surgeFeed [data-species-code="nazboo1"]');
       var megaFacts = mega && mega.querySelector('.surgefacts');
       if (!megaFacts || megaFacts.textContent.replace(/\\s+/g, ' ').trim()
-          !== 'NABO x1 - Smith Island - 9/1 5:50p · S388997009') {
+          !== 'NABO x1 - 9/1 5:50p - S388997009'
+          || !/Nazca Booby at Smith Island/.test(mega.querySelector('.surgealerttitle').textContent)) {
         throw new Error('Bird Gen MEGA fact line drifted from the approved markup: '
           + (megaFacts ? megaFacts.textContent.replace(/\\s+/g, ' ').trim() : 'missing')
           + ' HTML=' + (megaFacts ? megaFacts.innerHTML : 'missing'));

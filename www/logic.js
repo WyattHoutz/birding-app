@@ -1726,24 +1726,9 @@
   // parse(recent) -> {species, date} | null, supplied by the caller because the
   // two repos already own that regex.
   //
-  // ⚠️ F264. TWO BIRDERS, AND IT HAS TO BE RECENT.
-  //
-  // Owner, from the device: *"2 species cascading through the leaderboard looks
-  // stale because of the perigrine falcoln. dont show birds here unless they
-  // are newly added by multiple people. like two leaderboard top 100 added the
-  // same bird"*.
-  //
-  // ⚠️ THE WINDOW WAS RELATIVE, NOT ABSOLUTE. It required the ticks to fall
-  // within three days OF EACH OTHER and never that they were recent — so three
-  // birders who added Peregrine Falcon within one week of each other three
-  // weeks ago satisfied it forever. The lane is a NEWS lane; a cluster with no
-  // upper bound on its age is a fact about last month.
-  //
-  // CASCADE_MAX_AGE_DAYS is that bound, and CASCADE_MIN_BIRDERS drops 3 -> 2
-  // because two of the top hundred adding the same bird is the owner's own
-  // definition of the signal. Lowering the count without adding the age bound
-  // would have made it noisier AND still stale.
-  var CASCADE_MIN_BIRDERS = 2, CASCADE_WINDOW_DAYS = 3, CASCADE_MAX_AGE_DAYS = 7;
+  // Count recent interest without discarding an older burst when a new person
+  // adds the bird. Fresh momentum is separate from the seven-day lookback.
+  var CASCADE_MIN_BIRDERS = 5, CASCADE_WINDOW_DAYS = 7, CASCADE_MAX_AGE_DAYS = 3;
   function tickCascades(rows, parse, opts) {
     opts = opts || {};
     var minB = opts.minBirders || CASCADE_MIN_BIRDERS;
@@ -1754,10 +1739,15 @@
     // and `||` would silently discard it for the live clock, which is exactly
     // the untestable state the rule exists to prevent.
     var nowMs = opts.nowMs == null ? Date.now() : opts.nowMs;
+    var now = new Date(nowMs);
+    var nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
     var groups = {}, order = [];
     (rows || []).forEach(function (r) {
       var p = r && r.recent ? parse(r.recent) : null;
       if (!p || !p.species || !r.name) return;
+      var time = new Date(p.date).getTime();
+      if (!isFinite(time) || time > nowDay
+          || nowDay - time > windowDays * 86400000) return;
       var g = groups[p.species];
       if (!g) { g = groups[p.species] = { species: p.species, birders: [], latest: '', earliest: '' }; order.push(p.species); }
       // One birder counts once even if the board lists them twice (your own
@@ -1775,8 +1765,6 @@
         return { birder: birder, time: new Date(birder.date).getTime() };
       }).filter(function (item) { return isFinite(item.time); })
         .sort(function (a, b) { return b.time - a.time; });
-      var now = new Date(nowMs);
-      var nowDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
       // Older additions must not veto a recent burst. Keep the newest
       // qualifying window, with the same calendar-day age and spread limits.
       for (var i = 0; i < dated.length; i++) {
@@ -1843,23 +1831,8 @@
   // five here means five independent choices to visit rather than five names
   // that might be one car. Raising the bar without that fix would have swapped
   // one wrong answer for another.
-  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;
-  // A big turnout still has to beat its own norm — it just does not have to
-  // TRIPLE it. Five, because the owner has already ruled that four people is
-  // "a coincidence rather than a crowd" (see SURGE.MIN_OBSERVERS).
-  //
-  // 2.25 AND NOT LOWER, because the ratio has a structural floor: `n` counts
-  // observers over a 36 h window while the baseline is per DAY, so a perfectly
-  // steady site scores 1.5x by construction. A bar of 1.5 was therefore BELOW
-  // the noise and fired for every busy park — the parity fixture's always-busy
-  // Discovery Park (8 birders every day for a fortnight) scores exactly 2.0.
-  // 2.25 clears both. This is also why MIN_RATIO is 3 rather than 2: it was
-  // absorbing the same skew.
-  //
-  // The ABSOLUTE half rises with the gate above: a "crowd" cannot be a smaller
-  // number than the ordinary bar, or the lower path silently becomes the only
-  // path.
-  var CONVERGE_BUSY_ABS = 5, CONVERGE_BUSY_RATIO = 2.25;
+  // F960 replaces the old lower-ratio crowd exception with one four-times gate.
+  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 4;
 
   // ---- parties: people who travelled TOGETHER are ONE decision -------------
   // The convoy test the Convoys section already uses (CONVOY_MIN_STOPS): a set
@@ -2027,31 +2000,9 @@
       // and almost nothing has cold data. The lane fired for any hotspot with
       // 5+ observers in a day and called it "new", listing Seattle's busiest
       // parks as unprecedented under a heading that promises the opposite.
-      // TWO WAYS TO BE WORTH KNOWING ABOUT, and BOTH still need a norm.
-      //
-      // "still only jetty island on hot hotspots", after "i liked the cedar
-      // mouth river hotspot, why is it gone?" — a single 3x bar punishes a
-      // consistently good site. Cedar River mouth had been busy for days, so
-      // its own norm rose to 2.25 birders a day and it could never be 3x
-      // itself again; Jetty Island scored 14x on eight observers only because
-      // almost nobody normally goes there.
-      //
-      // FIRST ATTEMPT AT THIS WAS WRONG and the parity suite caught it. I let
-      // a big absolute crowd through with NO baseline at all, which re-opened
-      // a defect this lane had already been fixed for once: `product/lists`
-      // returns ~1.3 days of history in King County, so almost no location
-      // has cold data, and "crowd, no norm needed" made the lane fire for
-      // Discovery Park, Union Bay and Marymoor every single day — the exact
-      // always-busy parks the earlier fix existed to exclude. Measured, the
-      // five hotspots with 5+ observers today ARE those parks.
-      //
-      // So a crowd does not skip the comparison, it lowers the bar for it: a
-      // genuinely big turnout only has to be MODESTLY above normal, where a
-      // handful of people has to be dramatically above it.
       if (baseline <= 0) return;
       var ratio = n / baseline;
-      var crowd = n >= CONVERGE_BUSY_ABS && ratio >= CONVERGE_BUSY_RATIO;
-      if (!crowd && ratio < minRatio) return;
+      if (ratio < minRatio) return;
       out.push({
         locId: locId, loc: name, observers: n,
         // The event's own newest HOT checklist. Bird gen sorts and dates the
@@ -2059,9 +2010,7 @@
         // only to explain what people may be looking at.
         baseline: baseline, ratio: ratio, eventAt: eventAt, latest: latest,
         subId: subId,
-        // WHY it is here, because the two read differently on a card: "14x
-        // normal" is a surge, "8 birders, busier than usual" is a crowd.
-        reason: ratio >= minRatio ? 'surge' : 'crowd'
+        reason: 'surge'
       });
     });
     out.sort(function (a, b) {
@@ -2069,6 +2018,12 @@
       return b.ratio - a.ratio;
     });
     return out;
+  }
+
+  function isHotspotConvergence(row) {
+    return !!row && Number.isFinite(row.observers)
+      && row.observers >= CONVERGE_MIN_OBSERVERS
+      && Number.isFinite(row.ratio) && row.ratio >= CONVERGE_MIN_RATIO;
   }
 
   // ---- time of day (mirror time_of_day.py) ---------------------------------
@@ -5174,6 +5129,7 @@
     },
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    isHotspotConvergence: isHotspotConvergence,
     // F124: one definition, two readings — each section declares which it
     // takes, so the difference is a stated choice rather than an accident.
     INDEPENDENCE: INDEPENDENCE,
@@ -5196,8 +5152,7 @@
     // against it — the doc and the code disagreed for a whole release because
     // nothing compared them.
     CONVERGE: {
-      MIN_OBSERVERS: CONVERGE_MIN_OBSERVERS, MIN_RATIO: CONVERGE_MIN_RATIO,
-      BUSY_ABS: CONVERGE_BUSY_ABS, BUSY_RATIO: CONVERGE_BUSY_RATIO
+      MIN_OBSERVERS: CONVERGE_MIN_OBSERVERS, MIN_RATIO: CONVERGE_MIN_RATIO
     },
     // Exported so the party rule can be tested directly. It gates the
     // busy-hotspot lane, and "six people on one checklist is one party" is a

@@ -874,13 +874,37 @@ const AUDIT = `<script>
       };
     }
     if (label === 'sec-surgeBtn') {
-      var textScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
       [].forEach.call(document.querySelectorAll('#surgeFeed .surgefacts'), function (facts) {
+        var extra = facts.closest('.surgeexplainextra');
+        var style = getComputedStyle(facts);
+        var extraStyle = extra && getComputedStyle(extra);
+        var card = facts.closest('li');
+        var title = card.querySelector('.surgealerttitle');
         alertEvidence.push({
-          largeEnough: parseFloat(getComputedStyle(facts).fontSize) >= 15 * textScale - 0.1,
-          boldPlaces: [].every.call(facts.querySelectorAll('.hslink'), function (link) {
-            return parseFloat(getComputedStyle(link).fontWeight) >= 700;
-          }),
+          belowHeadline: !!extra && extra.firstElementChild === facts
+            && !facts.closest('.name'),
+          matchesExtraStyle: !!extraStyle
+            && ['fontSize','lineHeight','fontFamily','fontWeight','color'].every(function (key) {
+              return style[key] === extraStyle[key];
+            }),
+          regularInlineEvidence: style.display === 'inline' && style.fontWeight === '400'
+            && [].every.call(extra.querySelectorAll('*'), function (node) {
+              var evidenceStyle = getComputedStyle(node);
+              return evidenceStyle.fontWeight === '400'
+                && evidenceStyle.fontSize === extraStyle.fontSize
+                && evidenceStyle.display !== 'block' && evidenceStyle.display !== 'inline-block';
+            }),
+          semiboldHeadline: !!title && getComputedStyle(title).fontWeight === '600'
+            && [].every.call(title.querySelectorAll('a'), function (link) {
+              var bird = link.matches('.splink') || link.closest('.surgebirdname');
+              return getComputedStyle(link).fontWeight === (bird ? '700' : '600');
+            })
+            && [].every.call(title.querySelectorAll('.surgebirdname, .splink'), function (bird) {
+              var birdStyle = getComputedStyle(bird);
+              return birdStyle.fontWeight === '700'
+                && birdStyle.color === getComputedStyle(card.querySelector('.name')).color;
+            }),
+          noInlineRarity: !card.querySelector('.surgebirdtag'),
           checklistLabeled: [].every.call(facts.querySelectorAll('.surgeabsolute a'), function (link) {
             var id = (link.getAttribute('data-href') || '').split('/').pop();
             return !!id && link.textContent.indexOf(id) >= 0;
@@ -2608,7 +2632,7 @@ server.listen(0, '127.0.0.1', () => {
         console.log('   F933 Bird Gen key is missing categories or clips: ' + JSON.stringify(r.alertKey));
       }
       if (r.ppte && (r.ppte.cards !== 1 || r.ppte.species !== 2 || !r.ppte.fullNames
-          || r.ppte.rareTags !== 2 || !r.ppte.date || r.ppte.reports !== 'swaspa:2,verfly:3'
+          || r.ppte.rareTags !== 0 || !r.ppte.date || r.ppte.reports !== 'swaspa:2,verfly:3'
           || !r.ppte.distance || r.ppte.composite !== 2 || r.ppte.actions.length !== 3
           || r.ppte.actions.some(action => action.width <= 0 || action.height <= 0
             || action.tabIndex !== 0 || action.underlined || action.wordBroken || action.clipped))) {
@@ -2836,7 +2860,7 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (r.alertEvidence && r.alertEvidence.some(evidence => Object.values(evidence).some(value => !value))) {
         bad++;
-        console.log('   F848 evidence must be enlarged, hotspots bold and checklist IDs labeled');
+        console.log('   F954 facts must precede and match extra evidence; headlines stay semibold without inline rarity tags and checklist IDs stay labeled');
       }
       if (r.hotspotQr) {
         console.log('   F845 HOTSPOT QR GEOMETRY ' + JSON.stringify(r.hotspotQr));

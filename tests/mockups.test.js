@@ -55,6 +55,23 @@ test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery
   }
 });
 
+test('F951 all-alert Bird Gen mockup renders every category with a distant Cascade and known identities', {timeout:120000}, () => {
+  const output=fs.mkdtempSync(path.join(os.tmpdir(),'birdgen-f951-'));
+  try {
+    for (const [width,scale] of [[402,1],[320,1.75]]) {
+      const result=spawnSync(process.execPath,[
+        path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all',
+        '--width',String(width),'--scale',String(scale),'--out',output
+      ],{cwd:ROOT,encoding:'utf8',timeout:110000});
+      assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+      assert.match(result.stdout,/1 mockup\(s\)/);
+      const image=fs.readFileSync(path.join(output,'f951-birdgen-all-'+width+'px.png'));
+      assert.equal(image.readUInt32BE(16),width*2,'CSS pixels use the existing 2x capture scale');
+      assert.ok(image.readUInt32BE(20)>1600,'every category must be captured, not cropped');
+    }
+  } finally {fs.rmSync(output,{recursive:true,force:true});}
+});
+
 test('F830 Twitches preparation acquires exact personal membership before rendering', () => {
   const twitch = source.slice(source.indexOf('async function prepareTwitches('),
     source.indexOf('async function waitFor(', source.indexOf('async function prepareTwitches(')));
@@ -92,7 +109,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo',
       'stakeoutreports', 'meganearest',
-      'f629-nightly', 'f629-birdgen', 'f630-birdgen-top'],
+      'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f951-birdgen-all'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
@@ -500,7 +517,7 @@ test('F856 gallery guards require visible checklist evidence and scaled 56px bir
     'geometry must use the selected app profile, not the legacy renderer argument');
   const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
     source.indexOf("} else if (at === 'rankBtn')"));
-  assert.match(birdGen, /NABO x1 - Smith Island - 9\/1 5:50p · S388997009/);
+  assert.match(birdGen, /NABO x1 - 9\/1 5:50p - S388997009/);
   assert.match(birdGen, /megaChecklist\.getAttribute\('data-href'\) !== 'https:\/\/ebird\.org\/checklist\/S388997009'/);
   assert.match(birdGen, /deferPhotos: true/);
   assert.match(birdGen, /await fillFixturePhotos\(host, document\)/);
@@ -749,19 +766,19 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release gate no longer proves that Bird Gen hides no species');
 });
 
-test('F302 Bird Gen mockup shows the approved three-line cards', () => {
+test('F302/F954 Bird Gen mockup shows facts beneath the category headline', () => {
   const paint = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
     source.indexOf("} else if (spec.kind === 'spuh')"));
   for (const fact of [
-    'comter', 'Common Tern', 'NABO x1 - Smith Island - 9/1 5:50p',
+    'comter', 'Common Tern', 'NABO x1 - 9/1 5:50p',
     'An unseen ABA Code 3+ is within a day trip!',
     'Cedar River mouth', 'Marymoor Park', 'high yield',
   ]) {
     assert.ok(paint.includes(fact), `F302 Bird Gen mockup lost ${fact}`);
   }
   assert.match(paint,
-    /:scope > \.name > \.ntext > \.sub > \.surgefacts[\s\S]*:scope > \.surgeexplain > b/,
-    'the release fixture does not verify the name-cell and full-width rows');
+    /:scope > \.surgeexplain > \.surgeexplainextra > \.surgefacts[\s\S]*:scope > \.surgeexplain > b/,
+    'the release fixture does not verify the facts within the extra evidence');
   assert.match(paint, /Bird Gen still displays the R rare-bird marker/,
     'the release fixture does not reject the removed R marker');
   assert.match(paint, /category badge returned beside the bird name/,

@@ -4076,7 +4076,12 @@ test('Bird gen is wired and renders every alert source it detects', async () => 
       { name: 'Brian Pendleton', rank: 3, recent: 'Terek Sandpiper (Jul 19, 2026)' },
       { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
       { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    ], A.parseRecentTick, { nowMs: Date.parse('2026-07-21T12:00:00') }),
+      { name: 'Sample fourth', rank: 9, recent: 'Terek Sandpiper (Jul 20, 2026)' },
+      { name: 'Sample fifth', rank: 10, recent: 'Terek Sandpiper (Jul 21, 2026)' },
+    ], A.parseRecentTick, { nowMs: Date.parse('2026-07-21T12:00:00') }).map(c => ({
+      ...c, locationState:'ok',recent:[{obsDt:'2026-07-21 09:00',
+        locName:'Public shore',lat:47.75,lng:-122.16,subId:'SLEADERBOARD'}]
+    })),
     [{ locId: 'L2', loc: 'Stanwood STP', observers: 9, baseline: 1, ratio: 9 }]);
 
   const txt = app.$('surgeResults').textContent;
@@ -7959,7 +7964,7 @@ test('F911 production Bird Gen paints a known Cascade before unrelated identity 
   const index = new Promise(resolve => { releaseIndex = resolve; });
   const name = 'Chestnut-collared Longspur', unknown = 'Unresolved synthetic bird';
   const date = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-  const board = [name,name,unknown,unknown].map((species,i) => ({
+  const board = [...Array(5).fill(name),...Array(5).fill(unknown)].map((species,i) => ({
     rank:i+1,name:'Synthetic birder '+i,profileId:'P'+i,species:200-i,checklists:400-i,
     recent:species+' ('+date+')'
   }));
@@ -8074,6 +8079,110 @@ test('F934 production Bird Gen surfaces the measured CCLO date histogram with in
   } finally {app.window.close();}
 });
 
+test('F951 production Bird Gen surfaces distant CCLO with the whole current Top 100 group and evidence dates', async () => {
+  const name = 'Chestnut-collared Longspur';
+  const ages = [5,5,4,4,4,4,4,3,3,3,3,0];
+  const board = ages.map((age,i) => {
+    const date = new Date();
+    date.setDate(date.getDate()-age);
+    return {rank:i+1,name:'Sample birder '+i,profileId:'P'+i,species:200-i,
+      checklists:400-i,recent:name+' ('+date.toLocaleDateString('en-US',{
+        month:'short',day:'numeric',year:'numeric'})+')'};
+  });
+  const app = await boot({fetch(url) {
+    if (/top100/.test(url)) return dualRankFixture('spp',board,'US-WA',String(new Date().getFullYear()));
+    if (/recent\/chclon/.test(url)) return [{speciesCode:'chclon',comName:name,
+      obsDt:recentObsStamp(),locId:'L951',locName:'Example distant public marsh',
+      lat:48.82,lng:-122.14,subId:'S951',howMany:1}];
+    if (/bird-list/.test(url)) return f821Page();
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[],[],[{code:'chclon',name}]);
+    await A.loadSurge();
+    const card = app.$('surgeResults').querySelector('[data-species-code="chclon"]');
+    assert.ok(card && !card.hidden,'the production loader still drops distant CCLO');
+    assert.ok((card.dataset.surgeReasons||'').split(',').includes('cascade'));
+    assert.match(card.textContent,/12 Top 100 birders|12 of the top 100/);
+    const extra = card.querySelector('.surgeexplainextra').textContent;
+    assert.match(extra,/Outside your chase area.*7\d(?:\.\d)?\s*mi/s);
+    assert.match(extra,/Leaderboard additions:.*Public sighting:/s);
+    assert.match(card.querySelector('.surgealerttitle').textContent,/at Example distant public marsh/);
+    assert.match(card.querySelector('.surgeabsolute a').dataset.href,/S951/);
+    assert.ok(app.state.fetches.some(url=>
+      /data\/obs\/US-WA\/recent\/chclon\?/.test(url)
+      && /back=30/.test(url) && /includeProvisional=true/.test(url)),
+    'the destination must still come from the active-region species feed');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F951 distant Cascade evidence is fresh, public and located; local older sightings stay eligible', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, home={lat:45,lng:0};
+    app.window.localStorage.setItem(A.homeKey('lat'),'45');
+    app.window.localStorage.setItem(A.homeKey('lng'),'0');
+    app.window.localStorage.setItem(A.chaseMiKey(),'35');
+    const day = age => {
+      const date = new Date(); date.setDate(date.getDate()-age);
+      return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')
+        +'-'+String(date.getDate()).padStart(2,'0');
+    };
+    const base = {species:'Chestnut-collared Longspur',code:'chclon',
+      birders:Array.from({length:5},(_,i)=>({name:'Person '+i,rank:i+1,date:day(0)})),
+      earliest:day(0),latest:day(0),locationState:'ok'};
+    const place = (mi,age) => ({lat:home.lat+mi/3958.8*180/Math.PI,lng:0,
+      locName:'Example public marsh',obsDt:day(age)+' 09:00',subId:'S951'});
+    const show = (recent, changes={}) => {
+      A.renderSurge([],[{...base,recent,...changes}],[],[],[],{leaderboard:'ok'});
+      return app.$('surgeResults').querySelector('[data-alert-kind="cascade"]');
+    };
+    for (const miles of [20,75,150]) {
+      assert.ok(show([place(miles,0)]),miles+' miles: a fresh public report qualifies');
+      assert.ok(show([place(miles,3)]),miles+' miles: age three is inclusive');
+      assert.equal(!!show([place(miles,4)]),miles<=35,
+        miles+' miles: older evidence is only allowed locally');
+    }
+    for (const change of [{obsDt:'invalid'},{obsDt:day(-1)+' 09:00'},
+      {locName:'Private residence'},{lat:null},{lat:''},{lat:91}]) {
+      assert.equal(show([{...place(75,0),...change}]),null,JSON.stringify(change));
+    }
+    assert.equal(show([],{locationState:'failed'}),null,
+      'a failed source with no retained public evidence is not an actionable alert');
+    const mixed=show([place(20,5),{...place(75,0),locName:'Newest public marsh',subId:'SNEW951'}]);
+    assert.match(mixed.querySelector('.surgealerttitle').textContent,/at Newest public marsh/);
+    assert.match(mixed.querySelector('.surgeabsolute a').dataset.href,/SNEW951/);
+    assert.match(mixed.textContent,/Outside your chase area/);
+    app.window.localStorage.removeItem(A.homeKey('lat'));
+    app.window.localStorage.removeItem(A.homeKey('lng'));
+    assert.equal(show([place(75,0)]),null,'missing Home cannot invent a known distance');
+  } finally {app.window.close();}
+});
+
+test('F951 retained Cascades requalify and recount the surviving lookback instead of restoring stale counts', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    const day = age => {
+      const d=new Date(); d.setDate(d.getDate()-age);
+      return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    };
+    const birders = Array.from({length:6},(_,i)=>({name:'Person '+i,rank:i+1,date:day(i===5?8:0)}));
+    await A.saveSurgeRetainedPart('cascades',{state:'ok',rows:[
+      {species:'Strong bird',code:'strong',birders,earliest:day(8),latest:day(0)},
+      {species:'Weak bird',code:'weak',birders:birders.slice(0,4),latest:day(0)}
+    ]});
+    const retained = A.loadSurgeRetained();
+    assert.deepEqual(Array.from(retained.cascades.rows,x=>x.species),['Strong bird']);
+    assert.equal(retained.cascades.rows[0].birders.length,5);
+    assert.equal(retained.cascades.rows[0].earliest,day(0));
+    assert.match(A.surgeSourceContext(),/^cascade-5-7-3\|\|/,
+      'old enriched subsets must not mask participants or revive two-person alerts');
+  } finally {app.window.close();}
+});
+
 test('F916 CCLO decisions distinguish place rejection, source state, merging and category visibility without payloads', async () => {
   const app = await boot();
   try {
@@ -8089,10 +8198,10 @@ test('F916 CCLO decisions distinguish place rejection, source state, merging and
     const cases = [
       {rows:[base],pair:true},
       {rows:[],pair:false},
-      {rows:[{...base,lat:0,lng:0}],pair:false,reject:'outside'},
+      {rows:[{...base,lat:0,lng:0,obsDt:'2020-01-01'}],pair:false,reject:'outside'},
       {rows:[{...base,lat:undefined}],pair:false,reject:'coordinates'},
       {rows:[{...base,locName:'Private residence'}],pair:false,reject:'privatePlace'},
-      {rows:[],pair:true,state:'failed'}
+      {rows:[],pair:false,state:'failed'}
     ];
     for (const c of cases) {
       A.renderSurge([],[{...cascade,recent:c.rows,locationState:c.state||'ok'}],[],[],[],
@@ -8281,7 +8390,7 @@ test('F916 radius decisions match independent distances, isolate region settings
     app.window.localStorage.setItem(A.homeKey('lng'),String(home.lng));
     app.window.localStorage.setItem(A.chaseMiKey(),String(radius));
     app.window.localStorage.setItem('ebird_chase_mi:mo','5');
-    const stamp=recentObsStamp(), cascade={
+    const stamp='2020-01-01 09:00', cascade={
       code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
       birders:[{name:'PRIVATE',rank:1}],locationState:'ok'
     };
@@ -8327,7 +8436,7 @@ test('F916 cached CCLO traces name the reused enrichment without inventing a fre
       cascades:{state:'ok',rows:[{
         code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
         birders:[{name:'PRIVATE',rank:1}],locationState:'ok',
-        recent:[{lat:0,lng:0,locName:'Synthetic marsh',obsDt:stamp}]
+        recent:[{lat:0,lng:0,locName:'Synthetic marsh',obsDt:'2020-01-01 09:00'}]
       }]}
     });
     app.$('ccloTraceArm').click();
@@ -8690,7 +8799,9 @@ test('F913 Bird Gen excludes hybrids across species lanes while retaining specie
         distanceMi:3,found:stamp.slice(0,10),evidenceCount:4,minCount:400,maxCount:400,
         date:stamp.slice(0,10),observedAt:stamp,previousReadDate:stamp.slice(0,10)};
       const cascade = {code,species:name,latest:stamp.slice(0,10),
-        birders:[{name:'A',rank:1},{name:'B',rank:2}],locationState:'failed'};
+        birders:Array.from({length:5},(_,i)=>({name:'Birder '+i,rank:i+1,date:stamp.slice(0,10)})),
+        locationState:'ok',recent:[{obsDt:stamp,locName:'Public marsh',locId:'L1',
+          lat:47.75,lng:-122.16,subId:'SCASCADE'}]};
       for (const kind of ['need','crowd','cascade','favorite','foy','mass']) {
         A.renderSurge(kind === 'crowd' ? [row] : [],
           kind === 'cascade' ? [cascade] : [],[],kind === 'need' ? [row] : [],[],
@@ -11462,7 +11573,7 @@ test('F931 PPTE latest report and verified public destination stay inside the ma
   } finally { app.window.close(); }
 });
 
-test('F944 PPTE bird-name headlines retain focused Twitches without noisy lists or saved-filter changes', async () => {
+test('F944/F959 Patagonia bird-name headlines retain focused Twitches without noisy lists or saved-filter changes', async () => {
   const prefs = { year: 'unseen', distance: 'near' };
   const app = await boot({ sample: false, storage: { ebird_rarity_filters_v1: JSON.stringify(prefs) } });
   try {
@@ -11479,8 +11590,10 @@ test('F944 PPTE bird-name headlines retain focused Twitches without noisy lists 
     const card = doc.querySelector('[data-alert-kind="ppte"]');
     assert.ok(card);
     assert.match(card.querySelector('.surgealerttitle').textContent,
-      /Swamp SparrowRARE and Vermilion FlycatcherRARE at Sample Street SE/);
-    assert.equal(card.querySelector('.surgebadge').textContent, 'PPTE');
+      /Swamp Sparrow and Vermilion Flycatcher at Sample Street SE/);
+    assert.equal(card.querySelector('.surgebadge').textContent, 'patagonia');
+    assert.equal(app.window.BirdInfoDialogs.alertKinds.ppte.word,'patagonia');
+    assert.match(doc.querySelector('[data-count-kind="ppte"]').textContent,/1 patagonia/);
     assert.equal(card.querySelectorAll('[data-ppte-species], button, .surgefacts').length, 0);
     assert.ok(card.querySelector('.ppte-evidence'), 'small-print qualifying evidence remains available');
     assert.equal(card.querySelector('.ppte-evidence time').getAttribute('datetime'), event.day);
@@ -11492,7 +11605,7 @@ test('F944 PPTE bird-name headlines retain focused Twitches without noisy lists 
     assert.equal(card.querySelectorAll('.surgealerttitle .splink[data-sp]').length, 2);
     assert.deepEqual([...card.querySelectorAll('.surgealerttitle .splink[data-sp]')]
       .map(link => link.getAttribute('data-sp')), ['swaspa', 'verfly']);
-    assert.equal(card.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length, 2);
+    assert.equal(card.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length, 0);
     assert.deepEqual([...card.querySelectorAll('.ppte-connector')].map(node => node.textContent),
       [' and ', ' at ']);
     for (const link of card.querySelectorAll('.surgealerttitle .splink')) {
@@ -17976,7 +18089,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   } });
   const A = app.window.__app;
   await seedSeen(app, ['zzseencontrol']);
-  const birders = [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }, { name: 'Bruce', rank: 8 }];
+  const birders = ['Brian','Liam','Bruce','Fourth','Fifth'].map((name,i)=>({name,rank:[3,4,8,9,10][i]}));
   const hotspotLatest = localStamp(20);
   const merged = [
     { locId: 'LHOT', subId: 'SH1', code: 'amerob', name: 'American Robin',
@@ -17989,7 +18102,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     [{ species: 'Terek Sandpiper', code: 'tersan', birders, latest: localStamp(80),
       recent: [{ obsDt: localStamp(80), locName: 'Stanwood STP',
         lat: 47.77, lng: -122.18, subId: 'SK1' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1, reason: 'surge',
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 4.1, reason: 'surge',
       latest: hotspotLatest, eventAt: Date.parse(hotspotLatest.replace(' ', 'T')) }],
     [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
       distMi: 6.2, locName: 'Marymoor Park', subId: 'SN1', whenStr: localStamp(180) }],
@@ -18023,7 +18136,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const expected = {
     mega: ['MEGA', '🦤'], migration: ['MIGRATION', '🌙'],
     need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
-    cascade: ['CASCADE', '🏆'], hotspot: ['HOTSPOT', '📍'],
+    cascade: ['CASCADE', '🏆'], hotspot: ['BUSY PATCH', '📍'],
   };
   const glyphs = Object.values(expected).map((x) => x[1]);
   const borderStyles = [];
@@ -18043,14 +18156,14 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     assert.ok(row.querySelector('.surgeage').textContent.trim(), `${kind} lost its relative age`);
     const summary = row.querySelector('.surgefacts');
     assert.ok(summary, `${kind} lost its always-visible code/count/place/date line`);
-    assert.ok(summary.closest('.name'),
-      `${kind} fact line is no longer in the same cell as the bird name`);
+    assert.ok(summary.closest('.surgeexplainextra'),
+      `${kind} fact line must be in the extra evidence below the headline`);
     if (kind === 'migration') {
       assert.match(summary.textContent, /BIRDCAST.*migration alert.*\d{1,2}\/\d{1,2}/s,
         'migration does not identify BirdCast, the Home location, and the current date');
     } else {
-      assert.match(summary.textContent, /.+ - \d{1,2}\/\d{1,2}/s,
-        `${kind} does not place location and date on the second line`);
+      assert.match(summary.textContent, /\d{1,2}\/\d{1,2}/s,
+        `${kind} does not retain the observation date`);
     }
     assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
       `${kind} still spends the compact line on mileage`);
@@ -18154,7 +18267,7 @@ test('F864 category toggles use shared styling, hide empty sources and reappear 
   app.window.close();
 });
 
-test('F302 Bird Gen renders one always-visible three-line news card', async () => {
+test('F302/F954 Bird Gen renders one always-visible news card with facts below its headline', async () => {
   const localStamp = (minsAgo) => {
     const d = new Date(Date.now() - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
@@ -18185,7 +18298,7 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
       latest: localStamp(80),
       recent: [{ obsDt: localStamp(80), locName: 'Seattle-Winslow Ferry',
         locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'SK1' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1,
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 4.1,
       reason: 'surge', latest: localStamp(20),
       eventAt: Date.parse(localStamp(20).replace(' ', 'T')) }],
     [{ code: 'amgplo', name: 'American Golden-Plover', sightings: 4, nPlaces: 1,
@@ -18221,8 +18334,10 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
     /\.surgefeed > li > \.surgeexplain\s*\{[^}]*width:\s*100%/,
     'the explanation row no longer spans the full card width');
   rows.forEach((row) => {
-    assert.ok(row.querySelector(':scope > .name > .ntext > .sub > .surgefacts'),
-      'the code/count/place/date line is not under the name in the same cell');
+    assert.ok(row.querySelector(':scope > .surgeexplain > .surgeexplainextra > .surgefacts'),
+      'the code/count/place/date line is not below the category headline');
+    assert.equal(row.querySelector('.name .surgefacts'), null,
+      'the facts must not also remain under the bird name');
     assert.ok(row.querySelector(':scope > .surgeexplain > b'),
       'the bold category explanation is not a separate full-width row');
     assert.equal(row.querySelector(':scope > .surgebody'), null,
@@ -18238,15 +18353,21 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
   assert.equal(mega.querySelector(':scope > .surgeexplain > .surgebadge').textContent.trim(),
     'MEGA');
   const facts = mega.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
-  assert.match(facts, /^NABO x1 - Smith Island - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] · S123456789$/i,
-    'the second line must retain ALPHA, count, place, compact date and supporting checklist ID');
+  assert.match(facts, /^NABO x1 - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] - S123456789$/i,
+    'the extra facts must retain ALPHA, count, compact date and supporting checklist ID');
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/^Mega rarity Nazca Booby at Smith Island/);
+  assert.equal(app.document.querySelector('[data-alert-kind="need"] .surgealerttitle').textContent,
+    'Celebrity bird American Golden-Plover at Boe Road');
+  for (const [kind,prefix] of [['crowd','Crowding to see '],['cascade','Leaderboard lit up by ']]) {
+    assert.equal(app.document.querySelector('[data-alert-kind="'+kind+'"] .surgealerttitle')
+      .firstChild.textContent,prefix);
+  }
   const evidenceLink = mega.querySelector('.surgeabsolute a');
   assert.equal(evidenceLink.getAttribute('data-href'), 'https://ebird.org/checklist/S123456789');
-  const hotspotLink = mega.querySelector('.surgefacts .hslink');
-  assert.ok(Number(app.window.getComputedStyle(hotspotLink).fontWeight) >= 700,
-    'F848 clickable hotspot name must be bold');
-  assert.match(HTML, /\.surgefacts\s*\{[^}]*font-size:\s*calc\(15px \* var\(--s\)\)/,
-    'F848 evidence line must be 15px before text scaling');
+  const hotspotLink = mega.querySelector('.surgealerttitle .hslink');
+  assert.ok(hotspotLink,'the place must remain linked in the headline');
+  assert.match(HTML, /\.surgefacts\s*\{[^}]*font-size:\s*inherit/,
+    'F954 facts must inherit the existing extra font size');
   assert.doesNotMatch(facts, /nazboo1|\d+(?:\.\d+)?mi\b/i,
     'the second line still includes the eBird code or distance');
   assert.equal(mega.querySelector('.surgeexplain b').textContent.trim(),
@@ -18261,6 +18382,285 @@ test('F302 Bird Gen renders one always-visible three-line news card', async () =
   assert.equal(app.$('surgeResults').querySelector('[data-sec="sec-lastNewBtn"]'), null,
     'the removed Leader Board Ticks footer link is still present');
   app.window.close();
+});
+
+test('F954 every alert keeps its original extra after matching-style observation facts', async () => {
+  const app = await boot();
+  try {
+    const host = app.document.createElement('ul');
+    host.className='surgefeed obs card-sm';
+    app.document.body.appendChild(host);
+    for (const kind of Object.keys(app.window.BirdInfoDialogs.alertKinds)) {
+      const row = {
+        kind, name:'Example bird', code:'example', alpha:'EXAM', count:3, rare:true,
+        where:'Example public marsh', when:'2026-09-02 12:00',
+        time:Date.parse('2026-09-02T12:00:00'), checklistId:'SF954',
+        why:'Original reason', noteHeader:'Original alert headline',
+        extra:'<b data-original-extra>Original category evidence</b>'
+      };
+      host.innerHTML = app.window.__app.surgeAlertCard(row,0);
+      const extra = host.querySelector('.surgeexplainextra');
+      const facts = extra.querySelector('.surgefacts');
+      const birdPlace = !['ppte','hotspot','patch','migration'].includes(kind);
+      assert.equal(host.querySelector('.surgealerttitle').textContent,
+        'Example bird'+(birdPlace?' at Example public marsh':''),kind);
+      const birdName=host.querySelector('.surgebirdname');
+      assert.equal(!!birdName,birdPlace,kind+' only species headlines get bird-name styling');
+      if (birdName) {
+        assert.equal(birdName.textContent,'Example bird',kind);
+        assert.equal(app.window.getComputedStyle(birdName).fontWeight,'700',kind);
+      }
+      assert.equal(host.querySelector('.surgebirdtag'),null,kind);
+      assert.equal(host.querySelector('.name .surgefacts'),null,kind);
+      assert.equal(host.querySelectorAll('[data-original-extra]').length,1,kind);
+      assert.equal(host.querySelector('.surgeexplain > b').textContent,
+        'Original alert headline!',kind);
+      if (kind === 'ppte') {
+        assert.equal(facts,null,'PPTE must keep its event-specific evidence only');
+      } else {
+        assert.equal(extra.firstElementChild,facts,kind+' facts precede existing extra');
+        assert.equal(host.querySelectorAll('.surgefacts').length,1,kind);
+        assert.match(facts.textContent,/EXAM x3 - .*SF954/,kind);
+        assert.equal(facts.textContent.includes('Example public marsh'),!birdPlace,kind);
+        assert.match(facts.querySelector('.surgeabsolute a').dataset.href,/SF954$/,kind);
+        assert.match(facts.querySelector('.surgeabsolute a').textContent,/ - SF954$/,kind);
+      }
+      assert.ok(extra.textContent.endsWith('Original category evidence'),kind);
+      assert.equal(app.window.getComputedStyle(extra.querySelector('b')).fontWeight,'400',kind);
+      if (kind !== 'ppte') assert.match(extra.textContent,/SF954 - Original category evidence$/,kind);
+      host.innerHTML = app.window.__app.surgeAlertCard({...row,extra:''},0);
+      assert.equal(host.querySelectorAll('.surgefacts').length,kind==='ppte'?0:1,
+        kind+' facts cannot depend on previously having extra evidence');
+    }
+    assert.match(HTML,/\.surgefacts\s*\{[^}]*color:\s*inherit[^}]*font-size:\s*inherit[^}]*line-height:\s*inherit/,
+      'facts must inherit the existing extra typography, not their former 15px style');
+    const headlineRule=[...app.document.styleSheets]
+      .flatMap(sheet=>[...sheet.cssRules]).find(rule=>rule.selectorText==='.surgealerttitle');
+    assert.ok(headlineRule,'the shared headline rule must exist');
+    assert.equal(headlineRule.style.getPropertyValue('font-weight'),'600');
+    assert.equal(headlineRule.style.getPropertyValue('font-size'),'calc(16px * var(--s))');
+    assert.equal(headlineRule.style.getPropertyValue('color'),'var(--ink)');
+    const birdRule=[...app.document.styleSheets].flatMap(sheet=>[...sheet.cssRules])
+      .find(rule=>rule.selectorText && ['.surgefeed .surgebirdname',
+        '.surgefeed .surgealerttitle .splink'].every(selector=>
+        rule.selectorText.split(',').map(part=>part.trim()).includes(selector)));
+    assert.ok(birdRule,'single-bird and PPTE bird names share the original species styling');
+    assert.equal(birdRule.style.getPropertyValue('font-weight'),'700');
+    assert.equal(birdRule.style.getPropertyValue('color'),'var(--accent)');
+    const factsRule=[...app.document.styleSheets]
+      .flatMap(sheet=>[...sheet.cssRules]).find(rule=>rule.selectorText==='.surgefacts');
+    assert.equal(factsRule.style.getPropertyValue('display'),'inline');
+  } finally { app.window.close(); }
+});
+
+test('F956 Top Patch uses only distinct patch birds, prefers proven unseen and labels unknown history', async () => {
+  const app=await boot({sample:false});
+  try {
+    const taxa=[
+      {code:'snogoo',name:'Snow Goose'},{code:'amepip',name:'American Pipit'},
+      {code:'baisan',name:"Baird's Sandpiper"},{code:'ruff',name:'Ruff'},
+      {code:'shtsan',name:'Sharp-tailed Sandpiper'},{code:'amerob',name:'American Robin'},
+      {code:'f956nophoto',name:'Synthetic no-photo species'}
+    ];
+    await seedSeen(app,['amerob'],['American Robin'],taxa);
+    const A=app.window.__app,day=A.todayStr(),before=app.state.fetches.length;
+    const birds=taxa.map((row,i)=>({...row,comName:row.name,dateStr:day+' '+String(18-i).padStart(2,'0')+':00'}));
+    function render(species) {
+      A.renderSurge([],[],[],[],[],{deferPhotos:true},[{
+        locId:'LF956',locName:'Owned patch',band:'high yield',species
+      }]);
+      return app.$('surgeFeed').querySelector('[data-alert-kind="patch"]');
+    }
+    for (let n=0;n<=5;n++) {
+      const card=render([...birds.slice(0,n),birds[5],...birds.slice(0,n)]);
+      const tiles=[...card.querySelectorAll('.surgepatchgrid > .thumb')];
+      assert.equal(tiles.length,Math.min(n,4),'up to four distinct unseen birds, never padding with seen birds');
+      assert.deepEqual(tiles.map(tile=>tile.dataset.code),birds.slice(0,Math.min(n,4)).map(row=>row.code));
+      assert.equal(card.querySelector('.surgekindtile').textContent.trim(),'🥇');
+      assert.equal(card.dataset.hsloc,'LF956');
+      if (n) {
+        const tile=card.querySelector('.surgepatchthumb');
+        assert.equal(tile.dataset.patchBirds,'unseen');
+        assert.match(tile.getAttribute('aria-label'),/^Unseen birds at Owned patch:/);
+        tiles.forEach(bird=>assert.ok(tile.getAttribute('aria-label').includes(bird.dataset.bird)));
+      } else assert.ok(card.querySelector('.surgeplacethumb'),'all-seen/empty patches retain a meaningful fallback');
+    }
+    assert.ok(render([]).querySelector('.surgeplacethumb'));
+    assert.equal(render([birds[6]]).querySelector('.surgepatchgrid > .thumb').dataset.code,'f956nophoto',
+      'a missing bundled photograph retains the existing photo fallback slot');
+    assert.equal(app.state.fetches.length,before,'the grid performs no source acquisition');
+    await seedSeen(app,[],[],taxa);
+    assert.equal(render([birds[5]]).querySelector('.surgepatchgrid > .thumb').dataset.code,'amerob',
+      'selection rechecks changed personal membership rather than caching a seen/unseen decision');
+  } finally {app.window.close();}
+  const unknown=await boot({sample:false});
+  try {
+    unknown.window.__app.renderSurge([],[],[],[],[],{deferPhotos:true},[{
+      locId:'LUNKNOWN',locName:'Unverified-history patch',species:[
+        {code:'snogoo',comName:'Snow Goose',dateStr:recentObsStamp()}
+      ]
+    }]);
+    const tile=unknown.$('surgeFeed').querySelector('.surgepatchthumb');
+    assert.equal(tile.dataset.patchBirds,'unknown');
+    assert.match(tile.getAttribute('aria-label'),/^Birds with unknown personal history at Unverified-history patch: Snow Goose$/);
+  } finally {unknown.window.close();}
+});
+
+test('F961 every migration level and count label shares the sky and moon palette', async () => {
+  const app=await boot();
+  try {
+    const A=app.window.__app,host=app.document.createElement('div');
+    app.document.body.appendChild(host);
+    host.innerHTML=['None','Low','Medium','High','Loading']
+      .map(level=>A.birdcastLevelTile({forecast:{level}})).join('')
+      +A.birdcastCountTile({count:{birds:1800000}});
+    host.insertAdjacentHTML('beforeend',A.surgeAlertCard({
+      kind:'migration',name:'Migration forecast',why:'High movement'
+    },0));
+    const badge=host.querySelector('.surgebadge-migration');
+    const badgeRule=[...app.document.styleSheets].flatMap(sheet=>[...sheet.cssRules])
+      .find(rule=>rule.selectorText==='.surgebadge-migration');
+    assert.equal(badge.textContent,'MIGRATION','the category remains explicit without color');
+    assert.equal(badgeRule.style.background,'var(--migration-sky)');
+    assert.equal(badgeRule.style.color,'var(--migration-moon)');
+    assert.deepEqual([...host.querySelectorAll('.birdcast-flight-label')].map(node=>node.textContent),
+      ['NONE','LOW','MEDIUM','HIGH','LOADING','1.8M']);
+    for (const theme of ['light','dark']) {
+      app.document.documentElement.dataset.theme=theme;
+      assert.equal(app.window.getComputedStyle(badge).getPropertyValue('--migration-sky'),
+        app.window.getComputedStyle(host.querySelector('.birdcast-flight'))
+          .getPropertyValue('--migration-sky'),theme);
+      assert.equal(app.window.getComputedStyle(badge).color,
+        app.window.getComputedStyle(host.querySelector('.birdcast-flight-moon')).backgroundColor,theme);
+      for (const label of host.querySelectorAll('.birdcast-flight-label')) {
+        const style=app.window.getComputedStyle(label);
+        const moon=label.closest('.birdcast-flight').querySelector('.birdcast-flight-moon');
+        assert.equal(style.backgroundColor,'rgba(0, 0, 0, 0)',theme+' '+label.textContent);
+        assert.equal(style.backgroundImage,'none',theme+' '+label.textContent);
+        assert.equal(style.color,app.window.getComputedStyle(moon).backgroundColor);
+        assert.equal(app.window.getComputedStyle(label.closest('.birdcast-flight'))
+          .getPropertyValue('--migration-moon'),'#F0E442',theme+' '+label.textContent);
+      }
+    }
+  } finally {app.window.close();}
+});
+
+test('F962 FOY headlines preserve the annual-first place and checklist without inventing or exposing locations', async () => {
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app,doc=app.document;
+    const parsed=A.parseFirstYearBirdList(foySourceFixture(1));
+    const source=parsed.rows.find(row=>row.locId&&!row.sensitive);
+    assert.ok(source && source.locName,'the real-shaped annual-first source must carry a public place');
+    const day=A.todayStr(),first={...source,date:day,observedAt:day+' 08:00',previousReadDate:day};
+    function render(row) {
+      A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[row]});
+      return doc.querySelector('[data-alert-kind="foy"]');
+    }
+    let card=render(first),headline=card.querySelector('.surgealerttitle');
+    assert.equal(card.querySelector('.surgebadge').textContent,'foy');
+    assert.equal(app.window.BirdInfoDialogs.alertKinds.foy.word,'foy');
+    assert.match(doc.querySelector('[data-count-kind="foy"]').textContent,/1 foy/);
+    assert.equal(headline.textContent,'First of the year '+source.name+' at '+source.locName);
+    assert.equal(headline.querySelector('.hslink').dataset.loc,source.locId);
+    assert.match(card.querySelector('.surgeabsolute a').dataset.href,new RegExp(source.subId+'$'));
+    assert.equal(card.querySelector('.surgefacts').textContent.includes(source.locName),false);
+    card=render({...first,locId:'',locName:'Verified public field',isPrivate:false});
+    assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name+' at Verified public field');
+    card=render({...first,locId:'',locName:'',isPrivate:false});
+    assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name);
+    assert.match(card.querySelector('.surgefacts').textContent,/Location unavailable/);
+    card=render({...first,isPrivate:true});
+    assert.equal(card.querySelector('.surgealerttitle .hslink'),null,
+      'a personal location must not become a public-patch destination');
+    assert.equal(render({...first,sensitive:true}),null,
+      'withheld annual-first evidence must not acquire a place headline');
+  } finally {app.window.close();}
+});
+
+test('F958 FOY badge has white text, a dark background and a visible outline in both themes', async () => {
+  const app=await boot();
+  try {
+    const host=app.document.createElement('ul');
+    host.className='surgefeed obs card-sm';
+    app.document.body.appendChild(host);
+    host.innerHTML=app.window.__app.surgeAlertCard({
+      kind:'foy',name:'American Pipit',code:'amepip',alpha:'AMPI',
+      why:'Newly learned regional annual first'
+    },0);
+    const badge=host.querySelector('.surgebadge-foy');
+    const rule=[...app.document.styleSheets].flatMap(sheet=>[...sheet.cssRules])
+      .find(rule=>rule.selectorText==='.surgebadge-foy');
+    assert.ok(rule,'the outlined FOY badge rule must exist');
+    assert.equal(rule.style.getPropertyValue('border-color'),'var(--dark-safe-blue)');
+    assert.ok(badge);
+    assert.equal(badge.textContent,'foy','meaning must not depend on color');
+    for (const theme of ['light','dark']) {
+      app.document.documentElement.dataset.theme=theme;
+      for (const display of ['normal','high-visibility']) {
+        app.document.documentElement.dataset.display=display;
+        const style=app.window.getComputedStyle(badge);
+        assert.equal(app.window.getComputedStyle(app.document.documentElement)
+          .getPropertyValue('--dark-safe-blue').trim().toUpperCase(),'#56B4E9');
+        assert.equal(style.color,'rgb(255, 255, 255)',theme+' '+display);
+        assert.equal(style.backgroundColor,'rgb(0, 59, 92)',theme+' '+display);
+        for (const side of ['Top','Right','Bottom','Left']) {
+          assert.equal(style['border'+side+'Style'],'solid',theme+' '+display);
+          assert.equal(style['border'+side+'Width'],'2px',theme+' '+display);
+        }
+      }
+    }
+  } finally { app.window.close(); }
+});
+
+test('F960 Busy Patch repeats the crowd with its actual multiplier and rejects old weaker rows', async () => {
+  const app=await boot();
+  try {
+    app.window.__app.renderSurge([],[],[
+      {loc:'Busy public patch',locId:'LHOT',observers:9,ratio:4.5,latest:recentObsStamp()}
+    ],[],[],{},[
+      {locId:'LTOP',locName:'Example top patch',band:'high yield',species:[
+        {code:'snogoo',comName:'Snow Goose',count:1,dateStr:'2026-09-02 11:00'}
+      ]}
+    ]);
+    const hotspot=app.document.querySelector('[data-alert-kind="hotspot"]');
+    const patch=app.document.querySelector('[data-alert-kind="patch"]');
+    const image=hotspot.querySelector(':scope > .name > .surgehotspotthumb');
+    assert.ok(image,'the Hotspot image must be rendered');
+    assert.equal(image.querySelectorAll('.surgehotspotpeople > span').length,9);
+    assert.ok([...image.querySelectorAll('.surgehotspotpeople > span')]
+      .every(node=>node.textContent==='👥'));
+    assert.equal(image.querySelector('.surgehotspotpeople').getAttribute('aria-hidden'),'true');
+    assert.equal(image.querySelector('.surgehotspotmult').textContent,'4.5×');
+    assert.equal(app.window.getComputedStyle(image.querySelector('.surgehotspotmult')).position,'absolute');
+    assert.equal(image.getAttribute('role'),'img');
+    assert.match(image.getAttribute('aria-label'),/9 independent parties; 4\.5×/);
+    assert.equal(hotspot.querySelector('.surgeplacethumb'),null);
+    assert.ok(patch.querySelector('.surgepatchthumb'),'Top Patch keeps its own bird grid');
+    assert.equal(patch.querySelector('.surgehotspotthumb'),null);
+    assert.equal(patch.querySelector('.surgealerttitle').textContent,'High-yield patch at Example top patch');
+    assert.equal(hotspot.querySelector('.surgekindtile').textContent.trim(),'📍');
+    assert.equal(hotspot.querySelector('.surgebadge').textContent.trim(),'BUSY PATCH');
+    assert.match(app.document.querySelector('[data-count-kind="hotspot"]').textContent,/busy patch/);
+    assert.equal(hotspot.querySelector('.surgealerttitle .hslink').dataset.loc,'LHOT');
+    assert.equal(hotspot.querySelector('.surgealerttitle').textContent,'High traffic at Busy public patch');
+    const A=app.window.__app;
+    const row={loc:'Public place',locId:'L960',observers:5,ratio:4,latest:recentObsStamp()};
+    for (const ratio of [2.25,3,3.99,3.99999,null,NaN,Infinity,'4']) {
+      A.renderSurge([],[],[{...row,ratio}],[],[],{});
+      assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null,
+        String(ratio)+' is not verified four-times activity');
+    }
+    A.renderSurge([],[],[{...row,observers:4,ratio:10}],[],[],{});
+    assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null);
+    A.renderSurge([],[],[row],[],[],{});
+    assert.equal(app.document.querySelector('.surgehotspotmult').textContent,'4×');
+    await A.saveSurgeRetainedPart('convergence',{state:'ok',rows:[
+      {...row,locId:'LOLD',ratio:3.99999},row,
+      {...row,locId:'LFEW',observers:4,ratio:10}
+    ]});
+    assert.deepEqual(Array.from(A.loadSurgeRetained().convergence.rows,r=>r.locId),['L960']);
+  } finally {app.window.close();}
 });
 
 test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async () => {
@@ -18281,7 +18681,7 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
 
   const hotspotApp = await boot();
   hotspotApp.window.__app.renderSurge(
-    [], [], [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1,
+    [], [], [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 4.1,
       reason: 'surge', latest: stamp, eventAt: Date.parse(stamp.replace(' ', 'T')) }],
     [], []);
   const hotspot = hotspotApp.$('surgeFeed').querySelector(
@@ -18378,7 +18778,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   app.window.close();
 });
 
-test('F459 Bird Gen labels mega and rare birds beside their names', async () => {
+test('F954 removes the superseded F459 inline rarity tags without removing category badges', async () => {
   const snap = JSON.stringify({
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
     rows: [{
@@ -18410,27 +18810,20 @@ test('F459 Bird Gen labels mega and rare birds beside their names', async () => 
       'Bird Gen brought back the ambiguous icon-only R marker');
   }
   const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
-  const megaTag = mega.querySelector(':scope > .name .surgebirdtag');
-  assert.ok(megaTag, 'a mega bird has no inline MEGA tag');
-  assert.equal(megaTag.textContent.trim(), 'MEGA',
-    'a mega bird has no inline MEGA tag');
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby at Smith Island/);
+  assert.equal(mega.querySelector('.surgebadge').textContent.trim(),'MEGA');
   const rare = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
-  const cascadeTag = rare.querySelector(':scope > .name .surgebirdtag');
-  assert.ok(cascadeTag, 'a seen rare bird categorized as CASCADE has no inline RARE tag');
-  assert.equal(cascadeTag.textContent.trim(), 'RARE',
-    'a seen rare bird categorized as CASCADE has no inline RARE tag');
-  const needTag = app.$('surgeFeed').querySelector('[data-alert-kind="need"] .surgebirdtag');
-  assert.ok(needTag, 'an unseen rare bird has no inline RARE tag');
-  assert.equal(needTag.textContent.trim(),
-    'RARE', 'an unseen rare bird has no inline RARE tag');
+  assert.equal(rare.querySelector('.surgebadge').textContent.trim(),'CASCADE');
+  assert.equal(app.$('surgeFeed').querySelector('[data-alert-kind="need"] .surgebadge').textContent.trim(),
+    'CELEBRITY');
   assert.equal(rare.querySelector('.surgefacts .spalpha').textContent.trim(), 'COTE',
-    'adding the rare tag removed the four-letter bird code');
-  assert.equal(app.$('surgeFeed').querySelectorAll('.surgebirdtag').length, 3,
-    'a non-rare Bird Gen bird received an intrinsic rarity tag');
+    'removing the rarity tag must not remove the four-letter bird code');
+  assert.equal(app.$('surgeFeed').querySelectorAll('.surgebirdtag').length, 0,
+    'inline rarity tags must not remain on any Bird Gen card');
   app.window.close();
 });
 
-test('F465 Bird Gen prefers Mega over Rare when fresh local news wins', async () => {
+test('F465/F954 fresh local news retains Celebrity without an inline Mega tag', async () => {
   const oldMegaStamp = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
     .toISOString().slice(0, 16).replace('T', ' ');
   const freshStamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -18457,8 +18850,8 @@ test('F465 Bird Gen prefers Mega over Rare when fresh local news wins', async ()
   assert.deepEqual(
     [...row.querySelectorAll(':scope > .name .surgebirdtag')]
       .map((tag) => tag.textContent.trim()),
-    ['MEGA'],
-    'the held ABA Mega classification was lost when fresh local rarity news won');
+    [],
+    'the held ABA Mega classification must not restore an inline headline tag');
   assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
     'CELEBRITY', 'the intrinsic tags replaced the current alert category');
   app.window.close();
@@ -18470,7 +18863,8 @@ test('F302 a name-only Cascade opens Stakeout search and explains its scope gap'
   app.window.__app.renderSurge([], [{
     species: 'Common Ostrich', code: '',
     birders: [{ name: 'A', rank: 1 }, { name: 'B', rank: 2 }],
-    latest: stamp, recent: [], locationState: 'failed',
+    latest: stamp, recent: [{lat:47.75,lng:-122.16,locName:'Public shore',obsDt:stamp}],
+    locationState: 'failed',
   }], [], [], []);
 
   const row = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
@@ -18544,7 +18938,8 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
       ratio: 5, loc: 'Near Home Jetty', locId: 'LM', lat: 47.8, lon: -122.17,
       latest: newest, subId: 'SC', distMi: 6 }],
     [{ species: 'Nazca Booby', code: '',
-      birders: [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }],
+      birders: [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 },
+        {name:'Sample third',rank:5},{name:'Sample fourth',rank:6},{name:'Sample fifth',rank:7}],
       latest: localStamp(15),
       recent: [{ obsDt: localStamp(15), locName: 'Marymoor Park',
         lat: 47.76, lng: -122.17, subId: 'SK' }] }],
@@ -18570,8 +18965,8 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     'the weaker source reason was discarded during dedupe');
   assert.match(row.dataset.surgeReasonText, /CASCADE:/,
     'a code-less cascade for the same named species escaped dedupe');
-  assert.match(row.dataset.surgeReasonText, /2 of the top 100 added it within 3 days/,
-    'the cascade reason or its real two-birder threshold was discarded');
+  assert.match(row.dataset.surgeReasonText, /5 of the top 100 added it in the past 7 days/,
+    'the cascade reason or its five-person lookback was discarded');
   assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
     'MEGA', 'the strongest category is not the explanation-row badge');
   assert.match(row.querySelector('.surgeexplain b').textContent,
@@ -18706,7 +19101,7 @@ test('Bird Gen hotspot news performs no hidden species or checklist hydration', 
   assert.equal(hotspot.querySelectorAll('.ictag').length, 0,
     'Bird Gen still runs hidden iconic scoring for a list it no longer shows');
   assert.match(hotspot.querySelector('.surgeexplain').textContent,
-    /10× this hotspot’s own norm/,
+    /10× this patch’s own norm/,
     'the removed detail drawer took the reason the hotspot is news with it');
   const renderSrc = HTML.slice(HTML.indexOf('function renderSurge('),
     HTML.indexOf('function loadSurge('));
@@ -19832,9 +20227,9 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
 
   const row = app.document.querySelector('[data-alert-kind="cascade"]');
   const summary = row.querySelector('.surgefacts');
-  assert.match(summary.textContent, /Farther New Report/,
+  assert.match(row.querySelector('.surgealerttitle').textContent, /Farther New Report/,
     'the newest date is paired with a different, older place');
-  assert.doesNotMatch(summary.textContent, /Nearest Old Report/,
+  assert.doesNotMatch(row.textContent, /Nearest Old Report/,
     'the compact tuple still mixes the nearest place with the newest checklist');
   assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
     'Newest sorting uses the actual newest cascade report');
@@ -19846,7 +20241,9 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
   A.renderSurge([], [{
     species: 'Date Only Bird', code: 'datebir',
     birders: [{ name: 'A', rank: 1 }, { name: 'B', rank: 2 }],
-    latest: '2026-09-02', recent: [], locationState: 'failed',
+    latest: '2026-09-02', recent: [
+      {obsDt:'2026-09-02',lat:47.75,lng:-122.16,locName:'Retained public shore'}
+    ], locationState: 'failed',
   }], [], [], [], {
     mega: 'notApplicable', observations: 'ok', leaderboard: 'failed', hotspots: 'notApplicable',
   });
@@ -19879,7 +20276,7 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
     'the compact tuple still mixes nearest-place text with the newest date');
   assert.match(row.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/);
   const facts = row.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
-  assert.match(facts, /x7 - Newest Pond - /,
+  assert.match(facts, /x7 - /,
     'the CELEBRITY line does not keep the latest count with its place/date');
   assert.doesNotMatch(facts, /\d+(?:\.\d+)?mi\b|x2/i,
     'mileage or the older checklist count leaked into the compact fact line');
@@ -20147,8 +20544,8 @@ test('Happening now merges populated signals without burying the hotspot', async
     'the section help still advertises category-first ordering');
   assert.doesNotMatch(how, /independent lanes/i,
     'the section help still describes the removed visual lanes');
-  assert.match(how, /CASCADE: 2\+ of the region's top 100/,
-    'the section help repeated the obsolete 3-birder cascade threshold');
+  assert.match(how, /CASCADE: 5\+ distinct people from the region's top 100/,
+    'the section help must state the approved five-person threshold');
   assert.match(how, /species-blind/,
     'the hotspot lane no longer explains why it is notable, in the section or the dialog');
   assert.match(how, /CELEBRITY/,
@@ -34334,6 +34731,9 @@ test('F744 and F745 real Mass Flock/Favorite badges are framed and route only to
     locId: 'L-FAVORITE', locName: 'Synthetic Favorite patch',
     when: recentObsStamp(), lat: 47.6, lng: -122.3 };
   A.renderSurge([], [], [], [], [], {}, [], [favorite], [flock]);
+  const favoriteTitle=app.$('surgeFeed').querySelector('[data-alert-kind="favorite"] .surgealerttitle');
+  assert.equal(favoriteTitle.textContent,favorite.name+' at favorite patch '+favorite.locName);
+  assert.equal(favoriteTitle.querySelector('.hslink').dataset.loc,favorite.locId);
   for (const kind of ['mass', 'favorite']) {
     const card = app.$('surgeFeed').querySelector(`[data-alert-kind="${kind}"]`);
     assert.ok(card);
@@ -34347,6 +34747,8 @@ test('F744 and F745 real Mass Flock/Favorite badges are framed and route only to
     }
   }
   let card = app.$('surgeFeed').querySelector('[data-alert-kind="mass"]');
+  assert.equal(card.querySelector('.surgealerttitle').textContent,
+    'Flock of '+flock.name+' at '+flock.locName);
   const head = card.querySelector(':scope > .name');
   assert.match(head.getAttribute('aria-label') || '', /Synthetic supporting patch.*Stakeout hotspot/);
   head.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -34363,6 +34765,9 @@ test('F744 and F745 real Mass Flock/Favorite badges are framed and route only to
   A.renderSurge([], [], [], [], [], {}, [], [], [{ ...flock, locId: '', locations: [] }]);
   card = app.$('surgeFeed').querySelector('[data-alert-kind="mass"]');
   assert.match(card.textContent, /Patch destination unavailable/);
+  assert.equal(card.querySelector('.surgealerttitle').textContent,
+    'Flock of '+flock.name+' at '+flock.locName,
+    'a plain-text place must remain in the flock headline without a link target');
   assert.equal(card.querySelector(':scope > .name').getAttribute('role'), null);
   app.window.close();
 });
@@ -38721,7 +39126,7 @@ test('F787 supersedes F526 with newest event first and no sort control', async (
         latest: localStamp(120), subId: 'SR', distMi: 31 },
     ],
     [{ species: 'Northern Waterthrush', code: 'norwat',
-      birders: [{ name: 'Brian', rank: 3 }, { name: 'Liam', rank: 4 }],
+      birders: ['Brian','Liam','Third','Fourth','Fifth'].map((name,i)=>({name,rank:i+1})),
       latest: localStamp(60),
       recent: [{ obsDt: localStamp(60), locName: 'Union Bay Natural Area',
         lat: 47.76, lng: -122.17, subId: 'SK' }] }],
@@ -38803,7 +39208,7 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
       latest: localStamp(60),
       recent: [{ obsDt: localStamp(60), locName: 'Union Bay Natural Area',
         lat: 47.76, lng: -122.17, subId: 'SK' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 3.1,
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, ratio: 4.1,
       reason: 'surge', latest: localStamp(30),
       eventAt: Date.parse(localStamp(30).replace(' ', 'T')) }],
     [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
@@ -38836,19 +39241,20 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
   const mega = feed.querySelector('[data-alert-kind="mega"]');
   const identifier = mega.querySelector('.surgefacts');
   assert.ok(identifier, 'the Bird Gen row does not carry the identifier and facts');
-  assert.match(identifier.textContent, /NABO x1 - Ocean Shores Jetty/,
-    'the four-letter code, count and place are not together on the next line');
+  assert.match(identifier.textContent, /^NABO x1 - /);
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby at Ocean Shores Jetty/);
+  assert.equal(identifier.textContent.includes('Ocean Shores Jetty'),false,
+    'the headline place must not repeat in observation facts');
   assert.equal(mega.querySelector('.ntext > .spcode'), null,
     'the eBird code still competes with the common name');
   const compact = identifier.textContent.replace(/\s+/g, ' ').trim();
   const absolute = identifier.querySelector('.surgeabsolute').textContent.trim();
   const countAt = compact.indexOf('x1');
-  const placeAt = compact.indexOf('Ocean Shores Jetty');
   const dateAt = compact.indexOf(absolute);
-  assert.match(absolute, /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] · SM1$/,
+  assert.match(absolute, /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] - SM1$/,
     'F848 compact evidence must state month, day, time and linked checklist ID');
-  assert.ok(countAt >= 0 && countAt < placeAt && placeAt < dateAt,
-    'count, place and latest time are not ordered on the compact fact line');
+  assert.ok(countAt >= 0 && countAt < dateAt,
+    'count and latest time are not ordered on the compact fact line');
   assert.doesNotMatch(compact, /\d+(?:\.\d+)?mi\b/i,
     'the compact fact line still includes mileage');
   assert.equal(mega.querySelector('.splink').getAttribute('data-sp'), 'nazboo1',
@@ -42296,11 +42702,13 @@ test('F763 latest mega checklist owns the compact tuple while repeated-hotspot e
   app.window.__app.renderSurge([], [], [], []);
   const row = app.document.querySelector('[data-alert-kind="mega"]');
   const summary = row.querySelector('.surgefacts');
-  assert.match(summary.textContent, /x1 - Nearby Newer Pin/);
+  assert.match(summary.textContent, /x1 - /);
+  assert.match(row.querySelector('.surgealerttitle').textContent,/at Nearby Newer Pin/);
+  assert.doesNotMatch(summary.textContent,/Nearby Newer Pin/);
   assert.doesNotMatch(summary.textContent, /Repeated Hotspot/);
   assert.match(summary.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEWER/,
     'the date must open the latest qualifying checklist, not an older repeated report');
-  assert.equal(summary.querySelector('.hslink').getAttribute('data-loc'), 'LNEARBY',
+  assert.equal(row.querySelector('.surgealerttitle .hslink').getAttribute('data-loc'), 'LNEARBY',
     'the latest-checklist location must remain actionable');
   assert.match(row.dataset.surgeReasonText, /Repeated Hotspot/);
   assert.doesNotMatch(row.dataset.surgeReasonText, /Nearby Newer Pin/,
@@ -42346,8 +42754,11 @@ test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', 
   const row = app.document.querySelector('[data-alert-kind="mega"]');
   const facts = row.querySelector('.surgefacts');
   assert.match(facts.textContent.replace(/\s+/g, ' ').trim(),
-    /^NABO x7 - Smith Island - /,
+    /^NABO x7 - /,
     'the same checklist can fill its unknown bird count without splitting the tuple');
+  assert.equal(row.querySelector('.surgealerttitle .hslink').dataset.loc,'L1');
+  assert.match(row.querySelector('.surgealerttitle').textContent,/at Smith Island$/);
+  assert.doesNotMatch(facts.textContent,/Smith Island/);
   assert.doesNotMatch(facts.textContent, /x1|x4/,
     'a report or sighting count must not become a bird multiplier');
   assert.match(facts.querySelector('.surgeabsolute a').getAttribute('data-href'), /SAME/,
@@ -43941,7 +44352,7 @@ test('the stakeout day count survives one unreported day, but not two', () => {
 });
 
 // The busy-hotspot gate, and the reason it can be raised at all.
-test('the busy-hotspot lane matches the rules its own documentation publishes', () => {
+test('F960 the busy-patch lane has no lower-ratio crowd exception', () => {
   // docs/HAPPENING-NOW.md has published 5 observers and 3x for a while; the
   // code shipped 3 and 3. Two copies of one rule, drifting in the direction
   // that makes the lane noisier than its spec.
@@ -43950,12 +44361,8 @@ test('the busy-hotspot lane matches the rules its own documentation publishes', 
   // not exported, so `BL.CONVERGE_MIN_OBSERVERS ?? 5` would read 5 whatever the
   // code said — a check that cannot fail, which is worse than no check.
   const src = fs.readFileSync(path.join(__dirname, '..', 'www', 'logic.js'), 'utf8');
-  assert.match(src, /var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 3;/,
-    'CONVERGE_MIN_OBSERVERS/RATIO no longer match HAPPENING-NOW.md (5 and 3x)');
-  // The "crowd" path must not become a lower back door than the ordinary gate.
-  assert.match(src, /var CONVERGE_BUSY_ABS = 5,/,
-    'the crowd path admits a smaller number than the main gate, so the higher '
-    + 'bar is decorative');
+  assert.match(src, /var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 4;/);
+  assert.doesNotMatch(src,/CONVERGE_BUSY_(?:ABS|RATIO)/);
 });
 
 // ── A LOG THAT RECORDS TRAFFIC BUT NOT DECISIONS CANNOT DIAGNOSE ──────────

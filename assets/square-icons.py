@@ -281,6 +281,8 @@ OVERRIDES = {
 # source-edge feathers and bills visibly clear at the 56px card size without
 # introducing the flat grey bars that originally prompted square assets.
 FIT_OVERRIDES = {
+    # F957. The automatic square removes the leftmost tail; keep the full bird.
+    'rosgoo.jpg',
     # F829. The 250x179 source has its bill near x=45; the automatic square
     # starts at x=71 and cuts the face off. Keep the complete credited bird.
     'pygnut.jpg',
@@ -323,6 +325,7 @@ FIT_CROP_OVERRIDES = {
 # resets it. An override is a judgement about ONE PICTURE; silently carrying it
 # onto a different picture is how a hand-checked fix becomes a hand-made bug.
 OVERRIDE_SRC_SHA = {
+    'rosgoo.jpg': '70ab6a3522b077cc',
     'mouchi.jpg': '45fbfde1f7dca84f',
     'pygnut.jpg': 'a02b9d232a5656e6',
     'reshaw.jpg': '0c528c1c259026f4',

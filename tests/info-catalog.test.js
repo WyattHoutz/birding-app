@@ -115,8 +115,8 @@ test('popup prose is read from separate shared sources', () => {
     new RegExp(`${BL.NEED_MIN_SIGHTINGS} or more independent sightings`),
     'the sample stopped reading the live Celebrity threshold');
   assert.match(birdGen.bodyHtml,
-    new RegExp(`${BL.CASCADE.MIN_BIRDERS}\\+ of the top 100 within `
-      + `${BL.CASCADE.WINDOW_DAYS} days`),
+    new RegExp(`${BL.CASCADE.MIN_BIRDERS}\\+ distinct people from the top 100 in the past `
+      + `${BL.CASCADE.WINDOW_DAYS} calendar days`),
     'the sample stopped reading the live Cascade thresholds');
   assert.match(birdGen.bodyHtml, /Current feed:.*3 active alerts.*3h ago/s,
     'the conditional sample is not visibly represented');

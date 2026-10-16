@@ -67,6 +67,17 @@ test('F942 Mountain Chickadee retains its source-pinned owner-selected full-box 
     '348b5eba6600d4f034dc21ad5bf969ac743fa08fbdb85ca0e8d73f7236ac13f5');
 });
 
+test("F957 Ross's Goose preserves the complete credited source, including its tail", () => {
+  assert.match(tableBody('FIT_OVERRIDES'), /'rosgoo\.jpg'/);
+  assert.match(tableBody('OVERRIDE_SRC_SHA'), /'rosgoo\.jpg': '70ab6a3522b077cc'/);
+  const output=fs.readFileSync(path.join(ROOT,'www','assets','birds','rosgoo.jpg'));
+  assert.deepEqual(jpegSize(output),{w:167,h:167});
+  assert.equal(sha256Hex(output),
+    '65af23c3250cfa3c58677e744206ff5c39857dc45bbe1f572b023e8ed1e5755e');
+  const credits=fs.readFileSync(path.join(ROOT,'www','assets','birds','CREDITS.md'),'utf8');
+  assert.match(credits,/\| `rosgoo` \|.*Andrew C.*CC BY 2\.0/);
+});
+
 test('F829 Pygmy Nuthatch preserves the full credited bird instead of clipping its face', () => {
   assert.match(tableBody('FIT_OVERRIDES'), /['"]pygnut\.jpg['"]/,
     'Pygmy Nuthatch can return to the face-clipping automatic square');

@@ -47,26 +47,26 @@
     },
     cascade: {
       priority: 5, word: 'CASCADE', glyph: '🏆', name: 'Leaderboard cascades',
-      description: 'Several Top 100 birders recently added the same species within a qualifying short window; sighting evidence supplies the destination.'
+      description: 'At least five distinct Top 100 birders added the same species in the past seven calendar days, with the latest addition within three days. Distant destinations need public sighting evidence within three days; leaderboard interest does not prove independent reporting parties.'
     },
     favorite: {
       priority: 6, word: 'FAVORITE PATCH', glyph: '★', name: 'Favorite Patch birds',
       description: 'Fresh birds missing from your selected personal list, reported at one of your saved patches.'
     },
     hotspot: {
-      priority: 7, word: 'HOTSPOT', glyph: '📍', name: 'Unusually busy hotspots',
-      description: 'Places drawing more reporting activity than their own usual baseline, regardless of which species caused it.'
+      priority: 7, word: 'BUSY PATCH', glyph: '📍', name: 'Unusually busy patches',
+      description: 'At least five independent parties in 36 hours and at least four times the place’s own historical daily baseline. No lower-multiplier crowd exception; without a baseline there is no alert. The multiplier compares recent parties with historical observers per day, not equal-length windows. This signal is species-blind.'
     },
     patch: {
       priority: 8, word: 'TOP PATCH', glyph: '🥇', name: 'High-yield top patches',
       description: 'The highest-yield destinations from the complete current chase view, compared with that view’s median patch score.'
     },
     foy: {
-      priority: 9, word: 'FOY', glyph: '📅', name: 'First-of-year reports',
+      priority: 9, word: 'foy', glyph: '📅', name: 'First-of-year reports',
       description: 'Newly learned first regional reports this year. These can describe earlier dates and do not establish current presence.'
     },
     ppte: {
-      priority: 10, word: 'PPTE',
+      priority: 10, word: 'patagonia',
       glyph: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h18M8 8 4 21M16 8l4 13M1 15h22"/></svg>',
       name: 'Patagonia picnic table effect',
       description: 'A celebrity-style rarity plus a subsequently reported rarity at the same actual site, not merely two rare birds together. The attracting bird needs the Celebrity threshold of four separate recent sightings; shared same-minute visits count once across site aliases. Each bird needs a latest report-date age of at most three calendar days, plus two checklists and two reporting names on the same qualification day. The anchor must appear on an earlier captured date; this does not prove first discovery or causation. Mega status is not required. Qualifying PPTE events are ordered nearest first, with unknown distances last; farther events remain visible. Bird and place links have no underline. Bird names open Stakeout bird; the place opens the exact public patch or focused Twitches evidence. Small print gives the qualification date, known straight-line distance from the selected origin and qualification-day report counts, not individual birds. Unknown distance is omitted. Only known inside-radius events mention the chase area.'
@@ -151,11 +151,13 @@
         body: '<p>eBird\u2019s Top 100 board prints, for each birder, the <b>most '
           + 'recent species they added</b> this year. Group that column by bird '
           + 'and it becomes a chase board: when several of the top 100 add the '
-          + '<b>same</b> species within a few days, that bird is demonstrably '
-          + 'findable right now.</p>'
-          + '<p>That is the whole rule — <b>' + BL.CASCADE.MIN_BIRDERS
-          + '+ of the top 100 within ' + BL.CASCADE.WINDOW_DAYS
-          + ' days</b>. It is not a rarity feed, so a bird can appear here '
+          + '<b>same</b> species, that is evidence of recent interest, not proof '
+          + 'of independent parties or continued presence.</p>'
+          + '<p>Require <b>' + BL.CASCADE.MIN_BIRDERS
+          + '+ distinct people from the top 100 in the past ' + BL.CASCADE.WINDOW_DAYS
+          + ' calendar days</b>, with the latest addition within '
+          + BL.CASCADE.MAX_AGE_DAYS + ' calendar days. Each person counts once; '
+          + 'future and older additions do not count. It is not a rarity feed, so a bird can appear here '
           + 'without being flagged rare anywhere, and a mega nobody has ticked '
           + 'yet will not appear at all.</p>'
           + '<p>This category sees the <b>whole region</b>, including counties your '
@@ -164,6 +166,12 @@
           + '<p>The board names the bird and the date and <i>nothing else</i>, so '
           + 'the place and time on each row come from a species-scoped state '
           + 'feed. That is where to actually go.</p>'
+          + '<p>Nearby sightings keep the existing local selection rules and may '
+          + 'be older. Outside your chase radius there is no distance cap within '
+          + 'the active region, but the public sighting used must be within '
+          + BL.CASCADE.MAX_AGE_DAYS + ' calendar days. Home, public-place and valid-coordinate '
+          + 'checks still apply. Distant alerts explicitly show that they are outside '
+          + 'your chase area, their distance and the evidence dates.</p>'
       },
       busy: {
         title: '📍 Hotspots unusually busy',
@@ -250,15 +258,18 @@
         + 'flock and place news remain useful even for species already seen.</p>'
         + '<p>If one species qualifies more than once, it appears once under '
         + 'its strongest category and keeps every qualifying reason on that '
-        + 'row in accessible category metadata. The visible third line explains '
+        + 'row in accessible category metadata. The visible category headline explains '
         + 'the strongest category. Place-specific favorite and flock stories remain separate.</p>'
         + '<p>Select a category/count tag to show only that category. The selected tag has '
         + 'a checkmark and emphasized border; select it again to show all alerts. '
         + 'The filter survives incoming results but resets whenever Bird Gen opens or refreshes. '
         + 'It is not saved, and filtering makes no network requests.</p>'
-        + '<p>Every card has three lines: name plus category; four-letter code, '
-        + '<b>xN</b>, bold linked place and linked compact date with checklist ID; then a bold category '
-        + 'explanation. The alert icon and relative age remain at the right. '
+        + '<p>Bird headlines read <b>species name at place</b>, with no inline RARE or MEGA tag. '
+        + 'The category badge and bold explanation sit below the headline. '
+        + 'Four-letter code, <b>xN</b> and linked compact date with checklist ID come first '
+        + 'in the extra evidence below, using the same small-print styling; existing evidence '
+        + 'and caveats follow. PPTE keeps its event-specific evidence. '
+        + 'The alert icon and relative age remain at the right. '
         + 'The whole headline opens Stakeout bird or Stakeout hotspot; this '
         + 'news feed does not expand into report, species or checklist lists.</p>'
         + '<p>Slow loading: fresh scans may take 30 seconds or more; broad scans '

@@ -1505,6 +1505,10 @@
       font-size: calc(14px * var(--s)); font-weight: 900; line-height: 1;
       letter-spacing: .04em; text-align: center;
     }
+    .birdcast-flight, .surgebadge-migration {
+      --migration-moon: #F0E442;
+      --migration-sky: linear-gradient(155deg, #06152F, #0B2A50);
+    }
     .birdcast-flight {
       --migration-art: none;
       position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: end center;
@@ -1515,7 +1519,7 @@
         radial-gradient(circle at 78% 24%, #fff 0 1px, transparent 1.5px),
         radial-gradient(circle at 32% 49%, #9CC9EA 0 1px, transparent 1.5px),
         radial-gradient(circle at 88% 57%, #fff 0 1px, transparent 1.5px),
-        linear-gradient(155deg, #06152F, #0B2A50);
+        var(--migration-sky);
     }
     .birdcast-flight::before {
       content: ''; position: absolute; z-index: -1; inset: 1px 0 18px;
@@ -1524,7 +1528,7 @@
     .birdcast-flight-moon {
       position: absolute; z-index: 1; right: 5px; top: 4px;
       width: 14px; height: 14px; border-radius: 50%;
-      background: #F0E442; box-shadow: 0 0 5px rgba(240, 228, 66, .6);
+      background-color: var(--migration-moon); box-shadow: 0 0 5px rgba(240, 228, 66, .6);
     }
     .birdcast-flight-moon::after {
       content: ''; position: absolute; left: 5px; top: -2px;
@@ -1535,7 +1539,7 @@
     .birdcast-flight-high { --migration-art: url("assets/migration-high.png"); }
     .birdcast-flight-label {
       display: block; width: 100%; padding: 4px 2px; box-sizing: border-box;
-      background: rgba(2, 12, 30, .84); color: #fff;
+      background: transparent; color: var(--migration-moon);
       font-size: calc(16px * var(--s)); font-weight: 900;
       letter-spacing: .06em; line-height: 1; text-align: center;
       white-space: nowrap; overflow-wrap: normal;
@@ -2326,11 +2330,11 @@
                   font-size: calc(10.5px * var(--s)); font-weight: 800;
                   letter-spacing: .035em; line-height: 1.1; padding: 2px 6px;
                   border-radius: 6px; white-space: nowrap; }
-    .surgefacts { display: block; color: var(--muted);
-                  font-size: calc(15px * var(--s)); line-height: 1.35; }
-    .surgefeed .ntext .surgefacts .hslink { font-weight: 700; font-size: inherit; }
+    .surgefacts { display: inline; color: inherit;
+                  font-size: inherit; line-height: inherit; }
+    .surgefeed .surgefacts .hslink { font-weight: inherit; font-size: inherit; }
     .surgefacts .extlink { font-size: inherit; }
-    .surgefeed.obs.card-sm .ntext .surgefacts .spalpha { margin-left: 0; }
+    .surgefeed.obs.card-sm .surgefacts .spalpha { margin-left: 0; }
     .surgefactsep { white-space: nowrap; }
     .surgefeed > li > .surgeexplain {
       display: block; box-sizing: border-box; width: 100%;
@@ -2339,7 +2343,27 @@
     }
     .surgeexplain > .surgebadge { margin-right: 6px; vertical-align: 1px; }
     .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
-    .surgealerttitle { display: inline; }
+    .surgealerttitle { display: inline; font-size: calc(16px * var(--s));
+                       font-weight: 600; color: var(--ink); }
+    .surgefeed .surgealerttitle a,
+    .surgefeed .surgealerttitle .ppte-connector { font-weight: inherit; font-size: inherit; }
+    .surgefeed .surgebirdname,
+    .surgefeed .surgealerttitle .splink { font-weight: 700; color: var(--accent); }
+    .surgehotspotthumb { position: relative; display: flex; align-items: center; justify-content: center;
+                        background: #f2f6f9; border: 1px solid #d7e2e9;
+                        font-size: calc(32px * var(--s)); line-height: 1; }
+    .surgehotspotpeople { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                         align-items: center; justify-items: center; width: 100%; height: 100%;
+                         font-size: calc(16px * var(--s)); line-height: 1; }
+    .surgehotspotmult { position: absolute; right: 0; bottom: 0;
+                       background: #003B5C; color: #fff; border: 1px solid #fff;
+                       border-radius: 4px; padding: 1px 3px;
+                       font-size: calc(12px * var(--s)); font-weight: 800; line-height: 1.1; }
+    .surgepatchgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+                      grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1px;
+                      width: 100%; height: 100%; overflow: hidden; }
+    .surgefeed.obs.card-sm .surgepatchgrid > .thumb { width: 100%; height: 100%; min-height: 0;
+                                       margin: 0; border: 0; border-radius: 0; }
     .surgefeed .ppte-bird-composite {
       position: relative; overflow: visible; isolation: isolate;
       background: transparent; border: 0; border-radius: 0; box-shadow: none;
@@ -2366,6 +2390,9 @@
     .surgefeed [data-alert-kind="ppte"] .surgealerttitle .splink { text-decoration: none; }
     .surgefeed .ppte-connector { color: var(--ink); font-weight: 400; }
     .surgefeed .ppte-evidence { font-size: calc(12px * var(--s)); font-weight: 400; }
+    .surgefeed .surgeexplainextra,
+    .surgefeed .surgeexplainextra * { font-size: inherit; font-weight: 400; line-height: inherit; }
+    .surgefeed .surgeexplainextra .extlink { display: inline; margin-top: 0; }
     @media (max-width: 375px) {
       html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li[data-alert-kind="ppte"] > .name {
         display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px;
@@ -2403,7 +2430,7 @@
     }
     html[data-display="high-visibility"] .surgefeed .surgealerttitle {
       display: block; grid-column: 1 / -1; grid-row: 2;
-      padding: 0 16px; margin-bottom: 12px; font-weight: 800;
+      padding: 0 16px; margin-bottom: 12px; font-weight: 600;
     }
     html[data-display="high-visibility"] .surgefeed > li > .name > .ntext > .sub {
       display: block; grid-column: 1; grid-row: 3; min-width: 0;
@@ -2467,7 +2494,7 @@
     .surgebadge-patch { background: #EAF7FF; color: #005B8F;
                         border: 2px outset var(--safe-blue); }
     .surgekind-patch { background: #EAF7FF; border: 3px outset var(--safe-blue); }
-    .surgebadge-migration { background: #fff; color: #000;
+    .surgebadge-migration { background: var(--migration-sky); color: var(--migration-moon);
                             border: 3px solid var(--safe-blue); }
     .surgekind-migration { background: #EAF7FF; border: 3px solid var(--safe-blue); }
     .surgebadge-mass { background: #EAF7FF; color: #005B8F;
@@ -2476,6 +2503,7 @@
                      border-width: 3px; border-style: solid; border-color: var(--safe-blue); }
     .surgebadge-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
     .surgekind-favorite { background: #fff; border: 3px double #E69F00; }
+    .surgebadge-foy { background: #003B5C; color: #fff; border: 2px solid; border-color: var(--dark-safe-blue); }
     /* A feed that came back capped is not an error — the section still renders —
        but it is the difference between "these are the birds" and "these are the
        birds that fit". Styled like a warning rather than a caption because a
@@ -4909,7 +4937,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.157.0';
+      var APP_VERSION = '1.158.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -38477,17 +38505,19 @@
           } else if (key === 'ppte') {
             next.rows = ppteEvents(value.evidenceRows || [], { hotspots: value.hotspots || [] });
           } else if (key === 'cascades') {
-            next.rows = value.rows.filter(function (row) {
+            next.rows = value.rows.map(function (row) {
               var board = (row.birders || []).map(function (birder) {
                 return { name: birder.name, rank: birder.rank, recent: birder.date };
               });
-              return BL.tickCascades(board, function (date) {
+              var qualified = BL.tickCascades(board, function (date) {
                 return { species: row.species, date: date };
-              }, { nowMs: now }).length > 0;
-            });
+              }, { nowMs: now })[0];
+              return qualified ? Object.assign({}, row, qualified) : null;
+            }).filter(Boolean);
           } else if (key === 'convergence') {
             next.rows = value.rows.filter(function (row) {
-              return surgeTimeValue(row.latest) >= now - BL.SURGE.WINDOW_H * 3600000;
+              return BL.isHotspotConvergence(row)
+                && surgeTimeValue(row.latest) >= now - BL.SURGE.WINDOW_H * 3600000;
             });
           } else return;
           model[key] = next;
@@ -38598,6 +38628,7 @@
         var rr = rankPrimaryRegion();
         var anchor = anchorPoint() || {};
         return [
+          'cascade-5-7-3',
           getRegion(),
           rr && rr.region || '',
           isFinite(Number(anchor.lat)) ? Number(anchor.lat).toFixed(5) : '',
@@ -38811,6 +38842,11 @@
         return /\d{1,2}:\d{2}/.test(String(s)) ? out : out + ', time unavailable';
       }
 
+      function surgeHeadlinePlace(a) {
+        return a.kind === 'migration' || a.kind === 'hotspot'
+          || a.kind === 'patch' || a.kind === 'ppte' ? '' : (a.where || '');
+      }
+
       function surgeFactsHtml(a) {
         var value = Object.prototype.hasOwnProperty.call(a, 'eventCount') ? a.eventCount : a.count;
         var count = typeof value === 'number' ? value : NaN;
@@ -38821,7 +38857,7 @@
         ].filter(Boolean).join(' ');
         var bits = [
           lead,
-          a.where || '<span class="dim">Location unavailable</span>'
+          surgeHeadlinePlace(a) ? '' : (a.where || '<span class="dim">Location unavailable</span>')
         ].filter(Boolean);
         if (!a.omitWhen) {
           var migrationTime = a.kind === 'migration' && surgeTimeValue(a.when);
@@ -38830,7 +38866,7 @@
             : surgeCompactDate(a.when));
           if (migrationTime) date = '<time datetime="' + esc(a.when)
             + '" title="Source observation: ' + esc(a.when) + '">' + date + '</time>';
-          if (a.checklistId) date = checklistLink(a.checklistId, date + ' · ' + esc(a.checklistId));
+          if (a.checklistId) date = checklistLink(a.checklistId, date + ' - ' + esc(a.checklistId));
           bits.push('<span class="surgeabsolute">' + date + '</span>');
         }
         return '<span class="surgefacts">'
@@ -38915,6 +38951,8 @@
 
       function surgeExplanationHtml(a, reasonText) {
         var word = SURGE_KINDS[a.kind].word;
+        var extra = (a.kind === 'ppte' ? '' : surgeFactsHtml(a))
+          + (a.extra ? (a.kind === 'ppte' ? '' : ' - ') + a.extra : '');
         var text = a.noteHeader
           || (word + ': Current alert rule matched!');
         var prefix = word + ':';
@@ -38925,11 +38963,15 @@
         return '<div class="surgeexplain">'
           + surgeCategoryTag(a.kind, reasonText)
           + '<b>' + esc(text) + '</b>'
-          + (a.extra ? '<span class="surgeexplainextra">' + a.extra + '</span>' : '')
+          + (extra ? '<span class="surgeexplainextra">' + extra + '</span>' : '')
           + '</div>';
       }
 
       function surgeAlertCard(a, order) {
+        var place = surgeHeadlinePlace(a);
+        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte'].indexOf(a.kind) < 0;
+        var headline = (a.namePrefix || '') + (birdHeadline
+          ? '<span class="surgebirdname">' + a.name + '</span>' : a.name);
         var k = SURGE_KINDS[a.kind], reason = surgeReasonMeta(a), data = {
           'alert-kind': a.kind,
           'surge-priority': k.priority,
@@ -38945,10 +38987,10 @@
         Object.keys(a.data || {}).forEach(function (key) { data[key] = a.data[key]; });
         return SpeciesCards.small({
           icon: a.icon,
-          name: '<span class="surgealerttitle">' + a.name
-            + (a.tags || '') + surgeBirdTag(a) + '</span>',
+          name: '<span class="surgealerttitle">' + headline
+            + (place ? (a.placeConnector || ' at ') + place : '') + (a.tags || '') + '</span>',
           tags: '',
-          sub: a.kind === 'ppte' ? '' : surgeFactsHtml(a),
+          sub: '',
           right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime,
             a.ageLabel),
           below: surgeExplanationHtml(a, reason.text),
@@ -39062,7 +39104,8 @@
         var labels = {
           mega: 'mega', migration: 'migration', mass: 'mass flock', need: 'celebrity',
           crowd: 'crowd', cascade: 'cascade', favorite: 'favorite patch',
-          hotspot: 'hotspot', patch: 'top patch', foy: 'FOY', ppte: 'PPTE'
+          hotspot: SURGE_KINDS.hotspot.word.toLowerCase(),
+          patch: 'top patch', foy: SURGE_KINDS.foy.word, ppte: SURGE_KINDS.ppte.word
         };
         if (_surgeCategory && !counts[_surgeCategory]) _surgeCategory = '';
         return '<div class="surgecounts" aria-label="Alert counts by category">'
@@ -39236,6 +39279,40 @@
 
       function surgePlaceTile() {
         return '<span class="thumb surgeplacethumb" aria-hidden="true"></span>';
+      }
+
+      function surgePatchTile(species, place) {
+        var split = personalSpeciesSplit(species);
+        var state = split.unseen.length ? 'unseen' : 'unknown';
+        var candidates = split.unseen.length ? split.unseen : split.unknown;
+        var used = {}, birds = [];
+        candidates.forEach(function (bird) {
+          var key = bird.code || String(bird.comName || '').toLowerCase();
+          if (!key || used[key] || birds.length >= 4) return;
+          used[key] = true;
+          birds.push(bird);
+        });
+        if (!birds.length) return surgePlaceTile();
+        var label = (state === 'unseen' ? 'Unseen birds' : 'Birds with unknown personal history')
+          + ' at ' + place + ': ' + birds.map(function (bird) { return bird.comName; }).join(', ');
+        return '<span class="thumb surgepatchthumb" role="img" data-patch-birds="' + state
+          + '" aria-label="' + esc(label) + '"><span class="surgepatchgrid" aria-hidden="true">'
+          + birds.map(function (bird) { return photoSlot(bird.comName, bird.code); }).join('')
+          + '</span></span>';
+      }
+
+      function surgeHotspotMultiplier(row) {
+        return String(Math.round(row.ratio * 10) / 10) + '×';
+      }
+
+      function surgeHotspotTile(row) {
+        var multiplier = surgeHotspotMultiplier(row);
+        return '<span class="thumb surgehotspotthumb" role="img"'
+          + ' aria-label="' + esc(row.observers + ' independent parties; '
+            + multiplier + ' this patch’s usual reporting activity') + '">'
+          + '<span class="surgehotspotpeople" aria-hidden="true">'
+          + '<span>👥</span>'.repeat(9) + '</span>'
+          + '<span class="surgehotspotmult" aria-hidden="true">' + esc(multiplier) + '</span></span>';
       }
 
       function surgePlaceLink(name, locId) {
@@ -40402,9 +40479,11 @@
           || String(c.species || '').toLowerCase() === 'chestnut-collared longspur');
       }
       function surgeCascadePairs(cascades) {
+        var now = new Date();
+        var today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
         return (cascades || []).map(function (c) {
           var home = getHome(), lim = chaseMaxMi(), best = null, latest = null, nearest = null;
-          var rejected = { noHome: 0, coordinates: 0, privatePlace: 0, outside: 0 };
+          var rejected = { noHome: 0, coordinates: 0, privatePlace: 0, outside: 0, staleOutside: 0 };
           (c.recent || []).forEach(function (r) {
             if (!home) { rejected.noHome++; return; }
             if (r.lat == null || r.lng == null || String(r.lat).trim() === ''
@@ -40416,14 +40495,18 @@
             if (nm && !BL.isPublicPlace(nm)) { rejected.privatePlace++; return; }
             var d = haversineMi(home.lat, home.lng, +r.lat, +r.lng);
             if (nearest == null || d < nearest) nearest = d;
-            if (d > lim) { rejected.outside++; return; }
+            if (d > lim) {
+              var age = today - Date.parse(String(r.obsDt || '').slice(0, 10));
+              if (!isFinite(age) || age < 0 || age > BL.CASCADE.MAX_AGE_DAYS * 86400000) {
+                rejected.outside++; rejected.staleOutside++; return;
+              }
+            }
             r._mi = d;
             if (!best || d < best._mi) { best = r; best._mi = d; }
             if (!latest || String(r.obsDt || '').localeCompare(
               String(latest.obsDt || '')) > 0) latest = r;
           });
-          var omitted = c.locationState === 'ok' && !(c.recent || []).length
-            || !best && (c.recent || []).length;
+          var omitted = !best;
           if (isCascadeTraceTarget(c)) traceCascadeDecision('places', {
             state: c.locationState || 'unresolved', returned: (c.recent || []).length,
             rejected: rejected, pair: !omitted, nearby: !!best,
@@ -40575,7 +40658,7 @@
           var publicSite = event.publicHotspot;
           var eventDistance = ppteDistance(event);
           var birds = event.species.slice(0, 2).map(function (bird) {
-            return stakeSpeciesLink(bird.name, bird.code, bird.name) + surgeBirdTag({ rare: true });
+            return stakeSpeciesLink(bird.name, bird.code, bird.name);
           }).join('<span class="ppte-connector"> and </span>');
           if (event.species.length > 2) birds += '<span class="ppte-connector"> +'
             + (event.species.length - 2) + ' more</span>';
@@ -40620,6 +40703,7 @@
             speciesNameKey: m.name,
             icon: photoSlot(m.name, m.code),
             name: speciesLink(m.name, m.code),
+            namePrefix: 'Mega rarity ',
             code: m.code,
             alpha: m.alpha || alphaFor(m.code),
             noteHeader: surgeMegaNoteHeader(m),
@@ -40651,6 +40735,7 @@
             speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
+            namePrefix: 'Celebrity bird ',
             code: e.code,
             alpha: e.alpha || alphaFor(e.code),
             rare: true,
@@ -40679,6 +40764,7 @@
             speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
             name: speciesLink(e.name, e.code),
+            namePrefix: 'Crowding to see ',
             code: e.code,
             alpha: e.alpha || alphaFor(e.code),
             noteHeader: e.novel
@@ -40702,6 +40788,7 @@
           var newest = pair.latest || r0;
           var near = newest ? newest._mi : null;
           var newestWhen = (newest && newest.obsDt) || c.latest || '';
+          var outside = near != null && near > chaseMaxMi();
           var WHO = 4;
           var whoTxt = c.birders.slice(0, WHO).map(function (b) {
             return esc(b.name) + (b.rank
@@ -40717,17 +40804,20 @@
             speciesNameKey: c.species,
             icon: photoSlot(c.species, c.code || ''),
             name: c.code ? speciesLink(c.species, c.code) : esc(c.species),
+            namePrefix: 'Leaderboard lit up by ',
             code: c.code || '',
             alpha: c.code ? (c.alpha || alphaFor(c.code)) : '',
             rare: isRareBird(c.code, c.species),
-            noteHeader: 'CASCADE: Multiple top birders added it within '
-              + BL.CASCADE.WINDOW_DAYS + ' days',
+            noteHeader: 'CASCADE: ' + c.birders.length + ' Top 100 birders added it in the past '
+              + BL.CASCADE.WINDOW_DAYS + ' days'
+              + (outside ? ' · Outside your chase area' : ''),
             count: newest && newest.howMany,
             eventCount: newest && newest.howMany,
             sub: c.birders.length + ' of the top 100',
             distance: surgeDistanceText(near),
-            why: '<b>' + c.birders.length + ' of the top 100 added it within '
-              + BL.CASCADE.WINDOW_DAYS + ' days</b> · ' + whoTxt,
+            why: '<b>' + c.birders.length + ' of the top 100 added it in the past '
+              + BL.CASCADE.WINDOW_DAYS + ' days</b> · ' + whoTxt
+              + (outside ? ' · <b>Outside your chase area</b>' : ''),
             where: newest && newest.locName
               ? surgePlaceLink(newest.locName, newest.locId || '')
               : '<span class="dim">No public in-range report yet</span>',
@@ -40735,8 +40825,13 @@
             time: surgeTimeValue(newestWhen),
             ageTime: surgePreciseTimeValue(newestWhen),
             checklistId: (newest && newest.subId) || '',
-            extra: c.code ? '' : 'Not in this region’s species list; '
-              + 'the headline will search Stakeout by name.'
+            extra: (outside ? '<b>Outside your chase area · '
+                + esc(surgeDistanceText(near)) + ' away</b>. ' : '')
+              + 'Leaderboard additions: ' + esc(fmtDate(c.earliest || c.latest))
+              + (c.earliest && c.earliest !== c.latest ? ' – ' + esc(fmtDate(c.latest)) : '')
+              + '. Public sighting: ' + esc(fmtDate(newestWhen))
+              + (c.code ? '' : '. Not in this region’s species list; '
+                + 'the headline will search Stakeout by name.')
           });
         });
 
@@ -40780,7 +40875,7 @@
             speciesKey: flock.code,
             speciesNameKey: flock.name,
             icon: photoSlot(flock.name, flock.code),
-            name: esc(flock.name),
+            name: esc(flock.name), namePrefix: 'Flock of ',
             code: flock.code,
             alpha: flock.alpha || alphaFor(flock.code),
             noteHeader: 'MASS FLOCK: ' + range + (flock.singleObservation
@@ -40821,6 +40916,7 @@
             speciesNameKey: favorite.name,
             icon: photoSlot(favorite.name, favorite.code),
             name: esc(favorite.name),
+            placeConnector: ' at favorite patch ',
             code: favorite.code,
             alpha: favorite.alpha || alphaFor(favorite.code),
             noteHeader: 'FAVORITE PATCH: An unseen bird is at a saved patch',
@@ -40840,26 +40936,23 @@
 
         var coords = hotspotCoordSet(getObsRegion());
         var home = anchorPoint();
-        convergence.forEach(function (c) {
+        convergence.filter(BL.isHotspotConvergence).forEach(function (c) {
           var xy = coords && coords[c.locId];
           var mi = (xy && home && home.lat != null)
             ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
           var when = c.latest || '';
           rows.push({
             kind: 'hotspot',
-            icon: surgePlaceTile(),
+            icon: surgeHotspotTile(c),
             name: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || 'Unnamed spot'),
+            namePrefix: 'High traffic at ',
             sub: c.observers + ' birders',
             distance: surgeDistanceText(mi),
-            noteHeader: 'HOTSPOT: ' + (c.reason === 'crowd'
-              ? 'Busier than usual'
-              : (c.ratio == null ? 'New against its norm'
-                : Math.round(c.ratio) + '× this hotspot’s own norm')),
+            noteHeader: SURGE_KINDS.hotspot.word + ': ' + surgeHotspotMultiplier(c)
+              + ' this patch’s own norm',
             count: null,
-            why: c.observers + ' birders · <b>'
-              + (c.reason === 'crowd' ? 'busier than usual'
-                : (c.ratio == null ? 'new against its norm'
-                  : Math.round(c.ratio) + '× this hotspot’s own norm')) + '</b>',
+            why: c.observers + ' independent parties · <b>'
+              + surgeHotspotMultiplier(c) + ' this patch’s own norm</b>',
             where: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || ''),
             when: when,
             time: c.eventAt || surgeTimeValue(when),
@@ -40880,8 +40973,9 @@
           var name = d.locName || d.name || d.locId || 'Unnamed patch';
           rows.push({
             kind: 'patch',
-            icon: surgePlaceTile(),
+            icon: surgePatchTile(species, name),
             name: esc(name),
+            namePrefix: 'High-yield patch at ',
             sub: (d.band || 'high yield') + ' · ' + species.length + ' target'
               + (species.length === 1 ? '' : 's'),
             distance: surgeDistanceText(d.dist),
@@ -41041,10 +41135,14 @@
             kind: 'foy', speciesKey: first.code, speciesNameKey: first.name,
             code: first.code, alpha: alphaFor(first.code),
             icon: photoSlot(first.name, first.code), name: speciesLink(first.name, first.code),
+            namePrefix: 'First of the year ',
             why: why, noteHeader: 'Newly learned regional annual first, not current-presence evidence',
             extra: why, when: first.observedAt || first.date,
             time: surgeTimeValue(first.observedAt || first.date),
-            where: '', checklistId: first.subId || '', count: null, eventCount: null
+            where: first.locName ? (first.locId && !first.isPrivate
+              ? stakeHotspotLink(first.locId, first.locName)
+              : locLink(first.locName, null, null, first.locId, first.isPrivate)) : '',
+            checklistId: first.subId || '', count: null, eventCount: null
           });
         });
         return rows;
@@ -49237,6 +49335,7 @@
         loadBirdcastSnapshot: loadBirdcastSnapshot,
         birdcastSurgeRow: birdcastSurgeRow,
         birdcastSurgeRows: birdcastSurgeRows,
+        birdcastLevelTile: birdcastLevelTile, birdcastCountTile: birdcastCountTile,
         migrationSignificantRows: migrationSignificantRows,
         migrationUnifiedRows: migrationUnifiedRows,
         surgeAlertCard: surgeAlertCard,

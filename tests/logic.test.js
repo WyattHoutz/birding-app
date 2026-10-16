@@ -1267,54 +1267,34 @@ test('surgeEvents: reports whether you still need the bird, without filtering on
   assert.equal(ev[0].seen, true, 'but it says so, so the caller can rank it down');
 });
 
-test('tickCascades: two of the top 100 adding the same bird in days is a mega', () => {
-  assert.equal(BL.CASCADE.MIN_BIRDERS, 2,
-    'the public cascade contract drifted back to the obsolete 3-birder threshold');
-  assert.equal(BL.CASCADE.WINDOW_DAYS, 3,
-    'the public cascade contract no longer exposes the source window');
-  const parse = (s) => {
-    const m = /^(.*?)\s*\(([A-Za-z]{3}\.?\s+\d{1,2},\s*\d{4})\)\s*$/.exec(String(s).trim());
-    if (!m) return null;
-    const d = new Date(m[2].replace('.', '') + ' 00:00:00');
-    return { species: m[1].trim(), date: isNaN(d) ? '' : d.toISOString().slice(0, 10) };
-  };
-  const rows = [
-    { name: 'Brian Pendleton', rank: 3, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    { name: 'Liam Hutcheson', rank: 4, recent: 'Terek Sandpiper (Jul 18, 2026)' },
-    { name: 'Bruce LaBar', rank: 8, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    { name: 'Calvin Bobek', rank: 10, recent: 'Terek Sandpiper (Jul 19, 2026)' },
-    // ⚠️ F264 lowered the bar from 3 birders to 2, at the owner's request:
-    // *"dont show birds here unless they are newly added by multiple people.
-    // like two leaderboard top 100 added the same bird"*. So this pair, which
-    // used to be BELOW the threshold, is now a cascade in its own right.
-    { name: 'Greg Harrington', rank: 6, recent: 'American Three-toed Woodpecker (Jul 27, 2026)' },
-    { name: 'Peter Erickson', rank: 93, recent: 'American Three-toed Woodpecker (Jul 26, 2026)' },
-  ];
-  // ⚠️ THE CLOCK IS PINNED. F264 also made the rule time-dependent — a cascade
-  // must be RECENT, not merely tight — so a fixture with fixed July dates and
-  // a live clock is a test that rots: green today, red next week, for a reason
-  // with nothing to do with the code.
-  // ⚠️ Jul 26 is chosen, not arbitrary: Terek's newest tick is Jul 19 (exactly
-  // 7 days, the boundary) and the woodpecker's is Jul 27. There is no date at
-  // which BOTH are old, so the boundary is the only place both are news — and
-  // testing exactly on a boundary is where an off-by-one lives. It is the same
-  // reference date tests/parity/test_surge.py uses, so the two languages are
-  // compared at the same instant.
-  const NOW = { nowMs: Date.parse('2026-07-26T12:00:00') };
-  const out = BL.tickCascades(rows, parse, NOW);
-  assert.equal(out.length, 2, 'both multi-birder bursts are cascades');
-  assert.equal(out[0].species, 'Terek Sandpiper', 'the bigger burst leads');
-  assert.equal(out[0].birders.length, 4);
-  assert.equal(out[0].birders[0].rank, 3, 'birders are listed best-ranked first');
-
-  // ⚠️ THE CONTROL. Without it the age gate could be deleted and every line
-  // above would still pass — the fixture would simply never be old enough to
-  // notice. Owner: *"its like a alert so nothing should be stale."*
-  assert.deepEqual(BL.tickCascades(rows, parse, { nowMs: Date.parse('2026-08-20T12:00:00') }), [],
-    'a tight cluster three weeks old is not an alert');
+test('F951 tickCascades requires five distinct people in a seven-day lookback with fresh momentum', () => {
+  assert.equal(BL.CASCADE.MIN_BIRDERS, 5);
+  assert.equal(BL.CASCADE.WINDOW_DAYS, 7);
+  assert.equal(BL.CASCADE.MAX_AGE_DAYS, 3);
+  const parse = date => ({species:'Example Bird',date});
+  const now = {nowMs:new Date(2026,9,15,12).getTime()};
+  const make = dates => dates.map((date,i) => ({name:'Birder '+i,rank:5-i,recent:date}));
+  const dates = ['2026-10-08','2026-10-09','2026-10-10','2026-10-11','2026-10-12'];
+  const rows = make(dates);
+  const out = BL.tickCascades(rows,parse,now);
+  assert.equal(out.length,1,'seven-day and three-day boundaries are inclusive');
+  assert.equal(out[0].birders.length,5);
+  assert.equal(out[0].earliest,'2026-10-08');
+  assert.equal(out[0].latest,'2026-10-12');
+  assert.deepEqual(out[0].birders.map(b=>b.rank),[1,2,3,4,5]);
+  assert.deepEqual(BL.tickCascades(rows.slice(1),parse,now),[]);
+  assert.deepEqual(BL.tickCascades(rows.slice(1).concat(rows[1],rows[1]),parse,now),[],
+    'repeated rows do not create five distinct people');
+  assert.deepEqual(BL.tickCascades(make(dates.slice(1).concat('2026-10-07')),parse,now),[],
+    'an eight-day-old addition cannot supply the fifth person');
+  assert.deepEqual(BL.tickCascades(make(dates.slice(1).concat('2026-10-16')),parse,now),[],
+    'future additions cannot supply the fifth person');
+  assert.deepEqual(BL.tickCascades(make(Array(5).fill('2026-10-11')),parse,now),[],
+    'five people with no addition in three days are not current momentum');
+  assert.deepEqual(BL.tickCascades(make(dates.slice(1).concat('invalid')),parse,now),[]);
 });
 
-test('F934 tickCascades finds the newest qualifying recent window despite older additions', () => {
+test('F951 tickCascades keeps the whole recent CCLO and golden-plover groups instead of only the newest pair', () => {
   const parse = s => ({species:'Chestnut-collared Longspur',date:s});
   const dates = ['2026-10-10','2026-10-10','2026-10-10',
     '2026-10-11','2026-10-11','2026-10-11','2026-10-11','2026-10-11',
@@ -1323,20 +1303,20 @@ test('F934 tickCascades finds the newest qualifying recent window despite older 
   const now = {nowMs:new Date(2026,9,15,12).getTime()};
   const out = BL.tickCascades(rows,parse,now);
   assert.equal(out.length,1);
-  assert.equal(out[0].birders.length,10);
-  assert.equal(out[0].earliest,'2026-10-11');
+  assert.equal(out[0].birders.length,13);
+  assert.equal(out[0].earliest,'2026-10-10');
   assert.equal(out[0].latest,'2026-10-14');
-  assert.deepEqual(out[0].birders.map(b=>b.rank),[4,5,6,7,8,9,10,11,12,13]);
+  assert.deepEqual(out[0].birders.map(b=>b.rank),[1,2,3,4,5,6,7,8,9,10,11,12,13]);
   assert.deepEqual(BL.tickCascades(rows,parse,{
     nowMs:new Date(2026,9,30,12).getTime(),
   }),[],'a historical cluster still expires');
-  const separated = [
-    {name:'A',rank:1,recent:'2026-10-10'},
-    {name:'B',rank:2,recent:'2026-10-11'},
-    {name:'C',rank:3,recent:'2026-10-15'},
-  ];
-  assert.equal(BL.tickCascades(separated,parse,now)[0].latest,'2026-10-11',
-    'a later isolated addition must not hide an otherwise qualifying window');
+  const golden = [10,10,10,10,10,14,14].map((day,i)=>({
+    name:'Birder '+i,rank:i+1,recent:'2026-10-'+day
+  }));
+  const amgp = BL.tickCascades(golden,parse,now)[0];
+  assert.equal(amgp.birders.length,7);
+  assert.equal(amgp.earliest,'2026-10-10');
+  assert.equal(amgp.latest,'2026-10-14');
   assert.deepEqual(BL.tickCascades([
     {name:'A',rank:1,recent:'2026-10-10'},
     {name:'B',rank:2,recent:'2026-10-15'},
@@ -1423,6 +1403,38 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
     'the event did not retain the newest hot checklist id with its timestamp');
   assert.equal(out[0].eventAt, Date.parse(latest.replace(' ', 'T')),
     'the sortable event time is not the same checklist timestamp shown to the reader');
+});
+
+test('F960 hotspotConvergence requires four-times activity, including the exact unrounded boundary', () => {
+  const now=new Date('2026-10-16T12:00:00').getTime();
+  function rows(coldTime,parties=8,coldCount=24) {
+    return Array.from({length:coldCount},(_,i)=>({
+      locId:'L960',locName:'Boundary patch',userDisplayName:'regular '+i,subId:'R'+i,
+      obsDt:coldTime
+    })).concat(Array.from({length:parties},(_,i)=>({
+      locId:'L960',locName:'Boundary patch',userDisplayName:'visitor '+i,subId:'V'+i,
+      obsDt:'2026-10-16 '+String(2+i).padStart(2,'0')+':00'
+    })));
+  }
+  assert.equal(BL.CONVERGE.MIN_RATIO,4);
+  assert.equal(BL.isHotspotConvergence({observers:5,ratio:4}),true);
+  for (const ratio of [3.99999,null,NaN,Infinity,'4']) {
+    assert.equal(BL.isHotspotConvergence({observers:5,ratio}),false);
+  }
+  assert.equal(BL.isHotspotConvergence({observers:4,ratio:10}),false);
+  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:01'),{now}),[],
+    'a value just below four must not pass because it rounds to four');
+  const exact=BL.hotspotConvergence(rows('2026-10-03 00:00'),{now});
+  assert.equal(exact.length,1);
+  assert.equal(exact[0].ratio,4,'the control must actually land on the boundary');
+  assert.equal(exact[0].reason,'surge');
+  assert.ok(BL.hotspotConvergence(rows('2026-10-02 23:59'),{now})[0].ratio>4);
+  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',6),{now}),[],
+    'the former three-times crowd exception is removed');
+  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',4,12),{now}),[],
+    'four-times activity still requires five independent parties');
+  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',8,0),{now}),[],
+    'a missing historical baseline is not an infinite multiplier');
 });
 
 test('hotspotConvergence: no trailing history means no claim, not an infinite one', () => {
