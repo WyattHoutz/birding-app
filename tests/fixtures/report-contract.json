@@ -13,6 +13,8 @@
     "'report' is a PREFIX of the heading report.py emits (several headings have",
     "dynamic tails, e.g. county names or a year); '*' stands for an f-string slot.",
     "null = app-only section.",
+    "'sectionLabel' explicitly preserves a full section name when its menu title",
+    "is abbreviated; menu.json sectionTitle supplies the rendered heading.",
     "'map' is the app's map container id, non-null only where the report embeds",
     "a rendered map (report.py _render_destinations_map call sites).",
     "'appMap' is an explicitly documented app-only map addition inside a shared",
@@ -35,10 +37,11 @@
     },
     {
       "at": "ppteBtn",
-      "label": "🧺 Patagonia Picnic Table Effect",
+      "label": "🧺 PPTE",
+      "sectionLabel": "🧺 Patagonia Picnic Table Effect",
       "report": null,
       "map": null,
-      "sub": "Corroborated rarity gatherings",
+      "sub": "Patagonia picnic table effect",
       "why": "app-only: a dedicated view of all existing qualified PPTE events, independent of Bird Gen's category view and ranking; it does not weaken corroboration or public-location identity"
     },
     {

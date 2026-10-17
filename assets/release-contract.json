@@ -46,6 +46,8 @@
       "id=\"birdGenNotifyToggle\"",
       "id=\"massResults\"",
       "id=\"ppteResults\"",
+      "#menuList > li.birdgen-tile { grid-column: 1 / -1; }",
+      "if (sec._at === 'surgeBtn') li.className = 'birdgen-tile'",
       "<script src=\"taxonomy.js\"></script>",
       "<script src=\"aba-regions.js\"></script>",
       "<script src=\"ebird-events.js\"></script>",

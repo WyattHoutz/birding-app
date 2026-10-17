@@ -914,8 +914,38 @@ const AUDIT = `<script>
         });
       });
     }
+    var menuLayout = null;
+    var menuList = document.getElementById('menuList');
+    if (label === '(contents menu)' && menuList && menuList.getBoundingClientRect().width) {
+      var menuBox = menuList.getBoundingClientRect();
+      var fullRow = menuList.querySelector('.tocgroup').getBoundingClientRect();
+      var birdGen = menuList.querySelector('.toclink[data-at="surgeBtn"]');
+      var birdBox = birdGen && birdGen.closest('li').getBoundingClientRect();
+      var groups = [], menuOrder = [];
+      [].forEach.call(menuList.children, function (li) {
+        if (li.classList.contains('tocgroup')) groups.push(li.textContent.trim());
+        var link = li.querySelector('.toclink');
+        if (link) menuOrder.push(link.dataset.at);
+      });
+      menuLayout = {
+        groups: groups.slice(0, 2),
+        order: menuOrder.slice(0, 7),
+        gridWidth: menuBox.width,
+        fullRowWidth: fullRow.width,
+        birdWidth: birdBox && birdBox.width,
+        leftDifference: birdBox && birdBox.left - menuBox.left,
+        gridColumns: getComputedStyle(menuList).gridTemplateColumns,
+        fullWidth: !!birdBox && Math.abs(birdBox.left - fullRow.left) <= 1
+          && Math.abs(birdBox.width - fullRow.width) <= 1,
+        regularTiles: [].every.call(menuList.querySelectorAll('.toclink'), function (link) {
+          return link.dataset.at === 'surgeBtn'
+            || getComputedStyle(link.closest('li')).gridColumnEnd === 'auto';
+        })
+      };
+    }
     return {
       label: label, vw: vw, n: all.length,
+      menuLayout: menuLayout,
       alertEvidence: alertEvidence,
       patchHeader: patchHeader,
       categoryFilter: categoryFilter,
@@ -2590,6 +2620,10 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (!report.some((r) => r.menuLayout)) {
+      bad++;
+      console.log('   F985 FIXTURE missing Contents grid geometry');
+    }
     const twitch = report.find((r) => r.twitchReading);
     if (!twitch) {
       bad++;
@@ -2810,6 +2844,18 @@ server.listen(0, '127.0.0.1', () => {
         bad++;
         console.log('   VIEWPORT MISMATCH  requested ' + WIDTH + 'px but app measured '
           + r.vw + 'px — the harness is not testing the named device width');
+      }
+      if (r.menuLayout) {
+        var menu = r.menuLayout;
+        console.log('   F985 MENU GEOMETRY  ' + JSON.stringify(menu));
+        if (!menu.fullWidth || !menu.regularTiles
+            || JSON.stringify(menu.groups) !== JSON.stringify(['Buzz', 'Bird alerts'])
+            || JSON.stringify(menu.order) !== JSON.stringify([
+              'surgeBtn', 'refreshBtn', 'abaBtn', 'allUnseenBtn', 'foyBtn', 'ppteBtn', 'massBtn'
+            ])) {
+          bad++;
+          console.log('   F985 MENU LAYOUT FAILED');
+        }
       }
       var nameless = r.unnamed || [];
       if (nameless.length) {

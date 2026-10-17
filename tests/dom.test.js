@@ -1244,7 +1244,7 @@ test('F815 FOY saves a silent baseline, discovers once, acknowledges and retains
     assert.match(app.$('foyResults').textContent, /New Annual Bird/);
     const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
     assert.equal(menu.findIndex(item => item.at === 'foyBtn'),
-      menu.findIndex(item => item.at === 'abaBtn') + 1);
+      menu.findIndex(item => item.at === 'allUnseenBtn') + 1);
     assert.ok(A.LOADERS.foyBtn.fn);
   } finally { app.window.close(); }
 });
@@ -4279,8 +4279,8 @@ test('every section HEADING is the same name as its tile (F238)', async () => {
     const heading = bySection.get(m.at);
     assert.ok(heading !== undefined,
       `no <section> with an <h2> holds the element "${m.at}" the contract names`);
-    if (heading !== strip(m.label)) {
-      drift.push(`${m.at}: tile "${m.label}" vs <h2> "${heading}"`);
+    if (heading !== strip(m.sectionLabel || m.label)) {
+      drift.push(`${m.at}: section "${m.sectionLabel || m.label}" vs <h2> "${heading}"`);
     }
   }
   assert.deepEqual(drift, [],
@@ -13059,6 +13059,58 @@ test('branding: the app icon photo is the in-app mark, bundled offline', async (
   app.window.close();
 });
 
+test('F985 Buzz contains only full-row Bird Gen, followed by the requested alert order and PPTE wording', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  const authored = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
+  assert.equal(authored.find((m) => m.at === 'activeBtn').enabled, false,
+    'the disabled weekly section is preserved, not enabled by the reorder');
+  const later = authored.filter((m) => !['Buzz', 'Bird alerts'].includes(m.group));
+  function verify() {
+    const groups = [];
+    for (const li of app.$('menuList').children) {
+      if (li.classList.contains('tocgroup')) {
+        groups.push({ name: li.textContent.trim(), ids: [] });
+      } else if (li.querySelector('.toclink')) {
+        groups.at(-1).ids.push(li.querySelector('.toclink').dataset.at);
+      }
+    }
+    assert.deepEqual(groups.slice(0, 2), [
+      { name: 'Buzz', ids: ['surgeBtn'] },
+      { name: 'Bird alerts', ids: [
+        'refreshBtn', 'abaBtn', 'allUnseenBtn', 'foyBtn', 'ppteBtn', 'massBtn',
+      ] },
+    ]);
+    assert.deepEqual(groups.slice(2).flatMap((g) => g.ids),
+      later.filter((m) => A.menuApplies(m)).map((m) => m.at),
+      'later groups retain their authored order and applicability');
+    const links = [...app.document.querySelectorAll('#menuList .toclink')];
+    assert.deepEqual(links.filter((a) => a.closest('li').classList.contains('birdgen-tile'))
+      .map((a) => a.dataset.at), ['surgeBtn']);
+    const ppte = links.find((a) => a.dataset.at === 'ppteBtn');
+    assert.equal(ppte.querySelector('.tilelabel').textContent, 'PPTE');
+    assert.equal(ppte.querySelector('.tilesub').textContent, 'Patagonia picnic table effect');
+    assert.equal(ppte.getAttribute('aria-label'), '🧺 PPTE');
+    assert.match(ppte.dataset.find, /patagonia picnic table effect/);
+    assert.equal(ppte.dataset.sec, app.$('ppteBtn').closest('section').id);
+    const heading = app.$('ppteBtn').closest('section').querySelector('h2');
+    assert.equal([...heading.childNodes].filter((n) => n.nodeType === 3)
+      .map((n) => n.textContent).join('').trim(), 'Patagonia Picnic Table Effect',
+      'the abbreviated menu button does not abbreviate the destination heading');
+    return ppte;
+  }
+  const ppte = verify();
+  app.click(ppte);
+  assert.equal(app.$('ppteBtn').closest('section').hidden, false,
+    'the renamed button still opens the original destination');
+  A.showMenu();
+  assert.equal(app.$('menuPanel').hidden, false,
+    'returning from PPTE really displays Contents before checking its repaint');
+  A.refreshMenuBadges();
+  verify();
+  app.window.close();
+});
+
 test('Contents is a grid of tiles, and the first one leads it', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -13077,23 +13129,18 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   // a screenwide bar, but keep it to one row." The region picker then sat
   // beside the birder's name; F195(c) has since collapsed it into the scope
   // control, for the reason asserted below.
-  // F200: NO WIDE TILE, and Happening now sits with the twitches.
-  // "change the happening now button bar to be a regular button in the same
-  // menu as the twitches."
-  //
-  // The old assertion here pinned the first tile as WIDE and as "Happening
-  // now". Both are now wrong on purpose. Widening whichever tile sorts first
-  // is a rule about POSITION, not importance — with that section moved it
-  // would have promoted "Today's patches" by accident.
+  // F985 restores the full row for Bird Gen by identity, never by position.
   const tilesAll = [].slice.call(app.document.querySelectorAll('#menuList li'))
     .filter((li) => li.querySelector('.toclink'));
   assert.ok(tilesAll.length > 20, `the menu is populated (${tilesAll.length})`);
   assert.equal(tilesAll.filter((li) => li.classList.contains('wide')).length, 0,
-    'no tile spans the row — they are all regular buttons now');
+    'legacy wide styling must not change the normal Bird Gen tile appearance');
+  assert.deepEqual(tilesAll.filter((li) => li.classList.contains('birdgen-tile'))
+    .map((li) => li.querySelector('.toclink').dataset.at), ['surgeBtn'],
+    'only Bird Gen receives the full-row class');
 
   const surge = app.document.querySelector('#menuList .toclink[data-at="surgeBtn"]');
   assert.ok(surge, 'Happening now is still in the menu');
-  // It must sit under the SAME heading as the twitches.
   function headingFor(el) {
     let li = el.closest('li');
     for (let p = li.previousElementSibling; p; p = p.previousElementSibling) {
@@ -13103,8 +13150,9 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   }
   const twitch = app.document.querySelector('#menuList .toclink[data-at="refreshBtn"]');
   assert.ok(twitch, 'Twitches today is in the menu');
-  assert.equal(headingFor(surge), headingFor(twitch),
-    'Happening now shares a group heading with the twitches');
+  assert.equal(headingFor(surge), 'Buzz');
+  assert.equal(headingFor(twitch), 'Bird alerts',
+    'F985 separates Bird Gen from the other alerts');
   // ...and the region control is behind the SCOPE CONTROL, not in the identity
   // line and not a grid cell of its own.
   //
@@ -15117,6 +15165,11 @@ test('every tile title and subtitle comes from the contract, and the report head
 
   for (const entry of CONTRACT.menu) {
     const at = entry.at;
+    if (entry.sectionLabel) {
+      const item = menu.find((m) => m.at === at);
+      assert.equal(item.icon + ' ' + item.sectionTitle, entry.sectionLabel,
+        at + ': an abbreviated tile must retain its declared full section name');
+    }
     assert.equal(typeof entry.sub, 'string', at + ' declares its subtitle in the contract');
     if (entry.report) assert.ok(entry.sub, at + ' needs a subtitle for its report heading');
     assert.equal(labelOf[at], entry.label,
@@ -15263,16 +15316,16 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
     + '.modebtn[data-anchor]').length >= 3, true,
     'Here/Home/Find anchors were not preserved');
   const menuRows = [...doc.querySelectorAll('#menuList > li')];
-  const buzzAt = menuRows.findIndex((row) => row.classList.contains('tocgroup')
-    && /Buzz/.test(row.textContent));
-  const nextGroup = menuRows.findIndex((row, i) => i > buzzAt
+  const alertsAt = menuRows.findIndex((row) => row.classList.contains('tocgroup')
+    && row.textContent.trim() === 'Bird alerts');
+  const nextGroup = menuRows.findIndex((row, i) => i > alertsAt
     && row.classList.contains('tocgroup'));
-  const buzzText = menuRows.slice(buzzAt + 1, nextGroup < 0 ? menuRows.length : nextGroup)
+  const alertsText = menuRows.slice(alertsAt + 1, nextGroup < 0 ? menuRows.length : nextGroup)
     .map((row) => row.textContent).join(' ');
-  assert.ok(buzzAt >= 0 && /Nemesis birds/.test(buzzText),
-    'the current-sighting Nemesis report is not in the Buzz menu block');
-  assert.ok(!/Common birds/.test(buzzText),
-    'the historical Common birds report was incorrectly moved into Buzz');
+  assert.ok(alertsAt >= 0 && /Nemesis birds/.test(alertsText),
+    'the current-sighting Nemesis report is not in the Bird alerts menu block');
+  assert.ok(!/Common birds/.test(alertsText),
+    'the historical Common birds report was incorrectly moved into Bird alerts');
   app.window.close();
 });
 
@@ -19312,7 +19365,8 @@ test('F969 outside notices stay in supporting evidence, not Cascade or Mass clai
 });
 
 test('F969 Mega keeps outside distance in supporting evidence and preserves its day-trip claim', async () => {
-  const stamp=recentObsStamp();
+  const now = new Date();
+  const stamp=recentObsStamp(1, now.getHours(), now.getMinutes());
   const app=await boot({storage:{ebird_mega_snapshot_v1:JSON.stringify({
     at:Date.now(),region:'US-WA',sid:'SN10489',rows:[{
       speciesCode:'nazboo1',comName:'Nazca Booby',obsDt:stamp,
@@ -19498,10 +19552,12 @@ test('F958 FOY badge has white text, a dark background and a visible outline in 
 });
 
 test('F960 Busy Patch repeats the crowd with its actual multiplier and rejects old weaker rows', async () => {
+  const now = new Date();
+  const stamp = recentObsStamp(1, now.getHours(), now.getMinutes());
   const app=await boot();
   try {
     app.window.__app.renderSurge([],[],[
-      {loc:'Busy public patch',locId:'LHOT',observers:9,ratio:4.5,latest:recentObsStamp()}
+      {loc:'Busy public patch',locId:'LHOT',observers:9,ratio:4.5,latest:stamp}
     ],[],[],{},[
       {locId:'LTOP',locName:'Example top patch',band:'high yield',species:[
         {code:'snogoo',comName:'Snow Goose',count:1,dateStr:'2026-09-02 11:00'}
@@ -19529,7 +19585,7 @@ test('F960 Busy Patch repeats the crowd with its actual multiplier and rejects o
     assert.equal(hotspot.querySelector('.surgealerttitle .hslink').dataset.loc,'LHOT');
     assert.equal(hotspot.querySelector('.surgealerttitle').textContent,'High traffic at Busy public patch');
     const A=app.window.__app;
-    const row={loc:'Public place',locId:'L960',observers:5,ratio:4,latest:recentObsStamp()};
+    const row={loc:'Public place',locId:'L960',observers:5,ratio:4,latest:stamp};
     for (const ratio of [2.25,3,3.99,3.99999,null,NaN,Infinity,'4']) {
       A.renderSurge([],[],[{...row,ratio}],[],[],{});
       assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null,

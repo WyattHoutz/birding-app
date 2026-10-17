@@ -1318,9 +1318,8 @@
     grid-column: auto; grid-row: auto; justify-self: auto; margin-left: 0;
     }
     .tilebadge.isnew { border-color: var(--safe-blue); color: var(--safe-blue); font-weight: 700; }
-    /* The first tile is what the app opens on, so it spans the row and says
-       what it is for rather than sharing a slot with Settings. */
     .toc li.wide { grid-column: 1 / -1; }
+    #menuList > li.birdgen-tile { grid-column: 1 / -1; }
     /* A group heading spans the whole grid so the tiles under it read as a
        set. It is a <li> because the grid's children must be list items, and
        role="presentation" because it is a LABEL for the tiles, not one of
@@ -4484,23 +4483,7 @@
     "title": "Bird Gen",
     "subtitle": "Talk and news",
     "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
-  },
-  {
-    "at": "massBtn",
-    "icon": "🦆",
-    "title": "Mass Flocks",
-    "subtitle": "All qualifying high-count flocks",
-    "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
-  },
-  {
-    "at": "ppteBtn",
-    "icon": "🧺",
-    "title": "Patagonia Picnic Table Effect",
-    "subtitle": "Corroborated rarity gatherings",
-    "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
+    "group": "Buzz"
   },
   {
     "at": "refreshBtn",
@@ -4508,23 +4491,7 @@
     "title": "Twitches",
     "subtitle": "Rare Bird Alerts (RBA)",
     "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
-  },
-  {
-    "at": "allUnseenBtn",
-    "icon": "🦅",
-    "title": "Nemesis birds",
-    "subtitle": "Closest unseen birds reported now",
-    "needs": "county",
-    "group": "Buzz - Celebrity and Rare Bird News"
-  },
-  {
-    "at": "activeBtn",
-    "icon": "🚨",
-    "title": "Twitches this week",
-    "subtitle": "Rarities this week",
-    "group": "Buzz - Celebrity and Rare Bird News",
-    "enabled": false
+    "group": "Bird alerts"
   },
   {
     "at": "abaBtn",
@@ -4532,7 +4499,15 @@
     "title": "Mega rarities",
     "subtitle": "ABA Code 3+ alert",
     "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
+    "group": "Bird alerts"
+  },
+  {
+    "at": "allUnseenBtn",
+    "icon": "🦅",
+    "title": "Nemesis birds",
+    "subtitle": "Closest unseen birds reported now",
+    "needs": "county",
+    "group": "Bird alerts"
   },
   {
     "at": "foyBtn",
@@ -4540,7 +4515,32 @@
     "title": "FOY Ticks",
     "subtitle": "Recent first of the year birds",
     "needs": "geo",
-    "group": "Buzz - Celebrity and Rare Bird News"
+    "group": "Bird alerts"
+  },
+  {
+    "at": "ppteBtn",
+    "icon": "🧺",
+    "title": "PPTE",
+    "subtitle": "Patagonia picnic table effect",
+    "sectionTitle": "Patagonia Picnic Table Effect",
+    "needs": "geo",
+    "group": "Bird alerts"
+  },
+  {
+    "at": "massBtn",
+    "icon": "🦆",
+    "title": "Mass Flocks",
+    "subtitle": "All qualifying high-count flocks",
+    "needs": "geo",
+    "group": "Bird alerts"
+  },
+  {
+    "at": "activeBtn",
+    "icon": "🚨",
+    "title": "Twitches this week",
+    "subtitle": "Rarities this week",
+    "group": "Bird alerts",
+    "enabled": false
   },
   {
     "at": "destBtn",
@@ -4988,7 +4988,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.159.0';
+      var APP_VERSION = '1.160.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -45092,7 +45092,7 @@
         sec._group = m.group || '';
           var foyUnseen = m.at === 'foyBtn' ? $('foyUnseenBtn') : null;
           if (foyUnseen) foyUnseen.remove();
-          _setH2(sec, m.at === 'foyBtn' ? 'FOY Ticks' : menuSubText(m.at) || splitLabel(m.label).text);
+          _setH2(sec, m.sectionTitle || (m.at === 'foyBtn' ? 'FOY Ticks' : menuSubText(m.at) || splitLabel(m.label).text));
           addSectionDoc(sec);
         addSectionRefresh(sec);
           if (foyUnseen) {
@@ -45150,11 +45150,10 @@
       // The last group was called "You". It holds your standing, your year
       // list, the app settings and now its manual: half of it is about you and
       // half is about the app, and "You" named only the first half.
-      // F200: 'Right now' is gone — it held exactly one tile, Happening now,
-      // which now sits with the twitches it belongs beside.
-      // F201: authored by the owner, grouped by task.
+      // F985 supersedes F200: Bird Gen alone leads Buzz; other alerts follow.
       var MENU_GROUPS = [
-        'Buzz - Celebrity and Rare Bird News',
+        'Buzz',
+        'Bird alerts',
         'Patches - Go birding',
         'Stakeouts - Birds and Hotspots',
         'Birding Tools',
@@ -45635,14 +45634,7 @@
           list.appendChild(h);
           members.forEach(function (sec) {
             var li = document.createElement('li');
-            // F200: NO WIDE TILE. "change the happening now button bar to be a
-            // regular button in the same menu as the twitches."
-            //
-            // The first tile used to span the row, which is what made Happening
-            // now a bar. Widening whichever tile happens to sort first is a
-            // rule about POSITION rather than about importance, so with that
-            // one section moved there is nothing the rule could correctly
-            // apply to — it would simply promote Today's patches by accident.
+            if (sec._at === 'surgeBtn') li.className = 'birdgen-tile';
           var a = document.createElement('button');
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
