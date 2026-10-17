@@ -25,6 +25,10 @@
   }
 
   var ALERT_KINDS = {
+    twitch: {
+      priority: -1, word: 'TWITCH', glyph: '🚨', name: 'New unseen rarities',
+      description: 'An unseen, non-WATCH rarity newly appearing today inside the saved chase area after a successful baseline. Existing or previously alerted species are not re-announced. Counts are known independent reports at the displayed walkable locality, not individual birds or an exhaustive total. Opens Twitches.'
+    },
     mega: {
       priority: 0, word: 'MEGA', glyph: '🦤', name: 'Mega rarities',
       description: 'ABA Code 3+ rarities with qualifying new-locality or nearby-unseen evidence.'
@@ -62,11 +66,11 @@
       description: 'The highest-yield destinations from the complete current chase view, compared with that view’s median patch score.'
     },
     foy: {
-      priority: 9, word: 'foy', glyph: '📅', name: 'First-of-year reports',
+      priority: 9, word: 'FOY', glyph: '📅', name: 'First-of-year reports',
       description: 'Newly learned first regional reports this year. These can describe earlier dates and do not establish current presence.'
     },
     ppte: {
-      priority: 10, word: 'patagonia',
+      priority: 10, word: 'PATAGONIA',
       glyph: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h18M8 8 4 21M16 8l4 13M1 15h22"/></svg>',
       name: 'Patagonia picnic table effect',
       description: 'A celebrity-style rarity plus a subsequently reported rarity at the same actual site, not merely two rare birds together. The attracting bird needs the Celebrity threshold of four separate recent sightings; shared same-minute visits count once across site aliases. Each bird needs a latest report-date age of at most three calendar days, plus two checklists and two reporting names on the same qualification day. The anchor must appear on an earlier captured date; this does not prove first discovery or causation. Mega status is not required. Qualifying PPTE events are ordered nearest first, with unknown distances last; farther events remain visible. Bird and place links have no underline. Bird names open Stakeout bird; the place opens the exact public patch or focused Twitches evidence. Small print gives the qualification date, known straight-line distance from the selected origin and qualification-day report counts, not individual birds. Unknown distance is omitted. Only known inside-radius events mention the chase area.'
@@ -392,6 +396,11 @@
   };
 
   var EXCLUDED = {
+    'birdgen-alert-evidence': {
+      surface: 'sheet',
+      name: 'Bird Gen alert evidence',
+      reason: 'Per-alert source evidence, dates, checklist links and merged reasons generated from the selected live or retained alert, not authored help.'
+    },
     'share-ebird': {
       surface: 'sheet',
       name: 'Share an eBird page',

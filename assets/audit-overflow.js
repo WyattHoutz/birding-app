@@ -807,7 +807,7 @@ const AUDIT = `<script>
       });
     }
     if (label === '(contents menu)') {
-      ['surgeBtn', 'excBtn'].forEach(function (at) {
+      ['excBtn'].forEach(function (at) {
         var tile = document.querySelector('#menuList .toclink[data-at="' + at + '"]');
         var subtitle = tile && tile.querySelector(':scope > .tilesub:not(.tileloadnotice)');
         var warning = tile && tile.querySelector(':scope > .tileextras > .tileloadnotice');
@@ -874,11 +874,14 @@ const AUDIT = `<script>
       };
     }
     if (label === 'sec-surgeBtn') {
-      [].forEach.call(document.querySelectorAll('#surgeFeed .surgefacts'), function (facts) {
+      [].forEach.call(document.querySelectorAll('#surgeFeed > li'), function (card) {
+        var evidence = card.querySelector('template[data-surge-evidence]');
+        if (!evidence || !evidence.content.querySelector('.surgefacts')) return;
+        window.__app.showExcludedSheet('birdgen-alert-evidence', 'Alert evidence', '', evidence.innerHTML);
+        var facts = document.querySelector('#appSheet .surgefacts');
         var extra = facts.closest('.surgeexplainextra');
         var style = getComputedStyle(facts);
         var extraStyle = extra && getComputedStyle(extra);
-        var card = facts.closest('li');
         var title = card.querySelector('.surgealerttitle');
         alertEvidence.push({
           belowHeadline: !!extra && extra.firstElementChild === facts
@@ -912,6 +915,7 @@ const AUDIT = `<script>
             return !!id && link.textContent.indexOf(id) >= 0;
           })
         });
+        document.querySelector('#appSheet .sheetclose').click();
       });
     }
     var menuLayout = null;
@@ -919,8 +923,9 @@ const AUDIT = `<script>
     if (label === '(contents menu)' && menuList && menuList.getBoundingClientRect().width) {
       var menuBox = menuList.getBoundingClientRect();
       var fullRow = menuList.querySelector('.tocgroup').getBoundingClientRect();
-      var birdGen = menuList.querySelector('.toclink[data-at="surgeBtn"]');
-      var birdBox = birdGen && birdGen.closest('li').getBoundingClientRect();
+      var birdGen = document.getElementById('recentBirdGenOpen');
+      var birdBox = birdGen && birdGen.getBoundingClientRect();
+      var jargon = menuList.querySelector('.jargontip');
       var groups = [], menuOrder = [];
       [].forEach.call(menuList.children, function (li) {
         if (li.classList.contains('tocgroup')) groups.push(li.textContent.trim());
@@ -935,12 +940,15 @@ const AUDIT = `<script>
         birdWidth: birdBox && birdBox.width,
         leftDifference: birdBox && birdBox.left - menuBox.left,
         gridColumns: getComputedStyle(menuList).gridTemplateColumns,
-        fullWidth: !!birdBox && Math.abs(birdBox.left - fullRow.left) <= 1
-          && Math.abs(birdBox.width - fullRow.width) <= 1,
+        fullWidth: !!birdBox && Math.abs(birdBox.left - menuBox.left) <= 1
+          && Math.abs(birdBox.width - menuBox.width) <= 1,
         regularTiles: [].every.call(menuList.querySelectorAll('.toclink'), function (link) {
           return link.dataset.at === 'surgeBtn'
             || getComputedStyle(link.closest('li')).gridColumnEnd === 'auto';
-        })
+        }),
+        jargonBetween: !!jargon && menuList.querySelectorAll('.jargontip').length === 1
+          && jargon.previousElementSibling.querySelector('[data-at="favResults"]') !== null
+          && jargon.nextElementSibling.textContent.trim() === 'Bird alerts'
       };
     }
     return {
@@ -1279,7 +1287,10 @@ const AUDIT = `<script>
       yearScan.watchActions=[].map.call(document.querySelectorAll('#myYearList .myYearWatchlist'),function(button){
         var card=button.closest('li'),photo=card.querySelector('.thumb');
         var rect=button.getBoundingClientRect(),image=photo.getBoundingClientRect();
+        var style=getComputedStyle(button);
         return {label:button.textContent,width:rect.width,height:rect.height,
+          pressed:button.getAttribute('aria-pressed'),textAlign:style.textAlign,
+          background:style.backgroundColor,color:style.color,
           right:rect.right,left:rect.left,photoRight:image.right,
           primary:button.parentElement.classList.contains('spprimary'),
           title:cardReadability(card),clipped:cardReadability(card).actions.some(function(action){return action.clipped;}),
@@ -1348,6 +1359,47 @@ const AUDIT = `<script>
       birdGenScan.birdPhoto=document.querySelector('#surgeFeed .thumb').getBoundingClientRect().width;
       birdGenScan.rightIcon=document.querySelector('#surgeFeed .surgekindtile').getBoundingClientRect().width;
       out.push(birdGenScan);
+      var previewNow = Date.now();
+      function previewStamp(minutes) {
+        var date = new Date(previewNow - minutes * 60000);
+        var pad = function (value) { return String(value).padStart(2, '0'); };
+        return date.getFullYear() + '-' + pad(date.getMonth()+1) + '-' + pad(date.getDate())
+          + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+      }
+      A.renderSurge([], [], Array.from({length:7}, function (_, i) {
+        return {loc:'Representative public patch '+i,locId:'LPREVIEW'+i,observers:9,
+          ratio:4,reason:'surge',latest:previewStamp(i+1)};
+      }), [], [], {
+        mega:'notApplicable',observations:'ok',hotspots:'ok',
+        twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-50*60000,
+          reports:3,lowerBound:true,unreviewed:true,
+          latest:{dateStr:previewStamp(60),loc:'Representative rarity patch',
+            locId:'LTWITCHPREVIEW',lat:47.75,lon:-122.16,subId:'SPREVIEW',count:1}}]
+      });
+      A.showMenu();
+      var recentScan=scan('(F987 Recent Bird Gen)');
+      var previewRows=[].slice.call(document.querySelectorAll('#recentBirdGenRows > li'));
+      recentScan.recentBirdGen={
+        six:previewRows.length===6,
+        twitchFirst:previewRows[0].getAttribute('data-recent-kind')==='twitch',
+        bell:document.getElementById('recentBirdGenOpen').textContent.indexOf('🔔')>=0,
+        geometry:previewRows.every(function(row){
+          var head=row.querySelector(':scope > .name'), icon=head.firstElementChild;
+          var age=head.lastElementChild, tail=age.querySelector('small');
+          var rect=head.getBoundingClientRect(), photo=icon.getBoundingClientRect();
+          return head.children.length===3 && Math.abs(photo.width-42)<.5
+            && Math.abs(photo.height-42)<.5 && rect.height>=44 && rect.left>=0
+            && rect.right<=document.documentElement.clientWidth+.5
+            && parseFloat(getComputedStyle(row).paddingTop)>=3
+            && parseFloat(getComputedStyle(row).paddingBottom)>=3
+            && parseFloat(getComputedStyle(age).fontWeight)>=700
+            && tail && tail.textContent==='ago' && getComputedStyle(tail).display==='block';
+        })
+      };
+      out.push(recentScan);
+      document.querySelector('#surgeFeed [data-surge-details]').click();
+      out.push(scan('(F991 Alert evidence)'));
+      document.querySelector('#appSheet .sheetclose').click();
       A.showMenu();
       var brandScan=scan('(F875 main menu brand)');
       brandScan.brandSize=parseFloat(getComputedStyle(document.querySelector('header .brandtext h1')).fontSize);
@@ -1488,9 +1540,10 @@ const AUDIT = `<script>
       var ppteCard = document.querySelector('#surgeFeed [data-alert-kind="ppte"]');
       if (!ppteCard) throw new Error('F943 qualified PPTE fixture did not render');
       var ppteTitle = ppteCard.querySelector('.surgealerttitle');
-      var ppteTime = ppteCard.querySelector('.ppte-evidence time');
+      var ppteDetails = ppteCard.querySelector('template[data-surge-evidence]').content;
+      var ppteTime = ppteDetails.querySelector('.ppte-evidence time');
       var ppteDistance = ppteCard.getAttribute('data-ppte-distance');
-      var ppteDistanceText = ppteCard.querySelector('[data-ppte-distance-text]');
+      var ppteDistanceText = ppteDetails.querySelector('[data-ppte-distance-text]');
       ppteScan.ppte = {
         cards:document.querySelectorAll('#surgeFeed [data-alert-kind="ppte"]').length,
         species:document.querySelectorAll('#surgeFeed .surgealerttitle .splink').length,
@@ -1498,7 +1551,7 @@ const AUDIT = `<script>
           .every(function(name) { return ppteTitle.textContent.indexOf(name) >= 0; }),
         rareTags:ppteCard.querySelectorAll('.surgealerttitle .surgebirdtag-rare').length,
         date:!!ppteTime && ppteTime.getAttribute('datetime') === ppteDay,
-        reports:[].map.call(ppteCard.querySelectorAll('[data-ppte-report-code]'), function(row) {
+        reports:[].map.call(ppteDetails.querySelectorAll('[data-ppte-report-code]'), function(row) {
           return row.getAttribute('data-ppte-report-code') + ':' + row.getAttribute('data-ppte-report-count');
         }).join(','),
         distance:ppteDistance == null || ppteDistance === '' ? !ppteDistanceText
@@ -2724,7 +2777,9 @@ server.listen(0, '127.0.0.1', () => {
           console.log('   F874 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
           if(r.watchActions.length!==3 || r.watchActions.some(action=>
             !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
-            || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped)){
+            || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
+            || action.textAlign!=='center' || action.color!=='rgb(255, 255, 255)'
+            || action.background!==(action.pressed==='true'?'rgb(161, 38, 34)':'rgb(33, 100, 61)'))){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }
@@ -2758,7 +2813,7 @@ server.listen(0, '127.0.0.1', () => {
         if(r.brandSize!=null) console.log('   F875 BRAND SIZE '+r.brandSize);
       if (r.label === '(contents menu)') {
         var menuWarnings = r.menuWarnings || [];
-        if (menuWarnings.length !== 2 || menuWarnings.some(function (warning) {
+        if (menuWarnings.length !== 1 || menuWarnings.some(function (warning) {
           return warning.subtitle !== (warning.at === 'surgeBtn' ? 'Talk and news' : 'Hotspot excursions')
             || warning.title !== (warning.at === 'surgeBtn' ? 'Bird Gen' : 'Day trip patches')
             || warning.warning || !warning.withinTile
@@ -2847,15 +2902,19 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (r.menuLayout) {
         var menu = r.menuLayout;
-        console.log('   F985 MENU GEOMETRY  ' + JSON.stringify(menu));
-        if (!menu.fullWidth || !menu.regularTiles
-            || JSON.stringify(menu.groups) !== JSON.stringify(['Buzz', 'Bird alerts'])
+        console.log('   F987/F992 MENU GEOMETRY  ' + JSON.stringify(menu));
+        if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween
+            || JSON.stringify(menu.groups) !== JSON.stringify(['Patches - Go birding', 'Bird alerts'])
             || JSON.stringify(menu.order) !== JSON.stringify([
-              'surgeBtn', 'refreshBtn', 'abaBtn', 'allUnseenBtn', 'foyBtn', 'ppteBtn', 'massBtn'
+              'destBtn', 'quickBtn', 'excBtn', 'iconicBtn', 'coldBtn', 'hotBtn', 'favResults'
             ])) {
           bad++;
-          console.log('   F985 MENU LAYOUT FAILED');
+          console.log('   F987/F992 MENU LAYOUT FAILED');
         }
+      }
+      if (r.recentBirdGen && Object.values(r.recentBirdGen).some(value => !value)) {
+        bad++;
+        console.log('   F987 RECENT FEED FAILED ' + JSON.stringify(r.recentBirdGen));
       }
       var nameless = r.unnamed || [];
       if (nameless.length) {

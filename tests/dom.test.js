@@ -52,6 +52,193 @@ function wwwFixture(name) {
   const candidate = path.join(WWW, name);
   return fs.existsSync(candidate) ? candidate : path.join(DEFAULT_WWW, name);
 }
+function surgeEvidence(root) {
+  const templates = root.querySelectorAll('template[data-surge-evidence]');
+  assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
+  return templates[0].content;
+}
+test('F990 TWITCH integration baselines complete sources, persists episodes and withholds failed writes', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, [], null, [
+      { code: 'verfly', name: 'Vermilion Flycatcher' },
+      { code: 'shtsan', name: 'Sharp-tailed Sandpiper' },
+    ]);
+    const day = new Date();
+    day.setHours(12, 0, 0, 0);
+    const now = day.getTime();
+    app.window.Date.now = () => now;
+    const stamp = `${A.todayStr()} 11:50`;
+    const bird = { code: 'verfly', name: 'Vermilion Flycatcher', kind: 'Rarity',
+      dateStr: stamp, locId: 'LF990', loc: 'Synthetic public patch', subId: 'SF990',
+      lat: 47.75, lon: -122.16, count: 1, obsReviewed: false };
+    const source = (merged, extra = {}) => ({ rows: merged, cv: { merged }, feedComplete: true, ...extra });
+    assert.equal(A.surgeObservedResult(source([bird], { partial: true }), now).twitchRows.length, 0);
+    assert.equal(store.getItem(A.twitchJournalKey()), null, 'partial coverage cannot establish a baseline');
+    assert.equal(A.surgeObservedResult(source([]), now).twitchRows.length, 0);
+    const baseline = JSON.parse(store.getItem(A.twitchJournalKey()));
+    assert.deepEqual(baseline.known, []);
+    const first = A.surgeObservedResult(source([bird]), now).twitchRows;
+    assert.equal(first.length, 1);
+    assert.equal(first[0].firstAt, now);
+    assert.equal(first[0].reports, 1);
+    assert.equal(first[0].lowerBound, true);
+    assert.equal(first[0].unreviewed, true);
+    const second = { ...bird, subId: 'SF990B', dateStr: `${A.todayStr()} 11:55` };
+    const update = A.surgeObservedResult(source([bird, second]), now + 60000).twitchRows;
+    assert.equal(update.length, 1);
+    assert.equal(update[0].firstAt, now, 'a new report cannot reset detection age');
+    assert.equal(update[0].reports, 2);
+    const journalKey = A.twitchJournalKey();
+    const originalSet = app.window.Storage.prototype.setItem;
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key === journalKey) throw new app.window.DOMException('Synthetic denied write', 'SecurityError');
+      return originalSet.call(this, key, value);
+    };
+    const newBird = { ...bird, code: 'shtsan', name: 'Sharp-tailed Sandpiper', subId: 'SNEW990' };
+    const denied = A.surgeObservedResult(source([bird, newBird]), now + 120000).twitchRows;
+    assert.deepEqual(Array.from(denied, row => row.code), ['verfly'],
+      'only the already-persisted episode may survive a failed journal write');
+    app.window.Storage.prototype.setItem = originalSet;
+    const originalGet = app.window.Storage.prototype.getItem;
+    let justWrote = false;
+    app.window.Storage.prototype.setItem = function (key, value) {
+      originalSet.call(this, key, value);
+      if (key === journalKey) justWrote = true;
+    };
+    app.window.Storage.prototype.getItem = function (key) {
+      if (key === journalKey && justWrote) {
+        justWrote = false;
+        throw new app.window.DOMException('Synthetic read-back denied', 'SecurityError');
+      }
+      return originalGet.call(this, key);
+    };
+    const unreadable = A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows;
+    assert.deepEqual(Array.from(unreadable, row => row.code), ['verfly'],
+      'a successful write without a successful read-back must not expose a new episode');
+    app.window.Storage.prototype.setItem = originalSet;
+    app.window.Storage.prototype.getItem = originalGet;
+    assert.equal(A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows.length, 2,
+      'a subsequent verified read recovers the persisted episode without creating another');
+    store.removeItem(A.twitchJournalKey());
+    assert.equal(A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows.length, 0,
+      'lost history establishes a silent baseline, not duplicate arrivals');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps short accessible three-column rows', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = Date.now();
+    const stamp = (time) => {
+      const date = new Date(time), p = n => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} `
+        + `${p(date.getHours())}:${p(date.getMinutes())}`;
+    };
+    const patches = Array.from({ length: 7 }, (_, i) => ({
+      loc: `Actual public patch ${i}`, locId: `LPREVIEW${i}`, observers: 16,
+      ratio: 4.1, reason: 'surge', latest: stamp(now - (i + 1) * 60000),
+      eventAt: now - (i + 1) * 60000,
+    }));
+    const twitch = { code: 'verfly', name: 'Vermilion Flycatcher', firstAt: now - 50 * 60000,
+      reports: 1, lowerBound: true, unreviewed: true,
+      latest: { dateStr: stamp(now - 60 * 60000), locId: 'LTWITCH', loc: 'Omitted place',
+        lat: 47.75, lon: -122.16, subId: 'STWITCH', count: 1 } };
+    A.renderSurge([], [], patches, [], [], {
+      mega: 'notApplicable', observations: 'ok', hotspots: 'ok', twitchRows: [twitch],
+    });
+    const list = app.$('recentBirdGenRows'), rows = [...list.children];
+    assert.equal(rows.length, 6);
+    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the older TWITCH must enter the top six');
+    assert.equal(rows[0].querySelector('.surgealerttitle').textContent,
+      'New unseen rarity Vermilion Flycatcher');
+    assert.match(rows[0].textContent, /At least 1 report in 24h/);
+    assert.match(rows[0].textContent, /Unreviewed report/);
+    assert.equal(rows[1].querySelector('.surgealerttitle').textContent, 'Actual public patch 0');
+    assert.doesNotMatch(list.textContent, /Actual public patch [5-6]|Omitted place/);
+    for (const row of rows) {
+      const head = row.querySelector(':scope > .name'), age = head.lastElementChild;
+      assert.equal(head.children.length, 3);
+      assert.ok(head.firstElementChild.classList.contains('thumb'));
+      assert.equal(app.window.getComputedStyle(head.firstElementChild).width, '42px');
+      assert.equal(app.window.getComputedStyle(age).fontWeight, '800');
+      assert.equal(age.querySelector('small').textContent, 'ago');
+      assert.equal(row.querySelector('.surgekindwrap,template,.surgeexplain'), null);
+      assert.equal(head.tabIndex, 0);
+      assert.equal(row.querySelector('.surge-leading-tag').textContent,
+        row.querySelector('.surge-leading-tag').textContent.toUpperCase());
+    }
+    const before = app.state.fetches.filter(url => /api\.ebird\.org/.test(url)).length;
+    A.showMenu();
+    A.refreshMenuBadges();
+    assert.equal(app.state.fetches.filter(url => /api\.ebird\.org/.test(url)).length, before,
+      'menu repaint must not create a source refresh wave');
+    rows[0].querySelector('.name').click();
+    assert.equal(app.$('refreshBtn').closest('section').hidden, false, 'TWITCH opens Twitches');
+    A.showMenu();
+    const feed = app.$('surgeFeed');
+    feed.innerHTML = patches.slice(0, 3).map((patch, i) => A.surgeAlertCard({
+      kind: 'hotspot', name: patch.loc, where: '', icon: '', time: now,
+      when: stamp(now + (i === 0 ? 3600000 : i === 1 ? -25 * 3600000 : -60000)),
+    }, i)).join('');
+    A.updateRecentBirdGen();
+    assert.equal(app.$('recentBirdGenRows').children.length, 1,
+      'future and older-than-24h rows cannot consume a preview slot');
+    assert.equal(app.$('recentBirdGenRows').querySelector('.surgealerttitle').textContent,
+      'Actual public patch 2');
+    feed.innerHTML = '';
+    A.updateRecentBirdGen();
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-birdgen-empty]'));
+    app.$('recentBirdGenOpen').click();
+    assert.equal(app.$('surgeBtn').closest('section').hidden, false, 'the bell opens the complete feed');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F991 compact cards retain evidence behind category buttons and preserve essential warnings', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    A.renderSurge([{
+      code: 'tersan', name: 'Terek Sandpiper', locId: 'LEVIDENCE', loc: 'Evidence public patch',
+      lat: 47.75, lon: -122.16, observers: 4, checklists: 4, baseline: 1,
+      ratio: 4, novel: false, latest: recentObsStamp(0), distMi: 1, subId: 'SEVIDENCE',
+    }], [], [], [], [], { mega: 'notApplicable', observations: 'ok' });
+    const row = app.$('surgeFeed').firstElementChild;
+    assert.ok(row.querySelector('.surge-leading-tag'));
+    assert.equal(row.querySelector('.surgeexplain,.surgefacts'), null);
+    const evidence = surgeEvidence(row);
+    assert.match(evidence.textContent, /Many birders are reporting it above normal/i);
+    const button = row.querySelector('button[data-surge-details]');
+    assert.match(button.getAttribute('aria-label'), /details/i);
+    button.click();
+    assert.match(app.$('sheetTitle').textContent, /CROWD alert details/);
+    const dialog = app.document.querySelector('#appSheet .sheetbody');
+    assert.match(dialog.textContent, /Many birders are reporting it above normal/i);
+    const checklist = dialog.querySelector('[data-href*="SEVIDENCE"]');
+    assert.ok(checklist, 'the relocated exact supporting checklist remains actionable');
+    app.document.querySelector('#appSheet .sheetclose').click();
+    assert.equal(app.$('appSheet').hidden, true);
+    const fixture = app.document.createElement('div');
+    for (const [kind, extra, expected] of [
+      ['need', 'Outside your chase area', /Outside chase area/],
+      ['foy', 'Annual first report', /Annual first - not current presence/],
+      ['mass', 'One reported high count', /Single report - flock may have moved/],
+      ['migration', 'Expected migration', /Forecast - not a sighting/],
+    ]) {
+      fixture.innerHTML = A.surgeAlertCard({
+        kind, name: kind === 'migration' ? 'Migration tonight' : 'Example bird',
+        when: recentObsStamp(0), time: Date.now(), extra, unreviewed: true,
+      }, 0);
+      assert.match(fixture.textContent, expected, kind);
+      assert.match(fixture.textContent, /Unreviewed report/, kind);
+      assert.equal(fixture.querySelector('.surgeexplain'), null);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
 let HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
 if (process.env.BIRDCHASER_HISTORY_PROBE
     && !/setChasePhase2:/.test(HTML)) {
@@ -655,6 +842,233 @@ test('F940 F950 history diagnostics use active ownership and distinguish failed 
   } finally { proto.setItem = set; W.close(); }
 });
 
+test('F986 growing board history reclaims disposable storage while a smaller personal write fits', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  const remove = proto.removeItem;
+  try {
+    const owner = 'F986-synthetic';
+    const boardKey = 'bc_board_v1:' + owner;
+    const rankKey = 'ebird_rankhist:' + owner;
+    const spareKey = 'ebird_locsp_v1:F986-disposable';
+    const protectedKey = 'ebird_own_seen:F986-protected';
+    W.localStorage.setItem(protectedKey, '{"saved":true}');
+    A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+    A.rankHistRecord(owner, { rank: 4, species: 100 });
+    W.localStorage.setItem(spareKey, 'x'.repeat(40000));
+    function used() {
+      return Object.keys(W.localStorage).reduce((sum, key) =>
+        sum + key.length + W.localStorage.getItem(key).length, 0);
+    }
+    const capacity = used() + 128, attempts = {}, removed = [];
+    proto.removeItem = function (key) {
+      removed.push(key);
+      return remove.call(this, key);
+    };
+    proto.setItem = function (key, value) {
+      attempts[key] = (attempts[key] || 0) + 1;
+      const previous = this.getItem(key);
+      const replacement = used() - (previous === null ? 0 : key.length + previous.length)
+        + key.length + String(value).length;
+      if (replacement > capacity) throw new W.DOMException('synthetic capacity', 'QuotaExceededError');
+      return set.call(this, key, value);
+    };
+    A.rankHistRecord(owner, { rank: 3, species: 101 });
+    assert.equal(attempts[rankKey], 1, 'the small neighboring write fits without reclamation');
+    assert.equal(removed.length, 0);
+    assert.equal(W.localStorage.getItem(spareKey).length, 40000);
+    const rows = Array.from({ length: 100 }, (_, i) => ({ name: 'Synthetic birder ' + i, rank: i + 1 }));
+    A.boardHistRecord(owner, rows);
+    assert.equal(attempts[boardKey], 2, 'growing board history must retry after quota-only reclamation');
+    assert.equal(Object.keys(JSON.parse(W.localStorage.getItem(boardKey)).at(-1).r).length, 100);
+    assert.equal(JSON.parse(W.localStorage.getItem(rankKey)).at(-1).rank, 3);
+    assert.equal(W.localStorage.getItem(protectedKey), '{"saved":true}');
+    assert.ok(removed.length > 0, 'quota recovery must reclaim disposable storage');
+    assert.ok(!removed.includes(protectedKey));
+  } finally { proto.setItem = set; proto.removeItem = remove; W.close(); }
+});
+
+test('F986 history keeps last-good data and reports non-quota and exhausted-retry failures', async () => {
+  for (const name of ['SecurityError', 'QuotaExceededError']) {
+    const app = await boot({ sample: false });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const remove = proto.removeItem;
+    try {
+      const owner = 'F986-failure', key = 'bc_board_v1:' + owner;
+      const spareKey = 'ebird_locsp_v1:F986-disposable';
+      A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+      const previous = W.localStorage.getItem(key);
+      W.localStorage.setItem(spareKey, 'x'.repeat(40000));
+      let attempts = 0, removals = 0;
+      proto.removeItem = function (target) {
+        removals++;
+        return remove.call(this, target);
+      };
+      proto.setItem = function (target, value) {
+        if (target === key) {
+          attempts++;
+          throw new W.DOMException('synthetic failure', name);
+        }
+        return set.call(this, target, value);
+      };
+      A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+      assert.equal(attempts, name === 'SecurityError' ? 1 : 2);
+      assert.equal(W.localStorage.getItem(key), previous, 'failed writes preserve last-good history');
+      assert.equal(removals > 0, name === 'QuotaExceededError',
+        'only quota failures may reclaim disposable data');
+      const log = W.__dbg.buf.map(row => row.msg).join('\n');
+      assert.match(log, /Top 100 history could not be saved; the displayed update is not durable/);
+      assert.ok(log.includes(name));
+      assert.doesNotMatch(log, /F986-failure/);
+    } finally { proto.setItem = set; proto.removeItem = remove; W.close(); }
+  }
+});
+
+test('F986 history reports no-reclaimable-space and read-back failures without false verification', async () => {
+  for (const mode of ['no-space', 'read-back']) {
+    const app = await boot({ sample: false });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype;
+    const set = proto.setItem, get = proto.getItem;
+    try {
+      W.localStorage.clear();
+      const owner = A.rankingHistoryOwner(A.activeScope().effectiveRegion,
+        A.personalBoardPeriod(), 'spp', A.getDisplayName());
+      const key = 'bc_board_v1:' + owner;
+      A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+      const previous = W.localStorage.getItem(key);
+      let attempts = 0;
+      proto.setItem = function (target, value) {
+        if (target === key) {
+          attempts++;
+          if (mode === 'no-space') throw new W.DOMException('synthetic full store', 'QuotaExceededError');
+        }
+        return set.call(this, target, value);
+      };
+      proto.getItem = function (target) {
+        if (mode === 'read-back' && target === key && attempts) return null;
+        return get.call(this, target);
+      };
+      A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+      assert.equal(attempts, 1);
+      if (mode === 'no-space') assert.equal(get.call(W.localStorage, key), previous);
+      assert.match(A.dbgContext(), /Top 100 failed/);
+      assert.match(W.__dbg.buf.map(row => row.msg).join('\n'), /displayed update is not durable/);
+    } finally { proto.setItem = set; proto.getItem = get; W.close(); }
+  }
+});
+
+test('F988 state and county diagnostics preserve cold failures after managed warm-up and forced retries', async () => {
+  const app = await boot({ sample: false, fetch: url =>
+    /alert\/rba\//.test(url) ? '<div>anubis_challenge</div>' : null });
+  const W = app.window, A = W.__app, handlers = {};
+  let opened = 0, activeId;
+  W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+    openWebView() { activeId = 'f988-managed-' + (++opened); return Promise.resolve({ id: activeId }); },
+    close() { return Promise.resolve(); }, hide() {}, show() {},
+  } } };
+  try {
+    for (const region of ['US-WA', 'US-WA-033']) {
+      const cold = await A.stateRbaRecords(false, null, region, false);
+      assert.equal(cold.complete, false);
+      assert.equal(cold.diagnostics.cache, 'cold');
+      assert.equal(cold.diagnostics.directPage, 'ANUBIS');
+      assert.equal(cold.diagnostics.acquisition, 'direct');
+      const before = opened;
+      const managed = A.stateRbaRecords(false, null, region);
+      await waitFor(() => opened > before, 'the controlled managed RBA reader');
+      await new Promise(resolve => setTimeout(resolve, 0));
+      handlers.messageFromWebview({ id: activeId, detail: {
+        __ebird: true, kind: 'aba', ok: true,
+        data: [{ speciesCode: 'mallar3', comName: 'Private diagnostic sentinel',
+          subnational1Code: 'US-WA', obsDt: recentObsStamp(), locName: 'Private place sentinel',
+          lat: 47, lng: -122 }],
+      } });
+      const restored = await managed;
+      assert.equal(restored.complete, true);
+      assert.equal(restored.diagnostics.acquisition, 'managed');
+      const warm = await A.stateRbaRecords(false, null, region, false);
+      assert.equal(warm.complete, true);
+      assert.equal(warm.diagnostics.cache, 'warm');
+      assert.equal(warm.diagnostics.cachedAcquisition, 'managed');
+      const forced = await A.stateRbaRecords(true, null, region, false);
+      assert.equal(forced.complete, false, 'forced direct retry must not borrow the warmed answer');
+      assert.equal(forced.diagnostics.cache, 'bypassed');
+      assert.equal(opened, before + 1, 'Bird Gen never enables an automatic managed reader');
+    }
+    const context = A.dbgContext().split('\n').find(line => line.startsWith('RBA source diagnostics:'));
+    const evidence = JSON.parse(context.slice('RBA source diagnostics: '.length));
+    assert.deepEqual(evidence.firstFailures.map(row => row.region), ['US-WA', 'US-WA-033']);
+    assert.ok(evidence.firstFailures.every(row => row.cache === 'cold' && !row.complete));
+    assert.ok(evidence.recent.some(row => row.cache === 'warm' && row.cachedAcquisition === 'managed'));
+    assert.doesNotMatch(context, /Private|mallar3|"(?:lat|lng|apiKey)"\s*:/);
+  } finally { W.close(); }
+});
+
+test('F882 Mass capture attributes creation and obsolete cleanup to its owning work', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, handlers = {}, closed = [];
+  let alive = true;
+  W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+    openWebView() { return Promise.resolve({ id: 'f882-owned' }); },
+    close({ id }) { closed.push(id); return Promise.resolve(); }, hide() {}, show() {},
+  } } };
+  try {
+    const work = A.navWork('Bird Gen mass flock', 'sec-surgeBtn');
+    const pending = A.captureEbird({
+      kind: 'massHighCount', url: 'https://ebird.org/region/US-WA/bird-list',
+      alive: () => alive, buildInject: () => '',
+      ownerWork: work, ownerNavigation: A.navGeneration(), ownerSourceGeneration: 0,
+    }).then(data => ({ data }), error => ({ error }));
+    await waitFor(() => handlers.browserPageLoaded, 'capture listeners');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    A.showSection(app.$('abaBtn').closest('section').id);
+    alive = false;
+    handlers.browserPageLoaded({ id: 'f882-owned' });
+    assert.match((await pending).error.message, /superseded/);
+    assert.deepEqual(closed, ['f882-owned']);
+    const log = W.__dbg.buf.map(row => row.msg).join('\n');
+    assert.match(log, /owner created.*section=sec-surgeBtn/);
+    const cleanup = log.split('\n').find(line => /owner cleanup/.test(line));
+    assert.ok(cleanup);
+    const generations = cleanup.match(/navigation=(\d+)\/(\d+)/);
+    assert.notEqual(generations[1], generations[2], 'cleanup must expose navigation invalidation');
+    const source = HTML.slice(HTML.indexOf('function loadMassFlockAlertSource'),
+      HTML.indexOf('function renderSurge'));
+    assert.match(source, /ownerWork:\s*work/);
+  } finally { W.close(); }
+});
+
+test('F921 failed checklist replacements expose measured growth without inventing allocation headroom', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    const sub = 'F921-replacement', key = A.CKL_NS + sub;
+    A.cklWrite(sub, { obsDt: recentObsStamp() }, false, [{ comments: 'Private payload sentinel' }]);
+    const previous = W.localStorage.getItem(key);
+    W.localStorage.setItem('ebird_photos_neg_v1:F921-spare', 'x'.repeat(40000));
+    const attempts = [];
+    proto.setItem = function (target, value) {
+      if (target === key) {
+        attempts.push(String(value));
+        throw new W.DOMException('controlled allocation refusal', 'QuotaExceededError');
+      }
+      return set.call(this, target, value);
+    };
+    assert.throws(() => A.cklWrite(sub, { obsDt: recentObsStamp() }, false,
+      [{ comments: 'Private payload sentinel'.repeat(10) }]), { name: 'QuotaExceededError' });
+    assert.equal(attempts.length, 2);
+    assert.equal(W.localStorage.getItem(key), previous);
+    const report = A.storeReport().join('\n');
+    assert.match(report, new RegExp('previous payload ' + previous.length + ' UTF-16 chars'));
+    assert.match(report, new RegExp('payload change ' + (attempts[0].length - previous.length) + ' chars'));
+    assert.match(report, /retry failed \(QuotaExceededError\); read-back not attempted/);
+    assert.match(report, /string sizes do not measure native allocation or quota headroom/);
+    assert.doesNotMatch(report, /Private payload sentinel/);
+  } finally { proto.setItem = set; W.close(); }
+});
+
 async function settleMegaEntry(app, code) {
   const A = app.window.__app;
   for (let pass = 0; pass < 3; pass++) {
@@ -1051,10 +1465,10 @@ function boot(opts = {}) {
         document: window.document,
         state,
         $: (id) => window.document.getElementById(id),
-        links: () => [...window.document.querySelectorAll('.toclink')],
+        links: () => [...window.document.querySelectorAll('.toclink, #recentBirdGen:not([hidden]) #recentBirdGenOpen')],
         click(el) { el.dispatchEvent(new window.Event('click', { bubbles: true })); },
         open(labelRe) {
-          const a = [...window.document.querySelectorAll('.toclink')]
+          const a = [...window.document.querySelectorAll('.toclink, #recentBirdGen:not([hidden]) #recentBirdGenOpen')]
             .find((x) => labelRe.test(x.textContent));
           assert.ok(a, 'no Contents entry matching ' + labelRe);
           this.click(a);
@@ -1439,7 +1853,8 @@ test('F815 FOY overlaps add one visible reason while distinct flock events survi
     assert.equal(solitary[0].rare, undefined, 'an annual first is not automatically rare');
     A.renderSurge([], [], [], [], [], {foy:'ok',foyRows:[first]});
     assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1);
-    assert.match(app.$('surgeResults').textContent, /Newly learned regional annual first/);
+    assert.match(surgeEvidence(app.$('surgeFeed').firstElementChild).textContent,
+      /Newly learned regional annual first/);
   } finally { app.window.close(); }
 });
 
@@ -1972,8 +2387,8 @@ test('F872 migration arrival carries source observation timestamp through cached
     const host = app.document.createElement('div');
     host.innerHTML = A.surgeAlertCard(row,0);
     assert.doesNotMatch(host.textContent,/Timeunknown|time unavailable/);
-    assert.equal(host.querySelector('time').getAttribute('datetime'),page.rows[0].observedAt);
-    assert.match(host.querySelector('.surgeabsolute').textContent,/local time/);
+    assert.equal(surgeEvidence(host).querySelector('time').getAttribute('datetime'),page.rows[0].observedAt);
+    assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/local time/);
     page.rows[0].observedAt=date;
     A.firstYearWrite(ctx.region,ctx.year,page);
     row = A.migrationSignificantRows(new Date(),{}).find(r=>/showing up/.test(r.name));
@@ -1981,7 +2396,7 @@ test('F872 migration arrival carries source observation timestamp through cached
     assert.equal(row.ageLabel,'Date only');
     host.innerHTML = A.surgeAlertCard(row,0);
     assert.match(host.textContent,/Date only/);
-    assert.match(host.querySelector('.surgeabsolute').textContent,/date only/);
+    assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/date only/);
   } finally { app.window.close(); }
 });
 
@@ -4157,7 +4572,13 @@ test('Contents menu matches the report section contract (labels + order)', async
   // Tiles split the label into a glyph span and a text span, so textContent
   // loses the space between them. The accessible name is the label a
   // screen-reader user actually hears, so that is what the contract pins.
-  const rendered = app.links().map((a) => (a.getAttribute('aria-label') || a.textContent).trim());
+  const rendered = app.links().map((a) => {
+    if (a.id === 'recentBirdGenOpen') {
+      assert.match(a.textContent, /🔔 Open full Bird Gen feed/);
+      return '🔔 Bird Gen';
+    }
+    return (a.getAttribute('aria-label') || a.textContent).trim();
+  });
   const contract = CONTRACT.menu.map((m) => m.label);
 
   // MEMBERSHIP is pinned exactly: every section the report emits has a tile,
@@ -4214,7 +4635,7 @@ test('Contents menu matches the report section contract (labels + order)', async
   const shown = new Set(renderedAts);
   assert.deepEqual(renderedAts, expected.filter((at) => shown.has(at)),
     'the menu renders in the authored MENU order, group by group');
-  const tiles = app.links();
+  const tiles = app.links().filter((entry) => entry.classList.contains('toclink'));
   assert.ok(tiles.every((a) => a.tagName === 'BUTTON'),
     'Contents entries are real buttons (tiles), not bare anchors');
   assert.ok(tiles.every((a) => a.querySelector('.tilelabel')),
@@ -4629,8 +5050,9 @@ test('Bird gen is wired and renders every alert source it detects', async () => 
   assert.match(txt, /Tufted Puffin/, 'the species drawing the crowd');
   assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="crowd"] .surgecountvalue'), null,
     'the number of reports is not a measured bird count');
-  assert.match(txt, /CROWD.*Multiple independent reports with no trailing baseline!/s,
-    'the third line explains the crowd signal');
+  assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="crowd"]')).textContent,
+    /CROWD.*Multiple independent reports with no trailing baseline!/s,
+    'the category details explain the crowd signal');
   assert.match(txt, /Terek Sandpiper/, 'the leaderboard cascade');
   assert.match(txt, /Stanwood STP/, 'the species-blind hotspot convergence');
   // The place must be ACTIONABLE — a link, not a bare name. It used to pin an
@@ -4669,12 +5091,12 @@ test('a zero-baseline surge keeps "new here" accessible, never an infinite ratio
   assert.doesNotMatch(txt, /Infinity|NaN/, 'and never invents a number');
   assert.doesNotMatch(row.querySelector(':scope > .name').textContent, /\uD83C\uDD95/u,
     'the compact headline still carries a second state outside the category tag');
-  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(), 'CROWD',
+  assert.equal(surgeEvidence(row).querySelector('.surgeexplain .surgebadge').textContent.trim(), 'CROWD',
     'the category badge did not move to the explanation row');
-  assert.match(row.querySelector('.surgeexplain b').textContent,
+  assert.match(surgeEvidence(row).querySelector('.surgeexplain b').textContent,
     /Multiple independent reports with no trailing baseline/i,
     'a novel crowd is falsely described as above normal');
-  assert.doesNotMatch(row.querySelector('.surgeexplain b').textContent, /^CROWD:/i,
+  assert.doesNotMatch(surgeEvidence(row).querySelector('.surgeexplain b').textContent, /^CROWD:/i,
     'the written category prefix duplicates the badge');
   app.window.close();
 });
@@ -8645,12 +9067,12 @@ test('F951 production Bird Gen surfaces distant CCLO with the whole current Top 
     const card = app.$('surgeResults').querySelector('[data-species-code="chclon"]');
     assert.ok(card && !card.hidden,'the production loader still drops distant CCLO');
     assert.ok((card.dataset.surgeReasons||'').split(',').includes('cascade'));
-    assert.match(card.textContent,/12 Top 100 birders|12 of the top 100/);
-    const extra = card.querySelector('.surgeexplainextra').textContent;
+    assert.match(surgeEvidence(card).textContent,/12 Top 100 birders|12 of the top 100/);
+    const extra = surgeEvidence(card).querySelector('.surgeexplainextra').textContent;
     assert.match(extra,/Outside your chase area.*7\d(?:\.\d)?\s*mi/s);
     assert.match(extra,/Leaderboard additions:.*Public sighting:/s);
     assert.match(card.querySelector('.surgealerttitle').textContent,/at Example distant public marsh/);
-    assert.match(card.querySelector('.surgeabsolute a').dataset.href,/S951/);
+    assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,/S951/);
     assert.ok(app.state.fetches.some(url=>
       /data\/obs\/US-WA\/recent\/chclon\?/.test(url)
       && /back=30/.test(url) && /includeProvisional=true/.test(url)),
@@ -8694,8 +9116,8 @@ test('F951 distant Cascade evidence is fresh, public and located; local older si
       'a failed source with no retained public evidence is not an actionable alert');
     const mixed=show([place(20,5),{...place(75,0),locName:'Newest public marsh',subId:'SNEW951'}]);
     assert.match(mixed.querySelector('.surgealerttitle').textContent,/at Newest public marsh/);
-    assert.match(mixed.querySelector('.surgeabsolute a').dataset.href,/SNEW951/);
-    assert.match(mixed.textContent,/Outside your chase area/);
+    assert.match(surgeEvidence(mixed).querySelector('.surgeabsolute a').dataset.href,/SNEW951/);
+    assert.match(mixed.textContent,/Outside chase area/);
     app.window.localStorage.removeItem(A.homeKey('lat'));
     app.window.localStorage.removeItem(A.homeKey('lng'));
     assert.equal(show([place(75,0)]),null,'missing Home cannot invent a known distance');
@@ -9429,7 +9851,7 @@ test('F912 Celebrity wording stays neutral for unknown, seen, unseen and watched
       A.renderSurge([],[],[],needs,[],{observations:'partial'});
       const row = app.$('surgeResults').querySelector('[data-alert-kind="need"]');
       assert.ok(row,state);
-      assert.match(row.textContent,/A rarity has multiple sightings!/);
+      assert.match(surgeEvidence(row).textContent,/A rarity has multiple sightings!/);
       assert.doesNotMatch(row.textContent + row.dataset.surgeReasonText,/unseen rarity|You still need it/i);
       assert.match(row.dataset.surgeReasonText,/eBird marked it notable inside your chase radius/);
     }
@@ -12144,16 +12566,16 @@ test('F943 PPTE ranks by actual distance without hiding farther events or treati
     assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['near', 'far', 'unknown']);
     for (const [index, lat] of [[0, 47.05], [1, 48]]) {
       const expected = app.window.BirdLogic.haversineMi(47, -122, lat, -122);
-      const text = cards[index].querySelector('.ppte-evidence [data-ppte-distance-text]');
+      const text = surgeEvidence(cards[index]).querySelector('.ppte-evidence [data-ppte-distance-text]');
       assert.ok(text, 'known distance must appear in the qualification sentence');
       assert.equal(text.textContent,
         expected.toFixed(1) + 'mi away', 'known distances remain visible even beyond the chase radius');
     }
-    assert.equal(cards[2].querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
+    assert.equal(surgeEvidence(cards[2]).querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
     A.useFoundAnchor({ lat: 48, lng: -122 }, 'Changed origin');
     cards = render();
     assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'near', 'unknown']);
-    assert.equal(cards[0].querySelector('[data-ppte-distance-text]').textContent, '0.0mi away');
+    assert.equal(surgeEvidence(cards[0]).querySelector('[data-ppte-distance-text]').textContent, '0.0mi away');
     A.resetTransientAnchor();
     app.window.localStorage.removeItem(A.homeKey('lat'));
     app.window.localStorage.removeItem(A.homeKey('lng'));
@@ -12243,17 +12665,17 @@ test('F944/F959 Patagonia bird-name headlines retain focused Twitches without no
     assert.ok(card);
     assert.match(card.querySelector('.surgealerttitle').textContent,
       /Swamp Sparrow and Vermilion Flycatcher at Sample Street SE/);
-    assert.equal(card.querySelector('.surgebadge').textContent, 'patagonia');
-    assert.equal(app.window.BirdInfoDialogs.alertKinds.ppte.word,'patagonia');
-    assert.match(doc.querySelector('[data-count-kind="ppte"]').textContent,/1 patagonia/);
-    assert.equal(card.querySelectorAll('[data-ppte-species], button, .surgefacts').length, 0);
-    assert.ok(card.querySelector('.ppte-evidence'), 'small-print qualifying evidence remains available');
-    assert.equal(card.querySelector('.ppte-evidence time').getAttribute('datetime'), event.day);
-    assert.deepEqual([...card.querySelectorAll('[data-ppte-report-code]')]
+    assert.equal(card.querySelector('.surgebadge').textContent, 'PATAGONIA');
+    assert.equal(app.window.BirdInfoDialogs.alertKinds.ppte.word,'PATAGONIA');
+    assert.match(doc.querySelector('[data-count-kind="ppte"]').textContent,/1 PATAGONIA/);
+    assert.equal(surgeEvidence(card).querySelectorAll('[data-ppte-species], button, .surgefacts').length, 0);
+    assert.ok(surgeEvidence(card).querySelector('.ppte-evidence'), 'small-print qualifying evidence remains available');
+    assert.equal(surgeEvidence(card).querySelector('.ppte-evidence time').getAttribute('datetime'), event.day);
+    assert.deepEqual([...surgeEvidence(card).querySelectorAll('[data-ppte-report-code]')]
       .map(node => [node.getAttribute('data-ppte-report-code'), node.getAttribute('data-ppte-report-count')]),
     [['swaspa', '2'], ['verfly', '3']]);
-    assert.match(card.querySelector('.ppte-evidence').textContent, /2 obs.*3 obs/);
-    assert.match(card.querySelector('.ppte-evidence').textContent, /SWSP ×2 obs; VEFL ×3 obs/);
+    assert.match(surgeEvidence(card).querySelector('.ppte-evidence').textContent, /2 obs.*3 obs/);
+    assert.match(surgeEvidence(card).querySelector('.ppte-evidence').textContent, /SWSP ×2 obs; VEFL ×3 obs/);
     assert.equal(card.querySelectorAll('.surgealerttitle .splink[data-sp]').length, 2);
     assert.deepEqual([...card.querySelectorAll('.surgealerttitle .splink[data-sp]')]
       .map(link => link.getAttribute('data-sp')), ['swaspa', 'verfly']);
@@ -12301,29 +12723,29 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     A.useFoundAnchor({ lat: 47, lng: -122 }, 'Event origin');
     app.window.localStorage.setItem(A.chaseMiKey(), '25');
     let card = render();
-    assert.match(card.querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
+    assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
     assert.equal(card.querySelectorAll('.ppte-bird-composite > .thumb').length, 2);
     assert.equal(card.querySelector('.ppte-extra-birds'), null);
     assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Swamp Sparrow.*Vermilion Flycatcher/);
     assert.ok(card.querySelector('.surgekind-ppte svg'), 'the bordered category keeps its table symbol');
     A.useFoundAnchor({ lat: 47.5, lng: -122 }, 'Different origin');
     card = render();
-    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
     app.window.localStorage.removeItem(A.speciesCacheKey(A.getObsRegion()));
     card = render();
-    assert.match(card.querySelector('.ppte-evidence').textContent, /swaspa ×2 obs; verfly ×3 obs/,
+    assert.match(surgeEvidence(card).querySelector('.ppte-evidence').textContent, /swaspa ×2 obs; verfly ×3 obs/,
       'missing banding metadata uses the real eBird codes, not invented abbreviations');
     app.window.localStorage.setItem(A.chaseMiKey(), '100');
     card = render();
-    assert.match(card.querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
+    assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
     card = render({ ...event, publicHotspot: null,
       evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: null, lon: null })) });
-    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
-    assert.equal(card.querySelector('[data-ppte-distance-text]'), null);
+    assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(surgeEvidence(card).querySelector('[data-ppte-distance-text]'), null);
     const publicEvent = { ...event,
       publicHotspot: { locId: 'L333', locName: 'Exact public patch', lat: 47.5, lng: -122 } };
     card = render(publicEvent);
-    assert.equal(card.querySelector('[data-ppte-distance-text]').textContent, '0.0mi away',
+    assert.equal(surgeEvidence(card).querySelector('[data-ppte-distance-text]').textContent, '0.0mi away',
       'verified hotspot coordinates take precedence over an individual evidence point');
     assert.equal(card.querySelector('.surgealerttitle .hslink').getAttribute('data-loc'), 'L333');
     assert.equal(card.querySelector('.surgealerttitle .hslink').tabIndex, 0);
@@ -12343,7 +12765,7 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     app.window.localStorage.removeItem(A.homeKey('lat'));
     app.window.localStorage.removeItem(A.homeKey('lng'));
     card = render();
-    assert.equal(card.querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
   } finally { app.window.close(); }
 });
 
@@ -13059,13 +13481,13 @@ test('branding: the app icon photo is the in-app mark, bundled offline', async (
   app.window.close();
 });
 
-test('F985 Buzz contains only full-row Bird Gen, followed by the requested alert order and PPTE wording', async () => {
+test('F987/F992 Recent Bird Gen preserves destinations and Patches precedes Jargon and Bird alerts', async () => {
   const app = await boot();
   const A = app.window.__app;
   const authored = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
   assert.equal(authored.find((m) => m.at === 'activeBtn').enabled, false,
     'the disabled weekly section is preserved, not enabled by the reorder');
-  const later = authored.filter((m) => !['Buzz', 'Bird alerts'].includes(m.group));
+  const later = authored.filter((m) => !['Buzz', 'Bird alerts', 'Patches - Go birding'].includes(m.group));
   function verify() {
     const groups = [];
     for (const li of app.$('menuList').children) {
@@ -13076,7 +13498,8 @@ test('F985 Buzz contains only full-row Bird Gen, followed by the requested alert
       }
     }
     assert.deepEqual(groups.slice(0, 2), [
-      { name: 'Buzz', ids: ['surgeBtn'] },
+      { name: 'Patches - Go birding', ids: authored.filter((m) =>
+        m.group === 'Patches - Go birding' && A.menuApplies(m)).map((m) => m.at) },
       { name: 'Bird alerts', ids: [
         'refreshBtn', 'abaBtn', 'allUnseenBtn', 'foyBtn', 'ppteBtn', 'massBtn',
       ] },
@@ -13086,11 +13509,19 @@ test('F985 Buzz contains only full-row Bird Gen, followed by the requested alert
       'later groups retain their authored order and applicability');
     const links = [...app.document.querySelectorAll('#menuList .toclink')];
     assert.deepEqual(links.filter((a) => a.closest('li').classList.contains('birdgen-tile'))
-      .map((a) => a.dataset.at), ['surgeBtn']);
+      .map((a) => a.dataset.at), []);
+    const destinations = [...links, app.$('recentBirdGenOpen')].map((link) => link.dataset.at);
+    assert.deepEqual(destinations.sort(), authored.filter((item) => A.menuApplies(item))
+      .map((item) => item.at).sort(), 'every original destination remains available exactly once');
+    assert.match(app.$('recentBirdGenOpen').textContent, /🔔 Open full Bird Gen feed/);
+    const jargon = app.$('menuList').querySelector('.jargontip');
+    assert.equal(jargon.nextElementSibling.textContent, 'Bird alerts');
+    assert.equal(jargon.previousElementSibling.querySelector('.toclink').dataset.at,
+      groups[0].ids.at(-1), 'jargon follows the complete Patches group');
     const ppte = links.find((a) => a.dataset.at === 'ppteBtn');
-    assert.equal(ppte.querySelector('.tilelabel').textContent, 'PPTE');
+    assert.equal(ppte.querySelector('.tilelabel').textContent, 'Patagonia effect');
     assert.equal(ppte.querySelector('.tilesub').textContent, 'Patagonia picnic table effect');
-    assert.equal(ppte.getAttribute('aria-label'), '🧺 PPTE');
+    assert.equal(ppte.getAttribute('aria-label'), '🧺 Patagonia effect');
     assert.match(ppte.dataset.find, /patagonia picnic table effect/);
     assert.equal(ppte.dataset.sec, app.$('ppteBtn').closest('section').id);
     const heading = app.$('ppteBtn').closest('section').querySelector('h2');
@@ -13136,11 +13567,11 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   assert.equal(tilesAll.filter((li) => li.classList.contains('wide')).length, 0,
     'legacy wide styling must not change the normal Bird Gen tile appearance');
   assert.deepEqual(tilesAll.filter((li) => li.classList.contains('birdgen-tile'))
-    .map((li) => li.querySelector('.toclink').dataset.at), ['surgeBtn'],
-    'only Bird Gen receives the full-row class');
+    .map((li) => li.querySelector('.toclink').dataset.at), [],
+    'the replaced Bird Gen tile must not duplicate the recent preview');
 
-  const surge = app.document.querySelector('#menuList .toclink[data-at="surgeBtn"]');
-  assert.ok(surge, 'Happening now is still in the menu');
+  const surge = app.$('recentBirdGenOpen');
+  assert.ok(surge, 'the full Bird Gen destination is still in the menu');
   function headingFor(el) {
     let li = el.closest('li');
     for (let p = li.previousElementSibling; p; p = p.previousElementSibling) {
@@ -13150,7 +13581,7 @@ test('Contents is a grid of tiles, and the first one leads it', async () => {
   }
   const twitch = app.document.querySelector('#menuList .toclink[data-at="refreshBtn"]');
   assert.ok(twitch, 'Twitches today is in the menu');
-  assert.equal(headingFor(surge), 'Buzz');
+  assert.equal(surge.closest('.recent-birdgen').nextElementSibling.id, 'menuList');
   assert.equal(headingFor(twitch), 'Bird alerts',
     'F985 separates Bird Gen from the other alerts');
   // ...and the region control is behind the SCOPE CONTROL, not in the identity
@@ -17142,11 +17573,11 @@ test('the map-provider setting is reachable and lists every provider', async () 
   app.window.close();
 });
 
-test('Bird Gen separates its menu title from the Talk and news subtitle', async () => {
+test('F987 Bird Gen keeps its labelled feed button and the Talk and news destination heading', async () => {
   const app = await boot();
-  const tile = app.document.querySelector('#menuList [data-at="surgeBtn"]');
-  assert.equal(tile.querySelector('.tilelabel').textContent.trim(), 'Bird Gen');
-  assert.equal(tile.querySelector('.tilesub').textContent.trim(), 'Talk and news');
+  const tile = app.$('recentBirdGenOpen');
+  assert.match(tile.textContent, /🔔 Open full Bird Gen feed/);
+  assert.equal(app.$('recentBirdGen').querySelector('h2').textContent, 'Recent Bird Gen');
   app.open(/Bird Gen/);
   app.window.__app.renderSurge([{
     code: 'vesspa', name: 'Vesper Sparrow', observers: 5, checklists: 5,
@@ -18189,7 +18620,8 @@ test('F834 live distant history is progressive, retained and fails closed on cov
     'arrival enrichment must begin just outside the freshness window, not 30 days ago');
   assert.equal(app.state.fetches.filter((url) => /\/historic\//.test(url)).length, 30);
   A.renderSurge([], [], [], [], [], {}, [], [], first.rows);
-  assert.match(app.$('surgeFeed').textContent, /First reported/);
+  assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="mass"]')).textContent,
+    /First reported/);
   assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]').length, 1);
   await A.saveSurgeRetainedPart('mass', first);
   assert.equal(A.loadSurgeRetained().mass.rows[0].found.day, f801Day(1));
@@ -18441,8 +18873,9 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   }, [], [], events);
   const cards = [...app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]')];
   assert.equal(cards.length, 2);
-  assert.match(cards[0].textContent, /Snow Goose.*MASS FLOCK.*within chase distance/s);
-  assert.match(cards[1].textContent,
+  assert.match(cards[0].textContent + surgeEvidence(cards[0]).textContent,
+    /Snow Goose.*MASS FLOCK.*within chase distance/s);
+  assert.match(cards[1].textContent + surgeEvidence(cards[1]).textContent,
     /Marbled Godwit.*MASS FLOCK.*600.*750.*outside chase radius/s);
   assert.ok(cards[1].querySelector(':scope > .name > .thumb'),
     'the Mass Flock row does not use the bird photo tile');
@@ -18536,7 +18969,9 @@ test('F821 live high-count source admits one observation, preserves retention an
   assert.equal(app.state.fetches.filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
   A.renderSurge([], [], [], [], [], { mass: result.state, massCoverage: result.coverage },
     [], [], result.rows);
-  assert.match(app.$('surgeFeed').textContent, /single-observation evidence/);
+  assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="mass"]')).textContent,
+    /single-observation evidence/);
+  assert.match(app.$('surgeFeed').textContent, /Single report - flock may have moved/);
   assert.doesNotMatch(app.$('surgeFeed').textContent, /corroborated/);
   await A.saveSurgeRetainedPart('mass', result);
   const retained = A.loadSurgeRetained();
@@ -18849,17 +19284,17 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     const kind = row.dataset.alertKind;
     assert.ok(row.querySelector(':scope > .name > .thumb'),
       `${kind} lost the 56px left tile supplied through SpeciesCards.small`);
-    const badge = row.querySelector(':scope > .surgeexplain > .surgebadge');
+    const badge = row.querySelector('.surge-leading-tag');
     const tile = row.querySelector(':scope > .name > .surgekindwrap .surgekindtile');
     assert.equal(badge.textContent.trim(), expected[kind][0], `${kind} lost its word badge`);
-    assert.equal(row.querySelector(':scope > .name > .ntext > .surgebadge'), null,
-      `${kind} category badge still sits after the name`);
+    assert.equal(row.querySelector(':scope > .name > .ntext').firstElementChild, badge,
+      `${kind} category badge must precede the headline`);
     assert.equal(tile.textContent.trim(), expected[kind][1], `${kind} lost its right-edge lane glyph`);
     glyphs.forEach((glyph) => assert.ok(!badge.textContent.includes(glyph),
       `${kind} duplicates its category glyph inside the name tag`));
     borderStyles.push(app.window.getComputedStyle(tile).borderTopStyle);
     assert.ok(row.querySelector('.surgeage').textContent.trim(), `${kind} lost its relative age`);
-    const summary = row.querySelector('.surgefacts');
+    const summary = surgeEvidence(row).querySelector('.surgefacts');
     assert.ok(summary, `${kind} lost its always-visible code/count/place/date line`);
     assert.ok(summary.closest('.surgeexplainextra'),
       `${kind} fact line must be in the extra evidence below the headline`);
@@ -18872,11 +19307,11 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     }
     assert.doesNotMatch(summary.textContent, /\d+(?:\.\d+)?mi\b/i,
       `${kind} still spends the compact line on mileage`);
-    const explanation = row.querySelector(':scope > .surgeexplain');
+    const explanation = surgeEvidence(row).querySelector('.surgeexplain');
     assert.ok(explanation && explanation.querySelector(':scope > b'),
       `${kind} lost its bold third-line explanation`);
-    assert.equal(explanation.parentElement, row,
-      `${kind} explanation is trapped in the name cell instead of a full-width row`);
+    assert.equal(explanation.parentNode, row.querySelector('template[data-surge-evidence]').content,
+      `${kind} explanation is not preserved in its evidence template`);
     assert.equal(row.querySelector('.surgewhy'), null,
       `${kind} still renders a separate category/reason row`);
     assert.match(row.dataset.surgeReasons, new RegExp(kind),
@@ -19036,14 +19471,14 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
   assert.equal(feed.querySelector('.surgenote, .surgenotelink'), null,
     'the removed Notes container or category links still survive in a row');
   assert.match(HTML,
-    /\.surgefeed > li > \.surgeexplain\s*\{[^}]*width:\s*100%/,
+    /\.surgeexplain\s*\{[^}]*width:\s*100%/,
     'the explanation row no longer spans the full card width');
   rows.forEach((row) => {
-    assert.ok(row.querySelector(':scope > .surgeexplain > .surgeexplainextra > .surgefacts'),
+    assert.ok(surgeEvidence(row).querySelector('.surgeexplain > .surgeexplainextra > .surgefacts'),
       'the code/count/place/date line is not below the category headline');
     assert.equal(row.querySelector('.name .surgefacts'), null,
       'the facts must not also remain under the bird name');
-    assert.ok(row.querySelector(':scope > .surgeexplain > b'),
+    assert.ok(surgeEvidence(row).querySelector('.surgeexplain > b'),
       'the bold category explanation is not a separate full-width row');
     assert.equal(row.querySelector(':scope > .surgebody'), null,
       'the old body wrapper still traps both lines in one cell');
@@ -19053,11 +19488,11 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
   });
   const mega = feed.querySelector('[data-alert-kind="mega"]');
   assert.match(mega.querySelector('.splink').textContent, /Nazca Booby/);
-  assert.equal(mega.querySelector(':scope > .name .surgebadge'), null,
-    'MEGA still appears after the bird name');
-  assert.equal(mega.querySelector(':scope > .surgeexplain > .surgebadge').textContent.trim(),
+  assert.equal(mega.querySelector(':scope > .name .ntext').firstElementChild.textContent, 'MEGA',
+    'MEGA must lead, not follow, the bird headline');
+  assert.equal(surgeEvidence(mega).querySelector('.surgeexplain > .surgebadge').textContent.trim(),
     'MEGA');
-  const facts = mega.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
+  const facts = surgeEvidence(mega).querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
   assert.match(facts, /^NABO x1 - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] - S123456789$/i,
     'the extra facts must retain ALPHA, count, compact date and supporting checklist ID');
   assert.match(mega.querySelector('.surgealerttitle').textContent,/^Mega rarity Nazca Booby at Smith Island/);
@@ -19067,7 +19502,7 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
     assert.equal(app.document.querySelector('[data-alert-kind="'+kind+'"] .surgealerttitle')
       .firstChild.textContent,prefix);
   }
-  const evidenceLink = mega.querySelector('.surgeabsolute a');
+  const evidenceLink = surgeEvidence(mega).querySelector('.surgeabsolute a');
   assert.equal(evidenceLink.getAttribute('data-href'), 'https://ebird.org/checklist/S123456789');
   const hotspotLink = mega.querySelector('.surgealerttitle .hslink');
   assert.ok(hotspotLink,'the place must remain linked in the headline');
@@ -19075,13 +19510,15 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
     'F954 facts must inherit the existing extra font size');
   assert.doesNotMatch(facts, /nazboo1|\d+(?:\.\d+)?mi\b/i,
     'the second line still includes the eBird code or distance');
-  assert.equal(mega.querySelector('.surgeexplain b').textContent.trim(),
+  assert.equal(surgeEvidence(mega).querySelector('.surgeexplain b').textContent.trim(),
     'An unseen ABA Code 3+ is within a day trip!');
-  assert.doesNotMatch(mega.querySelector('.surgeexplain b').textContent, /^MEGA:/,
+  assert.doesNotMatch(surgeEvidence(mega).querySelector('.surgeexplain b').textContent, /^MEGA:/,
     'the written category duplicates the MEGA badge');
-  assert.equal(app.window.getComputedStyle(
-    mega.querySelector('.surgefacts .spalpha')).marginLeft, '0px',
+  mega.querySelector('[data-surge-details]').click();
+  assert.equal(parseFloat(app.window.getComputedStyle(
+    app.document.querySelector('#appSheet .surgefacts .spalpha')).marginLeft), 0,
     'the bird code keeps inherited leading space');
+  app.document.querySelector('#appSheet .sheetclose').click();
   assert.equal(mega.querySelector('[data-sec="sec-abaBtn"]'), null,
     'the removed All Mega rarities link is still present');
   assert.equal(app.$('surgeResults').querySelector('[data-sec="sec-lastNewBtn"]'), null,
@@ -19104,7 +19541,7 @@ test('F954 every alert keeps its original extra after matching-style observation
         extra:'<b data-original-extra>Original category evidence</b>'
       };
       host.innerHTML = app.window.__app.surgeAlertCard(row,0);
-      const extra = host.querySelector('.surgeexplainextra');
+      const extra = surgeEvidence(host).querySelector('.surgeexplainextra');
       const facts = extra.querySelector('.surgefacts');
       const birdPlace = !['ppte','hotspot','patch','migration'].includes(kind);
       assert.equal(host.querySelector('.surgealerttitle').textContent,
@@ -19117,24 +19554,27 @@ test('F954 every alert keeps its original extra after matching-style observation
       }
       assert.equal(host.querySelector('.surgebirdtag'),null,kind);
       assert.equal(host.querySelector('.name .surgefacts'),null,kind);
-      assert.equal(host.querySelectorAll('[data-original-extra]').length,1,kind);
-      assert.equal(host.querySelector('.surgeexplain > b').textContent,
+      assert.equal(surgeEvidence(host).querySelectorAll('[data-original-extra]').length,1,kind);
+      assert.equal(surgeEvidence(host).querySelector('.surgeexplain > b').textContent,
         'Original alert headline!',kind);
       if (kind === 'ppte') {
         assert.equal(facts,null,'PPTE must keep its event-specific evidence only');
       } else {
         assert.equal(extra.firstElementChild,facts,kind+' facts precede existing extra');
-        assert.equal(host.querySelectorAll('.surgefacts').length,1,kind);
+        assert.equal(surgeEvidence(host).querySelectorAll('.surgefacts').length,1,kind);
         assert.match(facts.textContent,/EXAM x3 - .*SF954/,kind);
         assert.equal(facts.textContent.includes('Example public marsh'),!birdPlace,kind);
         assert.match(facts.querySelector('.surgeabsolute a').dataset.href,/SF954$/,kind);
         assert.match(facts.querySelector('.surgeabsolute a').textContent,/ - SF954$/,kind);
       }
       assert.ok(extra.textContent.endsWith('Original category evidence'),kind);
-      assert.equal(app.window.getComputedStyle(extra.querySelector('b')).fontWeight,'400',kind);
+      app.window.__app.showExcludedSheet('birdgen-alert-evidence', 'Evidence', '',
+        host.querySelector('template[data-surge-evidence]').innerHTML);
+      assert.equal(app.window.getComputedStyle(
+        app.document.querySelector('#appSheet .surgeexplainextra b')).fontWeight,'400',kind);
       if (kind !== 'ppte') assert.match(extra.textContent,/SF954 - Original category evidence$/,kind);
       host.innerHTML = app.window.__app.surgeAlertCard({...row,extra:''},0);
-      assert.equal(host.querySelectorAll('.surgefacts').length,kind==='ppte'?0:1,
+      assert.equal(surgeEvidence(host).querySelectorAll('.surgefacts').length,kind==='ppte'?0:1,
         kind+' facts cannot depend on previously having extra evidence');
     }
     assert.match(HTML,/\.surgefacts\s*\{[^}]*color:\s*inherit[^}]*font-size:\s*inherit[^}]*line-height:\s*inherit/,
@@ -19229,8 +19669,8 @@ test('F967 migration headlines emphasize only named birds and preserve the obser
     assert.equal(title.querySelector('.hslink').dataset.loc,'L967');
     assert.equal(title.querySelector('.seclink').textContent,'Tropical Kingbird');
     assert.equal(app.window.getComputedStyle(title).fontWeight,'400');
-    assert.match(host.querySelector('.surgeabsolute a').dataset.href,/S967$/);
-    assert.match(host.querySelector('.surgeexplainextra').textContent,/eBird first report.*Observed on eBird/s);
+    assert.match(surgeEvidence(host).querySelector('.surgeabsolute a').dataset.href,/S967$/);
+    assert.match(surgeEvidence(host).querySelector('.surgeexplainextra').textContent,/eBird first report.*Observed on eBird/s);
     page.rows[0].isPrivate=true;
     A.firstYearWrite(ctx.region,ctx.year,page);
     row=A.migrationSignificantRows(new Date(),null).find(r=>/showing up/.test(r.name));
@@ -19279,10 +19719,10 @@ test('F968 production Cascades resolve exact public IDs, override misleading nam
     assert.ok(card,'the real loader must retain the verified hotspot despite the word Home');
     assert.match(card.querySelector('.surgealerttitle').textContent,/at Home Acres Rd, Everett$/);
     assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,'LPUBLIC968');
-    assert.match(card.querySelector('.surgeabsolute a').dataset.href,/SPUBLIC968$/);
-    assert.match(card.querySelector('.surgefacts').textContent,/x1/);
+    assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,/SPUBLIC968$/);
+    assert.match(surgeEvidence(card).querySelector('.surgefacts').textContent,/x1/);
     assert.doesNotMatch(card.textContent,/SPRIVATE968|SUNKNOWN968|SOLDER968|4300/);
-    assert.match(card.querySelector('.surgeexplain > b').textContent,/Inside your chase area/);
+    assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent,/Inside your chase area/);
     const cascade={species:name,code:'verfly',birders:board,earliest:day,latest:day,
       recent:[publicRow],publicHotspots:[{locId:'LPUBLIC968',locName:'Home Acres Rd, Everett'}]};
     for (const flag of ['locationPrivate','location_private','isPrivate']) {
@@ -19349,16 +19789,16 @@ test('F969 outside notices stay in supporting evidence, not Cascade or Mass clai
     for (const kind of ['cascade','mass']) {
       const card=app.$('surgeFeed').querySelector('[data-alert-kind="'+kind+'"]');
       assert.ok(card,kind+' outside evidence must remain eligible');
-      assert.doesNotMatch(card.querySelector('.surgeexplain > b').textContent,/outside/i,kind);
+      assert.doesNotMatch(surgeEvidence(card).querySelector('.surgeexplain > b').textContent,/outside/i,kind);
       assert.doesNotMatch(card.dataset.surgeReasonText,/outside/i,kind+' accessible claim');
-      assert.match(card.querySelector('.surgeexplainextra').textContent,/outside.*\d+(?:\.\d+)?mi/i,kind);
+      assert.match(surgeEvidence(card).querySelector('.surgeexplainextra').textContent,/outside.*\d+(?:\.\d+)?mi/i,kind);
       assert.equal((card.textContent.match(/outside/gi)||[]).length,1,kind+' exactly one disclosure');
     }
     cascade.recent[0].lat=45.1;
     A.renderSurge([],[cascade],[],[],[],{},[],[],[{...flock,insideChase:true,distanceMi:7}]);
-    assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="cascade"] .surgeexplain > b')
+    assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]')).querySelector('.surgeexplain > b')
       .textContent,/Inside your chase area/);
-    assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="mass"] .surgeexplain > b')
+    assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="mass"]')).querySelector('.surgeexplain > b')
       .textContent,/within chase distance/);
     assert.doesNotMatch(app.$('surgeFeed').textContent,/outside/i);
   } finally {app.window.close();}
@@ -19383,11 +19823,11 @@ test('F969 Mega keeps outside distance in supporting evidence and preserves its 
     A.renderSurge([],[],[],[],[],{});
     const card=app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
     assert.ok(card,'a needed bird within the unchanged 55mi day-trip limit remains news');
-    assert.match(card.querySelector('.surgeexplain > b').textContent,/within a day trip/i);
+    assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent,/within a day trip/i);
     assert.doesNotMatch(card.dataset.surgeReasonText,/outside/i);
-    assert.match(card.querySelector('.surgeexplainextra').textContent,/Outside your chase area.*48\.\dmi/s);
+    assert.match(surgeEvidence(card).querySelector('.surgeexplainextra').textContent,/Outside your chase area.*48\.\dmi/s);
     assert.equal((card.textContent.match(/outside/gi)||[]).length,1);
-    assert.match(card.querySelector('.surgeabsolute a').dataset.href,/SMEGA969$/);
+    assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,/SMEGA969$/);
   } finally {app.window.close();}
 });
 
@@ -19496,18 +19936,18 @@ test('F962 FOY headlines preserve the annual-first place and checklist without i
       return doc.querySelector('[data-alert-kind="foy"]');
     }
     let card=render(first),headline=card.querySelector('.surgealerttitle');
-    assert.equal(card.querySelector('.surgebadge').textContent,'foy');
-    assert.equal(app.window.BirdInfoDialogs.alertKinds.foy.word,'foy');
-    assert.match(doc.querySelector('[data-count-kind="foy"]').textContent,/1 foy/);
+    assert.equal(card.querySelector('.surgebadge').textContent,'FOY');
+    assert.equal(app.window.BirdInfoDialogs.alertKinds.foy.word,'FOY');
+    assert.match(doc.querySelector('[data-count-kind="foy"]').textContent,/1 FOY/);
     assert.equal(headline.textContent,'First of the year '+source.name+' at '+source.locName);
     assert.equal(headline.querySelector('.hslink').dataset.loc,source.locId);
-    assert.match(card.querySelector('.surgeabsolute a').dataset.href,new RegExp(source.subId+'$'));
-    assert.equal(card.querySelector('.surgefacts').textContent.includes(source.locName),false);
+    assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,new RegExp(source.subId+'$'));
+    assert.equal(surgeEvidence(card).querySelector('.surgefacts').textContent.includes(source.locName),false);
     card=render({...first,locId:'',locName:'Verified public field',isPrivate:false});
     assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name+' at Verified public field');
     card=render({...first,locId:'',locName:'',isPrivate:false});
     assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name);
-    assert.match(card.querySelector('.surgefacts').textContent,/Location unavailable/);
+    assert.match(surgeEvidence(card).querySelector('.surgefacts').textContent,/Location unavailable/);
     card=render({...first,isPrivate:true});
     assert.equal(card.querySelector('.surgealerttitle .hslink'),null,
       'a personal location must not become a public-patch destination');
@@ -19532,7 +19972,7 @@ test('F958 FOY badge has white text, a dark background and a visible outline in 
     assert.ok(rule,'the outlined FOY badge rule must exist');
     assert.equal(rule.style.getPropertyValue('border-color'),'var(--dark-safe-blue)');
     assert.ok(badge);
-    assert.equal(badge.textContent,'foy','meaning must not depend on color');
+    assert.equal(badge.textContent,'FOY','uppercase meaning must not depend on color');
     for (const theme of ['light','dark']) {
       app.document.documentElement.dataset.theme=theme;
       for (const display of ['normal','high-visibility']) {
@@ -19581,7 +20021,7 @@ test('F960 Busy Patch repeats the crowd with its actual multiplier and rejects o
     assert.equal(patch.querySelector('.surgealerttitle').textContent,'High-yield patch at Example top patch');
     assert.equal(hotspot.querySelector('.surgekindtile').textContent.trim(),'📍');
     assert.equal(hotspot.querySelector('.surgebadge').textContent.trim(),'BUSY PATCH');
-    assert.match(app.document.querySelector('[data-count-kind="hotspot"]').textContent,/busy patch/);
+    assert.match(app.document.querySelector('[data-count-kind="hotspot"]').textContent,/BUSY PATCH/);
     assert.equal(hotspot.querySelector('.surgealerttitle .hslink').dataset.loc,'LHOT');
     assert.equal(hotspot.querySelector('.surgealerttitle').textContent,'High traffic at Busy public patch');
     const A=app.window.__app;
@@ -19625,7 +20065,7 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
       reason: 'surge', latest: stamp, eventAt: Date.parse(stamp.replace(' ', 'T')) }],
     [], []);
   const hotspot = hotspotApp.$('surgeFeed').querySelector(
-    '[data-alert-kind="hotspot"] .surgekindtile');
+    '[data-alert-kind="hotspot"] > .name');
   assert.ok(hotspot, 'the hotspot alert tile is missing from the clickable headline row');
   hotspotApp.click(hotspot);
   assert.equal(hotspotApp.$('sec-stakeHsBtn').hidden, false);
@@ -19640,7 +20080,7 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
       dateStr: stamp, subId: 'SP1' }],
   }]);
   const patch = patchApp.$('surgeFeed').querySelector(
-    '[data-alert-kind="patch"] .surgekindtile');
+    '[data-alert-kind="patch"] > .name');
   assert.ok(patch, 'the TOP PATCH alert tile is missing');
   patchApp.click(patch);
   assert.equal(patchApp.$('sec-stakeHsBtn').hidden, false);
@@ -19756,7 +20196,7 @@ test('F954 removes the superseded F459 inline rarity tags without removing categ
   assert.equal(rare.querySelector('.surgebadge').textContent.trim(),'CASCADE');
   assert.equal(app.$('surgeFeed').querySelector('[data-alert-kind="need"] .surgebadge').textContent.trim(),
     'CELEBRITY');
-  assert.equal(rare.querySelector('.surgefacts .spalpha').textContent.trim(), 'COTE',
+  assert.equal(surgeEvidence(rare).querySelector('.surgefacts .spalpha').textContent.trim(), 'COTE',
     'removing the rarity tag must not remove the four-letter bird code');
   assert.equal(app.$('surgeFeed').querySelectorAll('.surgebirdtag').length, 0,
     'inline rarity tags must not remain on any Bird Gen card');
@@ -19792,7 +20232,7 @@ test('F465/F954 fresh local news retains Celebrity without an inline Mega tag', 
       .map((tag) => tag.textContent.trim()),
     [],
     'the held ABA Mega classification must not restore an inline headline tag');
-  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+  assert.equal(surgeEvidence(row).querySelector('.surgeexplain .surgebadge').textContent.trim(),
     'CELEBRITY', 'the intrinsic tags replaced the current alert category');
   app.window.close();
 });
@@ -19810,10 +20250,10 @@ test('F302 a name-only Cascade opens Stakeout search and explains its scope gap'
   const row = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
   const head = row.querySelector(':scope > .name[role="link"]');
   assert.ok(head, 'a Cascade without a regional code is still an inert headline');
-  assert.match(row.querySelector('.surgeexplainextra').textContent,
+  assert.match(surgeEvidence(row).querySelector('.surgeexplainextra').textContent,
     /not in this region’s species list.*search Stakeout by name/is,
     'the unresolved regional identity is not explained below the headline');
-  app.click(row.querySelector('.surgekindtile'));
+  app.click(head);
   assert.equal(app.$('sec-spLookupBtn').hidden, false);
   assert.equal(app.$('spLookup').value, 'Common Ostrich');
   app.window.close();
@@ -19907,18 +20347,18 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     'a code-less cascade for the same named species escaped dedupe');
   assert.match(row.dataset.surgeReasonText, /5 of the top 100 added it in the past 7 days/,
     'the cascade reason or its five-person lookback was discarded');
-  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+  assert.equal(surgeEvidence(row).querySelector('.surgeexplain .surgebadge').textContent.trim(),
     'MEGA', 'the strongest category is not the explanation-row badge');
-  assert.match(row.querySelector('.surgeexplain b').textContent,
+  assert.match(surgeEvidence(row).querySelector('.surgeexplain b').textContent,
     /unseen ABA Code 3\+ has multiple local reports/i,
     'the strongest rule is not the visible third-line explanation');
-  assert.doesNotMatch(row.querySelector('.surgeexplain b').textContent, /^MEGA:/,
+  assert.doesNotMatch(surgeEvidence(row).querySelector('.surgeexplain b').textContent, /^MEGA:/,
     'the written category duplicates the explanation-row badge');
   assert.equal(row.querySelector('.surgenotelink, [data-sec="sec-abaBtn"]'), null,
     'the removed category links survived the single-state redesign');
   assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
     'the deduped row did not retain the newest qualifying source time');
-  assert.doesNotMatch(row.querySelector('.surgeabsolute').textContent, /unavailable/i,
+  assert.doesNotMatch(surgeEvidence(row).querySelector('.surgeabsolute').textContent, /unavailable/i,
     'Latest no longer agrees with the time used by Newest sorting');
   const counts = Object.fromEntries([...app.document.querySelectorAll('.surgecount')].map((el) => [
     el.dataset.countKind, parseInt(el.querySelector('.presslabel').textContent,10),
@@ -19955,9 +20395,9 @@ test('F302 same-category dedupe keeps distinct accessible CROWD reasons', async 
     'one same-category reason was discarded from accessible metadata');
   assert.equal(row.querySelector('.surgenotereasons'), null,
     'the removed expandable Notes block returned');
-  assert.equal(row.querySelector('.surgeexplain .surgebadge').textContent.trim(),
+  assert.equal(surgeEvidence(row).querySelector('.surgeexplain .surgebadge').textContent.trim(),
     'CROWD', 'the deduped category badge did not move to the explanation row');
-  assert.match(row.querySelector('.surgeexplain b').textContent,
+  assert.match(surgeEvidence(row).querySelector('.surgeexplain b').textContent,
     /Many birders are reporting it above normal!/);
   app.window.close();
 });
@@ -20040,7 +20480,7 @@ test('Bird Gen hotspot news performs no hidden species or checklist hydration', 
     'the news row still owns a hidden species/checklist drawer');
   assert.equal(hotspot.querySelectorAll('.ictag').length, 0,
     'Bird Gen still runs hidden iconic scoring for a list it no longer shows');
-  assert.match(hotspot.querySelector('.surgeexplain').textContent,
+  assert.match(surgeEvidence(hotspot).querySelector('.surgeexplain').textContent,
     /10× this patch’s own norm/,
     'the removed detail drawer took the reason the hotspot is news with it');
   const renderSrc = HTML.slice(HTML.indexOf('function renderSurge('),
@@ -21170,16 +21610,16 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
   });
 
   const row = app.document.querySelector('[data-alert-kind="cascade"]');
-  const summary = row.querySelector('.surgefacts');
+  const summary = surgeEvidence(row).querySelector('.surgefacts');
   assert.match(row.querySelector('.surgealerttitle').textContent, /Farther New Report/,
     'the newest date is paired with a different, older place');
   assert.doesNotMatch(row.textContent, /Nearest Old Report/,
     'the compact tuple still mixes the nearest place with the newest checklist');
   assert.equal(Number(row.dataset.surgeLatest), Date.parse(newest.replace(' ', 'T')),
     'Newest sorting uses the actual newest cascade report');
-  assert.match(row.querySelector('.surgeabsolute').textContent, /12:00/,
+  assert.match(surgeEvidence(row).querySelector('.surgeabsolute').textContent, /12:00/,
     'Latest displays the newest report rather than the nearest report time');
-  assert.match(row.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/,
+  assert.match(surgeEvidence(row).querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/,
     'the compact date link belongs to the newest report');
 
   A.renderSurge([], [{
@@ -21194,7 +21634,7 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
   const dateOnly = app.document.querySelector('[data-alert-kind="cascade"]');
   assert.match(dateOnly.querySelector('.surgeage').textContent, /Time\s*unknown/,
     'a date-only leaderboard value is not presented as a precise age from midnight');
-  assert.match(dateOnly.querySelector('.surgeabsolute').textContent, /time unavailable/,
+  assert.match(surgeEvidence(dateOnly).querySelector('.surgeabsolute').textContent, /time unavailable/,
     'the absolute field states that only the date is known');
   app.window.close();
 });
@@ -21218,8 +21658,8 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
   assert.match(row.textContent, /Newest Pond/);
   assert.doesNotMatch(row.textContent, /Nearest Old Pond/,
     'the compact tuple still mixes nearest-place text with the newest date');
-  assert.match(row.querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/);
-  const facts = row.querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
+  assert.match(surgeEvidence(row).querySelector('.surgeabsolute a').getAttribute('data-href'), /SNEW/);
+  const facts = surgeEvidence(row).querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
   assert.match(facts, /x7 - /,
     'the CELEBRITY line does not keep the latest count with its place/date');
   assert.doesNotMatch(facts, /\d+(?:\.\d+)?mi\b|x2/i,
@@ -21238,7 +21678,7 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
     mega: 'notApplicable', observations: 'ok',
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
-  const missingCount = app.document.querySelector('[data-alert-kind="need"] .surgefacts');
+  const missingCount = surgeEvidence(app.document.querySelector('[data-alert-kind="need"]')).querySelector('.surgefacts');
   assert.equal(missingCount.querySelector('.surgecountvalue'), null,
     'an unknown latest bird count must not become the number of sightings');
   assert.doesNotMatch(missingCount.textContent, /x7/,
@@ -26857,9 +27297,9 @@ test('F787 chronology handles date-only, invalid, deterministic ties and late ma
   const order = () => [...app.$('surgeFeed').children].map((row) => row.dataset.speciesCode);
   paint(base);
   assert.deepEqual(order(), ['a-tie', 'z-tie', 'date-only', 'old-need', 'invalid', 'missing']);
-  assert.match(app.$('surgeFeed').querySelector('[data-species-code="invalid"]').textContent,
+  assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-species-code="invalid"]')).textContent,
     /Date\/time unavailable/);
-  assert.match(app.$('surgeFeed').querySelector('[data-species-code="date-only"]').textContent,
+  assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-species-code="date-only"]')).textContent,
     /time unavailable/);
   paint(base.slice().reverse());
   assert.deepEqual(order(), ['a-tie', 'z-tie', 'date-only', 'old-need', 'invalid', 'missing'],
@@ -27547,6 +27987,42 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   assert.match(myYearSource, /watchlistActionHtml\(/,
     'My Ticks keeps a separate watchlist button builder');
   app.window.close();
+});
+
+test('F993 Year List watch actions are centered with readable explicit red/green states in both themes', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  const A = app.window.__app;
+  const luminance = (color) => {
+    const channels = color.match(/\d+/g).slice(0, 3).map(Number).map(value => {
+      const channel = value / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  try {
+    await seedSeen(app, ['yrone'], ['First Bird']);
+    for (const theme of ['light', 'dark']) {
+      A.setTheme(theme);
+      for (const watched of [false, true]) {
+        A.setWatchlist(watched ? [{ code: 'yrone', name: 'First Bird' }] : []);
+        A.updateMyYear();
+        const button = app.$('myYearList').querySelector('.myYearWatchlist[data-code="yrone"]');
+        assert.ok(button, 'verify the actual Year List action, not a detached style fixture');
+        const style = app.window.getComputedStyle(button);
+        assert.equal(button.textContent, watched ? 'Remove watch' : 'Add watch');
+        assert.equal(button.getAttribute('aria-pressed'), String(watched));
+        assert.equal(style.textAlign, 'center', theme);
+        assert.equal(style.backgroundColor, watched ? 'rgb(161, 38, 34)' : 'rgb(33, 100, 61)', theme);
+        assert.equal(style.color, 'rgb(255, 255, 255)', theme);
+        const background = luminance(style.backgroundColor), foreground = luminance(style.color);
+        assert.ok((Math.max(background, foreground) + 0.05)
+          / (Math.min(background, foreground) + 0.05) >= 4.5, theme + ' text contrast');
+        assert.ok(parseFloat(style.minHeight) >= 44, theme + ' touch target');
+      }
+    }
+  } finally {
+    app.window.close();
+  }
 });
 
 test('pending Spuh searches cannot repaint after Close or a newer query', async () => {
@@ -30769,7 +31245,7 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   app.window.Date.now = () => daytime.getTime();
   const card = app.document.createElement('div');
   card.innerHTML = A.surgeAlertCard(rows[1], 1);
-  assert.equal(card.querySelector('.surgefacts').textContent.trim(),
+  assert.equal(surgeEvidence(card).querySelector('.surgefacts').textContent.trim(),
     'King County Birdcast Alert · 9/27-28',
     'the source line includes a generated timestamp after the overnight range');
   assert.match(card.querySelector('.surgeage').textContent, /^\d+hr ago$/,
@@ -34170,7 +34646,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   // have already chosen, the rest answer "where shall I go".
   //
   // F595 moves the chosen-target searches below the predictive patch group.
-  // Patches leads into Stakeouts; the remaining Birding Tools follow Stakeouts.
+  // Bird alerts now follows Patches; Stakeouts and Birding Tools follow it.
   const GO = ['destBtn', 'quickBtn', 'excBtn', 'favResults',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
@@ -34197,7 +34673,8 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   const patchesIdx = headings.indexOf('Patches - Go birding');
   const toolsIdx = headings.indexOf('Birding Tools');
   assert.ok(stakeoutIdx > -1, 'the dedicated Stakeouts heading is missing');
-  assert.equal(stakeoutIdx, patchesIdx + 1, 'Stakeouts must immediately follow Patches');
+  assert.equal(headings[patchesIdx + 1], 'Bird alerts', 'Bird alerts must immediately follow Patches');
+  assert.equal(stakeoutIdx, patchesIdx + 2, 'Stakeouts must immediately follow Bird alerts');
   assert.equal(toolsIdx, stakeoutIdx + 1, 'Birding Tools must immediately follow Stakeouts');
 
   function labelsUnder(heading) {
@@ -34206,7 +34683,8 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     const result = [];
     for (let i = headIdx + 1; i < kids.length; i++) {
       if (kids[i].classList.contains('tocgroup')) break;
-      result.push(kids[i].querySelector('.toclink').getAttribute('aria-label'));
+      const tile = kids[i].querySelector('.toclink');
+      if (tile) result.push(tile.getAttribute('aria-label'));
     }
     return result;
   }
@@ -34240,7 +34718,8 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   const under = [];
   for (let i = headIdx + 1; i < kids.length; i++) {
     if (kids[i].classList.contains('tocgroup')) break;
-    under.push(kids[i].querySelector('.toclink').getAttribute('aria-label'));
+    const tile = kids[i].querySelector('.toclink');
+    if (tile) under.push(tile.getAttribute('aria-label'));
   }
   assert.equal(under.length, GO.length,
     'exactly the place-finding sections sit under it, got: ' + under.join(' | '));
@@ -35406,12 +35885,12 @@ test('F763 latest checklist supplies MEGA count; unknown counts and held explana
   }
   const card = paint([rows[2], rows[0], rows[1]]);
   assert.ok(card);
-  assert.equal(card.querySelector('.surgecountvalue').textContent, 'x2');
+  assert.equal(surgeEvidence(card).querySelector('.surgecountvalue').textContent, 'x2');
   assert.ok(card.querySelector('[data-subid="S-2"]') || card.textContent.includes('Count control'));
   for (const record of rows) record.howMany = 1;
-  assert.equal(paint(rows).querySelector('.surgecountvalue').textContent, 'x1');
+  assert.equal(surgeEvidence(paint(rows)).querySelector('.surgecountvalue').textContent, 'x1');
   rows[2].howMany = null;
-  assert.equal(paint(rows).querySelector('.surgecountvalue'), null);
+  assert.equal(surgeEvidence(paint(rows)).querySelector('.surgecountvalue'), null);
   assert.equal(app.$('surgeResults').querySelector('.surgeheld'), null);
   app.window.close();
 });
@@ -35446,18 +35925,19 @@ test('F817 Medium and High forecast cards say Tonight and dusk to dawn without a
       const host = app.document.createElement('div');
       host.innerHTML = A.surgeAlertCard(row, 1);
       assert.equal(host.querySelector('.surgeage').textContent, 'Tonight');
-      assert.match(host.textContent, /migration expected between dusk and dawn/);
+      assert.match(surgeEvidence(host).textContent, /migration expected between dusk and dawn/);
+      assert.match(host.textContent, /Forecast - not a sighting/);
       assert.doesNotMatch(host.textContent, /9\s*pm|reference time|app-selected/i);
       assert.match(host.querySelector('[data-birdcast-level]').getAttribute('data-birdcast-level'),
         new RegExp('^' + level.toUpperCase() + '$'));
-      assert.ok(host.querySelector('.surgefacts [data-sec="sec-bcBody"]'),
+      assert.ok(surgeEvidence(host).querySelector('.surgefacts [data-sec="sec-bcBody"]'),
         'the forecast lost its Migration details destination');
       A.setBirdcastSnapshot(snapshot);
       A.renderBirdcast(now, snapshot);
       const official = app.$('bcBody').querySelector('.birdcast-destination');
       assert.match(official.getAttribute('data-href'), /^https:\/\/alert\.birdcast\.org\/\?/);
       assert.match(official.textContent, /Alert for your Home/);
-      if (forecastError) assert.match(host.textContent, /Forecast refresh unavailable/);
+      if (forecastError) assert.match(surgeEvidence(host).textContent, /Forecast refresh unavailable/);
     }
   }
   app.window.close();
@@ -35477,7 +35957,8 @@ test('F806/F817 tonight forecast keeps its validated internal local reference ac
   assert.ok(forecastCard, 'the forecast reference never reached the rendered Bird Gen feed');
   assert.equal(forecastCard.querySelector('.surgeage').textContent, 'Tonight');
   assert.doesNotMatch(forecastCard.textContent, /Time unknown/);
-  assert.match(forecastCard.textContent, /migration expected between dusk and dawn/);
+  assert.match(surgeEvidence(forecastCard).textContent, /migration expected between dusk and dawn/);
+  assert.match(forecastCard.textContent, /Forecast - not a sighting/);
   assert.doesNotMatch(forecastCard.textContent, /9\s*pm|reference time|app-selected/i);
   const afterMidnight = new Date('2026-10-05T08:00:00Z');
   const stillOld = A.birdcastSurgeRows(afterMidnight, oldForecast)[0];
@@ -35516,7 +35997,8 @@ test('F806/F817 tonight forecast keeps its validated internal local reference ac
 test('F757/F759/F850 keep general slow-load explanations out of report headers and menus', async () => {
   const app = await boot();
   for (const at of ['surgeBtn', 'excBtn']) {
-    const menu = app.document.querySelector('#menuList button[data-at="' + at + '"]');
+    const menu = at === 'surgeBtn' ? app.$('recentBirdGenOpen')
+      : app.document.querySelector('#menuList button[data-at="' + at + '"]');
     assert.ok(menu, 'known slow report must be present in the menu');
     assert.doesNotMatch(menu.textContent, /Cold scan|30s\+|several minutes/);
     assert.equal(menu.hasAttribute('aria-describedby'), false);
@@ -35576,8 +36058,12 @@ test('F850 patch headers match Nearby patches without injected personal-list man
 
 test('F757 original menu titles/subtitles have no added cold-scan warning', async () => {
   const app = await boot();
+  const feedButton = app.$('recentBirdGenOpen');
+  assert.ok(feedButton);
+  assert.doesNotMatch(feedButton.textContent, /Cold scan|30s\+|several minutes/);
+  assert.equal(feedButton.hasAttribute('aria-describedby'), false);
+  assert.equal(app.$('surgeResults').closest('section').querySelector('h2').textContent.trim().startsWith('Talk and news'), true);
   for (const [at, subtitle] of [
-    ['surgeBtn', 'Talk and news'],
     ['excBtn', 'Hotspot excursions'],
   ]) {
     const tile = app.document.querySelector('#menuList .toclink[data-at="' + at + '"]');
@@ -35709,7 +36195,7 @@ test('F744 and F745 real Mass Flock/Favorite badges are framed and route only to
   assert.equal(card.getAttribute('data-hsloc'), 'L-A');
   A.renderSurge([], [], [], [], [], {}, [], [], [{ ...flock, locId: '', locations: [] }]);
   card = app.$('surgeFeed').querySelector('[data-alert-kind="mass"]');
-  assert.match(card.textContent, /Patch destination unavailable/);
+  assert.match(surgeEvidence(card).textContent, /Patch destination unavailable/);
   assert.equal(card.querySelector('.surgealerttitle').textContent,
     'Flock of '+flock.name+' at '+flock.locName,
     'a plain-text place must remain in the flock headline without a link target');
@@ -40298,7 +40784,7 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
     'category counts do not describe the complete Bird Gen report');
 
   const mega = feed.querySelector('[data-alert-kind="mega"]');
-  const identifier = mega.querySelector('.surgefacts');
+  const identifier = surgeEvidence(mega).querySelector('.surgefacts');
   assert.ok(identifier, 'the Bird Gen row does not carry the identifier and facts');
   assert.match(identifier.textContent, /^NABO x1 - /);
   assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby at Ocean Shores Jetty/);
@@ -40361,9 +40847,9 @@ test('F274 Newest uses hotspotConvergence checklist time without a merged hotspo
   const hot = feed.querySelector('[data-alert-kind="hotspot"]');
   assert.equal(Number(hot.dataset.surgeLatest), hotspots[0].eventAt,
     'the hotspot alert ignored its own newest checklist timestamp');
-  assert.doesNotMatch(hot.querySelector('.surgeabsolute').textContent, /unavailable/i,
+  assert.doesNotMatch(surgeEvidence(hot).querySelector('.surgeabsolute').textContent, /unavailable/i,
     'the hotspot body lost the absolute checklist date/time');
-  assert.match(hot.querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
+  assert.match(surgeEvidence(hot).querySelector('.surgeabsolute a').getAttribute('data-href'), /H0/,
     'the hotspot Notes date does not open the newest hot checklist');
   assert.deepEqual([...feed.children].map((row) => row.dataset.alertKind),
     ['hotspot', 'crowd'],
@@ -41229,7 +41715,7 @@ test('the birder glossary is defined once, and says where each word is used (F14
     'the subjective term can become an app-assigned species label');
 });
 
-test('F475 the main menu shows one cached Birder Jargon definition above Buzz', async () => {
+test('F475/F992 the main menu shows one cached Birder Jargon definition between complete groups', async () => {
   const jargonDoc = JSON.parse(fs.readFileSync(wwwFixture('birder-jargon.json'), 'utf8'));
   let jargonFetches = 0;
   const app = await boot({
@@ -41246,9 +41732,11 @@ test('F475 the main menu shows one cached Birder Jargon definition above Buzz', 
   const list = app.document.getElementById('menuList');
   const tip = list.querySelector(':scope > li.jargontip');
   const firstGroup = list.querySelector(':scope > li.tocgroup');
-  assert.ok(tip && firstGroup, 'the jargon tip or Buzz heading is missing');
-  assert.ok([...list.children].indexOf(tip) < [...list.children].indexOf(firstGroup),
-    'Birder Jargon is not above the Buzz menu block');
+  assert.ok(tip && firstGroup, 'the jargon tip or Patches heading is missing');
+  assert.equal(firstGroup.textContent, 'Patches - Go birding');
+  assert.ok([...list.children].indexOf(tip) > [...list.children].indexOf(firstGroup),
+    'Birder Jargon must follow Patches');
+  assert.equal(tip.nextElementSibling.textContent, 'Bird alerts');
   assert.equal(tip.querySelector('.jargonlabel').textContent, 'Birder Jargon');
   const entry = tip.querySelector(':scope > p.jargonentry');
   assert.ok(entry, 'the term and definition are not one wrapping dictionary paragraph');
@@ -43488,14 +43976,14 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
   const help = app.window.BirdInfoDialogs.laneDocs(app.window.BirdLogic).feed.body;
   assert.match(help, /Some megas are not news today/);
   assert.match(help, /Mega rarities/);
-  assert.match(txt, /Outside your chase area/,
-    'the far + new mega must retain its distance warning in the extra evidence');
+  assert.match(txt, /Outside chase area/,
+    'the far + new mega must retain its visible compact distance warning');
   const rendered = [...feed.children];
   const nearRow = rendered.find((row) => /Nazca Booby/.test(row.textContent));
   const farRow = rendered.find((row) => /Sharp-tailed Sandpiper/.test(row.textContent));
-  assert.doesNotMatch(nearRow.querySelector('.surgeexplainextra').textContent, /outside your chase area/i,
+  assert.doesNotMatch(surgeEvidence(nearRow).querySelector('.surgeexplainextra').textContent, /outside your chase area/i,
     'a mega inside the 55-mile day-trip gate is described as outside it');
-  assert.match(farRow.querySelector('.surgeexplainextra').textContent, /outside your chase area/i,
+  assert.match(surgeEvidence(farRow).querySelector('.surgeexplainextra').textContent, /outside your chase area/i,
     'the genuinely far new mega lost its distance warning');
   assert.doesNotMatch(farRow.dataset.surgeReasonText, /outside your chase/i,
     'F969 keeps the outside warning out of the claim rather than duplicating it');
@@ -43768,7 +44256,7 @@ test('F763 latest mega checklist owns the compact tuple while repeated-hotspot e
   await seedSeen(app,[],null,[{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
   app.window.__app.renderSurge([], [], [], []);
   const row = app.document.querySelector('[data-alert-kind="mega"]');
-  const summary = row.querySelector('.surgefacts');
+  const summary = surgeEvidence(row).querySelector('.surgefacts');
   assert.match(summary.textContent, /x1 - /);
   assert.match(row.querySelector('.surgealerttitle').textContent,/at Nearby Newer Pin/);
   assert.doesNotMatch(summary.textContent,/Nearby Newer Pin/);
@@ -43819,7 +44307,7 @@ test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', 
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   });
   const row = app.document.querySelector('[data-alert-kind="mega"]');
-  const facts = row.querySelector('.surgefacts');
+  const facts = surgeEvidence(row).querySelector('.surgefacts');
   assert.match(facts.textContent.replace(/\s+/g, ' ').trim(),
     /^NABO x7 - /,
     'the same checklist can fill its unknown bird count without splitting the tuple');
@@ -49480,6 +49968,87 @@ test('searching a place FETCHES that place, it does not just re-sort home', asyn
   assert.ok(!app.window.document.querySelector('.scoutinline'),
     'a new search must not inherit its predecessor\u2019s rows');
   app.window.close();
+});
+
+test('F994 Today Find ranks bounded top hotspots from the chosen place and restores Home', async () => {
+  let releaseHome;
+  const hotspots = Array.from({ length: 14 }, (_, i) => ({
+    locId: 'LFIND' + i, locName: 'Public Find patch ' + i,
+    lat: 48 + i * 0.008, lng: -122.2, numSpeciesAllTime: 200 - i,
+  }));
+  const rows = hotspots.flatMap((hotspot, i) => (i === 10
+    ? ['testa', 'testb', 'testc'] : ['testa']).map((code) => ({
+      ...hotspot, speciesCode: code, comName: 'Find Bird ' + code,
+      obsDt: recentObsStamp(), subId: 'SFIND' + i, locationPrivate: false,
+    })));
+  rows.push({ ...hotspots[0], speciesCode: 'amerob', comName: 'American Robin',
+    obsDt: recentObsStamp(), subId: 'SSEEN' });
+  const app = await boot({ sample: false, fetch(url) {
+    if (/photon/.test(url)) return { features: [{
+      geometry: { coordinates: [-122.2, 48] },
+      properties: { name: 'Everett', state: 'Washington', country: 'United States', countrycode: 'US' },
+    }] };
+    if (/geo\/recent/.test(url) && new URL(url).searchParams.get('lat') === '48') {
+      return /notable/.test(url) ? [] : rows;
+    }
+    if (/ref\/hotspot\/geo/.test(url)) return hotspots;
+    if (/api\.ebird/.test(url)) return [];
+    return null;
+  } });
+  const A = app.window.__app;
+  try {
+    await seedSeen(app, ['amerob'], ['American Robin'],
+      ['testa', 'testb', 'testc'].map(code => ({ code, name: 'Find Bird ' + code })));
+    const home = JSON.stringify(A.getHome());
+    const profile = A.chaseProfile();
+    const pendingHome = new Promise(resolve => {
+      releaseHome = () => resolve({ profile, rarity: false, rows: {}, speciesCodes: [],
+        cv: { destinations: [], unseenAll: [] } });
+    });
+    A.seedChase(profile.slug, null);
+    A.setChaseInflight(profile.slug, pendingHome, A.chaseFetchBaseKey(profile),
+      app.window.BirdLogic.geoNotableDistKm(profile));
+    app.open(/Top hotspots to visit/);
+    const originalRank = A.loadDestinations();
+    await waitFor(() => app.$('destBtn').disabled, 'initial Home acquisition held in flight');
+    const before = app.state.fetches.length;
+    app.click(app.$('destBtn').closest('section').querySelector('[data-anchor="find"]'));
+    app.$('anchorFind').value = 'Everett, wa';
+    app.click(app.$('anchorFindGo'));
+    await waitFor(() => app.$('destResults').querySelectorAll('.hscard').length > 0, 'ranked Find results');
+    const cards = [...app.$('destResults').querySelectorAll('.hscard')];
+    assert.equal(cards.length, app.window.BirdLogic.CONST.TOP_DEST);
+    assert.match(cards[0].textContent, /Public Find patch 10/,
+      'a stronger farther patch must outrank the nearest directory entry');
+    assert.doesNotMatch(app.$('destResults').textContent, /American Robin/);
+    const inline = app.document.querySelector('.scoutinline');
+    assert.ok(inline);
+    assert.equal(inline.querySelector('.farplaces'), null, 'Today must not substitute a full directory');
+    assert.match(inline.textContent, /top hotspots.*best first, not nearest/);
+    assert.match(app.$('destStatus').textContent, /from Everett/);
+    assert.equal(JSON.stringify(A.getHome()), home, 'Find must not rewrite saved Home');
+    const findFeeds = app.state.fetches.slice(before).filter(url =>
+      /geo\/recent|ref\/hotspot\/geo/.test(url) && new URL(url).searchParams.get('lat') === '48');
+    assert.equal(findFeeds.length, 3, 'one Find acquisition, not a second regional/Scout wave');
+    findFeeds.forEach(url => assert.equal(new URL(url).searchParams.get('lat'), '48'));
+    releaseHome();
+    await originalRank;
+    assert.equal(app.$('destResults').querySelectorAll('.hscard').length, app.window.BirdLogic.CONST.TOP_DEST,
+      'late Home results must not overwrite the ranked Find');
+    assert.match(app.$('destStatus').textContent, /from Everett/,
+      'late Home progress must not overwrite Find status');
+    await A.loadDestinations();
+    assert.equal(app.$('destResults').querySelectorAll('.hscard').length, app.window.BirdLogic.CONST.TOP_DEST,
+      'refresh must remain on ranked Find, not silently return to the Home pool');
+    app.click(app.document.querySelector('.scoutinlineclose'));
+    await waitFor(() => !app.document.querySelector('.scoutinline'), 'closed Find');
+    assert.equal(JSON.stringify(A.getHome()), home);
+    assert.match(app.$('status').textContent, /Home is unchanged/);
+    assert.equal(app.state.errors.length, 0);
+  } finally {
+    if (releaseHome) releaseHome();
+    app.window.close();
+  }
 });
 
 test('F241: the scout answers with hotspots only inside a Patches section, and with birds elsewhere', async () => {

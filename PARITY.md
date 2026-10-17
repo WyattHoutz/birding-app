@@ -15,6 +15,17 @@ have a **row in the matrix below**, enforced from both repos
 
 ## Current candidate — F805/F812 personal ownership and F811 dual boards
 
+F987/F990/F991/F992 add a cached six-row Recent Bird Gen preview, compact
+evidence sheets, uppercase category labels and Patches / Birder Jargon /
+Bird alerts ordering. TWITCH is device-owned arrival tracking, not a change
+to shared rarity or Celebrity thresholds: complete live feeds establish a
+silent baseline; subsequent new-today, explicitly unseen, in-radius, non-WATCH
+rarities require a verified persistent journal before exposure. Continuing
+episodes never rearm at midnight. Its fixed 24-hour priority age is first
+detection; observation evidence remains in details. These UI/journal policies
+have pure-policy, production-DOM and real-browser controls; no archived-report
+or native background-category parity is claimed.
+
 F979 adds app-only, opt-in on-device notifications. Foreground candidates
 come from the existing admitted/merged Bird Gen cards, not the broader
 event-browsing menus. The native best-effort background pass reuses
@@ -106,7 +117,7 @@ evidence stay unchanged, and no locale taxonomy is redistributed in the bundle.
 | section | why it cannot be a report section |
 |---|---|
 | Mass Flocks (`massBtn`) | F980. Device-owned event browsing reuses Bird Gen's existing source acquisition, retained evidence, privacy and core Mass qualification, omitting only its additional proximity/new-arrival news gate. The archived report has no live high-count webpage acquisition or interactive event browser. No report output is fetched and no shared threshold changes. |
-| Patagonia Picnic Table Effect (`ppteBtn`) | F980. A separate device event browser reuses the existing PPTE source, retention and corroboration rules independently of Bird Gen's category selection/ranking. The existing `ppteEvents` row below describes the underlying engine, not this dedicated menu. Broader browsing does not broaden notification eligibility. |
+| Patagonia effect (`ppteBtn`) | F987 renames the menu label; its full Patagonia Picnic Table Effect destination heading is preserved. F980's separate device event browser reuses the existing PPTE source, retention and corroboration rules independently of Bird Gen's category selection/ranking. The existing `ppteEvents` row below describes the underlying engine, not this dedicated menu. Broader browsing does not broaden notification eligibility. |
 | Bird Gen iPhone notifications (`BirdGenNotifications`) | F979. Permission, device background scheduling, local delivery requests and profile-owned episode state require the installed iPhone app. The archived report cannot own those actions. Current background-category and coverage limits are described in the candidate notes above; no report-side notification parity is claimed. |
 | Retained BUSY PATCH eligibility (`isHotspotConvergence`) | F960. Device-cached rows must still clear the shared five-party and unrounded 4x gates when restored or rendered. The archived report computes fresh `hotspot_convergence` results rather than restoring device storage; `tests/parity/test_surge.py` proves the shared fresh-row policy, while app logic and DOM tests guard retained-row requalification. |
 | Patagonia picnic table effect (`ppteEvents`) | F931. App-only Bird Gen event built directly from the selected county RBA, or state plus already-configured county RBAs. The archived report does not acquire these live webpage rows or own the event-focused Twitches/Stakeout routing. Two species each require two checklists and two reporting names on the same actual site/day; duplicate observations, public-directory identity, freshness and partial-source retention are production-DOM guarded. This is not a change to shared surge/cascade thresholds or a report-output fetch. |

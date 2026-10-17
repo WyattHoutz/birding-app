@@ -40,6 +40,23 @@ test('F359 mockup preparation timeout rejects a hung fixture by shot name', asyn
   );
 });
 
+test('F987/F992/F993 release menu and Year List prepare production preview, glossary and watch states',
+  { timeout: 120000 }, () => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'release-menu-f987-'));
+    try {
+      const result = spawnSync(process.execPath, [
+        path.join(ROOT, 'assets', 'mockups.js'), '--only', 'menu,section-myYearBody',
+        '--width', '402', '--out', output,
+      ], { cwd: ROOT, encoding: 'utf8', timeout: 110000 });
+      assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+      assert.match(result.stdout, /2 mockup\(s\)/);
+      assert.ok(fs.existsSync(path.join(output, 'menu-402px.png')));
+      assert.ok(fs.existsSync(path.join(output, 'section-myYearBody-402px.png')));
+    } finally {
+      fs.rmSync(output, { recursive: true, force: true });
+    }
+  });
+
 test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery', { timeout: 120000 }, () => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), 'birdgen-f910-'));
   try {
@@ -783,7 +800,7 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'the release gate no longer proves that Bird Gen hides no species');
 });
 
-test('F302/F954 Bird Gen mockup shows facts beneath the category headline', () => {
+test('F302/F954 Bird Gen mockup retains facts in on-demand category evidence', () => {
   const paint = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
     source.indexOf("} else if (spec.kind === 'spuh')"));
   for (const fact of [
@@ -794,12 +811,12 @@ test('F302/F954 Bird Gen mockup shows facts beneath the category headline', () =
     assert.ok(paint.includes(fact), `F302 Bird Gen mockup lost ${fact}`);
   }
   assert.match(paint,
-    /:scope > \.surgeexplain > \.surgeexplainextra > \.surgefacts[\s\S]*:scope > \.surgeexplain > b/,
-    'the release fixture does not verify the facts within the extra evidence');
+    /template\[data-surge-evidence\][\s\S]*evidence\.content\.querySelector\('\.surgeexplainextra > \.surgefacts'\)[\s\S]*evidence\.content\.querySelector\('\.surgeexplain > b'\)/,
+    'the release fixture must verify retained facts and explanation within the evidence template');
   assert.match(paint, /Bird Gen still displays the R rare-bird marker/,
     'the release fixture does not reject the removed R marker');
-  assert.match(paint, /category badge returned beside the bird name/,
-    'the release fixture does not pin the category badge to the explanation row');
+  assert.match(paint, /category badge must precede the bird headline/,
+    'the release fixture must pin the leading category badge before the headline');
   assert.match(paint, /bird code keeps inherited leading space/,
     'the release fixture does not pin the bird code flush-left');
   assert.match(paint, /querySelector\('#surgeFeed details'\)/,
