@@ -5027,7 +5027,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.161.1';
+      var APP_VERSION = '1.161.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -18146,14 +18146,16 @@
               feedsStarted();
               return { t: Date.now(), profile: profile, cv: null, rarity: true };
             }
-            var rowsByFile = {};
+            var rowsByFile = {}, feedStates = {};
             var work = cancellableWork('Twitch rarity feeds');
             work.current = current;
             progressStage('Rare sightings near you', feeds.length, 1, 1);
             var requests = feeds.map(function (feed) {
               return ebird(BL.requestUrl(feed), !!background, false, false, work)
                 .then(function (rows) {
-                  rowsByFile[feed.file] = Array.isArray(rows) ? rows : [];
+                  if (!Array.isArray(rows)) throw new Error('Invalid notable feed response: ' + feed.file);
+                  rowsByFile[feed.file] = rows;
+                  feedStates[feed.file] = 'ok';
                   progressStep(1, feedLabel(feed));
                 });
             });
@@ -18166,6 +18168,11 @@
                 fetchBaseKey: fetchBaseKey,
                 geoNotableKm: geoNotableKm,
                 rows: rowsByFile,
+                feedStates: feedStates,
+                feedComplete: true,
+                feedFailed: false,
+                partial: false,
+                stale: false,
                 cv: computeChaseRows(profile, slug, rowsByFile, null),
                 rarity: false
               };
@@ -18554,7 +18561,8 @@
           return Promise.all(list.map(function (f) {
             return ebird(BL.requestUrl(f), bg, false, false, work)
               .then(function (rows) {
-                return { file: f.file, state: 'ok', rows: Array.isArray(rows) ? rows : [] };
+                if (!Array.isArray(rows)) throw new Error('Invalid observation feed response: ' + f.file);
+                return { file: f.file, state: 'ok', rows: rows };
               })
               .catch(function (e) {
                 if (e && e.queueCancelled) throw e;
@@ -38796,6 +38804,21 @@
       function twitchJournalKey() {
         return 'bc_twitch_v1:' + JSON.stringify([personalListOwner(), personalBoardPeriod()]);
       }
+      function twitchAcquisitionComplete(res) {
+        if (chaseAlertSourceState(res) !== 'ok' || res.feedComplete !== true
+            || !res.rows || Array.isArray(res.rows) || !res.feedStates) return false;
+        var feeds = BL.planFeeds(res.profile || chaseProfile()).filter(function (feed) {
+          return feed.kind === 'notable';
+        });
+        var files = Object.keys(res.feedStates);
+        return feeds.length > 0 && files.length > 0
+          && feeds.every(function (feed) {
+            return res.feedStates[feed.file] === 'ok' && Array.isArray(res.rows[feed.file]);
+          })
+          && files.every(function (file) {
+            return res.feedStates[file] === 'ok' && Array.isArray(res.rows[file]);
+          });
+      }
       function twitchObservedAlerts(res, merged, now) {
         var key = twitchJournalKey(), previous = null;
         try {
@@ -38812,10 +38835,19 @@
           return [];
         }
         var state = chaseAlertSourceState(res);
-        var result = window.BirdGenTwitches.evaluate(previous, merged, {
+        var rejected = Object.create(null);
+        Object.keys(res && res.rows || {}).forEach(function (file) {
+          if (!Array.isArray(res.rows[file])) return;
+          res.rows[file].forEach(function (row) {
+            if (row && row.obsReviewed === true && row.obsValid === false) rejected[BL.obsKey(row)] = true;
+          });
+        });
+        var result = window.BirdGenTwitches.evaluate(previous, merged.filter(function (row) {
+          return !rejected[row.obsId];
+        }), {
           now: now, today: todayStr(), home: getHome() ? anchorPoint() : null, radius: chaseMaxMi(),
           complete: state === 'ok',
-          acquired: state === 'ok' && res.feedComplete === true && Array.isArray(res.rows),
+          acquired: twitchAcquisitionComplete(res),
           membership: function (code, name) { return isSpeciesSeen(code, name, null, true); },
           watch: watchCodes()
         });
@@ -38835,10 +38867,18 @@
             });
           }
         }
-        _twitchTracking = { key: key, status: result.status === 'baseline'
+        var status = result.status === 'baseline'
           ? 'TWITCH baseline saved; existing rarities were not re-alerted.'
           : result.status === 'baseline-pending'
-            ? 'TWITCH is waiting for complete current feeds to establish its baseline.' : '' };
+            ? 'TWITCH is waiting for complete current feeds to establish its baseline.' : '';
+        var diagnostic = result.status + '|' + state + '|' + twitchAcquisitionComplete(res)
+          + '|' + merged.length + '|' + result.added.length + '|' + result.alerts.length;
+        if (_twitchTracking.key !== key || _twitchTracking.diagnostic !== diagnostic) {
+          dbg('info', 'TWITCH tracking · ' + result.status + ' · source ' + state
+            + ' · acquired ' + twitchAcquisitionComplete(res) + ' · candidates ' + merged.length
+            + ' · new eligible ' + result.added.length + ' · episodes ' + result.alerts.length);
+        }
+        _twitchTracking = { key: key, status: status, diagnostic: diagnostic };
         return result.alerts;
       }
       var _ppteEventsById = Object.create(null);
@@ -50681,7 +50721,7 @@
         openPpteEvent: openPpteEvent, ppteTwitchContext: ppteTwitchContext,
         stakeoutRarityEvidenceRows: stakeoutRarityEvidenceRows,
         stakeoutPatchRbaRows: stakeoutPatchRbaRows,
-        getChase: getChase, clearChaseCache: clearChaseCache,
+        getChase: getChase, getChaseRarity: getChaseRarity, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,
         destinationDirectCheckpoints: destinationDirectCheckpoints,

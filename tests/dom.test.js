@@ -73,7 +73,12 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
     const bird = { code: 'verfly', name: 'Vermilion Flycatcher', kind: 'Rarity',
       dateStr: stamp, locId: 'LF990', loc: 'Synthetic public patch', subId: 'SF990',
       lat: 47.75, lon: -122.16, count: 1, obsReviewed: false };
-    const source = (merged, extra = {}) => ({ rows: merged, cv: { merged }, feedComplete: true, ...extra });
+    const source = (merged, extra = {}) => {
+      const profile = A.chaseProfile(), rows = {}, feedStates = {};
+      app.window.BirdLogic.planFeeds(profile).filter(feed => feed.kind === 'notable')
+        .forEach(feed => { rows[feed.file] = merged; feedStates[feed.file] = 'ok'; });
+      return { profile, rows, feedStates, cv: { merged }, feedComplete: true, ...extra };
+    };
     assert.equal(A.surgeObservedResult(source([bird], { partial: true }), now).twitchRows.length, 0);
     assert.equal(store.getItem(A.twitchJournalKey()), null, 'partial coverage cannot establish a baseline');
     assert.equal(A.surgeObservedResult(source([]), now).twitchRows.length, 0);
@@ -126,6 +131,114 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
       'lost history establishes a silent baseline, not duplicate arrivals');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F998 real rarity loader establishes TWITCH baseline and discovers a subsequent acquisition, not synthetic paint', async () => {
+  let observations = [];
+  const app = await boot({ sample: false, fetch(url) {
+    return /data\/obs\//.test(url) ? observations : null;
+  } });
+  try {
+    const A = app.window.__app, W = app.window, store = W.localStorage;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    const now = new Date();
+    now.setHours(12, 0, 0, 0);
+    W.Date.now = () => now.getTime();
+    const first = await A.getChaseRarity(true);
+    assert.equal(first.feedComplete, true);
+    assert.ok(!Array.isArray(first.rows), 'production results remain keyed by feed');
+    assert.equal(A.surgeObservedResult(first, now.getTime()).twitchRows.length, 0);
+    assert.deepEqual(JSON.parse(store.getItem(A.twitchJournalKey())).known, []);
+    const count = () => app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+    const before = count();
+    const cached = await A.getChaseRarity();
+    assert.equal(count(), before, 'cache reuse spends no new calls');
+    assert.equal(cached.feedComplete, true);
+    observations = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      sciName: 'Pyrocephalus rubinus', obsDt: `${A.todayStr()} 11:50`,
+      locId: 'LF998', locName: 'Example public patch', subId: 'SF998',
+      lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true }];
+    const eligible = observations[0];
+    observations = [{ ...eligible, obsReviewed: true, obsValid: false }];
+    const rejected = await A.getChaseRarity(true);
+    assert.equal(A.surgeObservedResult(rejected, now.getTime()).twitchRows.length, 0,
+      'reviewed-and-rejected raw evidence must not become an arrival through normalization');
+    assert.deepEqual(JSON.parse(store.getItem(A.twitchJournalKey())).known, []);
+    observations = [{ ...eligible, obsValid: false }];
+    const fresh = await A.getChaseRarity(true);
+    assert.ok(count() > before, 'force must acquire current notable sources');
+    const rows = A.surgeObservedResult(fresh, now.getTime()).twitchRows;
+    assert.deepEqual(Array.from(rows, row => row.code), ['verfly']);
+    assert.equal(rows[0].reports, 1, 'duplicate feed copies do not invent parties');
+    assert.equal(rows[0].unreviewed, true);
+    console.info('F998 actual notable acquisition: ' + Object.keys(fresh.rows).length
+      + ' feed requests per forced wave; cached repeat: 0; duplicate parties: ' + rows[0].reports);
+    const saved = store.getItem(A.twitchJournalKey());
+    const file = Object.keys(fresh.feedStates)[0];
+    const controls = [
+      { partial: true }, { stale: true }, { feedFailed: true }, { feedComplete: false },
+      { feedComplete: undefined }, { feedStates: {} },
+      { feedStates: { ...fresh.feedStates, [file]: 'failed' } },
+      { rows: { ...fresh.rows, [file]: undefined } },
+      { rows: fresh.cv.merged },
+    ];
+    for (const extra of controls) {
+      store.removeItem(A.twitchJournalKey());
+      A.surgeObservedResult({ ...fresh, ...extra }, now.getTime());
+      assert.equal(store.getItem(A.twitchJournalKey()), null,
+        'incomplete, stale and legacy-shaped results cannot establish a baseline: ' + JSON.stringify(extra));
+    }
+    store.setItem(A.twitchJournalKey(), saved);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F998 real snapshot and full chase results preserve explicit TWITCH acquisition coverage', async () => {
+  const app = await boot({ sample: false, fetch(url) {
+    return /data\/obs\//.test(url) ? [] : null;
+  } });
+  try {
+    const A = app.window.__app, W = app.window, profile = A.chaseProfile();
+    const rows = {}, states = {};
+    W.BirdLogic.planFeeds(profile).forEach(feed => {
+      rows[feed.file] = [];
+      states[feed.file] = 'ok';
+    });
+    await A.saveChaseSnapshot(profile.slug, [], rows, states);
+    const before = app.state.fetches.length;
+    const snapshot = await A.getChaseRarity();
+    assert.equal(app.state.fetches.length, before, 'snapshot path must not need live observations');
+    assert.equal(snapshot.feedComplete, true);
+    A.surgeObservedResult(snapshot, Date.now());
+    assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'real snapshot can baseline silently');
+    W.localStorage.removeItem(A.twitchJournalKey());
+    const full = await A.getChase(true);
+    assert.equal(full.feedComplete, true);
+    A.surgeObservedResult(full, Date.now());
+    assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'real full wave can baseline silently');
+    W.localStorage.removeItem(A.twitchJournalKey());
+    A.surgeObservedResult(await A.getChaseRarity(), Date.now());
+    assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'rarity reuse of a complete full wave can baseline');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F998 failed and malformed real notable reads cannot become a successful empty baseline', async () => {
+  for (const response of [{ __status: 400 }, { unexpected: [] }]) {
+    const app = await boot({ sample: false, fetch(url) {
+      return /data\/obs\//.test(url) ? response : null;
+    } });
+    try {
+      const A = app.window.__app;
+      await assert.rejects(A.getChaseRarity(true), /400|Invalid notable feed response/);
+      assert.equal(app.window.localStorage.getItem(A.twitchJournalKey()), null);
+      const full = await A.getChase(true);
+      assert.equal(full.feedComplete, false);
+      assert.equal(full.feedFailed, true);
+      A.surgeObservedResult(full, Date.now());
+      assert.equal(app.window.localStorage.getItem(A.twitchJournalKey()), null);
+    } finally { app.window.close(); }
+  }
 });
 
 test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps short accessible three-column rows', async () => {

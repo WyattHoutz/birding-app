@@ -105,7 +105,8 @@
         }), { nowMs: now }).events,
         lowerBound: options.exhaustive !== true || !options.complete,
         unreviewed: recent.some(function (row) {
-          return row.obsReviewed === false || row.reviewed === false || row.obsValid === false;
+          return row.reviewState === 'pending' || row.obsReviewed === false
+            || row.reviewed === false || row.obsValid === false;
         })
       });
     });
