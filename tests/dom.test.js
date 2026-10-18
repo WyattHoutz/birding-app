@@ -25,13 +25,16 @@ const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 
 const DEFAULT_TEST_TIMEOUT_MS = 120000;
+function formatObsStamp(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+    + `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 function recentObsStamp(daysAgo = 1, hour = 8, minute = 0) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   d.setHours(hour, minute, 0, 0);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-    + `${p(d.getHours())}:${p(d.getMinutes())}`;
+  return formatObsStamp(d);
 }
 function test(name, options, fn) {
   if (typeof options === 'function') {
@@ -142,9 +145,6 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     const A = app.window.__app, W = app.window, store = W.localStorage;
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
     const now = new Date();
-    now.setHours(12, 0, 0, 0);
-    const started = Date.now();
-    W.Date.now = () => now.getTime() + Date.now() - started;
     const first = await A.getChaseRarity(true);
     assert.equal(first.feedComplete, true);
     assert.ok(!Array.isArray(first.rows), 'production results remain keyed by feed');
@@ -156,7 +156,7 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     assert.equal(count(), before, 'cache reuse spends no new calls');
     assert.equal(cached.feedComplete, true);
     observations = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
-      sciName: 'Pyrocephalus rubinus', obsDt: `${A.todayStr()} 11:50`,
+      sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date(now.getTime() - 600000)),
       locId: 'LF998', locName: 'Example public patch', subId: 'SF998',
       lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true }];
     const eligible = observations[0];
@@ -252,11 +252,8 @@ test('F997/F1002 real Menu acquires notable sightings, shares work and explicitl
     return null;
   } });
   try {
-    const A = app.window.__app, W = app.window;
-    const now = new Date();
-    now.setHours(12, 0, 0, 0);
-    const started = Date.now();
-    W.Date.now = () => now.getTime() + Date.now() - started;
+    const A = app.window.__app;
+    const now = Date.now();
     await A.refreshRecentBirdGen(false);
     const calls = () => app.state.fetches.filter(url => /data\/obs\//.test(url));
     assert.equal(calls().length, 3, 'initial Menu acquisition uses the actual notable-only loader');
@@ -270,11 +267,11 @@ test('F997/F1002 real Menu acquires notable sightings, shares work and explicitl
     }, [], [{
       code: 'norwat', name: 'Northern Waterthrush', locId: 'LMENURETAINED',
       locName: 'Example saved public patch', lat: 47.75, lng: -122.16,
-      count: 1, when: `${A.todayStr()} 11:40`, checklistId: 'SMENURETAINED',
+      count: 1, when: formatObsStamp(new Date(now - 1200000)), checklistId: 'SMENURETAINED',
     }]);
     assert.match(app.$('recentBirdGenRows').textContent, /Northern Waterthrush/);
     observations = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
-      sciName: 'Pyrocephalus rubinus', obsDt: `${A.todayStr()} 11:50`,
+      sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date(now - 600000)),
       locId: 'LMENU997', locName: 'Example Menu patch', subId: 'SMENU997',
       lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true }];
     const before = calls().length;
@@ -421,6 +418,7 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
   const app = await boot({ home: false });
   try {
     const A = app.window.__app, W = app.window;
+    const now = Date.now(), when = formatObsStamp(new Date(now - 60000));
     const head = app.document.querySelector('.recent-birdgen-head');
     assert.ok(head.contains(app.$('recentBirdGenOpen')));
     assert.ok(head.contains(app.$('recentBirdGenRefresh')));
@@ -432,13 +430,13 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
     feed.id = 'surgeFeed';
     for (const kind of ['favorite', 'ppte', 'foy']) {
       feed.insertAdjacentHTML('beforeend', A.surgeAlertCard({
-        kind, name: 'Example bird', when: recentObsStamp(1), time: Date.now(),
+        kind, name: 'Example bird', when, time: now - 60000,
       }, 0));
     }
     app.$('surgeResults').appendChild(feed);
     A.renderSurge([], [], [{ loc: 'Example public patch', locId: 'LSTYLE',
-      observers: 16, ratio: 4.1, reason: 'surge', latest: recentObsStamp(1),
-      eventAt: Date.now() - 60000 }], [], [], { observations: 'notLoaded', hotspots: 'ok' });
+      observers: 16, ratio: 4.1, reason: 'surge', latest: when,
+      eventAt: now - 60000 }], [], [], { observations: 'notLoaded', hotspots: 'ok' });
     const actual = app.$('surgeFeed');
     actual.innerHTML = feed.innerHTML;
     A.updateRecentBirdGen();
