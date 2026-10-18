@@ -923,7 +923,7 @@ const AUDIT = `<script>
     if (label === '(contents menu)' && menuList && menuList.getBoundingClientRect().width) {
       var menuBox = menuList.getBoundingClientRect();
       var fullRow = menuList.querySelector('.tocgroup').getBoundingClientRect();
-      var birdGen = document.getElementById('recentBirdGenOpen');
+      var birdGen = document.getElementById('recentBirdGen');
       var birdBox = birdGen && birdGen.getBoundingClientRect();
       var jargon = menuList.querySelector('.jargontip');
       var groups = [], menuOrder = [];
@@ -1382,7 +1382,24 @@ const AUDIT = `<script>
       recentScan.recentBirdGen={
         six:previewRows.length===6,
         twitchFirst:previewRows[0].getAttribute('data-recent-kind')==='twitch',
-        bell:document.getElementById('recentBirdGenOpen').textContent.indexOf('🔔')>=0,
+        compactActions:['recentBirdGenOpen','recentBirdGenRefresh'].every(function(id){
+          var button=document.getElementById(id), rect=button.getBoundingClientRect();
+          return document.querySelector('.recent-birdgen-head').contains(button)
+            && rect.height>=44 && rect.width<document.getElementById('recentBirdGen').getBoundingClientRect().width-1
+            && button.getAttribute('aria-label');
+        }),
+        contentSizedAges:previewRows.every(function(row,i){
+          var age=row.querySelector('.recent-birdgen-time'), original=age.innerHTML;
+          var labels=['1m','59m','2h','23h','Date only','Time unknown'];
+          age.textContent=labels[i];
+          var range=document.createRange();range.selectNodeContents(age);
+          var box=age.getBoundingClientRect(), glyph=range.getBoundingClientRect();
+          var sized=Math.abs(box.width-glyph.width)<1
+            && Math.abs(box.right-row.querySelector(':scope > .name').getBoundingClientRect().right)<1
+            && getComputedStyle(age).textAlign==='right';
+          age.innerHTML=original;
+          return sized;
+        }),
         geometry:previewRows.every(function(row){
           var head=row.querySelector(':scope > .name'), icon=head.firstElementChild;
           var age=head.lastElementChild, tail=age.querySelector('small');
@@ -1396,6 +1413,31 @@ const AUDIT = `<script>
             && tail && tail.textContent==='ago' && getComputedStyle(tail).display==='block';
         })
       };
+      var categoryFeed=document.getElementById('surgeFeed');
+      var originalRows=Array.from(categoryFeed.children);
+      categoryFeed.innerHTML=['favorite','ppte','foy'].map(function(kind){
+        return A.surgeAlertCard({kind:kind,name:'Representative bird',
+          when:previewStamp(5),time:previewNow-300000},0);
+      }).join('');
+      A.updateRecentBirdGen();
+      var originalTheme=document.documentElement.getAttribute('data-theme');
+      recentScan.recentBirdGen.evidenceThemes=['light','dark'].every(function(theme){
+        A.applyTheme(theme);
+        var favorite=categoryFeed.querySelector('.surgekind-favorite');
+        var star=getComputedStyle(favorite);
+        var previewTag=document.querySelector('#recentBirdGenRows .surgebadge-ppte');
+        var fullTag=categoryFeed.querySelector('.surgebadge-ppte');
+        var ppte=getComputedStyle(previewTag), full=getComputedStyle(fullTag);
+        return favorite.textContent.trim().length>0 && star.color==='rgb(107, 68, 0)'
+          && star.color!==star.backgroundColor && star.borderTopStyle==='double'
+          && ppte.borderTopWidth==='3px' && ppte.borderTopStyle==='solid'
+          && ppte.borderTopColor===full.borderTopColor
+          && ppte.backgroundColor===full.backgroundColor
+          && previewTag.textContent==='PATAGONIA';
+      });
+      A.applyTheme(originalTheme || 'light');
+      categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
+      A.updateRecentBirdGen();
       out.push(recentScan);
       document.querySelector('#surgeFeed [data-surge-details]').click();
       out.push(scan('(F991 Alert evidence)'));

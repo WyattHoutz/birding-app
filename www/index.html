@@ -2335,7 +2335,9 @@
                       font-weight: 800; margin-top: 2px; }
     .recent-birdgen { margin-bottom: 14px; }
     .recent-birdgen h2 { margin: 8px 0; }
-    .recent-birdgen > button { display: block; width: 100%; margin-top: 10px; min-height: 44px; }
+    .recent-birdgen-head { display: flex; align-items: center; flex-wrap: wrap; column-gap: 8px; }
+    .recent-birdgen-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+    .recent-birdgen-actions button { min-height: 44px; margin: 0; }
     .recent-birdgen .hint { margin: 6px 0 0; }
     .recent-birdgen-list.obs.card-sm > li { padding: 3px 0; border: 0; }
     .recent-birdgen-list.obs.card-sm > li > .name {
@@ -2348,7 +2350,7 @@
     .recent-birdgen-list .surgealerttitle { font-size: calc(16px * var(--s)); line-height: 1.3; }
     .recent-birdgen-list .ntext { min-width: 0; }
     .recent-birdgen-list .recent-birdgen-time {
-      width: auto; min-width: 64px; margin: 0; padding-top: 4px; text-align: right;
+      width: auto; min-width: 0; margin: 0; padding-top: 4px; text-align: right;
       font-size: calc(14px * var(--s)); font-weight: 800; color: var(--muted); }
     .recent-birdgen-list .surgebadge { vertical-align: 1px; }
     .recent-birdgen-list .name:focus-visible {
@@ -2425,8 +2427,9 @@
       min-width: 22px; padding: 1px 3px; text-align: center; line-height: 1.1;
       font-size: calc(11px * var(--s)); font-weight: 800; box-sizing: border-box;
     }
-    .surgefeed .surgekind-ppte, .surgefeed .surgebadge-ppte {
-      background: var(--card); color: var(--ink); border: 3px solid var(--ink);
+    .surgekind-ppte, .surgebadge-ppte {
+      background: var(--card); color: var(--ink);
+      border-width: 3px; border-style: solid; border-color: var(--ink);
     }
     .surgefeed [data-alert-kind="ppte"] .surgealerttitle .hslink,
     .surgefeed [data-alert-kind="ppte"] .surgealerttitle .ppte-event-link,
@@ -2547,7 +2550,7 @@
     .surgekind-mass { background: #EAF7FF;
                      border-width: 3px; border-style: solid; border-color: var(--safe-blue); }
     .surgebadge-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
-    .surgekind-favorite { background: #fff; border: 3px double #E69F00; }
+    .surgekind-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
     .surgebadge-foy { background: #003B5C; color: #fff; border: 2px solid; border-color: var(--dark-safe-blue); }
     /* A feed that came back capped is not an error — the section still renders —
        but it is the difference between "these are the birds" and "these are the
@@ -5027,7 +5030,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.161.2';
+      var APP_VERSION = '1.162.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9033,6 +9036,7 @@
       }
       function fgSlot(bg, work) {
         if (fgDead()) return new Promise(function () {});
+        if (!work || !work.recentBirdGen) yieldAutomaticRecentBirdGen();
         return new Promise(function (resolve, reject) {
           var job = {
             bg: !!bg, work: work || null, reject: reject,
@@ -18062,14 +18066,17 @@
       //
       // The ordinary eBird URL memo is shared, so a later chase section reuses
       // these notable responses and buys only the additional feeds it needs.
-      function getChaseRarity(force, background) {
+      function getChaseRarity(force, background, ownerWork) {
+        if (!ownerWork) yieldAutomaticRecentBirdGen();
+        var showProgress = !ownerWork || !ownerWork.recentBirdGen;
         var slug = getReport().slug;
         var full = _chase[slug];
         var profile = chaseProfile();
         var generation = _chaseGeneration, fetchBaseKey = chaseFetchBaseKey(profile);
         var geoNotableKm = BL.geoNotableDistKm(profile);
         function current() {
-          return generation === _chaseGeneration && slug === getReportSlug()
+          return !!window.document && !_appUnloading && (!ownerWork || workCurrent(ownerWork))
+            && generation === _chaseGeneration && slug === getReportSlug()
             && fetchBaseKey === chaseFetchBaseKey(chaseProfile());
         }
         function coversRarity(value) {
@@ -18114,6 +18121,7 @@
           return Promise.resolve(countyView(projectChaseResult(p, profile, slug)));
         }
         if (_chaseRarityInflight[slug]
+            && _chaseRarityInflight[slug].current()
             && _chaseRarityInflight[slug].fetchBaseKey === fetchBaseKey
             && _chaseRarityInflight[slug].geoNotableKm >= geoNotableKm) {
           return _chaseRarityInflight[slug];
@@ -18147,16 +18155,16 @@
               return { t: Date.now(), profile: profile, cv: null, rarity: true };
             }
             var rowsByFile = {}, feedStates = {};
-            var work = cancellableWork('Twitch rarity feeds');
+            var work = ownerWork ? Object.assign({}, ownerWork) : cancellableWork('Twitch rarity feeds');
             work.current = current;
-            progressStage('Rare sightings near you', feeds.length, 1, 1);
+            if (showProgress) progressStage('Rare sightings near you', feeds.length, 1, 1);
             var requests = feeds.map(function (feed) {
               return ebird(BL.requestUrl(feed), !!background, false, false, work)
                 .then(function (rows) {
                   if (!Array.isArray(rows)) throw new Error('Invalid notable feed response: ' + feed.file);
                   rowsByFile[feed.file] = rows;
                   feedStates[feed.file] = 'ok';
-                  progressStep(1, feedLabel(feed));
+                  if (showProgress) progressStep(1, feedLabel(feed));
                 });
             });
             feedsStarted();
@@ -18181,7 +18189,7 @@
             });
           }).finally(function () {
           feedsStarted();
-          progressEnd();
+          if (showProgress && window.document) progressEnd();
           if (_chaseRarityInflight[slug] === run) {
             delete _chaseRarityInflight[slug];
           }
@@ -18191,6 +18199,7 @@
         });
         run.fetchBaseKey = fetchBaseKey;
         run.geoNotableKm = geoNotableKm;
+        run.current = current;
         _chaseRarityInflight[slug] = run;
         return run;
       }
@@ -22127,7 +22136,8 @@
         }
         var generation = ++_watchLoadGeneration, scope = activeScope(), work = navWork('Watch recent reports');
         function current() {
-          return generation === _watchLoadGeneration && scopeCurrent(scope)
+          return !!window.document && !_appUnloading
+            && generation === _watchLoadGeneration && scopeCurrent(scope)
             && workCurrent(work) && key === watchEvidenceKey();
         }
         _watchReadState = 'loading';
@@ -22164,6 +22174,7 @@
         }).finally(function () {
           if (generation !== _watchLoadGeneration) return;
           _watchLoad = null;
+          if (_appUnloading || !window.document) return;
           if (btn) btn.disabled = false;
           if (header) header.disabled = false;
           $('nvResults').removeAttribute('aria-busy');
@@ -31029,7 +31040,7 @@
           // show, and a reader who cannot separate red from green would
           // otherwise be told nothing at all.
           return patchPlaceCard(r, i + 1,
-            i === 0 ? '<span class="tag">\uD83D\uDCCC strongest patch</span>' : '');
+            i === 0 ? '<span class="tag">\uD83D\uDCCC STRONGEST PATCH</span>' : '');
         });
         return head
           + '<p class="patchsub">Every hotspot ' + esc(b.n) + ' filed a public list at, '
@@ -32332,7 +32343,7 @@
         _spLookupGroup = refreshed;
       }
       function stakeoutEvidenceCurrent(entry) {
-        return !!(entry && _spLookupEvidence === entry
+        return !!(window.document && !_appUnloading && entry && _spLookupEvidence === entry
           && entry.generation === _spLookupGeneration
           && _spLookupGroup && _spLookupGroup.code === entry.code);
       }
@@ -39180,6 +39191,10 @@
         var unavailable = [];
         Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
           var state = states[key], label = SURGE_SOURCE_LABELS[key];
+          if (state === 'notableOnly') {
+            unavailable.push(label + ' checked notable sightings only; other observations retained');
+          }
+          if (state === 'retained') unavailable.push(label + ' retained; not refreshed by Menu');
           if (state === 'failed') unavailable.push(label + ' failed'
             + (key === 'foy' ? '; open FOY for source/tracking details and retry' : ''));
           if (state === 'partial') {
@@ -41336,7 +41351,10 @@
           events, cascades, convergence, needs, merged, sourceState, topPatches,
           favoriteRows, massRows) {
         var box = $('surgeResults');
-        _recentBirdGenContext = surgeRetainedContext();
+        _recentBirdGenContext = recentBirdGenKey();
+        _recentBirdGenModel = { context: _recentBirdGenContext,
+          args: [events, cascades, convergence, needs, merged, sourceState,
+            topPatches, favoriteRows, massRows] };
         events = events || [];
         convergence = convergence || [];
         needs = needs || [];
@@ -46077,18 +46095,31 @@
         applyMenuFilter();
       }
       var _recentBirdGenContext = '', _recentBirdGenWarmContext = '';
+      var _recentBirdGenModel = null, _recentBirdGenWarm = null;
+      var _recentBirdGenAttempt = '', _recentBirdGenJob = null;
+      function recentBirdGenKey() {
+        var scope = activeScope();
+        return scope.cacheIdentity + '||' + scope.generation + '||' + surgeRetainedContext();
+      }
       function renderRecentBirdGen() {
         var list = $('menuList'), root = $('recentBirdGen');
         if (!root) {
           root = document.createElement('div');
           root.id = 'recentBirdGen';
           root.className = 'recent-birdgen';
-          root.innerHTML = '<h2>Recent Bird Gen</h2>'
+          root.innerHTML = '<div class="recent-birdgen-head"><h2>Recent Bird Gen</h2>'
+            + '<div class="recent-birdgen-actions">'
+            + '<button type="button" class="refreshbtn" id="recentBirdGenRefresh"'
+            + ' aria-label="Refresh Recent Bird Gen"><span aria-hidden="true">↻</span> Refresh</button>'
+            + '<button type="button" class="refreshbtn" id="recentBirdGenOpen" data-at="surgeBtn"'
+            + ' aria-label="Open full Bird Gen feed">Full feed</button></div></div>'
+            + '<p id="recentBirdGenStatus" class="hint" role="status" aria-live="polite"></p>'
             + '<ul id="recentBirdGenRows" class="obs card-sm recent-birdgen-list"></ul>'
-            + '<button type="button" class="secondary" id="recentBirdGenOpen" data-at="surgeBtn">'
-            + '<span aria-hidden="true">🔔</span> Open full Bird Gen feed</button>'
             + '<p class="hint">Up to 6 · rolling past 24 hours · full evidence in Bird Gen</p>';
           list.before(root);
+          $('recentBirdGenRefresh').addEventListener('click', function () {
+            refreshRecentBirdGen(true);
+          });
           $('recentBirdGenOpen').addEventListener('click', function () {
             var section = $('surgeBtn').closest('section');
             showSection(section.id);
@@ -46100,13 +46131,13 @@
         });
         if (section) $('recentBirdGenOpen').setAttribute('data-sec', section.id);
         updateRecentBirdGen();
-        warmRecentBirdGen();
+        if (!root.hidden) refreshRecentBirdGen(false);
       }
       function updateRecentBirdGen() {
         var list = $('recentBirdGenRows');
         if (!list) return;
         var feed = $('surgeFeed'), now = Date.now();
-        var rows = feed && _recentBirdGenContext === surgeRetainedContext()
+        var rows = feed && _recentBirdGenContext === recentBirdGenKey()
           ? [].slice.call(feed.children).filter(function (row) {
             var time = Number(row.getAttribute('data-surge-latest'));
             return isFinite(time) && time > 0 && time <= now && now - time <= 86400000;
@@ -46169,15 +46200,17 @@
           list.appendChild(row);
         });
         if (!rows.length) list.innerHTML = '<li class="hint" data-recent-birdgen-empty>'
-          + 'No cached alerts from the past 24 hours. Open Bird Gen to check.</li>';
+          + 'No retained alerts from the past 24 hours. Refresh checks notable sightings; open Full feed for all sources.</li>';
         if (menuVisible()) hydratePhotos(list);
       }
       function warmRecentBirdGen() {
-        var context = surgeRetainedContext();
-        if (_recentBirdGenContext === context || _recentBirdGenWarmContext === context) return;
+        var context = recentBirdGenKey();
+        if (_recentBirdGenContext === context) return Promise.resolve();
+        if (_recentBirdGenWarmContext === context && _recentBirdGenWarm) return _recentBirdGenWarm;
         _recentBirdGenWarmContext = context;
-        loadSurgeRetainedAsync().then(function (model) {
-          if (context !== surgeRetainedContext() || _recentBirdGenContext === context || !model) return;
+        _recentBirdGenWarm = loadSurgeRetainedAsync().then(function (model) {
+          if (_appUnloading || !window.document) return;
+          if (context !== recentBirdGenKey() || _recentBirdGenContext === context || !model) return;
           var observed = model.observed || { events: [], needs: [], merged: [], patches: [], twitchRows: [] };
           renderSurge(observed.events, model.cascades && model.cascades.rows,
             model.convergence && model.convergence.rows, observed.needs, observed.merged, {
@@ -46192,9 +46225,100 @@
               twitchRows: observed.twitchRows || [], deferPhotos: true, suppressNotifications: true
             }, observed.patches, model.favorite && model.favorite.rows, model.mass && model.mass.rows);
         }).catch(function (error) {
+          if (_appUnloading || !window.document) return;
           if (_recentBirdGenWarmContext === context) _recentBirdGenWarmContext = '';
           dbg('warn', 'Recent Bird Gen saved feed unavailable: ' + netErr(error));
         });
+        return _recentBirdGenWarm;
+      }
+      function yieldAutomaticRecentBirdGen() {
+        if (!_recentBirdGenJob || !_recentBirdGenJob.automatic) return;
+        _recentBirdGenJob.cancelled = true;
+        fgCancelObsolete();
+      }
+      function refreshRecentBirdGen(force) {
+        var context = recentBirdGenKey(), scope = activeScope();
+        var navigation = _navGeneration, cancellation = _workCancelGeneration;
+        var status = $('recentBirdGenStatus'), button = $('recentBirdGenRefresh');
+        function current() {
+          return !!window.document && !_appUnloading && (!job || !job.cancelled)
+            && menuVisible() && scopeCurrent(scope)
+            && context === recentBirdGenKey() && navigation === _navGeneration
+            && cancellation === _workCancelGeneration;
+        }
+        if (_recentBirdGenJob && _recentBirdGenJob.current()) return _recentBirdGenJob.promise;
+        var retained = warmRecentBirdGen();
+        if (!getHome() || !getKey()) {
+          status.textContent = 'Retained results only. Set Home and an eBird API key to refresh notable sightings.';
+          button.disabled = false;
+          return retained;
+        }
+        if (!force && _recentBirdGenAttempt === context) {
+          if (!_recentBirdGenJob || !_recentBirdGenJob.current()) button.disabled = false;
+          return retained;
+        }
+        _recentBirdGenAttempt = context;
+        button.disabled = true;
+        status.textContent = 'Checking notable sightings · other sources retained, not refreshed';
+        var job = { current: current, promise: null, automatic: !force, cancelled: false };
+        _recentBirdGenJob = job;
+        var frame = window.requestAnimationFrame || function (fn) { setTimeout(fn, 0); };
+        job.promise = retained.then(function () {
+          return new Promise(function (resolve) { frame(function () { frame(resolve); }); });
+        }).then(function () {
+          if (!current()) throw queueCancelledError(null, 'Recent Bird Gen context changed');
+          var work = navWork('Recent Bird Gen');
+          work.current = current;
+          work.recentBirdGen = true;
+          return getChaseRarity(!!force, !force, work);
+        }).then(function (res) {
+          if (!current()) throw queueCancelledError(null, 'Recent Bird Gen context changed');
+          if (!twitchAcquisitionComplete(res)) throw new Error('Notable coverage is incomplete');
+          var fresh = surgeObservedResult(res, Date.now());
+          var prior = _recentBirdGenModel && _recentBirdGenModel.context === context
+            ? _recentBirdGenModel.args : [];
+          var freshKeys = {};
+          fresh.merged.forEach(function (row) { freshKeys[BL.obsDedupKey(row)] = true; });
+          var merged = fresh.merged.concat((prior[4] || []).filter(function (row) {
+            return row.kind !== 'Rarity' && !freshKeys[BL.obsDedupKey(row)];
+          }));
+          var observed = surgeObservedResult({ partial: true, cv: { merged: merged } }, Date.now());
+          observed.twitchRows = fresh.twitchRows;
+          observed.state = 'partial';
+          var states = Object.assign({}, prior[5] || {}, {
+            observations: 'notableOnly', twitchRows: fresh.twitchRows,
+            deferPhotos: true, suppressNotifications: true
+          });
+          ['leaderboard', 'hotspots', 'favorites', 'mass', 'ppte', 'foy'].forEach(function (key) {
+            states[key] = states[key] === 'notApplicable' ? 'notApplicable'
+              : states[key] === 'notLoaded' || !states[key] ? 'notLoaded' : 'retained';
+          });
+          renderSurge(observed.events, prior[1], prior[2], observed.needs, merged,
+            states, prior[6], prior[7], prior[8]);
+          status.textContent = 'Notable sightings checked '
+            + new Date(res.t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+            + ' · other sources retained, not refreshed';
+          return saveSurgeRetainedPart('observed', Object.assign({}, observed, {
+            evidenceRows: null, patches: prior[6] || []
+          })).then(function (stored) {
+            if (current() && !stored) status.textContent += ' · latest results could not be saved';
+          });
+        }).catch(function (error) {
+          if (!current() || error && error.queueCancelled) {
+            return;
+          }
+          status.textContent = 'Notable refresh failed · retained results kept. Retry Refresh. Other sources not refreshed.';
+          dbg('warn', 'Recent Bird Gen refresh: ' + netErr(error));
+        }).finally(function () {
+          if (_recentBirdGenJob !== job) return;
+          _recentBirdGenJob = null;
+          if (_appUnloading || !window.document) return;
+          button.disabled = false;
+          if (!current() && context === recentBirdGenKey()) {
+            status.textContent = 'Refresh cancelled · retained results kept. Retry Refresh.';
+          }
+        });
+        return job.promise;
       }
       // ---- F134: what changed since you last looked ------------------------
       //
@@ -50721,6 +50845,7 @@
         openPpteEvent: openPpteEvent, ppteTwitchContext: ppteTwitchContext,
         stakeoutRarityEvidenceRows: stakeoutRarityEvidenceRows,
         stakeoutPatchRbaRows: stakeoutPatchRbaRows,
+        refreshRecentBirdGen: refreshRecentBirdGen,
         getChase: getChase, getChaseRarity: getChaseRarity, clearChaseCache: clearChaseCache,
         computeChaseRows: computeChaseRows, computeAllPatchRows: computeAllPatchRows,
         destinationFallbackRows: destinationFallbackRows,
@@ -50744,11 +50869,13 @@
       },
       setRarityInflight: function (promise) {
         var profile = chaseProfile();
+        var generation = _chaseGeneration;
         delete _chase[profile.slug];
         delete _chaseRarity[profile.slug];
         if (promise) {
           promise.fetchBaseKey = chaseFetchBaseKey(profile);
           promise.geoNotableKm = BL.geoNotableDistKm(profile);
+          promise.current = function () { return generation === _chaseGeneration; };
         }
         _chaseRarityInflight[profile.slug] = promise;
       },

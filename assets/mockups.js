@@ -1330,6 +1330,23 @@ const REVIEW_SHOTS = [
 const SHOTS = [
   { id: 'menu', title: 'Contents menu',
     prep: REVIEW_SHOTS.find(shot => shot.id === 'f951-birdgen-all').prep.replace(
+      'var today = A.todayStr();', `A.cancelStalledWork();
+      var W = document.defaultView, savedFetch = W.fetch, savedNow = W.Date.now;
+      var sourceStart = W.performance.now();
+      W.fetch = function(url, init) {
+        if (/\\/recent\\/notable(?:\\?|$)/.test(String(url))) {
+          return Promise.resolve({ok:true,status:200,headers:{get:function(){return null;}},
+            json:function(){return Promise.resolve([]);},
+            text:function(){return Promise.resolve('[]');}});
+        }
+        return savedFetch(url, init);
+      };
+      W.Date.now = function() { return savedNow() + W.performance.now() - sourceStart; };
+      A.showMenu();
+      try { await A.refreshRecentBirdGen(true); }
+      finally { W.fetch = savedFetch; W.Date.now = savedNow; }
+      A.showSection(sec.id);
+      var today = A.todayStr();`).replace(
       /return true;\s*$/, `document.defaultView.BirdLogic.JARGON = ${JSON.stringify([
         { term: 'twitch', def: JARGON.terms.twitch.definition }
       ])};
@@ -1346,6 +1363,10 @@ const SHOTS = [
         recent.prepend(exampleLabel);
         if (recent.querySelectorAll('[data-recent-kind]').length !== 6) {
           throw new Error('F987 production menu fixture must contain six recent examples');
+        }
+        if (document.getElementById('recentBirdGenRefresh').disabled
+            || /^Checking/.test(document.getElementById('recentBirdGenStatus').textContent)) {
+          throw new Error('F1002 Menu fixture must settle its bounded source before capture');
         }
         return true;`) },
 ].concat(SECTION_SHOTS, EXTRA_SHOTS);
@@ -1485,9 +1506,15 @@ const BOOTSTRAP = `
       })
     }));
   } catch (e) {}
-  // Never settles: loaders start, spinners paint, nothing arrives and nothing
-  // errors. Same stub the DOM suite boots against.
-  var HANG = function () { return new Promise(function () {}); };
+  // Unseeded sources stay pending unless their production owner cancels them.
+  var HANG = function (url, init) {
+    return new Promise(function (resolve, reject) {
+      if (!init || !init.signal) return;
+      var abort = function () { reject(new DOMException('Fixture request aborted', 'AbortError')); };
+      if (init.signal.aborted) abort();
+      else init.signal.addEventListener('abort', abort, { once: true });
+    });
+  };
   window.fetch = HANG;
   window.XMLHttpRequest = function () {
     this.open = function () {}; this.setRequestHeader = function () {};

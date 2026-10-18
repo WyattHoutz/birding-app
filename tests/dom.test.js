@@ -143,7 +143,8 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
     const now = new Date();
     now.setHours(12, 0, 0, 0);
-    W.Date.now = () => now.getTime();
+    const started = Date.now();
+    W.Date.now = () => now.getTime() + Date.now() - started;
     const first = await A.getChaseRarity(true);
     assert.equal(first.feedComplete, true);
     assert.ok(!Array.isArray(first.rows), 'production results remain keyed by feed');
@@ -199,15 +200,18 @@ test('F998 real snapshot and full chase results preserve explicit TWITCH acquisi
   } });
   try {
     const A = app.window.__app, W = app.window, profile = A.chaseProfile();
+    await A.refreshRecentBirdGen(false);
+    A.clearChaseCache();
     const rows = {}, states = {};
     W.BirdLogic.planFeeds(profile).forEach(feed => {
       rows[feed.file] = [];
       states[feed.file] = 'ok';
     });
     await A.saveChaseSnapshot(profile.slug, [], rows, states);
-    const before = app.state.fetches.length;
+    const calls = () => app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+    const before = calls();
     const snapshot = await A.getChaseRarity();
-    assert.equal(app.state.fetches.length, before, 'snapshot path must not need live observations');
+    assert.equal(calls(), before, 'snapshot path must not need live observations');
     assert.equal(snapshot.feedComplete, true);
     A.surgeObservedResult(snapshot, Date.now());
     assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'real snapshot can baseline silently');
@@ -239,6 +243,259 @@ test('F998 failed and malformed real notable reads cannot become a successful em
       assert.equal(app.window.localStorage.getItem(A.twitchJournalKey()), null);
     } finally { app.window.close(); }
   }
+});
+
+test('F997/F1002 real Menu acquires notable sightings, shares work and explicitly refreshes without opening the full feed', async () => {
+  let observations = [], failure = false;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/data\/obs\//.test(url)) return failure ? { __status: 400 } : observations;
+    return null;
+  } });
+  try {
+    const A = app.window.__app, W = app.window;
+    const now = new Date();
+    now.setHours(12, 0, 0, 0);
+    const started = Date.now();
+    W.Date.now = () => now.getTime() + Date.now() - started;
+    await A.refreshRecentBirdGen(false);
+    const calls = () => app.state.fetches.filter(url => /data\/obs\//.test(url));
+    assert.equal(calls().length, 3, 'initial Menu acquisition uses the actual notable-only loader');
+    assert.ok(calls().every(url => /notable/.test(url)), 'Menu cannot launch ordinary/full feeds');
+    assert.ok(app.$('surgeBtn').closest('section').hidden);
+    assert.match(app.$('recentBirdGenStatus').textContent, /Notable sightings checked.*other sources retained, not refreshed/);
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    await A.refreshRecentBirdGen(true);
+    A.renderSurge([], [], [], [], [], {
+      observations: 'ok', favorites: 'ok', suppressNotifications: true,
+    }, [], [{
+      code: 'norwat', name: 'Northern Waterthrush', locId: 'LMENURETAINED',
+      locName: 'Example saved public patch', lat: 47.75, lng: -122.16,
+      count: 1, when: `${A.todayStr()} 11:40`, checklistId: 'SMENURETAINED',
+    }]);
+    assert.match(app.$('recentBirdGenRows').textContent, /Northern Waterthrush/);
+    observations = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      sciName: 'Pyrocephalus rubinus', obsDt: `${A.todayStr()} 11:50`,
+      locId: 'LMENU997', locName: 'Example Menu patch', subId: 'SMENU997',
+      lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true }];
+    const before = calls().length;
+    app.$('recentBirdGenRefresh').click();
+    const pending = A.refreshRecentBirdGen(false);
+    assert.equal(pending, A.refreshRecentBirdGen(true), 'repeated actions share the real active wave');
+    assert.equal(app.$('recentBirdGenRefresh').disabled, true);
+    assert.match(app.$('recentBirdGenStatus').textContent, /Checking notable/);
+    await pending;
+    assert.equal(calls().length, before + 3, 'explicit Refresh bypasses the warm memo once');
+    assert.match(app.$('recentBirdGenRows').textContent, /Vermilion Flycatcher/);
+    assert.match(app.$('recentBirdGenRows').textContent, /Unreviewed report/);
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),
+      'actual new acquisition, not seeded renderSurge paint, produces a TWITCH');
+    assert.match(app.$('recentBirdGenRows').textContent, /Northern Waterthrush/,
+      'notable freshness retains independently acquired Favorite evidence');
+    assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'retained');
+    assert.ok(app.$('surgeBtn').closest('section').hidden);
+    const retained = app.$('recentBirdGenRows').textContent;
+    A.showMenu();
+    await A.refreshRecentBirdGen(false);
+    assert.equal(calls().length, before + 3, 'Menu repaint does not poll');
+    failure = true;
+    app.$('recentBirdGenRefresh').click();
+    await A.refreshRecentBirdGen(false);
+    assert.equal(app.$('recentBirdGenRows').textContent, retained);
+    assert.match(app.$('recentBirdGenStatus').textContent, /refresh failed.*retained results kept/i);
+    assert.equal(app.$('recentBirdGenRefresh').disabled, false);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F997 a direct rarity consumer cannot inherit the automatic Menu owner', async () => {
+  let release, preview, consumer;
+  const body = new Promise(resolve => { release = () => resolve([]); });
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\//.test(url) ? body : null });
+  try {
+    const A = app.window.__app;
+    preview = A.refreshRecentBirdGen(false);
+    await waitFor(() => app.state.fetches.some(url => /data\/obs\//.test(url)),
+      'the actual automatic notable source');
+    consumer = A.getChaseRarity(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.match(app.$('recentBirdGenStatus').textContent, /^Refresh cancelled/,
+      'a direct consumer releases the Menu owner before sharing source work');
+    assert.equal(app.$('recentBirdGenRefresh').disabled, false);
+    release();
+    const result = await consumer;
+    assert.equal(result.feedComplete, true, 'the independent consumer still acquires complete evidence');
+    await preview;
+    A.showMenu();
+    assert.equal(app.$('recentBirdGenRefresh').disabled, false,
+      'Menu repaint cannot restart an automatic attempt cancelled by other work');
+    assert.match(app.$('recentBirdGenStatus').textContent, /^Refresh cancelled/);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    release();
+    await Promise.allSettled([preview, consumer]);
+    app.window.close();
+  }
+});
+
+test('F997 late notable results cannot repaint a changed Home, radius, scope or navigation', async () => {
+  for (const change of ['home', 'radius', 'county', 'profile', 'region',
+    'identity', 'period', 'navigation', 'cancel']) {
+    let release = null, delayed = false, delayedBody = null;
+    const app = await boot({ sample: false, fetch(url) {
+      if (!/data\/obs\//.test(url)) return null;
+      if (!delayed) return [];
+      return delayedBody;
+    } });
+    try {
+      const A = app.window.__app, W = app.window;
+      await A.refreshRecentBirdGen(false);
+      delayed = true;
+      delayedBody = new Promise(resolve => { release = () => resolve([]); });
+      const pending = A.refreshRecentBirdGen(true);
+      const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+      await waitFor(() => app.state.fetches.filter(url => /data\/obs\//.test(url)).length > before,
+        'real notable wave starts');
+      if (change === 'home') W.localStorage.setItem(A.homeKey('lat'), '48.5');
+      if (change === 'radius') W.localStorage.setItem(A.chaseMiKey(), '250');
+      if (change === 'county') A.setCountyView('US-WA-033');
+      if (change === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'Example second profile');
+      if (change === 'region') W.localStorage.setItem('ebird_report', 'hi');
+      if (change === 'identity') W.localStorage.setItem(A.IDENTITY_REV_KEY, String(A.identityRevision() + 1));
+      if (change === 'period') W.localStorage.setItem('ebird_personal_period_v1', 'all');
+      if (change === 'navigation') A.showSection(app.$('settingsPanel').closest('section').id);
+      if (change === 'cancel') A.cancelStalledWork();
+      const releaseAll = release;
+      releaseAll();
+      await pending;
+      if (change !== 'county') {
+        assert.match(app.$('recentBirdGenStatus').textContent, /^(?:Refresh cancelled|Checking notable|Retained results)/i,
+          change + ' cannot claim a completed refresh in the obsolete context');
+      }
+      assert.equal(app.$('recentBirdGenRefresh').disabled, false);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F997 retired Watch source and autoload cannot publish or audit after document teardown', async () => {
+  for (const failure of [false, true]) {
+    const app = await boot({ sample: false, fetch: () => [] });
+    let release;
+    try {
+      const A = app.window.__app, section = app.$('nvResults').closest('section');
+      await A.refreshRecentBirdGen(false);
+      await seedSeen(app, []);
+      A.setWatchlist([{ code: 'norwat', name: 'Northern Waterthrush' }]);
+      A.showSection(section.id, { load: false });
+      const profile = A.chaseProfile();
+      const held = new Promise((resolve, reject) => {
+        release = () => failure ? reject(new Error('Retired source control'))
+          : resolve({ t: Date.now(), profile, rarity: false, rows: {}, cv: { merged: [] } });
+      });
+      A.setChaseInflight(profile.slug, held, A.chaseFetchBaseKey(profile),
+        app.window.BirdLogic.geoNotableDistKm(profile));
+      const loadWatch = section._loader.fn;
+      let autoloadStarted = false;
+      section._loader.fn = function () {
+        autoloadStarted = true;
+        return loadWatch.apply(this, arguments);
+      };
+      const pending = Promise.allSettled([loadWatch(), A.autoLoad(section)]);
+      await waitFor(() => autoloadStarted, 'actual Watch autoload source boundary');
+      app.window.close();
+      release();
+      const outcomes = await pending;
+      assert.ok(outcomes.every(result => result.status === 'fulfilled'), JSON.stringify(outcomes));
+      assert.ok(outcomes.every(result => result.value === false),
+        'retired actual source and autoload both report non-publication, not success');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (release) release();
+      app.window.close();
+    }
+  }
+});
+
+test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survive real feed cloning', async () => {
+  const app = await boot({ home: false });
+  try {
+    const A = app.window.__app, W = app.window;
+    const head = app.document.querySelector('.recent-birdgen-head');
+    assert.ok(head.contains(app.$('recentBirdGenOpen')));
+    assert.ok(head.contains(app.$('recentBirdGenRefresh')));
+    assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
+    assert.equal(app.$('recentBirdGenRefresh').getAttribute('aria-label'), 'Refresh Recent Bird Gen');
+    assert.equal(W.getComputedStyle(app.$('recentBirdGenOpen')).minHeight, '44px');
+    assert.match(app.$('recentBirdGenStatus').textContent, /Set Home/);
+    const feed = app.document.createElement('ul');
+    feed.id = 'surgeFeed';
+    for (const kind of ['favorite', 'ppte', 'foy']) {
+      feed.insertAdjacentHTML('beforeend', A.surgeAlertCard({
+        kind, name: 'Example bird', when: recentObsStamp(1), time: Date.now(),
+      }, 0));
+    }
+    app.$('surgeResults').appendChild(feed);
+    A.renderSurge([], [], [{ loc: 'Example public patch', locId: 'LSTYLE',
+      observers: 16, ratio: 4.1, reason: 'surge', latest: recentObsStamp(1),
+      eventAt: Date.now() - 60000 }], [], [], { observations: 'notLoaded', hotspots: 'ok' });
+    const actual = app.$('surgeFeed');
+    actual.innerHTML = feed.innerHTML;
+    A.updateRecentBirdGen();
+    for (const theme of ['light', 'dark']) {
+      A.applyTheme(theme);
+      const favorite = app.document.querySelector('#surgeFeed .surgekind-favorite');
+      const patagonia = app.document.querySelector('#recentBirdGenRows .surgebadge-ppte');
+      assert.ok(favorite && patagonia, 'real card cloning must retain category evidence');
+      assert.match(app.document.querySelector('#recentBirdGenRows .surgebadge-favorite').textContent, /FAVORITE/);
+      const star = W.getComputedStyle(favorite);
+      assert.equal(star.color, 'rgb(107, 68, 0)');
+      assert.notEqual(star.color, star.backgroundColor);
+      assert.equal(star.borderTopStyle, 'double');
+      assert.equal(W.getComputedStyle(patagonia).borderTopWidth, '3px');
+      assert.equal(W.getComputedStyle(patagonia).borderTopStyle, 'solid');
+    }
+    for (const age of app.document.querySelectorAll('#recentBirdGenRows .recent-birdgen-time')) {
+      assert.equal(parseFloat(W.getComputedStyle(age).minWidth), 0);
+      assert.equal(W.getComputedStyle(age).textAlign, 'right');
+    }
+    for (const tag of app.document.querySelectorAll('#recentBirdGenRows .surge-leading-tag')) {
+      assert.equal(tag.textContent, tag.textContent.toUpperCase());
+    }
+    const example = app.document.createElement('div');
+    for (const kind of ['mega', 'twitch', 'need', 'crowd', 'cascade', 'hotspot',
+      'patch', 'migration', 'mass', 'favorite', 'foy', 'ppte']) {
+      example.innerHTML = A.surgeAlertCard({
+        kind, name: 'Example bird', when: recentObsStamp(1), time: Date.now(),
+      }, 0);
+      const tag = example.querySelector('.surge-leading-tag');
+      assert.ok(tag.textContent.trim(), kind);
+      assert.equal(tag.textContent, tag.textContent.toUpperCase(), kind);
+      assert.equal(surgeEvidence(example).querySelector('.surgebadge').textContent,
+        tag.textContent, 'evidence sheets share the category name');
+      assert.match(example.querySelector('[data-surge-details]').getAttribute('aria-label'),
+        new RegExp(tag.textContent));
+      assert.match(example.querySelector('.surgealerttitle').textContent, /Example bird/);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F999 actual Pro patches detail uppercases its strongest status without changing names', async () => {
+  const app = await boot({ home: false });
+  try {
+    const A = app.window.__app;
+    app.window.__CHOICE_PATCHES__ = {
+      scope: 'example public county', counties: ['US-WA-033'], grand: 100, board: 100,
+      places: { LTAG999: ['Example public patch', 25, 47.7, -122.1, 'US-WA-033'] },
+      birders: [{ n: 'Sample birder', t: 10, r: 1, p: [['LTAG999', 10]] }], unmatched: [],
+    };
+    await A.loadChoicePatches();
+    assert.ok(A.patchOpenBirder('Sample birder'));
+    assert.match(app.$('patchDetailBody').querySelector('.tag').textContent, /STRONGEST PATCH/);
+    assert.match(app.$('patchDetailBody').textContent, /Example public patch/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
 });
 
 test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps short accessible three-column rows', async () => {
@@ -1489,6 +1746,16 @@ function boot(opts = {}) {
       }
       window.fetch = function (url, init) {
         state.fetches.push(String(url));
+        const abortable = (pending) => {
+          if (!init || !init.signal) return pending;
+          return new Promise((resolve, reject) => {
+            const signal = init.signal;
+            const abort = () => reject(new window.DOMException('Synthetic request aborted', 'AbortError'));
+            if (signal.aborted) { abort(); return; }
+            signal.addEventListener('abort', abort, { once: true });
+            pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+          });
+        };
         if (state.runtimeFetch && !state.inRuntimeFetch) {
           state.inRuntimeFetch = true;
           try {
@@ -1552,10 +1819,10 @@ function boot(opts = {}) {
             }
             return new Promise(() => {});
           };
-          if (body && typeof body.then === 'function') return body.then(response);
+          if (body && typeof body.then === 'function') return abortable(body.then(response));
           if (body != null) return Promise.resolve(response(body));
         }
-        return new Promise(() => {});   // never settles: offline + deterministic
+        return abortable(new Promise(() => {}));
       };
       window.onerror = (msg) => { state.errors.push(String(msg)); };
     },
@@ -1582,7 +1849,8 @@ function boot(opts = {}) {
         click(el) { el.dispatchEvent(new window.Event('click', { bubbles: true })); },
         open(labelRe) {
           const a = [...window.document.querySelectorAll('.toclink, #recentBirdGen:not([hidden]) #recentBirdGenOpen')]
-            .find((x) => labelRe.test(x.textContent));
+            .find((x) => labelRe.test(x.getAttribute('aria-label') || '')
+              || labelRe.test(x.textContent));
           assert.ok(a, 'no Contents entry matching ' + labelRe);
           this.click(a);
         },
@@ -1637,6 +1905,8 @@ test('F815 annual-first acquisition verifies returned region, year and selected 
 test('F815 rendered annual-first recovery rejects wrong region, year and Last Observed before accepting the same page', async () => {
   const app = await boot({sample:false, fetch:url =>
     /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
+  await app.window.__app.refreshRecentBirdGen(false);
+  const sourceFetchStart = app.state.fetches.length;
   const handlers = {};
   const pages = [
     (() => {
@@ -1703,7 +1973,7 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     assert.equal(opened.url, app.window.__app.firstYearUrl('US-WA'));
     assert.equal(app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length, 1,
       'recovery navigates to the same permitted page, not another discovery endpoint');
-    assert.equal(app.state.fetches.some(url => /historic|\/recent\//.test(url)), false);
+    assert.equal(app.state.fetches.slice(sourceFetchStart).some(url => /historic|\/recent\//.test(url)), false);
     assert.ok(sourceMessages.some(message => /browser session/.test(message)),
       'rendered recovery must report its real source phase to the requesting surface');
   } finally {
@@ -4687,7 +4957,8 @@ test('Contents menu matches the report section contract (labels + order)', async
   // screen-reader user actually hears, so that is what the contract pins.
   const rendered = app.links().map((a) => {
     if (a.id === 'recentBirdGenOpen') {
-      assert.match(a.textContent, /🔔 Open full Bird Gen feed/);
+      assert.equal(a.textContent, 'Full feed');
+      assert.equal(a.getAttribute('aria-label'), 'Open full Bird Gen feed');
       return '🔔 Bird Gen';
     }
     return (a.getAttribute('aria-label') || a.textContent).trim();
@@ -7353,12 +7624,13 @@ test('F318: runtime county discovery loads references only and persists All/coun
   });
   const A = app.window.__app;
   assert.equal(A.getCountyView(), '', 'runtime regions begin at All counties');
+  const scopeFetchStart = app.state.fetches.length;
   A.scopeOpen();
   await waitFor(() => A.getCountyChoices().length === 2,
     'the runtime county reference catalog');
-  assert.equal(app.state.fetches.some((url) => /\/data\/obs\//.test(url)), false,
+  assert.equal(app.state.fetches.slice(scopeFetchStart).some((url) => /\/data\/obs\//.test(url)), false,
     'opening county choices must not fan out into observation feeds');
-  assert.ok(app.state.fetches.every((url) =>
+  assert.ok(app.state.fetches.slice(scopeFetchStart).every((url) =>
     !/api\.ebird\.org/.test(url)
       || /\/ref\/region\/(?:list\/subnational2|info)\//.test(url)),
   'the only live eBird calls are county reference metadata');
@@ -13626,7 +13898,8 @@ test('F987/F992 Recent Bird Gen preserves destinations and Patches precedes Jarg
     const destinations = [...links, app.$('recentBirdGenOpen')].map((link) => link.dataset.at);
     assert.deepEqual(destinations.sort(), authored.filter((item) => A.menuApplies(item))
       .map((item) => item.at).sort(), 'every original destination remains available exactly once');
-    assert.match(app.$('recentBirdGenOpen').textContent, /🔔 Open full Bird Gen feed/);
+    assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
+    assert.equal(app.$('recentBirdGenOpen').getAttribute('aria-label'), 'Open full Bird Gen feed');
     const jargon = app.$('menuList').querySelector('.jargontip');
     assert.equal(jargon.nextElementSibling.textContent, 'Bird alerts');
     assert.equal(jargon.previousElementSibling.querySelector('.toclink').dataset.at,
@@ -17689,7 +17962,8 @@ test('the map-provider setting is reachable and lists every provider', async () 
 test('F987 Bird Gen keeps its labelled feed button and the Talk and news destination heading', async () => {
   const app = await boot();
   const tile = app.$('recentBirdGenOpen');
-  assert.match(tile.textContent, /🔔 Open full Bird Gen feed/);
+  assert.equal(tile.textContent, 'Full feed');
+  assert.equal(tile.getAttribute('aria-label'), 'Open full Bird Gen feed');
   assert.equal(app.$('recentBirdGen').querySelector('h2').textContent, 'Recent Bird Gen');
   app.open(/Bird Gen/);
   app.window.__app.renderSurge([{
@@ -17796,6 +18070,12 @@ test('F801 favorites publish each patch while later patches remain pending', asy
   app.window.close();
 });
 
+function f821SourceRequests(app) {
+  app.window.__app.showSection(app.$('settingsPanel').closest('section').id);
+  const start = app.state.fetches.length;
+  return () => app.state.fetches.slice(start);
+}
+
 function f821Page(rows = []) {
   return '<div class="BirdList"><section class="BirdList-list">'
     + `<h3>Native and Naturalized (${rows.length})</h3><ol>`
@@ -17857,6 +18137,7 @@ test('F821 mass waits for safe public hotspot coordinates without buying species
     if (/ref\/hotspot\//.test(url)) return new Promise((resolve) => { release = resolve; });
     return [];
   } });
+  const requests = f821SourceRequests(app);
   const A = app.window.__app, updates = [];
   await seedSeen(app, []);
   const pending = A.loadMassFlockAlertSource(false, A.activeScope(), (value) => updates.push(value));
@@ -17866,7 +18147,7 @@ test('F821 mass waits for safe public hotspot coordinates without buying species
   const final = await pending;
   assert.equal(final.state, 'partial', 'unresolved high-count evidence is incomplete coverage');
   assert.deepEqual(arr(final.rows, (row) => row.code), ['snogoo']);
-  assert.equal(app.state.fetches.filter((url) => /\/recent\/|\/historic\//.test(url)).length, 0);
+  assert.equal(requests().filter((url) => /\/recent\/|\/historic\//.test(url)).length, 0);
   app.window.close();
 });
 
@@ -17875,6 +18156,7 @@ test('F821 every flock refresh buys one page and retires all daily-cache entries
   const app = await boot({ storage: {
     ...f801Days(), [other]: JSON.stringify({ at: Date.now(), complete: true, rows: [] }),
   }, fetch: (url) => /bird-list/.test(url) ? f821Page() : [] });
+  const requests = f821SourceRequests(app);
   const A = app.window.__app;
   await A.loadMassFlockAlertSource(true, A.activeScope(), null, false);
   assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
@@ -17882,7 +18164,7 @@ test('F821 every flock refresh buys one page and retires all daily-cache entries
     key.startsWith('bc_mass_day_v1:')).length, 0);
   await A.loadMassFlockAlertSource(true, A.activeScope(), null, true);
   assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 2);
-  assert.equal(app.state.fetches.filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
+  assert.equal(requests().filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
   app.window.close();
 });
 
@@ -19059,6 +19341,7 @@ test('F821 live high-count source admits one observation, preserves retention an
     if (/bird-list/.test(url)) return f821Page([{ count: 4000 }]);
     return /ref\/hotspot\//.test(url) ? f821Hotspots() : [];
   } });
+  const requests = f821SourceRequests(app);
   const A = app.window.__app;
   await seedSeen(app, []);
   const result = await A.loadMassFlockAlertSource(false, A.activeScope());
@@ -19079,7 +19362,7 @@ test('F821 live high-count source admits one observation, preserves retention an
   assert.equal(query.get('rank'), 'hc');
   assert.equal(query.get('hs_sortBy'), 'count');
   assert.equal(query.get('yr'), 'curM');
-  assert.equal(app.state.fetches.filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
+  assert.equal(requests().filter((url) => /\/historic\/|\/recent\//.test(url)).length, 0);
   A.renderSurge([], [], [], [], [], { mass: result.state, massCoverage: result.coverage },
     [], [], result.rows);
   assert.match(surgeEvidence(app.$('surgeFeed').querySelector('[data-alert-kind="mass"]')).textContent,
@@ -19133,6 +19416,7 @@ test('F808 total Mass Flock acquisition failure is logged as failed coverage', a
 test('F824 access rejection recovers through the same verified rendered page without source fan-out', async () => {
   for (const direct of ['<html>anubis_challenge</html>', '<html><title>Sign in</title></html>']) {
     const app = await boot({ fetch: (url) => /bird-list/.test(url) ? direct : f821Hotspots() });
+    const requests = f821SourceRequests(app);
     await seedSeen(app, []);
     const handlers = {};
     let opened, browser, injections = 0;
@@ -19163,7 +19447,7 @@ test('F824 access rejection recovers through the same verified rendered page wit
     assert.equal(injections, 2, 'wrong period must not resolve the capture');
     assert.match(opened.url, /yr=curM&rank=hc&hs_sortBy=count&locale=en$/);
     assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
-    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+    assert.equal(requests().filter((url) => /historic|\/recent\//.test(url)).length, 0);
     assert.ok(app.window.__dbg.buf.some((row) => /Mass page classification: (ANUBIS|LOGIN)/.test(row.msg)));
     const A = app.window.__app;
     await A.saveSurgeRetainedPart('mass', result);
@@ -19176,7 +19460,7 @@ test('F824 access rejection recovers through the same verified rendered page wit
       'a failed rendered recovery replaced the dated last-good flock');
     assert.equal(retained.mass.rows[0].code, result.rows[0].code);
     assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 2);
-    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0,
+    assert.equal(requests().filter((url) => /historic|\/recent\//.test(url)).length, 0,
       'failed recovery must not turn into another discovery source');
     browser.window.close();
     app.window.close();
@@ -19203,6 +19487,7 @@ test('F821 valid empty pages differ from access walls and malformed pages', asyn
     '<html>anubis_challenge</html>', '<div class="BirdList"></div>']) {
     const empty = page === f821Page();
     const app = await boot({ fetch: () => page });
+    const requests = f821SourceRequests(app);
     const A = app.window.__app;
     const result = await A.loadMassFlockAlertSource(false, A.activeScope());
     assert.equal(result.state, empty ? f821State() : 'failed');
@@ -19210,7 +19495,7 @@ test('F821 valid empty pages differ from access walls and malformed pages', asyn
       .filter((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
     assert.equal(verdicts.length, 1, 'final verdict is missing or emitted more than once');
     assert.match(verdicts[0], empty ? /no qualifying high-count flocks/ : /source failed/);
-    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\/|ref\/hotspot\//.test(url)).length, 0);
+    assert.equal(requests().filter((url) => /historic|\/recent\/|ref\/hotspot\//.test(url)).length, 0);
     app.window.close();
   }
 });
@@ -19224,6 +19509,7 @@ test('F821 public-directory failure is visible and never falls back to dated or 
       }
       return [];
     } });
+    const requests = f821SourceRequests(app);
     const A = app.window.__app;
     await seedSeen(app, []);
     const result = await A.loadMassFlockAlertSource(false, A.activeScope());
@@ -19234,7 +19520,7 @@ test('F821 public-directory failure is visible and never falls back to dated or 
       .find((message) => message.startsWith('Bird Gen Mass Flock verdict:'));
     assert.match(verdict, failed
       ? /public-location directory failed/ : /public-location directory loaded/);
-    assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+    assert.equal(requests().filter((url) => /historic|\/recent\//.test(url)).length, 0);
     assert.doesNotMatch(verdict, /snogoo|Snow Goose|L821|47\.75|-122\.16/);
     app.window.close();
   }
@@ -19251,6 +19537,7 @@ test('F821 full-page filtering keeps the exact 500 boundary without a candidate 
   ];
   const app = await boot({ fetch: (url) => /bird-list/.test(url)
     ? f821Page(rows) : /ref\/hotspot\//.test(url) ? f821Hotspots() : [] });
+  const requests = f821SourceRequests(app);
   const A = app.window.__app;
   await seedSeen(app, [], [], rows.map((r) => ({ code: r.code, name: 'Snow Goose' })));
   const result = await A.loadMassFlockAlertSource(false, A.activeScope());
@@ -19258,7 +19545,7 @@ test('F821 full-page filtering keeps the exact 500 boundary without a candidate 
   assert.ok(result.rows.some((row) => row.code === 'snogoo' && row.maxCount === 500));
   assert.ok(!result.rows.some((row) => ['amecro', 'margod', 'brant', 'mallar3'].includes(row.code)));
   assert.equal(app.state.fetches.filter((url) => /bird-list/.test(url)).length, 1);
-  assert.equal(app.state.fetches.filter((url) => /historic|\/recent\//.test(url)).length, 0);
+  assert.equal(requests().filter((url) => /historic|\/recent\//.test(url)).length, 0);
   const bad = f821Page([{}]).replace('Count: 600', 'Count: unavailable');
   assert.throws(() => A.parseMassHighCountPage(bad, 'US-WA'), /Malformed/);
   assert.throws(() => A.parseMassHighCountPage(f821Page([{ region: 'US-OR' }]), 'US-WA'),
@@ -19272,6 +19559,7 @@ test('F821 full-page filtering keeps the exact 500 boundary without a candidate 
 test('F732 latest-bird icons preserve per-row identity and omit unavailable evidence', async () => {
   const app = await boot();
   const A = app.window.__app;
+  const sourceFetchStart = app.state.fetches.length;
   A.renderRankings({ rows: [
     { rank: 1, name: 'Birder A', species: 300, recent: 'American Robin (Oct. 1, 2026)' },
     { rank: 2, name: 'Birder B', species: 299, recent: 'Snow Goose (Oct. 1, 2026)' },
@@ -19284,7 +19572,7 @@ test('F732 latest-bird icons preserve per-row identity and omit unavailable evid
   assert.match(rows[1].querySelector('.rankbirdline').textContent, /Snow Goose/);
   assert.equal(rows[2].querySelector('.rankbirdicon'), null);
   assert.equal(rows[3].querySelector('.rankbirdicon'), null);
-  assert.equal(app.state.fetches.filter((url) =>
+  assert.equal(app.state.fetches.slice(sourceFetchStart).filter((url) =>
     /api\.ebird\.org.*(?:data\/obs|top100)/.test(url)).length, 0,
   'the photo addition introduced an observation or leaderboard fetch');
   app.window.close();
@@ -28315,12 +28603,14 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     {code,name:'Testable Kingbird',sci:'Tyrannus testus'},
   ]);
   const doc2 = app2.window.document;
+  const lookupFeedStart = feeds.length;
   await app2.window.__app.lookupSpecies(code, 'Testable Kingbird');
 
-  assert.equal(feeds.length, 1, 'one read of the per-species feed');
-  assert.match(feeds[0], new RegExp(`recent/${code}\\b`),
+  const lookupFeeds = feeds.slice(lookupFeedStart);
+  assert.equal(lookupFeeds.length, 1, 'one read of the per-species feed');
+  assert.match(lookupFeeds[0], new RegExp(`recent/${code}\\b`),
     'it asks eBird for THAT species, not the whole region feed filtered afterwards');
-  assert.match(feeds[0], new RegExp(`back=${app2.window.__app.SP_LOOKUP_BACK}\\b`),
+  assert.match(lookupFeeds[0], new RegExp(`back=${app2.window.__app.SP_LOOKUP_BACK}\\b`),
     'over a window wider than the chase feeds, because a lookup asks about birds that may not be here today');
   const summary = doc2.querySelector('#spLookupDetailMain .splookupsummary');
   assert.match(summary && summary.textContent, /Testable Kingbird/,
@@ -36242,6 +36532,7 @@ test('F748 slow-scan warning and owned progress survive a pending band switch wi
   A.setCountyBoundOverride(() => ({
     bounds: { minX: -117.6, maxX: -117.2, minY: 47.4, maxY: 47.8 },
   }));
+  const discoveryFetchStart = app.state.fetches.length;
   const eight = A.setDayTripRange('from8plus');
   await waitFor(() => Boolean(releaseDirectory), 'held broad-scan directory');
   assert.equal(app.$('dayTripWarning').hidden, false);
@@ -36249,7 +36540,7 @@ test('F748 slow-scan warning and owned progress survive a pending band switch wi
   assert.match(app.$('excStatus').textContent, /Loading 8h\+ county scope/);
   assert.equal(app.$('excStatus').getAttribute('aria-busy'), 'true');
   assert.equal(app.$('dayTripProgress').hidden, false);
-  assert.equal(app.state.fetches.filter((url) => /data\/obs\//.test(url)).length, 0,
+  assert.equal(app.state.fetches.slice(discoveryFetchStart).filter((url) => /data\/obs\//.test(url)).length, 0,
     'scope discovery must not spend a base observation wave before it has a valid tier');
   const short = A.setDayTripRange('under3');
   releaseDirectory(directory);
@@ -36260,7 +36551,7 @@ test('F748 slow-scan warning and owned progress survive a pending band switch wi
   assert.equal(app.$('excStatus').getAttribute('aria-busy'), 'false');
   assert.equal(app.$('dayTripProgress').hidden, true);
   assert.equal(app.$('dayTripUnder3').getAttribute('aria-pressed'), 'true');
-  assert.equal(app.state.fetches.filter((url) => /data\/obs\//.test(url)).length, 0,
+  assert.equal(app.state.fetches.slice(discoveryFetchStart).filter((url) => /data\/obs\//.test(url)).length, 0,
     'a valid empty tier needs no observation or species-enrichment calls');
 });
 
@@ -41032,6 +41323,7 @@ test('scouting a place costs exactly three calls, however far away it is', async
     },
   });
   const A = app.window.__app, D = app.document;
+  const scoutFetchStart = urls.length;
   // A pasted "lat, lng" resolves offline, so the geocoder is out of the
   // measurement entirely and what is counted is only what eBird was asked for.
   D.getElementById('scoutPlace').value = '46.6021, -120.5059';
@@ -41039,7 +41331,7 @@ test('scouting a place costs exactly three calls, however far away it is', async
   await waitFor(() => /hotspot/i.test(D.getElementById('scoutResults').textContent),
     'the scouted view to paint');
 
-  const ebirdCalls = urls.filter((u) =>
+  const ebirdCalls = urls.slice(scoutFetchStart).filter((u) =>
     (/\/v2\//.test(u) || /data\/obs|ref\/hotspot/.test(u))
     && !/ref\/region\/list\/subnational2\//.test(u));
   assert.strictEqual(ebirdCalls.length, 3,
