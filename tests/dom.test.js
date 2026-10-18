@@ -28438,24 +28438,49 @@ test('F434 likely finders rank overlapping checklists by earliest end time', asy
       return [];
     },
   });
-  const A = app.window.__app;
-  A.abaArchiveAdd('US-WA', reports);
-  await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
-  await waitFor(() => {
-    const rows = app.document.querySelectorAll('.megafinders li');
-    return rows.length === 3 && /7:00/.test(rows[0].textContent);
-  }, 'hydrated likely-finder intervals');
+  try {
+    app.window.Date.now = () => Date.parse('2026-09-21T12:00:00Z');
+    const A = app.window.__app;
+    A.abaArchiveAdd('US-WA', reports);
+    await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
+    await waitFor(() => {
+      const rows = app.document.querySelectorAll('.megafinders li');
+      return rows.length === 3 && /7:00/.test(rows[0].textContent);
+    }, 'hydrated likely-finder intervals');
 
-  const candidates = [...app.document.querySelectorAll('.megafinders li')];
-  assert.match(candidates[0].textContent, /Birder B.*6:00.*7:00/s,
-    'the shorter later-starting checklist should rank first');
-  assert.match(candidates[1].textContent, /Birder C.*6:30.*7:00.*same eBird group/s,
-    'a convoy member should be identified by the shared eBird group');
-  assert.match(candidates[2].textContent, /Birder A.*5:00.*8:00.*overlapping checklist/s,
-    'the earlier long checklist should remain visible and marked as overlapping');
-  assert.match(app.document.querySelector('.megafinder .bcguess').textContent,
-    /does not publish the exact moment the bird was seen/i);
-  app.window.close();
+    const candidates = [...app.document.querySelectorAll('.megafinders li')];
+    assert.match(candidates[0].textContent, /Birder B.*6:00.*7:00/s,
+      'the shorter later-starting checklist should rank first');
+    assert.match(candidates[1].textContent, /Birder C.*6:30.*7:00.*same eBird group/s,
+      'a convoy member should be identified by the shared eBird group');
+    assert.match(candidates[2].textContent, /Birder A.*5:00.*8:00.*overlapping checklist/s,
+      'the earlier long checklist should remain visible and marked as overlapping');
+    assert.match(app.document.querySelector('.megafinder .bcguess').textContent,
+      /does not publish the exact moment the bird was seen/i);
+  } finally {
+    app.window.close();
+  }
+});
+
+test('F1001 finder attribution stays conservative at the UTC coverage boundary', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    const reports = [{ obsDt: '2026-09-18 05:00' }];
+    app.window.Date.now = () => Date.parse('2026-10-17T23:59:59Z');
+    const before = A.coverageStart('US-WA');
+    assert.equal(before, '2026-09-17');
+    assert.equal(A.firstReport(reports, before).found, true,
+      'a first report strictly inside coverage can identify the finder');
+
+    app.window.Date.now = () => Date.parse('2026-10-18T00:00:00Z');
+    const boundary = A.coverageStart('US-WA');
+    assert.equal(boundary, '2026-09-18');
+    assert.equal(A.firstReport(reports, boundary).found, false,
+      'a report at the coverage boundary must not identify the finder');
+  } finally {
+    app.window.close();
+  }
 });
 
 test('F434 a dawn seawatch with no defensible top three reports finder unknown', async () => {
