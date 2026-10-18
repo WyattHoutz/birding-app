@@ -245,6 +245,105 @@ test('F998 failed and malformed real notable reads cannot become a successful em
   }
 });
 
+for (const previouslyKnown of [false, true]) {
+  test('F1007 complete Year List correction makes a removed species unseen '
+    + (previouslyKnown ? 'without erasing source-opportunity history' : 'before a new TWITCH qualifies'), async () => {
+    let personal = ownedPersonalListFixture({ codes: ['laplon', 'tax1'], count: 2 });
+    let observations = [];
+    const app = await boot({ sample: false, indexedDB: new IDBFactory(),
+      storage: { ebird_display_name: 'Sample Observer' }, fetch(url) {
+        if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2024, latest: true }];
+        if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0').concat([
+          { speciesCode: 'laplon', comName: 'Lapland Longspur',
+            sciName: 'Calcarius lapponicus', category: 'species' },
+          { speciesCode: 'sabgul', comName: "Sabine's Gull",
+            sciName: 'Xema sabini', category: 'species' },
+        ]);
+        if (/ebird\.org\/lifelist\//.test(url)) return personal;
+        if (/data\/obs\//.test(url)) return observations;
+        return [];
+      }
+    });
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      const now = Date.now();
+      assert.equal(await A.checkTaxonomyEdition(true), true);
+      A.setWatchlist([]);
+      await A.ensurePersonalList(A.activeScope(), true);
+      const owner = A.personalListOwner(), listKey = A.personalListKey(owner);
+      const incorrectListing = store.getItem(listKey);
+      assert.equal(A.isSpeciesSeen('laplon', 'Lapland Longspur', null, true), true,
+        'the deliberately erroneous source initially lists the species');
+      async function acquire() {
+        const source = await A.getChaseRarity(true);
+        assert.equal(source.feedComplete, true);
+        assert.ok(!Array.isArray(source.rows), 'use the real feed-keyed acquisition contract');
+        return A.surgeObservedResult(source, now);
+      }
+      assert.equal((await acquire()).twitchRows.length, 0);
+      const journalKey = A.twitchJournalKey();
+      assert.deepEqual(JSON.parse(store.getItem(journalKey)).known, []);
+      const bird = { speciesCode: 'laplon', comName: 'Lapland Longspur',
+        sciName: 'Calcarius lapponicus', obsDt: formatObsStamp(new Date(now)),
+        locId: 'LF1007', locName: 'Example public patch', subId: 'SF1007',
+        lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true };
+      if (previouslyKnown) {
+        observations = [bird];
+        assert.equal((await acquire()).twitchRows.length, 0);
+        assert.deepEqual(JSON.parse(store.getItem(journalKey)).known, ['laplon']);
+      }
+      const journal = store.getItem(journalKey);
+      personal = ownedPersonalListFixture({ codes: ['tax1'], count: 2 });
+      await A.ensurePersonalList(A.activeScope(), true);
+      assert.equal(store.getItem(listKey), incorrectListing,
+        'an incomplete list cannot establish removal');
+      assert.equal(A.isSpeciesSeen('laplon', 'Lapland Longspur', null, true), true);
+      assert.match(A.personalListEvidence().failure, /incomplete/);
+      personal = ownedPersonalListFixture({ codes: ['tax1'], count: 1 });
+      await A.ensurePersonalList(A.activeScope(), true);
+      assert.equal(A.personalListKey(A.personalListOwner()), listKey,
+        'the account, year and region remain unchanged');
+      assert.equal(A.personalListEvidence(undefined, true).complete, true);
+      assert.equal(A.personalListEvidence(undefined, true).stale, false);
+      assert.equal(A.isSpeciesSeen('laplon', 'Lapland Longspur', null, true), false,
+        'the complete corrected list overrides the erroneous prior listing');
+      assert.equal(A.isSpeciesSeen('tax1', 'Synthetic bird 1', null, true), true,
+        'other verified membership survives the correction');
+      assert.equal(JSON.parse(store.getItem(listKey)).codes.includes('laplon'), false,
+        'durable readback must remove the incorrect code too');
+      assert.equal(!!A.watchCodes().laplon, false);
+      assert.equal(store.getItem(journalKey), journal,
+        'a personal-list correction must not clear the separate opportunity journal');
+      observations = [bird];
+      const corrected = await acquire();
+      const expected = previouslyKnown ? [] : ['laplon'];
+      assert.deepEqual(Array.from(corrected.twitchRows, row => row.code), expected,
+        'official unseen membership and source newness are separate requirements');
+      await A.ensurePersonalList(A.activeScope(), true);
+      const repeated = await acquire();
+      assert.deepEqual(Array.from(repeated.twitchRows, row => row.code), expected,
+        'another list/feed refresh neither duplicates an alert nor resets source history');
+      if (!previouslyKnown) {
+        assert.equal(repeated.twitchRows[0].firstAt, corrected.twitchRows[0].firstAt);
+      }
+      observations.push({ ...bird, speciesCode: 'sabgul', comName: "Sabine's Gull",
+        sciName: 'Xema sabini', subId: 'SF1007CONTROL' });
+      const positive = await acquire();
+      const eligible = expected.concat('sabgul');
+      assert.deepEqual(Array.from(positive.twitchRows, row => row.code).sort(), eligible,
+        'a genuinely new qualifying rarity is a positive control in both cases');
+      A.renderSurge(positive.events, [], [], positive.needs, positive.merged, {
+        observations: 'ok', twitchRows: positive.twitchRows, deferPhotos: true,
+        suppressNotifications: true,
+      }, positive.patches);
+      const cards = app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]');
+      assert.deepEqual(Array.from(cards, card => card.dataset.speciesCode).sort(), eligible,
+        'render the acquired episodes, not seeded card markup');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+
 test('F997/F1002 real Menu acquires notable sightings, shares work and explicitly refreshes without opening the full feed', async () => {
   let observations = [], failure = false;
   const app = await boot({ sample: false, fetch(url) {
