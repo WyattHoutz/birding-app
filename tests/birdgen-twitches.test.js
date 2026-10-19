@@ -90,6 +90,95 @@ test('F990 continuing, previously known and already-alerted species do not reset
   assert.deepEqual(changed.added, [], 'a larger radius is not a new arrival');
 });
 
+test('F1007 only explicit recovery admits known but never-alerted species and persists its meaning', () => {
+  const previous = baseline([bird]);
+  const saved = JSON.stringify(previous);
+  assert.deepEqual(api.evaluate(previous, [bird], options).added, []);
+  assert.deepEqual(api.evaluate(previous, [bird], { ...options, recoverNeverAlerted: 'true' }).added, []);
+  const result = api.evaluate(previous, [bird], { ...options, recoverNeverAlerted: true });
+  assert.deepEqual(result.added, ['verfly']);
+  assert.equal(result.alerts[0].recovered, true);
+  assert.equal(result.journal.episodes.verfly.recovered, true);
+  assert.deepEqual(result.journal.known, previous.known, 'recovery does not clear source history');
+  assert.equal(JSON.stringify(previous), saved, 'the input journal is not mutated');
+  assert.equal(result.diagnostics.knownNeverAlerted, 1);
+  assert.equal(result.diagnostics.recovered, 1);
+  assert.equal(api.validJournal(result.journal), true);
+  const reload = api.evaluate(JSON.parse(JSON.stringify(result.journal)), [bird],
+    { ...options, now: now + 60000, recoverNeverAlerted: true });
+  assert.deepEqual(reload.added, []);
+  assert.equal(reload.alerts[0].firstAt, now);
+  assert.equal(reload.alerts[0].recovered, true);
+  assert.equal(reload.diagnostics.recovered, 0);
+  const later = { ...options, now: now + 25 * 3600000,
+    today: '2026-10-18', recoverNeverAlerted: true };
+  const next = { ...bird, dateStr: '2026-10-18 12:30' };
+  assert.deepEqual(api.evaluate(reload.journal, [next], later).added, [],
+    'an expired or previously alerted opportunity cannot be rearmed by Refresh');
+});
+
+test('F1007 explicit recovery preserves silent baselines and every eligibility gate', () => {
+  const recover = { ...options, recoverNeverAlerted: true };
+  for (const previous of [null, {}, { version: 1, known: [], episodes: [] }]) {
+    assert.deepEqual(api.evaluate(previous, [bird], recover).added, []);
+  }
+  const previous = baseline([bird]);
+  const cases = [
+    [[bird], { radius: 50 }],
+    [[bird], { complete: false }],
+    [[bird], { acquired: false }],
+    [[bird], { membership: () => true }],
+    [[bird], { membership: () => null }],
+    [[bird], { watch: { verfly: true } }],
+    [[bird], { home: null }],
+    [[{ ...bird, dateStr: '2026-10-16 11:00' }], {}],
+    [[{ ...bird, dateStr: '2026-10-17 13:00' }], {}],
+    [[{ ...bird, lat: 48 }], {}],
+    [[{ ...bird, lat: null, coordinatesMissing: true }], {}],
+    [[{ ...bird, name: 'Gull sp.' }], {}],
+    [[{ ...bird, kind: 'Recent' }], {}],
+    [[{ ...bird, obsReviewed: true, obsValid: false }], {}],
+    [[{ ...bird, reviewed: true, valid: false }], {}],
+  ];
+  for (const [rows, changes] of cases) {
+    assert.deepEqual(api.evaluate(previous, rows, { ...recover, ...changes }).added, [],
+      'recovery cannot bypass ' + JSON.stringify(changes) + ' / ' + rows[0].dateStr);
+  }
+  const invalid = JSON.parse(JSON.stringify(api.evaluate(previous, [bird], recover).journal));
+  invalid.episodes.verfly.recovered = 'true';
+  assert.equal(api.validJournal(invalid), false, 'recovery metadata is typed persisted evidence');
+});
+
+test('F1007 explicit recovery uses actual rolling-24-hour evidence, not a new-arrival claim', () => {
+  const recover = { ...options, recoverNeverAlerted: true };
+  const previous = baseline([bird]);
+  const old = { ...bird, dateStr: '2026-10-16 11:00', subId: 'S-OLD' };
+  const mixed = api.evaluate(previous, [old, bird], recover);
+  assert.deepEqual(mixed.added, ['verfly'], 'older source history cannot veto a currently qualifying recovered opportunity');
+  assert.equal(mixed.alerts[0].recovered, true);
+  assert.equal(mixed.alerts[0].latest.dateStr, bird.dateStr);
+  assert.equal(mixed.alerts[0].reports, 1, 'older-than-24-hour evidence is not counted as fresh corroboration');
+  assert.deepEqual(api.evaluate(previous, [old, { ...bird, lat: 48 }], recover).added, [],
+    'fresh out-of-range evidence cannot rescue a stale nearby report');
+  const newlyLearned = api.evaluate(baseline(), [old, bird], recover);
+  assert.equal(newlyLearned.alerts[0].recovered, true,
+    'a continuing report learned on explicit Refresh is recovery, not a new arrival');
+  for (const [stamp, qualifies] of [['2026-10-16 12:00', true], ['2026-10-16 11:59', false]]) {
+    const result = api.evaluate(previous, [{ ...bird, dateStr: stamp }], recover);
+    assert.equal(result.added.length, qualifies ? 1 : 0, 'exact 24-hour boundary: ' + stamp);
+  }
+});
+
+test('F1007 bounded eligibility diagnostics distinguish overlapping exclusions without personal details', () => {
+  const result = api.evaluate(baseline([bird]), [bird, {
+    ...bird, dateStr: '2026-10-16 11:00', observer: 'Private fixture observer',
+  }], { ...options, membership: () => null, watch: { verfly: true } });
+  assert.deepEqual(result.diagnostics, { usableSpecies: 1, knownNeverAlerted: 1,
+    seen: 0, unknown: 1, watch: 1, earlierDay: 1, outside24h: 0, alreadyAlerted: 0, recovered: 0 });
+  assert.ok(Object.values(result.diagnostics).every(Number.isFinite));
+  assert.doesNotMatch(JSON.stringify(result.diagnostics), /verfly|Private|47|122/);
+});
+
 test('F990 report counts deduplicate parties and feeds and exclude unrelated localities and stale reports', () => {
   const rows = [
     bird, { ...bird }, { ...bird, locId: 'L-alias', subId: 'S-shared', observer: 'Shared party' },

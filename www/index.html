@@ -5030,7 +5030,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.162.0';
+      var APP_VERSION = '1.162.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -38830,7 +38830,7 @@
             return res.feedStates[file] === 'ok' && Array.isArray(res.rows[file]);
           });
       }
-      function twitchObservedAlerts(res, merged, now) {
+      function twitchObservedAlerts(res, merged, now, recoverNeverAlerted) {
         var key = twitchJournalKey(), previous = null;
         try {
           var raw = localStorage.getItem(key);
@@ -38859,6 +38859,7 @@
           now: now, today: todayStr(), home: getHome() ? anchorPoint() : null, radius: chaseMaxMi(),
           complete: state === 'ok',
           acquired: twitchAcquisitionComplete(res),
+          recoverNeverAlerted: recoverNeverAlerted === true,
           membership: function (code, name) { return isSpeciesSeen(code, name, null, true); },
           watch: watchCodes()
         });
@@ -38879,15 +38880,18 @@
           }
         }
         var status = result.status === 'baseline'
-          ? 'TWITCH baseline saved; existing rarities were not re-alerted.'
+          ? 'TWITCH baseline saved. Refresh again to check never-alerted opportunities.'
           : result.status === 'baseline-pending'
             ? 'TWITCH is waiting for complete current feeds to establish its baseline.' : '';
         var diagnostic = result.status + '|' + state + '|' + twitchAcquisitionComplete(res)
-          + '|' + merged.length + '|' + result.added.length + '|' + result.alerts.length;
+          + '|' + merged.length + '|' + result.added.length + '|' + result.alerts.length
+          + '|' + (recoverNeverAlerted === true) + '|' + JSON.stringify(result.diagnostics);
         if (_twitchTracking.key !== key || _twitchTracking.diagnostic !== diagnostic) {
           dbg('info', 'TWITCH tracking · ' + result.status + ' · source ' + state
             + ' · acquired ' + twitchAcquisitionComplete(res) + ' · candidates ' + merged.length
-            + ' · new eligible ' + result.added.length + ' · episodes ' + result.alerts.length);
+            + ' · new eligible ' + result.added.length + ' · episodes ' + result.alerts.length
+            + ' · recovery ' + (recoverNeverAlerted === true)
+            + ' · eligibility ' + JSON.stringify(result.diagnostics));
         }
         _twitchTracking = { key: key, status: status, diagnostic: diagnostic };
         return result.alerts;
@@ -41468,16 +41472,22 @@
           rows.push({
             kind: 'twitch', code: event.code, speciesKey: event.code, speciesNameKey: event.name,
             alpha: alphaFor(event.code), icon: photoSlot(event.name, event.code),
-            name: speciesLink(event.name, event.code), namePrefix: 'New unseen rarity ',
+            name: speciesLink(event.name, event.code),
+            namePrefix: event.recovered ? 'Unseen rarity ' : 'New unseen rarity ',
             rare: true, when: latest.dateStr, time: surgeTimeValue(latest.dateStr),
             ageTime: event.firstAt, checklistId: latest.subId || '',
             where: latest.loc ? surgePlaceLink(latest.loc, latest.locId) : '',
             count: latest.count, eventCount: latest.count,
-            why: 'First appeared today in verified chase-area evidence; explicitly unseen and not on WATCH.',
-            noteHeader: 'New unseen rarity in your chase area',
+            why: event.recovered
+              ? 'Qualifying unseen opportunity recovered on explicit Refresh; not on WATCH. Previously encountered evidence is not a previous alert or proof of a new arrival.'
+              : 'First appeared today in verified chase-area evidence; explicitly unseen and not on WATCH.',
+            noteHeader: event.recovered ? 'Unseen rarity recovered on Refresh' : 'New unseen rarity in your chase area',
             reports: event.reports, lowerBound: event.lowerBound, unreviewed: event.unreviewed,
-            extra: 'First detected by Bird Gen: ' + esc(new Date(event.firstAt).toLocaleString())
-              + '. Age is since this detection, not the latest observation. '
+            extra: (event.recovered ? 'First alerted on explicit Refresh: ' : 'First detected by Bird Gen: ')
+              + esc(new Date(event.firstAt).toLocaleString())
+              + '. Age is since this ' + (event.recovered ? 'alert' : 'detection')
+              + ', not the latest observation. '
+              + (event.recovered ? 'Recovered eligibility is not evidence of a new arrival. ' : '')
               + (event.lowerBound ? 'At least ' : '') + event.reports
               + ' independent report' + (event.reports === 1 ? '' : 's') + ' in 24h at this locality.',
             data: { 'twitch-first-at': event.firstAt, 'surge-latest': event.firstAt }
@@ -41920,7 +41930,7 @@
         return rows.length;
       }
 
-      function surgeObservedResult(res, now) {
+      function surgeObservedResult(res, now, recoverNeverAlerted) {
         if (!res || !res.cv) throw new Error('recent/notable feeds returned no chase view');
         var merged = res.cv.merged || [];
         var rareCodes = merged.filter(function (r) {
@@ -41930,7 +41940,7 @@
           state: chaseAlertSourceState(res),
           evidenceRows: res.rows || null,
           merged: merged,
-          twitchRows: twitchObservedAlerts(res, merged, now),
+          twitchRows: twitchObservedAlerts(res, merged, now, recoverNeverAlerted),
           events: BL.surgeEvents(merged, {
             now: now, seen: getReportSeen(), excludeCodes: rareCodes
           }),
@@ -42138,10 +42148,12 @@
           return;
         }
         var force = takeForce() || deepHistory === true;
+        var recoverNeverAlerted = force && deepHistory !== true
+          && typeof performanceLoadId !== 'string';
         if (_surgeActiveLoad && _surgeActiveLoad.current()
             && (!deepHistory || _surgeActiveLoad.deepHistory)) {
           dbg('net', 'Joining the active Bird Gen source update');
-          return _surgeActiveLoad.primary;
+          return recoverNeverAlerted ? _surgeActiveLoad.refreshObserved() : _surgeActiveLoad.primary;
         }
         var generation = ++_surgeLoadGeneration;
         var loadScope = activeScope(), loadContext = surgeSourceContext();
@@ -42361,6 +42373,28 @@
           paintSurgeModel();
           return observed;
         }
+        function acquireObserved(recover, fresh) {
+          return afterPaint.then(function () {
+            if (!current()) throw queueCancelledError({ label: 'Bird Gen observations' });
+            return getChaseRarity(fresh ? 'notable' : false);
+          }).then(function (res) {
+            if (!current()) throw queueCancelledError({ label: 'Bird Gen observations' });
+            return surgeObservedResult(res, Date.now(), recover);
+          }).catch(function (error) {
+            if (!(error && error.queueCancelled)) {
+              dbg('warn', 'Bird gen recent/notable source: ' + ((error && error.message) || error));
+            }
+            return { state: 'failed', merged: [], events: [], needs: [], patches: [] };
+          }).then(paintObserved);
+        }
+        activeLoad.refreshObserved = function () {
+          if (activeLoad.recovery) return activeLoad.recovery;
+          var recovery = acquireObserved(true, true).finally(function () {
+            if (activeLoad.recovery === recovery) activeLoad.recovery = null;
+          });
+          activeLoad.recovery = recovery;
+          return recovery;
+        };
         surgeModel = Object.assign({
           observed: { state: 'loading', merged: [], events: [], needs: [], patches: [] },
           cascades: { state: 'loading', rows: [] },
@@ -42411,14 +42445,8 @@
         // The wave keeps running underneath and onRarityEarly repaints when it
         // completes, so the crowd lane still gets the full merged set; it just
         // arrives after the screen is useful instead of before.
-        var pObserved = afterPaint.then(function () {
-          return getChaseRarity(force ? 'notable' : false);
-        }).then(function (res) {
-          return surgeObservedResult(res, now);
-        }).catch(function (e) {
-          dbg('warn', 'Bird gen recent/notable source: ' + ((e && e.message) || e));
-          return { state: 'failed', merged: [], events: [], needs: [], patches: [] };
-        }).then(paintObserved).then(function (result) {
+        var pObserved = (recoverNeverAlerted ? activeLoad.refreshObserved()
+          : acquireObserved(false, force)).then(function (result) {
           if (current()) performancePrimary(section, performanceLoadId, true);
           return result;
         });
@@ -46246,7 +46274,14 @@
             && context === recentBirdGenKey() && navigation === _navGeneration
             && cancellation === _workCancelGeneration;
         }
-        if (_recentBirdGenJob && _recentBirdGenJob.current()) return _recentBirdGenJob.promise;
+        if (_recentBirdGenJob && _recentBirdGenJob.current()) {
+          if (force && _recentBirdGenJob.automatic) {
+            return _recentBirdGenJob.promise.then(function () {
+              if (current()) return refreshRecentBirdGen(true);
+            });
+          }
+          return _recentBirdGenJob.promise;
+        }
         var retained = warmRecentBirdGen();
         if (!getHome() || !getKey()) {
           status.textContent = 'Retained results only. Set Home and an eBird API key to refresh notable sightings.';
@@ -46274,7 +46309,8 @@
         }).then(function (res) {
           if (!current()) throw queueCancelledError(null, 'Recent Bird Gen context changed');
           if (!twitchAcquisitionComplete(res)) throw new Error('Notable coverage is incomplete');
-          var fresh = surgeObservedResult(res, Date.now());
+          var fresh = surgeObservedResult(res, Date.now(), !!force);
+          var freshTracking = _twitchTracking;
           var prior = _recentBirdGenModel && _recentBirdGenModel.context === context
             ? _recentBirdGenModel.args : [];
           var freshKeys = {};
@@ -46283,6 +46319,7 @@
             return row.kind !== 'Rarity' && !freshKeys[BL.obsDedupKey(row)];
           }));
           var observed = surgeObservedResult({ partial: true, cv: { merged: merged } }, Date.now());
+          _twitchTracking = freshTracking;
           observed.twitchRows = fresh.twitchRows;
           observed.state = 'partial';
           var states = Object.assign({}, prior[5] || {}, {
@@ -46297,7 +46334,8 @@
             states, prior[6], prior[7], prior[8]);
           status.textContent = 'Notable sightings checked '
             + new Date(res.t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-            + ' · other sources retained, not refreshed';
+            + ' · other sources retained, not refreshed'
+            + (freshTracking.status ? ' · ' + freshTracking.status : '');
           return saveSurgeRetainedPart('observed', Object.assign({}, observed, {
             evidenceRows: null, patches: prior[6] || []
           })).then(function (stored) {

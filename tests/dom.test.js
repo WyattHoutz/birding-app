@@ -287,8 +287,11 @@ for (const previouslyKnown of [false, true]) {
         sciName: 'Calcarius lapponicus', obsDt: formatObsStamp(new Date(now)),
         locId: 'LF1007', locName: 'Example public patch', subId: 'SF1007',
         lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true };
+      const earlier = { ...bird, obsDt: formatObsStamp(new Date(now - 25 * 3600000)),
+        locId: 'LF1007EARLIER', subId: 'SF1007EARLIER' };
+      const reports = previouslyKnown ? [earlier, bird] : [bird];
       if (previouslyKnown) {
-        observations = [bird];
+        observations = reports;
         assert.equal((await acquire()).twitchRows.length, 0);
         assert.deepEqual(JSON.parse(store.getItem(journalKey)).known, ['laplon']);
       }
@@ -314,7 +317,7 @@ for (const previouslyKnown of [false, true]) {
       assert.equal(!!A.watchCodes().laplon, false);
       assert.equal(store.getItem(journalKey), journal,
         'a personal-list correction must not clear the separate opportunity journal');
-      observations = [bird];
+      observations = reports;
       const corrected = await acquire();
       const expected = previouslyKnown ? [] : ['laplon'];
       assert.deepEqual(Array.from(corrected.twitchRows, row => row.code), expected,
@@ -339,8 +342,166 @@ for (const previouslyKnown of [false, true]) {
       const cards = app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]');
       assert.deepEqual(Array.from(cards, card => card.dataset.speciesCode).sort(), eligible,
         'render the acquired episodes, not seeded card markup');
+      if (previouslyKnown) {
+        assert.ok(positive.merged.some(row => row.code === 'laplon'
+          && row.dateStr.slice(0, 10) === earlier.obsDt.slice(0, 10)),
+        'the real loader retains the earlier source evidence through normalization');
+      }
+      const beforeRecovery = JSON.parse(store.getItem(journalKey));
+      await A.refreshRecentBirdGen(true);
+      const recovered = JSON.parse(store.getItem(journalKey));
+      assert.equal(recovered.episodes.laplon.recovered, previouslyKnown,
+        'actual Menu Refresh repairs the known-but-never-alerted case without changing normal arrivals');
+      if (!previouslyKnown) {
+        assert.equal(recovered.episodes.laplon.firstAt, beforeRecovery.episodes.laplon.firstAt);
+      }
+      assert.deepEqual(recovered.known, beforeRecovery.known, 'the source history remains intact');
+      assert.equal(recovered.episodes.sabgul.firstAt, beforeRecovery.episodes.sabgul.firstAt);
+      const repairedCard = app.$('surgeResults')
+        .querySelector('[data-alert-kind="twitch"][data-species-code="laplon"]');
+      assert.ok(repairedCard, 'the real Menu acquisition must render the recovered TWITCH');
+      if (previouslyKnown) {
+        assert.match(surgeEvidence(repairedCard).textContent, /Unseen rarity recovered on Refresh/);
+        assert.match(surgeEvidence(repairedCard).textContent, /not evidence of a new arrival/);
+        assert.doesNotMatch(surgeEvidence(repairedCard).textContent, /First appeared today/);
+        assert.doesNotMatch(repairedCard.querySelector('.surgealerttitle').textContent, /New unseen rarity/);
+      }
+      assert.equal(app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="twitch"]').length, 2);
+      await A.refreshRecentBirdGen(true);
+      assert.deepEqual(JSON.parse(store.getItem(journalKey)).episodes, recovered.episodes,
+        'repeated actual Refresh cannot duplicate or reset either episode');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
+  });
+}
+
+test('F1007 recovery withholds incomplete acquisition and failed journal readback, then retries without resetting history', async () => {
+  const bird = { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+    sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date()),
+    locId: 'LF1007WRITE', locName: 'Example public patch', subId: 'SF1007WRITE',
+    lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true };
+  let response = [bird];
+  const app = await boot({ sample: false, fetch: url => /data\/obs\//.test(url) ? response : null });
+  const originalSet = app.window.Storage.prototype.setItem;
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: bird.comName }]);
+    await A.refreshRecentBirdGen(false);
+    const key = A.twitchJournalKey(), saved = store.getItem(key);
+    assert.ok(saved);
+    assert.equal(JSON.parse(saved).episodes.verfly, undefined, 'first coverage is still silent');
+    assert.match(app.$('recentBirdGenStatus').textContent, /baseline saved/);
+    const source = await A.getChaseRarity(true);
+    for (const extra of [{ partial: true }, { stale: true }, { feedComplete: false }, { feedStates: {} }]) {
+      assert.equal(A.surgeObservedResult({ ...source, ...extra }, Date.now(), true).twitchRows.length, 0);
+      assert.equal(store.getItem(key), saved);
+    }
+    A.setFavs([{ locId: 'LF1007CONTEXT', locName: 'Example saved public patch',
+      region: A.activeScope().parentRegion }]);
+    await A.refreshRecentBirdGen(false);
+    assert.equal(store.getItem(key), saved, 'automatic Menu work in a new context cannot recover known species');
+    app.window.Storage.prototype.setItem = function (name, value) {
+      if (name !== key) return originalSet.call(this, name, value);
+    };
+    await A.refreshRecentBirdGen(true);
+    assert.equal(store.getItem(key), saved);
+    assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 0,
+      'an unverified recovered episode cannot become a card');
+    assert.match(app.$('recentBirdGenStatus').textContent, /History not saved.*withheld/,
+      'retained-model evaluation cannot hide the actual acquisition verdict');
+    assert.match(app.$('surgeResults').textContent, /History not saved.*withheld/);
+    app.window.Storage.prototype.setItem = originalSet;
+    response = { __status: 400 };
+    await A.refreshRecentBirdGen(true);
+    assert.equal(store.getItem(key), saved);
+    assert.match(app.$('recentBirdGenStatus').textContent, /Notable refresh failed.*retained results kept/);
+    response = [bird];
+    await A.refreshRecentBirdGen(true);
+    assert.equal(JSON.parse(store.getItem(key)).episodes.verfly.recovered, true);
+    assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 1);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    app.window.Storage.prototype.setItem = originalSet;
+    app.window.close();
+  }
+});
+
+test('F1007 explicit Refresh arriving during automatic Menu acquisition waits for a fresh wave', async () => {
+  const bird = { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+    sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date()),
+    locId: 'LF1007JOIN', locName: 'Example public patch', subId: 'SF1007JOIN',
+    lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true };
+  let release, holding = true;
+  const body = new Promise(resolve => { release = () => resolve([bird]); });
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\//.test(url) ? holding ? body : [bird] : null });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: bird.comName }]);
+    const automatic = A.refreshRecentBirdGen(false);
+    await waitFor(() => app.state.fetches.some(url => /data\/obs\//.test(url)), 'automatic notable request');
+    const explicit = A.refreshRecentBirdGen(true);
+    assert.notEqual(explicit, automatic, 'a user recovery cannot be answered by the automatic cache path');
+    holding = false;
+    release();
+    await automatic;
+    const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+    await explicit;
+    assert.equal(app.state.fetches.filter(url => /data\/obs\//.test(url)).length, before + 3);
+    const episode = JSON.parse(store.getItem(A.twitchJournalKey())).episodes.verfly;
+    assert.ok(episode, 'the explicit fresh wave must recover the never-alerted opportunity');
+    assert.equal(episode.recovered, true);
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'));
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    release();
+    app.window.close();
+  }
+});
+
+for (const cancel of [false, true]) {
+  test('F1007 real full-feed Refresh ' + (cancel
+    ? 'cannot recover into a retired navigation owner' : 'recovers known never-alerted evidence without an automatic rearm'), async () => {
+    const bird = { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date()),
+      locId: 'LF1007FULL', locName: 'Example public patch', subId: 'SF1007FULL',
+      lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true };
+    let held = null, release = () => {};
+    const app = await boot({ sample: false, fetch(url) {
+      return /data\/obs\//.test(url) ? held || [bird] : [];
+    } });
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      await seedSeen(app, [], null, [{ code: 'verfly', name: bird.comName }]);
+      await A.refreshRecentBirdGen(false);
+      A.showSection(app.$('surgeBtn').closest('section').id, { load: false });
+      await A.loadSurge('F1007-automatic');
+      const key = A.twitchJournalKey(), saved = store.getItem(key);
+      assert.equal(JSON.parse(saved).episodes.verfly, undefined, 'automatic full-feed work stays conservative');
+      if (cancel) held = new Promise(resolve => { release = () => resolve([bird]); });
+      const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+      app.$('surgeBtn').closest('section').querySelector('.refreshbtn').click();
+      await waitFor(() => app.state.fetches.filter(url => /data\/obs\//.test(url)).length > before,
+        'full-feed explicit notable acquisition');
+      if (cancel) {
+        A.showSection(app.$('settingsPanel').closest('section').id, { load: false });
+        release();
+      }
+      await A.getChaseRarity();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (cancel) {
+        assert.equal(store.getItem(key), saved, 'a completed obsolete source cannot create an episode');
+      } else {
+        const episode = JSON.parse(store.getItem(key)).episodes.verfly;
+        assert.ok(episode, 'the actual full-feed reload must recover the opportunity');
+        assert.equal(episode.recovered, true);
+        assert.ok(app.$('surgeResults').querySelector('[data-alert-kind="twitch"]'));
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      release();
+      app.window.close();
+    }
   });
 }
 

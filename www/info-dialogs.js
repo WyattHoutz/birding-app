@@ -27,7 +27,7 @@
   var ALERT_KINDS = {
     twitch: {
       priority: -1, word: 'TWITCH', glyph: '🚨', name: 'New unseen rarities',
-      description: 'An unseen, non-WATCH rarity newly appearing today inside the saved chase area after a successful baseline. Existing or previously alerted species are not re-announced. Counts are known independent reports at the displayed walkable locality, not individual birds or an exhaustive total. Opens Twitches.'
+      description: 'An unseen, non-WATCH rarity newly appearing today inside the saved chase area after a successful baseline. Explicit Refresh can also recover a never-alerted opportunity with a usable in-range report in the past 24 hours, even when feed history already knows it or includes earlier reports; recovery is not proof of a new arrival. Initial baselines stay silent and previously alerted species are not re-announced. Verified unseen membership, review, source coverage and chase-distance checks still apply. Counts are known independent reports at the displayed walkable locality, not individual birds or an exhaustive total. Opens Twitches.'
     },
     mega: {
       priority: 0, word: 'MEGA', glyph: '🦤', name: 'Mega rarities',

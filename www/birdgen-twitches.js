@@ -16,6 +16,7 @@
           && Number.isFinite(episode.firstAt) && episode.firstAt > 0
           && typeof episode.when === 'string' && !!logic.parseObsDt(episode.when)
           && typeof episode.locId === 'string'
+          && (episode.recovered === undefined || typeof episode.recovered === 'boolean')
           && Number.isFinite(episode.lat) && Number.isFinite(episode.lon);
       });
   }
@@ -59,22 +60,40 @@
       (byCode[row.code] || (byCode[row.code] = [])).push(row);
     });
     var canAdvance = options.complete === true && options.acquired === true;
+    var diagnostics = { usableSpecies: Object.keys(byCode).length, knownNeverAlerted: 0,
+      seen: 0, unknown: 0, watch: 0, earlierDay: 0, outside24h: 0, alreadyAlerted: 0, recovered: 0 };
     var added = [];
-    if (canAdvance) Object.keys(byCode).sort().forEach(function (code) {
+    Object.keys(byCode).sort().forEach(function (code) {
       var rows = byCode[code];
-      var isNew = !baseline && !known[code] && !episodes[code];
+      var wasKnown = !!known[code], watched = !!(options.watch && options.watch[code]);
+      var membership = options.membership(code, rows[0].name);
+      var earlierDay = rows.some(function (row) { return row.dateStr.slice(0, 10) !== today; });
+      var freshRows = rows.filter(function (row) {
+        return now - logic.parseObsDt(row.dateStr).getTime() <= DAY_MS;
+      });
+      var recovery = options.recoverNeverAlerted === true && (wasKnown || earlierDay);
+      if (wasKnown && !episodes[code]) diagnostics.knownNeverAlerted++;
+      if (episodes[code]) diagnostics.alreadyAlerted++;
+      if (watched) diagnostics.watch++;
+      if (membership === true) diagnostics.seen++;
+      else if (membership !== false) diagnostics.unknown++;
+      if (earlierDay) diagnostics.earlierDay++;
+      if (!freshRows.length) diagnostics.outside24h++;
+      if (!canAdvance) return;
+      var isNew = !baseline && !episodes[code]
+        && (!wasKnown || recovery);
       known[code] = true;
-      if (!isNew || options.watch && options.watch[code]
-          || options.membership(code, rows[0].name) !== false
-          || rows.some(function (row) { return row.dateStr.slice(0, 10) !== today; })) return;
-      var latest = rows.slice().sort(function (a, b) {
+      if (!isNew || watched || membership !== false
+          || (recovery ? !freshRows.length : earlierDay)) return;
+      var latest = (recovery ? freshRows : rows).slice().sort(function (a, b) {
         return b.dateStr.localeCompare(a.dateStr)
           || String(a.locId || '').localeCompare(String(b.locId || ''));
       })[0];
       episodes[code] = {
         firstAt: now, when: latest.dateStr, locId: String(latest.locId || ''),
-        lat: latest.lat, lon: latest.lon
+        lat: latest.lat, lon: latest.lon, recovered: recovery
       };
+      if (recovery) diagnostics.recovered++;
       added.push(code);
     });
     var alerts = [];
@@ -99,6 +118,7 @@
       })[0];
       alerts.push({
         code: code, name: latest.name, firstAt: episode.firstAt,
+        recovered: episode.recovered === true,
         when: episode.when, latest: latest,
         reports: logic.chaseConfidence(recent.map(function (row) {
           return Object.assign({}, row, { locId: episode.locId || 'twitch-locality' });
@@ -114,7 +134,7 @@
     return {
       journal: canAdvance ? { version: 1, footprint: footprint, known: Object.keys(known).sort(), episodes: episodes }
         : valid ? previous : null,
-      alerts: alerts, added: added,
+      alerts: alerts, added: added, diagnostics: diagnostics,
       status: baseline ? canAdvance ? 'baseline' : 'baseline-pending' : 'tracking'
     };
   }
