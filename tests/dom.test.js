@@ -36,6 +36,21 @@ function recentObsStamp(daysAgo = 1, hour = 8, minute = 0) {
   d.setHours(hour, minute, 0, 0);
   return formatObsStamp(d);
 }
+function fixtureIsoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - start) / 86400000 + 1) / 7);
+}
+function sampleDateForWeek(latestYear, targetWeek) {
+  assert.ok(Number.isInteger(targetWeek) && targetWeek >= 1 && targetWeek <= 53);
+  const d = new Date(latestYear, 11, 31);
+  assert.ok(Number.isFinite(d.getTime()));
+  d.setDate(d.getDate() - (d.getDay() + 4) % 7);
+  while (fixtureIsoWeek(d) !== targetWeek) d.setDate(d.getDate() - 7);
+  return formatObsStamp(d).slice(0, 10);
+}
 function test(name, options, fn) {
   if (typeof options === 'function') {
     fn = options;
@@ -4386,30 +4401,25 @@ test('F268 an old region callback cannot repaint the new On passage section', as
   app.window.close();
 });
 
+test('F268 historical fixtures cover every ISO week without requiring 53 weeks in one year', () => {
+  for (const year of [2015, 2020, 2025]) {
+    for (let week = 1; week <= 53; week++) {
+      let stamp;
+      assert.doesNotThrow(() => { stamp = sampleDateForWeek(year, week); },
+        `a historical Wednesday must exist for week ${week} through ${year}`);
+      const date = new Date(stamp + 'T00:00:00');
+      assert.equal(date.getDay(), 3, stamp);
+      assert.equal(fixtureIsoWeek(date), week, stamp);
+      assert.ok(date.getFullYear() <= year, 'the sample cannot enter a later calendar year');
+    }
+  }
+});
+
 test('F268 a completed first-report request repaints existing forecast context', async () => {
   const app = await boot();
   const A = app.window.__app;
   const now = new Date();
-  function weekOf(d) {
-    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const day = t.getUTCDay() || 7;
-    t.setUTCDate(t.getUTCDate() + 4 - day);
-    const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-    return Math.ceil(((t - start) / 86400000 + 1) / 7);
-  }
-  function sampleDateForWeek(year, targetWeek) {
-    for (let d = new Date(year, 0, 1); d.getFullYear() === year; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === 3 && weekOf(d) === targetWeek) {
-        return [
-          d.getFullYear(),
-          String(d.getMonth() + 1).padStart(2, '0'),
-          String(d.getDate()).padStart(2, '0'),
-        ].join('-');
-      }
-    }
-    throw new Error('no Wednesday for ISO week ' + targetWeek);
-  }
-  const sampleDate = sampleDateForWeek(now.getFullYear() - 1, weekOf(now));
+  const sampleDate = sampleDateForWeek(now.getFullYear() - 1, fixtureIsoWeek(now));
   app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
     samples: { ['wa|' + sampleDate]: ['comnig'] },
     names: { comnig: 'Common Nighthawk' },
@@ -4505,34 +4515,15 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
   const A = app.window.__app;
   const now = new Date();
 
-  function weekOf(d) {
-    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const day = t.getUTCDay() || 7;
-    t.setUTCDate(t.getUTCDate() + 4 - day);
-    const start = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-    return Math.ceil(((t - start) / 86400000 + 1) / 7);
-  }
-  function sampleDateForWeek(year, targetWeek) {
-    for (let d = new Date(year, 0, 1); d.getFullYear() === year; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === 3 && weekOf(d) === targetWeek) {
-        return [
-          d.getFullYear(),
-          String(d.getMonth() + 1).padStart(2, '0'),
-          String(d.getDate()).padStart(2, '0'),
-        ].join('-');
-      }
-    }
-    throw new Error('no Wednesday for ISO week ' + targetWeek);
-  }
   function monthDayAfter(days) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
     return String(d.getMonth() + 1).padStart(2, '0') + '-'
       + String(d.getDate()).padStart(2, '0');
   }
 
-  const targetWeek = weekOf(now) === 53 ? 1 : weekOf(now) + 1;
+  const targetWeek = fixtureIsoWeek(now) === 53 ? 1 : fixtureIsoWeek(now) + 1;
   const sampleDate = sampleDateForWeek(now.getFullYear() - 1, targetWeek);
-  const departureDate = sampleDateForWeek(now.getFullYear() - 1, weekOf(now));
+  const departureDate = sampleDateForWeek(now.getFullYear() - 1, fixtureIsoWeek(now));
   const outsideWeek = ((targetWeek + 9 - 1) % 53) + 1;
   const outsideDate = sampleDateForWeek(now.getFullYear() - 1, outsideWeek);
   app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
