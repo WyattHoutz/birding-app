@@ -3523,7 +3523,8 @@ const BOOTSTRAP = `
         durationHrs: 2.5, numSpecies: 52, obsValid: true }
     ];
     localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
-      at: Date.now(), region: 'US-WA', sid: mega.sid, rows: rows
+      at: Date.now(), region: 'US-WA', sid: mega.sid,
+      membershipVersion: 1, rows: rows
     }));
     var cacheDay = new Date().toISOString().slice(0, 10);
     rows.forEach(function (row) {

@@ -140,6 +140,26 @@ test('release mockups include exactly one section shot per visible menu entry', 
   'the approved medium-card peep result is still capped by the superseded layout');
 });
 
+test('F1014 actual release Stakeout galleries retain verified current Mega membership',
+  { timeout: 120000 }, () => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'release-stakeout-f1014-'));
+    try {
+      const result = spawnSync(process.execPath, [
+        path.join(ROOT, 'assets', 'mockups.js'),
+        '--only', 'section-spLookupBtn,stakeoutdetail',
+        '--width', '402', '--out', output,
+      ], { cwd: ROOT, encoding: 'utf8', timeout: 110000 });
+      assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+      assert.match(result.stdout, /2 mockup\(s\)/);
+      for (const shot of ['section-spLookupBtn', 'stakeoutdetail']) {
+        assert.ok(fs.existsSync(path.join(output, shot + '-402px.png')),
+          'mandatory current-Mega Stakeout image missing: ' + shot);
+      }
+    } finally {
+      fs.rmSync(output, { recursive: true, force: true });
+    }
+  });
+
 test('F506 release mockups require the full Stakeout card with Notes off and on', () => {
   const notesOff = mockups.SECTION_SHOTS.find((item) => item.at === 'spLookupBtn');
   const notesOn = mockups.EXTRA_SHOTS.find((item) => item.id === 'stakeoutdetail');
