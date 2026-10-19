@@ -102,7 +102,7 @@
     var options = { now: now, seen: {}, maxMi: profile.chaseMaxMi };
     var events = logic.needNearby(records, options).map(function (g) {
       return event('need', g.code, g.latestLocId || g.locId,
-        g.name + ' - Celebrity', (g.latestLocName || g.locName || '') + ' - ' + g.sightings + ' independent sightings', g.latest);
+        g.name + ' - Celebrity', (g.latestLocName || g.locName || '') + ' - ' + g.knownParties + ' known reporting parties', g.latest);
     });
     if (complete) {
       logic.surgeEvents(allRecords, { now: now, seen: {}, excludeCodes: Object.keys(rare) })
@@ -139,5 +139,35 @@
     return { ledger: bounded, added: added };
   }
 
-  return { validateBuild: validateBuild, event: event, plan: plan, evaluate: evaluate, transition: transition };
+  function diagnosticTrace(input) {
+    var result = { available: input !== undefined, entries: [], rejected: 0, truncated: false };
+    if (input === undefined) return result;
+    if (!Array.isArray(input)) { result.rejected = 1; return result; }
+    var stages = ['schedule', 'launch', 'acquisition', 'qualification', 'publication', 'completion', 'lifecycle', 'storage'];
+    var outcomes = ['started', 'submitted', 'accepted', 'completed', 'cancelled', 'expired', 'failed', 'skipped',
+      'baseline', 'noEvents', 'permissionBlocked', 'notConfigured', 'notRegistered', 'busy', 'partial', 'ok'];
+    var countKeys = ['sources', 'planned', 'events', 'accepted', 'failures', 'rows', 'httpStatus', 'earliestMs', 'retryUntilMs'];
+    result.truncated = input.length > 64;
+    input.slice(-64).forEach(function (row) {
+      if (!row || typeof row !== 'object' || stages.indexOf(row.stage) < 0 || outcomes.indexOf(row.outcome) < 0
+          || typeof row.at !== 'number' || !isFinite(row.at) || row.at <= 0
+          || typeof row.attempt !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(row.attempt)
+          || typeof row.background !== 'boolean' || !row.counts || typeof row.counts !== 'object'
+          || Array.isArray(row.counts)) { result.rejected++; return; }
+      var counts = {};
+      countKeys.forEach(function (key) {
+        var value = row.counts[key];
+        if (value === undefined) return;
+        if (typeof value !== 'number' || !isFinite(value) || value < 0 || Math.floor(value) !== value
+            || value > 9007199254740991) { result.rejected++; return; }
+        counts[key] = value;
+      });
+      result.entries.push({ at: row.at, attempt: row.attempt, stage: row.stage, outcome: row.outcome,
+        background: row.background, counts: counts });
+    });
+    return result;
+  }
+
+  return { validateBuild: validateBuild, event: event, plan: plan, evaluate: evaluate,
+    transition: transition, diagnosticTrace: diagnosticTrace };
 }));

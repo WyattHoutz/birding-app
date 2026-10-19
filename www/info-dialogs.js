@@ -119,10 +119,14 @@
       celebrity: {
         title: '🎯 Celebrity Birds',
         body: '<p>Birds <b>eBird flags as notable in this region</b>, with <b>' + BL.NEED_MIN_SIGHTINGS
-          + ' or more independent sightings</b> at one hotspot or adjacent '
+          + ' or more independent sightings</b> and at least ' + BL.NEED_MIN_SIGHTINGS
+          + ' distinguishable known reporting parties at one hotspot or adjacent '
           + 'walkable hotspots, within chase distance and the last '
           + BL.FRESH_HOURS + ' hours plus checklist-start grace. This independent '
           + 'news remains useful for recorded birds and unknown personal history.</p>'
+          + '<p>Reporting names are source identity evidence, not verified people. '
+          + 'Repeated names and shared parties count once; unnamed reports remain '
+          + 'useful evidence but do not establish additional known parties.</p>'
           + '<p><b>Notable, not merely unseen.</b> A bird earns this category '
           + 'by being unusual <i>here</i> and drawing a real local stakeout. '
           + 'An unseen-but-ordinary bird belongs in <b>All unseen reports</b> '

@@ -78,6 +78,9 @@ jobs:
       - name: Sync web assets into the iOS project
         run: npx cap sync ios
 
+      - name: Instrument the native hidden-window selection boundary
+        run: node native/ios/install-hidden-window-diagnostics.js
+
       # WKWebView's JavaScript print path does not reliably expose a full-page
       # PDF on iOS. The generated project is ephemeral, so install the tracked
       # native bridge after every sync. It uses WKWebView.createPDF over the
@@ -120,6 +123,9 @@ jobs:
           echo "NSLocationWhenInUseUsageDescription = $OUT"
           test -n "$OUT"
 
+      - name: Verify native notification trace on macOS
+        run: node --test tests/birdgen-trace.test.js
+
       - name: Build unsigned .app for device
         run: |
           set -euo pipefail
@@ -143,6 +149,8 @@ jobs:
           grep -q 'FullReportPlugin' build/full-report-symbols.txt
           grep -q 'BirdGenNotificationsPlugin' build/full-report-symbols.txt
           grep -q 'BirdGenNotificationService' build/full-report-symbols.txt
+          grep -q 'BC_HIDDEN_WINDOW' build/full-report-symbols.txt
+          grep -q 'BC_BIRDGEN_TRACE_V1' build/full-report-symbols.txt
           test -f "$APP_PATH/public/birdgen-notifications.js"
           python3 -c 'import pathlib,plistlib,sys; info=plistlib.loads((pathlib.Path(sys.argv[1])/"Info.plist").read_bytes()); assert "fetch" in info.get("UIBackgroundModes", [])' "$APP_PATH"
 

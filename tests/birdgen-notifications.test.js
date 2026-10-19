@@ -102,6 +102,45 @@ test('F979 Crowd never invents an empty baseline from missing, failed, capped or
   assert.equal(cappedPlan.jobs.filter((j) => j.kind === 'species').length, 60);
 });
 
+test('F1005 actual native merge and qualifier require four known reporting parties', () => {
+  for (const names of [
+    ['Project account', 'Project account', 'Project account', 'Project account'],
+    [' One reporter ', 'one REPORTER', 'One Reporter', 'one reporter'],
+    ['Project  account', 'project account', ' Project account ', 'PROJECT ACCOUNT'],
+    ['', '', '', ''],
+    ['Party A', 'Party B', 'Party C', ''],
+  ]) {
+    const acquired = rows().map((r, i) => ({ ...r, userDisplayName: names[i] }));
+    const sources = feeds(acquired);
+    const merged = logic.mergeSnapshot(sources);
+    assert.equal(merged.length, 4, 'reject qualification, not useful observations');
+    assert.equal(notifications.evaluate(profile, sources, now).events.length, 0,
+      'unknown checklists and repeated account names are not four known parties');
+  }
+  const mixed = rows(undefined, undefined, 6).map((r, i) => ({
+    ...r, userDisplayName: i < 4 ? 'Party ' + i : '',
+  }));
+  const event = notifications.evaluate(profile, feeds(mixed), now).events[0];
+  assert.ok(event, 'unknown evidence must not exclude a genuinely supported bird');
+  assert.match(event.body, /4 known reporting parties/);
+  assert.doesNotMatch(event.body, /6 independent/);
+  const repeated = rows(undefined, undefined, 10).map((r) => ({ ...r, userDisplayName: 'Regular account' }));
+  const independent = rows().map((r, i) => ({
+    ...r, locId: 'L456', locName: 'Example Public Park', lat: 47.68, subId: 'S1005' + i,
+  }));
+  for (const observations of [repeated.concat(independent), independent.concat(repeated)]) {
+    const supported = notifications.evaluate(profile, feeds(observations), now).events;
+    assert.equal(supported.length, 1, 'a busy repeated account must not mask a supported cluster');
+    assert.match(supported[0].body, /Example Public Park/);
+  }
+  const sharedParty = rows().map((r) => ({ ...r, obsDt: stamp(now - 3600000) }));
+  const unknownVisits = rows(undefined, undefined, 3).map((r, i) => ({
+    ...r, subId: 'Sunknown' + i, userDisplayName: '', obsDt: stamp(now - (i + 2) * 3600000),
+  }));
+  assert.equal(notifications.evaluate(profile, feeds(sharedParty.concat(unknownVisits)), now).events.length, 0,
+    'four named members of a shared party plus unknown visits are not four known parties');
+});
+
 test('F979 native Crowd retains distant trailing history instead of shrinking the baseline to chase radius', () => {
   const hot = rows('amecro', 'American Crow', 6);
   const cold = Array.from({ length: 60 }, (_, i) => ({

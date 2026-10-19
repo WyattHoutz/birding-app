@@ -51,6 +51,75 @@ private struct BirdNotificationState: Codable {
     var retryUntil: Double?
 }
 
+final class BirdNotificationTrace {
+    enum Stage: String, Codable {
+        case schedule, launch, acquisition, qualification, publication, completion, lifecycle, storage
+    }
+    enum Outcome: String, Codable {
+        case started, submitted, accepted, completed, cancelled, expired, failed, skipped
+        case baseline, noEvents, permissionBlocked, notConfigured, notRegistered, busy, partial, ok
+    }
+    enum Count: String, Codable {
+        case sources, planned, events, accepted, failures, rows, httpStatus, earliestMs, retryUntilMs
+    }
+    private struct Entry: Codable {
+        let at: Double
+        let attempt: UUID
+        let stage: Stage
+        let outcome: Outcome
+        let background: Bool
+        let counts: [String: Int]
+    }
+    static let marker = "BC_BIRDGEN_TRACE_V1"
+    private let defaults: UserDefaults
+    private let key = "birdgen-stage-trace-v1"
+    private var entries: [Entry] = []
+    private var attempt = UUID()
+    private(set) var storageFailed = false
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: key) {
+            do {
+                entries = Array(try JSONDecoder().decode([Entry].self, from: data).suffix(64))
+                attempt = entries.last?.attempt ?? UUID()
+            } catch {
+                record(.storage, .failed, background: false)
+            }
+        }
+    }
+
+    func beginAttempt() { attempt = UUID() }
+
+    func record(_ stage: Stage, _ outcome: Outcome, background: Bool, counts: [Count: Int] = [:]) {
+        let safeCounts = Dictionary(uniqueKeysWithValues: counts.map { ($0.key.rawValue, max(0, $0.value)) })
+        entries.append(Entry(at: Date().timeIntervalSince1970 * 1000, attempt: attempt,
+            stage: stage, outcome: outcome, background: background, counts: safeCounts))
+        entries = Array(entries.suffix(64))
+        do {
+            let data = try JSONEncoder().encode(entries)
+            defaults.set(data, forKey: key)
+            storageFailed = defaults.data(forKey: key) != data
+        } catch {
+            storageFailed = true
+        }
+        if storageFailed { NSLog("%@ storage failed", Self.marker) }
+    }
+
+    func snapshot() -> [[String: Any]] {
+        return entries.map { entry in
+            let allowed = Set([Count.sources, .planned, .events, .accepted, .failures, .rows,
+                .httpStatus, .earliestMs, .retryUntilMs].map(\.rawValue))
+            return [
+                "at": entry.at, "attempt": entry.attempt.uuidString,
+                "stage": entry.stage.rawValue, "outcome": entry.outcome.rawValue,
+                "background": entry.background,
+                "counts": entry.counts.filter { allowed.contains($0.key) && $0.value >= 0 }
+            ]
+        }
+    }
+}
+
 private struct BirdNotificationFeed: Codable {
     let file: String
     let kind: String
@@ -190,6 +259,7 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     private var processing = false
     private var registered = false
     private var observers: [NSObjectProtocol] = []
+    private let diagnostics = BirdNotificationTrace()
     weak var plugin: BirdGenNotificationsPlugin?
 
     static func install() {
@@ -199,13 +269,19 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
             Task { @MainActor in instance.start(task) }
         }
         instance.registered = registered
+        instance.diagnostics.record(.lifecycle, registered ? .ok : .notRegistered, background: false)
         if !registered {
             UserDefaults.standard.set("iOS rejected Bird Gen background task registration.", forKey: instance.errorKey)
         }
         instance.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { _ in
-            Task { @MainActor in instance.backgroundWork?.cancel() }
+            Task { @MainActor in
+                if instance.backgroundWork != nil {
+                    instance.diagnostics.record(.lifecycle, .cancelled, background: true)
+                }
+                instance.backgroundWork?.cancel()
+            }
         })
         instance.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
@@ -305,21 +381,39 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     }
 
     private func schedule() async throws {
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskIdentifier)
-        guard try activeConfiguration() != nil else { return }
-        guard registered else {
-            throw BirdNotificationError("The native Bird Gen background task was not registered at launch.")
+        diagnostics.beginAttempt()
+        diagnostics.record(.schedule, .started, background: true)
+        do {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskIdentifier)
+            guard try activeConfiguration() != nil else {
+                diagnostics.record(.schedule, .notConfigured, background: true)
+                return
+            }
+            guard registered else {
+                diagnostics.record(.schedule, .notRegistered, background: true)
+                throw BirdNotificationError("The native Bird Gen background task was not registered at launch.")
+            }
+            _ = try BirdNotificationEngine()
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+                diagnostics.record(.schedule, .permissionBlocked, background: true)
+                return
+            }
+            let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
+            let config = try activeConfiguration()
+            let retry = try config.flatMap { try read($0, "state", as: BirdNotificationState.self)?.retryUntil } ?? 0
+            request.earliestBeginDate = Date(timeIntervalSince1970: max(
+                Date().timeIntervalSince1970 + 30 * 60, retry / 1000
+            ))
+            try BGTaskScheduler.shared.submit(request)
+            diagnostics.record(.schedule, .submitted, background: true, counts: [
+                .earliestMs: Int((request.earliestBeginDate?.timeIntervalSince1970 ?? 0) * 1000),
+                .retryUntilMs: Int(retry)
+            ])
+        } catch {
+            diagnostics.record(.schedule, .failed, background: true)
+            throw error
         }
-        _ = try BirdNotificationEngine()
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
-        let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
-        let config = try activeConfiguration()
-        let retry = try config.flatMap { try read($0, "state", as: BirdNotificationState.self)?.retryUntil } ?? 0
-        request.earliestBeginDate = Date(timeIntervalSince1970: max(
-            Date().timeIntervalSince1970 + 30 * 60, retry / 1000
-        ))
-        try BGTaskScheduler.shared.submit(request)
     }
 
     private func cancelNotifications() async {
@@ -404,6 +498,8 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
             "permissionAllowed": settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional,
             "backgroundRefreshAvailable": UIApplication.shared.backgroundRefreshStatus == .available,
             "lastRefresh": state?.lastRefresh ?? 0,
+            "trace": diagnostics.snapshot(),
+            "traceStorageFailed": diagnostics.storageFailed,
             "coverage": state?.lastCoverage ?? "No native background refresh has completed yet.",
             "error": UserDefaults.standard.string(forKey: errorKey) ?? state?.lastError ?? ""
         ]
@@ -417,53 +513,75 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     }
 
     private func publish(_ config: BirdNotificationConfiguration, events: [BirdNotificationEvent], background: Bool) async throws {
-        guard !processing else { throw BirdNotificationError("Another native notification update is still finishing.") }
+        diagnostics.record(.publication, .started, background: background, counts: [.events: events.count])
+        guard !processing else {
+            diagnostics.record(.publication, .busy, background: background)
+            throw BirdNotificationError("Another native notification update is still finishing.")
+        }
         processing = true
         defer { processing = false }
-        guard var state = try read(config, "state", as: BirdNotificationState.self) else {
-            throw BirdNotificationError("The native notification baseline is missing; turn notifications off and on again.")
-        }
-        let permission = await UNUserNotificationCenter.current().notificationSettings()
-        guard permission.authorizationStatus == .authorized || permission.authorizationStatus == .provisional else {
-            throw BirdNotificationError("Notifications are blocked in iPhone Settings.")
-        }
-        try Task.checkCancellation()
-        let baseline = background ? !state.backgroundBaseline : !state.foregroundBaseline
-        let engine = try BirdNotificationEngine()
-        let input = try JSONSerialization.jsonObject(with: JSONEncoder().encode(events))
-        let now = Date().timeIntervalSince1970 * 1000
-        let next: BirdNotificationTransition = try engine.call(
-            "transition", [state.ledger, input, now, baseline], as: BirdNotificationTransition.self
-        )
-        let fresh = next.added.filter { $0.observedAt >= state.enabledAt }
-        if !fresh.isEmpty {
-            guard try activeConfiguration()?.context == config.context else { throw CancellationError() }
-            if background && UIApplication.shared.applicationState == .active { throw CancellationError() }
+        do {
+            guard var state = try read(config, "state", as: BirdNotificationState.self) else {
+                throw BirdNotificationError("The native notification baseline is missing; turn notifications off and on again.")
+            }
+            let permission = await UNUserNotificationCenter.current().notificationSettings()
+            guard permission.authorizationStatus == .authorized || permission.authorizationStatus == .provisional else {
+                diagnostics.record(.publication, .permissionBlocked, background: background)
+                throw BirdNotificationError("Notifications are blocked in iPhone Settings.")
+            }
             try Task.checkCancellation()
-            let content = UNMutableNotificationContent()
-            content.title = fresh.count == 1 ? fresh[0].title : "\(fresh.count) new Bird Gen alerts"
-            content.body = fresh.count == 1 ? fresh[0].body : fresh.prefix(3).map(\.title).joined(separator: " · ")
-            content.sound = .default
-            content.userInfo = ["birdGenContext": digest(config.context)]
-            let identifier = prefix + digest(config.context + "|" + fresh.map(\.id).sorted().joined(separator: "|"))
-            try await UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            let baseline = background ? !state.backgroundBaseline : !state.foregroundBaseline
+            let engine = try BirdNotificationEngine()
+            let input = try JSONSerialization.jsonObject(with: JSONEncoder().encode(events))
+            let now = Date().timeIntervalSince1970 * 1000
+            let next: BirdNotificationTransition = try engine.call(
+                "transition", [state.ledger, input, now, baseline], as: BirdNotificationTransition.self
             )
+            let fresh = next.added.filter { $0.observedAt >= state.enabledAt }
+            diagnostics.record(.publication, baseline ? .baseline : fresh.isEmpty ? .noEvents : .ok,
+                background: background, counts: [.events: events.count])
+            if !fresh.isEmpty {
+                guard try activeConfiguration()?.context == config.context else { throw CancellationError() }
+                if background && UIApplication.shared.applicationState == .active { throw CancellationError() }
+                try Task.checkCancellation()
+                let content = UNMutableNotificationContent()
+                content.title = fresh.count == 1 ? fresh[0].title : "\(fresh.count) new Bird Gen alerts"
+                content.body = fresh.count == 1 ? fresh[0].body : fresh.prefix(3).map(\.title).joined(separator: " · ")
+                content.sound = .default
+                content.userInfo = ["birdGenContext": digest(config.context)]
+                let identifier = prefix + digest(config.context + "|" + fresh.map(\.id).sorted().joined(separator: "|"))
+                try await UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+                )
+                diagnostics.record(.publication, .accepted, background: background,
+                    counts: [.accepted: 1, .events: fresh.count])
+            }
+            try Task.checkCancellation()
+            guard try activeConfiguration()?.context == config.context else { throw CancellationError() }
+            state.ledger = next.ledger
+            if background { state.backgroundBaseline = true } else { state.foregroundBaseline = true }
+            try write(state, config, "state")
+        } catch is CancellationError {
+            diagnostics.record(.publication, .cancelled, background: background)
+            throw CancellationError()
+        } catch {
+            diagnostics.record(.publication, .failed, background: background)
+            throw error
         }
-        try Task.checkCancellation()
-        guard try activeConfiguration()?.context == config.context else { throw CancellationError() }
-        state.ledger = next.ledger
-        if background { state.backgroundBaseline = true } else { state.foregroundBaseline = true }
-        try write(state, config, "state")
     }
 
     private func start(_ task: BGTask) {
+        diagnostics.record(.launch, .started, background: true)
         guard backgroundWork == nil else {
+            diagnostics.record(.launch, .busy, background: true)
             task.setTaskCompleted(success: false)
             return
         }
         task.expirationHandler = { [weak self] in
-            Task { @MainActor in self?.backgroundWork?.cancel() }
+            Task { @MainActor in
+                self?.diagnostics.record(.completion, .expired, background: true)
+                self?.backgroundWork?.cancel()
+            }
         }
         backgroundWork = Task {
             var success = false
@@ -471,10 +589,13 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
                 try await refresh()
                 success = true
             } catch is CancellationError {
+                diagnostics.record(.completion, .cancelled, background: true)
                 record(BirdNotificationError("The native refresh was interrupted; cached evidence was retained."))
             } catch {
+                diagnostics.record(.completion, .failed, background: true)
                 record(error)
             }
+            if success { diagnostics.record(.completion, .completed, background: true) }
             task.setTaskCompleted(success: success)
             backgroundWork = nil
             do { try await schedule() } catch { record(error) }
@@ -482,14 +603,23 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     }
 
     private func refresh() async throws {
-        guard let config = try activeConfiguration() else { return }
-        guard UIApplication.shared.applicationState != .active else { throw CancellationError() }
+        diagnostics.record(.acquisition, .started, background: true)
+        guard let config = try activeConfiguration() else {
+            diagnostics.record(.acquisition, .notConfigured, background: true)
+            return
+        }
+        guard UIApplication.shared.applicationState != .active else {
+            diagnostics.record(.acquisition, .cancelled, background: true)
+            throw CancellationError()
+        }
         if let state = try read(config, "state", as: BirdNotificationState.self),
            let retry = state.retryUntil, retry > Date().timeIntervalSince1970 * 1000 {
+            diagnostics.record(.acquisition, .skipped, background: true, counts: [.retryUntilMs: Int(retry)])
             throw BirdNotificationError("Native eBird requests remain paused after a server/authentication response.")
         }
         let permission = await UNUserNotificationCenter.current().notificationSettings()
         guard permission.authorizationStatus == .authorized || permission.authorizationStatus == .provisional else {
+            diagnostics.record(.acquisition, .permissionBlocked, background: true)
             throw BirdNotificationError("Native refresh skipped because notification permission is blocked.")
         }
         let deadline = Date(timeIntervalSinceNow: 25)
@@ -556,10 +686,12 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
                     at: Date().timeIntervalSince1970 * 1000, rowsJSON: json,
                     capped: rows.count >= 1000, failed: false
                 )
+                diagnostics.record(.acquisition, .ok, background: true, counts: [.rows: rows.count])
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 failures += 1
+                diagnostics.record(.acquisition, .failed, background: true, counts: [.failures: failures])
                 if var previous = cache[job.file] {
                     previous.failed = true
                     cache[job.file] = previous
@@ -587,6 +719,8 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
             "evaluate", [profile, try engine.feeds(cache), Date().timeIntervalSince1970 * 1000],
             as: BirdNotificationEvaluation.self
         )
+        diagnostics.record(.qualification, result.complete ? .ok : .partial, background: true,
+            counts: [.sources: result.sources, .planned: result.planned, .events: result.events.count])
         guard result.sources > 0 else {
             throw BirdNotificationError("No fresh native sources were available; no absence or empty-baseline claim was made.")
         }

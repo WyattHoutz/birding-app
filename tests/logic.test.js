@@ -516,17 +516,23 @@ test('the Cedar River field trip is a convoy, though it never left the site', ()
 // found at the end of a long morning is stamped hours before anyone saw it.
 // MEASURED across live checklists: median 1.07 h, max 5.23 h, 27% run ≥4 h.
 //
-// Driven by the real Cedar River morning rather than synthetic rows, because
-// this lane also demands notability, validity, a public place and FOUR
-// independent events — a hand-built row misses one of those and gets dropped
-// for a reason that has nothing to do with the window, which is exactly what
-// happened on the first attempt at this test.
+// F1005 now rejects the Cedar River party as independent Celebrity support.
+// Keep its source context, but isolate the grace using four explicitly
+// independent synthetic visits rather than bypass the new identity gate.
 test('Celebrity birds keeps a bird whose checklist started before the window', () => {
-  const rows = CEDAR.notable.map((o) => ({
+  const source = CEDAR.notable.map((o) => ({
     code: o.speciesCode, name: o.comName, kind: 'Rarity', rare: true,
     dateStr: o.obsDt, loc: o.locName, locName: o.locName, locId: o.locId,
     subId: o.subId, observer: o.userDisplayName, userDisplayName: o.userDisplayName,
     lat: o.lat, lon: o.lng, distMi: 8, valid: o.obsValid, count: o.howMany,
+  }));
+  assert.equal(BL.needNearby(source, { now: Date.parse('2026-08-22T22:00'), seen: {}, maxMi: 50 })
+    .some((r) => r.code === 'yehbla'), false, 'the original party is not four known independent parties');
+  const bird = source.find((r) => r.code === 'yehbla');
+  const rows = Array.from({ length: 4 }, (_, i) => ({
+    ...bird, dateStr: '2026-08-22 0' + (5 + i) + ':30',
+    observer: 'Independent control ' + i, userDisplayName: 'Independent control ' + i,
+    subId: 'S100500' + i,
   }));
   const find = (when) => {
     const out = BL.needNearby(rows, { now: Date.parse(when), seen: {}, maxMi: 50 });

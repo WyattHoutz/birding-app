@@ -4627,6 +4627,17 @@
   // are two separate birds however similar the rows look.
   var NEED_CLUSTER_M = 1000;
 
+  function knownReportingParties(rows) {
+    var known = (rows || []).map(function (r) {
+      var name = String(r.observer || r.userDisplayName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      return Object.assign({}, r, { userDisplayName: name, observer: name,
+        dateStr: r.dateStr || r.obsDt || '' });
+    }).filter(function (r) { return !!r.userDisplayName; });
+    var party = buildParties(known), parties = {};
+    known.forEach(function (r) { parties[party(r.userDisplayName)] = true; });
+    return Object.keys(parties).length;
+  }
+
   function needNearby(records, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
@@ -4638,6 +4649,7 @@
     // your list. Exposed as an option so a caller that genuinely wants the
     // personal view - All unseen reports - can still have it from one function.
     var notableOnly = opts.notableOnly !== false;
+    var minParties = notableOnly ? NEED_MIN_SIGHTINGS : 0;
     // THE SAME GRACE AS TODAY'S TWITCHES, and for the same measured reason.
     //
     // "Celebrity birds 24 hour look back needs same grace period as the today's
@@ -4750,6 +4762,7 @@
       var best = null;
       needClusters(g.rows).forEach(function (cl) {
         var conf = chaseConfidence(cl.rows, { nowMs: now });
+        var parties = knownReportingParties(cl.rows);
         // The nearest row in the cluster is the one the card describes, so
         // the place, checklist, time and count all come from one report.
         var near = null, nearD = null, newest = null, newestT = -Infinity, places = {};
@@ -4762,10 +4775,13 @@
           if (d == null || !isFinite(d)) return;
           if (nearD == null || d < nearD) { nearD = d; near = r; }
         });
-        var cand = { conf: conf, row: near, distMi: nearD,
+        var cand = { conf: conf, knownParties: parties,
+                     qualified: conf.events >= minSightings && parties >= minParties,
+                     row: near, distMi: nearD,
                      newest: newest, newestT: newestT,
                      nPlaces: Object.keys(places).length, reports: cl.rows.length };
-        if (!best || cand.conf.events > best.conf.events
+        if (best && best.qualified && !cand.qualified) return;
+        if (!best || (cand.qualified && !best.qualified) || cand.conf.events > best.conf.events
             || (cand.conf.events === best.conf.events
                 && (best.distMi == null
                     || (cand.distMi != null && cand.distMi < best.distMi)))) best = cand;
@@ -4774,6 +4790,7 @@
       // The corroborated count, which is NOT g.reports: that counts rows, and
       // a birding party files one sighting several times over.
       g.sightings = g.conf.events;
+      g.knownParties = best ? best.knownParties : 0;
       if (best) {
         g.nPlaces = best.nPlaces;
         g.reports = best.reports;
@@ -4816,7 +4833,7 @@
       // so the threshold above was decorative. That is why a Red Crossbill
       // with ONE observation reached the lane after three separate rounds of
       // "stop showing me single sightings".
-      return g.sightings >= minSightings;
+      return g.sightings >= minSightings && g.knownParties >= minParties;
     });
     out.sort(function (a, b) {
       var as = a.conf ? a.conf.score : 0, bs = b.conf ? b.conf.score : 0;
