@@ -3416,6 +3416,261 @@ test('F723 exact county membership survives incomplete optional first-report evi
   app.window.close();
 });
 
+for (const regional of [false, true]) {
+  test('F1008 successful Mega acquisition replaces cached index membership: '
+    + (regional ? 'different current species' : 'capped source with no regional rows'), async () => {
+    const cachedRows = Array.from({ length: 15 }, (_, i) => ({
+      speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
+      obsDt: '2026-10-17 10:00', subId: 'S' + (10081000 + i),
+      locName: 'Synthetic cached public estuary', lat: 47, lng: -123,
+      subnational1Code: 'US-WA', howMany: 1,
+    }));
+    let html = megaAlertHtml(Array.from({ length: regional ? 1 : 500 }, (_, i) => ({
+      code: 'litsti', name: 'Little Stint', subId: 'S' + (10082000 + i),
+      when: 'Oct 18, 2026 11:00', place: 'Synthetic current public estuary',
+      lat: regional ? 47 : 28, lng: regional ? -123 : -81, count: 1,
+    })));
+    if (!regional) html = html.replaceAll(', Washington, United States', ', Florida, United States');
+    const app = await boot({ sample: false, storage: {
+      ebird_aba_sid: 'SN100800',
+      ebird_mega_snapshot_v1: JSON.stringify({
+        at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800', rows: cachedRows,
+      }),
+    }, fetch: url => /alert\/summary/.test(url) ? html : [] });
+    try {
+      const A = app.window.__app;
+      const load = A.loadAbaAlert();
+      assert.equal(app.document.querySelectorAll('#abaReportResults > li').length, 12,
+        'the useful cached answer must paint while acquisition is pending');
+      const cachedKey = A.megaViewState().key;
+      await load;
+      const view = A.megaViewState();
+      assert.equal(view.key, cachedKey, 'exercise replacement within the reused production view');
+      assert.equal(view.view.rawRows.length, regional ? 1 : 0);
+      const saved = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+      assert.equal(saved.rows.length, regional ? 1 : 0);
+      assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'),
+        new RegExp('mega alert source · classification OPEN · observation elements '
+          + (regional ? '1 · parsed 1' : '500 · parsed 500')),
+        'invalid transport or error retention is not successful-acquisition proof');
+      assert.doesNotMatch(app.$('abaStatus').textContent, /failed|could not|Cached/i);
+      function assertSelection() {
+        const cards = [...app.document.querySelectorAll('#abaReportResults > li')];
+        assert.deepEqual([...new Set(cards.map(row => row.dataset.megaCode))],
+          regional ? ['litsti'] : [],
+          'current index membership must not include cached-only species');
+        assert.equal(cards.length, regional ? 1 : 0);
+        assert.doesNotMatch(app.$('abaResults').textContent, /Sharp-tailed Sandpiper/);
+      }
+      assertSelection();
+      const status = app.$('abaStatus').textContent;
+      for (const selector of [
+        '#abaViewPick [data-megaview="grouped"]',
+        '#abaSortPick [data-abasort="distance"]',
+        '#abaViewPick [data-megaview="list"]',
+        '#abaSortPick [data-abasort="date"]',
+      ]) {
+        app.document.querySelector(selector).click();
+        assertSelection();
+        assert.equal(app.$('abaStatus').textContent, status);
+      }
+      A.setDisplayProfile('high-visibility');
+      assertSelection();
+      assert.equal(A.abaArchiveFor('US-WA', 'shtsan').length, 15,
+        'retiring index membership must not erase historical evidence');
+      assert.equal(app.state.fetches.filter(url => /alert\/summary/.test(url)).length, 1,
+        'local projections must not refetch the source');
+      if (!regional) assert.match(app.$('abaCapWarn').textContent, /500|cap/i);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      await settleMegaEntry(app, 'litsti');
+      await settleMegaEntry(app, 'shtsan');
+      app.window.close();
+    }
+  });
+}
+
+test('F1008 selected Mega species retain their cached detail object and historical reports', async () => {
+  const cachedRows = [
+    { speciesCode: 'litsti', comName: 'Little Stint', subId: 'S10083001' },
+    { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper', subId: 'S10083002' },
+  ].map(row => ({
+    ...row, obsDt: '2026-10-17 10:00', locName: 'Synthetic cached public estuary',
+    lat: 47, lng: -123, subnational1Code: 'US-WA', howMany: 1,
+  }));
+  const html = megaAlertHtml([{
+    code: 'litsti', name: 'Little Stint', subId: 'S10083003',
+    when: 'Oct 18, 2026 11:00', place: 'Synthetic current public estuary',
+    lat: 47, lng: -123, count: 1,
+  }]);
+  const app = await boot({ sample: false, storage: {
+    ebird_aba_sid: 'SN100800',
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800', rows: cachedRows,
+    }),
+  }, fetch: url => /alert\/summary/.test(url) ? html : [] });
+  try {
+    const A = app.window.__app;
+    const load = A.loadAbaAlert();
+    const entry = A.megaViewState().view.bySpecies.litsti;
+    await load;
+    assert.ok(A.megaViewState().view.bySpecies.litsti === entry,
+      'a current selected species must not lose its owned detail state');
+    assert.equal(entry.alertRows.length, 1, 'current alert evidence is replaced');
+    assert.equal(entry.stateRows.length, 2, 'selected-species history remains available');
+    assert.deepEqual([...app.document.querySelectorAll('#abaReportResults > li')]
+      .map(row => row.dataset.evSub).sort(), ['S10083001', 'S10083003']);
+    assert.doesNotMatch(app.$('abaResults').textContent, /Sharp-tailed Sandpiper/);
+    app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+    assert.deepEqual([...app.document.querySelectorAll('#abaReportResults > li')]
+      .map(row => row.dataset.megaCode), ['litsti']);
+    assert.equal(A.abaArchiveFor('US-WA', 'shtsan').length, 1);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    await settleMegaEntry(app, 'litsti');
+    await settleMegaEntry(app, 'shtsan');
+    app.window.close();
+  }
+});
+
+test('F1008 failed Mega acquisition retains the cached answer with an explicit error', async () => {
+  let rejectSource;
+  const app = await boot({ sample: false, storage: {
+    ebird_aba_sid: 'SN100800',
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800',
+      rows: [{ speciesCode: 'litsti', comName: 'Little Stint',
+        obsDt: '2026-10-17 10:00', subId: 'S10084001',
+        locName: 'Synthetic cached public estuary', lat: 47, lng: -123 }],
+    }),
+  }, fetch: url => /alert\/summary/.test(url)
+    ? new Promise((resolve, reject) => { rejectSource = reject; }) : [] });
+  try {
+    const A = app.window.__app;
+    const load = A.loadAbaAlert();
+    assert.match(app.$('abaResults').textContent, /Little Stint/);
+    await waitFor(() => !!rejectSource, 'actual pending Mega transport');
+    rejectSource(new Error('Synthetic source unavailable'));
+    await load;
+    assert.match(app.$('abaResults').textContent, /Little Stint/);
+    assert.match(app.$('abaStatus').textContent, /Cached alert remains visible.*failed/i);
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows.length, 1);
+    app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
+    assert.match(app.$('abaResults').textContent, /Little Stint/);
+    assert.match(app.$('abaStatus').textContent, /failed/i);
+    assert.equal(app.$('abaBtn').disabled, false);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    await settleMegaEntry(app, 'litsti');
+    app.window.close();
+  }
+});
+
+test('F1008 actual Twitches RBA and Mega acquisitions keep independent positive and empty results', async () => {
+  let regional = false;
+  const rba = megaAlertHtml([{
+    code: 'verfly', name: 'Vermilion Flycatcher', subId: 'S10085001',
+    when: 'Oct 18, 2026 10:00', place: 'Synthetic RBA public patch',
+    lat: 47, lng: -123, count: 1,
+  }]);
+  const app = await boot({ sample: false, storage: {
+    ebird_aba_sid: 'SN100800',
+    ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region' }),
+  }, fetch(url) {
+    if (/alert\/rba\//.test(url)) return rba;
+    if (/alert\/summary/.test(url)) return regional ? megaAlertHtml([{
+      code: 'litsti', name: 'Little Stint', subId: 'S10085002',
+      when: 'Oct 18, 2026 11:00', place: 'Synthetic Mega public estuary',
+      lat: 47, lng: -123, count: 1,
+    }]) : otherStateMegaAlertHtml();
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, []);
+    A.refresh();
+    await waitFor(() => /Vermilion Flycatcher/.test(app.$('results').textContent),
+      'actual RBA-only Twitches report');
+    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), null,
+      'the Twitches loader must not write Mega evidence');
+    await A.loadAbaAlert();
+    assert.equal(app.document.querySelectorAll('#abaReportResults > li').length, 0);
+    assert.doesNotMatch(app.$('abaResults').textContent, /Vermilion Flycatcher/);
+    regional = true;
+    await A.loadAbaAlert();
+    assert.match(app.$('abaResults').textContent, /Little Stint/);
+    assert.doesNotMatch(app.$('abaResults').textContent, /Vermilion Flycatcher/);
+    assert.match(app.$('results').textContent, /Vermilion Flycatcher/,
+      'Mega must not erase the independent Twitches answer');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    await settleMegaEntry(app, 'litsti');
+    app.window.close();
+  }
+});
+
+for (const distance of ['near', 'region']) {
+  test('F1008 empty Twitches stays empty beside populated Mega through actual '
+    + distance + ' refreshes', async () => {
+    const html = megaAlertHtml([{
+      code: 'litsti', name: 'Little Stint', subId: 'S10086001',
+      when: formatObsStamp(new Date(Date.now() - 10 * 60000)),
+      place: 'Synthetic Mega public estuary', lat: 47.75, lng: -122.15, count: 1,
+    }]);
+    const app = await boot({ sample: false, storage: {
+      ebird_aba_sid: 'SN100800',
+      ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance }),
+    }, fetch(url) {
+      if (/alert\/summary/.test(url)) return html;
+      if (/alert\/rba\//.test(url)) return otherStateMegaAlertHtml();
+      return [];
+    } });
+    try {
+      const A = app.window.__app;
+      await seedSeen(app, []);
+      const refresh = app.$('refreshBtn').closest('section').querySelector('.refreshbtn');
+      assert.ok(refresh, 'exercise the actual section Refresh action');
+      const notableReads = () => app.state.fetches.filter(url =>
+        /data\/obs\/.*\/recent\/notable/.test(url)).length;
+      for (let wave = 0; wave < 2; wave++) {
+        await A.loadAbaAlert();
+        assert.match(app.$('abaResults').textContent, /Little Stint/);
+        const snapshot = app.window.localStorage.getItem(A.MEGA_SNAP_KEY);
+        const before = notableReads();
+        refresh.click();
+        await waitFor(() => notableReads() > before, 'new forced notable acquisition');
+        await waitFor(() => !app.$('refreshBtn').disabled, 'completed actual Twitches refresh');
+        assert.match(app.$('status').textContent, /No rarity reports are currently available/,
+          'a complete empty Twitches source must not borrow Mega reports');
+        assert.doesNotMatch(app.$('results').textContent, /Little Stint/);
+        assert.equal(app.$('results').querySelectorAll('li').length, 0);
+        const rarity = await A.getChaseRarity();
+        assert.equal(rarity.feedComplete, true, 'failure is not proof of an empty feed');
+        assert.equal(rarity.cv.merged.length, 0);
+        assert.ok(Object.keys(rarity.rows).length > 0);
+        for (const rows of Object.values(rarity.rows)) assert.equal(rows.length, 0);
+        if (distance === 'region') {
+          const rba = await A.stateRbaRecords(false, null, 'US-WA', false);
+          assert.equal(rba.complete, true, 'use parsed, region-filtered evidence, not a source error');
+          assert.equal(rba.rows.length, 0);
+        } else {
+          assert.equal(app.state.fetches.filter(url => /alert\/rba\//.test(url)).length, 0,
+            'nearby coverage must remain the notable-only production path');
+        }
+        assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), snapshot,
+          'Twitches must not overwrite the populated Mega snapshot');
+        assert.match(app.$('abaResults').textContent, /Little Stint/,
+          'an empty Twitches answer must not erase independently acquired Mega evidence');
+      }
+      assert.equal(app.state.fetches.filter(url => /alert\/summary/.test(url)).length, 2);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      await settleMegaEntry(app, 'litsti');
+      app.window.close();
+    }
+  });
+}
+
 test('F568 Mega paints its matching snapshot before the live alert settles', async () => {
   const app = await boot();
   const A = app.window.__app;

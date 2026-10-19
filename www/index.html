@@ -5030,7 +5030,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.162.1';
+      var APP_VERSION = '1.162.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -32961,7 +32961,7 @@
         if (!wide) abaArchiveAdd(region, list);
         var view = installMegaView(list, true, wide, url, meta);
         var home = getHome();
-        var entries = Object.keys(view.bySpecies).map(function (code) {
+        var entries = Object.keys(megaRowsByCode(view.rawRows)).map(function (code) {
           var entry = view.bySpecies[code];
           entry.distMi = abaGroupDistance(
             wide ? entry.alertRows : entry.stateRows, home);
