@@ -400,6 +400,11 @@
   };
 
   var EXCLUDED = {
+    'birdgen-refresh-status': {
+      surface: 'sheet',
+      name: 'Bird Gen refresh status',
+      reason: 'Transient acquisition outcome and recovery feedback from the current refresh, not authored informational help.'
+    },
     'birdgen-alert-evidence': {
       surface: 'sheet',
       name: 'Bird Gen alert evidence',

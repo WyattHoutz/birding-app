@@ -1381,11 +1381,27 @@ const AUDIT = `<script>
       var previewRows=[].slice.call(document.querySelectorAll('#recentBirdGenRows > li'));
       recentScan.recentBirdGen={
         six:previewRows.length===6,
-        twitchFirst:previewRows[0].getAttribute('data-recent-kind')==='twitch',
-        compactActions:['recentBirdGenOpen','recentBirdGenRefresh'].every(function(id){
+        newestFirst:previewRows.every(function(row,i){
+          var place=row.querySelector('.hslink');
+          return place && place.textContent==='Representative public patch '+i;
+        }),
+        iconOnly:document.getElementById('recentBirdGenRefresh').textContent.trim()==='↻'
+          && document.getElementById('recentBirdGenRefresh').getAttribute('aria-label')==='Refresh full Bird Gen feed',
+        listOnly:!document.querySelector('#recentBirdGen > p')
+          && document.getElementById('recentBirdGenStatus').classList.contains('vh')
+          && document.getElementById('recentBirdGenStatus').getAttribute('aria-live')==='polite',
+        outcome:!document.getElementById('recentBirdGenFeedback').hidden
+          && document.getElementById('recentBirdGenFeedback').getAttribute('aria-label')
+            .includes(document.getElementById('recentBirdGenStatus').textContent),
+        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenFeedback'].map(function(id){
+          var button=document.getElementById(id);
+          return {id:id,rect:button.getBoundingClientRect().toJSON(),label:button.getAttribute('aria-label')};
+        }),
+        compactActions:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenFeedback'].every(function(id){
           var button=document.getElementById(id), rect=button.getBoundingClientRect();
           return document.querySelector('.recent-birdgen-head').contains(button)
-            && rect.height>=44 && rect.width<document.getElementById('recentBirdGen').getBoundingClientRect().width-1
+            && rect.height>=44 && rect.width>=44
+            && rect.width<document.getElementById('recentBirdGen').getBoundingClientRect().width-1
             && button.getAttribute('aria-label');
         }),
         contentSizedAges:previewRows.every(function(row,i){
@@ -1612,6 +1628,31 @@ const AUDIT = `<script>
         })
       };
       out.push(ppteScan);
+      A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:[Object.assign({},ppteEvents[0],{
+        latest:previewStamp(1)
+      })]});
+      A.showMenu();
+      var pptePreviewScan=scan('(F1021 Recent PATAGONIA links)');
+      var pptePreview=document.querySelector('#recentBirdGenRows [data-recent-kind="ppte"]');
+      var previewLinks=pptePreview && Array.from(pptePreview.querySelectorAll('.surgealerttitle .splink'));
+      var previewAge=pptePreview && pptePreview.querySelector('button.recent-birdgen-time');
+      if (!previewLinks || previewLinks.length!==ppteScan.ppte.species
+          || pptePreview.querySelector(':scope > .name').getAttribute('role')!=='group'
+          || !previewAge || previewAge.getBoundingClientRect().height<44
+          || previewLinks.some(function(link){
+            var rect=link.getBoundingClientRect();
+            return link.tabIndex!==0 || link.getAttribute('role')!=='link'
+              || !link.getAttribute('aria-label') || !link.getAttribute('data-sp')
+              || rect.width<=0 || rect.left<0 || rect.right>pptePreviewScan.vw+.5;
+          })) throw new Error('F1021 Recent PATAGONIA links or separate full-alert action failed real layout: '
+            + JSON.stringify({profile:A.getDisplayProfile(),links:previewLinks && previewLinks.map(function(link){
+              return {code:link.getAttribute('data-sp'),role:link.getAttribute('role'),
+                tabIndex:link.tabIndex,label:link.getAttribute('aria-label'),
+                rect:link.getBoundingClientRect().toJSON()};
+            }),group:pptePreview && pptePreview.querySelector(':scope > .name').getAttribute('role'),
+            age:previewAge && previewAge.getBoundingClientRect().toJSON()}));
+      pptePreviewScan.pptePreviewLinks=previewLinks.length;
+      out.push(pptePreviewScan);
       A.showSection('helpPanel');
       var feeds = window.BirdLogic.planSpeciesFeeds(A.chaseProfile(),
         Array.from({ length: 60 }, function (_, index) { return 'eta' + index; }));

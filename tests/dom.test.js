@@ -594,6 +594,25 @@ function pullMenu(app, { x = 0, y = 90, scrollTop = 0, fingers = 1 } = {}) {
   (doc.scrollingElement || doc.documentElement).scrollTop = 0;
 }
 
+function assertRecentOutcome(app, expected, warning) {
+  const status = app.$('recentBirdGenStatus'), feedback = app.$('recentBirdGenFeedback');
+  assert.match(status.textContent, expected);
+  assert.equal(status.getAttribute('role'), 'status');
+  assert.equal(status.getAttribute('aria-live'), 'polite');
+  assert.ok(status.classList.contains('vh'), 'announcements must not restore the surrounding small print');
+  assert.equal(app.$('recentBirdGen').querySelectorAll(':scope > p').length, 0);
+  assert.equal(feedback.tagName, 'BUTTON');
+  assert.equal(feedback.hidden, false);
+  assert.equal(feedback.disabled, false);
+  assert.ok(feedback.tabIndex >= 0);
+  assert.equal(feedback.getAttribute('aria-label'), 'Bird Gen refresh status: ' + status.textContent);
+  if (warning) assert.equal(feedback.textContent, '!');
+  feedback.click();
+  assert.equal(app.$('appSheet').querySelector('.sheetbody').textContent, status.textContent,
+    'the visible, operable outcome sheet lost the result');
+  app.window.__app.hideSheet();
+}
+
 test('F1011 actual Menu gesture and labelled action share forced full acquisition through the optional tail', async () => {
   let full = false, failingFavorite = true, releaseMass;
   const work = [];
@@ -631,8 +650,8 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
     }] });
     A.saveMegaSnapshot([], true);
     assert.equal(button.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
-    assert.match(button.textContent, /Refresh feed/);
-    assert.equal(app.document.querySelectorAll('#recentBirdGen .refreshbtn:not(#recentBirdGenOpen)').length, 1);
+    assert.equal(button.textContent.trim(), '↻');
+    assert.equal(app.document.querySelectorAll('#recentBirdGenRefresh').length, 1);
     const beforeUnsafe = app.state.fetches.length;
     for (const gesture of [{ y: 30 }, { x: 100, y: 80 }, { scrollTop: 1 }, { fingers: 2 }]) {
       pullMenu(app, gesture);
@@ -685,6 +704,7 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
     assert.equal(settled, false, 'primary completion is not full completion');
     assert.equal(button.disabled, true);
     assert.match(app.$('recentBirdGenStatus').textContent, /^Refreshing full Bird Gen feed/);
+    assertRecentOutcome(app, /^Refreshing full Bird Gen feed/);
     const beforeRepeat = app.state.fetches.length;
     pullMenu(app); button.click();
     const repeated = A.refreshFullBirdGen();
@@ -697,6 +717,7 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
     assert.equal(result.state, 'partial');
     assert.equal(button.disabled, false);
     assert.match(app.$('recentBirdGenStatus').textContent, /finished.*partial coverage.*retained results kept/);
+    assertRecentOutcome(app, /finished.*partial coverage.*retained results kept/, true);
     assert.ok(app.$('surgeBtn').closest('section').hidden, 'refresh must stay on Menu');
     const acquired = app.state.fetches.slice(automatic.length);
     for (const source of [/notable/, /data\/obs\/LF1011KEEP\//, /top100/, /product\/lists\//,
@@ -799,6 +820,7 @@ test('F1011 late full-feed sources cannot publish after scope, ownership, naviga
       }
       release();
       await pending;
+      if (change === 'cancel') assertRecentOutcome(app, /refresh cancelled.*retained results kept/i, true);
       assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Vermilion Flycatcher/,
         'obsolete sources repainted Menu after ' + change);
       assert.doesNotMatch(app.$('recentBirdGenStatus').textContent, /refresh finished/,
@@ -937,7 +959,7 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
     assert.ok(head.contains(app.$('recentBirdGenOpen')));
     assert.ok(head.contains(app.$('recentBirdGenRefresh')));
     assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
-    assert.match(app.$('recentBirdGenRefresh').textContent, /Refresh feed$/);
+    assert.equal(app.$('recentBirdGenRefresh').textContent.trim(), '↻');
     assert.equal(app.$('recentBirdGenRefresh').getAttribute('aria-label'), 'Refresh full Bird Gen feed');
     assert.equal(W.getComputedStyle(app.$('recentBirdGenOpen')).minHeight, '44px');
     assert.match(app.$('recentBirdGenStatus').textContent, /Set Home/);
@@ -969,7 +991,8 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
       assert.equal(W.getComputedStyle(patagonia).borderTopStyle, 'solid');
     }
     for (const age of app.document.querySelectorAll('#recentBirdGenRows .recent-birdgen-time')) {
-      assert.equal(parseFloat(W.getComputedStyle(age).minWidth), 0);
+      assert.equal(parseFloat(W.getComputedStyle(age).minWidth), age.tagName === 'BUTTON' ? 44 : 0);
+      if (age.tagName === 'BUTTON') assert.equal(W.getComputedStyle(age).minHeight, '44px');
       assert.equal(W.getComputedStyle(age).textAlign, 'right');
     }
     for (const tag of app.document.querySelectorAll('#recentBirdGenRows .surge-leading-tag')) {
@@ -1011,7 +1034,7 @@ test('F999 actual Pro patches detail uppercases its strongest status without cha
   } finally { app.window.close(); }
 });
 
-test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps short accessible three-column rows', async () => {
+test('F987/F990/F1019 the six-row rolling preview keeps the newest detection and short accessible three-column rows', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, now = Date.now();
@@ -1025,7 +1048,7 @@ test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps
       ratio: 4.1, reason: 'surge', latest: stamp(now - (i + 1) * 60000),
       eventAt: now - (i + 1) * 60000,
     }));
-    const twitch = { code: 'verfly', name: 'Vermilion Flycatcher', firstAt: now - 50 * 60000,
+    const twitch = { code: 'verfly', name: 'Vermilion Flycatcher', firstAt: now - 60000,
       reports: 1, lowerBound: true, unreviewed: true,
       latest: { dateStr: stamp(now - 60 * 60000), locId: 'LTWITCH', loc: 'Omitted place',
         lat: 47.75, lon: -122.16, subId: 'STWITCH', count: 1 } };
@@ -1034,7 +1057,7 @@ test('F987/F990 the six-row rolling preview pins TWITCH before slicing and keeps
     });
     const list = app.$('recentBirdGenRows'), rows = [...list.children];
     assert.equal(rows.length, 6);
-    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the older TWITCH must enter the top six');
+    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the newest detection must enter the top six');
     assert.equal(rows[0].querySelector('.surgealerttitle').textContent,
       'New unseen rarity Vermilion Flycatcher');
     assert.match(rows[0].textContent, /At least 1 report in 24h/);
@@ -1122,14 +1145,7 @@ test('F991 compact cards retain evidence behind category buttons and preserve es
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
-let HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
-if (process.env.BIRDCHASER_HISTORY_PROBE
-    && !/setChasePhase2:/.test(HTML)) {
-  HTML = HTML.replace(
-    'getChase: getChase, clearChaseCache: clearChaseCache,',
-    'getChase: getChase, clearChaseCache: clearChaseCache,'
-      + ' setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },');
-}
+const HTML = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
 // The two card families live in their own files so they can be tweaked by
 // looking at the source. Guards that read card CSS must read it from THERE —
 // pointing them back at index.html is how a second definition creeps in.
@@ -1155,8 +1171,9 @@ const MEGA_STAKEOUT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
 const SEED = JSON.parse(fs.readFileSync(wwwFixture('seed-birdlist.json'), 'utf8'));
 
-function megaAlertHtml(rows) {
-  return (rows || []).map((row, i) => `
+function megaAlertHtml(rows, sid = 'SN10489') {
+  return `<link rel="canonical" href="https://ebird.org/alert/summary?sid=${sid}">`
+    + (rows || []).map((row, i) => `
     <div id="obs-OBS${30400 + i}" class="Observation">
       <a href="/species/${row.code || row.speciesCode}/aba"
          data-species-code="${row.code || row.speciesCode}">
@@ -1170,11 +1187,687 @@ function megaAlertHtml(rows) {
     </div>`).join('');
 }
 
-function otherStateMegaAlertHtml() {
+function otherStateMegaAlertHtml(sid = 'SN10489') {
   return megaAlertHtml([{
     code: 'mallar3', name: 'Synthetic source bird', subId: 'S948001',
     when: recentObsStamp(), lat: 45, lng: -123, place: 'Public fixture lake',
-  }]).replace(', Washington, United States', ', Oregon, United States');
+  }], sid).replace(', Washington, United States', ', Oregon, United States');
+}
+
+test('F1025 actual transport includes provisional rows uniquely on all six documented families only', async () => {
+  const confirmed = { speciesCode: 'ruff', comName: 'Ruff', obsValid: true, obsReviewed: true };
+  const provisional = { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    obsValid: false, obsReviewed: false };
+  const app = await boot({ sample: false, fetch: url => {
+    const q = new URL(url).searchParams.getAll('includeProvisional');
+    return q.length === 1 && q[0] === 'true' ? [confirmed, provisional] : [confirmed];
+  } });
+  try {
+    const A = app.window.__app;
+    const supported = [
+      'data/obs/US-WA/recent?back=30',
+      'data/obs/L1025/recent/lcspet?back=30',
+      'data/obs/geo/recent?lat=47.7&lng=-122.2',
+      'data/obs/geo/recent/lcspet?lat=47.7&lng=-122.2',
+      'data/nearest/geo/recent/lcspet?lat=47.7&lng=-122.2',
+      'data/obs/US-WA/historic/2026/10/19?rank=mrec',
+    ];
+    for (const path of supported) {
+      const request = path + '&includeProvisional=false&includeProvisional=false';
+      const rows = await A.ebird(request);
+      assert.deepEqual(Array.from(rows, row => row.speciesCode), ['ruff', 'lcspet'], path);
+      assert.equal(rows[1].obsReviewed, false);
+      assert.equal(rows[1].obsValid, false);
+      const url = new URL(app.state.fetches.at(-1));
+      assert.deepEqual(url.searchParams.getAll('includeProvisional'), ['true'], path);
+      for (const [key, value] of new URL(path, 'https://example.invalid/').searchParams) {
+        assert.equal(url.searchParams.get(key), value, 'preserve the caller\'s ' + key);
+      }
+      const before = app.state.fetches.length;
+      const cached = await A.ebird(request);
+      assert.equal(app.state.fetches.length, before, 'broader-coverage requests still share their memo');
+      assert.equal(cached[1].speciesCode, 'lcspet');
+    }
+    const unsupported = [
+      'data/obs/US-WA/recent/notable?back=30',
+      'data/obs/geo/recent/notable?lat=47.7&lng=-122.2',
+      'data/nearest/geo/recent/notable?lat=47.7&lng=-122.2',
+      'data/obs/US-WA/historic/2026/10/19/extra',
+      'product/checklist/view/S1025',
+      'ref/hotspot/L1025/info', 'ref/taxonomy/ebird?fmt=json', 'ref/region/info/US-WA',
+    ];
+    for (const path of unsupported) {
+      const rows = await A.ebird(path, false, true, true);
+      assert.equal(rows.length, 1, path);
+      assert.equal(new URL(app.state.fetches.at(-1)).searchParams.has('includeProvisional'), false, path);
+    }
+    const beforeSeed = app.state.fetches.length;
+    A.seedEbirdCache('data/obs/L1025SEED/recent?back=7', [confirmed, provisional]);
+    assert.equal((await A.ebird('data/obs/L1025SEED/recent?back=7'))[1].speciesCode, 'lcspet');
+    assert.equal(app.state.fetches.length, beforeSeed, 'cache seeding must use the same effective coverage key');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1024 actual Stakeout Patch includes provisional species in its exact-place list and count with review provenance', async () => {
+  const base = { obsDt: recentObsStamp(), locId: 'L1024', locName: 'Synthetic public patch',
+    lat: 47.75, lng: -122.16, howMany: 1 };
+  const confirmed = { ...base, speciesCode: 'ruff', comName: 'Ruff', subId: 'S1024001',
+    obsValid: true, obsReviewed: true };
+  const provisional = { ...base, speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    subId: 'S1024002', obsValid: false, obsReviewed: false };
+  const other = { ...provisional, locId: 'L1024OTHER', speciesCode: 'sabgul', comName: "Sabine's Gull" };
+  const app = await boot({ sample: false, fetch: url => {
+    if (/data\/obs\/L1024\/recent/.test(url)) {
+      return new URL(url).searchParams.get('includeProvisional') === 'true'
+        ? [confirmed, provisional, other] : [confirmed];
+    }
+    if (/alert\/rba\//.test(url)) return otherStateMegaAlertHtml();
+    return [];
+  } });
+  try {
+    await seedSeen(app, [], null, [confirmed, provisional, other]);
+    await app.window.__app.stakeHsOpen('L1024', 'Synthetic public patch');
+    await waitFor(() => app.$('stakeHsResults').querySelector('.hsunseen .card-sm > li'),
+      'the actual hotspot observation list');
+    const root = app.$('stakeHsResults');
+    const bird = [...root.querySelectorAll('.hsunseen .card-sm > li')].find(node =>
+      /Leach's Storm-Petrel/.test(node.textContent));
+    assert.ok(bird, 'the provisional response must reach the actual bird list');
+    assert.match(root.querySelector('.hsunseen').textContent, /2 unseen/);
+    assert.match(bird.textContent, /Unconfirmed/);
+    assert.equal(bird.querySelector('.revok'), null, 'provisional does not mean confirmed');
+    assert.doesNotMatch(root.querySelector('.hsunseen').textContent, /Sabine/);
+    const path = app.state.fetches.find(url => /data\/obs\/L1024\/recent/.test(url));
+    assert.deepEqual(new URL(path).searchParams.getAll('includeProvisional'), ['true']);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1025 old location coverage cannot mask provisional hydration or its retained review status', async () => {
+  const when = recentObsStamp();
+  const observations = [
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: when, subId: 'S1025101',
+      locId: 'L10251', obsValid: true, obsReviewed: true },
+    { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel", obsDt: when, subId: 'S1025102',
+      locId: 'L10251', obsValid: false, obsReviewed: false },
+  ];
+  let storage, firstFetches = 0;
+  for (const reopen of [false, true]) {
+    const app = await boot({ sample: false, storage, fetch: url => {
+      if (!/data\/obs\/L10251\/recent/.test(url)) return [];
+      firstFetches++;
+      if (reopen) throw new Error('the upgraded location cache should survive reopening');
+      return observations;
+    } });
+    try {
+      const A = app.window.__app, ls = app.window.localStorage;
+      await seedSeen(app, [], null, observations);
+      const legacyKey = 'ebird_locsp_v1:L10251:3';
+      if (!reopen) ls.setItem(legacyKey, JSON.stringify({
+        d: A.todayStr(), v: [{ code: 'ruff', name: 'Ruff', dateStr: when, subId: 'S1025101' }]
+      }));
+      const legacy = ls.getItem(legacyKey);
+      A.renderHot({ hot: [{
+        locId: 'L10251', name: 'Synthetic public patch', lat: 47.7, lng: -122.2,
+        dist: 8, fresh: 1, checklists: 2, share: 5, latest: when,
+        birds: [{ name: 'Ruff', code: 'ruff', unseen: true }],
+      }] });
+      await waitFor(() => app.document.querySelector('#hotResults .hslists .spwhen'),
+        'the actual location-cache hydration');
+      const list = app.document.querySelector('#hotResults .hslists');
+      const bird = [...list.querySelectorAll('.card-sm > li')].find(node =>
+        /Leach's Storm-Petrel/.test(node.textContent));
+      assert.ok(bird, 'broader coverage must replace the old confirmed-only subset');
+      assert.match(bird.textContent, /Unconfirmed/);
+      assert.equal(bird.querySelector('.revok'), null);
+      assert.match(bird.querySelector('.spwhen').textContent, /\d+\/\d+/);
+      assert.equal(ls.getItem(legacyKey), legacy, 'old evidence is not erased');
+      storage = Object.fromEntries(Object.keys(ls).map(key => [key, ls.getItem(key)]));
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+  assert.equal(firstFetches, 1, 'only the initial cache upgrade spends an observation request');
+});
+
+test('F1025 historic Common birds upgrades coverage and round-trips actual review fields without refetching', async () => {
+  const date = new Date('2026-10-18T12:00:00'), day = '2026-10-18';
+  const observations = [
+    { speciesCode: 'ruff', comName: 'Ruff', obsDt: day + ' 08:00', subId: 'S1025201',
+      locId: 'L10252', locName: 'Synthetic public patch', lat: 47.7, lng: -122.2,
+      obsValid: true, obsReviewed: true },
+    { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel", obsDt: day + ' 09:00',
+      subId: 'S1025202', locId: 'L10252', locName: 'Synthetic public patch',
+      lat: 47.7, lng: -122.2, obsValid: false, obsReviewed: false },
+  ];
+  let calls = 0;
+  const app = await boot({ sample: false, fetch: url => {
+    if (!/historic\/2026\/10\/18/.test(url)) return [];
+    calls++;
+    return new URL(url).searchParams.get('includeProvisional') === 'true'
+      ? observations : observations.slice(0, 1);
+  } });
+  try {
+    const A = app.window.__app;
+    const legacyKey = 'easymiss_v2:US-WA-033|' + day;
+    await A.zcPut(legacyKey, A.easyCompact(observations.slice(0, 1)));
+    const legacy = app.window.localStorage.getItem(legacyKey);
+    for (const pass of [1, 2]) {
+      const rows = await A.easyFetch(['US-WA-033'], [date]);
+      assert.deepEqual(Array.from(rows, row => row.speciesCode), ['ruff', 'lcspet']);
+      const provisional = rows.find(row => row.speciesCode === 'lcspet');
+      assert.equal(provisional.obsValid, false, 'actual review validity survives compact/expand');
+      assert.equal(provisional.obsReviewed, false, 'actual review status survives compact/expand');
+      assert.equal(provisional.subId, observations[1].subId);
+      assert.equal(provisional.obsDt, observations[1].obsDt);
+      assert.equal(calls, 1, 'the upgrade is shared and then retained, pass ' + pass);
+    }
+    assert.equal(app.window.localStorage.getItem(legacyKey), legacy);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1025 old historic day markers and migration samples cannot claim broader coverage or erase history', async () => {
+  const date = new Date('2026-10-18T12:00:00'), day = '2026-10-18', county = 'US-WA-033';
+  const observations = [{ speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    obsDt: day + ' 08:00', subId: 'S1025301', obsValid: false, obsReviewed: false }];
+  const app = await boot({ sample: false, fetch: url =>
+    /historic\/2026\/10\/18/.test(url)
+      && new URL(url).searchParams.get('includeProvisional') === 'true' ? observations : [] });
+  try {
+    const A = app.window.__app, ls = app.window.localStorage, slug = A.getReportSlug();
+    const todKey = 'ebird_tod_' + slug, migKey = 'ebird_mig_' + slug;
+    ls.setItem(todKey, JSON.stringify({ v: A.TOD_SAMPLE_V, seen: {}, hours: {}, names: {},
+      days: { [county + '|' + day]: 1 } }));
+    ls.setItem(migKey, JSON.stringify({ samples: { [A.migSampleKey(date)]: ['ruff'] },
+      names: { ruff: 'Ruff' } }));
+    const oldTod = ls.getItem(todKey), oldMig = ls.getItem(migKey);
+    assert.equal(A.todHasDay(county, date), false, 'an old completed day needs broader sampling');
+    const timed = await A.todFetchCounties([county], [date], () => {});
+    assert.ok(timed.some(row => row.speciesCode === 'lcspet'));
+    A.todAccumulate(timed);
+    const count = A.todLoad().hours.lcspet.length;
+    A.todAccumulate(timed);
+    assert.equal(A.todLoad().hours.lcspet.length, count, 'resampling is not double-counted');
+    const migration = A.migLoad();
+    assert.equal(migration.samples[A.migSampleKey(date)], undefined,
+      'an old weekly subset cannot suppress broader acquisition');
+    await A.migFetchDate([county], date, migration);
+    A.migSave(migration);
+    assert.deepEqual(Array.from(A.migLoad().samples[A.migSampleKey(date)]), ['lcspet']);
+    assert.equal(ls.getItem(todKey), oldTod, 'original historical evidence remains stored');
+    assert.equal(ls.getItem(migKey), oldMig, 'original migration history remains stored');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1025 actual species lookup and grouped projections never promote missing or unreviewed evidence to confirmed', async () => {
+  const when = recentObsStamp();
+  const base = { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+    obsDt: when, locName: 'Synthetic public patch', locationPrivate: false,
+    lat: 47.75, lng: -122.16 };
+  const rows = [
+    { ...base, subId: 'S1025401', locId: 'L102541', obsValid: true, obsReviewed: true },
+    { ...base, subId: 'S1025402', locId: 'L102542', obsValid: true, obsReviewed: false },
+    { ...base, subId: 'S1025403', locId: 'L102543' },
+  ];
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\/.*\/recent\/lcspet/.test(url) ? rows
+      : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
+  try {
+    const A = app.window.__app;
+    await A.lookupSpecies('lcspet', base.comName);
+    A.setSpeciesLookupGrouped(false);
+    for (const [i, row] of rows.entries()) {
+      const card = app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`);
+      assert.ok(card, 'actual summary projection keeps ' + row.subId);
+      assert.equal(!!card.querySelector('.revok'), i === 0, 'only reviewed and valid is confirmed');
+      if (i === 1) assert.match(card.textContent, /Unconfirmed/);
+      const records = A.speciesLookupRecords([row], []);
+      const group = A.buildAllUnseen(records)[0];
+      const host = app.document.createElement('div');
+      host.innerHTML = A.birdReportGroupCard(group);
+      assert.equal(!!host.querySelector('.revok'), i === 0,
+        'grouping must honor actual review state, including valid but unreviewed');
+      const projected = group.places[0].checklists[0];
+      assert.equal(projected.obsValid, row.obsValid);
+      assert.equal(projected.obsReviewed, row.obsReviewed);
+    }
+    assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 0);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1025 actual Favorite Patch detail and Bird Gen acquisition retain provisional review provenance', async () => {
+  const favorite = { id: 'LF1025', locId: 'LF1025', locName: 'Synthetic saved patch',
+    region: 'US-WA', lat: 47.75, lng: -122.16 };
+  const rows = [
+    { speciesCode: 'margod', comName: 'Marbled Godwit', obsValid: true, obsReviewed: true },
+    { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel", obsValid: false, obsReviewed: false },
+    { speciesCode: 'norwat', comName: 'Northern Waterthrush' },
+  ].map((row, i) => ({ ...row, locId: favorite.locId, locName: favorite.locName,
+    obsDt: formatObsStamp(new Date(Date.now() - 60000)), subId: 'SF1025' + i, howMany: 1 }));
+  const app = await boot({ sample: false, storage: { ebird_favs: JSON.stringify([favorite]) },
+    fetch: url => /data\/obs\/LF1025\/recent/.test(url)
+      ? new URL(url).searchParams.get('includeProvisional') === 'true' ? rows : [rows[0]]
+      : [] });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], null, rows);
+    await A.loadFavs();
+    for (const repaint of [false, true]) {
+      if (repaint) A.renderFavs();
+      const link = app.$('favResults').querySelector('.splink[data-sp="lcspet"]');
+      assert.ok(link, 'the actual saved patch must include the newly available bird');
+      assert.match(link.closest('li').textContent, /Unconfirmed/);
+    }
+    const source = await A.loadFavoritePatchAlertSource(false, A.activeScope());
+    assert.equal(source.state, 'ok');
+    assert.deepEqual(Array.from(source.rows, row => row.reviewState).sort(),
+      ['confirmed', 'pending', 'unknown']);
+    assert.equal(source.rows.find(row => row.code === 'lcspet').obsValid, false);
+    A.renderSurge([], [], [], [], [], {}, [], source.rows);
+    const card = app.$('surgeFeed').querySelector('[data-alert-kind="favorite"][data-species-code="lcspet"]');
+    assert.ok(card);
+    const warning = card.querySelector('.surge-essential');
+    assert.ok(warning, 'a provisional Favorite report needs an explicit visible warning');
+    assert.match(warning.textContent, /Unreviewed report/);
+    assert.equal(app.$('surgeFeed').querySelector('[data-alert-kind="favorite"][data-species-code="norwat"]')
+      .querySelector('.revok'), null,
+    'missing review fields must not invent confirmation');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1025 retained confirmed-only Mass arrival history is evidence, not current broader coverage', async () => {
+  const app = await boot({ sample: false, fetch: url =>
+    /bird-list/.test(url) ? f821Page([{ count: 4000 }])
+      : /ref\/hotspot\//.test(url) ? f821Hotspots().map(row =>
+        ({ ...row, lat: 46.7, lng: -123.9 })) : [] });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, []);
+    const evidence = [{ speciesCode: 'snogoo', comName: 'Snow Goose', howMany: 9000,
+      subId: 'S1025501', locId: 'L821', locName: 'Synthetic public marsh',
+      lat: 46.7, lng: -123.9, obsDt: f801Day() + ' 08:00', subnational1Code: 'US-WA' }];
+    const history = {};
+    for (let ago = 0; ago < 30; ago++) {
+      const day = f801Day(ago);
+      history[day] = [{ locId: 'L821', speciesCode: ago <= 1 ? 'snogoo' : 'mallar3',
+        obsDt: day + ' 08:00', obsValid: true, obsReviewed: true }];
+    }
+    const rows = A.massFlockAlerts(evidence, { region: 'US-WA', home: A.getHome(),
+      maxMi: 35, singleObservation: true });
+    assert.equal(A.massArrivalEvidence(rows[0], history).state, 'new',
+      'the old confirmed-only history must positively exercise the old arrival claim');
+    await A.saveSurgeRetainedPart('mass', {
+      source: 'highCountPage', acquiredAt: Date.now(), state: 'ok',
+      rows, evidenceRows: evidence, arrivalDays: { L821: history },
+    });
+    const key = 'ebird_surge_retained_v1:' + A.activeScope().cacheIdentity;
+    const raw = JSON.stringify(await A.zcGet(key));
+    const projected = A.loadSurgeRetained().mass;
+    assert.equal(projected.rows.length, 1, 'legitimate high-count evidence is retained');
+    assert.equal(projected.rows[0].found, null, 'old absence coverage cannot claim a new arrival');
+    const next = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.equal(app.state.fetches.filter(url => /bird-list/.test(url)).length, 1,
+      'fresh retained timestamps cannot suppress the coverage upgrade');
+    assert.equal(next.rows[0].maxCount, 4000, 'actual reacquisition replaces the old high count');
+    assert.equal(next.includeProvisional, true);
+    assert.equal(next.rows[0].found, null, 'empty broader history is not evidence of absence');
+    assert.equal(JSON.stringify(await A.zcGet(key)), raw,
+      'the reader does not erase the original historical evidence');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1018 actual history queue retains foreground capacity and useful paint at the reserved-window boundary', async () => {
+  const measurements = [];
+  for (const used of [0, 16]) {
+    const starts = [];
+    const app = await boot({ sample: false, fetch: async url => {
+      if (/\/historic\//.test(url) || /ref\/hotspot\/L1018INTERACTIVE\/info/.test(url)) {
+        starts.push({ path: url, at: Date.now() });
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return /ref\/hotspot\/L1018INTERACTIVE\/info/.test(url) ? { locId: 'L1018INTERACTIVE' } : [];
+    } });
+    try {
+      const A = app.window.__app;
+      const work = A.navWork('Bird Gen Mass history control', 'sec-surgeBtn');
+      const result = { state: 'ok', coverage: 'Synthetic bounded history control',
+        rows: Array.from({ length: 6 }, (_, i) => ({
+          code: 'snogoo', name: 'Snow Goose', locId: 'L1018' + i,
+          distanceMi: 200, evidenceCount: 2,
+        })) };
+      const now = Date.now();
+      A.fgSchedReset(now);
+      for (let i = 0; i < used; i++) A.fgWindowPush(now - 54000);
+      const backgroundWait = A.fgWindowWait(now, true);
+      assert.equal(A.fgWindowWait(now, false), 0, 'the control leaves foreground budget');
+      if (used) assert.ok(backgroundWait > 4000, 'the actual window calculation preserves foreground headroom');
+      const t0 = Date.now();
+      let usefulAt;
+      const history = A.enrichMassArrivals(result, work, () => {
+        if (usefulAt != null) return;
+        A.renderSurge([{
+          code: 'vesspa', name: 'Vesper Sparrow', observers: 5, checklists: 5,
+          ratio: 4, loc: 'Synthetic public patch', locId: 'L1018PAINT',
+          lat: 47.75, lon: -122.16, latest: recentObsStamp(), subId: 'S1018PAINT', distMi: 1,
+        }], [], [], [], [], { mega: 'notApplicable', observations: 'ok',
+          leaderboard: 'notApplicable', hotspots: 'notApplicable', mass: 'loading' });
+        assert.ok(app.$('surgeResults').querySelector('[data-alert-kind="crowd"]'));
+        usefulAt = Date.now();
+      });
+      await waitFor(() => used
+        ? A.fgState().queuedBg === 1 && A.fgState().active === 0
+        : starts.some(row => /\/historic\//.test(row.path)), 'the actual owned history request');
+      const queued = A.fgState();
+      let timing;
+      const tapAt = Date.now();
+      const answer = await A.ebird('ref/hotspot/L1018INTERACTIVE/info',
+        false, true, true, A.navWork('Interactive control', 'sec-surgeBtn'), value => { timing = value; });
+      assert.equal(answer.locId, 'L1018INTERACTIVE');
+      const interactiveMs = Date.now() - tapAt;
+      assert.ok(interactiveMs < 3000, 'optional history consumed foreground headroom');
+      if (used) {
+        assert.equal(starts.filter(row => /\/historic\//.test(row.path)).length, 0,
+          'background history bypassed its reserved-window wait');
+        assert.ok(usefulAt < tapAt, 'useful content waited for optional history');
+      } else assert.equal(backgroundWait, 0);
+      await history;
+      const historical = starts.filter(row => /\/historic\//.test(row.path));
+      assert.equal(historical.length, 6);
+      assert.equal(work.sectionId, 'sec-surgeBtn');
+      assert.equal(A.FG_WINDOW_MAX, 22);
+      assert.equal(A.FG_WINDOW_RESERVE, 6);
+      assert.equal(A.FG_MAX_CONC, 1);
+      measurements.push({ priorStarts: used, owner: work.sectionId, lane: 'background',
+        measuredWindowWaitMs: backgroundWait, queuedBackground: queued.queuedBg,
+        active: queued.active, firstUsefulPaintMs: usefulAt - t0, interactiveMs,
+        interactiveQueuedMs: timing.queued_ms, interactiveNetworkMs: timing.network_ms,
+        firstHistoryDispatchMs: historical[0].at - t0, totalHistoryMs: Date.now() - t0 });
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+  console.log('F1018 controlled production boundaries: ' + JSON.stringify(measurements));
+});
+
+test('F1023 authorized private and public summary observers paint before details and through progressive rendering', async () => {
+  const now = Date.now();
+  const rows = Array.from({ length: 14 }, (_, i) => ({
+    speciesCode: 'litsti', comName: 'Little Stint', subId: `S10230${i}`,
+    obsDt: formatObsStamp(new Date(now - (i + 1) * 60000)),
+    locId: 'L1023PRIVATE', locName: 'Synthetic private location',
+    locationPrivate: true, lat: null, lng: null, howMany: 1,
+    userDisplayName: i === 13 ? '' : `Synthetic authorized observer ${i}`,
+    subnational1Code: 'US-WA',
+  })).concat({
+    speciesCode: 'litsti', comName: 'Little Stint', subId: 'S1023PUBLIC',
+    obsDt: formatObsStamp(new Date(now - 15 * 60000)),
+    locId: 'L1023PUBLIC', locName: 'Synthetic public patch',
+    locationPrivate: false, lat: 47.8, lng: -122.2, howMany: 1,
+    userDisplayName: 'Synthetic public observer', subnational1Code: 'US-WA',
+  });
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\/.*\/recent\/litsti/.test(url) ? rows
+      : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
+  try {
+    const A = app.window.__app;
+    await A.lookupSpecies('litsti', 'Little Stint');
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(false);
+    const details = () => app.state.fetches.filter(url => /product\/checklist\/view\//.test(url));
+    assert.equal(details().length, 0, 'summary attribution must not initiate detail requests');
+    function checkVisible() {
+      const visible = [...app.$('spLookupRecent').querySelectorAll('.cklcard-sm[data-ev-sub]')]
+        .filter(row => !row.hidden);
+      assert.ok(visible.length);
+      visible.forEach(node => {
+        const source = rows.find(row => row.subId === node.dataset.evSub);
+        assert.ok(source);
+        assert.equal(node.querySelector('.ckwho')?.textContent || '', source.userDisplayName);
+        assert.equal(!!node.querySelector('.privateflag'), source.locationPrivate);
+      });
+      return visible.length;
+    }
+    assert.ok(checkVisible() < rows.length, 'exercise a bounded initial projection');
+    while (app.$('spLookupRecent').querySelector('button.stakeoutChecklistMore')) {
+      app.$('spLookupRecent').querySelector('button.stakeoutChecklistMore').click();
+    }
+    assert.equal(checkVisible(), rows.length);
+    assert.equal(details().length, 0, 'progressive attribution still uses only existing summaries');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1023 actual summary acquisition retains observer attribution in the independent Mega snapshot', async () => {
+  const row = { code: 'litsti', name: 'Little Stint', subId: 'S1023100',
+    when: recentObsStamp(), lat: 47.8, lng: -122.2, place: 'Synthetic source location',
+    observer: 'Synthetic authorized retained observer' };
+  const app = await boot({ sample: false, fetch: url =>
+    /alert\/summary/.test(url) ? megaAlertHtml([row]) : [] });
+  let snapshot;
+  try {
+    await app.window.__app.loadAbaAlert();
+    snapshot = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
+    assert.equal(JSON.parse(snapshot).rows[0].userDisplayName, row.observer,
+      'the durable projection must not discard an already-authorized summary observer');
+  } finally { app.window.close(); }
+  const retained = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: snapshot },
+    fetch: url => /data\/obs\/.*\/recent\/litsti/.test(url) ? [{
+      speciesCode: row.code, comName: row.name, subId: row.subId,
+      obsDt: recentObsStamp(), locName: 'Synthetic private location',
+      locationPrivate: true, lat: null, lng: null, howMany: 1,
+    }] : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
+  try {
+    await retained.window.__app.lookupSpecies(row.code, row.name);
+    retained.window.__app.setSpeciesLookupWithinChase(false);
+    const node = retained.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`);
+    assert.ok(node);
+    assert.equal(node.querySelector('.ckwho')?.textContent, row.observer,
+      'initial private projection can use its own retained summary without fetching details');
+    assert.equal(retained.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 0);
+    assert.deepEqual(retained.state.errors, []);
+  } finally { retained.window.close(); }
+});
+
+test('F1023 unrelated checklist details cannot overwrite an authorized summary observer', async () => {
+  const row = { speciesCode: 'litsti', comName: 'Little Stint', subId: 'S1023200',
+    obsDt: recentObsStamp(), locName: 'Synthetic private location',
+    locationPrivate: true, lat: null, lng: null, howMany: 1,
+    userDisplayName: 'Synthetic original observer' };
+  let detail = { subId: 'S1023OTHER', userDisplayName: 'Synthetic unrelated observer',
+    obs: [{ speciesCode: 'litsti', howMany: 1 }] };
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\/.*\/recent\/litsti/.test(url) ? [row]
+      : /product\/checklist\/view\//.test(url) ? detail
+        : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
+  try {
+    const A = app.window.__app;
+    await A.lookupSpecies('litsti', 'Little Stint');
+    A.setSpeciesLookupWithinChase(false);
+    const node = app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`);
+    assert.equal(node.querySelector('.ckwho')?.textContent, row.userDisplayName);
+    await A.hydrateChecklistEvidence(node);
+    assert.equal(node.querySelector('.ckwho')?.textContent, row.userDisplayName,
+      'a differently identified response cannot replace this checklist attribution');
+    detail = { ...detail, subId: row.subId, userDisplayName: row.userDisplayName, numSpecies: 7 };
+    await A.lookupSpecies('litsti', 'Little Stint');
+    A.setSpeciesLookupWithinChase(false);
+    const reopened = app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`);
+    await A.hydrateChecklistEvidence(reopened);
+    assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 2,
+      'an unsuccessful detail result must remain retryable after reopening the summary');
+    assert.equal(reopened.querySelector('.cksp')?.textContent, '7 sp');
+    assert.equal(reopened.querySelector('.ckwho')?.textContent, row.userDisplayName);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1023 mismatched fresh, plain and packed checklist details heal without reusing unrelated transport data', async () => {
+  for (const source of ['fresh', 'plain', 'packed']) {
+    const sub = 'S1023HEAL';
+    const wrong = { subId: 'S1023OTHER', userDisplayName: 'Synthetic unrelated observer',
+      comments: 'Synthetic cached note. '.repeat(300), obs: [{ speciesCode: 'litsti' }] };
+    const correct = { ...wrong, subId: sub, userDisplayName: 'Synthetic authorized observer' };
+    let response = source === 'fresh' ? wrong : correct;
+    const app = await boot({ sample: false, fetch: url =>
+      /product\/checklist\/view\//.test(url) ? response : [] });
+    try {
+      const A = app.window.__app, store = app.window.localStorage, key = 'bc_ckl2:' + sub;
+      if (source !== 'fresh') store.setItem(key, JSON.stringify({
+        d: A.todayStr(), o: A.todayStr(), m: true,
+        v: source === 'packed' ? await A.packJson(wrong) : wrong,
+      }));
+      if (source === 'fresh') {
+        assert.equal(await A.checklistView(sub), null, 'reject the identified response, not just its observer');
+        assert.equal(store.getItem(key), null, 'do not durably retain the unrelated payload');
+        response = correct;
+      }
+      const healed = await A.checklistView(sub);
+      assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length,
+        source === 'fresh' ? 2 : 1, source + ' recovery must reacquire its own checklist');
+      assert.equal(healed?.subId, sub, source + ' identity failure must be retryable through actual transport');
+      assert.equal(healed.userDisplayName, correct.userDisplayName);
+      assert.equal((await A.checklistView(sub)).userDisplayName, correct.userDisplayName);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1016 actual Mega acquisition rejects another alert selection and preserves legitimate membership', async () => {
+  const row = { code: 'litsti', name: 'Little Stint', subId: 'S1016001',
+    when: recentObsStamp(), lat: 47.75, lng: -122.16, place: 'Synthetic public estuary' };
+  let body = megaAlertHtml([row]);
+  const app = await boot({ sample: false,
+    fetch: url => /alert\/summary/.test(url) ? body : [] });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, [], null, [row, { code: 'mallar3', name: 'Mallard' }]);
+    await A.loadAbaAlert();
+    const saved = store.getItem(A.MEGA_SNAP_KEY);
+    assert.ok(app.document.querySelector('[data-mega-code="litsti"]'));
+    function checkFeed() {
+      A.renderSurge([], [], [], [], []);
+      const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
+      assert.ok(mega, 'legitimate unseen Mega membership must qualify the actual Bird Gen feed');
+      assert.equal(mega.querySelector('.splink').dataset.sp, row.code);
+      assert.equal(app.$('surgeFeed').querySelector('.splink[data-sp="mallar3"]'), null,
+        'the separate Bird Gen projection must not promote the unrelated bird');
+    }
+    checkFeed();
+    body = megaAlertHtml([{ ...row, code: 'mallar3', name: 'Mallard' }], 'SN35602');
+    await A.loadAbaAlert();
+    assert.equal(store.getItem(A.MEGA_SNAP_KEY), saved,
+      'a completely parsed RBA page must not become Mega-owned membership');
+    assert.match(app.$('abaStatus').textContent, /failed/i);
+    assert.ok(app.document.querySelector('[data-mega-code="litsti"]'),
+      'a source failure must preserve the legitimate cached selection');
+    assert.equal(app.document.querySelector('[data-mega-code="mallar3"]'), null);
+    checkFeed();
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1016 legacy membership cannot populate Mega or Bird Gen and its dated reports survive replacement', async () => {
+  const row = { speciesCode: 'mallar3', comName: 'Mallard', subId: 'S1016002',
+    obsDt: recentObsStamp(), lat: 47.75, lng: -122.16, locName: 'Synthetic public lake',
+    userDisplayName: 'Synthetic observer', subnational1Code: 'US-WA' };
+  const saved = JSON.stringify({ at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 1, rows: [row] });
+  let release;
+  const app = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: saved },
+    fetch: url => /alert\/summary/.test(url)
+      ? new Promise(resolve => { release = resolve; }) : [] });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], null, [row]);
+    A.renderSurge([], [], [], [], []);
+    assert.equal(app.document.querySelector('#surgeResults [data-alert-kind="mega"]'), null,
+      'old readability-only provenance must not qualify Bird Gen Mega news');
+    const pending = A.loadAbaAlert();
+    assert.equal(app.document.querySelector('#abaResults [data-mega-code="mallar3"]'), null,
+      'legacy observations are retained evidence, not current index membership');
+    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), saved,
+      'do not wipe the old observations while acquiring ownership proof');
+    release(otherStateMegaAlertHtml());
+    await pending;
+    assert.deepEqual(JSON.parse(JSON.stringify(A.abaArchiveFor('US-WA', 'mallar3'))), [row],
+      'successful empty membership replacement must retain the old dated report and observer');
+    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows, []);
+    A.renderSurge([], [], [], [], []);
+    assert.equal(app.document.querySelector('#surgeResults [data-alert-kind="mega"]'), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1016 failed archive write or readback cannot replace the previous dated Mega evidence', async () => {
+  for (const failure of ['denied', 'not retained']) {
+    const rows = [{ speciesCode: 'litsti', comName: 'Little Stint', subId: 'S1016ARCHIVE',
+      obsDt: recentObsStamp(), locName: 'Synthetic public estuary',
+      lat: 47.75, lng: -122.16, userDisplayName: 'Synthetic retained observer' }];
+    const saved = JSON.stringify({ at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 1, rows });
+    const app = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: saved },
+      fetch: url => /alert\/summary/.test(url) ? otherStateMegaAlertHtml() : [] });
+    const originalSet = app.window.Storage.prototype.setItem;
+    try {
+      app.window.Storage.prototype.setItem = function (key, value) {
+        if (key === 'ebird_aba_archive_v1') {
+          if (failure === 'denied') throw new app.window.DOMException('Synthetic archive denial', 'QuotaExceededError');
+          return;
+        }
+        return originalSet.call(this, key, value);
+      };
+      await app.window.__app.loadAbaAlert();
+      assert.equal(app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY), saved,
+        failure + ' must preserve the dated reports in their original owner');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      app.window.Storage.prototype.setItem = originalSet;
+      app.window.close();
+    }
+  }
+});
+
+for (const source of ['requested', 'different selection', 'RBA page']) {
+  test(`F1016 actual managed Mega parser binds source ownership: ${source}`, async () => {
+    const row = { code: 'litsti', name: 'Little Stint', subId: 'S1016003',
+      when: recentObsStamp(), lat: 47.75, lng: -122.16, place: 'Synthetic public estuary' };
+    const html = megaAlertHtml([row], source === 'different selection' ? 'SN35602' : 'SN10489');
+    const page = new JSDOM(html, { runScripts: 'outside-only',
+      url: source === 'RBA page' ? 'https://ebird.org/alert/rba/US-WA'
+        : 'https://ebird.org/alert/summary?sid=SN10489' });
+    const app = await boot({ sample: false, fetch: () =>
+      Promise.reject(new Error('Synthetic direct HTML unavailable')) });
+    const handlers = {}, receipts = [], id = 'f1016-managed';
+    let opened = false, closed = 0;
+    page.window.mobileApp = { postMessage(message) {
+      receipts.push(message.detail);
+      handlers.messageFromWebview({ id, ...message });
+    } };
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+      addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+      openWebView() { opened = true; return Promise.resolve({ id }); },
+      executeScript({ code }) { page.window.eval(code); return Promise.resolve(); },
+      close() { closed++; return Promise.resolve(); }, hide() {}, show() {},
+    } } };
+    try {
+      const pending = app.window.__app.loadAbaAlert();
+      await waitFor(() => opened, 'the actual managed Mega acquisition');
+      await new Promise(resolve => setTimeout(resolve, 0));
+      handlers.browserPageLoaded({ id });
+      await waitFor(() => receipts.length, 'actual injected parser result');
+      assert.equal(receipts[0].ok, source === 'requested');
+      if (!closed) handlers.closeEvent({ id });
+      await pending;
+      const saved = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
+      assert.equal(!!saved, source === 'requested');
+      if (saved) assert.equal(JSON.parse(saved).rows[0].speciesCode, 'litsti');
+      assert.deepEqual(app.state.errors, []);
+    } finally { page.window.close(); app.window.close(); }
+  });
 }
 
 test('F965 leaving Today patches cancels its queued direct scan without adopting a re-entry', async () => {
@@ -1210,7 +1903,7 @@ test('F965 leaving Today patches cancels its queued direct scan without adopting
       if (mode === 'reenter') {
         held[0]([]);
         await waitFor(() => held.length === 2, 'the second direct hotspot request');
-        assert.ok(app.window.localStorage.getItem(A.bcReal('ebird_locsp_v1:L9651:7')),
+        assert.ok(app.window.localStorage.getItem(A.bcReal('ebird_locsp_v2:L9651:7')),
           'the completed location evidence control was not stored');
       }
       if (mode !== 'stay') {
@@ -1233,7 +1926,7 @@ test('F965 leaving Today patches cancels its queued direct scan without adopting
           'abandoned direct evidence repainted a later navigation');
       }
       if (mode === 'reenter') assert.ok(
-        app.window.localStorage.getItem(A.bcReal('ebird_locsp_v1:L9651:7')),
+        app.window.localStorage.getItem(A.bcReal('ebird_locsp_v2:L9651:7')),
         'cancellation deleted already completed useful evidence');
     } finally {
       releaseAll = true;
@@ -1462,9 +2155,9 @@ test('F972 Top Patch diagnostics distinguish eligible species from selected slot
     const stats=A.surgePatchDiagnostics();
     assert.equal(stats.total,1);
     assert.deepEqual(JSON.parse(JSON.stringify(stats.tiles[0])),{
-      index:0,input:3,unseen:2,seen:1,unknown:0,eligible:1,selected:1,
+      index:0,input:2,unseen:1,seen:1,unknown:0,eligible:1,selected:1,
       slots:1,loadedImages:0,fallbacks:0
-    });
+    },'diagnostics count the canonical species inventory after patch grouping, not duplicate votes');
     assert.doesNotMatch(JSON.stringify(stats),/LPRIVATE972|Synthetic identifying patch|Snow Goose|snogoo/);
     A.renderSurge([],[],[],[],[],{deferPhotos:true},Array.from({length:25},(_,index)=>({
       locId:'L972'+index,locName:'Synthetic patch '+index,species
@@ -2192,7 +2885,7 @@ async function seedCurrentSeen(app,codes) {
   seedOwnedSnapshot(app,codes,model);
 }
 
-async function seedRarityChase(app, rows) {
+async function seedRarityChase(app, rows, at = Date.now()) {
   const A = app.window.__app;
   if (A.personalListEvidence().complete) {
     const source = JSON.parse(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))));
@@ -2217,7 +2910,7 @@ async function seedRarityChase(app, rows) {
     subnational2Name: 'King',
   }));
   A.seedChase(profile.slug, {
-    t: Date.now(),
+    t: at,
     rarity: false,
     rows: { 'king-notable.json': raw },
     speciesCodes: raw.map((row) => row.speciesCode),
@@ -3732,12 +4425,13 @@ for (const regional of [false, true]) {
       code: 'litsti', name: 'Little Stint', subId: 'S' + (10082000 + i),
       when: 'Oct 18, 2026 11:00', place: 'Synthetic current public estuary',
       lat: regional ? 47 : 28, lng: regional ? -123 : -81, count: 1,
-    })));
+    })), 'SN100800');
     if (!regional) html = html.replaceAll(', Washington, United States', ', Florida, United States');
     const app = await boot({ sample: false, storage: {
       ebird_aba_sid: 'SN100800',
       ebird_mega_snapshot_v1: JSON.stringify({
-        at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800', rows: cachedRows,
+        at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800',
+        membershipVersion: 2, rows: cachedRows,
       }),
     }, fetch: url => /alert\/summary/.test(url) ? html : [] });
     try {
@@ -3805,11 +4499,12 @@ test('F1008 selected Mega species retain their cached detail object and historic
     code: 'litsti', name: 'Little Stint', subId: 'S10083003',
     when: 'Oct 18, 2026 11:00', place: 'Synthetic current public estuary',
     lat: 47, lng: -123, count: 1,
-  }]);
+  }], 'SN100800');
   const app = await boot({ sample: false, storage: {
     ebird_aba_sid: 'SN100800',
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800', rows: cachedRows,
+      at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800',
+      membershipVersion: 2, rows: cachedRows,
     }),
   }, fetch: url => /alert\/summary/.test(url) ? html : [] });
   try {
@@ -3842,6 +4537,7 @@ test('F1008 failed Mega acquisition retains the cached answer with an explicit e
     ebird_aba_sid: 'SN100800',
     ebird_mega_snapshot_v1: JSON.stringify({
       at: Date.now() - 20 * 60000, region: 'US-WA', sid: 'SN100800',
+      membershipVersion: 2,
       rows: [{ speciesCode: 'litsti', comName: 'Little Stint',
         obsDt: '2026-10-17 10:00', subId: 'S10084001',
         locName: 'Synthetic cached public estuary', lat: 47, lng: -123 }],
@@ -3880,7 +4576,7 @@ function f1012StakeoutRow(mega = false) {
   };
 }
 
-function f1012StakeoutFetch(row, megaSource = otherStateMegaAlertHtml()) {
+function f1012StakeoutFetch(row, megaSource = otherStateMegaAlertHtml('SN1012')) {
   return url => {
     if (/alert\/summary/.test(url)) {
       return typeof megaSource === 'function' ? megaSource() : megaSource;
@@ -3935,7 +4631,7 @@ test('F1012 Stakeout fresh empty Mega selection overrides retained index detail'
   const app = await boot({ sample: false, storage: {
     ebird_report: 'wa', ebird_aba_sid: 'SN1012',
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: Date.now(), region: 'US-WA', sid: 'SN1012', rows: [row],
+      at: Date.now(), region: 'US-WA', sid: 'SN1012', membershipVersion: 2, rows: [row],
     }),
   }, fetch: f1012StakeoutFetch(row) });
   try {
@@ -3963,7 +4659,7 @@ for (const cachedFailure of [false, true]) {
       ebird_report: 'wa', ebird_aba_sid: 'SN1012',
     }, fetch: f1012StakeoutFetch(row, () => {
       if (fail) return Promise.reject(new Error('Synthetic Mega source unavailable'));
-      return megaAlertHtml([row]);
+      return megaAlertHtml([row], 'SN1012');
     }) });
     try {
       const A = app.window.__app;
@@ -3991,7 +4687,7 @@ for (const scope of ['current', 'different account', 'different region']) {
     const row = f1012StakeoutRow(true);
     const app = await boot({ sample: false, storage: {
       ebird_report: 'wa', ebird_aba_sid: 'SN1012',
-    }, fetch: f1012StakeoutFetch(row, megaAlertHtml([row])) });
+    }, fetch: f1012StakeoutFetch(row, megaAlertHtml([row], 'SN1012')) });
     try {
       const A = app.window.__app;
       assert.equal(await A.lazyRefreshMegaSnapshot(), true,
@@ -4028,8 +4724,10 @@ test('F1012 Stakeout failed legacy-cache acquisition retains reports without inv
   try {
     const A = app.window.__app;
     await A.loadAbaAlert();
-    assert.match(app.$('abaStatus').textContent, /Cached alert remains visible.*failed/i);
-    app.click(app.document.querySelector('#abaResults .megajump'));
+    assert.match(app.$('abaStatus').textContent, /unverified.*failed/i);
+    assert.equal(app.document.querySelector('#abaResults .megajump'), null,
+      'unverified retained reports are not the current Mega index');
+    await A.lookupSpecies(row.speciesCode, row.comName);
     await settleMegaEntry(app, row.speciesCode);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
@@ -4047,7 +4745,7 @@ test('F1012 Stakeout failed legacy-cache acquisition retains reports without inv
 
 test('F1012 Stakeout repaint retires membership after a successful empty Mega acquisition', async () => {
   const row = f1012StakeoutRow(true);
-  let html = megaAlertHtml([row]);
+  let html = megaAlertHtml([row], 'SN1012');
   const app = await boot({ sample: false, storage: {
     ebird_report: 'wa', ebird_aba_sid: 'SN1012',
   }, fetch: f1012StakeoutFetch(row, () => html) });
@@ -4058,7 +4756,7 @@ test('F1012 Stakeout repaint retires membership after a successful empty Mega ac
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
     assert.ok(app.$('spLookupResults').querySelector('.surgebirdtag-mega'));
-    html = otherStateMegaAlertHtml();
+    html = otherStateMegaAlertHtml('SN1012');
     await A.loadAbaAlert();
     assert.equal(A.megaViewState().view.rawRows.length, 0);
     const fetchCount = app.state.fetches.length;
@@ -4076,7 +4774,7 @@ test('F1012 Stakeout does not borrow a different-account current Mega view', asy
   const row = f1012StakeoutRow(true);
   const app = await boot({ sample: false, storage: {
     ebird_report: 'wa', ebird_aba_sid: 'SN1012',
-  }, fetch: f1012StakeoutFetch(row, megaAlertHtml([row])) });
+  }, fetch: f1012StakeoutFetch(row, megaAlertHtml([row], 'SN1012')) });
   try {
     const A = app.window.__app;
     await A.loadAbaAlert();
@@ -4119,7 +4817,7 @@ test('F1012 Stakeout ordinary retained reports do not invent either rarity label
 for (const newerHasBird of [true, false]) {
 test('F1012 Stakeout newer verified lazy membership supersedes an older ' + (newerHasBird ? 'empty' : 'populated') + ' view', async () => {
   const row = f1012StakeoutRow(true);
-  let html = newerHasBird ? otherStateMegaAlertHtml() : megaAlertHtml([row]);
+  let html = newerHasBird ? otherStateMegaAlertHtml('SN1012') : megaAlertHtml([row], 'SN1012');
   const app = await boot({ sample: false, storage: {
     ebird_report: 'wa', ebird_aba_sid: 'SN1012',
   }, fetch: f1012StakeoutFetch(row, () => html) });
@@ -4130,7 +4828,7 @@ test('F1012 Stakeout newer verified lazy membership supersedes an older ' + (new
     await A.loadAbaAlert();
     assert.equal(A.megaViewState().view.rawRows.length, newerHasBird ? 0 : 1);
     app.window.Date.now = now;
-    html = newerHasBird ? megaAlertHtml([row]) : otherStateMegaAlertHtml();
+    html = newerHasBird ? megaAlertHtml([row], 'SN1012') : otherStateMegaAlertHtml('SN1012');
     assert.equal(await A.lazyRefreshMegaSnapshot(), true,
       'the existing six-hour stale check acquires a genuinely newer selected source');
     await A.lookupSpecies(row.speciesCode, row.comName);
@@ -4154,7 +4852,7 @@ test('F1012 Stakeout complete selected view outranks its same-acquisition lossy 
   })).concat(row);
   const app = await boot({ sample: false, storage: {
     ebird_report: 'wa', ebird_aba_sid: 'SN1012',
-  }, fetch: f1012StakeoutFetch(row, megaAlertHtml(source)) });
+  }, fetch: f1012StakeoutFetch(row, megaAlertHtml(source, 'SN1012')) });
   try {
     const A = app.window.__app;
     await A.loadAbaAlert();
@@ -4187,7 +4885,7 @@ test('F1008 actual Twitches RBA and Mega acquisitions keep independent positive 
       code: 'litsti', name: 'Little Stint', subId: 'S10085002',
       when: 'Oct 18, 2026 11:00', place: 'Synthetic Mega public estuary',
       lat: 47, lng: -123, count: 1,
-    }]) : otherStateMegaAlertHtml();
+    }], 'SN100800') : otherStateMegaAlertHtml('SN100800');
     return [];
   } });
   try {
@@ -4221,7 +4919,7 @@ for (const distance of ['near', 'region']) {
       code: 'litsti', name: 'Little Stint', subId: 'S10086001',
       when: formatObsStamp(new Date(Date.now() - 10 * 60000)),
       place: 'Synthetic Mega public estuary', lat: 47.75, lng: -122.15, count: 1,
-    }]);
+    }], 'SN100800');
     const app = await boot({ sample: false, storage: {
       ebird_aba_sid: 'SN100800',
       ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance }),
@@ -4283,6 +4981,7 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
     at: Date.now() - 20 * 60000,
     region: 'US-WA',
     sid: 'SN10489',
+    membershipVersion: 2,
     rows: [{
       speciesCode: 'shtsan', comName: 'Cached Sharp-tailed Sandpiper',
       obsDt: '2026-09-25 10:00', locName: 'Cached Estuary',
@@ -4316,6 +5015,7 @@ test('F798 cached Mega controls repaint while live refresh is pending or failed'
   try {
     app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 2,
       rows: [
         { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
           obsDt: '2026-09-25 10:00', locName: 'Far Estuary', locId: 'L-FAR',
@@ -4381,6 +5081,7 @@ test('F935 fresh and cached Mega paints keep regional evidence despite legacy AB
     assert.equal(A.abaScope(), 'state');
     app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 2,
       rows: [{ speciesCode: 'ruff', comName: 'Ruff',
         obsDt: '2026-10-13 10:00', locName: 'Cached Hoquiam',
         subId: 'S935CACHE', lat: 46.98, lng: -123.89 }],
@@ -4436,6 +5137,7 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
   try {
     app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 2,
       rows: [{ speciesCode: 'shtsan', comName: 'Cached Sandpiper',
         obsDt: '2026-09-25 10:00', locName: 'Cached Estuary',
         locId: 'L-CACHED', subId: 'S-CACHED', lat: 47.7, lng: -122.2 }],
@@ -5280,7 +5982,7 @@ test('F268 a completed first-report request repaints existing forecast context',
   const A = app.window.__app;
   const now = new Date();
   const sampleDate = sampleDateForWeek(now.getFullYear() - 1, fixtureIsoWeek(now));
-  app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
+  app.window.localStorage.setItem(A.migKey(), JSON.stringify({
     samples: { ['wa|' + sampleDate]: ['comnig'] },
     names: { comnig: 'Common Nighthawk' },
     updated: now.toISOString(),
@@ -5386,7 +6088,7 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
   const departureDate = sampleDateForWeek(now.getFullYear() - 1, fixtureIsoWeek(now));
   const outsideWeek = ((targetWeek + 9 - 1) % 53) + 1;
   const outsideDate = sampleDateForWeek(now.getFullYear() - 1, outsideWeek);
-  app.window.localStorage.setItem('ebird_mig_wa', JSON.stringify({
+  app.window.localStorage.setItem(A.migKey(), JSON.stringify({
     samples: {
       ['wa|' + sampleDate]: ['westan'],
       ['wa|' + departureDate]: ['depmig'],
@@ -10049,7 +10751,8 @@ test('F805 rarity controls disable unknown absence, restore exact list filters a
   const date = new Date().toLocaleDateString('en-US', {
     month:'short',day:'numeric',year:'numeric',
   });
-  const alert = ['stable','rename'].map((code,index) =>
+  const alert = '<link rel="canonical" href="https://ebird.org/alert/summary?sid=SN10489">'
+    + ['stable','rename'].map((code,index) =>
     '<div id="obs-OBS' + (index + 1) + '" class="Observation">'
     + '<a href="/species/' + code + '/US-WA" data-species-code="' + code + '">'
     + '<span class="Heading-main">' + (index ? 'New name' : 'Stable bird') + '</span></a>'
@@ -10068,7 +10771,7 @@ test('F805 rarity controls disable unknown absence, restore exact list filters a
   const A = app.window.__app;
   const rows = [{code:'stable',name:'Stable bird',kind:'Rarity'},
     {code:'rename',name:'New name',kind:'Rarity'}];
-  app.window.localStorage.setItem('ebird_mig_' + A.getReportSlug(),JSON.stringify({
+  app.window.localStorage.setItem(A.migKey(),JSON.stringify({
     samples:{['fixture|' + A.todayStr()]:['stable','rename']},
     names:{stable:'Stable bird',rename:'New name'},
   }));
@@ -14046,7 +14749,7 @@ test('F943 PPTE needs a celebrity-style anchor, subsequent rarity and per-bird f
   } finally { app.window.close(); }
 });
 
-test('F943 PPTE ranks by actual distance without hiding farther events or treating unknown as nearby', async () => {
+test('F943/F1019 PPTE feed keeps chronology while preserving actual distance and unknown-distance evidence', async () => {
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app, event = A.ppteEvents(ppteFixture())[0];
@@ -14055,8 +14758,8 @@ test('F943 PPTE ranks by actual distance without hiding farther events or treati
         evidenceRows: event.evidenceRows.map(row => ({ ...row, lat, lon: lat == null ? null : -122 })) };
     }
     const near = at('near', 47.05, recentObsStamp(2));
-    const far = at('far', 48, recentObsStamp(0));
-    const unknown = at('unknown', null, recentObsStamp(0));
+    const far = at('far', 48, formatObsStamp(new Date(Date.now() - 30 * 60000)));
+    const unknown = at('unknown', null, formatObsStamp(new Date(Date.now() - 60 * 60000)));
     function render() {
       A.renderSurge([], [], [], [], [], {
         mega: 'notApplicable', ppte: 'ok', ppteRows: [unknown, far, near],
@@ -14066,18 +14769,19 @@ test('F943 PPTE ranks by actual distance without hiding farther events or treati
     A.useFoundAnchor({ lat: 47, lng: -122 }, 'First origin');
     app.window.localStorage.setItem(A.chaseMiKey(), '25');
     let cards = render();
-    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['near', 'far', 'unknown']);
-    for (const [index, lat] of [[0, 47.05], [1, 48]]) {
+    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'unknown', 'near']);
+    for (const [id, lat] of [['near', 47.05], ['far', 48]]) {
       const expected = app.window.BirdLogic.haversineMi(47, -122, lat, -122);
-      const text = surgeEvidence(cards[index]).querySelector('.ppte-evidence [data-ppte-distance-text]');
+      const text = surgeEvidence(cards.find(card => card.dataset.ppteEvent === id))
+        .querySelector('.ppte-evidence [data-ppte-distance-text]');
       assert.ok(text, 'known distance must appear in the qualification sentence');
       assert.equal(text.textContent,
         expected.toFixed(1) + 'mi away', 'known distances remain visible even beyond the chase radius');
     }
-    assert.equal(surgeEvidence(cards[2]).querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
+    assert.equal(surgeEvidence(cards[1]).querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
     A.useFoundAnchor({ lat: 48, lng: -122 }, 'Changed origin');
     cards = render();
-    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'near', 'unknown']);
+    assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'unknown', 'near']);
     assert.equal(surgeEvidence(cards[0]).querySelector('[data-ppte-distance-text]').textContent, '0.0mi away');
     A.resetTransientAnchor();
     app.window.localStorage.removeItem(A.homeKey('lat'));
@@ -19984,10 +20688,14 @@ test('F1006 Recent Bird Gen keeps each matched Favorite Patch name, age and navi
   try {
     const A = app.window.__app;
     await seedSeen(app, ['amerob'], null, [{ code: 'shtsan', name: 'Sharp-tailed Sandpiper' }]);
+    const clock = new Date();
+    clock.setHours(0, 5, 0, 0);
+    const now = clock.getTime();
+    app.window.Date.now = () => now;
     const names = ['Example Park', 'Example River Valley Wetlands and Wildlife Viewing Area'];
     const rows = names.map((locName, i) => ({
       code: 'shtsan', name: 'Sharp-tailed Sandpiper', locId: 'L10060' + i, locName,
-      when: recentObsStamp(0, 10 + i), time: Date.now() - (10 + i) * 60000,
+      when: formatObsStamp(new Date(now - (10 + i) * 60000)), time: now - (10 + i) * 60000,
       count: 1, checklistId: 'S100600' + i, distanceMi: 5,
     }));
     A.renderSurge([], [], [], [], [], {
@@ -20015,6 +20723,188 @@ test('F1006 Recent Bird Gen keeps each matched Favorite Patch name, age and navi
     assert.equal(app.$('sec-stakeHsBtn').hidden, false);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F1015 cached Twitches keep date order and refresh ages without a new-item bucket', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = Date.now() + 74 * 60000;
+    await seedSeen(app, []);
+    A.setRaritySort('date');
+    const older = { code: 'lcspet', name: "Leach's Storm-Petrel", kind: 'Rarity',
+      dateStr: formatObsStamp(new Date(now - 95 * 60000)), loc: 'Synthetic public patch',
+      locId: 'L1015', subId: 'S1015OLD', observer: 'Synthetic observer', distMi: 2 };
+    const newer = { ...older, code: 'ancmur', name: 'Ancient Murrelet',
+      dateStr: formatObsStamp(new Date(now - 60 * 60000)), subId: 'S1015NEW', distMi: 10 };
+    await seedRarityChase(app, [older], now - 73 * 60000);
+    app.window.Date.now = () => now - 73 * 60000;
+    A.refresh();
+    await waitFor(() => app.$('results').querySelector('[data-ev-sub="S1015OLD"]'), 'first cached Twitch');
+    assert.equal(app.$('results').querySelector('.spmetric-age strong').textContent, '22m');
+    app.window.Date.now = () => now;
+    await seedRarityChase(app, [older, newer], now);
+    A.refresh();
+    await waitFor(() => app.$('results').querySelector('[data-ev-sub="S1015NEW"]'), 'new report repaint');
+    const cards = [...app.$('results').querySelectorAll(':scope > [data-twitch-key]')];
+    assert.deepEqual(cards.map(row => row.dataset.evSub), ['S1015NEW', 'S1015OLD']);
+    assert.deepEqual(cards.map(row => row.querySelector('.spmetric-age strong').textContent), ['1h', '1h'],
+      'an unchanged cached row cannot keep its earlier 22-minute age');
+    assert.match(cards[1].textContent, /Leach's Storm-Petrel/);
+    app.document.querySelector('#todaySort [data-sort="distance"]').click();
+    await waitFor(() => /nearest first/.test(app.$('status').textContent), 'Nearest repaint');
+    assert.equal(app.$('results').querySelector(':scope > [data-twitch-key]').dataset.evSub, 'S1015OLD');
+  } finally { app.window.close(); }
+});
+
+test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores category and PPTE distance', async () => {
+  const app = await boot({ home: false });
+  try {
+    const A = app.window.__app, now = Date.now();
+    const stamp = minutes => formatObsStamp(new Date(now - minutes * 60000));
+    const event = A.ppteEvents(ppteFixture())[0];
+    assert.ok(event);
+    const ppte = [
+      { ...event, id: 'F1019-NEW', latest: stamp(1), publicHotspot: null,
+        evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 48, lon: -122 })) },
+      { ...event, id: 'F1019-TIE', latest: stamp(1), publicHotspot: null,
+        evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 48, lon: -122 })) },
+      { ...event, id: 'F1019-OLD', latest: stamp(20), publicHotspot: null,
+        evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 47.05, lon: -122 })) },
+    ];
+    A.useFoundAnchor({ lat: 47, lng: -122 }, 'Synthetic origin');
+    const patches = Array.from({ length: 7 }, (_, i) => ({
+      loc: 'Chronological patch ' + i, locId: 'L1019' + i, observers: 16,
+      ratio: 4.1, reason: 'surge', latest: stamp(5 + i), eventAt: now - (5 + i) * 60000,
+    }));
+    const twitch = { code: 'shtsan', name: 'Sharp-tailed Sandpiper', firstAt: now - 50 * 60000,
+      reports: 2, lowerBound: true, latest: { dateStr: stamp(55), locId: 'L1019T',
+        loc: 'Synthetic Twitch patch', subId: 'S1019T', lat: 47, lon: -122 } };
+    let previous;
+    for (const reverse of [false, true]) {
+      A.renderSurge([], [], reverse ? patches.slice().reverse() : patches, [], [], {
+        mega: 'notApplicable', observations: 'ok', hotspots: 'ok',
+        twitchRows: [twitch], ppte: 'ok', ppteRows: reverse ? ppte.slice().reverse() : ppte,
+      });
+      const feed = [...app.$('surgeFeed').children];
+      const times = feed.map(row => Number(row.dataset.surgeLatest));
+      assert.deepEqual(times, times.slice().sort((a, b) => b - a));
+      const identities = feed.map(row => row.dataset.ppteEvent || row.dataset.hsloc || row.dataset.speciesCode);
+      if (previous) assert.deepEqual(identities, previous, 'input permutation must not change order');
+      previous = identities;
+      const recent = [...app.$('recentBirdGenRows').children];
+      assert.equal(recent.length, 6);
+      assert.equal(recent[0].dataset.recentKind, 'ppte');
+      assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Sharp-tailed|Chronological patch [5-6]/);
+      assert.match(app.$('surgeFeed').textContent, /Sharp-tailed/);
+    }
+    A.renderSurge([], [], [], [], [], { mega: 'notApplicable', ppte: 'ok', ppteRows: [
+      { ...event, id: 'F1019-FUTURE', latest: stamp(-10) },
+      { ...event, id: 'F1019-OUTSIDE-WINDOW', latest: stamp(25 * 60) },
+    ] });
+    assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="ppte"]').length, 2,
+      'the time-window controls must exist in the full feed before preview filtering');
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-birdgen-empty]'),
+      'neither future reports nor reports outside the rolling day belong in Recent');
+  } finally { app.window.close(); }
+});
+
+test('F1020 F1021 F1022 Recent keeps icon refresh, operable individual PATAGONIA links and accessible outcome controls', async () => {
+  const app = await boot({ home: false });
+  try {
+    const A = app.window.__app, now = Date.now();
+    const event = A.ppteEvents(ppteFixture())[0];
+    A.renderSurge([], [], [], [], [], {
+      mega: 'notApplicable', ppte: 'ok',
+      ppteRows: [{ ...event, latest: formatObsStamp(new Date(now - 60000)) }],
+    });
+    const root = app.$('recentBirdGen'), refresh = app.$('recentBirdGenRefresh');
+    assert.equal(refresh.textContent.trim(), '↻');
+    assert.equal(refresh.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
+    assert.equal(root.querySelectorAll(':scope > p').length, 0, 'surrounding small-print blocks remain');
+    const feedback = app.$('recentBirdGenFeedback');
+    assert.ok(feedback && !feedback.hidden, 'missing setup has explicit operable outcome feedback');
+    feedback.click();
+    assert.match(app.$('appSheet').textContent, /Set Home/);
+    A.hideSheet();
+    const preview = root.querySelector('[data-recent-kind="ppte"]');
+    const birds = [...preview.querySelectorAll('.surgealerttitle .splink')];
+    const full = [...app.$('surgeFeed').querySelectorAll('.surgealerttitle .splink')];
+    assert.ok(birds.length >= 2);
+    assert.deepEqual(birds.map(link => link.dataset.sp), full.map(link => link.dataset.sp));
+    for (const link of birds) {
+      assert.equal(link.getAttribute('role'), 'link');
+      assert.equal(link.tabIndex, 0);
+      assert.notEqual(preview.querySelector(':scope > .name').getAttribute('role'), 'link');
+      for (const key of ['Enter', ' ', 'click']) {
+        const current = root.querySelector('.surgealerttitle .splink[data-sp="' + link.dataset.sp + '"]');
+        if (key === 'click') current.click();
+        else current.dispatchEvent(new app.window.KeyboardEvent('keydown', { key, bubbles: true }));
+        assert.equal(app.$('sec-spLookupBtn').hidden, false, 'parent navigation swallowed the species action');
+        assert.equal(app.$('spLookup').value, link.dataset.spname);
+        A.showMenu();
+      }
+    }
+    root.querySelector('[aria-label="Open full PATAGONIA alert"]').click();
+    assert.equal(app.$('sec-surgeBtn').hidden, false, 'the non-species action still opens the full feed');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1022 actual Menu feedback distinguishes loading, completed-empty, cancellation and failure without dropping retained alerts', async () => {
+  let mode = 'empty', release;
+  const pending = [];
+  const app = await boot({ sample: false, fetch: url => {
+    if (!/data\/obs\//.test(url)) return [];
+    if (mode === 'held') return new Promise(resolve => { release = () => resolve([]); });
+    return mode === 'failed' ? { __status: 400 } : [];
+  } });
+  try {
+    const A = app.window.__app;
+    await A.refreshRecentBirdGen(false);
+    const complete = A.refreshRecentBirdGen(true);
+    pending.push(complete);
+    assertRecentOutcome(app, /Checking notable sightings/);
+    await complete;
+    assertRecentOutcome(app, /Notable sightings checked/);
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-birdgen-empty]'));
+    assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /refresh failed/i);
+    A.renderSurge([{
+      code: 'vesspa', name: 'Vesper Sparrow', observers: 5, checklists: 5, ratio: 4,
+      loc: 'Synthetic public patch', locId: 'L1022', lat: 47.75, lon: -122.16,
+      latest: recentObsStamp(), subId: 'S1022', distMi: 1,
+    }], [], [], [], [], { mega: 'notApplicable', observations: 'ok',
+      leaderboard: 'notApplicable', hotspots: 'notApplicable' });
+    const retained = app.$('recentBirdGenRows').textContent;
+    assert.match(retained, /Vesper Sparrow/);
+    mode = 'held';
+    const cancelled = A.refreshRecentBirdGen(true);
+    pending.push(cancelled);
+    assertRecentOutcome(app, /Checking notable sightings/);
+    await waitFor(() => release, 'actual pending notable request');
+    A.cancelStalledWork();
+    release();
+    await cancelled;
+    assertRecentOutcome(app, /refresh cancelled.*retained results kept/i, true);
+    assert.equal(app.$('recentBirdGenRows').textContent, retained);
+    mode = 'failed';
+    const failed = A.refreshRecentBirdGen(true);
+    pending.push(failed);
+    await failed;
+    assertRecentOutcome(app, /Notable refresh failed.*retained results kept/i, true);
+    assert.equal(app.$('recentBirdGenRows').textContent, retained);
+    const fullCancelled = A.refreshFullBirdGen();
+    pending.push(fullCancelled);
+    app.window.localStorage.setItem('ebird_api_key', '');
+    await fullCancelled;
+    assertRecentOutcome(app, /Full Bird Gen refresh cancelled.*retained results kept/i, true);
+    assert.equal(app.$('recentBirdGenRows').textContent, retained,
+      'invalidating the full acquisition prerequisites must not discard retained alerts');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (release) release();
+    await Promise.allSettled(pending);
+    app.window.close();
+  }
 });
 
 test('F729 live favorites preserve successful feeds, reuse cache and force retry failures', async () => {
@@ -20947,6 +21837,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const snap = JSON.stringify({
     at: Date.now() - 15 * 60000,
     region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2,
     rows: [
       { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(90),
         locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM1', lat: 47.76, lng: -122.17 },
@@ -21149,7 +22040,7 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
       + `${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const snap = JSON.stringify({
-    at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2, at: Date.now(), region: 'US-WA', sid: 'SN10489',
     rows: [
       { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(45),
         locName: 'Smith Island', locId: 'LMEGA', subId: 'S123456789',
@@ -21542,7 +22433,7 @@ test('F969 Mega keeps outside distance in supporting evidence and preserves its 
   const now = new Date();
   const stamp=recentObsStamp(1, now.getHours(), now.getMinutes());
   const app=await boot({storage:{ebird_mega_snapshot_v1:JSON.stringify({
-    at:Date.now(),region:'US-WA',sid:'SN10489',rows:[{
+    at:Date.now(),region:'US-WA',sid:'SN10489',membershipVersion:2,rows:[{
       speciesCode:'nazboo1',comName:'Nazca Booby',obsDt:stamp,
       locName:'Example public shore',locId:'LMEGA969',subId:'SMEGA969',
       lat:45.7,lng:0,howMany:1
@@ -21616,6 +22507,73 @@ test('F956 Top Patch uses only distinct patch birds, prefers proven unseen and l
     assert.equal(tile.dataset.patchBirds,'unknown');
     assert.match(tile.getAttribute('aria-label'),/^Birds with unknown personal history at Unverified-history patch: Snow Goose$/);
   } finally {unknown.window.close();}
+});
+
+test('F1017 actual patch acquisition groups suffixes before qualification, counts and retained preview', async () => {
+  const stamp = formatObsStamp(new Date(Date.now() - 30 * 60000));
+  const species = [
+    [['lcspet', "Leach's Storm-Petrel"], ['lcspet1', "Leach's Storm-Petrel (Leach's)"]],
+    [['lcspet', "Leach's Storm-Petrel"], ['lcspet1', "Leach's Storm-Petrel (Leach's)"],
+      ['ruff', 'Ruff']],
+    [['islandpet', 'Synthetic (Island) Petrel'], ['plainpet', 'Synthetic Petrel']],
+    ...Array.from({ length: 5 }, () => [['baisan', "Baird's Sandpiper"]]),
+  ];
+  const raw = species.flatMap((birds, i) => birds.map(([code, name], j) => ({
+    speciesCode: code, comName: name, obsDt: stamp,
+    subId: `S1017${i}${j}`, obsId: `OBS1017${i}${j}`,
+    locId: `L1017${i}`, locName: `Synthetic public patch ${i}`,
+    lat: 47.75 + i * 0.03, lng: -122.16, howMany: 1,
+    subnational2Code: 'US-WA-033',
+  })));
+  const taxa = raw.map(row => ({ code: row.speciesCode, name: row.comName }));
+  const app = await boot({ sample: false, fetch: url =>
+    /data\/obs\//.test(url) ? raw : [] });
+  let storage;
+  try {
+    await seedSeen(app, [], null, taxa);
+    const A = app.window.__app, result = await A.getChase(true);
+    assert.equal(result.feedComplete, true, 'qualification needs a complete actual source');
+    assert.ok(app.state.fetches.some(url => /data\/obs\//.test(url)));
+    const observed = A.surgeObservedResult(result, Date.now());
+    assert.deepEqual(Array.from(observed.patches, row => row.locId).sort(), ['L10171', 'L10172'],
+      'two subtype codes for one common-name group cannot earn a second qualification vote');
+    const source = result.cv.destinations.find(row => row.locId === 'L10171');
+    assert.equal(source.records.length, 3, 'qualification must not erase original reports');
+    const groups = observed.patches.find(row => row.locId === 'L10171').speciesGroups;
+    assert.deepEqual(Array.from(groups, group => group.length).sort(), [1, 2]);
+    assert.deepEqual(Array.from(groups, group => Array.from(group, row => row.subId))
+      .flat().sort(), ['S101710', 'S101711', 'S101712']);
+    for (const patch of observed.patches) assert.equal(patch.species.length, 2);
+    A.renderSurge([], [], [], [], [], { deferPhotos: true }, observed.patches);
+    const patch = app.$('surgeFeed').querySelector('[data-hsloc="L10171"]');
+    assert.match(surgeEvidence(patch).textContent, /2 distinct target species/);
+    assert.equal(patch.querySelectorAll('.surgepatchgrid > .thumb').length, 2);
+    assert.equal(patch.querySelector('.surgepatchthumb').dataset.patchEligible, '2');
+    const internal = app.$('surgeFeed').querySelector('[data-hsloc="L10172"]');
+    assert.equal(internal.querySelectorAll('.surgepatchgrid > .thumb').length, 2,
+      'meaningful internal parentheses do not collapse a different base name');
+    storage = Object.fromEntries(Object.keys(app.window.localStorage)
+      .map(key => [key, app.window.localStorage.getItem(key)]));
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+  const retained = await boot({ sample: false, storage, fetch: () => [] });
+  try {
+    const A = retained.window.__app;
+    await seedSeen(retained, [], null, taxa);
+    const result = await A.getChase(false);
+    const observed = A.surgeObservedResult(result, Date.now());
+    assert.deepEqual(Array.from(observed.patches, row => row.locId).sort(), ['L10171', 'L10172']);
+    const saved = observed.patches.find(row => row.locId === 'L10171');
+    saved.species.push({ ...saved.species[0], code: 'lcspet1',
+      comName: "Leach's Storm-Petrel (Leach's)" });
+    A.renderSurge([], [], [], [], [], { deferPhotos: true }, observed.patches);
+    const patch = retained.$('surgeFeed').querySelector('[data-hsloc="L10171"]');
+    assert.match(surgeEvidence(patch).textContent, /2 distinct target species/,
+      'legacy projected evidence is grouped again at paint');
+    assert.equal(patch.querySelectorAll('.surgepatchgrid > .thumb').length, 2);
+    assert.equal(saved.species.length, 3, 'painting must not mutate retained source evidence');
+    assert.deepEqual(retained.state.errors, []);
+  } finally { retained.window.close(); }
 });
 
 test('F961 every migration level and count label shares the sky and moon palette', async () => {
@@ -21840,7 +22798,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   }));
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 1, rows,
+      at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows,
     }),
     'ebird_species_v2:US-WA': JSON.stringify({
       at: Date.now(),
@@ -21895,6 +22853,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
 test('F954 removes the superseded F459 inline rarity tags without removing category badges', async () => {
   const snap = JSON.stringify({
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2,
     rows: [{
       speciesCode: 'nazboo1', comName: 'Nazca Booby',
       obsDt: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -22037,6 +22996,7 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
   const newest = localStamp(5);
   const snap = JSON.stringify({
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2,
     rows: [
       { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(60),
         locName: 'Near Home Jetty', locId: 'LM', subId: 'SM1', lat: 47.80, lng: -122.17 },
@@ -22419,7 +23379,7 @@ test('F274 distinguishes failed, successful-empty, and not-loaded alert sources'
     'failed-as-empty produced the definitive whole-section empty state');
 
   app.window.localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
-    at: Date.now(), region: 'US-WA', sid: 'SN10489', rows: [],
+    at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows: [],
   }));
   A.renderSurge([], [], [], [], [], loadedSources);
   box = app.$('surgeResults');
@@ -22760,7 +23720,7 @@ test('a narrower in-flight chase is rejected before serving a wider radius', asy
 test('F274 marks an old mega snapshot stale, so it cannot complete an all-clear', async () => {
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: Date.now() - 72 * 3600000, region: 'US-WA', sid: 'SN10489', rows: [],
+      at: Date.now() - 72 * 3600000, region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows: [],
     }),
   } });
   const A = app.window.__app;
@@ -22811,7 +23771,7 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   const oldAt = Date.now() - 72 * 3600000;
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: oldAt, region: 'US-WA', sid: 'SN10489', rows: [],
+      at: oldAt, region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows: [],
     }),
   } });
   const A = app.window.__app;
@@ -22949,6 +23909,7 @@ test('F379 MEGA news expires at Bird Gen’s 36-hour now window', async () => {
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 2,
       rows: [
         {
           speciesCode: 'freshmega', comName: 'Fresh Mega', obsDt: stamp(35),
@@ -22986,7 +23947,8 @@ test('F907 a discovered-this-week Little Stint alerts without reviving continuin
   const expired = record('whiwag', 'White Wagtail', '2026-10-07 09:00', 'F907-WAGTAIL');
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: JSON.stringify({
-      at: now, region: 'US-WA', sid: 'SN10489', rows: [stint, continuing, expired],
+      at: now, region: 'US-WA', sid: 'SN10489', membershipVersion: 2,
+      rows: [stint, continuing, expired],
     }),
     ebird_aba_archive_v1: JSON.stringify({ 'US-WA': {
       'amecro|F907-COVER': record('amecro', 'American Crow', '2026-09-13 09:00', 'F907-COVER'),
@@ -23090,7 +24052,7 @@ test('F274 mega refresh ownership is keyed by region, not one global attempt', a
     if (/ebird\.org/.test(String(url))) calls++;
     return Promise.resolve({
       ok: true, status: 200,
-      text: () => Promise.resolve(otherStateMegaAlertHtml()),
+      text: () => Promise.resolve(otherStateMegaAlertHtml(new URL(url).searchParams.get('sid'))),
     });
   };
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
@@ -23139,7 +24101,8 @@ test('a foreground ABA response cannot be saved under a newer alert SID', async 
 });
 
 function f469AlertHtml() {
-  return '<div id="obs-OBS469" class="Observation">'
+  return '<link rel="canonical" href="https://ebird.org/alert/summary?sid=SN10489">'
+    + '<div id="obs-OBS469" class="Observation">'
     + '<a href="/species/shtsan/US-WA" data-species-code="shtsan">'
     + '<span class="Heading-main">Sharp-tailed Sandpiper</span></a>'
     + '<a href="/checklist/S469" title="Checklist">Sep 22, 2026 10:00</a>'
@@ -30018,7 +30981,7 @@ test('F433 direct Stakeout derives the Mega banner from the bird code', async ()
     storage: {
       ebird_aba_sid: 'SN10489',
       ebird_mega_snapshot_v1: JSON.stringify({
-        at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 1, rows,
+        at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows,
       }),
     },
     fetch(url) {
@@ -37643,7 +38606,7 @@ test('F763 latest checklist supplies MEGA count; unknown counts and held explana
   }));
   function paint(records) {
     app.window.localStorage.setItem(A.bcReal('ebird_mega_snapshot_v1'), JSON.stringify({
-      at: Date.now(), region: 'US-WA', sid: 'SN10489', rows: records,
+      at: Date.now(), region: 'US-WA', sid: 'SN10489', membershipVersion: 2, rows: records,
     }));
     A.renderSurge([], [], [], [], []);
     return app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
@@ -42525,7 +43488,7 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
   };
   const dayAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const snap = JSON.stringify({
-    at: Date.now() - 10 * 60000,
+    membershipVersion: 2, at: Date.now() - 10 * 60000,
     region: 'US-WA', sid: 'SN10489',
     rows: [{ speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(15),
       locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM1',
@@ -45720,6 +46683,7 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
   const snap = JSON.stringify({
     at: Date.now() - 3 * 3600 * 1000,
     region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2,
     rows: [
       // Far + already seen + not new: must be held back even with two reports.
       { speciesCode: 'whiwag', comName: 'White Wagtail', obsDt: localStamp(120),
@@ -45830,6 +46794,7 @@ test('a mega found this week is marked; one that was already here is not', async
 
   const snap = JSON.stringify({
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    membershipVersion: 2,
     rows: [{ speciesCode: 'nazboo', comName: 'Nazca Booby', obsDt: localStamp(60),
              locName: 'The Jetty', locId: 'L9', subId: 'S9', lat: 47.76, lng: -122.17 }],
   });
@@ -45966,6 +46931,7 @@ test('mega newness follows a four-mile species locality instead of hotspot ids o
     },
   };
   const snapshot = {
+    membershipVersion: 2,
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
     rows: [
       { speciesCode: 'whiwag', comName: 'White Wagtail', obsDt: day(1),
@@ -46043,6 +47009,7 @@ test('F763 latest mega checklist owns the compact tuple while repeated-hotspot e
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const snapshot = {
+    membershipVersion: 2,
     at: now, region: 'US-WA', sid: 'SN10489',
     rows: [
       { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
@@ -46090,6 +47057,7 @@ test('equal-time MEGA and celebrity evidence keeps one coherent compact tuple', 
   const stamp = `${latest.getFullYear()}-${p(latest.getMonth() + 1)}-${p(latest.getDate())} `
     + `${p(latest.getHours())}:${p(latest.getMinutes())}`;
   const snapshot = {
+    membershipVersion: 2,
     at: Date.now(), region: 'US-WA', sid: 'SN10489',
     rows: [{
       speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: stamp,
@@ -47790,7 +48758,7 @@ test('a dusk list cannot be built from two different samples', async () => {
     for (let i = 0; i < 96; i++) seen[`S${i}|${code}`] = 1;
   });
   for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 100 ? 20 : 9); // 10% evening
-  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {
+  ls.setItem(A.todKey(), JSON.stringify({ seen, hours, chk, names: {
     amecro: 'American Crow', sonspa: 'Song Sparrow',
     mallar: 'Mallard', bkcchi: 'Black-capped Chickadee' } }));
 
@@ -47828,7 +48796,7 @@ test('a coherent accumulator is left alone', async () => {
   for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? N : D);   // ~ baseline
   for (let i = 0; i < 100; i++) hours.grhowl.push(i < 36 ? N : D);  // a real owl
   for (let i = 0; i < 1000; i++) chk['S' + i] = (i < 77 ? N : D);   // 7.7% evening
-  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk,
+  ls.setItem(A.todKey(), JSON.stringify({ seen, hours, chk,
     // The CURRENT version, read from the app rather than typed. A healthy
     // sample must also be a current-rule sample: before v1.39.0 this fixture
     // had no version and passed, which is precisely the hole the stamp closes
@@ -47863,13 +48831,13 @@ test('a checklist hour is recorded even when the species pair is a duplicate', a
   const N = BL.todEncode(20, BL.TOD_TAG.NIGHT), D = BL.todEncode(9, BL.TOD_TAG.DAY);
   for (let i = 0; i < 100; i++) hours.amecro.push(i < 8 ? N : D);
   for (let i = 0; i < 1000; i++) chk['T' + i] = (i < 77 ? N : D);
-  ls.setItem('ebird_tod_wa', JSON.stringify({ seen, hours, chk, names: {},
+  ls.setItem(A.todKey(), JSON.stringify({ seen, hours, chk, names: {},
     v: A.TOD_SAMPLE_V }));
 
   A.todAccumulate([{ speciesCode: 'amecro', subId: 'S1',
     obsDt: '2026-08-24 20:15', comName: 'American Crow' }]);
 
-  const after = JSON.parse(ls.getItem('ebird_tod_wa'));
+  const after = JSON.parse(ls.getItem(A.todKey()));
   // DECODED, not compared raw: the stored value now carries the solar tag as
   // well as the hour. Asserting the literal would pin the ENCODING rather than
   // the ordering property this test is actually about.

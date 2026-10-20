@@ -2121,7 +2121,7 @@ const BOOTSTRAP = `
         locName: 'Union Bay Natural Area', county: 'King', isPrivate: false
       }]
     }));
-    localStorage.setItem('ebird_mig_wa', JSON.stringify({
+    localStorage.setItem(A.migKey(), JSON.stringify({
       samples: {
         'wa|2024-09-11': ['amecro'],
         'wa|2025-09-10': ['amecro'],
@@ -2297,6 +2297,7 @@ const BOOTSTRAP = `
       }));
       localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
         at: Date.now(), region: 'US-WA', sid: 'SN10489',
+        membershipVersion: 2,
         rows: [
           { speciesCode: 'nazboo1', comName: 'Nazca Booby',
             obsDt: '2026-09-01 17:50', locName: 'Smith Island',
@@ -2848,7 +2849,7 @@ const BOOTSTRAP = `
           }
         ]
       }));
-      localStorage.setItem('ebird_mig_wa', JSON.stringify({
+      localStorage.setItem(A.migKey(), JSON.stringify({
         samples: { 'wa|2025-09-03': ['semsan'] },
         names: { semsan: 'Semipalmated Sandpiper' },
         updated: '2026-09-02T18:00:00-07:00'
@@ -3524,7 +3525,7 @@ const BOOTSTRAP = `
     ];
     localStorage.setItem('ebird_mega_snapshot_v1', JSON.stringify({
       at: Date.now(), region: 'US-WA', sid: mega.sid,
-      membershipVersion: 1, rows: rows
+      membershipVersion: 2, rows: rows
     }));
     var cacheDay = new Date().toISOString().slice(0, 10);
     rows.forEach(function (row) {

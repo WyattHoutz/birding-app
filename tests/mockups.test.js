@@ -1098,7 +1098,7 @@ test('F642 Migration mockup exercises tonight, observed arrival, and departure l
   const fixture = source.slice(start, end);
   for (const fact of [
     'Common Nighthawk', 'Semipalmated Sandpiper', 'American Crow',
-    'firstYearKey', 'ebird_mig_wa', 'migrants:',
+    'firstYearKey', 'A.migKey()', 'migrants:',
   ]) {
     assert.ok(fixture.includes(fact), `Migration mockup lost ${fact}`);
   }
