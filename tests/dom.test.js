@@ -20871,7 +20871,7 @@ test('F1022 actual Menu feedback distinguishes loading, completed-empty, cancell
     A.renderSurge([{
       code: 'vesspa', name: 'Vesper Sparrow', observers: 5, checklists: 5, ratio: 4,
       loc: 'Synthetic public patch', locId: 'L1022', lat: 47.75, lon: -122.16,
-      latest: recentObsStamp(), subId: 'S1022', distMi: 1,
+      latest: formatObsStamp(new Date(Date.now() - 60000)), subId: 'S1022', distMi: 1,
     }], [], [], [], [], { mega: 'notApplicable', observations: 'ok',
       leaderboard: 'notApplicable', hotspots: 'notApplicable' });
     const retained = app.$('recentBirdGenRows').textContent;
