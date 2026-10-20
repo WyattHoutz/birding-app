@@ -1379,8 +1379,15 @@ const AUDIT = `<script>
       A.showMenu();
       var recentScan=scan('(F987 Recent Bird Gen)');
       var previewRows=[].slice.call(document.querySelectorAll('#recentBirdGenRows > li'));
+      var recentHeading=getComputedStyle(document.querySelector('#recentBirdGen h2'));
+      var menuHeading=getComputedStyle(document.querySelector('#menuList .tocgroup'));
+      var headingScale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s'));
       recentScan.recentBirdGen={
-        six:previewRows.length===6,
+        five:previewRows.length===5,
+        headingTypography:Math.abs(parseFloat(menuHeading.fontSize)-16*headingScale)<.2
+          && ['fontSize','fontWeight','color','letterSpacing','textTransform'].every(function(property){
+            return recentHeading[property]===menuHeading[property];
+          }),
         newestFirst:previewRows.every(function(row,i){
           var place=row.querySelector('.hslink');
           return place && place.textContent==='Representative public patch '+i;
@@ -1636,15 +1643,22 @@ const AUDIT = `<script>
       var pptePreview=document.querySelector('#recentBirdGenRows [data-recent-kind="ppte"]');
       var previewLinks=pptePreview && Array.from(pptePreview.querySelectorAll('.surgealerttitle .splink'));
       var previewAge=pptePreview && pptePreview.querySelector('button.recent-birdgen-time');
+      var previewAgeStyle=previewAge && getComputedStyle(previewAge);
       if (!previewLinks || previewLinks.length!==ppteScan.ppte.species
           || pptePreview.querySelector(':scope > .name').getAttribute('role')!=='group'
           || !previewAge || previewAge.getBoundingClientRect().height<44
+          || previewAge.getBoundingClientRect().width<44
+          || previewAge.classList.contains('refreshbtn')
+          || parseFloat(previewAgeStyle.borderTopWidth)!==0
+          || parseFloat(previewAgeStyle.borderRadius)!==0
+          || previewAgeStyle.backgroundColor!=='rgba(0, 0, 0, 0)'
+          || getComputedStyle(previewAge.querySelector('small')).display!=='block'
           || previewLinks.some(function(link){
             var rect=link.getBoundingClientRect();
             return link.tabIndex!==0 || link.getAttribute('role')!=='link'
               || !link.getAttribute('aria-label') || !link.getAttribute('data-sp')
               || rect.width<=0 || rect.left<0 || rect.right>pptePreviewScan.vw+.5;
-          })) throw new Error('F1021 Recent PATAGONIA links or separate full-alert action failed real layout: '
+          })) throw new Error('F1021/F1027 Recent PATAGONIA links or plain full-alert age failed real layout: '
             + JSON.stringify({profile:A.getDisplayProfile(),links:previewLinks && previewLinks.map(function(link){
               return {code:link.getAttribute('data-sp'),role:link.getAttribute('role'),
                 tabIndex:link.tabIndex,label:link.getAttribute('aria-label'),
@@ -2295,6 +2309,58 @@ const AUDIT = `<script>
     readingResult.stakeoutReading = true;
     readingResult.measurements = measurements;
     out.push(readingResult);
+    var sourceRows = [
+      {locId:'L1029-A',locName:'Public source Alpha',lat:47.8,lng:-122.16},
+      {locId:'L1029-B',locName:'Public source Beta with a longer location name',lat:47.801,lng:-122.161},
+      {locId:'P1029-A',locName:'Private source one',lat:47.802,lng:-122.162,locationPrivate:true},
+      {locId:'P1029-B',locName:'Private source two',lat:47.803,lng:-122.163,locationPrivate:true},
+      {locId:'P1029-C',locName:'Private source two',lat:47.803,lng:-122.163,locationPrivate:true}
+    ].map(function(source,index){
+      return Object.assign({speciesCode:'mallar3',comName:'Mallard',
+        subId:'S1029-AUDIT-'+index,obsDt:new Date(Date.now()-index*60000).toISOString().slice(0,19),
+        howMany:1,obsValid:true},source);
+    });
+    for (var scenario of ['group','public','private']) {
+      var sourceFixture=scenario==='group' ? sourceRows
+        : [sourceRows[scenario==='public' ? 0 : 2]];
+      A.clearSpeciesLookup();
+      A.seedEbirdCache(A.speciesLookupPath('US-WA','mallar3',A.SP_LOOKUP_BACK),sourceFixture);
+      A.showSection('sec-spLookupBtn');
+      await A.lookupSpecies('mallar3','Mallard');
+      A.setSpeciesLookupWithinChase(false);
+      A.setSpeciesLookupGrouped(true);
+      A.setSpeciesLookupNotes(false);
+      var card=document.querySelector('#spLookupRecent .spLookupPlaceList > .hscard-md');
+      require(card,'F1029 '+scenario+' fixture must render');
+      var checklist=card.querySelector('.stakeoutPlaceDetails .cklcard-sm');
+      require(checklist && getComputedStyle(checklist,'::before').content.indexOf('•')>=0,
+        'F1029 checklist bullets must be painted');
+      var members=card.querySelector('.stakeoutIncludedLocations');
+      if (scenario==='group') {
+        require(members && members.querySelectorAll('.hscard-sm').length===4,
+          'F1029 group must show four deduplicated source rows');
+        var name=members.querySelector('.hslink');
+        var checklistText=checklist.querySelector('.ckmain');
+        require(Math.abs(name.getBoundingClientRect().left-checklistText.getBoundingClientRect().left)<=.5,
+          'F1029 location and checklist text must have matching indentation');
+        var locationHeading=getComputedStyle(members.querySelector('.rankhead'));
+        var checklistHeading=getComputedStyle(card.querySelector('.stakeoutPlaceDetails .rankhead'));
+        require(['fontSize','fontWeight','color'].every(function(property){
+          return locationHeading[property]===checklistHeading[property];
+        }),'F1029 section headings must share typography');
+        require(getComputedStyle(members.querySelector('.hscard-sm'),'::before').content.indexOf('•')>=0,
+          'F1029 source bullets must be painted');
+      } else {
+        require(!members && !card.querySelector('summary'),'F1029 singleton must not repeat Locations');
+        var head=card.querySelector(':scope > .name');
+        require(scenario==='public' ? !!head.querySelector('.hslink')
+          : !head.querySelector('.hslink') && !!head.querySelector('.privateflag')
+            && !!head.querySelector('.stakeoutSourceMap'),
+          'F1029 singleton source actions must preserve privacy');
+      }
+      window.scrollTo(0,0);
+      out.push(scan('(F1029 '+scenario+' source locations)'));
+    }
   }
   async function twitchRegression(out) {
     var A = window.__app, logic = window.BirdLogic, errors = [], measurements = [];

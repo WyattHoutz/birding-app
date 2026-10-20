@@ -1340,7 +1340,9 @@
     }
     .menufiltercount { flex: 0 0 auto; font-size: .85rem; opacity: .85; }
     .toc li.tocgroup {      grid-column: 1 / -1; display: block; margin: 14px 0 -2px;
-      font-size: calc(13px * var(--s)); font-weight: 800; letter-spacing: .06em;
+    }
+    .toc li.tocgroup, #menuPanel .recent-birdgen h2 {
+      font-size: calc(16px * var(--s)); font-weight: 800; letter-spacing: .06em;
       text-transform: uppercase; color: var(--muted);
     }
     .toc li.tocgroup:first-child { margin-top: 2px; }
@@ -1921,6 +1923,25 @@
     .megareports { margin-bottom: 12px; }
     .stakeoutPlaceDetails { margin: 8px 0 2px; }
     .stakeoutPlaceChecklists { margin: 0; }
+    .stakeoutIncludedLocations { grid-column: 1 / -1; }
+    .stakeoutIncludedLocations > ul { margin-left: 0; padding-left: 0; list-style: none; }
+    #spLookupRecent .stakeoutIncludedLocations .hscard-sm {
+      display: block; position: relative; padding: 2px 0 2px 14px; margin: 0;
+      border: 0; background: none; box-shadow: none;
+    }
+    #spLookupRecent .stakeoutPlaceDetails .cklcard-sm { position: relative; padding-left: 14px; }
+    #spLookupRecent .stakeoutIncludedLocations .hscard-sm::before,
+    #spLookupRecent .stakeoutPlaceDetails .cklcard-sm::before {
+      content: "\2022"; position: absolute; left: 0; top: .45em;
+      font-size: calc(11px * var(--s)); line-height: 1; color: var(--ink);
+    }
+    .stakeoutIncludedLocations .hscard-sm > .name { display: inline; padding: 0; min-height: 0; }
+    .stakeoutIncludedLocations .ntext { display: inline; font-weight: 400; color: var(--ink); }
+    .stakeoutIncludedLocations .ntext .hslink { color: var(--accent); font-weight: 700; cursor: pointer; }
+    .stakeoutPrivateName { color: var(--ink); font-weight: 400; }
+    .stakeoutLocalityName { color: var(--ink); }
+    .stakeoutSourceCount { font-weight: 400; white-space: nowrap; }
+    .stakeoutSourceMap.maplink { display: inline; margin: 0; font-size: inherit; white-space: normal; }
     #spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm > .cksummary::before {
       color: #000000;
       font-size: calc(20px * var(--s));
@@ -2352,7 +2373,11 @@
     .recent-birdgen-list .recent-birdgen-time {
       width: auto; min-width: 0; margin: 0; padding-top: 4px; text-align: right;
       font-size: calc(14px * var(--s)); font-weight: 800; color: var(--muted); }
-    .recent-birdgen-list button.recent-birdgen-time { min-width: 44px; min-height: 44px; }
+    .recent-birdgen-list button.recent-birdgen-time {
+      min-width: 44px; min-height: 44px; padding: 4px 0 0;
+      border: 0; border-radius: var(--btn-radius-flat); background: transparent; box-shadow: none; }
+    .recent-birdgen-list button.recent-birdgen-time:focus-visible {
+      outline: 2px solid var(--safe-blue); outline-offset: 2px; }
     .recent-birdgen-list .surgebadge { vertical-align: 1px; }
     .recent-birdgen-list .name:focus-visible {
       outline: 2px solid var(--safe-blue); outline-offset: 2px; }
@@ -5032,7 +5057,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.164.0';
+      var APP_VERSION = '1.165.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13257,7 +13282,7 @@
           rare: opts.rare
         });
         var large = largeBirdReportList(opts);
-        var tags = birdReportTags([r], opts.rare) + reviewFlag(r)
+        var tags = birdReportTags([r], opts.rare) + (opts.rare ? reviewFlag(r) : '')
           + (opts.need ? watchExceptionTag(r.code, r.name) : '')
           + (opts.rare ? rarityAccessTag(r) : '');
         var note = data ? ChecklistCards.pendingNoteAction(data['ev-notes-expected'] === '1') : '';
@@ -13306,7 +13331,7 @@
           icons: BirdLogic.recordIcons(dataRow),
           iconsAtEnd: true,
           compactDistance: true,
-          review: reviewIcon(row),
+          review: opts.rare ? reviewIcon(row) : '',
           data: checklistData
         });
       }
@@ -13347,7 +13372,7 @@
         });
         var tags = birdReportTags(groupRows, opts.rare)
           + (opts.need ? watchExceptionTag(group.code, group.name) : '')
-          + reviewFlag({ reviewState: anyConfirmed ? 'confirmed' : 'pending' });
+          + (opts.rare ? reviewFlag({ reviewState: anyConfirmed ? 'confirmed' : 'pending' }) : '');
         var below = '<div class="birdreportplaces">' + places + '</div>';
         var representative = groupRows[0] || {};
         var card = opts.large ? SpeciesCards.large : SpeciesCards.medium;
@@ -16379,6 +16404,52 @@
         }
       }
 
+      function stakeoutSourceLocations(place, checklists) {
+        var bySource = Object.create(null), sources = [];
+        checklists.forEach(function (ck, index) {
+          var source = ck.sourcePlace || place;
+          var privateLocation = !!(source.location_private || source.locationPrivate);
+          var name = source.loc || source.locName || source.locId
+            || (privateLocation ? 'Private location' : 'Location');
+          var lng = source.lon != null ? source.lon : source.lng;
+          var point = distQ(source.lat, lng);
+          if (Math.abs(+source.lat) > 90 || Math.abs(+lng) > 180) point = '';
+          // Personal IDs can differ for the same waypoint. Never merge
+          // withheld coordinates by name or turn private evidence public.
+          var key = JSON.stringify(privateLocation && point
+            ? ['private', point]
+            : [privateLocation ? 'private' : 'public', source.locId || '',
+              source.locId ? '' : name, source.locId ? '' : point || ck.subId || index]);
+          if (!bySource[key]) {
+            bySource[key] = { place: source, name: name, private: privateLocation,
+              point: point, count: 0, checklists: Object.create(null) };
+            sources.push(bySource[key]);
+          }
+          var entry = bySource[key];
+          if (ck.subId && !entry.checklists[ck.subId]) {
+            entry.checklists[ck.subId] = true;
+            entry.count++;
+          }
+        });
+        return sources.sort(function (a, b) {
+          return Number(a.private) - Number(b.private)
+            || a.name.localeCompare(b.name) || a.point.localeCompare(b.point)
+            || String(a.place.locId || '').localeCompare(String(b.place.locId || ''));
+        });
+      }
+      function stakeoutSourceName(source) {
+        return source.private
+          ? '<span class="stakeoutPrivateName">' + esc(source.name) + '</span>'
+            + ' <span class="tag privateflag" aria-label="Private location">PRIVATE</span>'
+          : stakeHotspotLink(source.place.locId, source.name, true);
+      }
+      function stakeoutSourceMap(source) {
+        return source.point
+          ? ' <a class="maplink stakeoutSourceMap stakeoutSourceAction" role="link" tabindex="0"'
+            + ' data-q="' + esc(source.point) + '" aria-label="Open '
+            + esc(source.name) + ' in Maps">\uD83D\uDDFA \u2197</a>'
+          : ' <span class="hint">No map coordinates</span>';
+      }
       function spLookupPlaceCards(places, startAt, bird, pin) {
         var n = startAt || 1, out = [];
         (places || []).forEach(function (p) {
@@ -16404,8 +16475,28 @@
           var num = pin === undefined ? n++ : pin ? pin.num : '';
           var c = cks[0] || {};
           var where = p.loc || p.locId || '';
-          var nameHtml = (p.locId && !p.locationPrivate ? stakeHotspotLink(p.locId, where) : esc(where))
+          var sources = stakeoutSourceLocations(p, cks);
+          var grouped = sources.length > 1;
+          var nameHtml = (grouped
+            ? '<strong class="stakeoutLocalityName">' + esc(where) + ' area</strong>'
+            : stakeoutSourceName(sources[0])
+              + (sources[0].private ? stakeoutSourceMap(sources[0]) : ''))
             + (c.valid === false ? ' \u26a0\ufe0f' : '');
+          var reportCount = sources.reduce(function (sum, source) { return sum + source.count; }, 0);
+          var sourceMeta = (grouped ? sources.length + ' locations' : '')
+            + (reportCount > 1 ? (grouped ? ' \u00b7 ' : '') + reportCount + ' checklists' : '');
+          var locationsHtml = grouped
+            ? '<div class="stakeoutIncludedLocations"><div class="rankhead"><b>Locations</b></div>'
+              + HotspotCards.list('small', sources.map(function (source) {
+                return HotspotCards.small({
+                  name: stakeoutSourceName(source)
+                    + (source.count > 1 || !source.private && source.count
+                      ? ', <span class="stakeoutSourceCount">' + source.count
+                        + (source.count === 1 ? ' checklist' : ' checklists') + '</span>' : '')
+                    + (source.private ? ', ' + stakeoutSourceMap(source).trim() : '')
+                });
+              })) + '</div>'
+            : '';
           var whenTxt = fmtWhenShort(c.dateStr || p.dateStr);
           var rows = cks.map(function (ck, ci) {
             return stakeoutChecklistRow({
@@ -16423,9 +16514,8 @@
               __notable: !!ck.__notable
             }, ck.sourcePlace || p, bird, ci + 1, !!ck.sourcePlace, pin);
           });
-          var details = (p.localityNumber ? '<div class="hint">Locality '
-            + p.localityNumber + ' · grouped source locations, not an access designation.</div>' : '')
-            + '<div class="stakeoutPlaceDetails">'
+          var details = locationsHtml + '<div class="stakeoutPlaceDetails">'
+            + '<div class="rankhead"><b>Checklists</b></div>'
             + ChecklistCards.list('small', rows, 'stakeoutPlaceChecklists')
             + (speciesLookupDetails()
               ? (p.locationPrivate === true
@@ -16457,7 +16547,7 @@
               'ev-place': where,
               'ev-when': whenTxt || ''
             },
-            sub: '',
+            sub: sourceMeta,
             below: details
           }));
         });
@@ -16563,7 +16653,8 @@
           date: fmtDateTime(row.obsDt || row.isoObsDate || ''),
           dateHref: row.subId ? checklistUrl(row.subId) : '',
           observedAt: row.obsDt || row.isoObsDate || '',
-          review: row.reviewState && row.reviewState !== 'unknown' ? reviewFlag(row) : '',
+          review: (row.__stateRba || row.__notable || row.rbaRare)
+            && row.reviewState && row.reviewState !== 'unknown' ? reviewFlag(row) : '',
           durationHrs: row.durationHrs,
           durationPending: !!row.subId && row.durationHrs == null,
           href: row.subId ? checklistUrl(row.subId) : '',
@@ -19649,9 +19740,10 @@
             : (name || code)
         };
       }
-      function stakeHotspotLink(locId, name) {
+      function stakeHotspotLink(locId, name, keyboard) {
         if (!locId) return esc(name || '');
-        return '<a class="hslink" data-loc="' + esc(locId) + '" data-locname="'
+        return '<a class="hslink' + (keyboard ? ' stakeoutSourceAction' : '') + '"'
+          + (keyboard ? ' role="link" tabindex="0"' : '') + ' data-loc="' + esc(locId) + '" data-locname="'
           + esc(name || locId) + '">' + esc(name || locId) + '</a>';
       }
       // The eBird page, still one tap away and now SAID rather than implied.
@@ -22483,7 +22575,7 @@
             // not seen this" or the [R] badge, so it has to sit alongside them
             // rather than evict them.
             if (x.pre) tags = x.pre + tags;
-            if (x.reviewState && x.reviewState !== 'unknown') tags += reviewFlag(x);
+            if (x.rare && x.reviewState && x.reviewState !== 'unknown') tags += reviewFlag(x);
             // ...and NEW wherever the row knows when it was reported. This is
             // the "everywhere" half: hotspot species lists, unseen clusters and
             // anything else built through this template now carry the same
@@ -46632,7 +46724,7 @@
           ? [].slice.call(feed.children).filter(function (row) {
             var time = Number(row.getAttribute('data-surge-latest'));
             return isFinite(time) && time > 0 && time <= now && now - time <= 86400000;
-          }).slice(0, 6) : [];
+          }).slice(0, 5) : [];
         list.innerHTML = '';
         rows.forEach(function (source) {
           var row = source.cloneNode(true), title = row.querySelector('.surgealerttitle');
@@ -46684,7 +46776,7 @@
             head.setAttribute('aria-label', 'PATAGONIA alert');
             var action = document.createElement('button');
             action.type = 'button';
-            action.className = 'refreshbtn recent-birdgen-time';
+            action.className = 'surgeage recent-birdgen-time';
             action.setAttribute('aria-label', 'Open full PATAGONIA alert');
             action.innerHTML = age.innerHTML;
             age.replaceWith(action);
@@ -50374,6 +50466,11 @@
       });
       document.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        if (ev.target.matches('#spLookupRecent .stakeoutSourceAction')) {
+          ev.preventDefault();
+          ev.target.click();
+          return;
+        }
         var row = ev.target && ev.target.matches
           && ev.target.matches('#abaResults li[data-mega-code][data-mega-view]')
           ? ev.target : null;

@@ -1361,8 +1361,8 @@ const SHOTS = [
         exampleLabel.className = 'mocklabel';
         exampleLabel.textContent = 'REPRESENTATIVE STUB DATA — not current sightings';
         recent.prepend(exampleLabel);
-        if (recent.querySelectorAll('[data-recent-kind]').length !== 6) {
-          throw new Error('F987 production menu fixture must contain six recent examples');
+        if (recent.querySelectorAll('[data-recent-kind]').length !== 5) {
+          throw new Error('F1032 production menu fixture must contain five recent examples');
         }
         if (document.getElementById('recentBirdGenRefresh').disabled
             || /^Checking/.test(document.getElementById('recentBirdGenStatus').textContent)) {

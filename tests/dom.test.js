@@ -1034,7 +1034,7 @@ test('F999 actual Pro patches detail uppercases its strongest status without cha
   } finally { app.window.close(); }
 });
 
-test('F987/F990/F1019 the six-row rolling preview keeps the newest detection and short accessible three-column rows', async () => {
+test('F1032/F987/F990/F1019 the five-row rolling preview keeps the newest detection and short accessible three-column rows', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, now = Date.now();
@@ -1056,14 +1056,15 @@ test('F987/F990/F1019 the six-row rolling preview keeps the newest detection and
       mega: 'notApplicable', observations: 'ok', hotspots: 'ok', twitchRows: [twitch],
     });
     const list = app.$('recentBirdGenRows'), rows = [...list.children];
-    assert.equal(rows.length, 6);
-    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the newest detection must enter the top six');
+    assert.equal(rows.length, 5);
+    assert.ok(app.$('surgeFeed').children.length > 5, 'the compact cap must not truncate the full feed');
+    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the newest detection must enter the top five');
     assert.equal(rows[0].querySelector('.surgealerttitle').textContent,
       'New unseen rarity Vermilion Flycatcher');
     assert.match(rows[0].textContent, /At least 1 report in 24h/);
     assert.match(rows[0].textContent, /Unreviewed report/);
     assert.equal(rows[1].querySelector('.surgealerttitle').textContent, 'Actual public patch 0');
-    assert.doesNotMatch(list.textContent, /Actual public patch [5-6]|Omitted place/);
+    assert.doesNotMatch(list.textContent, /Actual public patch [4-6]|Omitted place/);
     for (const row of rows) {
       const head = row.querySelector(':scope > .name'), age = head.lastElementChild;
       assert.equal(head.children.length, 3);
@@ -1249,7 +1250,97 @@ test('F1025 actual transport includes provisional rows uniquely on all six docum
   } finally { app.window.close(); }
 });
 
-test('F1024 actual Stakeout Patch includes provisional species in its exact-place list and count with review provenance', async () => {
+test('F1028 review labels require rarity in shared species, report and grouped checklist cards', async () => {
+  const app = await boot({ sample: false, storage: {
+    ebird_watchlist_v1: JSON.stringify([{ code: 'amepip', name: 'American Pipit' }]),
+  } });
+  try {
+    const A = app.window.__app, host = app.document.createElement('div');
+    await seedSeen(app, []);
+    for (const reviewState of ['confirmed', 'pending']) {
+      for (const rare of [false, true]) {
+        const bird = { code: 'amepip', comName: 'American Pipit', name: 'American Pipit',
+          reviewState, rare, dateStr: recentObsStamp(), subId: 'S1028', locId: 'L1028' };
+        host.innerHTML = A.speciesListHtml([bird], { unseen: true });
+        assert.equal(host.querySelectorAll('.revok,.revpend').length, rare ? 1 : 0,
+          'WATCH and unseen are not rarity evidence: ' + reviewState);
+        assert.ok(host.querySelector('.watchflag'));
+        host.innerHTML = A.birdReportListCard(bird, { rare, need: true });
+        assert.equal(host.querySelectorAll('.revok,.revpend').length, rare ? 1 : 0,
+          'ordinary report review labels: ' + reviewState);
+        const group = A.buildAllUnseen([bird])[0];
+        host.innerHTML = A.birdReportGroupCard(group, { rare, need: true });
+        assert.equal(host.querySelectorAll('.revok,.revpend').length, rare ? 2 : 0,
+          'group and nested checklist must use the same rarity gate: ' + reviewState);
+        assert.equal(group.places[0].checklists[0].reviewState, reviewState,
+          'hiding a label must not discard retained evidence');
+      }
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1028 actual Stakeout checklists label only reports carrying rarity evidence', async () => {
+  const when = recentObsStamp();
+  const app = await boot({ sample: false, fetch: url => {
+    const match = /data\/obs\/[^/]+\/recent\/(comloo|lcspet)/.exec(url);
+    if (!match) return [];
+    return [true, false].map((confirmed, i) => ({
+      speciesCode: match[1], comName: match[1] === 'comloo' ? 'Common Loon' : "Leach's Storm-Petrel",
+      __notable: match[1] === 'lcspet', obsValid: confirmed, obsReviewed: confirmed,
+      obsDt: when, locId: 'L1028' + i, locName: 'Synthetic public patch ' + i,
+      subId: 'S1028' + match[1] + i, lat: 47.75, lng: -122.16,
+    }));
+  } });
+  try {
+    const A = app.window.__app;
+    for (const code of ['comloo', 'lcspet']) {
+      await A.lookupSpecies(code, code === 'comloo' ? 'Common Loon' : "Leach's Storm-Petrel");
+      A.setSpeciesLookupGrouped(false);
+      const root = app.$('spLookupRecent');
+      assert.equal(root.querySelectorAll('.revok').length, code === 'lcspet' ? 1 : 0);
+      assert.equal(root.querySelectorAll('.revpend').length, code === 'lcspet' ? 1 : 0);
+      assert.equal(root.querySelectorAll('[data-ev-sub]').length, 2,
+        'review presentation must not remove sightings');
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1027 Recent PATAGONIA ages match plain age styling without losing full-alert access', async () => {
+  const app = await boot({ home: false });
+  try {
+    const A = app.window.__app, now = Date.now();
+    const event = A.ppteEvents(ppteFixture())[0];
+    A.renderSurge([], [], [], [], [], {
+      mega: 'notApplicable', ppte: 'ok',
+      ppteRows: [{ ...event, latest: formatObsStamp(new Date(now - 60000)) }],
+    });
+    for (const theme of ['light', 'dark']) {
+      A.applyTheme(theme);
+      A.showMenu();
+      const age = app.$('recentBirdGenRows').querySelector('[data-recent-kind="ppte"] .recent-birdgen-time');
+      const style = app.window.getComputedStyle(age);
+      assert.equal(age.classList.contains('refreshbtn'), false, 'elapsed time is not a refresh action');
+      assert.equal(parseFloat(style.borderTopWidth), 0, 'age must not have an outlined pill');
+      const radius=style.borderRadius.replace(/^var\((--[\w-]+)\)$/,(_,token) =>
+        app.window.getComputedStyle(app.document.documentElement).getPropertyValue(token));
+      assert.equal(parseFloat(radius), 0, 'age must not have rounded button chrome');
+      assert.equal(style.backgroundColor, 'rgba(0, 0, 0, 0)');
+      assert.equal(style.textAlign, 'right');
+      assert.equal(style.minWidth, '44px');
+      assert.equal(style.minHeight, '44px');
+      assert.equal(app.window.getComputedStyle(age.querySelector('small')).display, 'block');
+      assert.equal(age.getAttribute('aria-label'), 'Open full PATAGONIA alert');
+      assert.ok(age.textContent.trim());
+      age.click();
+      assert.equal(app.$('sec-surgeBtn').hidden, false);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1024 actual Stakeout Patch includes provisional species without labelling ordinary birds as unconfirmed', async () => {
   const base = { obsDt: recentObsStamp(), locId: 'L1024', locName: 'Synthetic public patch',
     lat: 47.75, lng: -122.16, howMany: 1 };
   const confirmed = { ...base, speciesCode: 'ruff', comName: 'Ruff', subId: 'S1024001',
@@ -1275,7 +1366,8 @@ test('F1024 actual Stakeout Patch includes provisional species in its exact-plac
       /Leach's Storm-Petrel/.test(node.textContent));
     assert.ok(bird, 'the provisional response must reach the actual bird list');
     assert.match(root.querySelector('.hsunseen').textContent, /2 unseen/);
-    assert.match(bird.textContent, /Unconfirmed/);
+    assert.equal(bird.querySelector('.revok,.revpend'), null,
+      'an ordinary provisional row is not qualified as rare');
     assert.equal(bird.querySelector('.revok'), null, 'provisional does not mean confirmed');
     assert.doesNotMatch(root.querySelector('.hsunseen').textContent, /Sabine/);
     const path = app.state.fetches.find(url => /data\/obs\/L1024\/recent/.test(url));
@@ -1319,7 +1411,10 @@ test('F1025 old location coverage cannot mask provisional hydration or its retai
       const bird = [...list.querySelectorAll('.card-sm > li')].find(node =>
         /Leach's Storm-Petrel/.test(node.textContent));
       assert.ok(bird, 'broader coverage must replace the old confirmed-only subset');
-      assert.match(bird.textContent, /Unconfirmed/);
+      assert.equal(bird.querySelector('.revok,.revpend'), null,
+        'location hydration retains review evidence without labelling an unqualified species');
+      const cached = JSON.parse(ls.getItem('ebird_locsp_v2:L10251:3'));
+      assert.equal(cached.v.find(row => row.code === 'lcspet').reviewState, 'pending');
       assert.equal(bird.querySelector('.revok'), null);
       assert.match(bird.querySelector('.spwhen').textContent, /\d+\/\d+/);
       assert.equal(ls.getItem(legacyKey), legacy, 'old evidence is not erased');
@@ -1403,7 +1498,7 @@ test('F1025 old historic day markers and migration samples cannot claim broader 
 
 test('F1025 actual species lookup and grouped projections never promote missing or unreviewed evidence to confirmed', async () => {
   const when = recentObsStamp();
-  const base = { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel",
+  const base = { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel", __notable: true,
     obsDt: when, locName: 'Synthetic public patch', locationPrivate: false,
     lat: 47.75, lng: -122.16 };
   const rows = [
@@ -1426,7 +1521,7 @@ test('F1025 actual species lookup and grouped projections never promote missing 
       const records = A.speciesLookupRecords([row], []);
       const group = A.buildAllUnseen(records)[0];
       const host = app.document.createElement('div');
-      host.innerHTML = A.birdReportGroupCard(group);
+      host.innerHTML = A.birdReportGroupCard(group, { rare: true });
       assert.equal(!!host.querySelector('.revok'), i === 0,
         'grouping must honor actual review state, including valid but unreviewed');
       const projected = group.places[0].checklists[0];
@@ -1459,7 +1554,8 @@ test('F1025 actual Favorite Patch detail and Bird Gen acquisition retain provisi
       if (repaint) A.renderFavs();
       const link = app.$('favResults').querySelector('.splink[data-sp="lcspet"]');
       assert.ok(link, 'the actual saved patch must include the newly available bird');
-      assert.match(link.closest('li').textContent, /Unconfirmed/);
+      assert.equal(link.closest('li').querySelector('.revok,.revpend'), null,
+        'ordinary saved-patch birds do not carry rarity review labels');
     }
     const source = await A.loadFavoritePatchAlertSource(false, A.activeScope());
     assert.equal(source.state, 'ok');
@@ -14230,6 +14326,128 @@ for (const order of [['species', 'rba'], ['rba', 'species']]) {
   });
 }
 
+test('F1029 grouped Stakeout sources expose exact public and private destinations without disclosures', async () => {
+  const f = f890EvidenceFixture();
+  const rows = [
+    ...Array.from({length:2}, (_,i) => ({...f.row('S1029-A'+i,i),
+      locId:'L1029-A',locName:'Lequeue Island',lat:47.95,lng:-122.16})),
+    ...Array.from({length:3}, (_,i) => ({...f.row('S1029-B'+i,i+2),
+      locId:'L1029-B',locName:'Lequeue Island - Eide Road',lat:47.951,lng:-122.161})),
+    {...f.row('S1029-P1',5),locId:'P1029-1',locName:'Private one',
+      lat:47.952,lng:-122.162,locationPrivate:true},
+    ...Array.from({length:2}, (_,i) => ({...f.row('S1029-P2'+i,i+6),
+      locId:'P1029-2-'+i,locName:'Private two',lat:47.953,lng:-122.163,locationPrivate:true})),
+  ];
+  const app = await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+  try {
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),rows);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(true);
+    const card=app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
+    assert.ok(card.querySelector(':scope > .name .stakeoutLocalityName'),'locality title must be nonlinked normal ink');
+    assert.equal(card.querySelector(':scope > .name .hslink'),null,'group titles are not hotspot links');
+    const members=[...card.querySelectorAll('.stakeoutIncludedLocations .hscard-sm')];
+    assert.equal(members.length,4,'private records at the same exact waypoint share a source row');
+    assert.match(card.querySelector(':scope > .meta').textContent,/4 locations.*8 checklists/);
+    assert.deepEqual(members.map(row => row.querySelector('.hslink')?.dataset.loc || ''),
+      ['L1029-A','L1029-B','','']);
+    assert.match(members[0].textContent,/2 checklists/);
+    assert.match(members[1].textContent,/3 checklists/);
+    assert.doesNotMatch(members[2].textContent,/checklist/,'one private checklist has no redundant count');
+    assert.match(members[3].textContent,/2 checklists/);
+    assert.equal(members.filter(row => row.querySelector('.privateflag')).length,2);
+    assert.deepEqual(members.flatMap(row => [...row.querySelectorAll('.maplink')].map(a => a.dataset.q)),
+      ['47.952,-122.162','47.953,-122.163'],'private map actions use their source, not the group representative');
+    for (const row of members.slice(2)) {
+      assert.equal(row.querySelector('a.hslink'),null);
+      assert.equal(app.window.getComputedStyle(row.querySelector('.stakeoutPrivateName')).fontWeight,'400');
+    }
+    const headings=[...card.querySelectorAll('.rankhead')];
+    assert.deepEqual(headings.map(node => node.textContent),['Locations','Checklists']);
+    for (const property of ['fontSize','fontWeight','color']) {
+      assert.equal(app.window.getComputedStyle(headings[0])[property],
+        app.window.getComputedStyle(headings[1])[property]);
+    }
+    assert.equal(card.querySelector('summary'),null);
+    assert.equal(card.querySelectorAll('.cklcard-sm').length,8);
+    const rules=[...app.document.styleSheets].flatMap(sheet => [...sheet.cssRules]);
+    const sourceRule=rules.find(rule => rule.selectorText === '#spLookupRecent .stakeoutIncludedLocations .hscard-sm');
+    const checklistRule=rules.find(rule => rule.selectorText === '#spLookupRecent .stakeoutPlaceDetails .cklcard-sm');
+    const sourceInsets=sourceRule.style.getPropertyValue('padding').split(/\s+/);
+    assert.equal(sourceInsets[3] || sourceInsets[1] || sourceInsets[0],
+      checklistRule.style.getPropertyValue('padding-left'),'source and checklist bullet insets must match');
+    assert.equal(app.window.getComputedStyle(card.querySelector('.stakeoutIncludedLocations > ul')).marginLeft,
+      app.window.getComputedStyle(card.querySelector('.stakeoutPlaceChecklists')).marginLeft,
+      'source and checklist lists must not add different left margins');
+    const bulletRule=rules.find(rule => rule.selectorText?.includes('.stakeoutIncludedLocations .hscard-sm::before'));
+    assert.match(bulletRule?.style.content || '',/2022|•/,'source and checklist rows require small bullet markers');
+    const link=members[0].querySelector('.hslink');
+    assert.equal(link.tabIndex,0);
+    link.dispatchEvent(new app.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    assert.equal(app.$('stakeHs').value,'Lequeue Island','keyboard activation opens the exact Stakeout Patch');
+    assert.equal(app.$('stakeHsBtn').closest('section').hidden,false);
+    assert.deepEqual(app.state.errors,[]);
+  } finally { app.window.close(); }
+});
+
+for (const privateLocation of [false,true]) {
+  test('F1029 singleton '+(privateLocation ? 'private' : 'public')+' source avoids a repeated Locations list', async () => {
+    const f=f890EvidenceFixture();
+    const row={...f.row('S1029-SINGLE'),locId:'L1029-SINGLE',locName:'Single source',
+      locationPrivate:privateLocation};
+    const app=await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+    try {
+      const A=app.window.__app;
+      installSpuhFixture(app);
+      A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),[row]);
+      await A.lookupSpecies('verfly','Vermilion Flycatcher');
+      A.setSpeciesLookupWithinChase(false);
+      const card=app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
+      const head=card.querySelector(':scope > .name');
+      assert.equal(card.querySelector('.stakeoutIncludedLocations,summary'),null);
+      assert.equal(card.querySelector('.rankhead').textContent,'Checklists');
+      assert.equal(card.querySelectorAll('.cklcard-sm').length,1);
+      if (privateLocation) {
+        assert.equal(head.querySelector('.hslink'),null);
+        assert.ok(head.querySelector('.privateflag'));
+        assert.equal(app.window.getComputedStyle(head.querySelector('.stakeoutPrivateName')).fontWeight,'400');
+        assert.equal(head.querySelector('.stakeoutSourceMap').dataset.q,'47.8,-122.1');
+        assert.match(head.querySelector('.stakeoutSourceMap').getAttribute('aria-label'),/Single source.*Maps/);
+        assert.doesNotMatch(card.querySelector(':scope > .meta').textContent,/checklist/);
+      } else {
+        assert.equal(head.querySelector('.hslink').dataset.loc,row.locId);
+        assert.equal(head.querySelector('.privateflag'),null);
+      }
+      assert.deepEqual(app.state.errors,[]);
+    } finally { app.window.close(); }
+  });
+}
+
+test('F1029 private sources with withheld coordinates never acquire a map action or public link', async () => {
+  const f=f890EvidenceFixture();
+  const rows=Array.from({length:2},(_,i) => ({...f.row('S1029-W'+i,i),
+    locId:'P1029-W'+i,locName:'Private unnamed waypoint',lat:null,lng:null,locationPrivate:true}));
+  const app=await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+  try {
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),rows);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    const cards=[...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > .hscard-md')];
+    assert.equal(cards.length,2,'same-name withheld waypoints must not be merged');
+    for (const card of cards) {
+      const head=card.querySelector(':scope > .name');
+      assert.equal(head.querySelector('.maplink,.hslink'),null);
+      assert.match(head.textContent,/No map coordinates/);
+      assert.ok(head.querySelector('.privateflag'));
+    }
+  } finally { app.window.close(); }
+});
+
 test('F895/F893 mixed-source locality preserves every checklist, source and map reference', async () => {
   const f = f890EvidenceFixture();
   const observations = Array.from({ length: 52 }, (_, i) => ({
@@ -14315,7 +14533,7 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
       A.setSpeciesLookupGrouped(true);
       const nearbyGroups = [...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')];
       assert.equal(nearbyGroups.length,1,'the 10-mile view filters the distant and unlocated groups');
-      assert.equal(/Locality (\d+)/.exec(nearbyGroups[0].textContent)?.[1],'1',
+      assert.equal(nearbyGroups[0].querySelector('.hsnum').textContent.trim(),'1',
         'F924 a filtered group receives the first visible ordinal, not its former regional ordinal');
       const before=[...app.$('spLookupRecent').querySelectorAll('.cklcard-sm')].map(r=>r.dataset.evSub);
       A.renderSpeciesLookup();
@@ -19958,6 +20176,24 @@ test('the map-provider setting is reachable and lists every provider', async () 
   app.window.close();
 });
 
+test('F1030 F1033 menu group headings are larger and Recent shares their effective typography', async () => {
+  const app=await boot();
+  try {
+    const group=app.$('menuList').querySelector('.tocgroup');
+    const recent=app.$('recentBirdGen').querySelector('h2');
+    const groupStyle=app.window.getComputedStyle(group);
+    const recentStyle=app.window.getComputedStyle(recent);
+    assert.match(groupStyle.fontSize,/16px/,'menu group headings use the existing 16px tile-label reference');
+    for (const property of ['fontSize','fontWeight','color','letterSpacing','textTransform']) {
+      assert.equal(recentStyle[property],groupStyle[property],property+' must match the other menu headers');
+    }
+    assert.equal(recentStyle.fontWeight,'800');
+    assert.equal(recentStyle.textTransform,'uppercase');
+    assert.equal(app.document.querySelector('#menuEditFavorites,.menuRecommended'),null,
+      'F1031 menu recommendations remain excluded pending review');
+  } finally { app.window.close(); }
+});
+
 test('F987 Bird Gen keeps its labelled feed button and the Talk and news destination heading', async () => {
   const app = await boot();
   const tile = app.$('recentBirdGenOpen');
@@ -20792,7 +21028,7 @@ test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores catego
       if (previous) assert.deepEqual(identities, previous, 'input permutation must not change order');
       previous = identities;
       const recent = [...app.$('recentBirdGenRows').children];
-      assert.equal(recent.length, 6);
+      assert.equal(recent.length, 5);
       assert.equal(recent[0].dataset.recentKind, 'ppte');
       assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Sharp-tailed|Chronological patch [5-6]/);
       assert.match(app.$('surgeFeed').textContent, /Sharp-tailed/);
@@ -27613,7 +27849,7 @@ test('F510 Notes on renders separately labelled species and checklist blockquote
 test('F504-F505 grouped Twitches places review icons correctly and caps each hotspot at ten', () => {
   const appSource = HTML.slice(HTML.indexOf('function birdReportChecklistCard('),
     HTML.indexOf('function renderBirdReportProgress('));
-  assert.match(appSource, /review:\s*reviewIcon\(row\)/,
+  assert.match(appSource, /review:\s*opts\.rare \? reviewIcon\(row\) : ''/,
     'each grouped checklist does not place its icon-only review state after its age');
   assert.match(appSource, /slice\(0, 10\)/,
     'a grouped hotspot does not start with ten newest checklists');
@@ -35127,7 +35363,7 @@ test('F626 individual checklist rows preserve review criteria with the F819 shie
     /aria-label="Unconfirmed; no eBird reviewer confirmation available"/);
   const at = HTML.indexOf('function birdReportChecklistCard');
   const source = HTML.slice(at, HTML.indexOf('function birdReportPlaceCard', at));
-  assert.match(source, /review:\s*reviewIcon\(row\)/,
+  assert.match(source, /review:\s*opts\.rare \? reviewIcon\(row\) : ''/,
     'individual checklist cards do not use the worded species-level badge');
   app.window.close();
 });
@@ -45990,9 +46226,10 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
   A.setSpeciesLookupGrouped(true);
   function assertGrouped() {
     const groups = [...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li')];
-    const numbers = groups.map(row => /Locality (\d+)/.exec(row.textContent)?.[1]);
-    assert.deepEqual(numbers, groups.map((_, index) => String(index + 1)),
-      'F924 visible group labels are sequential in the current filtered order');
+    const mappedGroups = groups.filter(row => row.querySelector('.hsnum'));
+    assert.deepEqual(mappedGroups.map(row => row.querySelector('.hsnum').textContent),
+      mappedGroups.map(row => String(groups.indexOf(row) + 1)),
+      'F924 visible mapped group labels match the current filtered order');
     for (const row of groups) {
       const number = row.querySelector('.hsnum')?.textContent;
       const marker = arr(app.$('spLookupMap').querySelectorAll('.leaflet-marker-icon'))
@@ -49176,27 +49413,33 @@ test('a hotspot card is about the place, not the mileage', () => {
 // and always rendered none, so it read as a forgotten render. It was not:
 // hydrateChecklistEvidence selects `[data-ev-sub]`, and a hotspot card had no
 // way to carry a data attribute at all, so nothing could ever have filled it.
-test('a stakeout place row links the place and its dated checklist destination', () => {
-  const places = HTML.slice(HTML.indexOf('function spLookupPlaceCards'),
-    HTML.indexOf('\n      function spLookupRowsHtml'));
-  const checklist = HTML.slice(HTML.indexOf('function stakeoutChecklistRow'),
-    HTML.indexOf('\n      function loadStakeoutPlaceHistory'));
-  assert.ok(places.length > 200 && checklist.length > 200,
-    'Stakeout place and checklist renderers should be found and bounded');
-
-  // The place name stays in the app and opens Stake out a hotspot.
-  assert.match(places, /stakeHotspotLink\(p\.locId, where\)/,
-    'the place name opens the hotspot, not a checklist');
-  assert.doesNotMatch(places, /name:\s*\(href \? extA\(href, where\)/,
-    'the old name-carries-the-checklist-link form must not come back');
-
-  assert.match(checklist, /href:\s*row\.subId \? checklistUrl\(row\.subId\)/,
-    'the shared row does not open the checklist that reported the bird');
-  assert.doesNotMatch(checklist, /checklistId:/,
-    'the raw submission id is evidence plumbing, not readable row text');
-  assert.match(checklist, /'ev-sub':\s*row\.subId/, 'the row carries the evidence hook');
-  assert.match(checklist, /'ev-code':\s*\(bird && bird\.code\)/,
-    'and the species it is a report of');
+test('a stakeout place row links the place and its dated checklist destination', async () => {
+  const f=f890EvidenceFixture();
+  const row={...f.row('S183-CHECKLIST'),locId:'L183-PUBLIC',locName:'Named public source'};
+  const app=await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+  try {
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),[row]);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(true);
+    const card=app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
+    const name=card.querySelector(':scope > .name .hslink');
+    assert.ok(name,'the public place name must retain its hotspot action');
+    assert.equal(name.dataset.loc,row.locId,'the place name opens the exact hotspot, not a checklist');
+    assert.equal(name.textContent,row.locName);
+    const checklist=card.querySelector('.cklcard-sm');
+    const date=checklist.querySelector('.ckdate .ckgo');
+    assert.ok(date,'the checklist date must retain its own destination');
+    assert.equal(date.href,'https://ebird.org/checklist/'+row.subId,
+      'the date opens the checklist that reported the bird');
+    assert.ok(date.textContent.trim(),'the checklist link carries its readable date');
+    assert.doesNotMatch(checklist.textContent,/S183-CHECKLIST/,'raw submission IDs are not readable row text');
+    assert.equal(checklist.dataset.evSub,row.subId,'the row carries the evidence hook');
+    assert.equal(checklist.dataset.evCode,'verfly','and the species it is a report of');
+    assert.deepEqual(app.state.errors,[]);
+  } finally { app.window.close(); }
 });
 
 // The hotspot card could not carry a data attribute, which is why the hook
