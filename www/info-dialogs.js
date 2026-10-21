@@ -290,8 +290,9 @@
         + '<p>A bird count uses the most recent qualifying checklist, not '
         + 'the sum of repeat sightings or the number of reports. When that '
         + 'checklist has no known count, the xN value is omitted.</p>'
-        + '<p>If a source fails or the mega snapshot has not been loaded, '
-        + 'the feed names that gap instead of claiming nothing is happening. '
+        + '<p>Progress counts settled source jobs, not complete coverage. '
+        + 'Source failures and coverage details are recorded in debug logs; '
+        + 'the feed does not claim nothing is happening when sources are incomplete. '
         + 'Custom-region county checklist scope is resolved automatically; '
         + 'other source results can appear while it loads. '
         + 'A complete retained snapshot may still supply TOP PATCH rows while '
@@ -400,11 +401,6 @@
   };
 
   var EXCLUDED = {
-    'birdgen-refresh-status': {
-      surface: 'sheet',
-      name: 'Bird Gen refresh status',
-      reason: 'Transient acquisition outcome and recovery feedback from the current refresh, not authored informational help.'
-    },
     'birdgen-alert-evidence': {
       surface: 'sheet',
       name: 'Bird Gen alert evidence',

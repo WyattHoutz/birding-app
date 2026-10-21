@@ -1321,7 +1321,46 @@
     }
     .tilebadge.isnew { border-color: var(--safe-blue); color: var(--safe-blue); font-weight: 700; }
     .toc li.wide { grid-column: 1 / -1; }
-    #menuList > li.birdgen-tile { grid-column: 1 / -1; }
+    .toc .toclink { position: relative; -webkit-touch-callout: none; user-select: none; }
+    #menuList { container-type: inline-size; }
+    .toc > .menuShortcutShelf {
+      grid-column: 1 / -1; display: block; width: 100cqi; max-width: 100%; min-width: 0;
+    }
+    .menuShortcutItems {
+      --shortcut-gap: calc(12px * var(--s));
+      display: grid; list-style: none; margin: 0; padding: 0; min-width: 0;
+      grid-template-columns: repeat(auto-fill, minmax(max(calc((100% - 3 * var(--shortcut-gap)) / 4), min(100%, calc(64px * var(--s)))), 1fr));
+      gap: var(--shortcut-gap);
+    }
+    .toc .menuShortcutItems > .menuShortcut { grid-column: auto; min-width: 0; margin: 0; padding: 0; }
+    .toc .menuShortcutShelf .menuShortcut .toclink {
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      gap: calc(6px * var(--s)); width: 100%; height: 100%; min-height: calc(84px * var(--s));
+      padding: calc(5px * var(--s)); border: 3px dashed var(--safe-blue); border-radius: 10px;
+      background: var(--card); box-shadow: none;
+    }
+    .toc .menuShortcutShelf .tileicon {
+      display: grid; place-items: center; flex: none; width: auto; height: auto;
+      box-sizing: border-box; border: 0; background: transparent; line-height: 1;
+    }
+    .toc .menuShortcutShelf .tilelabel {
+      font-size: calc(13px * var(--s)); font-weight: 500; line-height: 1.25; text-align: center;
+    }
+    .toc .menuShortcutShelf .tilesub, .toc .menuShortcutShelf .tileextras { display: none; }
+    .toc .menuShortcutShelf .menuPinnedIcon {
+      top: calc(4px * var(--s)); right: calc(4px * var(--s)); font-size: calc(10px * var(--s));
+    }
+    .menuPinnedIcon { position: absolute; top: 6px; right: 7px; font-size: calc(12px * var(--s));
+      line-height: 1; pointer-events: none; }
+    .menuShortcutHint { display: block; margin-top: 5px;
+      font-size: calc(13px * var(--s)); font-weight: 400; letter-spacing: normal;
+      line-height: 1.35; text-transform: none; }
+    .menuShortcutPopup { position: fixed; z-index: 10000; width: 250px;
+      max-width: calc(100vw - 24px); padding: 8px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--card); box-shadow: 0 4px 18px #0003; }
+    .menuShortcutPopup[hidden] { display: none !important; }
+    .menuShortcutPopup button { display: block; width: 100%; min-height: 44px;
+      text-align: left; font-size: calc(14px * var(--s)); }
     /* A group heading spans the whole grid so the tiles under it read as a
        set. It is a <li> because the grid's children must be list items, and
        role="presentation" because it is a LABEL for the tiles, not one of
@@ -1345,7 +1384,8 @@
       font-size: calc(16px * var(--s)); font-weight: 800; letter-spacing: .06em;
       text-transform: uppercase; color: var(--muted);
     }
-    .toc li.tocgroup:first-child { margin-top: 2px; }
+    .toc li.tocgroup:first-child,
+    .toc #menuShortcutsTitle[hidden] + .menuShortcutShelf[hidden] + .tocgroup { margin-top: 2px; }
     .toc li.jargontip {
       grid-column: 1 / -1; display: block;
       margin: 2px 0 4px; padding: 8px 12px;
@@ -4547,14 +4587,6 @@
   <script type="application/json" id="menu-definition">
 [
   {
-    "at": "surgeBtn",
-    "icon": "🔔",
-    "title": "Bird Gen",
-    "subtitle": "Talk and news",
-    "needs": "geo",
-    "group": "Buzz"
-  },
-  {
     "at": "destBtn",
     "icon": "🏞",
     "title": "Today’s patches",
@@ -4618,6 +4650,14 @@
     "needs": "geo",
     "group": "Patches - Go birding",
     "enabled": false
+  },
+  {
+    "at": "surgeBtn",
+    "icon": "🔔",
+    "title": "Bird Gen",
+    "subtitle": "Talk and news",
+    "needs": "geo",
+    "group": "Bird alerts"
   },
   {
     "at": "refreshBtn",
@@ -39624,7 +39664,7 @@
           }
         });
         if (!unavailable.length) return '';
-        return unavailable.length ? esc(unavailable.join('; ')) : '';
+        return unavailable.join('; ');
       }
 
       function surgeSourceProgress(states) {
@@ -39637,21 +39677,15 @@
             && !(states[key] === 'partial'
               && (key === 'mass' || key === 'favorites' || key === 'ppte' || key === 'birdcast'));
         });
-        var status = surgeSourceWarning(states);
-        if (!pending.length && !status) return '';
         var done = keys.length - pending.length;
-        if (!pending.length) return '<div class="surgesourceprogress" role="status">'
-          + '<div class="label">Bird Gen sources · ' + done + ' of ' + keys.length
-          + ' settled</div><div class="label">' + status + '</div></div>';
         var pct = Math.round(done * 100 / keys.length);
-        var label = pending.length ? 'Loading Bird Gen sources' : 'Bird Gen sources';
-        return '<div class="surgesourceprogress" role="progressbar"'
-          + ' aria-label="' + label + '" aria-valuemin="0"'
-          + ' aria-valuemax="' + keys.length + '" aria-valuenow="' + done + '">'
+        return '<div class="surgesourceprogress"'
+          + (pending.length ? ' role="progressbar" aria-label="Bird Gen" aria-valuemin="0"'
+            + ' aria-valuemax="' + keys.length + '" aria-valuenow="' + done + '"'
+            : ' role="status"') + '>'
           + '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>'
-          + '<div class="label">' + label + ' · ' + done + ' of '
+          + '<div class="label">Bird Gen - ' + done + ' of '
           + keys.length + ' settled</div>'
-          + (status ? '<div class="label">' + status + '</div>' : '')
           + '</div>';
       }
 
@@ -41846,20 +41880,27 @@
         var migrationNow = new Date();
         var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
           .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot));
-        var sourceWarning = '';
+        var diagnostics = [surgeSourceWarning(sourceStates)];
         var ppteRows = sourceState && sourceState.ppteRows || [];
         var twitchRows = sourceState && sourceState.twitchRows || [];
         if (_twitchTracking.key === twitchJournalKey() && _twitchTracking.status) {
-          sourceWarning += '<p class="hint" data-twitch-tracking>'
-            + esc(_twitchTracking.status) + '</p>';
+          diagnostics.push(_twitchTracking.status);
         }
         _ppteEventsById = Object.create(null);
         if (sourceState && sourceState.ppteCoverage) {
-          sourceWarning += '<p class="hint" data-ppte-coverage>'
-            + esc(sourceState.ppteCoverage) + '</p>';
+          diagnostics.push(sourceState.ppteCoverage);
         }
         var sourceProgress = surgeSourceProgress(sourceStates);
         var coverage = sourceState && sourceState.massCoverage;
+        if (coverage) diagnostics.push(coverage);
+        if (sourceState && sourceState.retainedAt) diagnostics.push('Earlier results retained from '
+          + new Date(sourceState.retainedAt).toLocaleString() + '.');
+        if (sourceState && sourceState.retentionFailed) diagnostics.push(
+          'Some latest results are available in this session but could not be saved '
+          + 'on this device. They may not be available after the app restarts.');
+        diagnostics = diagnostics.filter(Boolean).join(' ');
+        if (diagnostics && diagnostics !== box._surgeDiagnostics) dbg('warn', 'Bird Gen source diagnostics: ' + diagnostics);
+        box._surgeDiagnostics = diagnostics;
         markSurgeSourceStates(box, sourceStates);
         var annualFirsts = sourceState && sourceState.foyRows || foyPendingRows();
         if (!megaRows.length && !needs.length && !events.length
@@ -41880,7 +41921,6 @@
           });
           LANE_DOCS.feed.context = window.BirdInfoDialogs.birdGenContext({
             count: 0,
-            massCoverage: coverage,
             megaAge: mega ? megaAge(mega.at) : ''
           }, esc);
           box.innerHTML = surgeControls()
@@ -41889,7 +41929,7 @@
             + (surgeSourcesComplete(sourceStates) ? '0 alerts' : '0 loaded alerts')
             + '</span></div>'
             + laneHelpBtn('feed') + '</div>'
-            + sourceWarning + sourceProgress + (surgeSourcesComplete(sourceStates)
+            + sourceProgress + (surgeSourcesComplete(sourceStates)
             ? !personalListEvidence().complete
               ? '<div class="status">Personal history is unavailable or incomplete; no independent bird alerts were found in the loaded sources.</div>'
               : '<div class="status">Nothing you need has been reported within '
@@ -42344,7 +42384,6 @@
         });
         LANE_DOCS.feed.context = window.BirdInfoDialogs.birdGenContext({
           count: rows.length,
-          massCoverage: coverage,
           megaAge: mega ? megaAge(mega.at) : ''
         }, esc);
         var html = surgeControls()
@@ -42352,7 +42391,7 @@
           + '<span data-surge-visible-count>' + rows.length + ' alert'
           + (rows.length === 1 ? '' : 's') + '</span></div>'
           + laneHelpBtn('feed') + '</div>'
-          + sourceWarning + sourceProgress + surgeCountHtml(rows)
+          + sourceProgress + surgeCountHtml(rows)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'
           + ' data-unified-alert-feed="true">'
           + rows.map(function (row) { return surgeAlertCard(row, order++); }).join('')
@@ -42788,6 +42827,13 @@
             ppte: surgeModel.ppte.state,
             foy: foySource.state
           };
+          var retainedDates = Object.keys(surgeModel).map(function (key) {
+            return surgeModel[key].retainedAt;
+          }).filter(Boolean);
+          var retentionPrefix = surgeRetainedKey() + '||' + surgeRetainedContext() + '||';
+          var retentionFailed = Object.keys(_surgeRetentionFailures).some(function (key) {
+            return key.indexOf(retentionPrefix) === 0;
+          });
           var n = renderSurge(
             surgeModel.observed.events,
             surgeModel.cascades.rows,
@@ -42797,6 +42843,8 @@
             Object.assign({}, states, {
               massCoverage: surgeModel.mass.coverage, deferPhotos: !renderReady,
               ppteRows: surgeModel.ppte.rows, ppteCoverage: surgeModel.ppte.coverage,
+              retainedAt: retainedDates.length ? Math.min.apply(Math, retainedDates) : 0,
+              retentionFailed: retentionFailed,
               twitchRows: surgeModel.observed.twitchRows || [],
               cascadeRetained: !!surgeModel.cascades.retainedAt,
               foyRows: foySource.rows
@@ -42806,24 +42854,6 @@
             surgeModel.mass.rows
           );
           var complete = surgeSourcesComplete(states);
-          var retainedDates = Object.keys(surgeModel).map(function (key) {
-            return surgeModel[key].retainedAt;
-          }).filter(Boolean);
-          if (retainedDates.length) {
-            resultsBox.insertAdjacentHTML('beforeend', '<div class="hint" data-surge-retained>'
-              + 'Earlier results retained from '
-              + esc(new Date(Math.min.apply(Math, retainedDates)).toLocaleString())
-              + '. Source status is shown above; failed sources keep their last-good results.</div>');
-          }
-          var retentionPrefix = surgeRetainedKey() + '||' + surgeRetainedContext() + '||';
-          if (Object.keys(_surgeRetentionFailures).some(function (key) {
-            return key.indexOf(retentionPrefix) === 0;
-          })) {
-            resultsBox.insertAdjacentHTML('beforeend',
-              '<div class="hint" data-surge-retention-warning>'
-              + 'Some latest results are available in this session but could not be saved '
-              + 'on this device. They may not be available after the app restarts.</div>');
-          }
           st.textContent = (n
             ? n + ' active alert' + (n === 1 ? '' : 's')
               + (complete ? '' : ' · incomplete')
@@ -46093,9 +46123,8 @@
       // The last group was called "You". It holds your standing, your year
       // list, the app settings and now its manual: half of it is about you and
       // half is about the app, and "You" named only the first half.
-      // F985 supersedes F200: Bird Gen alone leads Buzz; other alerts follow.
+      // F1031 restores Bird Gen to Bird alerts; shortcuts leave original groups intact.
       var MENU_GROUPS = [
-        'Buzz',
         'Patches - Go birding',
         'Bird alerts',
         'Stakeouts - Birds and Hotspots',
@@ -46263,11 +46292,18 @@
             li.hidden = !!q;
             continue;
           }
-          var a = li.querySelector('.toclink');
-          var hay = a ? (a.getAttribute('data-find') || '') : '';
-          var hit = !q || hay.indexOf(q) > -1;
-          li.hidden = !hit;
-          if (hit) { headHasAny = true; n++; }
+          var rows = li.classList.contains('menuShortcutShelf')
+            ? Array.from(li.querySelectorAll('.menuShortcut')) : [li];
+          var any = false;
+          rows.forEach(function (row) {
+            var a = row.querySelector('.toclink');
+            var hay = a ? (a.getAttribute('data-find') || '') : '';
+            var hit = !q || hay.indexOf(q) > -1;
+            row.hidden = !hit;
+            if (hit) { any = true; n++; }
+          });
+          li.hidden = !any;
+          if (any) headHasAny = true;
         }
         if (lastHead) lastHead.hidden = !headHasAny;
         var out = $('menuFilterCount');
@@ -46558,15 +46594,204 @@
         bindRegionPickers();
         return _out;
       }
+      var MENU_SHORTCUTS_KEY = 'bc_menu_shortcuts_v1';
+      function menuShortcutKeys() {
+        try {
+          var raw = localStorage.getItem(MENU_SHORTCUTS_KEY);
+          if (raw === null) return ['destBtn', 'refreshBtn'];
+          var keys = JSON.parse(raw);
+          if (!Array.isArray(keys)) throw new Error('Invalid shortcuts');
+          var valid = keys.filter(function (key, index) {
+            return typeof key === 'string' && keys.indexOf(key) === index
+              && MENU.some(function (item) { return item.at === key; });
+          });
+          if (valid.length !== keys.length) dbg('warn', 'Menu shortcuts: ignored invalid saved destinations');
+          return valid;
+        } catch (e) {
+          dbg('warn', 'Menu shortcuts: saved preferences unavailable; using defaults');
+          return ['destBtn', 'refreshBtn'];
+        }
+      }
+      function renderMenuShortcuts(list) {
+        list.querySelectorAll('.menuShortcutShelf, .menuShortcut, #menuShortcutsTitle').forEach(function (row) { row.remove(); });
+        var pins = menuShortcutKeys();
+        var originals = Array.from(list.querySelectorAll('.toclink'));
+        originals.forEach(function (button) {
+          var selected = pins.indexOf(button.dataset.at) !== -1;
+          button.dataset.shortcutPinned = String(selected);
+          button.setAttribute('aria-label', button.dataset.menuLabel + (selected ? ', pinned to shortcuts' : ''));
+          button.setAttribute('aria-haspopup', 'menu');
+          button.setAttribute('aria-keyshortcuts', 'Shift+F10');
+          button.setAttribute('aria-describedby', 'menuShortcutsHint');
+          var marker = button.querySelector('.menuPinnedIcon');
+          if (!selected && marker) marker.remove();
+          if (selected && !marker) {
+            marker = document.createElement('span');
+            marker.className = 'menuPinnedIcon';
+            marker.setAttribute('aria-hidden', 'true');
+            marker.textContent = '\uD83D\uDCCC';
+            button.appendChild(marker);
+          }
+        });
+        var heading = document.createElement('li');
+        heading.id = 'menuShortcutsTitle';
+        heading.className = 'tocgroup';
+        heading.setAttribute('role', 'presentation');
+        heading.tabIndex = -1;
+        heading.innerHTML = '<span>Shortcuts</span><span class="menuShortcutHint" id="menuShortcutsHint">'
+          + 'Long press a menu item to edit shortcuts.</span>';
+        var shelf = document.createElement('li');
+        shelf.className = 'menuShortcutShelf';
+        var items = document.createElement('ul');
+        items.className = 'menuShortcutItems';
+        items.setAttribute('aria-label', 'Shortcuts');
+        shelf.appendChild(items);
+        list.prepend(heading, shelf);
+        pins.forEach(function (key) {
+          var original = originals.find(function (button) { return button.dataset.at === key; });
+          if (!original) return;
+          var shortcut = original.closest('li').cloneNode(true);
+          shortcut.classList.add('menuShortcut');
+          shortcut.querySelectorAll('[id]').forEach(function (node) { node.removeAttribute('id'); });
+          items.appendChild(shortcut);
+        });
+        heading.hidden = !items.children.length;
+        shelf.hidden = heading.hidden;
+      }
+      function bindMenuShortcuts(list) {
+        if (list._shortcutControls) {
+          list._shortcutControls();
+          return;
+        }
+        var popup = document.createElement('div');
+        popup.id = 'menuShortcutPopup';
+        popup.className = 'menuShortcutPopup';
+        popup.setAttribute('role', 'menu');
+        popup.setAttribute('aria-labelledby', 'menuShortcutTarget');
+        popup.hidden = true;
+        popup.innerHTML = '<div class="hint" id="menuShortcutTarget"></div>'
+          + '<button type="button" role="menuitem" id="menuShortcutAction"></button>';
+        document.body.appendChild(popup);
+        var action = $('menuShortcutAction'), trigger = null, timer = null;
+        var start = null, suppressClick = null;
+        function cancelHold() {
+          clearTimeout(timer);
+          timer = null;
+          start = null;
+        }
+        function closePopup(restoreFocus) {
+          cancelHold();
+          popup.hidden = true;
+          suppressClick = null;
+          if (restoreFocus && trigger) {
+            var heading = $('menuShortcutsTitle');
+            var original = Array.from(list.querySelectorAll('.toclink')).find(function (button) {
+              return button.dataset.at === trigger.dataset.at && !button.closest('.menuShortcut');
+            });
+            var target = trigger.isConnected ? trigger
+              : heading && !heading.hidden ? heading : original || $('menuFilter');
+            if (target) target.focus({ preventScroll: true });
+          }
+        }
+        list._shortcutControls = function () { closePopup(false); };
+        function openPopup(button, method) {
+          cancelHold();
+          trigger = button;
+          var selected = menuShortcutKeys().indexOf(button.dataset.at) !== -1;
+          $('menuShortcutTarget').textContent = button.querySelector('.tilelabel').textContent;
+          action.textContent = selected ? 'Remove from shortcuts' : 'Pin to shortcuts';
+          action.dataset.action = selected ? 'remove' : 'pin';
+          popup.dataset.trigger = method;
+          popup.hidden = false;
+          var rect = button.getBoundingClientRect();
+          popup.style.left = Math.max(12, Math.min(rect.left, innerWidth - popup.offsetWidth - 12)) + 'px';
+          popup.style.top = Math.max(12, Math.min(rect.bottom + 6, innerHeight - popup.offsetHeight - 12)) + 'px';
+          action.focus({ preventScroll: true });
+        }
+        action.addEventListener('click', function (event) {
+          event.stopPropagation();
+          var key = trigger.dataset.at, pins = menuShortcutKeys();
+          if (pins.indexOf(key) === -1) pins.push(key);
+          else pins = pins.filter(function (item) { return item !== key; });
+          try { localStorage.setItem(MENU_SHORTCUTS_KEY, JSON.stringify(pins)); }
+          catch (e) {
+            dbg('error', 'Menu shortcuts: preferences could not be saved');
+            closePopup(true);
+            return;
+          }
+          renderMenuShortcuts(list);
+          applyMenuFilter();
+          closePopup(true);
+        });
+        list.addEventListener('pointerdown', function (event) {
+          cancelHold();
+          var button = event.target.closest('.toclink');
+          if (!button || event.button !== 0 || event.isPrimary === false) return;
+          suppressClick = null;
+          start = { x: event.clientX, y: event.clientY };
+          timer = setTimeout(function () {
+            suppressClick = button;
+            openPopup(button, 'hold');
+          }, 600);
+        }, true);
+        list.addEventListener('pointermove', function (event) {
+          if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) cancelHold();
+        }, true);
+        list.addEventListener('pointerleave', function (event) {
+          if (event.target === list) cancelHold();
+        }, true);
+        ['pointerup', 'pointercancel', 'scroll'].forEach(function (type) {
+          document.addEventListener(type, cancelHold, true);
+        });
+        document.addEventListener('pointerdown', function (event) {
+          if (!popup.hidden && !popup.contains(event.target)) closePopup(false);
+        }, true);
+        list.addEventListener('contextmenu', function (event) {
+          var button = event.target.closest('.toclink');
+          if (!button) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          suppressClick = button;
+          openPopup(button, 'contextmenu');
+        }, true);
+        list.addEventListener('keydown', function (event) {
+          var button = event.target.closest('.toclink');
+          if (!button || !(event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10')) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          openPopup(button, 'keyboard');
+        }, true);
+        document.addEventListener('keydown', function (event) {
+          if (popup.hidden) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closePopup(true);
+          } else if (event.key === 'Tab') closePopup(false);
+        }, true);
+        list.addEventListener('click', function (event) {
+          var button = event.target.closest('.toclink');
+          if (!button) return;
+          if (button === suppressClick) {
+            suppressClick = null;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          } else if (button.closest('.menuShortcut')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            showSection(button.dataset.sec);
+          }
+        }, true);
+      }
       function _renderMenuListInner() {
         var list = $('menuList'); if (!list) return;
+        bindMenuShortcuts(list);
         var personalSection = $('myYearBody').closest('section');
         if (personalSection) personalSection._label = '📅 ' + (personalPeriod() === 'all' ? 'Life List' : 'Year List');
         list.innerHTML = '';
         renderRecentBirdGen();
         var shown = _sections.filter(function (sec) {
-          return sec._at !== 'surgeBtn'
-            && menuApplies({ at: sec._at, needs: sec._needs, enabled: sec._enabled });
+          return menuApplies({ at: sec._at, needs: sec._needs, enabled: sec._enabled });
         });
         MENU_GROUPS.forEach(function (group) {
           var members = shown.filter(function (s) { return s._group === group; });
@@ -46579,10 +46804,10 @@
           list.appendChild(h);
           members.forEach(function (sec) {
             var li = document.createElement('li');
-            if (sec._at === 'surgeBtn') li.className = 'birdgen-tile';
           var a = document.createElement('button');
           a.type = 'button';
           a.className = 'toclink'; a.setAttribute('aria-label', sec._label);
+          a.dataset.menuLabel = sec._label;
           a.setAttribute('data-sec', sec.id);
           // F195. The badge engine is keyed by the MENU `at` id, not by
           // `sec.id`, and the two are almost never the same — see menuBadge.
@@ -46650,6 +46875,7 @@
           });
         });
         if (!list.querySelector('.jargontip')) renderJargonTip(list);
+        renderMenuShortcuts(list);
         // F195. The badge engine had a repaint path and NO CALLER — measured:
         // `refreshMenuBadges` was defined and never invoked, so even a badge
         // whose key resolved could only ever have appeared on the paint that
@@ -46671,13 +46897,10 @@
         return scope.cacheIdentity + '||' + scope.generation + '||' + surgeRetainedContext();
       }
       function setRecentBirdGenStatus(text) {
-        var status = $('recentBirdGenStatus'), feedback = $('recentBirdGenFeedback');
+        var status = $('recentBirdGenStatus');
         status.textContent = text;
-        feedback.hidden = !text;
         var warning = /failed|cancelled|partial|not saved|withheld|could not|Set Home/i.test(text);
-        feedback.textContent = warning ? '!' : 'ⓘ';
-        feedback.setAttribute('aria-label', 'Bird Gen refresh status: ' + text);
-        feedback.title = text;
+        if (text) dbg(warning ? 'warn' : 'info', 'Bird Gen refresh: ' + text);
       }
       function renderRecentBirdGen() {
         var list = $('menuList'), root = $('recentBirdGen');
@@ -46689,8 +46912,6 @@
             + '<div class="recent-birdgen-actions">'
             + '<button type="button" class="refreshbtn" id="recentBirdGenRefresh"'
             + ' aria-label="Refresh full Bird Gen feed"><span aria-hidden="true">↻</span></button>'
-            + '<button type="button" class="refreshbtn" id="recentBirdGenFeedback" hidden'
-            + ' aria-label="Bird Gen refresh status">ⓘ</button>'
             + '<button type="button" class="refreshbtn" id="recentBirdGenOpen" data-at="surgeBtn"'
             + ' aria-label="Open full Bird Gen feed">Full feed</button>'
             + '<span id="recentBirdGenStatus" class="vh" role="status" aria-live="polite"></span></div></div>'
@@ -46698,10 +46919,6 @@
           list.before(root);
           $('recentBirdGenRefresh').addEventListener('click', function () {
             refreshFullBirdGen();
-          });
-          $('recentBirdGenFeedback').addEventListener('click', function () {
-            showExcludedSheet('birdgen-refresh-status', 'Bird Gen refresh status', '',
-              '<p>' + esc($('recentBirdGenStatus').textContent) + '</p>');
           });
           $('recentBirdGenOpen').addEventListener('click', function () {
             var section = $('surgeBtn').closest('section');

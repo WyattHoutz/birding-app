@@ -928,6 +928,8 @@ const AUDIT = `<script>
       var jargon = menuList.querySelector('.jargontip');
       var groups = [], menuOrder = [];
       [].forEach.call(menuList.children, function (li) {
+        if (li.id === 'menuShortcutsTitle' || li.classList.contains('menuShortcut')
+          || li.classList.contains('menuShortcutShelf')) return;
         if (li.classList.contains('tocgroup')) groups.push(li.textContent.trim());
         var link = li.querySelector('.toclink');
         if (link) menuOrder.push(link.dataset.at);
@@ -943,17 +945,111 @@ const AUDIT = `<script>
         fullWidth: !!birdBox && Math.abs(birdBox.left - menuBox.left) <= 1
           && Math.abs(birdBox.width - menuBox.width) <= 1,
         regularTiles: [].every.call(menuList.querySelectorAll('.toclink'), function (link) {
-          return link.dataset.at === 'surgeBtn'
-            || getComputedStyle(link.closest('li')).gridColumnEnd === 'auto';
+          return getComputedStyle(link.closest('li')).gridColumnEnd === 'auto';
         }),
+        shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
+          return button.dataset.at;
+        }).join(',') === 'destBtn,refreshBtn',
+        birdGenNormal: (function () {
+          var bird = menuList.querySelector(':scope > li > .toclink[data-at="surgeBtn"]');
+          var normal = menuList.querySelector(':scope > li > .toclink[data-at="destBtn"]');
+          return !!bird && !!normal && !bird.querySelector('.menuPinnedIcon')
+            && !!bird.querySelector('.tileicon')
+            && Math.abs(bird.getBoundingClientRect().width - normal.getBoundingClientRect().width) <= .5;
+        })(),
         jargonBetween: !!jargon && menuList.querySelectorAll('.jargontip').length === 1
           && jargon.previousElementSibling.querySelector('[data-at="favResults"]') !== null
           && jargon.nextElementSibling.textContent.trim() === 'Bird alerts'
       };
+      window.__menuFirstGroupMargin = getComputedStyle(menuList.querySelector('.tocgroup')).marginTop;
+    }
+    var compactShortcuts = null, emptyShortcuts = null;
+    if (label === '(F1036 compact shortcuts)') {
+      compactShortcuts = (function () {
+        var shelf = menuList.querySelector('.menuShortcutShelf');
+        var items = shelf.querySelector('.menuShortcutItems');
+        var shelfBox = shelf.getBoundingClientRect();
+        var itemStyle = getComputedStyle(items);
+        var columns = itemStyle.gridTemplateColumns.split(' ').filter(Boolean);
+        var gap = parseFloat(itemStyle.columnGap);
+        var scale = parseFloat(itemStyle.getPropertyValue('--s'));
+        var expectedColumns = Math.max(1, Math.min(4, Math.floor(
+          (items.getBoundingClientRect().width + gap + .01) / (64 * scale + gap))));
+        var colourProbe = document.createElement('span');
+        colourProbe.style.color = 'var(--safe-blue)';
+        document.body.appendChild(colourProbe);
+        var safeBlue = getComputedStyle(colourProbe).color;
+        colourProbe.remove();
+        var originalButtons = Array.from(menuList.querySelectorAll(':scope > li > .toclink'));
+        var originalBorder = getComputedStyle(originalButtons[0]).borderColor;
+        return {
+          columns: columns.length,
+          expectedColumns: expectedColumns,
+          checks: {
+            responsive: columns.length === expectedColumns,
+            fourPins: items.children.length === 4,
+            shown: !shelf.hidden && !document.getElementById('menuShortcutsTitle').hidden,
+            contained: shelfBox.left >= menuList.getBoundingClientRect().left - .5
+              && shelfBox.right <= menuList.getBoundingClientRect().right + .5,
+            originalBorders: originalButtons.every(function (button) {
+              return getComputedStyle(button).borderColor === originalBorder;
+            })
+          },
+          tiles: Array.from(items.querySelectorAll('.toclink')).map(function (button) {
+            var box = button.getBoundingClientRect();
+            var labelNode = button.querySelector('.tilelabel'), labelBox = labelNode.getBoundingClientRect();
+            var icon = button.querySelector('.tileicon'), style = getComputedStyle(button);
+            var original = menuList.querySelector(':scope > li > .toclink[data-at="' + button.dataset.at + '"]');
+            var wordsIntact = Array.from(labelNode.textContent.matchAll(/\\S+/g)).every(function (match) {
+              var range = document.createRange();
+              range.setStart(labelNode.firstChild, match.index);
+              range.setEnd(labelNode.firstChild, match.index + match[0].length);
+              return range.getClientRects().length === 1;
+            });
+            return {
+              at: button.dataset.at,
+              target: box.width >= 44 && box.height >= 44,
+              titleInside: labelBox.left >= box.left && labelBox.right <= box.right
+                && labelBox.bottom <= box.bottom - 2,
+              wordsIntact: wordsIntact,
+              contained: box.left >= shelfBox.left - .5 && box.right <= shelfBox.right + .5,
+              iconSize: !!original && getComputedStyle(icon).fontSize
+                === getComputedStyle(original.querySelector('.tileicon')).fontSize,
+              vertical: style.flexDirection === 'column' && labelBox.top >= icon.getBoundingClientRect().bottom,
+              border: style.borderStyle === 'dashed' && parseFloat(style.borderTopWidth) === 3,
+              colour: style.borderColor === safeBlue,
+              flat: style.boxShadow === 'none',
+              subtitleHidden: getComputedStyle(button.querySelector('.tilesub')).display === 'none',
+              pin: !!button.querySelector('.menuPinnedIcon'),
+              noExtraBadge: !button.querySelector('.menuShortcutBadge')
+            };
+          })
+        };
+      })();
+    }
+    if (label === '(F1039 empty shortcuts)') {
+      emptyShortcuts = (function () {
+        var emptyHeading = document.getElementById('menuShortcutsTitle');
+        var emptyShelf = menuList.querySelector('.menuShortcutShelf');
+        var firstVisible = Array.from(menuList.children).find(function (row) {
+          return getComputedStyle(row).display !== 'none';
+        });
+        return {
+          headingHidden: emptyHeading.hidden && getComputedStyle(emptyHeading).display === 'none',
+          shelfHidden: emptyShelf.hidden && getComputedStyle(emptyShelf).display === 'none',
+          noTiles: !menuList.querySelector('.menuShortcut'),
+          noGap: emptyHeading.getBoundingClientRect().height === 0 && emptyShelf.getBoundingClientRect().height === 0
+            && getComputedStyle(firstVisible).marginTop === window.__menuFirstGroupMargin,
+          originalTools: menuList.querySelectorAll(':scope > li > .toclink').length > 0,
+          savedEmpty: localStorage.getItem('bc_menu_shortcuts_v1') === '[]'
+        };
+      })();
     }
     return {
       label: label, vw: vw, n: all.length,
       menuLayout: menuLayout,
+      compactShortcuts: compactShortcuts,
+      emptyShortcuts: emptyShortcuts,
       alertEvidence: alertEvidence,
       patchHeader: patchHeader,
       categoryFilter: categoryFilter,
@@ -1025,6 +1121,16 @@ const AUDIT = `<script>
     out.push(chooserScan);
     document.getElementById('regionChooserClose').click();
     out.push(scan('(contents menu)'));
+    var savedShortcuts = localStorage.getItem('bc_menu_shortcuts_v1');
+    localStorage.setItem('bc_menu_shortcuts_v1', JSON.stringify(['destBtn', 'refreshBtn', 'spLookupBtn', 'stakeHsBtn']));
+    A.showMenu();
+    out.push(scan('(F1036 compact shortcuts)'));
+    localStorage.setItem('bc_menu_shortcuts_v1', '[]');
+    A.showMenu();
+    out.push(scan('(F1039 empty shortcuts)'));
+    if (savedShortcuts === null) localStorage.removeItem('bc_menu_shortcuts_v1');
+    else localStorage.setItem('bc_menu_shortcuts_v1', savedShortcuts);
+    A.showMenu();
     var savedFavorites = A.getFavs();
     [false, true].forEach(function (saved) {
       A.setFavs(saved ? [{ id: 'L828', locId: 'L828', locName: 'Layout hotspot', region: 'US-WA' }] : []);
@@ -1397,14 +1503,13 @@ const AUDIT = `<script>
         listOnly:!document.querySelector('#recentBirdGen > p')
           && document.getElementById('recentBirdGenStatus').classList.contains('vh')
           && document.getElementById('recentBirdGenStatus').getAttribute('aria-live')==='polite',
-        outcome:!document.getElementById('recentBirdGenFeedback').hidden
-          && document.getElementById('recentBirdGenFeedback').getAttribute('aria-label')
-            .includes(document.getElementById('recentBirdGenStatus').textContent),
-        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenFeedback'].map(function(id){
+        outcome:!document.getElementById('recentBirdGenFeedback')
+          && document.querySelectorAll('.recent-birdgen-actions button').length===2,
+        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh'].map(function(id){
           var button=document.getElementById(id);
           return {id:id,rect:button.getBoundingClientRect().toJSON(),label:button.getAttribute('aria-label')};
         }),
-        compactActions:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenFeedback'].every(function(id){
+        compactActions:['recentBirdGenOpen','recentBirdGenRefresh'].every(function(id){
           var button=document.getElementById(id), rect=button.getBoundingClientRect();
           return document.querySelector('.recent-birdgen-head').contains(button)
             && rect.height>=44 && rect.width>=44
@@ -2826,6 +2931,10 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F985 FIXTURE missing Contents grid geometry');
     }
+    if (!report.some((r) => r.compactShortcuts) || !report.some((r) => r.emptyShortcuts)) {
+      bad++;
+      console.log('   F1036/F1039 FIXTURE missing compact or empty shortcut geometry');
+    }
     const twitch = report.find((r) => r.twitchReading);
     if (!twitch) {
       bad++;
@@ -3052,7 +3161,7 @@ server.listen(0, '127.0.0.1', () => {
       if (r.menuLayout) {
         var menu = r.menuLayout;
         console.log('   F987/F992 MENU GEOMETRY  ' + JSON.stringify(menu));
-        if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween
+        if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween || !menu.shortcuts || !menu.birdGenNormal
             || JSON.stringify(menu.groups) !== JSON.stringify(['Patches - Go birding', 'Bird alerts'])
             || JSON.stringify(menu.order) !== JSON.stringify([
               'destBtn', 'quickBtn', 'excBtn', 'iconicBtn', 'coldBtn', 'hotBtn', 'favResults'
@@ -3064,6 +3173,21 @@ server.listen(0, '127.0.0.1', () => {
       if (r.recentBirdGen && Object.values(r.recentBirdGen).some(value => !value)) {
         bad++;
         console.log('   F987 RECENT FEED FAILED ' + JSON.stringify(r.recentBirdGen));
+      }
+      if (r.compactShortcuts) {
+        console.log('   F1036 COMPACT SHORTCUTS  ' + JSON.stringify(r.compactShortcuts));
+        if (Object.values(r.compactShortcuts.checks).some(value => !value)
+          || r.compactShortcuts.tiles.some(tile => Object.values(tile).some(value => !value))) {
+          bad++;
+          console.log('   F1036 COMPACT SHORTCUTS FAILED');
+        }
+      }
+      if (r.emptyShortcuts) {
+        console.log('   F1039 EMPTY SHORTCUTS  ' + JSON.stringify(r.emptyShortcuts));
+        if (Object.values(r.emptyShortcuts).some(value => !value)) {
+          bad++;
+          console.log('   F1039 EMPTY SHORTCUTS FAILED');
+        }
       }
       var nameless = r.unnamed || [];
       if (nameless.length) {
