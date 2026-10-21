@@ -264,6 +264,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     id: 'section-' + item.at,
     at: item.at,
     title: item.label + (item.sub ? ' — ' + item.sub : ''),
+    freshApp: ['easyBtn','cklBtn','convoyBtn'].includes(item.at),
     kind: spec && spec.kind,
     host: item.at === 'rankBtn' ? 'sec-rankBtn' : spec && spec.host,
     fullPage: item.at === 'rankBtn' || item.at === 'stakeHsBtn',
@@ -281,7 +282,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
            var anchor = document.getElementById(${at});
            var sec = anchor && anchor.closest ? anchor.closest('section') : null;
            if (!sec) throw new Error('no section for ' + ${at});
-           A.showSection(sec.id);
+           A.showSection(sec.id, {load: !['easyBtn','cklBtn','convoyBtn'].includes(${at})});
            return FIX.prepare(${at}, spec, A, document, sec,
              ${JSON.stringify(SCALE)});`,
   };
@@ -634,7 +635,7 @@ const EXTRA_SHOTS = [
              hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
              foy:'notApplicable'
            });
-           document.querySelector('#surgeResults .lanehelp[data-lane="feed"]').click();
+           await A.toggleSectionDoc(sec);
            var host = document.getElementById('appSheet');
            if (!host || host.hidden) throw new Error('Bird Gen alert key did not open');
            if (A.fgProgressReset) A.fgProgressReset();
@@ -1507,7 +1508,9 @@ const BOOTSTRAP = `
     }));
   } catch (e) {}
   // Unseeded sources stay pending unless their production owner cancels them.
+  var bundledFetch = window.fetch.bind(window);
   var HANG = function (url, init) {
+    if (url === 'section-docs.json') return bundledFetch(url, init);
     return new Promise(function (resolve, reject) {
       if (!init || !init.signal) return;
       var abort = function () { reject(new DOMException('Fixture request aborted', 'AbortError')); };
@@ -2238,6 +2241,26 @@ const BOOTSTRAP = `
     markHost(host, label);
   }
   function fixtureBefore(at, A, document) {
+    if (at === 'cklBtn') {
+      A.seedEbirdCache('ref/taxonomy/ebird?fmt=json&locale=en&species=bohwax%2Clobcur&version=2025.0',[
+        {speciesCode:'bohwax',comName:'Bohemian Waxwing',category:'species'},
+        {speciesCode:'lobcur',comName:'Long-billed Curlew',category:'species'}
+      ]);
+      var day = A.todayStr(), home = A.getHome();
+      var lists = ['Marymoor Park--Audubon Bird Loop', 'Union Bay Natural Area'].map(function (name, index) {
+        var subId = 'S-APPROVED-' + index;
+        A.seedChecklistView(subId, {obs:[
+          {speciesCode:'bohwax',comName:'Bohemian Waxwing',howMany:4},
+          {speciesCode:'lobcur',comName:'Long-billed Curlew',howMany:2}
+        ]});
+        return {subId:subId,locId:'L-APPROVED-'+index,isoObsDate:day+' 08:30',
+          userDisplayName:'Representative birder',numSpecies:42-index,
+          loc:{name:name,isHotspot:true,latitude:home.lat+.01*index,longitude:home.lng}};
+      });
+      window.BirdLogic.planConvoyFeeds(A.getReport()).forEach(function (feed) {
+        A.seedEbirdCache(window.BirdLogic.requestUrl(feed),lists);
+      });
+    }
     if (at === 'spLookupBtn') {
       A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(window.FIX.spuhRows));
       if (A.setSpuhRandom) A.setSpuhRandom(function () { return 0; });
@@ -2440,7 +2463,49 @@ const BOOTSTRAP = `
       return true;
     }
     if (!spec.preserveHost) host.innerHTML = '';
-    if (spec.kind === 'events') {
+    if (at === 'cklBtn' || at === 'convoyBtn') {
+      await preparePersonalFixture(A, document.defaultView,
+        window.__SEED_BIRDLIST__.seenByReport.wa, [
+          {code:'bohwax',name:'Bohemian Waxwing',sci:'Bombycilla garrulus',alpha:'BOWA'},
+          {code:'lobcur',name:'Long-billed Curlew',sci:'Numenius americanus',alpha:'LBCU'}
+        ]);
+      var tax = [
+        {speciesCode:'bohwax',comName:'Bohemian Waxwing',category:'species'},
+        {speciesCode:'lobcur',comName:'Long-billed Curlew',category:'species'}
+      ];
+      ['bohwax,lobcur','lobcur,bohwax'].forEach(function (codes) {
+        A.seedEbirdCache('ref/taxonomy/ebird?fmt=json&locale=en&species='+encodeURIComponent(codes)
+          +'&version=2025.0',tax);
+      });
+      if (at === 'cklBtn') {
+        await A.LOADERS.cklBtn.fn();
+      } else {
+        var day = A.todayStr(), home = A.getHome();
+        var stops = ['Marymoor Park--Audubon Bird Loop', 'Union Bay Natural Area'].map(function (name,index) {
+          var subId = 'S-CONVOY-APPROVED-'+index;
+          A.seedChecklistView(subId,{obs:[
+            {speciesCode:'bohwax',comName:'Bohemian Waxwing',howMany:4},
+            {speciesCode:'lobcur',comName:'Long-billed Curlew',howMany:2}
+          ]});
+          return {subId:subId,numSpecies:42-index,obsTime:'08:30',
+            loc:{name:name,latitude:home.lat+.01*index,longitude:home.lng}};
+        });
+        A.renderConvoys([{day:day,members:['fixture-a','fixture-b'],stops:stops}],[]);
+        var box = host.querySelector('.convoysppbox');
+        await A.loadConvoySpecies(box.dataset.subs,box);
+      }
+      for (var attempt=0;attempt<200 && !host.querySelector('.hsunseen');attempt++) await wait(25);
+      if (!host.querySelector('.hsunseen') || !host.querySelector('.hsseen')) {
+        throw new Error(at+' production fixture lost verified unseen/recorded species: '
+          +document.getElementById(at === 'cklBtn' ? 'cklStatus' : 'convoyStatus').textContent);
+      }
+      if (at === 'cklBtn' && (!host.querySelector('.bigdaycard details.hsunseen[open]')
+          || document.querySelectorAll('#cklRadius button').length !== 4)) {
+        throw new Error('Big days fixture lost production patch cards, disclosure or radius');
+      }
+      await fillFixturePhotos(host,document);
+      markHost(host,label);
+    } else if (spec.kind === 'events') {
       if (at === 'massBtn') {
         var flocks = A.massFlockAlerts([
           {speciesCode:'snogoo',comName:'Snow Goose',howMany:1200,
@@ -2916,7 +2981,19 @@ const BOOTSTRAP = `
       await fillFixturePhotos(host, document);
       markHost(host, label);
     } else if (spec.kind === 'bird') {
-      if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
+      if (at === 'easyBtn') {
+        await preparePersonalFixture(A, document.defaultView,
+          window.__SEED_BIRDLIST__.seenByReport.wa, [
+            {code:'bohwax',name:'Bohemian Waxwing',sci:'Bombycilla garrulus',alpha:'BOWA'}
+          ]);
+        A.renderEasyMisses([{code:'bohwax',name:'Bohemian Waxwing',freq:.8,days:8,
+          latest:A.todayStr()+' 08:30',spots:[{loc:'Marymoor Park--Audubon Bird Loop',
+            locId:'L1',lat:47.658,lng:-122.118,dateStr:A.todayStr()+' 08:30'}]}],10);
+        if (document.querySelectorAll('#easyControls .multipill button').length !== 3
+            || !host.querySelector('.obs')) throw new Error('Common birds production fixture missing');
+        await fillFixturePhotos(host,document);
+        markHost(host,label);
+      } else if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
       else if (at === 'lastNewBtn') {
         var tickTaxa = [
           {code:'amgplo',name:'American Golden-Plover',sci:'Pluvialis dominica',alpha:'AMGP',recent:11,total:16,age:0},

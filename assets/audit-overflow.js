@@ -136,7 +136,8 @@ const BOOTSTRAP = `<script>
       return { locId: l.locId, locName: l.locName, lat: l.lat, lng: l.lng, numSpeciesAllTime: 220, latestObsDt: '2026-07-31 08:00' };
     });
     else if (/product\\/lists/.test(u)) body = LOC.map(function (l, i) {
-      return { subId: 'S9' + i, obsDt: '31 Jul 2026', isoObsDate: '2026-07-31 0' + i + ':00',
+      return { subId: 'S9' + i, obsDt: new Date().toISOString().slice(0,10),
+               isoObsDate: new Date().toISOString().slice(0,10) + ' 0' + i + ':00',
                numSpecies: 40 - i, userDisplayName: 'Eric Sandberg',
                loc: { locId: l.locId, locName: l.locName, latitude: l.lat, longitude: l.lng, isHotspot: true } };
     });
@@ -527,7 +528,7 @@ const AUDIT = `<script>
     // drift from the compact ordinary size or the 44px Easy-read size while
     // the DOM tests remain green.
     var sharedControls = [];
-    var controls = document.querySelectorAll('.pressbtn, .twopill');
+    var controls = document.querySelectorAll('.pressbtn, .twopill, .multipill');
     for (var sc = 0; sc < controls.length; sc++) {
       var control = controls[sc];
       if (!control.offsetParent) continue;
@@ -542,7 +543,9 @@ const AUDIT = `<script>
       })) problem.push('F902 button label must not be underlined');
       var expectedControlHeight = document.documentElement.getAttribute('data-a11y') === 'on'
         ? 44 : 30;
-      if (Math.abs(cr.height - expectedControlHeight) > 0.5) {
+      var wrappingPicker = control.classList.contains('multipill');
+      if (wrappingPicker ? cr.height < expectedControlHeight
+        : Math.abs(cr.height - expectedControlHeight) > 0.5) {
         problem.push('SHARED CONTROL SIZE height ' + cr.height.toFixed(1) + 'px');
       }
       if (control.scrollWidth > control.clientWidth + 1) problem.push('content clipped: '
@@ -565,12 +568,16 @@ const AUDIT = `<script>
         }
       } else {
         var sides = control.querySelectorAll(':scope > .sortbtn');
-        if (sides.length !== 2) problem.push(sides.length + ' pill sides');
+        if (control.classList.contains('multipill') ? sides.length < 3 : sides.length !== 2) {
+          problem.push(sides.length + ' pill sides');
+        }
         var top = null;
         for (var ss = 0; ss < sides.length; ss++) {
           var sr = sides[ss].getBoundingClientRect();
           if (top == null) top = sr.top;
-          if (Math.abs(sr.top - top) > 1) problem.push('sides wrapped');
+          if (!wrappingPicker && Math.abs(sr.top - top) > 1) problem.push('sides wrapped');
+          if (sr.left < cr.left - 1 || sr.right > cr.right + 1
+            || sr.top < cr.top - 1 || sr.bottom > cr.bottom + 1) problem.push('side outside picker');
           if (Math.abs(sr.height - expectedControlHeight) > 0.5) {
             problem.push('side height ' + sr.height.toFixed(1) + 'px');
           }
@@ -936,7 +943,7 @@ const AUDIT = `<script>
       });
       menuLayout = {
         groups: groups.slice(0, 2),
-        order: menuOrder.slice(0, 7),
+        order: menuOrder.slice(0, 8),
         gridWidth: menuBox.width,
         fullRowWidth: fullRow.width,
         birdWidth: birdBox && birdBox.width,
@@ -949,7 +956,21 @@ const AUDIT = `<script>
         }),
         shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
           return button.dataset.at;
-        }).join(',') === 'destBtn,refreshBtn',
+        }).join(',') === 'destBtn,refreshBtn,spLookupBtn',
+        frosted: ['light', 'dark'].every(function (theme) {
+          var originalTheme = window.__app.getTheme();
+          window.__app.setTheme(theme);
+          var valid = [].every.call(menuList.querySelectorAll(':scope > li > .toclink'), function (tile) {
+            var style = getComputedStyle(tile);
+            return style.backgroundImage.indexOf('linear-gradient') >= 0
+              && style.boxShadow.indexOf('inset') >= 0
+              && style.backdropFilter === 'none' && style.animationName === 'none';
+          }) && [].every.call(menuList.querySelectorAll('.menuShortcut .toclink'), function (tile) {
+            return getComputedStyle(tile).boxShadow === 'none';
+          });
+          window.__app.setTheme(originalTheme);
+          return valid;
+        }),
         birdGenNormal: (function () {
           var bird = menuList.querySelector(':scope > li > .toclink[data-at="surgeBtn"]');
           var normal = menuList.querySelector(':scope > li > .toclink[data-at="destBtn"]');
@@ -958,7 +979,7 @@ const AUDIT = `<script>
             && Math.abs(bird.getBoundingClientRect().width - normal.getBoundingClientRect().width) <= .5;
         })(),
         jargonBetween: !!jargon && menuList.querySelectorAll('.jargontip').length === 1
-          && jargon.previousElementSibling.querySelector('[data-at="favResults"]') !== null
+          && jargon.previousElementSibling.querySelector('[data-at="easyBtn"]') !== null
           && jargon.nextElementSibling.textContent.trim() === 'Bird alerts'
       };
       window.__menuFirstGroupMargin = getComputedStyle(menuList.querySelector('.tocgroup')).marginTop;
@@ -1309,7 +1330,7 @@ const AUDIT = `<script>
       }
       tick();
     }
-    function finalFixtures() {
+    async function finalFixtures() {
       auditStage('final fixtures');
       A.showSection('sec-rankBtn');
       localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
@@ -1664,7 +1685,7 @@ const AUDIT = `<script>
         hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
         foy:'notApplicable'
       });
-      document.querySelector('#surgeResults .lanehelp[data-lane="feed"]').click();
+      await A.toggleSectionDoc(document.getElementById('sec-surgeBtn'));
       var alertKey = document.querySelector('#appSheet [data-alert-type-key]');
       if (!alertKey) throw new Error('F933 Bird Gen information button did not open its key');
       var keyScan = scan('(F933 Bird Gen alert-type key)');
@@ -1795,6 +1816,8 @@ const AUDIT = `<script>
           sciName: 'Aechmophorus occidentalis', category: 'species' },
         { speciesCode: 'amerob', comName: 'American Robin',
           sciName: 'Turdus migratorius', category: 'species' },
+        { speciesCode: 'bohwax', comName: 'Bohemian Waxwing',
+          sciName: 'Bombycilla garrulus', category: 'species' },
         { speciesCode: 'baisan', comName: "Baird's Sandpiper",
           sciName: 'Calidris bairdii', category: 'species' },
         { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
@@ -2678,7 +2701,114 @@ const AUDIT = `<script>
     result.twitchReading = true;
     if (errors.length) result.fixtureError = errors.join('; ');
   }
+  async function approvedReleaseRegression(out) {
+    var A = window.__app;
+    function require(value, message) { if (!value) throw new Error(message); }
+    A.setActiveReport('wa'); A.setCountyView('');
+    var owner = A.personalListOwner();
+    localStorage.setItem(A.personalListKey(owner), JSON.stringify({
+      owner:owner,coverage:'complete',declaredCount:1,unresolved:0,paginated:false,
+      codes:['amerob'],rows:[{code:'amerob',name:'American Robin',observedAt:''}],
+      readAt:new Date().toISOString(),readDate:A.todayStr()
+    }));
+    var measurements = [];
+    function measurePill(host, expectedSides) {
+      require(host && host.getBoundingClientRect().width > 0, 'F1051/F1052 visible picker missing');
+      var buttons = Array.from(host.querySelectorAll(':scope > .sortbtn'));
+      require(buttons.length === expectedSides, 'F1051/F1052 picker options changed');
+      var expected = document.documentElement.getAttribute('data-a11y') === 'on' ? 44 : 30;
+      buttons.forEach(function (button) {
+        var rect = button.getBoundingClientRect(), range = document.createRange();
+        range.selectNodeContents(button);
+        require(rect.width > 0 && Math.abs(rect.height - expected) <= .5,
+          'F1051/F1052 wrong button height: ' + rect.height);
+        require(button.scrollWidth <= button.clientWidth + 1, 'F1051/F1052 clipped option');
+        require(rect.left >= host.getBoundingClientRect().left - 1
+          && rect.right <= host.getBoundingClientRect().right + 1, 'F1051/F1052 option outside picker');
+        require(Array.from(range.getClientRects()).every(function (line) {
+          return line.top >= rect.top - 1 && line.bottom <= rect.bottom + 1;
+        }), 'F1051/F1052 clipped text');
+      });
+      measurements.push({id:host.id || host.getAttribute('aria-label'),
+        height:host.getBoundingClientRect().height, buttonHeight:expected, sides:buttons.length});
+    }
+    A.showSection('sec-easyBtn', {load:false});
+    A.renderEasyMisses([{code:'bohwax',name:'Bohemian Waxwing',freq:.8,days:8,
+      latest:new Date().toISOString(),spots:[{loc:'A long named public marsh and river access',
+        locId:'L1',lat:47.75,lng:-122.16,dateStr:new Date().toISOString()}]}],10);
+    measurePill(document.querySelector('#easyControls .sortpick'),3);
+    out.push(scan('(F1051 populated Common birds)'));
+    A.showSection('sec-cklBtn', {load:false});
+    A.LOADERS.cklBtn.fn();
+    var deadline = Date.now() + 10000;
+    while (!document.querySelector('#cklResults .bigdaycard .cklneed') && Date.now() < deadline) {
+      await new Promise(function (resolve) { setTimeout(resolve,50); });
+    }
+    var card = document.querySelector('#cklResults .bigdaycard');
+    require(card, 'F1053 production Big days fixture missing');
+    var radius = document.getElementById('cklRadius');
+    measurePill(radius,4);
+    require(Array.from(radius.querySelectorAll('button')).every(function (button) {
+      return /^\\d+ mi$/.test(button.textContent);
+    }), 'F1052 Big days radius must show distances only');
+    var slot = card.querySelector('.cklneed'), tax = {
+      nameByCode:{bohwax:'Bohemian Waxwing',amerob:'American Robin'},parentOf:{}};
+    A.renderChecklistSplit(slot,['bohwax','amerob'],tax);
+    var unseen = slot.querySelector('details.hsunseen'), seen = slot.querySelector('details.hsseen');
+    require(unseen && unseen.open && seen && !seen.open, 'F1053 disclosure defaults changed: '
+      + JSON.stringify({unseen:unseen && unseen.textContent,seen:seen && seen.textContent,
+        unknown:!!slot.querySelector('.hsunknown'),evidence:A.personalListEvidence()}));
+    var thumb = unseen.querySelector('.thumb'), originalThumb = thumb.getBoundingClientRect();
+    var reference = document.createElement('div');
+    reference.innerHTML = window.HotspotCards.medium({num:1,name:'Reference patch',
+      below:'<div class="hslists">' + window.HotspotCards.splitLists({
+        unseen:A.speciesListHtml([{code:'bohwax',comName:'Bohemian Waxwing'}],{unseen:true})
+      }) + '</div>'});
+    var referenceCard = reference.firstElementChild;
+    card.parentNode.appendChild(referenceCard);
+    var heading = getComputedStyle(card.querySelector('.ntext'));
+    require(heading.fontSize === getComputedStyle(referenceCard.querySelector('.ntext')).fontSize,
+      'F1053 Big days heading differs from shared patch heading');
+    var referenceThumb = referenceCard.querySelector('.thumb').getBoundingClientRect();
+    require(referenceThumb.width > 0 && Math.abs(originalThumb.width - referenceThumb.width) <= .5
+      && Math.abs(originalThumb.height - referenceThumb.height) <= .5,
+      'F1053 Big days bird icons differ from shared patch icons');
+    referenceCard.remove();
+    require(originalThumb.width > 0 && originalThumb.height > 0,
+      'F1042/F1053 bird photo must have positive dimensions');
+    require(Math.abs(originalThumb.width - originalThumb.height) < .5,
+      'F1042 BOWA must remain square, not distorted');
+    unseen.open = false;
+    A.renderChecklistSplit(slot,['bohwax','amerob'],tax);
+    require(!slot.querySelector('details.hsunseen').open, 'F1053 repaint reopened a collapsed list');
+    slot.querySelector('details.hsunseen').open = true;
+    out.push(scan('(F1052/F1053 populated Big days)'));
+    A.showSection('sec-convoyBtn', {load:false});
+    A.seedChecklistView('SF1055',{obs:[{speciesCode:'bohwax'},{speciesCode:'amerob'}]});
+    A.seedEbirdCache('ref/taxonomy/ebird?fmt=json&locale=en&species=bohwax%2Camerob',[
+      {speciesCode:'bohwax',comName:'Bohemian Waxwing'},{speciesCode:'amerob',comName:'American Robin'}]);
+    var box = document.createElement('div');
+    box.className = 'convoysppbox';
+    document.getElementById('convoyResults').appendChild(box);
+    await A.loadConvoySpecies('SF1055',box);
+    var convoyUnseen = box.querySelector('.hsunseen');
+    require(convoyUnseen && /Unseen birds/.test(convoyUnseen.textContent),
+      'F1055 production Unseen birds list missing');
+    require(box.querySelector('.hsseen') && !box.querySelector('.hsseen').open,
+      'F1055 recorded birds must remain collapsed');
+    var convoyThumb = convoyUnseen.querySelector('.thumb').getBoundingClientRect();
+    require(convoyThumb.width > 0 && Math.abs(convoyThumb.width - originalThumb.width) <= .5,
+      'F1053/F1055 compact bird icon sizes differ');
+    var result = scan('(F1040-F1055 approved release geometry)');
+    result.approvedRelease = {controls:measurements,bigDaysPhoto:originalThumb.width,
+      convoyPhoto:convoyThumb.width};
+    out.push(result);
+  }
   async function finish(out) {
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await approvedReleaseRegression(out); }
+      catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
+    }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await stakeoutRegression(out); }
       catch (error) { out.push({label:'(Stakeout regression)', fixtureError:String(error)}); }
@@ -2927,6 +3057,10 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (!report.some((r) => r.approvedRelease)) {
+      bad++;
+      console.log('   F1040-F1055 FIXTURE missing populated approved-release geometry');
+    }
     if (!report.some((r) => r.menuLayout)) {
       bad++;
       console.log('   F985 FIXTURE missing Contents grid geometry');
@@ -3161,10 +3295,10 @@ server.listen(0, '127.0.0.1', () => {
       if (r.menuLayout) {
         var menu = r.menuLayout;
         console.log('   F987/F992 MENU GEOMETRY  ' + JSON.stringify(menu));
-        if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween || !menu.shortcuts || !menu.birdGenNormal
+        if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween || !menu.shortcuts || !menu.birdGenNormal || !menu.frosted
             || JSON.stringify(menu.groups) !== JSON.stringify(['Patches - Go birding', 'Bird alerts'])
             || JSON.stringify(menu.order) !== JSON.stringify([
-              'destBtn', 'quickBtn', 'excBtn', 'iconicBtn', 'coldBtn', 'hotBtn', 'favResults'
+              'destBtn', 'quickBtn', 'excBtn', 'iconicBtn', 'coldBtn', 'hotBtn', 'favResults', 'easyBtn'
             ])) {
           bad++;
           console.log('   F987/F992 MENU LAYOUT FAILED');

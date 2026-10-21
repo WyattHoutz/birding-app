@@ -143,7 +143,9 @@
         body: '<p><b>Distinct observers</b> — not checklists, because one birder '
           + 'filing three lists is how a quiet spot fakes a crowd — at one spot '
           + 'in the last ' + BL.SURGE.WINDOW_H + ' hours, measured against what '
-          + 'that species normally draws <i>at that place</i>.</p>'
+          + 'that species normally draws <i>at that place</i>, clustered to 300 metres. '
+          + 'At least two distinct observers and two distinct checklists are required; '
+          + 'two names on one shared checklist do not establish corroboration.</p>'
           + '<p>It fires at <b>' + BL.SURGE.MIN_OBSERVERS + '+ observers</b> and '
           + '<b>' + BL.SURGE.MIN_RATIO + '× the local norm</b>, or — for a bird with '
           + 'no trailing history at all — at <b>' + BL.SURGE.NOVEL_OBSERVERS
@@ -192,7 +194,9 @@
           + 'always-busy park is not news; a quiet one suddenly filling up is. '
           + 'A place with no trailing history is <i>unmeasured</i>, not busy, so '
           + 'it is dropped rather than called new.</p>'
-          + '<p>The headline opens Stakeout hotspot. Bird Gen does not duplicate '
+          + '<p>The compact date is the newest hotspot checklist that triggered '
+          + 'the event, not a species observation merged for detail. '
+          + 'The headline opens Stakeout hotspot. Bird Gen does not duplicate '
           + '<b>Hot patches</b> or the Stakeout section’s species/checklist lists.</p>'
       },
       favorite: {
@@ -248,11 +252,15 @@
         body: '<p>Today’s patches grades every current destination against the '
           + 'median score of the same list. Bird Gen includes only the top '
           + '<b>high yield</b> category — score at least twice that median — '
-          + 'and only after the complete chase view is ready.</p>'
+          + 'when at least four destinations can be compared, and only after '
+          + 'the complete chase view is ready.</p>'
           + '<p>The headline opens Stakeout hotspot; <b>Nearby Patches</b> '
           + 'keeps the place in its full local-patch context. This is a local '
           + 'projection of data the chase '
-          + 'wave already computed, so it adds no API call.</p>'
+          + 'wave already computed, so it adds no API call. The two-by-two photo '
+          + 'grid shows up to four distinct proven unseen species, never padded '
+          + 'with recorded birds. When none are proven unseen, unknown-history '
+          + 'birds are labelled explicitly; otherwise a place image is used.</p>'
       }
     };
     docs.feed = {
@@ -271,7 +279,11 @@
         + '<p>Select a category/count tag to show only that category. The selected tag has '
         + 'a checkmark and emphasized border; select it again to show all alerts. '
         + 'The filter survives incoming results but resets whenever Bird Gen opens or refreshes. '
-        + 'It is not saved, and filtering makes no network requests.</p>'
+        + 'It is not saved, and filtering makes no network requests. '
+        + 'Applicable categories remain visible while loading, with an hourglass or their known '
+        + 'retained count. Failed and incomplete categories keep a separate retry button; '
+        + 'filtering and retry are different actions. A healthy zero disappears only after '
+        + 'its sources finish. Overlapping FOY reasons do not add a primary-category card.</p>'
         + '<p>Bird headlines read <b>species name at place</b>, with no inline RARE or MEGA tag. '
         + 'The category badge and bold explanation sit below the headline. '
         + 'Four-letter code, <b>xN</b> and linked compact date with checklist ID come first '
@@ -290,8 +302,11 @@
         + '<p>A bird count uses the most recent qualifying checklist, not '
         + 'the sum of repeat sightings or the number of reports. When that '
         + 'checklist has no known count, the xN value is omitted.</p>'
-        + '<p>Progress counts settled source jobs, not complete coverage. '
-        + 'Source failures and coverage details are recorded in debug logs; '
+        + '<p>Progress counts successfully loaded logical source groups, not HTTP calls. '
+        + 'Failed, incomplete, loading and not-applicable groups are counted separately; '
+        + 'skipped groups do not inflate the loaded total. The bar fills only for loaded groups. '
+        + 'Open Source status to see current group names and retry failed or incomplete work '
+        + 'without refreshing successful groups. Detailed errors remain in debug logs; '
         + 'the feed does not claim nothing is happening when sources are incomplete. '
         + 'Custom-region county checklist scope is resolved automatically; '
         + 'other source results can appear while it loads. '
@@ -359,8 +374,9 @@
     var docs = laneDocs(deps && deps.BirdLogic);
     return {
       title: docs.feed.title,
-      subtitle: 'How this lane is calculated',
-      bodyHtml: ((context && context.contextHtml) || '') + docs.feed.body
+      subtitle: 'How Bird Gen works',
+      bodyHtml: ((context && context.contextHtml) || '')
+        + ((context && context.sectionHtml) || '') + docs.feed.body
     };
   }
 

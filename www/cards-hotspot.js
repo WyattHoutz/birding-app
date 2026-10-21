@@ -442,6 +442,11 @@
     var label = v.unseenLabel == null
       ? (v.unseenN ? v.unseenN + ' unseen 🔍' : 'Unseen 🔍')
       : v.unseenLabel;
+    if (v.unseenCollapsible) {
+      return '<details class="hsunseen"' + (v.unseenOpen === false ? '' : ' open') + '>'
+        + '<summary class="hslabel">' + (label || 'Unseen birds') + '</summary>'
+        + v.unseen + '</details>';
+    }
     return '<div class="hsunseen">'
       + (label ? '<div class="hslabel">' + label + '</div>' : '')
       + v.unseen + '</div>';

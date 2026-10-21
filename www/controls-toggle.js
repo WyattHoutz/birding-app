@@ -67,7 +67,7 @@
       + ' aria-pressed="' + (spec.pressed ? 'true' : 'false') + '"'
       + ' aria-label="' + attrEsc(spec.ariaLabel || spec.label || 'Toggle') + '">'
       + '<span class="' + attrEsc(classNames('pressicon', spec.iconCls))
-      + '" aria-hidden="true">' + attrEsc(spec.icon || '') + '</span>'
+      + '" aria-hidden="true">' + (spec.iconHtml || attrEsc(spec.icon || '')) + '</span>'
       + '<span class="presslabel">' + attrEsc(spec.label || '') + '</span>'
       + '</button>';
     return out;
@@ -82,7 +82,7 @@
     button.setAttribute('aria-label', spec.ariaLabel || spec.label || 'Toggle');
     button.innerHTML = '<span class="' + attrEsc(classNames('pressicon', spec.iconCls))
       + '" aria-hidden="true">'
-      + attrEsc(spec.icon || '') + '</span><span class="presslabel">'
+      + (spec.iconHtml || attrEsc(spec.icon || '')) + '</span><span class="presslabel">'
       + attrEsc(spec.label || '') + '</span>';
   }
 

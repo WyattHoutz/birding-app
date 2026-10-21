@@ -608,6 +608,495 @@ function assertRecentOutcome(app, expected, warning) {
   if (warning) assert.equal(entry.level, 'warn');
 }
 
+async function openBirdGenHelp(app) {
+  app.click(app.$('sec-surgeBtn').querySelector('.docbtn'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await waitFor(() => app.$('appSheet')?.querySelector('[data-alert-type-key]'),
+    'the primary Bird Gen information sheet');
+}
+
+test('F1040/F1044/F1054 ordinary menu tiles are frosted and Common birds follows Favorite patches', async () => {
+  const app = await boot();
+  try {
+    const ordinary = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
+    const shortcut = app.document.querySelector('.menuShortcut .toclink');
+    assert.match(HTML, /\.toc > li > \.toclink\s*\{[^}]*linear-gradient/,
+      'gradient rendering is measured in Chrome because jsdom cannot resolve color-mix gradients');
+    assert.match(app.window.getComputedStyle(ordinary).boxShadow, /inset/);
+    assert.equal(app.window.getComputedStyle(shortcut).boxShadow, 'none',
+      'compact shortcuts must not inherit ordinary tile elevation');
+    const common = app.document.querySelector(ORIGINAL_MENU + '[data-at="easyBtn"]');
+    assert.ok(common, 'Common birds remains a visible ordinary menu destination');
+    assert.equal(common.closest('li').previousElementSibling.querySelector('.toclink')?.dataset.at,
+      'favResults', 'Common birds immediately follows Favorite patches');
+    let heading = common.closest('li').previousElementSibling;
+    while (heading && !heading.classList.contains('tocgroup')) heading = heading.previousElementSibling;
+    assert.equal(heading?.textContent, 'Patches - Go birding');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+  } finally { app.window.close(); }
+});
+
+test('F1047 Nemesis menu badge defaults hidden, saves explicit opt-in and obeys global hiding', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    const profile = A.chaseProfile(), rows = {}, states = {};
+    app.window.BirdLogic.planFeeds(profile).forEach(feed => { rows[feed.file] = []; states[feed.file] = 'ok'; });
+    rows[Object.keys(rows)[0]] = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      locId: 'LF1047', locName: 'Public marsh', lat: 47.75, lng: -122.16,
+      obsDt: recentObsStamp(), subId: 'SF1047' }];
+    await A.saveChaseSnapshot(profile.slug, ['verfly'], rows, states);
+    A.menuChaseWarm();
+    await waitFor(() => A.menuChaseBadge('sec-allUnseenBtn'), 'a real cached Nemesis badge');
+    assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
+    const reads = app.state.fetches.length;
+    const select = app.$('nemesisMenuBadge');
+    select.value = 'show';
+    select.dispatchEvent(new app.window.Event('change'));
+    assert.equal(app.window.localStorage.getItem('bc_nemesis_menu_badge_v1'), 'show');
+    assert.ok(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'));
+    app.window.localStorage.setItem('bc_report_menu_badges_v1', 'hide');
+    assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
+    app.window.localStorage.removeItem('bc_report_menu_badges_v1');
+    select.value = 'hide';
+    select.dispatchEvent(new app.window.Event('change'));
+    assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
+    assert.equal(app.state.fetches.length, reads, 'badge settings must not fetch');
+    const set = app.window.Storage.prototype.setItem;
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key === 'bc_nemesis_menu_badge_v1') throw new Error('synthetic quota');
+      return set.call(this, key, value);
+    };
+    select.value = 'show';
+    select.dispatchEvent(new app.window.Event('change'));
+    assert.equal(select.value, 'hide');
+    assert.match(app.$('nemesisMenuBadgeStatus').textContent, /could not be saved/);
+    assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
+  } finally { app.window.close(); }
+});
+
+test('F1046/F1050 source states keep unknown and failed category tags truthful and PATAGONIA uses its table icon', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, box = app.$('surgeResults');
+    const states = { mega: 'ok', birdcast: 'notApplicable', observations: 'ok',
+      leaderboard: 'failed', hotspots: 'loading', favorites: 'stale', mass: 'partial',
+      foy: 'retained', ppte: 'failed' };
+    A.renderSurge([], [], [], [], [], states);
+    const meter = box.querySelector('.surgesourcemeter');
+    assert.equal(meter.getAttribute('aria-valuenow'), '2');
+    assert.equal(meter.getAttribute('aria-valuemax'), '8', 'skipped is not a successfully loaded source');
+    assert.equal(box.querySelector('.fill').style.width, '25%');
+    assert.match(meter.textContent, /2 of 8 loaded.*2 failed.*3 incomplete.*1 loading.*1 not applicable/);
+    assert.equal(box.querySelector('[data-count-kind="migration"]'), null);
+    assert.equal(box.querySelector('[data-count-kind="need"]'), null, 'healthy empty categories disappear');
+    const hotspot = box.querySelector('[data-count-kind="hotspot"]');
+    assert.match(hotspot.textContent, /loading/);
+    assert.match(hotspot.getAttribute('aria-label'), /results not complete/);
+    const cascade = box.querySelector('[data-count-kind="cascade"]');
+    assert.match(cascade.textContent, /source failed/);
+    assert.equal(cascade.parentElement.querySelector('[data-source-retry]').dataset.sourceRetry, 'leaderboard',
+      'the successful observation dependency must not be retried');
+    assert.equal(cascade.querySelector('button'), null, 'filter and retry must not be nested');
+    const ppte = box.querySelector('[data-count-kind="ppte"]');
+    assert.equal(ppte.querySelectorAll('svg').length, 1);
+    assert.match(ppte.textContent, /PATAGONIA/);
+    assert.doesNotMatch(ppte.textContent, /<svg/);
+    app.click(cascade);
+    assert.equal(cascade.getAttribute('aria-pressed'), 'true', 'filter activation does not retry');
+    A.renderSurge([], [], [], [], [], { ...states, hotspots: 'failed' });
+    assert.equal(box.querySelector('.surgesourcemeter').getAttribute('role'), 'status',
+      'terminal partial and failed sources must stop the loader');
+    const pending = Object.fromEntries(Object.keys(states).map(key => [key, true]));
+    A.renderSurge([], [], [], [], [], { ...states, pendingSources: pending });
+    assert.match(box.querySelector('.surgesourcemeter').textContent, /0 of 9 loaded.*9 loading/,
+      'retained settled states cannot describe a newer pending generation');
+    assert.equal(box.querySelectorAll('.surgesourcemeter button').length, 0,
+      'interactive source inspection must remain outside the ARIA progressbar');
+  } finally { app.window.close(); }
+});
+
+test('F1046 production failed-only hotspot retry retains successful endpoints and rejects obsolete owners', async () => {
+  let fail = true;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) {
+      return fail ? { __status: 400 } : [];
+    }
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    return [];
+  } });
+  try {
+    const A = app.window.__app, box = app.$('surgeResults');
+    A.LOADERS.surgeBtn.reachability = false;
+    app.open(/Bird Gen/);
+    await waitFor(() => box.dataset.sourceHotspots === 'failed'
+      && box.dataset.sourceObservations === 'ok', 'initial source results');
+    const before = app.state.fetches.length;
+    const retrying = A.retrySurgeSources(['hotspots', 'hotspots', 'observations']);
+    assert.equal(box.dataset.sourceObservations,'ok',
+      'a successful logical source must not restart even when its HTTP cache is warm');
+    await retrying;
+    const retry = app.state.fetches.slice(before);
+    assert.equal(retry.length, 1, 'retry must not refetch successful sources or successful hotspot siblings');
+    assert.match(retry[0], /product\/lists\/US-WA-033/);
+    assert.equal(box.dataset.sourceHotspots, 'failed', 'another failure must remain visible');
+    fail = false;
+    await A.retrySurgeSources(['hotspots']);
+    assert.equal(box.dataset.sourceHotspots, 'ok', 'recovered results must clear the current failure');
+    const successful = app.state.fetches.length;
+    await A.retrySurgeSources(['hotspots']);
+    assert.equal(app.state.fetches.length, successful, 'a now-successful group is no longer eligible');
+    app.click(app.$('navBack'));
+    await A.retrySurgeSources(['foy', 'hotspots']);
+    assert.equal(app.state.fetches.length, successful, 'a navigated-away owner must not start retries');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1046 hotspot retry recovers an initially empty custom county dependency without refreshing healthy groups', async () => {
+  let empty = true;
+  const region = michiganRuntimeRegion();
+  const app = await boot({sample:false,report:region.slug,home:false,storage:{
+    ebird_custom_regions:JSON.stringify([region]),
+    'ebird_home_lat:u-michigan':'42.281','ebird_home_lng:u-michigan':'-83.743'
+  },fetch(url) {
+    if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) return [{code:'US-MI-161',name:'Washtenaw'}];
+    if (/ref\/hotspot\/US-MI/.test(url)) return empty ? [] : [{
+      locId:'LF1046MI',locName:'Public Michigan patch',lat:42.282,lng:-83.744,
+      subnational2Code:'US-MI-161'
+    }];
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    return [];
+  }});
+  try {
+    const A = app.window.__app, box = app.$('surgeResults');
+    A.setCountySeed({});
+    A.LOADERS.surgeBtn.reachability = false;
+    app.open(/Bird Gen/);
+    await waitFor(() => box.dataset.sourceHotspots === 'failed'
+      && box.dataset.sourceObservations === 'ok','empty custom county scope to settle');
+    const before = app.state.fetches.length;
+    empty = false;
+    await A.retrySurgeSources(['hotspots']);
+    assert.equal(box.dataset.sourceHotspots,'ok');
+    assert.deepEqual(Array.from(A.getCounties(),row => row.code),['US-MI-161']);
+    const requests = app.state.fetches.slice(before);
+    assert.equal(requests.filter(url => /ref\/hotspot\/US-MI/.test(url)).length,1,
+      'a cached empty directory must not poison explicit failed-scope recovery');
+    assert.equal(requests.filter(url => /product\/lists\/US-MI-161/.test(url)).length,1);
+    assert.equal(requests.filter(url => /data\/obs\/|alert\/summary|top100/.test(url)).length,0);
+  } finally { app.window.close(); }
+});
+
+test('F1046 favorite failed-location retry reuses successful evidence and keeps a repeated failure eligible', async () => {
+  let failed = true;
+  const app = await boot({ sample:false, storage:{ebird_favs:JSON.stringify([
+    {id:'good',locId:'LF1046GOOD',locName:'Public marsh',region:'US-WA'},
+    {id:'retry',locId:'LF1046RETRY',locName:'Public shore',region:'US-WA'}
+  ])}, fetch(url) {
+    if (/data\/obs\/LF1046RETRY\//.test(url)) return failed ? {__status:400} : [];
+    if (/data\/obs\/LF1046GOOD\//.test(url)) return [{
+      speciesCode:'margod',comName:'Marbled Godwit',locId:'LF1046GOOD',
+      howMany:1,obsDt:recentObsStamp(0),subId:'SF1046GOOD'
+    }];
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[],null,[{code:'margod',name:'Marbled Godwit'}]);
+    const first = await A.loadFavoritePatchAlertSource(false,A.activeScope());
+    assert.equal(first.state,'partial');
+    assert.deepEqual(Array.from(first.failedLocIds),['LF1046RETRY']);
+    assert.deepEqual(Array.from(first.rows,row => row.code),['margod']);
+    let before = app.state.fetches.length;
+    const repeated = await A.loadFavoritePatchAlertSource(false,A.activeScope(),null,first.failedLocIds);
+    assert.equal(repeated.state,'partial');
+    assert.deepEqual(Array.from(repeated.failedLocIds),['LF1046RETRY']);
+    assert.deepEqual(app.state.fetches.slice(before),[
+      'https://api.ebird.org/v2/data/obs/LF1046RETRY/recent?detail=full&back=7&includeProvisional=true'
+    ]);
+    failed = false; before = app.state.fetches.length;
+    const recovered = await A.loadFavoritePatchAlertSource(false,A.activeScope(),null,repeated.failedLocIds);
+    assert.equal(recovered.state,'ok');
+    assert.deepEqual(Array.from(recovered.failedLocIds),[]);
+    assert.deepEqual(Array.from(recovered.rows,row => row.code),['margod']);
+    assert.equal(app.state.fetches.length-before,1);
+    assert.match(app.state.fetches.at(-1),/LF1046RETRY/);
+  } finally { app.window.close(); }
+});
+
+test('F1046 PPTE failed-region retry preserves successful region caches and fresh retry metadata', async () => {
+  let failed = true;
+  const rows = ppteFixture().map(row => {
+    const date = new Date(row.dateStr.replace(' ','T'));
+    return {code:row.code,name:row.name,subId:row.subId,
+      when:`${date.toLocaleString('en-US',{month:'short'})} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
+      lat:row.lat,lng:row.lon,place:row.loc,observer:row.observer,count:row.count};
+  });
+  const app = await boot({sample:false,fetch(url) {
+    if (/alert\/rba\/US-WA-033\?/.test(url) && failed) return {__status:400};
+    if (/alert\/rba\//.test(url)) return megaAlertHtml(rows);
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[]);
+    const first = await A.loadPpteAlertSource(true,() => true);
+    assert.equal(first.state,'partial');
+    assert.deepEqual(Array.from(first.failedRegions),['US-WA-033']);
+    assert.ok(first.rows.length > 0,'successful sibling regions must retain useful events');
+    let before = app.state.fetches.length;
+    const repeated = await A.loadPpteAlertSource(true,() => true,null,first.failedRegions);
+    assert.equal(repeated.state,'partial');
+    const retried = app.state.fetches.slice(before).filter(url => /alert\/rba\//.test(url));
+    assert.equal(retried.length,1);
+    assert.match(retried[0],/\/US-WA-033\?/);
+    const merged = A.mergeEventFeedResult('ppte',first,{
+      state:'failed',rows:[],failedRegions:['US-WA-061'],coverage:'Latest failure'
+    });
+    assert.deepEqual(Array.from(merged.failedRegions),['US-WA-061'],
+      'retaining alerts must not retain a previous attempt’s failure checklist');
+    assert.equal(merged.rows.length,first.rows.length);
+    failed = false; before = app.state.fetches.length;
+    const recovered = await A.loadPpteAlertSource(true,() => true,null,repeated.failedRegions);
+    assert.equal(recovered.state,'ok');
+    assert.deepEqual(Array.from(recovered.failedRegions),[]);
+    assert.equal(app.state.fetches.slice(before).filter(url => /alert\/rba\//.test(url)).length,1);
+    assert.equal(recovered.rows.length,first.rows.length);
+  } finally { app.window.close(); }
+});
+
+test('F1048 Mass flocks sorts locally and flips the shared primary age or distance without losing evidence', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    A.setRaritySort('date');
+    const row = (code, when, distanceMi) => ({ code, name: code, when, distanceMi,
+      minCount: 600, maxCount: 700, evidenceCount: 2, locId: 'LF1048', locName: 'Public marsh',
+      checklistId: 'S' + code, lat: 47.7, lng: -122.1 });
+    const source = { state: 'partial', coverage: 'Current month only', retainedAt: Date.now(),
+      rows: [row('near', new Date(Date.now() - 3600000).toISOString(), 2),
+        row('new', new Date(Date.now() - 60000).toISOString(), 20),
+        row('unknown', '', null), row('dateonly', todayFixtureDate(), 5)] };
+    A.renderEventFeed('mass', source);
+    const codes = () => [...app.$('massResults').querySelectorAll('[data-flock-code]')].map(row => row.dataset.flockCode);
+    assert.deepEqual(codes(), ['new', 'near', 'dateonly', 'unknown']);
+    const before = app.state.fetches.length;
+    const firstMetric = app.$('massResults').querySelector('.spmetricstack');
+    assert.match(firstMetric.firstElementChild.className, /age/);
+    app.click(app.$('massSort').querySelector('[data-sort="distance"]'));
+    assert.deepEqual(codes(), ['near', 'dateonly', 'new', 'unknown']);
+    assert.equal(A.raritySort(), 'distance');
+    assert.match(app.$('massResults').querySelector('.spmetricstack').firstElementChild.className, /dist/);
+    assert.match(app.$('massStatus').textContent, /Incomplete.*Current month only.*Earlier results retained/);
+    assert.match(app.$('massResults').textContent, /600.*700.*independent visits/);
+    assert.equal(app.state.fetches.length, before, 'sort toggles must not acquire source data');
+    assert.equal(app.$('massResults').querySelector('[data-flock-code="dateonly"] .spmetricstack .spmetric-age').textContent
+      .includes('ago'), false, 'date-only evidence must not invent a precise time');
+  } finally { app.window.close(); }
+});
+
+test('F1046 production observation retry refetches only failed feeds and cannot publish after navigation', async () => {
+  let failedPath = '', hold, pending = false;
+  const app = await boot({ sample: false, fetch(url) {
+    if (!failedPath && /data\/obs\/.+\/recent\/notable/.test(url)) {
+      failedPath = url.replace('https://api.ebird.org/v2/', '');
+    }
+    if (failedPath && url.endsWith(failedPath)) {
+      if (pending) return new Promise(resolve => { hold = resolve; });
+      return { __status: 400 };
+    }
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    return [];
+  } });
+  try {
+    const A = app.window.__app, box = app.$('surgeResults');
+    A.LOADERS.surgeBtn.reachability = false;
+    app.open(/Bird Gen/);
+    await waitFor(() => box.dataset.sourceObservations === 'failed'
+      && box.querySelector('.surgesourcemeter[role="status"]'), 'initial source settlement');
+    const successfulNotable = app.state.fetches.filter(url =>
+      /data\/obs\/.+\/recent\/notable/.test(url) && !url.endsWith(failedPath));
+    assert.ok(successfulNotable.length > 0,
+      'the control must acquire a successful notable sibling before it can prove cache preservation');
+    const realNow = app.window.Date.now;
+    app.window.Date.now = () => realNow() + 31 * 60 * 1000;
+    const before = app.state.fetches.length;
+    await A.retrySurgeSources(['observations', 'hotspots']);
+    assert.deepEqual(app.state.fetches.slice(before), ['https://api.ebird.org/v2/' + failedPath],
+      'successful notable feeds and other source groups must remain cached');
+    assert.equal(box.dataset.sourceObservations, 'failed');
+    pending = true;
+    const retry = A.retrySurgeSources(['observations']);
+    await waitFor(() => hold, 'the held retry request');
+    assert.match(box.querySelector('[data-count-kind="twitch"]').textContent, /loading/);
+    assert.equal(box.dataset.sourcesComplete, 'false');
+    app.click(app.$('navBack'));
+    const retained = box.innerHTML;
+    hold([]);
+    await retry;
+    assert.equal(box.innerHTML, retained, 'a superseded source owner must not repaint late results');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (hold) hold([]);
+    app.window.close();
+  }
+});
+
+test('F1049 one primary Bird Gen dialog combines both help contributions and current context on every paint', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, section = app.$('sec-surgeBtn');
+    const button = section.querySelector('.docbtn');
+    assert.equal(section.querySelectorAll('.docbtn').length, 1);
+    assert.equal(button.getAttribute('aria-haspopup'), 'dialog');
+    await seedSeen(app, []);
+    for (const count of [0, 1, 2]) {
+      const needs = ['verfly', 'baisan'].slice(0, count).map(code => ({
+        code, name: code, whenStr: recentObsStamp(), locId: 'LF1049', locName: 'Public shore'
+      }));
+      A.renderSurge([], [], [], needs, [], { mega: 'notApplicable', observations: 'ok' });
+      assert.equal(section.querySelectorAll('.lanehelp[data-lane="feed"]').length, 0);
+      button.focus();
+      await openBirdGenHelp(app);
+      assert.equal(app.document.querySelectorAll('#appSheet:not([hidden])').length, 1);
+      const text = app.$('appSheet').textContent;
+      assert.match(text, /Personal status uses the exact selected Current year or All time list/);
+      assert.match(text, /Select a category\/count tag/);
+      assert.match(text, /newest observation or event.*date\/time first/s);
+      assert.equal((text.match(/Personal status uses the exact/g) || []).length, 1);
+      assert.equal((text.match(/Select a category\/count tag/g) || []).length, 1);
+      assert.match(text, count ? new RegExp(count + ' active alerts?') : /no active alerts/);
+      assert.doesNotMatch(text, /counts settled source jobs|N-of-6|failure details|ANUBIS/);
+      A.hideSheet();
+      assert.equal(app.document.activeElement, button);
+      assert.equal(section.querySelector('.sectiondoc').hidden, true);
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1049 missing section notes show a useful fallback and a later primary-help attempt can recover', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, section = app.$('sec-surgeBtn');
+    const original = app.window.fetch;
+    app.window.fetch = (url,...args) => /section-docs\.json/.test(String(url))
+      ? Promise.reject(new Error('Synthetic bundled help failure')) : original(url,...args);
+    await A.toggleSectionDoc(section);
+    assert.match(app.$('appSheet').textContent,/Section notes could not load/);
+    assert.ok(app.$('appSheet').querySelector('[data-alert-type-key]'),
+      'canonical feed help remains useful when section notes cannot load');
+    A.hideSheet();
+    app.window.fetch = original;
+    await A.toggleSectionDoc(section);
+    assert.match(app.$('appSheet').textContent,/Personal status uses the exact selected/);
+    assert.doesNotMatch(app.$('appSheet').textContent,/Section notes could not load/);
+  } finally { app.window.close(); }
+});
+
+test('F1053 Big days unseen birds are compact, initially open and preserve a collapsed choice across repaint', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['amecro'], ['American Crow'], [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    const slot = app.document.createElement('div');
+    app.$('cklResults').append(slot);
+    const tax = { nameByCode: { amecro: 'American Crow', verfly: 'Vermilion Flycatcher' }, parentOf: {} };
+    A.renderChecklistSplit(slot, ['verfly', 'amecro'], tax);
+    const unseen = slot.querySelector('details.hsunseen');
+    assert.ok(unseen?.open);
+    assert.ok(unseen.querySelector('.obs.card-sm .thumb'));
+    assert.equal(slot.querySelector('details.hsseen').open, false);
+    unseen.open = false;
+    A.renderChecklistSplit(slot, ['verfly', 'amecro'], tax);
+    assert.equal(slot.querySelector('details.hsunseen').open, false);
+    assert.match(slot.querySelector('details.hsunseen').textContent, /Vermilion Flycatcher/);
+    const ordinary = app.document.createElement('div');
+    A.renderChecklistSplit(ordinary, ['verfly'], tax);
+    assert.equal(ordinary.querySelector('.hsunseen').tagName, 'DIV',
+      'other patch/checklist surfaces keep their existing expanded presentation');
+  } finally { app.window.close(); }
+});
+
+test('F1052/F1053 actual Big days radius controls preserve local filtering, ranking and card evidence', async () => {
+  const lists = [47.80,47.85,48.00,48.20].map((lat,index) => ({
+    subId:'SF1052'+index,locId:'LF1052'+index,isoObsDate:recentObsStamp(0),
+    numSpecies:(index+1)*10,userDisplayName:'Sample observer',
+    loc:{locId:'LF1052'+index,name:'Public patch '+index,isHotspot:true,
+      latitude:lat,longitude:-122.16}
+  }));
+  const app = await boot({sample:false,fetch:url => /product\/lists\//.test(url) ? lists : []});
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-cklBtn',{load:false});
+    A.LOADERS.cklBtn.fn();
+    await waitFor(() => app.$('cklResults').querySelectorAll('.bigdaycard').length === 4,
+      'four current public hotspot cards');
+    const before = app.state.fetches.filter(url => /product\/lists\//.test(url)).length;
+    for (const [mi,count] of [[5,1],[10,2],[20,3],[40,4]]) {
+      const picker = app.$('cklRadius');
+      assert.deepEqual([...picker.querySelectorAll('button')].map(button => button.textContent),
+        ['5 mi','10 mi','20 mi','40 mi']);
+      assert.equal(picker.getAttribute('role'),'group');
+      app.click(picker.querySelector(`[data-mi="${mi}"]`));
+      await waitFor(() => !app.$('cklBtn').disabled,'radius filtering to repaint');
+      assert.equal(app.window.localStorage.getItem('bc_birdiest_mi'),String(mi));
+      assert.equal(picker.querySelector('[aria-pressed="true"]').dataset.mi,String(mi));
+      const cards = [...app.$('cklResults').querySelectorAll('.bigdaycard')];
+      assert.equal(cards.length,count);
+      assert.match(cards[0].querySelector('[data-bigday-species]').textContent,new RegExp('^'+count*10));
+      assert.equal(cards[0].querySelector('.hsnum').textContent,'1');
+      assert.ok(cards[0].querySelector(`[data-loc="LF1052${count-1}"]`));
+      assert.ok(cards[0].querySelector(`a[data-href*="SF1052${count-1}"]`),
+        'the separate checklist evidence destination is retained');
+      assert.match(app.$('cklStatus').textContent,new RegExp('^'+count+' checklist'));
+    }
+    assert.equal(app.state.fetches.filter(url => /product\/lists\//.test(url)).length,before,
+      'changing the radius must not acquire another feed');
+  } finally { app.window.close(); }
+});
+
+test('F1055 Convoys uses standard unseen/recorded/unknown lists and rejects a superseded scope', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    if (/product\/checklist\/view\/SF1055HOLD/.test(url)) {
+      return new Promise(resolve => { release = () => resolve({obs:[]}); });
+    }
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,['amerob'],['American Robin'],[{code:'bohwax',name:'Bohemian Waxwing'}]);
+    const codes = ['bohwax','amerob','f1055unknown'];
+    A.seedChecklistView('SF1055',{obs:codes.map(speciesCode => ({speciesCode}))});
+    A.seedEbirdCache('ref/taxonomy/ebird?fmt=json&locale=en&species='+encodeURIComponent(codes.join(',')),[
+      {speciesCode:'bohwax',comName:'Bohemian Waxwing'},
+      {speciesCode:'amerob',comName:'American Robin'},
+      {speciesCode:'f1055unknown',comName:'Unresolved fixture bird'}
+    ]);
+    const box = app.document.createElement('div');
+    app.$('convoyResults').append(box);
+    await A.loadConvoySpecies('SF1055',box);
+    assert.match(box.querySelector('.hsunseen .hslabel').textContent,/Unseen birds — .*Year List \(1\)/);
+    assert.match(box.querySelector('.hsunseen').textContent,/Bohemian Waxwing/);
+    assert.ok(box.querySelector('.hsunseen .obs.card-sm .thumb'));
+    assert.doesNotMatch(box.querySelector('.hsunseen').textContent,/American Robin|Unresolved fixture/);
+    assert.equal(box.querySelector('details.hsseen').open,false);
+    assert.match(box.querySelector('.hsseen').textContent,/American Robin/);
+    assert.match(box.querySelector('.hsunknown').textContent,/f1055unknown/);
+    assert.doesNotMatch(box.textContent,/Personal targets/);
+    assert.equal(box.querySelector('.convoysppl'),null);
+    const pending = A.loadConvoySpecies('SF1055HOLD',box);
+    await waitFor(() => release,'held route checklist');
+    const retained = box.innerHTML;
+    A.setCountyView('US-WA-033');
+    release();
+    await pending;
+    assert.equal(box.innerHTML,retained,'the prior scope must not publish into the current route');
+  } finally { if (release) release(); app.window.close(); }
+});
+
 function assertSurgeDiagnostic(app, expected, message) {
   const entry = app.window.__dbg.buf.findLast(row => row.msg.startsWith('Bird Gen source diagnostics: '));
   assert.ok(entry, message || 'full-feed source diagnostics must remain in debug logs');
@@ -7735,9 +8224,11 @@ test('F386 bird and hotspot subjects route through Stakeout before external evid
   const birdiest = HTML.slice(HTML.indexOf('function loadBirdiest('),
     HTML.indexOf('function markBirdiestUnseen('));
   for (const [label, source] of [['Newest checklists', newest], ['Birdiest', birdiest]]) {
-    assert.match(source, /placeHtml:\s*locId \? stakeHotspotLink\(locId,\s*loc\) : ''/,
+    assert.match(source, label === 'Birdiest' ? /name:\s*locId \? stakeHotspotLink\(locId,\s*loc\)/
+      : /placeHtml:\s*locId \? stakeHotspotLink\(locId,\s*loc\) : ''/,
       label + ' still sends the hotspot headline to a checklist');
-    assert.match(source, /dateHref:\s*locId \? checklistHref : ''/,
+    assert.match(source, label === 'Birdiest' ? /sub:\s*\(sub \? checklistLink\(sub,\s*date\)/
+      : /dateHref:\s*locId \? checklistHref : ''/,
       label + ' lost the explicit dated checklist action');
   }
 
@@ -8628,7 +9119,7 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
 
   const converge = between('var pConverge =', 'function cascadeSpots(');
   assert.match(converge,
-    /current\.state === 'loading' && current\.promise[\s\S]*return current\.promise/,
+    /existing\.state === 'loading' && existing\.promise[\s\S]*return existing\.promise/,
     'F695 duplicate Bird Gen callers no longer join the active source promise');
   assert.match(converge,
     /source\.state === 'loading' && source\.promise[\s\S]*return source\.promise\.then/,
@@ -11526,7 +12017,7 @@ test('F932 valid partial Mass evidence survives sparse rows with bounded redacte
       assert.doesNotMatch(app.$('surgeResults').textContent, /incomplete or capped coverage/);
       assertSurgeDiagnostic(app, /incomplete or capped coverage/);
       assertSurgeDiagnostic(app, /1 of 2 high-count rows usable; 1 unusable rows excluded/);
-      app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+      await openBirdGenHelp(app);
       assert.equal(app.$('appSheet').textContent.includes(result.coverage), false);
       await A.saveSurgeRetainedPart('mass', result);
       assert.equal(A.loadSurgeRetained().mass.state, 'stale',
@@ -12183,14 +12674,18 @@ test('F914 settled sources have compact static progress, while real pending sour
     const A = app.window.__app;
     const states = {mega:'ok',birdcast:'notApplicable',observations:'ok',leaderboard:'ok',hotspots:'ok',
       favorites:'ok',mass:'partial',foy:'ok',ppte:'ok'};
-    const total = Object.keys(states).length;
+    const total = Object.values(states).filter(state => state !== 'notApplicable').length;
     for (const mass of ['partial','failed','ok']) {
       A.renderSurge([],[],[],[],[],{...states,mass});
       const box = app.$('surgeResults');
       assert.equal(box.querySelector('[role="progressbar"]'),null);
-      assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '100%');
-      assert.equal(box.querySelector('.surgesourceprogress[role="status"]').textContent,
-        `Bird Gen - ${total} of ${total} settled`);
+      const loaded = total - (mass === 'ok' ? 0 : 1);
+      assert.equal(box.querySelector('.surgesourceprogress .fill').style.width,
+        Math.round(loaded * 100 / total) + '%');
+      assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
+        `Bird Gen - ${loaded} of ${total} loaded`
+        + (mass === 'ok' ? '' : mass === 'failed' ? ' · 1 failed' : ' · 1 incomplete')
+        + ' · 1 not applicable');
       if (mass !== 'ok') {
         assertSurgeDiagnostic(app, mass === 'failed' ? /Mass flock feeds failed/ : /incomplete or capped/);
         assert.doesNotMatch(box.textContent, /Mass flock feeds failed|incomplete or capped/);
@@ -12203,8 +12698,8 @@ test('F914 settled sources have compact static progress, while real pending sour
     assert.doesNotMatch(app.$('surgeResults').textContent, /BirdCast migration feeds have incomplete coverage/);
     assert.equal(app.$('surgeResults').getAttribute('data-sources-complete'),'false');
     A.renderSurge([],[],[],[],[],{...states,mass:'ok',birdcast:'loading'});
-    assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),String(total - 1));
-    A.renderSurge([],[],[],[],[],{...states,leaderboard:'loading'});
+    assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),String(total));
+    A.renderSurge([],[],[],[],[],{...states,mass:'ok',leaderboard:'loading'});
     assert.equal(app.$('surgeResults').querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),String(total - 1));
   } finally { app.window.close(); }
 });
@@ -12215,13 +12710,12 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     const A = app.window.__app;
     const states = { mega: 'ok', birdcast: 'notApplicable', observations: 'ok', leaderboard: 'ok', hotspots: 'ok',
       favorites: 'ok', mass: 'failed', foy: 'ok', ppte: 'partial' };
-    const total = Object.keys(states).length;
     A.renderSurge([], [], [], [], [], states);
     const box = app.$('surgeResults');
     assert.equal(box.querySelector('[role="progressbar"]'), null);
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '100%');
-    assert.equal(box.querySelector('.surgesourceprogress[role="status"]').textContent,
-      `Bird Gen - ${total} of ${total} settled`);
+    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '75%');
+    assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
+      'Bird Gen - 6 of 8 loaded · 1 failed · 1 incomplete · 1 not applicable');
     assertSurgeDiagnostic(app, /Patagonia picnic table effect RBA feeds have incomplete or capped coverage/);
     assertSurgeDiagnostic(app, /Mass flock feeds failed/);
     assert.doesNotMatch(box.textContent, /incomplete or capped coverage|Mass flock feeds failed/);
@@ -12230,18 +12724,22 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     assert.equal(box.getAttribute('data-sources-complete'), 'false');
     for (const key of ['ppte', 'mega']) {
       A.renderSurge([], [], [], [], [], { ...states, [key]: 'loading' });
-      assert.equal(box.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), String(total - 1));
+      assert.equal(box.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),
+        String(Object.values({...states,[key]:'loading'}).filter(state => state === 'ok').length));
     }
     A.renderSurge([], [], [], [], [], { ...states, mega: 'partial' });
+    assert.equal(box.querySelector('[role="progressbar"]'),null,
+      'a terminal partial alone must not imply active work');
+    A.renderSurge([], [], [], [], [], { ...states, mega: 'partial', pendingSources:{mega:true} });
     assert.ok(box.querySelector('[role="progressbar"]'),
-      'a still-pending Mega partial is not a terminal PPTE response');
+      'an explicit pending generation overrides retained partial evidence');
     A.renderSurge([], [], [], [], [], { ...states, ppte: 'ok', mass: 'ok' });
     assert.equal(box.getAttribute('data-sources-complete'), 'true',
       'the complete control distinguishes settled acquisition from complete coverage');
   } finally { app.window.close(); }
 });
 
-test('F1035 full Bird Gen keeps five alerts and compact settled progress with diagnostics only in logs', async () => {
+test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with technical diagnostics only in logs', async () => {
   const app = await boot();
   try {
     const A = app.window.__app;
@@ -12265,16 +12763,16 @@ test('F1035 full Bird Gen keeps five alerts and compact settled progress with di
       assert.equal(box.querySelector('[data-ppte-coverage], [data-twitch-tracking], [data-surge-retained], [data-surge-retention-warning]'), null,
         'technical coverage paragraphs must not return to the feed');
       assert.doesNotMatch(box.textContent,
-        /Unavailable RBA|failure details|ANUBIS|incomplete|retained high-count|feeds failed|capped coverage|Earlier results retained|could not be saved/,
+        /Unavailable RBA|failure details|ANUBIS|retained high-count|feeds failed|capped coverage|Earlier results retained|could not be saved/,
         'technical source warnings belong only in debug logs');
     }
     A.renderSurge([], [], [], needs, [], states);
     assertCompact();
-    const settled = box.querySelector('.surgesourceprogress');
+    const settled = box.querySelector('.surgesourcemeter');
     assert.ok(settled, 'settled Bird Gen progress must remain visible');
-    assert.equal(settled.textContent, 'Bird Gen - 9 of 9 settled');
+    assert.equal(settled.textContent, 'Bird Gen - 6 of 9 loaded · 1 failed · 2 incomplete');
     assert.equal(settled.getAttribute('role'), 'status');
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '100%');
+    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '67%');
     assert.equal(box.dataset.sourcesComplete, 'false');
     assert.equal(box.dataset.sourceLeaderboard, 'failed');
     assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
@@ -12288,16 +12786,16 @@ test('F1035 full Bird Gen keeps five alerts and compact settled progress with di
     A.renderSurge([], [], [], needs, [], states);
     assert.equal(app.window.__dbg.buf.filter(row => row.msg.startsWith('Bird Gen source diagnostics: ')).length,
       logged, 'unchanged presentation must not flood the debug log');
-    app.click(box.querySelector('[data-lane="feed"]'));
+    await openBirdGenHelp(app);
     assert.doesNotMatch(app.$('appSheet').textContent, /F1035 retained high-count|Unavailable RBA|ANUBIS/,
       'technical coverage belongs in debug logs, not feed help');
     A.renderSurge([], [], [], needs, [], { ...states, mega: 'loading' });
     assertCompact();
-    const pending = box.querySelector('.surgesourceprogress[role="progressbar"]');
+    const pending = box.querySelector('.surgesourcemeter[role="progressbar"]');
     assert.ok(pending, 'pending acquisition retains real progress semantics');
-    assert.equal(pending.textContent, 'Bird Gen - 8 of 9 settled',
-      'pending sources must not be counted as settled');
-    assert.equal(pending.getAttribute('aria-valuenow'), '8');
+    assert.equal(pending.textContent, 'Bird Gen - 5 of 9 loaded · 1 failed · 2 incomplete · 1 loading',
+      'pending and incomplete sources must not be counted as successfully loaded');
+    assert.equal(pending.getAttribute('aria-valuenow'), '5');
     assert.equal(pending.getAttribute('aria-valuemax'), '9');
     assert.equal(box.dataset.sourceMega, 'loading');
     const complete = Object.fromEntries(Object.keys(states).filter(key =>
@@ -12306,7 +12804,7 @@ test('F1035 full Bird Gen keeps five alerts and compact settled progress with di
     A.renderSurge([], [], [], needs, [], complete);
     assertCompact();
     assert.equal(box.dataset.sourcesComplete, 'true');
-    assert.equal(box.querySelector('.surgesourceprogress[role="status"]').textContent, 'Bird Gen - 9 of 9 settled');
+    assert.equal(box.querySelector('.surgesourcemeter[role="status"]').textContent, 'Bird Gen - 9 of 9 loaded');
     assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '100%');
   } finally { app.window.close(); }
 });
@@ -12321,7 +12819,7 @@ test('F915 dynamic Mass coverage is logged for empty and progressively populated
       A.renderSurge([],[],[],needs,[],{mass:'partial',massCoverage:coverage});
       assert.doesNotMatch(app.$('surgeResults').textContent,/Mass flock coverage:|resolved safely/);
       assertSurgeDiagnostic(app, new RegExp(count + ' locations could not be resolved safely'));
-      app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+      await openBirdGenHelp(app);
       const sheet = app.$('appSheet');
       assert.equal(sheet.textContent.includes(coverage), false,
         'technical coverage belongs in debug logs, not feed help');
@@ -13096,13 +13594,15 @@ test('convoys render one block per convoy: title, map, birds, checklists', () =>
     'nothing in the section collapses - the user asked for plain lists');
   const spp = HTML.slice(HTML.indexOf('function loadConvoySpecies('),
     HTML.indexOf('function loadConvoys('));
-  assert.ok(spp.indexOf('Personal targets') > -1 && spp.indexOf('Already recorded') > -1
-    && spp.indexOf('personal history unknown') > -1,
+  assert.ok(spp.indexOf('Unseen birds') > -1 && spp.indexOf('Already recorded') > -1
+    && spp.indexOf('personalUnknownLabel(unknown.length)') > -1,
     'species are split into proven targets, unknown history and recorded lists');
-  assert.ok(spp.indexOf('Personal targets') < spp.indexOf('Already recorded'),
+  assert.ok(spp.indexOf('Unseen birds') < spp.indexOf('Already recorded'),
     'proven targets come before recorded birds');
-  assert.match(spp, /<ul class="convoysppl">/,
-    'both are plain lists, not collapsed toggles');
+  assert.match(spp, /HotspotCards\.splitLists\(/,
+    'Convoys uses the standard unseen/recorded patch lists');
+  assert.match(spp, /speciesListHtml\(/,
+    'Convoys uses the compact species-card renderer');
   // "Nothing here for you" is the whole answer for a convoy, so it is sized
   // like an answer instead of a dim aside the eye slides past.
   assert.match(spp, /class="allseen"/,
@@ -16182,11 +16682,11 @@ function shortcutMenu(app, button, keyboard = false) {
   assert.equal(app.$('menuShortcutPopup').hidden, false);
 }
 
-test('F1031 defaults duplicate two destinations without moving originals or losing menu icons', async () => {
+test('F1044 defaults duplicate three destinations without moving originals or losing menu icons', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, list = app.$('menuList');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
     assert.match(app.$('menuShortcutsHint').textContent, /Long press a menu item to edit shortcuts/);
     assert.equal(list.querySelector('.menuPin, #menuEditFavorites'), null);
     const originals = [...list.querySelectorAll(':scope > li:not(.menuShortcut) > .toclink')];
@@ -16213,7 +16713,7 @@ test('F1031 defaults duplicate two destinations without moving originals or losi
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'surgeBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn', 'surgeBtn']);
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
@@ -16222,13 +16722,13 @@ test('F1031 defaults duplicate two destinations without moving originals or losi
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
     assert.equal(bird.querySelector('.tileicon'), icons[originals.indexOf(bird)]);
     for (let i = 0; i < 3; i++) A.showMenu();
     assert.equal(app.document.querySelectorAll('#menuShortcutPopup').length, 1);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn'], 'repaints must not duplicate shortcuts');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn'], 'repaints must not duplicate shortcuts');
     for (const selector of ['#menuList .menuShortcut .toclink[data-at="destBtn"]',
       ORIGINAL_MENU + '[data-at="destBtn"]']) {
       app.document.querySelector(selector).click();
@@ -16263,7 +16763,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
   }
   const app = await boot({ storage: { [SHORTCUT_KEY]: '{invalid' } });
   try {
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
     assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'), /saved preferences unavailable/);
   } finally { app.window.close(); }
 });
@@ -16339,7 +16839,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
       filter.value = value;
       filter.dispatchEvent(new app.window.Event('input', { bubbles: true }));
     }
-    query('Stakeout');
+    query('Stakeout patch');
     assert.equal(app.$('menuShortcutsTitle').hidden, true, 'a filter without matching pins must hide the heading and hint');
     assert.equal(app.document.querySelector('.menuShortcutShelf').hidden, true, 'a filter without matching pins must hide the shelf');
     assert.ok([...app.document.querySelectorAll(ORIGINAL_MENU)].some(button =>
@@ -16352,7 +16852,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
     query('');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual([...app.document.querySelectorAll('.menuShortcut:not([hidden]) .toclink')]
-      .map(button => button.dataset.at), ['destBtn', 'refreshBtn']);
+      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'spLookupBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null, 'filtering must not rewrite saved preferences');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -16387,7 +16887,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
       && row.msg === 'Menu shortcuts: preferences could not be saved'));
@@ -16426,7 +16926,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
     assert.equal(app.$('menuShortcutAction').dataset.action, 'remove');
     button.click();
     assert.equal(app.$('menuPanel').hidden, false, 'the hold-release click must not navigate');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn'], 'holding never silently changes pins');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn'], 'holding never silently changes pins');
     app.$('menuShortcutAction').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.$('menuShortcutPopup').hidden, true);
     assert.equal(app.document.activeElement, button);
@@ -20093,7 +20593,8 @@ test('every section carries an info button that opens its calculation notes', as
   secs.forEach((s) => {
     const b = s.querySelector('.docbtn');
     assert.ok(b, s.id + ' has an info button');
-    assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
+    if (s.id === 'sec-surgeBtn') assert.equal(b.getAttribute('aria-haspopup'), 'dialog');
+    else assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
     assert.match(b.getAttribute('aria-label') || '', /is calculated/,
       s.id + ' names what the button explains');
   });
@@ -20583,9 +21084,9 @@ test('F987 Bird Gen keeps its labelled feed button and the Talk and news destina
     'the removed Bird Gen order toggle is still rendered');
   assert.equal(results.querySelector('.surgenotesrow, [data-surge-notes]'), null,
     'the removed Bird Gen notes toggle still sits above the feed');
-  const help = results.querySelector('.lanehelp[data-lane="feed"]');
+  const help = section.querySelector('.docbtn');
   assert.ok(help, 'the moved explanation has no info-button destination');
-  app.click(help);
+  await openBirdGenHelp(app);
   const sheet = app.document.querySelector('#appSheet');
   assert.match(sheet.textContent, /newest observation or event.*Mass flocks.*Favorite Patch birds.*Hotspots unusually busy/s);
   assert.doesNotMatch(sheet.textContent, /Buzz.*order/);
@@ -20936,7 +21437,9 @@ test('F801 durable retained results survive reopen without an API response', asy
   await waitFor(() => second.$('surgeResults').textContent.includes('Marbled Godwit'),
     'decompressed retained result');
   assert.match(second.$('surgeResults').textContent, /Marbled Godwit/);
-  assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'stale');
+  assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'loading',
+    'retained evidence must not disguise the new pending acquisition');
+  assert.match(second.$('surgeResults').querySelector('[data-count-kind="favorite"]').textContent,/1.*loading/);
   second.window.close();
 });
 
@@ -21181,7 +21684,7 @@ test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active c
   const app = await boot();
   const A = app.window.__app;
   const source = HTML;
-  assert.match(source, /loadFavoritePatchAlertSource\(force,\s*activeScope\(\),/,
+  assert.match(source, /loadFavoritePatchAlertSource\(retry \? false : force,\s*loadScope,/,
     'the live Bird Gen load does not start the Favorite patch source');
   assert.match(source, /favorites:\s*surgeModel\.favorite\.state/,
     'the Favorite patch source state is absent from the live source model');
@@ -21980,7 +22483,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
   const app = await boot();
   const A = app.window.__app;
   const source = HTML;
-  assert.match(source, /loadMassFlockAlertSource\(force,\s*activeScope\(\),/,
+  assert.match(source, /loadMassFlockAlertSource\(force \|\| retry,\s*loadScope,/,
     'the live Bird Gen load does not start the Mass Flock source');
   assert.match(source, /byId\[row\.locId\]/,
     'high-count geography must come from exact public hotspot IDs');
@@ -22126,7 +22629,7 @@ test('F730 Mass Flock keeps corroborated regional events and boosts chase-distan
     .find((button) => /Show all 5 mass flocks/.test(button.textContent));
   assert.equal(showAll, undefined, 'F843 must remove the expansion button, not hide eligible flocks');
   assert.doesNotMatch(app.$('surgeResults').textContent,/12 of 13 high-count table rows/);
-  app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+  await openBirdGenHelp(app);
   assert.doesNotMatch(app.$('appSheet').textContent, /12 of 13 high-count table rows/);
   assertSurgeDiagnostic(app, /12 of 13 high-count table rows; capped coverage/);
   assert.match(app.$('appSheet').textContent, /not an exhaustive census/,
@@ -22302,7 +22805,7 @@ test('F825 obsolete high-count refresh and legacy sampled coverage are absent in
       massCoverage: '5 of 5 candidate species; 7 of 7 daily samples' }, [], [], []);
     assert.equal(app.$('surgeResults').querySelector('[data-surge-deep-history]'), null);
     assert.doesNotMatch(app.$('surgeResults').textContent, /Refresh high-count flocks|daily samples|candidate species/);
-    app.click(app.$('surgeResults').querySelector('[data-lane="feed"]'));
+    await openBirdGenHelp(app);
     assert.doesNotMatch(app.$('appSheet').textContent,
       /older sampled source|current-page coverage not verified|candidate species|daily samples/);
     assertSurgeDiagnostic(app, /5 of 5 candidate species; 7 of 7 daily samples/);
@@ -22587,7 +23090,9 @@ test('F864 category toggles use shared styling, hide empty sources and reappear 
     locations: [{ locId: 'L2', locName: 'Boe Rd.' }], when: recentObsStamp(),
     time: Date.now(), minCount: 600, maxCount: 600, evidenceCount: 1,
     singleObservation: true, distanceMi: 10, insideChase: true };
-  const paint = () => A.renderSurge([], [], [], [], [], {}, [], [favorite], [mass]);
+  const states = Object.fromEntries(['mega','birdcast','observations','leaderboard','hotspots',
+    'favorites','mass','foy','ppte'].map(key => [key,'ok']));
+  const paint = () => A.renderSurge([], [], [], [], [], states, [], [favorite], [mass]);
   const toggle = kind => app.$('surgeResults').querySelector(`[data-count-kind="${kind}"]`);
   const visible = () => [...app.$('surgeFeed').children].filter(row => !row.hidden)
     .map(row => row.dataset.alertKind).sort();
@@ -22616,14 +23121,14 @@ test('F864 category toggles use shared styling, hide empty sources and reappear 
   assert.equal(toggle('mega'),null,'zero-result categories do not have a filter button');
   assert.equal(app.state.fetches.length, before, 'filtering must not request data');
   app.click(toggle('mass'));
-  A.renderSurge([],[],[],[],[],{},[],[favorite],[]);
+  A.renderSurge([],[],[],[],[],states,[],[favorite],[]);
   assert.equal(toggle('mass'),null,'a category disappears when its results disappear');
   assert.deepEqual(visible(),['favorite'],'a missing selection cannot hide unrelated results');
   paint();
   assert.ok(toggle('mass').querySelector('.pressicon'));
   assert.ok(toggle('mass').querySelector('.presslabel'));
   assert.equal(toggle('mass').getAttribute('aria-pressed'),'false');
-  A.renderSurge([],[],[],[],[],{},[],[],[]);
+  A.renderSurge([],[],[],[],[],states,[],[],[]);
   assert.equal(app.$('surgeResults').querySelectorAll('[data-count-kind]').length,0);
   paint();
   assert.deepEqual(visible(),allKinds,'filters return with asynchronously arriving results');
@@ -23561,8 +24066,8 @@ test('F302 a name-only Cascade opens Stakeout search and explains its scope gap'
 test('F302 Bird Gen info lists every category and reopens at the top', async () => {
   const app = await boot();
   app.window.__app.renderSurge([], [], [], [], []);
-  const help = app.$('surgeResults').querySelector('.lanehelp[data-lane="feed"]');
-  app.click(help);
+  const help = app.$('sec-surgeBtn').querySelector('.docbtn');
+  await openBirdGenHelp(app);
   const sheet = app.document.querySelector('#appSheet');
   const panel = sheet.querySelector('.sheet');
   const body = sheet.querySelector('.sheetbody');
@@ -23585,7 +24090,7 @@ test('F302 Bird Gen info lists every category and reopens at the top', async () 
     'the CELEBRITY explanation still advertises a removed reviewed-rarity exception');
   panel.scrollTop = 500;
   app.window.__app.hideSheet();
-  app.click(help);
+  await openBirdGenHelp(app);
   assert.equal(panel.scrollTop, 0,
     'the long Bird Gen info sheet reopened at an old blank scroll position');
   assert.ok(body.textContent.trim().length > 500,
@@ -24381,7 +24886,9 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   } });
   const A = app.window.__app;
   let calls = 0, rejectFirst;
-  app.window.fetch = () => {
+  const realFetch = app.window.fetch;
+  app.window.fetch = (url, options) => {
+    if (/section-docs\.json/.test(url)) return realFetch(url, options);
     calls++;
     if (calls === 1) {
       return new Promise((resolve, reject) => {
@@ -24413,7 +24920,7 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   const box = app.$('surgeResults');
   assert.equal(box.dataset.sourceMega, 'failed');
   assertSurgeDiagnostic(app, /Mega snapshot failed/);
-  app.click(box.querySelector('.lanehelp[data-lane="feed"]'));
+  await openBirdGenHelp(app);
   assert.match(app.document.querySelector('#appSheet').textContent,
     /refresh failed.*refresh Bird Gen to retry/is,
     'the info sheet still says a failed request is refreshing');
@@ -25103,9 +25610,10 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
     'one Bird Gen load started duplicate Mega requests');
 
   const box = app.$('surgeResults');
-  assert.equal(box.dataset.sourceMega, 'partial',
+  assert.equal(box.dataset.sourceMega, 'loading',
     'the first useful paint did not immediately mark Mega as loading');
-  assertSurgeDiagnostic(app, /Mega snapshot loading/i);
+  assert.match(box.querySelector('.surgesources').textContent,/Mega snapshot: Loading/,
+    'pending Mega work must be inspectable in the current source status');
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
   assert.doesNotMatch(box.textContent, /open Mega rarities/i);
   assert.match(box.querySelector('[data-surge-visible-count]').textContent,
@@ -25119,13 +25627,15 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
       && box.dataset.sourceBirdcast !== 'loading'
       && box.dataset.sourcePpte !== 'loading';
   }, 'the optional Bird Gen sources to settle around the held Mega refresh');
-  const progress = box.querySelector('.surgesourceprogress[role="progressbar"]');
+  const progress = box.querySelector('.surgesourcemeter[role="progressbar"]');
   assert.ok(progress, 'Bird Gen has pending work but no loading progress bar');
-  const sourceCount = Object.keys(box.dataset).filter(key => /^source[A-Z]/.test(key)).length;
-  assert.equal(progress.getAttribute('aria-valuenow'), String(sourceCount - 1),
-    JSON.stringify(Object.fromEntries(Object.entries(box.dataset).filter(([key]) => /^source[A-Z]/.test(key)))));
+  const sourceStates = () => Object.entries(box.dataset).filter(([key]) => /^source[A-Z]/.test(key))
+    .map(([,value]) => value);
+  const sourceCount = sourceStates().filter(state => state !== 'notApplicable').length;
+  const loaded = sourceStates().filter(state => state === 'ok').length;
+  assert.equal(progress.getAttribute('aria-valuenow'), String(loaded));
   assert.equal(progress.getAttribute('aria-valuemax'), String(sourceCount));
-  assert.ok(progress.textContent.includes(`${sourceCount - 1} of ${sourceCount} settled`));
+  assert.ok(progress.textContent.includes(`${loaded} of ${sourceCount} loaded`));
   assert.equal(app.$('loadBar').hidden, false,
     'the shared loading bar disappeared while Bird Gen still owns the held Mega refresh');
   assert.match(app.$('loadBarText').textContent, /Refreshing Bird Gen Mega snapshot/,
@@ -25135,11 +25645,13 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   await waitFor(() => box.dataset.sourceMega === 'ok',
     'the completed Mega snapshot to repaint Bird Gen');
   assert.doesNotMatch(box.textContent, /Mega snapshot loading/i);
-  const settled = box.querySelector('.surgesourceprogress');
+  const settled = box.querySelector('.surgesourcemeter');
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
   assert.equal(settled.getAttribute('role'), 'status');
-  assert.equal(settled.querySelector('.fill').style.width, '100%');
-  assert.ok(settled.textContent.includes(`${sourceCount} of ${sourceCount} settled`));
+  const loadedAfter = sourceStates().filter(state => state === 'ok').length;
+  assert.equal(settled.querySelector('.fill').style.width, Math.round(loadedAfter * 100 / sourceCount) + '%');
+  assert.ok(settled.textContent.includes(`${loadedAfter} of ${sourceCount} loaded`));
+  assert.match(settled.textContent,/failed/,'a failed leaderboard cannot inflate loaded progress');
   assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
   assert.doesNotMatch(settled.textContent, /Top 100 leaderboard failed/);
   assert.doesNotMatch(settled.textContent, /Loading Bird Gen sources/,
@@ -25226,15 +25738,15 @@ test('Happening now merges populated signals without burying the hotspot', async
     'the cascade alert became actionable');
   assert.match(box, /Stanwood STP/, 'with a real place');
   assert.match(box, /S9/, 'and a checklist to cite');
-  const docs = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8'));
-  const how = (docs.docs.surgeBtn.how || []).join(' ');
-  assert.match(how, /newest observation\/event datetime first/,
+  await openBirdGenHelp(app);
+  const how = app.$('appSheet').textContent;
+  assert.match(how, /newest observation or event date\/time first/,
     'the section help does not explain the chronology-first feed');
   assert.doesNotMatch(how, /Buzz is the only order/,
     'the section help still advertises category-first ordering');
   assert.doesNotMatch(how, /independent lanes/i,
     'the section help still describes the removed visual lanes');
-  assert.match(how, /CASCADE: 5\+ distinct people from the region's top 100/,
+  assert.match(how, /5\+ distinct people from the top 100/,
     'the section help must state the approved five-person threshold');
   assert.match(how, /species-blind/,
     'the hotspot lane no longer explains why it is notable, in the section or the dialog');
@@ -27452,7 +27964,7 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   assert.match(src,
     /var countySource = surgeReadySources\(\s*Promise\.all\(\[pCountyScope, pCachedSources, pObservedStarted\]\)/,
     'optional product/list hotspot calls can jump ahead of the priority observation source');
-  assert.match(src, /var pConverge = countySource\('hotspots',/,
+  assert.match(src, /var pConverge = sourceTask\(countySource, 'hotspots',/,
     'hotspot work must use the observed-start/cache/county readiness gate');
   assert.doesNotMatch(src,
     /var pConverge = Promise\.all\(\[pCachedSources, pObserved\]\)\.then/,
@@ -28555,7 +29067,7 @@ test('Recent checklists is newest first and never collapsed per hotspot', async 
 
 // Four things the device reported about this one section, pinned together
 // because they are one idea: the section should look like every other section.
-test('Big days and Recent checklists share one card template', async () => {
+test('F1053 Big days uses patch cards while Recent checklists retains its checklist cards', async () => {
   const app = await boot();
   const doc = app.window.document;
   const CK = require(require('node:path')
@@ -28568,13 +29080,16 @@ test('Big days and Recent checklists share one card template', async () => {
   const recent = HTML.slice(HTML.indexOf('function recentChecklistCard('),
     HTML.indexOf('function buildBirdiest('));
   for (const [name, src] of [['Big days', best], ['Recent checklists', recent]]) {
-    assert.match(src, /ChecklistCards\.medium\(\{/, name + ' builds shared cards');
+    assert.match(src, name === 'Big days' ? /HotspotCards\.medium\(\{/ : /ChecklistCards\.medium\(\{/,
+      name + ' builds the appropriate shared cards');
     assert.ok(!/<span class="count big">/.test(src),
       name + ' must not hand-roll a row — that is how the two drifted apart');
     // 2. The hotspot headline stays in-app and the date carries the checklist.
-    assert.match(src, /placeHtml: locId \? stakeHotspotLink\(locId, loc\) : ''/,
+    assert.match(src, name === 'Big days' ? /name: locId \? stakeHotspotLink\(locId, loc\)/
+      : /placeHtml: locId \? stakeHotspotLink\(locId, loc\) : ''/,
       name + ': the headline opens Stakeout hotspot');
-    assert.match(src, /dateHref: locId \? checklistHref : ''/,
+    assert.match(src, name === 'Big days' ? /sub: \(sub \? checklistLink\(sub, date\)/
+      : /dateHref: locId \? checklistHref : ''/,
       name + ': the date carries the checklist link');
     // Asserted on the EMITTING call, not on the words: the comment above each
     // renderer explains what was removed, and matching prose would fail on the
@@ -37983,7 +38498,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   //
   // F595 moves the chosen-target searches below the predictive patch group.
   // Bird alerts now follows Patches; Stakeouts and Birding Tools follow it.
-  const GO = ['destBtn', 'quickBtn', 'excBtn', 'favResults',
+  const GO = ['destBtn', 'quickBtn', 'excBtn', 'favResults', 'easyBtn',
               'iconicBtn', 'hotBtn', 'coldBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
@@ -38028,7 +38543,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     ['🦉 Stakeout Birds', '🏜️ Stakeout Patches']);
   assert.deepEqual(labelsUnder('Birding Tools'), [
     '🌤 Twitch weather', '🌙 Migration',
-    '🌄 Dawn and dusk', '🏅 Break a record', '🐦 Common birds',
+    '🌄 Dawn and dusk', '🏅 Break a record',
   ]);
   const migrationTiles = [...doc.querySelectorAll('#menuList .toclink')]
     .filter((tile) => /Migration|Due back soon|On passage/i.test(
@@ -38067,6 +38582,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     '🥶 Cold patches',
     '🔥 Hot patches',
     '⭐ Favorite patches',
+    '🐦 Common birds',
   ], 'patch menu icons and owner-selected order must stay exact');
   assert.match(under[0], /Today’s patches/);
   assert.match(under[1], /Nearby Patches/,
@@ -38208,11 +38724,13 @@ test('F498 checklist facts have separate destinations and the row itself is iner
 test('the convoy already-seen list is collapsed', () => {
   // Not scoped to renderConvoys: the species split is filled in by a later
   // hydration pass, several functions away from where the card is built.
-  assert.match(HTML, /<details class="convoyseen"><summary>Already recorded on your selected list/,
-    'it is a collapsed <details>, not an always-open block');
+  assert.match(HTML, /seen: items\(have\),\s*seenLabel: 'Already recorded on your selected list/,
+    'Convoys must use the shared recorded-bird disclosure');
+  const shared = fs.readFileSync(path.join(WWW,'cards-hotspot.js'),'utf8');
+  assert.match(shared, /return '<details class="hsseen"><summary>'/,
+    'the shared recorded list is collapsed, not an always-open block');
   assert.ok(!/<div class="convoyhead">Already seen this year/.test(HTML),
     'and the old always-open heading is gone, not merely bypassed');
-  assert.match(HTML, /\.convoyseen > summary \{/, 'and it is styled as one');
 });
 
 // "In the birder convoy section, id like the list of stops to use the small
@@ -42066,6 +42584,8 @@ test('F979 permission denial is visible and browser builds never pretend to supp
 
 test('F979 held notification results cannot cross scope and taps never switch profiles automatically', async () => {
   const app = await boot(), A = app.window.__app;
+  let loads = 0;
+  A.LOADERS.surgeBtn.fn = () => { loads++; return true; };
   const bridge = notificationBridge(app);
   await A.initBirdGenNotifications();
   app.click(app.$('birdGenNotifyToggle'));
@@ -42084,12 +42604,14 @@ test('F979 held notification results cannot cross scope and taps never switch pr
   const profile = A.bcProfile();
   await A.openBirdGenNotification();
   assert.equal(A.bcProfile(), profile);
+  assert.equal(loads, 0, 'an out-of-scope tap must not acquire Bird Gen');
   assert.equal(app.$('settingsPanel').hidden, false);
   assert.match(app.$('birdGenNotifyNotice').textContent, /another profile or region/);
   bridge.open(A.birdGenNotificationConfiguration().context);
   await A.openBirdGenNotification();
   assert.equal(app.$('sec-surgeBtn').hidden, false);
   assert.equal(app.$('birdGenNotifyNotice').textContent, '');
+  assert.equal(loads, 1, 'a matching tap must invoke the Bird Gen loader');
 });
 
 test('F383 debug tools copy a full report image and share the complete native PDF', async () => {
@@ -43924,7 +44446,7 @@ test('F467 compatible controls share accessible pressed and pill templates', () 
     assert.doesNotMatch(HTML, new RegExp(rejected),
       'a rejected paired control returned: ' + rejected);
   }
-  assert.match(HTML, /\.twopill\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
+  assert.match(HTML, /\.twopill(?:,\s*\.multipill)?\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
     'two-sided pills can stretch to fill their row');
   assert.match(HTML, /\.pressbtn\s*\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/,
     'pressed toggles can stretch to fill their row');
@@ -46179,17 +46701,17 @@ test('the unified Bird gen help keeps every former lane rule reachable', async (
     leaderboard: 'notApplicable', hotspots: 'notApplicable',
   };
   A.renderSurge([], [], [], [], [], sourceState);
-  assert.equal(app.$('surgeResults').querySelectorAll('.lanehelp[data-lane="feed"]').length, 1,
-    'the empty alert feed must have exactly one help entry point');
+  assert.equal(app.$('surgeResults').querySelectorAll('.lanehelp[data-lane="feed"]').length, 0,
+    'the empty alert feed uses only the primary header help entry point');
   A.renderSurge([{
     code: 'tersan', name: 'Terek Sandpiper', locId: 'L9', loc: 'Stanwood STP',
     lat: 48.24, lon: -122.37, observers: 2, checklists: 2, baseline: 0,
     ratio: null, novel: true, reason: 'novel', rarity: true, seen: false,
     perHour: 1, latest: '2026-07-27 11:00', distMi: 31.2, subId: 'S123',
   }], [], [], [], [], sourceState);
-  assert.equal(app.$('surgeResults').querySelectorAll('.lanehelp[data-lane="feed"]').length, 1,
-    'the populated alert feed must have exactly one help entry point');
-  app.$('surgeResults').querySelector('.lanehelp[data-lane="feed"]').click();
+  assert.equal(app.$('surgeResults').querySelectorAll('.lanehelp[data-lane="feed"]').length, 0,
+    'the populated alert feed uses only the primary header help entry point');
+  await openBirdGenHelp(app);
   const key = app.window.document.querySelector('.sheetbody [data-alert-type-key]');
   assert.ok(key, 'F933 the real information button must open the alert-type key');
   assert.deepEqual([...key.querySelectorAll('[data-alert-key-kind]')]
@@ -47373,7 +47895,7 @@ test('F274 preserves F275 mega admission, held-back disclosure, and zero-fetch r
     'the genuinely far new mega lost its distance warning');
   assert.doesNotMatch(farRow.dataset.surgeReasonText, /outside your chase/i,
     'F969 keeps the outside warning out of the claim rather than duplicating it');
-  app.click(box.querySelector('.lanehelp[data-lane="feed"]'));
+  await openBirdGenHelp(app);
   assert.match(app.document.querySelector('#appSheet').textContent,
     /Mega snapshot.*3h ago/i,
     'the cached mega snapshot age did not move into the info sheet');
@@ -47750,7 +48272,7 @@ test('F721 Bird Gen starts independent hotspot work without waiting for observat
   assert.match(source,
     /var countySource = surgeReadySources\(\s*Promise\.all\(\[pCountyScope, pCachedSources, pObservedStarted\]\)/,
     'independent hotspot convergence does not start after observation requests are queued');
-  assert.match(source, /var pConverge = countySource\('hotspots',/,
+  assert.match(source, /var pConverge = sourceTask\(countySource, 'hotspots',/,
     'hotspot convergence must use the shared ready-source gate');
   assert.doesNotMatch(source,
     /var pConverge = Promise\.all\(\[pCachedSources,\s*pObserved\]\)/,
@@ -49590,8 +50112,8 @@ test('F470 the Stakeout Codes control has no decorative abc icon', () => {
 
 test('F470 every shared control uses the compact Stakeout geometry', () => {
   const sortRule = HTML.match(/\.sortbtn\s*\{[^}]*\}/);
-  const pillRule = HTML.match(/\.twopill\s*\{[^}]*\}/);
-  const sideRule = HTML.match(/\.twopill > \.sortbtn\s*\{[^}]*\}/);
+  const pillRule = HTML.match(/\.twopill(?:,\s*\.multipill)?\s*\{[^}]*\}/);
+  const sideRule = HTML.match(/\.twopill > \.sortbtn(?:,\s*\.multipill > \.sortbtn)?\s*\{[^}]*\}/);
   const pressRule = HTML.match(/\.pressbtn\s*\{[^}]*\}/);
   assert.ok(sortRule && pillRule && sideRule && pressRule,
     'one of the shared control rules is missing');
@@ -56287,7 +56809,7 @@ test('F674 Bird Gen retries only its failed hotspot source', async () => {
     HTML.indexOf('return Promise.all([pObserved', HTML.indexOf('var pConverge =')));
   assert.match(converge, /convergenceByPath/,
     'successful hotspot-source rows are not retained independently');
-  assert.match(converge, /surgeModel\.convergence = surgeSourceFallback/,
+  assert.match(converge, /publishSource\('convergence', surgeSourceFallback/,
     'the source-local retry does not repaint the existing Bird Gen model');
   app.window.close();
 });

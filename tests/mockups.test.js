@@ -33,12 +33,42 @@ const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
 
+test('F1049 offline mockups read bundled section notes while unseeded remote sources remain pending', () => {
+  const start = source.indexOf('var HANG = function (url, init)');
+  const end = source.indexOf('\n  window.fetch = HANG;',start);
+  assert.ok(start >= 0 && end > start);
+  assert.match(source,/var bundledFetch = window\.fetch\.bind\(window\)/);
+  const calls = [], response = {ok:true};
+  const fetch = vm.runInNewContext(source.slice(start,end)+'; HANG;',{
+    Promise,DOMException,bundledFetch(url) { calls.push(url); return response; }
+  });
+  assert.equal(fetch('section-docs.json'),response,
+    'primary help cannot wait on a deliberately hanging fixture source');
+  assert.ok(fetch('https://api.ebird.org/v2/data/obs/US-WA/recent') instanceof Promise);
+  assert.deepEqual(calls,['section-docs.json'],'this must not enable live external requests');
+});
+
 test('F359 mockup preparation timeout rejects a hung fixture by shot name', async () => {
   await assert.rejects(
     mockups.withTimeout(new Promise(() => {}), 5, 'section-spLookupBtn preparation'),
     /section-spLookupBtn preparation timed out after 5ms/
   );
 });
+
+test('F1049/F1051-F1055 release galleries render primary help and production Common/Big days/Convoys',
+  {timeout:120000}, () => {
+    const output=fs.mkdtempSync(path.join(os.tmpdir(),'approved-release-'));
+    try {
+      const shots=['section-easyBtn','section-cklBtn','section-convoyBtn','birdgenkey'];
+      const result=spawnSync(process.execPath,[
+        path.join(ROOT,'assets','mockups.js'),'--only',shots.join(','),
+        '--width','402','--scale','1.75','--out',output
+      ],{cwd:ROOT,encoding:'utf8',timeout:110000});
+      assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+      assert.match(result.stdout,/4 mockup\(s\)/);
+      for (const shot of shots) assert.ok(fs.existsSync(path.join(output,shot+'-402px.png')),shot);
+    } finally {fs.rmSync(output,{recursive:true,force:true});}
+  });
 
 test('F987/F992/F993 release menu and Year List prepare production preview, glossary and watch states',
   { timeout: 120000 }, () => {

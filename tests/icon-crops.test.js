@@ -56,6 +56,17 @@ function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+test('F1042 Bohemian Waxwing retains the source-pinned owner crop with its head and bill visible', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'f479-crops.json'), 'utf8')).cases;
+  assert.equal(cases.bohwax.slide, 0.572);
+  assert.equal(cases.bohwax.source_sha, 'e7c35ef5779474c3');
+  const output = fs.readFileSync(path.join(process.env.BIRDCHASER_WWW || path.join(ROOT, 'www'),
+    'assets', 'birds', 'bohwax.jpg'));
+  assert.deepEqual(jpegSize(output), { w: 167, h: 167 });
+  assert.equal(sha256Hex(output),
+    'd548d17a57842e70353cc4052c8e8683f3ca2b042c18f6c1c7770fb176d1229a');
+});
+
 test('F942 Mountain Chickadee retains its source-pinned owner-selected full-box crop', () => {
   assert.match(tableBody('OVERRIDES'),
     /'mouchi\.jpg': \(0\.183, 0\.0039, 0\.878, 0\.9746\)/);
@@ -183,8 +194,8 @@ test('F479 all owner-drawn ABA crops stay pinned to reviewed outputs', () => {
   const review = JSON.parse(fs.readFileSync(
     path.join(ROOT, 'assets', 'f479-crops.json'), 'utf8'));
   const cases = Object.entries(review.cases);
-  assert.equal(cases.length, 213,
-    'F479 must retain every owner-drawn crop except separately replaced blksco2');
+  assert.equal(cases.length, 214,
+    'retain the F479 crops and F1042 owner crop, except separately replaced blksco2');
   assert.equal(Object.hasOwn(review.cases, 'blksco2'), false,
     'Black Scoter is a source replacement guarded by F486, not a crop override');
 
