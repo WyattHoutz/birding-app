@@ -1,0 +1,88 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+/* Begin PBXNativeTarget section */
+		ABC000000000000000000002 /* App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ABC000000000000000000003;
+			name = App;
+			productType = "com.apple.product-type.application";
+		};
+		ABC000000000000000000008 /* Resource */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ABC000000000000000000009;
+			name = Resource;
+			productType = "com.apple.product-type.bundle";
+		};
+/* End PBXNativeTarget section */
+/* Begin PBXProject section */
+		ABC000000000000000000001 /* Project */ = {
+			isa = PBXProject;
+			buildConfigurationList = ABC000000000000000000006;
+			targets = (
+				ABC000000000000000000002 /* App */,
+				ABC000000000000000000008 /* Resource */,
+			);
+		};
+/* End PBXProject section */
+/* Begin XCBuildConfiguration section */
+		ABC000000000000000000004 /* App Release */ = {
+			isa = XCBuildConfiguration;
+			name = Release;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.bird;
+				SWIFT_VERSION = 5.0;
+			};
+		};
+		ABC000000000000000000005 /* App Debug */ = {
+			isa = XCBuildConfiguration;
+			name = Debug;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.bird;
+			};
+		};
+		ABC000000000000000000007 /* Project Release */ = {
+			isa = XCBuildConfiguration;
+			name = Release;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+			};
+		};
+		ABC00000000000000000000A /* Resource Release */ = {
+			isa = XCBuildConfiguration;
+			name = Release;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.bird.resource;
+			};
+		};
+/* End XCBuildConfiguration section */
+/* Begin XCConfigurationList section */
+		ABC000000000000000000003 /* App configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABC000000000000000000004 /* App Release */,
+				ABC000000000000000000005 /* App Debug */,
+			);
+		};
+		ABC000000000000000000006 /* Project configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABC000000000000000000007 /* Project Release */,
+			);
+		};
+		ABC000000000000000000009 /* Resource configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABC00000000000000000000A /* Resource Release */,
+			);
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = ABC000000000000000000001 /* Project */;
+}

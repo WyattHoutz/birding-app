@@ -100,16 +100,37 @@ async function waitForBuild(api, appId, number, version, {
   throw new Error('Apple processing is not verified after 30 minutes; inspect the uploaded build, do not assume availability');
 }
 
-function archiveArgs(root, work, profile, identity, version, number) {
+function configureAppSigning(root, profile, identity, bundleId) {
+  const file = path.join(root, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+  const project = require('xcode').project(file);
+  project.parseSync();
+  const unquote = value => String(value || '').replace(/^"(.*)"$/, '$1');
+  const targets = Object.values(project.pbxNativeTargetSection() || {}).filter(target =>
+    target?.isa === 'PBXNativeTarget' && unquote(target.name) === 'App'
+      && unquote(target.productType) === 'com.apple.product-type.application');
+  if (targets.length !== 1) throw new Error('Signing requires exactly one App application target');
+  const list = project.pbxXCConfigurationList()?.[targets[0].buildConfigurationList];
+  const configurations = project.pbxXCBuildConfigurationSection() || {};
+  const release = (list?.buildConfigurations || []).map(ref => configurations[ref.value])
+    .filter(config => config?.isa === 'XCBuildConfiguration' && unquote(config.name) === 'Release');
+  if (release.length !== 1 || unquote(release[0].buildSettings?.PRODUCT_BUNDLE_IDENTIFIER) !== bundleId) {
+    throw new Error('Signing requires the App Release configuration with the exact bundle ID');
+  }
+  Object.assign(release[0].buildSettings, {
+    CODE_SIGNING_ALLOWED: 'YES', CODE_SIGNING_REQUIRED: 'YES',
+    CODE_SIGN_STYLE: 'Manual', DEVELOPMENT_TEAM: profile.team,
+    CODE_SIGN_IDENTITY: identity, PROVISIONING_PROFILE_SPECIFIER: profile.uuid,
+  });
+  fs.writeFileSync(file, project.writeSync());
+}
+
+function archiveArgs(root, work, version, number) {
   return [
     '-project', path.join(root, 'ios', 'App', 'App.xcodeproj'),
     '-scheme', 'App', '-configuration', 'Release', '-sdk', 'iphoneos',
     '-destination', 'generic/platform=iOS',
     '-derivedDataPath', path.join(work, 'derived'),
     '-archivePath', path.join(work, 'BirdChaser.xcarchive'),
-    'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGNING_REQUIRED=YES',
-    'CODE_SIGN_STYLE=Manual', `DEVELOPMENT_TEAM=${profile.team}`,
-    `CODE_SIGN_IDENTITY=${identity}`, `PROVISIONING_PROFILE_SPECIFIER=${profile.uuid}`,
     `OTHER_CODE_SIGN_FLAGS=--keychain "${path.join(work, 'signing.keychain-db')}"`,
     `MARKETING_VERSION=${version}`, `CURRENT_PROJECT_VERSION=${number}`, 'archive',
   ];
@@ -289,7 +310,8 @@ async function deliver() {
     run(process.execPath, [path.join(root, 'assets', 'stamp-build-info.js'),
       path.join(root, 'ios', 'App', 'App', 'public', 'build-info.js'),
       'testflight', `${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT}`, '90']);
-    run('xcodebuild', archiveArgs(root, work, profile, identity, version, number), { stdio: 'inherit' });
+    configureAppSigning(root, profile, identity, bundleId);
+    run('xcodebuild', archiveArgs(root, work, version, number), { stdio: 'inherit' });
     const optionsJson = path.join(work, 'export-options.json');
     const optionsPlist = path.join(work, 'export-options.plist');
     fs.writeFileSync(optionsJson, JSON.stringify(exportOptions(profile, identity, bundleId)));
@@ -380,7 +402,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildNumber, token, client, waitForBuild, archiveArgs, exportOptions, sourceRun,
+  buildNumber, token, client, waitForBuild, configureAppSigning, archiveArgs, exportOptions, sourceRun,
   commandEnv, betaSummary,
   signingDirectory,
   deliver,

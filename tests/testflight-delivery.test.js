@@ -7,6 +7,17 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const vm = require('node:vm');
+const xcode = require('xcode');
+const flight = require('../assets/testflight.js');
+
+function nativeProject(root) {
+  const file = path.join(root, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'testflight-project.pbxproj'), file);
+  const project = xcode.project(file);
+  project.parseSync();
+  return project;
+}
 
 async function deliveryFixture(failArchive) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-flight-delivery-'));
@@ -17,6 +28,13 @@ async function deliveryFixture(failArchive) {
   const certificate = Buffer.from('synthetic public certificate');
   const identity = crypto.createHash('sha1').update(certificate).digest('hex').toUpperCase();
   const profile = { uuid: '12345678-1234-1234-1234-123456789ABC', team: 'TESTTEAM', certificateSha1: [identity] };
+  const originalProject = nativeProject(root);
+  const expectedProject = originalProject.hash.project;
+  Object.assign(expectedProject.objects.XCBuildConfiguration['ABC000000000000000000004'].buildSettings, {
+    CODE_SIGNING_ALLOWED: 'YES', CODE_SIGNING_REQUIRED: 'YES',
+    CODE_SIGN_STYLE: 'Manual', DEVELOPMENT_TEAM: profile.team,
+    CODE_SIGN_IDENTITY: identity, PROVISIONING_PROFILE_SPECIFIER: profile.uuid,
+  });
   const sha = 'a'.repeat(40);
   fs.mkdirSync(path.join(root, 'ios', 'App', 'App', 'public'), { recursive: true });
   fs.mkdirSync(runner, { recursive: true });
@@ -43,8 +61,14 @@ async function deliveryFixture(failArchive) {
     if (program === 'security' && args[0] === 'find-identity') stdout = identity;
     if (program === 'python3' && args[1] === 'profile') stdout = JSON.stringify(profile);
     if (program === process.execPath) fs.writeFileSync(args[1], 'window.__BUILD_INFO__ = {"channel": "testflight"};');
-    if (program === 'xcodebuild' && args.at(-1) === 'archive' && failArchive) {
-      return { status: 1, stdout: '', stderr: '' };
+    if (program === 'xcodebuild' && args.at(-1) === 'archive') {
+      assert.equal(args.some(arg => /^(PROVISIONING_PROFILE|CODE_SIGN|DEVELOPMENT_TEAM)/.test(arg)),
+        false, 'app signing settings must not propagate to Swift package targets');
+      const project = xcode.project(originalProject.filepath);
+      project.parseSync();
+      assert.deepEqual(project.hash.project, expectedProject,
+        'only the exact App Release configuration may receive the app signing identity/profile');
+      if (failArchive) return { status: 1, stdout: '', stderr: '' };
     }
     if (program === 'xcodebuild' && args[0] === '-exportArchive') {
       const exported = args[args.indexOf('-exportPath') + 1];
@@ -144,4 +168,40 @@ test('F1059 archive failure cannot upload and still removes the keychain, privat
   assert.equal(result.report.processingState, 'NOT_UPLOADED');
   assert.match(result.report.error, /xcodebuild failed/);
   assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
+});
+
+test('F1059 target-scoped signing rejects missing, ambiguous and wrong-bundle app configurations without rewriting the project', () => {
+  const changes = [
+    project => { project.pbxNativeTargetSection()['ABC000000000000000000002'].name = 'Other'; },
+    project => { project.pbxNativeTargetSection()['ABC000000000000000000002'].productType = '"com.apple.product-type.bundle"'; },
+    project => {
+      project.pbxNativeTargetSection()['ABC00000000000000000000B'] =
+        { ...project.pbxNativeTargetSection()['ABC000000000000000000002'] };
+    },
+    project => { project.pbxNativeTargetSection()['ABC000000000000000000002'].buildConfigurationList = 'missing'; },
+    project => { project.pbxXCBuildConfigurationSection()['ABC000000000000000000004'].name = 'Debug'; },
+    project => {
+      project.pbxXCConfigurationList()['ABC000000000000000000003'].buildConfigurations.push(
+        { value: 'ABC000000000000000000004', comment: 'Duplicate Release' });
+    },
+    project => {
+      project.pbxXCBuildConfigurationSection()['ABC000000000000000000004']
+        .buildSettings.PRODUCT_BUNDLE_IDENTIFIER = 'com.example.other';
+    },
+  ];
+  for (const change of changes) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-flight-project-'));
+    try {
+      const project = nativeProject(root);
+      change(project);
+      fs.writeFileSync(project.filepath, project.writeSync());
+      const before = fs.readFileSync(project.filepath, 'utf8');
+      assert.throws(() => flight.configureAppSigning(root,
+        { team: 'TESTTEAM', uuid: 'profile-uuid' }, 'certificate-hash', 'com.example.bird'),
+      /Signing requires/);
+      assert.equal(fs.readFileSync(project.filepath, 'utf8'), before);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
 });

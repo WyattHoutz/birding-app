@@ -127,15 +127,15 @@ test('F1059 processing rejection, unknown state, timeout and transport errors ne
     'app', '538.1', '1.168.0'), /network failed/);
 });
 
-test('F1059 archive and export require explicit matching distribution signing without changing build numbers', () => {
+test('F1059 archive leaves target-specific signing out of global overrides; export pins identity and build numbers', () => {
   const profile = { team: 'TESTTEAM', uuid: 'profile-uuid' };
-  const args = flight.archiveArgs('root', 'work', profile, 'certificate-hash', '1.168.0', '538.1');
+  const args = flight.archiveArgs('root', 'work', '1.168.0', '538.1');
   for (const arg of [
-    'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGNING_REQUIRED=YES', 'CODE_SIGN_STYLE=Manual',
-    'DEVELOPMENT_TEAM=TESTTEAM', 'CODE_SIGN_IDENTITY=certificate-hash',
-    'PROVISIONING_PROFILE_SPECIFIER=profile-uuid', 'MARKETING_VERSION=1.168.0',
+    'MARKETING_VERSION=1.168.0',
     'CURRENT_PROJECT_VERSION=538.1', 'archive',
   ]) assert.ok(args.includes(arg), `missing ${arg}`);
+  assert.equal(args.some(arg => /^(PROVISIONING_PROFILE|CODE_SIGN|DEVELOPMENT_TEAM)/.test(arg)),
+    false, 'global signing overrides leak the app profile/settings into Swift package targets');
   assert.ok(args.find(arg => arg.startsWith('OTHER_CODE_SIGN_FLAGS=')).includes('signing.keychain-db'));
   const options = flight.exportOptions(profile, 'certificate-hash', 'com.example.bird');
   assert.equal(options.method, 'app-store-connect');
