@@ -75,6 +75,172 @@ function surgeEvidence(root) {
   assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
   return templates[0].content;
 }
+test('F1057 Stakeout Refresh bypasses only selected sightings and retains evidence on failure', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.showSection('sec-spLookupBtn', { load: false });
+    let calls = 0, fail = false, empty = false;
+    app.window.fetch = (url, init) => {
+      if (!/data\/obs\/US-WA\/recent\/verfly\?/.test(String(url))) {
+        if (/api\.ebird\.org/.test(String(url))) return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]) });
+        return originalFetch(url, init);
+      }
+      calls++;
+      if (fail) return Promise.reject(new Error('Synthetic sightings connection failed'));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(empty ? [] : [{
+        speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+        obsDt: recentObsStamp(), locId: 'LF1057-' + calls,
+        locName: 'Refresh place ' + calls, lat: 47.76, lng: -122.15,
+        subId: 'SF1057-' + calls, howMany: 1, locationPrivate: false
+      }]) });
+    };
+    const refresh = app.$('spLookupRefresh');
+    assert.ok(refresh);
+    assert.equal(refresh.disabled, true);
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    assert.equal(calls, 1);
+    assert.equal(refresh.disabled, false);
+    assert.match(app.$('spLookupRecent').textContent, /Refresh place 1/);
+    app.click(app.$('spLookupByDist'));
+    app.click(app.$('spLookupNotes'));
+    const preferences = ['spLookupByDist', 'spLookupNotes', 'spLookupGroup', 'spLookupWithinChase']
+      .map(id => app.$(id).getAttribute('aria-pressed'));
+    app.click(refresh);
+    await waitFor(() => !refresh.disabled, 'selected-bird refresh to finish');
+    assert.equal(calls, 2, 'one additional selected-species request must bypass memoization');
+    assert.match(app.$('spLookupRecent').textContent, /Refresh place 2/);
+    assert.doesNotMatch(app.$('spLookupRecent').textContent, /Refresh place 1/);
+    assert.deepEqual(['spLookupByDist', 'spLookupNotes', 'spLookupGroup', 'spLookupWithinChase']
+      .map(id => app.$(id).getAttribute('aria-pressed')), preferences);
+    fail = true;
+    app.click(refresh);
+    await waitFor(() => !refresh.disabled, 'failed refresh to settle');
+    assert.match(app.$('spLookupRecent').textContent, /Refresh place 2/);
+    assert.match(app.$('spLookupDetailMain').textContent, /Sightings could not load/);
+    fail = false; empty = true;
+    app.click(refresh);
+    await waitFor(() => !refresh.disabled, 'successful empty refresh');
+    assert.match(app.$('spLookupStatus').textContent, /No reports of Vermilion Flycatcher/);
+    assert.doesNotMatch(app.$('spLookupRecent').textContent, /Refresh place 2/);
+    app.click(app.$('spLookupClear'));
+    assert.equal(refresh.disabled, true);
+  } finally { app.window.close(); }
+});
+
+for (const changed of ['Home', 'navigation']) {
+test(`F1057 a held selected-bird refresh cannot publish after ${changed} changes`, async () => {
+  const app = await boot({ sample: false });
+  let release;
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.showSection('sec-spLookupBtn', { load: false });
+    let calls = 0;
+    const response = name => ({ ok: true, status: 200, json: () => Promise.resolve([{
+      speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      obsDt: recentObsStamp(), locId: name, locName: name, lat: 47.76, lng: -122.15,
+      subId: 'S-' + name, howMany: 1
+    }]) });
+    app.window.fetch = (url, init) => {
+      if (!/data\/obs\/US-WA\/recent\/verfly\?/.test(String(url))) {
+        if (/api\.ebird\.org/.test(String(url))) return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]) });
+        return originalFetch(url, init);
+      }
+      if (++calls === 1) return Promise.resolve(response('Retained patch'));
+      return new Promise(resolve => { release = () => resolve(response('Obsolete patch')); });
+    };
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    app.click(app.$('spLookupRefresh'));
+    await waitFor(() => !!release, 'refresh request');
+    assert.match(app.$('spLookupRecent').textContent, /Retained patch/);
+    if (changed === 'Home') app.window.localStorage.setItem(A.homeKey('lat'), '48.75');
+    else A.showMenu();
+    release();
+    await waitFor(() => !app.$('spLookupRefresh').disabled, 'obsolete acquisition to settle');
+    assert.doesNotMatch(app.$('spLookupRecent').textContent, /Obsolete patch/);
+    assert.match(app.$('spLookupRecent').textContent, /Retained patch/);
+  } finally { if (release) release(); app.window.close(); }
+});
+}
+
+test('F1045/F1058 migration dates and all current alerts agree without opening Migration or fetching history', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, ctx = A.firstYearContext(), now = new Date();
+    const taxa = [
+      { code: 'trokin', name: 'Tropical Kingbird', sci: 'Tyrannus melancholicus' },
+      { code: 'verfly', name: 'Vermilion Flycatcher', sci: 'Pyrocephalus rubinus' },
+      { code: 'newmig', name: 'New Migrant', sci: 'New migrans' },
+      { code: 'currmig', name: 'Current Migrant', sci: 'Current migrans' },
+      { code: 'overmig', name: 'Overdue Migrant', sci: 'Overdue migrans' },
+      { code: 'nextmig', name: 'Next Migrant', sci: 'Next migrans' }
+    ];
+    await seedSeen(app, [], null, taxa);
+    app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()),
+      JSON.stringify({ at: Date.now(), expected: taxa.length, rows: taxa }));
+    const day = offset => {
+      const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    };
+    const page = A.parseFirstYearBirdList(foySourceFixture(1));
+    page.rows = [
+      { code: 'verfly', name: 'Vermilion Flycatcher', date: day(-11), observedAt: day(-11)+' 08:00' },
+      { code: 'trokin', name: 'Tropical Kingbird', date: day(-10), observedAt: day(-10)+' 08:00' },
+      { code: 'newmig', name: 'New Migrant', date: day(0), observedAt: day(0)+' 08:00' }
+    ];
+    A.firstYearWrite(ctx.region, ctx.year, page);
+    app.window.localStorage.setItem('bc_arrival_v1:US-WA|Washington', JSON.stringify({
+      at: Date.now(), done: {
+        'Current migrans': { day: day(0).slice(5), records: 100 },
+        'Overdue migrans': { day: day(-3).slice(5), records: 100 },
+        'Next migrans': { day: day(5).slice(5), records: 100 }
+      }
+    }));
+    const before = app.state.fetches.length;
+    const rows = A.migrationUnifiedRows(null, now, { arrivals: true, departures: true, tonight: true });
+    assert.ok(rows.length >= 6, 'cached current and future predictions must not require opening another view');
+    const offsets = Array.from(rows, row => row.primary.days);
+    assert.deepEqual(offsets, offsets.slice().sort((a,b) => b-a));
+    const observed = rows.filter(row => row.primary.observed);
+    assert.deepEqual(Array.from(observed, row => row.code), ['newmig','trokin','verfly']);
+    const news = A.migrationSignificantRows(now, null);
+    assert.equal(news.filter(row => row.notificationKey.startsWith('migration-arrival:')).length, 3);
+    const old = news.find(row => row.notificationKey.startsWith('migration-arrival:trokin:'));
+    assert.match(old.name, /was first reported 10 days ago/);
+    assert.doesNotMatch(old.name, /showing up now/);
+    assert.match(news.find(row => row.notificationKey.startsWith('migration-arrival:newmig:')).name,
+      /showing up now/);
+    const expected = news.filter(row => row.notificationKey.startsWith('migration-expected-arrival:'));
+    assert.deepEqual(Array.from(expected, row => row.notificationKey.split(':')[1]).sort(),
+      ['currmig','overmig']);
+    assert.ok(expected.every(row => row.ageLabel === 'Expected'
+      && /not a confirmed arrival/.test(row.extra)));
+    assert.equal(app.state.fetches.length, before, 'computing cached migration alerts spends no requests');
+    A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
+    assert.equal(A.migrationSignificantRows(now, null)
+      .filter(row => row.notificationKey.startsWith('migration-arrival:')).length, 0,
+    'a successful empty observed source must retire old observation cards');
+    A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [{
+      code: 'newmig', name: 'New Migrant', date: `${ctx.year}-12-30`,
+      observedAt: `${ctx.year}-12-30 08:00`
+    }] });
+    app.window.localStorage.setItem('bc_arrival_v1:US-WA|Washington', JSON.stringify({
+      at: Date.now(), done: { 'Next migrans': { day: '01-03', records: 100 } }
+    }));
+    const boundary = new Date(ctx.year, 11, 31, 12);
+    const yearRows = A.migrationUnifiedRows(null, boundary,
+      { arrivals: true, departures: false, tonight: false });
+    assert.deepEqual(Array.from(yearRows, row => row.code), ['nextmig','newmig'],
+      'expected January dates must sort after December observations across the year boundary');
+    assert.equal(A.migrationUnifiedRows(null, boundary,
+      { arrivals: false, departures: true, tonight: false }).length, 0);
+  } finally { app.window.close(); }
+});
+
 test('F990 TWITCH integration baselines complete sources, persists episodes and withholds failed writes', async () => {
   const app = await boot({ sample: false });
   try {
@@ -4619,7 +4785,7 @@ test('F872 migration arrival carries source observation timestamp through cached
     A.firstYearWrite(ctx.region,ctx.year,page);
     const saved = A.firstYearRead(ctx.region,ctx.year);
     assert.equal(saved.rows[0].observedAt,page.rows[0].observedAt);
-    let row = A.migrationSignificantRows(new Date(),{}).find(r=>/showing up/.test(r.name));
+    let row = A.migrationSignificantRows(new Date(),{}).find(r=>r.notificationKey.startsWith('migration-arrival:'));
     assert.ok(row);
     assert.equal(row.when,page.rows[0].observedAt);
     assert.equal(row.ageTime,Date.parse(row.when));
@@ -4630,7 +4796,7 @@ test('F872 migration arrival carries source observation timestamp through cached
     assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/local time/);
     page.rows[0].observedAt=date;
     A.firstYearWrite(ctx.region,ctx.year,page);
-    row = A.migrationSignificantRows(new Date(),{}).find(r=>/showing up/.test(r.name));
+    row = A.migrationSignificantRows(new Date(),{}).find(r=>r.notificationKey.startsWith('migration-arrival:'));
     assert.equal(row.when,date);
     assert.equal(row.ageLabel,'Date only');
     host.innerHTML = A.surgeAlertCard(row,0);
@@ -6456,7 +6622,7 @@ test('F268 On passage loads first-year data by default and caches one region-yea
   assert.ok(app.window.localStorage.getItem(key), 'the valid page is cached');
   const migrationNews = A.migrationSignificantRows(new Date(), null);
   assert.match(migrationNews.map((row) => row.name).join(' '),
-    /Common Nighthawk.*showing up now/,
+    /Common Nighthawk.*was first reported 4 days ago/,
     'Bird Gen did not promote the observed first arrival from the merged feed');
   assert.match(migrationNews.map((row) => row.extra).join(' '),
     /Observed on eBird, not inferred from a forecast/,
@@ -13461,7 +13627,7 @@ test('F679 Migration uses checked filters and GBIF seasonal departures before co
   assert.deepEqual(arr(publicDepartures, row => row.code), ['toddep', 'exmigr'],
     'independent departure news needs valid timing, not personal membership or a guessed zero');
   assert.equal(publicDepartures[0].days, 0, 'a real departure today must remain eligible');
-  assert.match(HTML, /dueBackGbifDepartureRows\(_dueBackView\.store, _dueBackView\.rows, false,/,
+  assert.match(HTML, /dueBackGbifDepartureRows\(historyView\.store, historyView\.rows, false,/,
     'the unified independent feed must request public rather than personal departures');
   assert.match(HTML,
     /class="migration-filters sortpick checkedpick"/,
@@ -18577,15 +18743,15 @@ test('F637/F642 opening Migration loads due-back data without a refresh tap', as
     'Migration to auto-load due-back data on section open');
   const cards = [...app.$('bcBody').querySelectorAll('.migration-list > li')];
   assert.deepEqual(cards.map((row) => row.querySelector('.splink').textContent),
-    ['Returned Migrant', 'Regional Migrant', 'Next Migrant'],
-    'the arrival timeline is not chronological across today: '
+    ['Next Migrant', 'Regional Migrant', 'Returned Migrant'],
+    'the arrival timeline is not newest-event-date first across today: '
       + JSON.stringify(A.migrationUnifiedRows(null, now)));
-  assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
+  assert.equal(cards[2].querySelector('.migration-event').getAttribute('aria-label'),
     'Arrival window is now, now, expected');
   assert.equal(cards[0].querySelector('.migration-event-icon').textContent, '🛬');
   assert.equal(cards[1].querySelector('.migration-event').getAttribute('aria-label'),
     'Arrival window is now, now, expected');
-  assert.equal(cards[2].querySelector('.migration-event').getAttribute('aria-label'),
+  assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
     'Arriving soon, in 5 days, expected');
   app.window.close();
 });
@@ -47034,10 +47200,12 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
 
   // The rows and the pins must be numbered from the same list, or the numbers
   // are decoration.
-  assert.ok(/function spLookupPlaceCards/.test(HTML), 'no numbered row renderer');
+  const cardsStart = HTML.indexOf('function spLookupPlaceCards');
+  assert.ok(cardsStart > 0, 'no numbered row renderer');
+  const cardsFn = HTML.slice(cardsStart, HTML.indexOf('\n      function ', cardsStart + 1));
   assert.match(listFn, /spLookupEvidenceRows\(places \|\| \[\], true\)/,
     'grouped cards must use the shared evidence mapping');
-  assert.ok(!/_spLookupGroup\.name/.test(HTML),
+  assert.ok(!/_spLookupGroup\.name/.test(cardsFn + listFn + mapFn),
     'the row renderer still reaches for module state instead of its argument');
 });
 
@@ -50097,7 +50265,7 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
     'the browser audit does not report the failed search-row contract');
   assert.match(audit, /CODE CONTROL TARGET/,
     'the browser audit does not enforce the 44px target');
-  assert.match(HTML, /#spCodesBtn\s*\{[^}]*min-height:\s*44px/,
+  assert.equal(app.window.getComputedStyle(codes).minHeight, '44px',
     'the named control does not guarantee its 44px target at normal text size');
   app.window.close();
 });
@@ -50106,7 +50274,7 @@ test('F470 the Stakeout Codes control has no decorative abc icon', () => {
   assert.doesNotMatch(HTML, /🔤 Codes/,
     'the decorative abc icon remains on the Codes control or one of its reset paths');
   assert.match(HTML,
-    /#spCodesBtn\s*\{[^}]*min-width:\s*max-content[^}]*white-space:\s*nowrap/,
+    /#spCodesBtn(?:\s*,[^{}]+)?\s*\{[^}]*min-width:\s*max-content[^}]*white-space:\s*nowrap/,
     'the plain Codes label can split across lines beside the search field');
 });
 

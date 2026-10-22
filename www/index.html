@@ -1471,7 +1471,7 @@
     .stakeHsActions { flex-wrap: nowrap; }
     .stakeHsActions > #stakeHs { flex: 1 1 auto; width: auto; min-width: 0; }
     .row.stakeHsActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
-    #spCodesBtn { min-height: 44px; min-width: max-content;
+    #spCodesBtn, #spLookupRefresh { min-height: 44px; min-width: max-content;
                   white-space: nowrap; overflow-wrap: normal; }
     .spLookupActions { flex-wrap: nowrap; }
     .spLookupActions > #spLookup { flex: 1 1 auto; width: auto; min-width: 0; }
@@ -3779,6 +3779,7 @@
       </div>
       <div class="row">
         <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">Codes</button>
+        <button id="spLookupRefresh" class="secondary" type="button" disabled>Refresh</button>
       </div>
       <div class="row" id="spCodesSortRow" hidden>
         <button id="spCodesByName" class="secondary" type="button" aria-pressed="true">A–Z by name</button>
@@ -5122,7 +5123,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.166.0';
+      var APP_VERSION = '1.167.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -14693,6 +14694,7 @@
         _spLookupIconic = null; _spLookupSeason = null;
         _spLookupIconicRadius = null;
         _spLookupLoading = false;
+        if ($('spLookupRefresh')) $('spLookupRefresh').disabled = true;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupDetailsContent')) $('spLookupDetailsContent').hidden = true;
       }
@@ -15083,10 +15085,10 @@
           && !error.ebirdCancelled;
       }
 
-      function loadSpeciesSightings(region, code, generation, scopeSlug) {
+      function loadSpeciesSightings(region, code, generation, scopeSlug, force) {
         var path = speciesLookupPath(region, code, SP_LOOKUP_BACK);
         function attempt(number) {
-          return ebird(path).catch(function (error) {
+          return ebird(path, false, false, !!force).catch(function (error) {
             if (number === 0 && isSpeciesSightingsTransportError(error)
                 && generation === _spLookupGeneration
                 && scopeSlug === getReportSlug()) {
@@ -15101,7 +15103,12 @@
         return attempt(0);
       }
 
-      function lookupSpecies(code, name, generation, scopeSlug, megaRef, finderContext) {
+      function refreshSpeciesLookup() {
+        if (!_spLookupGroup || _spLookupLoading) return Promise.resolve();
+        return lookupSpecies(_spLookupGroup.code, _spLookupGroup.name,
+          null, null, _activeMega, null, true);
+      }
+      function lookupSpecies(code, name, generation, scopeSlug, megaRef, finderContext, refresh) {
         var found = $('spLookupFound'), out = $('spLookupResults'), st = $('spLookupStatus');
         if (!out || !st) return Promise.resolve();
         var target = stakeSpeciesTarget(code, name);
@@ -15110,6 +15117,13 @@
         if (generation == null) generation = ++_spLookupGeneration;
         scopeSlug = scopeSlug || getReportSlug();
         if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return Promise.resolve();
+        var refreshScope = activeScope(), refreshNavigation = _navGeneration;
+        var refreshHome = JSON.stringify(anchorPoint());
+        function current() {
+          return generation === _spLookupGeneration && scopeSlug === getReportSlug()
+            && (!refresh || (scopeCurrent(refreshScope) && refreshNavigation === _navGeneration
+              && refreshHome === JSON.stringify(anchorPoint())));
+        }
         var mega = megaEntry(megaRef, code);
         if (mega) {
           _activeMega = { viewKey: mega.view.key, code: mega.code };
@@ -15129,20 +15143,24 @@
             || (sourcePanel && sourcePanel.getAttribute('data-spuh')) || '');
         }
         if (finderContext && $('spLookup')) $('spLookup').value = name;
-        resetSpeciesLookupView();
+        if (!refresh) resetSpeciesLookupView();
         // Taxonomy and sightings have separate data owners. Start the visible
         // path without awaiting it, so taxonomy failure cannot block sightings.
-        renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
+        if (!refresh) renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Looking up ' + name + ' across ' + reportLabel
           + ' (last ' + SP_LOOKUP_BACK + ' days)…';
         _spLookupLoading = true;
-        _spLookupGroup = {
+        if (!refresh) _spLookupGroup = {
           code: code, name: name, places: [], nPlaces: 0, nReports: 0,
           nObservers: 0, anyUnconfirmed: false, distMi: null,
           emptyCurrent: false, loadError: ''
         };
-        _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
+        if (!refresh) _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
+        else {
+          _spLookupEvidence.generation = generation;
+          _spLookupGroup.loadError = '';
+        }
         var heldRecords = speciesLookupRecords(_spLookupEvidence.stateRows, anchors);
         var heldGroup = buildStakeoutGroup(heldRecords);
         if (heldGroup) {
@@ -15150,26 +15168,26 @@
           heldGroup.code = heldGroup.code || code;
           _spLookupGroup = heldGroup;
         }
-        hydrateStakeoutEvidence(_spLookupEvidence, generation);
+        if (!refresh) hydrateStakeoutEvidence(_spLookupEvidence, generation);
         renderSpeciesLookup();
-        var sightings = mega
+        var sightings = mega && !refresh
           ? megaEnsureState(mega.view, mega)
-          : loadSpeciesSightings(region, code, generation, scopeSlug);
+          : loadSpeciesSightings(region, code, generation, scopeSlug, refresh);
         var stateRba = stateRbaRecords(false).then(function (result) {
           return stakeoutRarityEvidenceRows(
             result && result.rows || [], code, name);
         }).catch(function () { return []; });
         stateRba.then(function (rbaRows) {
-            if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()
-                || !rbaRows.length) return;
+            if (!current() || !rbaRows.length) return;
             refreshStakeoutLookupEvidence(_spLookupEvidence, rbaRows);
             renderSpeciesLookup();
           });
         return sightings.then(function (rows) {
           var currentRows = rows || [];
-          if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return;
+          if (!current()) return;
           _spLookupLoading = false;
           if (_spLookupGroup) _spLookupGroup.loadError = '';
+          if (refresh) _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
           updateStakeoutEvidence(_spLookupEvidence, currentRows);
           hydrateStakeoutEvidence(_spLookupEvidence, generation);
           var liveRecs = speciesLookupRecords(currentRows, anchors);
@@ -15228,7 +15246,7 @@
             (g.places || []).map(function (p) { return p.name || p.locName; }),
             generation);
         }).catch(function (e) {
-          if (generation === _spLookupGeneration && scopeSlug === getReportSlug()) {
+          if (current()) {
             _spLookupLoading = false;
             if (_spLookupGroup) {
               _spLookupGroup.loadError = (e && e.message) || String(e);
@@ -15236,6 +15254,11 @@
             } else {
               st.textContent = netErr(e);
             }
+          }
+        }).finally(function () {
+          if (refresh && generation === _spLookupGeneration && typeof document !== 'undefined') {
+            _spLookupLoading = false;
+            if ($('spLookupRefresh')) $('spLookupRefresh').disabled = false;
           }
         });
       }
@@ -16189,6 +16212,7 @@
       function renderSpeciesLookup() {
         var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
         if (!out || !g) return;
+        if ($('spLookupRefresh')) $('spLookupRefresh').disabled = _spLookupLoading;
         var reading = captureStakeoutReading($('spLookupRecent'));
         var viewKey = [g.code, _spLookupSort, _spLookupGrouped, _spLookupWithinChase].join('|');
         if (_spLookupViewKey !== viewKey) reading = { visible: {} };
@@ -16332,8 +16356,7 @@
         var retrySightings = detailMain
           && detailMain.querySelector('.spLookupRetrySightings');
         if (retrySightings && detailChanged) retrySightings.addEventListener('click', function () {
-          lookupSpecies(retrySightings.getAttribute('data-code') || g.code,
-            retrySightings.getAttribute('data-name') || g.name);
+          refreshSpeciesLookup();
         });
         var watchButton = out.querySelector('.spLookupWatchlist');
         if (watchButton && cardChanged) watchButton.addEventListener('click', function () {
@@ -34078,6 +34101,18 @@
           ? migExpectedSoon(cache, now, false)
           : { arriving: [], departing: [], coveredCodes: [] };
         var fallbackSource = _migFallback[ctx.region + '|' + ctx.year];
+        if (!fallbackSource) {
+          try {
+            var speciesCache = JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null');
+            var stateName = BL.stateNameFor(getReport());
+            if (stateName && speciesCache && Array.isArray(speciesCache.rows)) {
+              fallbackSource = { store: loadArrivalStore(getObsRegion(), stateName),
+                rows: speciesCache.rows };
+            }
+          } catch (error) {
+            dbg('warn', 'Migration cached arrival evidence could not be read: ' + error.message);
+          }
+        }
         var fallback = fallbackSource
           ? dueBackRows(fallbackSource.store, fallbackSource.rows, seen, now)
           : [];
@@ -34106,8 +34141,9 @@
             source: 'County history \u00b7 seen ' + row.nWeeks + ' wk/yr'
           });
         });
-        if (_dueBackView) {
-          dueBackGbifDepartureRows(_dueBackView.store, _dueBackView.rows, false,
+        var historyView = _dueBackView || fallbackSource;
+        if (historyView) {
+          dueBackGbifDepartureRows(historyView.store, historyView.rows, false,
             now, forecast.coveredCodes).forEach(function (row) {
               add(row.code, row.name, {
                 kind: 'departures', icon: '\ud83d\udeeb', days: row.days,
@@ -34117,7 +34153,7 @@
                   + fmtInt(row.records) + ' records'
               });
             });
-          dueBackRows(_dueBackView.store, _dueBackView.rows, seen, now)
+          dueBackRows(historyView.store, historyView.rows, seen, now)
             .forEach(function (row) {
               add(row.code, row.name, {
                 kind: 'arrivals', icon: '\ud83d\udeec', days: row.days,
@@ -34147,8 +34183,8 @@
           row.primary = selected[0];
           return row;
         }).filter(Boolean).sort(function (a, b) {
-          return priority(a.primary) - priority(b.primary)
-            || a.primary.days - b.primary.days
+          return b.primary.days - a.primary.days
+            || priority(a.primary) - priority(b.primary)
             || a.name.localeCompare(b.name);
         });
       }
@@ -34221,7 +34257,7 @@
           + body
           + '<div class="hint">' + rows.length + ' bird'
           + (rows.length === 1 ? '' : 's')
-          + ' \u00b7 one list, ordered by current evidence \u00b7 '
+          + ' \u00b7 newest event date first; expected dates are seasonal estimates \u00b7 '
           + 'observations and predictions remain labelled.</div></div>';
       }
       function renderBirdcast(now, suppliedSnapshot, localOnly) {
@@ -34419,11 +34455,13 @@
         var all = migrationUnifiedRows(snapshot, now, {
           tonight: true, arrivals: true, departures: true
         });
-        var observed = [], lastChance = [];
+        var observed = [], expected = [], lastChance = [];
         all.forEach(function (row) {
           row.events.forEach(function (event) {
             if (event.kind === 'arrivals' && event.observed) {
               observed.push({ row: row, event: event });
+            } else if (event.kind === 'arrivals' && event.days <= 0) {
+              expected.push({ row: row, event: event });
             } else if (event.kind === 'departures' && event.days === 0) {
               lastChance.push({ row: row, event: event });
             }
@@ -34436,15 +34474,16 @@
           return a.row.name.localeCompare(b.row.name);
         });
         var news = [];
-        if (observed.length) {
-          var arrival = observed[0], arrivalDate = arrival.event.observedAt || '';
+        observed.forEach(function (arrival) {
+          var arrivalDate = arrival.event.observedAt || '';
           news.push({
             kind: 'migration',
             icon: photoSlot(arrival.row.name, arrival.row.code),
             notificationKey: 'migration-arrival:' + arrival.row.code + ':' + arrivalDate.slice(0, 10),
             name: '<a class="seclink" data-sec="sec-bcBody">'
               + '<span class="surgebirdname">' + esc(arrival.row.name)
-              + '</span></a> is showing up now',
+              + '</span></a> ' + (arrival.event.ageDays === 0
+                ? 'is showing up now' : 'was first reported ' + migrationRelative(arrival.event)),
             alpha: '',
             headlinePlace: !!arrival.event.locName,
             where: arrival.event.locName
@@ -34463,9 +34502,32 @@
               + (arrival.event.locName ? esc(arrival.event.source) + ' · ' : '')
               + 'Observed on eBird, not inferred from a forecast.</span>'
           });
-        }
-        if (lastChance.length) {
-          var departure = lastChance[0];
+        });
+        var expectedCodes = {};
+        expected.forEach(function (arrival) {
+          if (expectedCodes[arrival.row.code]
+              || observed.some(function (item) { return item.row.code === arrival.row.code; })) return;
+          expectedCodes[arrival.row.code] = true;
+          news.push({
+            kind: 'migration',
+            icon: photoSlot(arrival.row.name, arrival.row.code),
+            notificationKey: 'migration-expected-arrival:' + arrival.row.code + ':'
+              + birdcastIsoDate(birdcastLocalParts(now, getReport())),
+            name: 'Arrival window for <a class="seclink" data-sec="sec-bcBody">'
+              + '<span class="surgebirdname">' + esc(arrival.row.name) + '</span></a>',
+            alpha: '', where: '<a class="seclink" data-sec="sec-bcBody">'
+              + esc(arrival.event.source) + '</a>',
+            time: surgeTimeValue(birdcastIsoDate(birdcastLocalParts(now, getReport()))),
+            ageTime: 0, ageLabel: 'Expected', omitWhen: true,
+            noteHeader: 'EXPECTED MIGRATION ARRIVAL: ' + arrival.row.name,
+            why: '<b>Seasonal arrival window</b>',
+            extra: '<span class="dim">Expected from local history; not a confirmed arrival.</span>'
+          });
+        });
+        var departureCodes = {};
+        lastChance.forEach(function (departure) {
+          if (departureCodes[departure.row.code]) return;
+          departureCodes[departure.row.code] = true;
           var departureDate = birdcastIsoDate(birdcastLocalParts(now, getReport()));
           news.push({
             kind: 'migration',
@@ -34484,7 +34546,7 @@
             why: '<b>County history puts departure in the current week</b>',
             extra: '<span class="dim">Expected from local history; not a confirmed departure.</span>'
           });
-        }
+        });
         return news;
       }
       function birdcastSurgeRow(now, snapshot) {
@@ -50637,6 +50699,7 @@
       if ($('iconicAll')) $('iconicAll').addEventListener('click', function () { setIconicRange('all'); });
       $('allUnseenBtn').addEventListener('click', loadAllUnseen);
       $('spLookupBtn').addEventListener('click', runSpeciesLookup);
+      $('spLookupRefresh').addEventListener('click', refreshSpeciesLookup);
       $('spLookupClear').addEventListener('click', clearSpeciesLookup);
       $('spuhMore').addEventListener('click', function () {
         _spuhSearchShown = Math.min(_spuhSearchHits.length, _spuhSearchShown + 25);

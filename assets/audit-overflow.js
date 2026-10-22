@@ -2285,6 +2285,15 @@ const AUDIT = `<script>
     A.setActiveReport('wa');
     A.setCountyView('');
     A.showSection('sec-spLookupBtn');
+    var refreshBird = document.getElementById('spLookupRefresh');
+    require(refreshBird && refreshBird.textContent === 'Refresh',
+      'F1057 selected-bird Refresh must be visibly labelled');
+    var refreshRect = refreshBird.getBoundingClientRect();
+    require(refreshRect.width >= 44 && refreshRect.height >= 44
+      && refreshRect.left >= 0 && refreshRect.right <= innerWidth,
+      'F1057 selected-bird Refresh must remain a contained touch target: '
+      + JSON.stringify({width:refreshRect.width, height:refreshRect.height,
+        left:refreshRect.left, right:refreshRect.right, viewport:innerWidth}));
     A.setWatchlist([{code:'verfly', name:'Vermilion Flycatcher'}]);
     var profile = A.chaseProfile();
     A.seedChase(profile.slug, {t:Date.now(), rarity:false,
