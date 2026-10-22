@@ -1,8 +1,8 @@
 name: Build unsigned iOS IPA
 
 # Compiles the Capacitor app on a GitHub-hosted macOS runner (a real Apple
-# machine) and uploads an UNSIGNED .ipa. No Apple certificates live here:
-# AltStore signs the app with your free Apple ID when you sideload it.
+# machine) and preserves the unsigned sideload Release. A separate job signs
+# the same prepared native project through the independent TestFlight workflow.
 on:
   push:
     branches: [ main ]
@@ -186,6 +186,15 @@ jobs:
           path: |
             BirdChaser-unsigned.ipa
             BirdChaser-beta-guide.txt
+          if-no-files-found: error
+
+      - name: Preserve the prepared native project for signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: BirdChaser-ios-project
+          path: ios/
+          retention-days: 1
+          include-hidden-files: true
           if-no-files-found: error
 
   # Publish a Release when package.json's version changes.

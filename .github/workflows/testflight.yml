@@ -1,0 +1,81 @@
+name: Signed TestFlight delivery
+
+on:
+  workflow_run:
+    workflows: [Build unsigned iOS IPA]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      unsigned_run_id:
+        description: Successful main-push IPA workflow run containing the prepared native project
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: testflight-delivery
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout delivery tools
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate the exact successful source run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNSIGNED_RUN_ID: ${{ github.event.workflow_run.id || inputs.unsigned_run_id }}
+        run: node assets/testflight.js source
+      - name: Checkout the verified source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+      - name: Install JS dependencies
+        run: npm ci
+      - name: Download the already prepared native project
+        uses: actions/download-artifact@v4
+        with:
+          name: BirdChaser-ios-project
+          path: ios/
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+      - name: Sign, validate, upload and check Apple processing
+        env:
+          TESTFLIGHT_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_APP_STORE_PROFILE_BASE64: ${{ secrets.IOS_APP_STORE_PROFILE_BASE64 }}
+        run: node assets/testflight.js
+      - name: Remove signing material even after cancellation or failure
+        if: always()
+        run: node assets/testflight.js cleanup
+      - name: Preserve signed delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BirdChaser-TestFlight
+          path: |
+            BirdChaser-TestFlight.ipa
+            testflight-status.json
+          if-no-files-found: warn
