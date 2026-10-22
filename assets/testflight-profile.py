@@ -1,4 +1,4 @@
-"""Validate App Store distribution profile and exported app identity."""
+"""Validate native app contents, distribution profile and exported identity."""
 
 import hashlib
 import json
@@ -6,11 +6,49 @@ import plistlib
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+
+NATIVE_MARKERS = (
+    b"FullReportPlugin",
+    b"BirdGenNotificationsPlugin",
+    b"BirdGenNotificationService",
+    b"BC_HIDDEN_WINDOW",
+    b"BC_BIRDGEN_TRACE_V1",
+)
+LOCATION_USAGE_KEYS = (
+    "NSLocationWhenInUseUsageDescription",
+    "NSLocationAlwaysAndWhenInUseUsageDescription",
+)
 
 
 def read(path):
     with open(path, "rb") as handle:
         return plistlib.load(handle)
+
+
+def verify_native(app):
+    app = Path(app)
+    info = read(app / "Info.plist")
+    executable = info.get("CFBundleExecutable", "")
+    if not isinstance(executable, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", executable) or executable in (".", ".."):
+        raise ValueError("App must name a valid native executable")
+    binary = (app / executable).read_bytes()
+    for marker in NATIVE_MARKERS:
+        if marker not in binary:
+            raise ValueError(f"Native executable is missing {marker.decode('ascii')}")
+    modes = info.get("UIBackgroundModes", [])
+    if not isinstance(modes, list) or "fetch" not in modes or "location" in modes:
+        raise ValueError("App must preserve background fetch without enabling background location")
+    for key in LOCATION_USAGE_KEYS:
+        value = info.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"App is missing a nonempty {key}")
+    if info[LOCATION_USAGE_KEYS[0]] != info[LOCATION_USAGE_KEYS[1]]:
+        raise ValueError("Location purpose strings must describe the same existing location use")
+    if not (app / "public" / "birdgen-notifications.js").is_file():
+        raise ValueError("App is missing the native notification JavaScript bridge")
+    return {"nativeMarkers": len(NATIVE_MARKERS), "backgroundFetch": True, "locationPurposeStrings": 2}
 
 
 def profile_info(profile, bundle_id):
@@ -69,6 +107,9 @@ if __name__ == "__main__":
         result = profile_info(read(sys.argv[2]), sys.argv[3])
     elif sys.argv[1] == "verify":
         result = verify_app(read(sys.argv[2]), read(sys.argv[3]), read(sys.argv[4]), *sys.argv[5:])
+        result["native"] = verify_native(Path(sys.argv[2]).parent)
+    elif sys.argv[1] == "native":
+        result = verify_native(sys.argv[2])
     else:
-        raise ValueError("Expected profile or verify command")
+        raise ValueError("Expected profile, verify or native command")
     print(json.dumps(result))

@@ -85,7 +85,15 @@ async function waitForBuild(api, appId, number, version, {
   progress = () => {},
 } = {}) {
   for (let i = 0; i < attempts; i++) {
-    const build = await api.build(appId, number, version);
+    let build;
+    try {
+      build = await api.build(appId, number, version);
+    } catch (error) {
+      if (!(error instanceof TypeError) || error.message !== 'fetch failed') throw error;
+      progress({ processingState: 'STATUS_UNAVAILABLE', processingReadError: error.message });
+      if (i + 1 < attempts) await sleep(30000);
+      continue;
+    }
     const state = build?.attributes?.processingState || 'NOT_YET_VISIBLE';
     progress({ buildId: build?.id || null, processingState: state });
     if (state === 'VALID') return build;
@@ -310,6 +318,9 @@ async function deliver() {
     run(process.execPath, [path.join(root, 'assets', 'stamp-build-info.js'),
       path.join(root, 'ios', 'App', 'App', 'public', 'build-info.js'),
       'testflight', `${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT}`, '90']);
+    run(process.execPath, [
+      path.join(root, 'native', 'ios', 'install-hidden-window-diagnostics.js'), root,
+    ], { stdio: 'inherit' });
     configureAppSigning(root, profile, identity, bundleId);
     run('xcodebuild', archiveArgs(root, work, version, number), { stdio: 'inherit' });
     const optionsJson = path.join(work, 'export-options.json');

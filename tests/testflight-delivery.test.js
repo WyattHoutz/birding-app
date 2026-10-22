@@ -19,7 +19,7 @@ function nativeProject(root) {
   return project;
 }
 
-async function deliveryFixture(failArchive) {
+async function deliveryFixture(failArchive, failNative = false) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-flight-delivery-'));
   const root = path.join(temp, 'app'), home = path.join(temp, 'home');
   const runner = path.join(temp, 'runner');
@@ -48,7 +48,7 @@ async function deliveryFixture(failArchive) {
     GITHUB_RUN_ID: '123', GITHUB_RUN_NUMBER: '538', GITHUB_RUN_ATTEMPT: '1',
     TESTFLIGHT_SOURCE_SHA: sha, RUNNER_TEMP: runner,
   };
-  let uploaded = false, processingReads = 0;
+  let uploaded = false, processingReads = 0, dependencyPatched = false;
   const spawnSync = (program, args, options) => {
     calls.push({ program, args });
     for (const name of ['ASC_PRIVATE_KEY', 'IOS_DISTRIBUTION_P12_PASSWORD', 'IOS_APP_STORE_PROFILE_BASE64']) {
@@ -60,8 +60,18 @@ async function deliveryFixture(failArchive) {
     if (program === 'security' && args[0] === 'create-keychain') fs.writeFileSync(args.at(-1), 'synthetic');
     if (program === 'security' && args[0] === 'find-identity') stdout = identity;
     if (program === 'python3' && args[1] === 'profile') stdout = JSON.stringify(profile);
-    if (program === process.execPath) fs.writeFileSync(args[1], 'window.__BUILD_INFO__ = {"channel": "testflight"};');
+    if (program === process.execPath && path.basename(args[0]) === 'stamp-build-info.js') {
+      fs.writeFileSync(args[1], 'window.__BUILD_INFO__ = {"channel": "testflight"};');
+    }
+    if (program === process.execPath && path.basename(args[0]) === 'install-hidden-window-diagnostics.js') {
+      assert.equal(args[1], root);
+      dependencyPatched = true;
+    }
+    if (program === 'python3' && args[1] === 'verify' && failNative) {
+      return { status: 1, stdout: '', stderr: 'Native executable is missing BC_HIDDEN_WINDOW' };
+    }
     if (program === 'xcodebuild' && args.at(-1) === 'archive') {
+      assert.equal(dependencyPatched, true, 'fresh dependencies must be instrumented before archiving');
       assert.equal(args.some(arg => /^(PROVISIONING_PROFILE|CODE_SIGN|DEVELOPMENT_TEAM)/.test(arg)),
         false, 'app signing settings must not propagate to Swift package targets');
       const project = xcode.project(originalProject.filepath);
@@ -130,6 +140,7 @@ async function deliveryFixture(failArchive) {
   });
   try {
     if (failArchive) await assert.rejects(module.exports.deliver(), /xcodebuild failed/);
+    else if (failNative) await assert.rejects(module.exports.deliver(), /python3 failed/);
     else await assert.doesNotReject(module.exports.deliver());
     assert.equal(fs.existsSync(path.join(runner, 'bird-chaser-signing-123-1')), false,
       'temporary private keys/keychain remained after delivery');
@@ -167,6 +178,16 @@ test('F1059 archive failure cannot upload and still removes the keychain, privat
   assert.equal(result.report.signatureVerified, false);
   assert.equal(result.report.processingState, 'NOT_UPLOADED');
   assert.match(result.report.error, /xcodebuild failed/);
+  assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
+});
+
+test('F1059 a failed exported native contract prevents validation/upload and still cleans up', async () => {
+  const result = await deliveryFixture(false, true);
+  assert.equal(result.uploaded, false);
+  assert.equal(result.report.signatureVerified, false);
+  assert.equal(result.report.processingState, 'NOT_UPLOADED');
+  assert.match(result.report.error, /python3 failed/);
+  assert.equal(result.calls.some(call => call.program === 'xcrun'), false);
   assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
 });
 

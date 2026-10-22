@@ -20670,6 +20670,9 @@ test('the iOS build declares the location permission it cannot commit', () => {
   // dialog appears, which is exactly the bug that was reported.
   assert.match(IOS_WF, /NSLocationWhenInUseUsageDescription/,
     'the workflow must inject the usage description into the generated Info.plist');
+  assert.match(IOS_WF,
+    /for KEY in NSLocationWhenInUseUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription; do\s+\/usr\/libexec\/PlistBuddy -c "Add :\$KEY string \$MSG"/,
+    'both SDK-required privacy keys must receive the same existing purpose text, not background tracking');
   const sync = IOS_WF.indexOf('npx cap sync ios');
   const inject = IOS_WF.indexOf('NSLocationWhenInUseUsageDescription');
   assert.ok(sync !== -1 && inject > sync,
@@ -42846,8 +42849,8 @@ test('F383 debug tools copy a full report image and share the complete native PD
     /customClass="ViewController" customModule="App" customModuleProvider="target"/,
     'Main.storyboard still instantiates Capacitor’s base controller instead of the plugin-registering subclass');
   assert.match(IOS_WF,
-    /strings "\$APP_PATH\/\$EXECUTABLE" > build\/full-report-symbols\.txt[\s\S]*grep -q 'FullReportPlugin' build\/full-report-symbols\.txt/,
-    'the completed app binary symbol dump is never checked for the native plugin');
+    /python3 assets\/testflight-profile\.py native "\$APP_PATH"/,
+    'the completed app binary must pass the shared native plugin contract');
   assert.doesNotMatch(IOS_WF,
     /strings "\$APP_PATH\/\$EXECUTABLE" \| grep -q/,
     'the binary proof uses grep -q in a pipe, which makes macOS strings fail to flush under pipefail after a successful match');

@@ -58,5 +58,7 @@ test('F995 CI instruments the dependency after sync, before compilation, and che
   const setup = workflow.indexOf('node native/ios/install-hidden-window-diagnostics.js');
   assert.ok(setup > workflow.indexOf('run: npx cap sync ios'));
   assert.ok(setup < workflow.indexOf('xcodebuild'));
-  assert.match(workflow, /grep -q 'BC_HIDDEN_WINDOW' build\/full-report-symbols\.txt/);
+  const verify = workflow.indexOf('python3 assets/testflight-profile.py native "$APP_PATH"');
+  assert.ok(verify > workflow.indexOf('clean build'));
+  assert.ok(verify < workflow.indexOf('- name: Package .app into an unsigned .ipa'));
 });

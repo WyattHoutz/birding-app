@@ -127,6 +127,53 @@ test('F1059 processing rejection, unknown state, timeout and transport errors ne
     'app', '538.1', '1.168.0'), /network failed/);
 });
 
+test('F1059 only the measured processing-read transport failure retries the same build within the existing budget', async () => {
+  const seen = [], sleeps = [], identities = [];
+  let reads = 0;
+  const result = await flight.waitForBuild({
+    build: async (...identity) => {
+      identities.push(identity);
+      if (++reads === 1) throw new TypeError('fetch failed');
+      return build(reads === 2 ? 'PROCESSING' : 'VALID');
+    },
+  }, 'app-id', '538.1', '1.168.0', {
+    attempts: 3, sleep: async ms => sleeps.push(ms), progress: state => seen.push(state),
+  });
+  assert.equal(result.attributes.processingState, 'VALID');
+  assert.deepEqual(seen.map(row => row.processingState), ['STATUS_UNAVAILABLE', 'PROCESSING', 'VALID']);
+  assert.equal(seen[0].processingReadError, 'fetch failed');
+  assert.deepEqual(sleeps, [30000, 30000]);
+  assert.deepEqual(identities, Array.from({ length: 3 }, () => ['app-id', '538.1', '1.168.0']));
+});
+
+test('F1059 exhausted transport reads remain unverified; permanent, auth and programming errors fail immediately', async () => {
+  const seen = [], sleeps = [];
+  let reads = 0;
+  await assert.rejects(flight.waitForBuild({
+    build: async () => { reads++; throw new TypeError('fetch failed'); },
+  }, 'app', '538.1', '1.168.0', {
+    attempts: 2, sleep: async ms => sleeps.push(ms), progress: state => seen.push(state.processingState),
+  }), /not verified after 30 minutes/);
+  assert.equal(reads, 2);
+  assert.deepEqual(sleeps, [30000]);
+  assert.deepEqual(seen, ['STATUS_UNAVAILABLE', 'STATUS_UNAVAILABLE']);
+  for (const error of [
+    new Error('fetch failed'), new TypeError('invalid build data'),
+    Object.assign(new Error('HTTP 401'), { status: 401 }),
+    Object.assign(new Error('HTTP 403'), { status: 403 }),
+    new Error('Apple build or marketing version does not match this upload'),
+  ]) {
+    let calls = 0;
+    await assert.rejects(flight.waitForBuild({
+      build: async () => { calls++; throw error; },
+    }, 'app', '538.1', '1.168.0', {
+      sleep: async () => assert.fail('permanent errors must not retry'),
+      progress: () => assert.fail('permanent errors must not become pending status'),
+    }), candidate => candidate === error);
+    assert.equal(calls, 1);
+  }
+});
+
 test('F1059 archive leaves target-specific signing out of global overrides; export pins identity and build numbers', () => {
   const profile = { team: 'TESTTEAM', uuid: 'profile-uuid' };
   const args = flight.archiveArgs('root', 'work', '1.168.0', '538.1');

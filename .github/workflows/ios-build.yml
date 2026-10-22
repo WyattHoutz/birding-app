@@ -104,7 +104,7 @@ jobs:
           grep -q 'BirdGenNotificationService.install()' ios/App/App/AppDelegate.swift
           python3 -c 'import pathlib,plistlib,re; p=pathlib.Path("ios/App/App"); info=plistlib.loads((p/"Info.plist").read_bytes()); identifier=re.search(r"static let taskIdentifier = \"([^\"]+)\"", (p/"BirdGenNotifications.swift").read_text()).group(1); assert "fetch" in info.get("UIBackgroundModes", []); assert identifier in info.get("BGTaskSchedulerPermittedIdentifiers", [])'
 
-      # Same reason: Info.plist is regenerated, so the location usage string
+      # Same reason: Info.plist is regenerated, so the location usage strings
       # cannot be committed. Without it CoreLocation refuses the request WITHOUT
       # ever prompting, which is how "📍 Here" in Quick outing came to hang
       # forever with no permission dialog. Runs AFTER sync so nothing downstream
@@ -116,12 +116,13 @@ jobs:
           PLIST=ios/App/App/Info.plist
           test -f "$PLIST"
           MSG='Bird Chaser uses your location to find birding hotspots near you for a quick outing.'
-          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string $MSG" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Set :NSLocationWhenInUseUsageDescription $MSG" "$PLIST"
-          # Prove it stuck; an empty or missing value must fail the build.
-          OUT="$(/usr/libexec/PlistBuddy -c 'Print :NSLocationWhenInUseUsageDescription' "$PLIST")"
-          echo "NSLocationWhenInUseUsageDescription = $OUT"
-          test -n "$OUT"
+          for KEY in NSLocationWhenInUseUsageDescription NSLocationAlwaysAndWhenInUseUsageDescription; do
+            /usr/libexec/PlistBuddy -c "Add :$KEY string $MSG" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Set :$KEY $MSG" "$PLIST"
+            OUT="$(/usr/libexec/PlistBuddy -c "Print :$KEY" "$PLIST")"
+            echo "$KEY = $OUT"
+            test -n "$OUT"
+          done
 
       - name: Verify native notification trace on macOS
         run: node --test tests/birdgen-trace.test.js
@@ -144,15 +145,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean build
           APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
-          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
-          strings "$APP_PATH/$EXECUTABLE" > build/full-report-symbols.txt
-          grep -q 'FullReportPlugin' build/full-report-symbols.txt
-          grep -q 'BirdGenNotificationsPlugin' build/full-report-symbols.txt
-          grep -q 'BirdGenNotificationService' build/full-report-symbols.txt
-          grep -q 'BC_HIDDEN_WINDOW' build/full-report-symbols.txt
-          grep -q 'BC_BIRDGEN_TRACE_V1' build/full-report-symbols.txt
-          test -f "$APP_PATH/public/birdgen-notifications.js"
-          python3 -c 'import pathlib,plistlib,sys; info=plistlib.loads((pathlib.Path(sys.argv[1])/"Info.plist").read_bytes()); assert "fetch" in info.get("UIBackgroundModes", [])' "$APP_PATH"
+          python3 assets/testflight-profile.py native "$APP_PATH"
 
       - name: Package .app into an unsigned .ipa
         run: |

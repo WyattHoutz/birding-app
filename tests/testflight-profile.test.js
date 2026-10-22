@@ -7,8 +7,9 @@ const { spawnSync } = require('node:child_process');
 
 test('F1059 profile and exported app guards reject wrong identity, expiry, distribution and debug entitlement', () => {
   const script = `
-import copy, importlib.util, sys
+import copy, importlib.util, plistlib, subprocess, sys, tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 spec = importlib.util.spec_from_file_location("profile_guard", sys.argv[1])
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
@@ -53,6 +54,71 @@ for key, value in [("application-identifier", "WRONG"), ("com.apple.developer.te
     changed = {**entitlements, key: value}
     rejects(lambda: guard.verify_app(info, profile, changed, "com.example.bird", "1.168.0", "538.1", uuid))
 rejects(lambda: guard.verify_app(info, profile, entitlements, "com.example.bird", "1.168.0", "538.1", "another-uuid"))
+markers = [b"FullReportPlugin", b"BirdGenNotificationsPlugin", b"BirdGenNotificationService",
+           b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1"]
+assert set(guard.NATIVE_MARKERS) == set(markers)
+usage_keys = ["NSLocationWhenInUseUsageDescription", "NSLocationAlwaysAndWhenInUseUsageDescription"]
+assert set(guard.LOCATION_USAGE_KEYS) == set(usage_keys)
+with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
+    app = Path(temporary) / "App.app"
+    (app / "public").mkdir(parents=True)
+    bridge = app / "public" / "birdgen-notifications.js"
+    bridge.write_text("synthetic bridge")
+    binary = b"\\0".join(markers)
+    executable = app / "App"
+    executable.write_bytes(binary)
+    native_info = {**info, "CFBundleExecutable": "App", "UIBackgroundModes": ["fetch"],
+                   **dict.fromkeys(usage_keys, "Find birding hotspots near you for a quick outing.")}
+    def write_info(value):
+        (app / "Info.plist").write_bytes(plistlib.dumps(value, fmt=plistlib.FMT_BINARY))
+    write_info(native_info)
+    profile["ExpirationDate"] = profile["ExpirationDate"].replace(tzinfo=None)
+    for filename, value in [("profile.plist", profile), ("entitlements.plist", entitlements)]:
+        (Path(temporary) / filename).write_bytes(plistlib.dumps(value))
+    commands = [
+        ["native", str(app)],
+        ["verify", str(app / "Info.plist"), str(Path(temporary) / "profile.plist"),
+         str(Path(temporary) / "entitlements.plist"), "com.example.bird", "1.168.0", "538.1", uuid],
+    ]
+    def check_commands(valid, message=""):
+        for arguments in commands:
+            result = subprocess.run([sys.executable, "-B", sys.argv[1], *arguments],
+                                    capture_output=True, text=True, check=False)
+            assert (result.returncode == 0) == valid, result.stdout + result.stderr
+            if not valid:
+                assert message in result.stderr, result.stderr
+    assert guard.verify_native(app) == {
+        "nativeMarkers": 5, "backgroundFetch": True, "locationPurposeStrings": 2}
+    check_commands(True)
+    for marker in markers:
+        executable.write_bytes(binary.replace(marker, b""))
+        rejects(lambda: guard.verify_native(app))
+        check_commands(False, marker.decode("ascii"))
+    executable.write_bytes(binary)
+    for key in usage_keys:
+        changed = {k: v for k, v in native_info.items() if k != key}
+        write_info(changed)
+        rejects(lambda: guard.verify_native(app))
+        check_commands(False, key)
+        for value in ["", "  ", 7]:
+            write_info({**native_info, key: value})
+            rejects(lambda: guard.verify_native(app))
+    for value in ["", "  ", 7]:
+        write_info({**native_info, **dict.fromkeys(usage_keys, value)})
+        rejects(lambda: guard.verify_native(app))
+        check_commands(False, "nonempty")
+    for key, value in [
+        ("UIBackgroundModes", []), ("UIBackgroundModes", ["fetch", "location"]),
+        ("UIBackgroundModes", "fetch"), ("CFBundleExecutable", "../App"),
+        ("CFBundleExecutable", ""), ("CFBundleExecutable", ".."),
+        (usage_keys[1], "Different purpose"),
+    ]:
+        write_info({**native_info, key: value})
+        rejects(lambda: guard.verify_native(app))
+    write_info(native_info)
+    bridge.unlink()
+    rejects(lambda: guard.verify_native(app))
+    check_commands(False, "JavaScript bridge")
 print("profile and exported-app negative controls passed")
 `;
   const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3', [
