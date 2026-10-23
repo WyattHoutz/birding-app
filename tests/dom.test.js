@@ -3701,7 +3701,7 @@ after(() => { _booted.forEach((w) => { try { w.close(); } catch (e) {} }); });
 
 function boot(opts = {}) {
   const state = {
-    fetches: [], errors: [], runtimeFetch: null, inRuntimeFetch: false,
+    fetches: [], locations: [], errors: [], runtimeFetch: null, inRuntimeFetch: false,
   };
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', (e) => {
@@ -3752,6 +3752,7 @@ function boot(opts = {}) {
           configurable: true,
           value: {
             getCurrentPosition(ok, fail) {
+              state.locations.push(opts.location);
               setTimeout(() => {
                 if (opts.location instanceof Error) {
                   fail({ code: opts.location.code || 2, message: opts.location.message });
@@ -9539,13 +9540,24 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   const sheet = app.$('setupSheet');
   assert.equal(sheet.hidden, false);
   assert.match(sheet.textContent, /Setup Bird Chaser/);
+  assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
+  assert.match(sheet.textContent, /Step 1 of 4/);
+  assert.match(sheet.textContent, /Bird Chaser never receives or stores.*password/i);
+  assert.equal(sheet.querySelectorAll('[data-setup-state]').length, 0,
+    'first run must lead with an action, not five incomplete warnings');
+  for (const step of ['key', 'region', 'seen']) {
+    app.click(app.$('setupSkip'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
+  }
+  assert.equal(app.$('setupSeenCsv'), null, 'CSV cannot lead before an eBird attempt');
+  app.click(app.$('setupContinue'));
+  assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
   assert.match(sheet.textContent, /eBird website (?:not connected|connected)/i);
-  assert.match(sheet.textContent, /default region (?:not parsed|parsed|unsupported)/i);
+  assert.match(sheet.textContent, /birding region not chosen/i);
   assert.match(sheet.textContent, /personal API key (?:not verified|verified)/i);
   assert.match(sheet.textContent, /Home (?:not set|ready)/i);
   assert.match(sheet.textContent, /seen list (?:not ready|ready)/i);
-  assert.match(sheet.textContent, /Bird Chaser never receives or stores.*password/i);
-  assert.match(sheet.textContent, /Continue with limited features/i);
+  assert.match(sheet.textContent, /Skipping a step does not mark it ready/i);
   assert.doesNotMatch(sheet.textContent, /public web token/i,
     'an automatic implementation token is presented as a setup credential');
   assert.equal(A.LOADERS.rankBtn.needsKey, undefined,
@@ -9566,6 +9578,460 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   A.openSetupSheet();
   assert.equal(sheet.hidden, false, 'limited setup cannot be resumed');
   app.window.close();
+});
+
+test('F1067 setup resumes its step without persisting an unverified key draft', async () => {
+  const app = await boot({ report: null, key: null, home: false, sample: false });
+  app.click(app.$('setupSkip'));
+  assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+  assert.equal(app.$('setupVerifyKey').disabled, true);
+  app.$('setupApiKey').value = 'UNVERIFIED-DRAFT-1067';
+  app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+  assert.equal(app.$('setupVerifyKey').disabled, false);
+  const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+    .map(key => [key, app.window.localStorage.getItem(key)]));
+  assert.doesNotMatch(JSON.stringify(storage), /UNVERIFIED-DRAFT-1067/);
+  app.window.close();
+  const resumed = await boot({ report: null, key: null, home: false, sample: false, storage });
+  try {
+    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(resumed.$('setupApiKey').value, '');
+    assert.equal(resumed.$('setupVerifyKey').disabled, true);
+    resumed.click(resumed.$('setupSheetClose'));
+    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.match(resumed.$('setupSheet').textContent, /personal API key not verified/);
+    resumed.click(resumed.$('setupContinue'));
+    assert.equal(resumed.$('setupSheet').hidden, true);
+    resumed.window.__app.openSetupSheet();
+    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'summary');
+  } finally { resumed.window.close(); }
+});
+
+test('F1067 key rejection stays actionable and success requires an explicit region with optional Home', async () => {
+  const app = await boot({ report: null, key: null, home: false, sample: false });
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let status = 403, checks = 0;
+    app.window.fetch = (url, options) => {
+      if (!/ref\/region\/info\/US-WA/.test(url)) return originalFetch(url, options);
+      checks++;
+      return Promise.resolve({ ok: status === 200, status });
+    };
+    app.click(app.$('setupSkip'));
+    const enter = value => {
+      app.$('setupApiKey').value = value;
+      app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+    };
+    enter('REJECTED-1067');
+    app.click(app.$('setupVerifyKey'));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep !== 'key'
+      || /rejected/i.test(app.$('setupActionStatus').textContent), 'key verification result');
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
+    assert.equal(app.window.localStorage.getItem('bc_api_verified_v1:'), null);
+    assert.equal(app.$('setupApiKey').value, 'REJECTED-1067');
+    assert.equal(app.$('setupVerifyKey').disabled, false);
+    status = 200;
+    enter('ACCEPTED-1067');
+    app.click(app.$('setupVerifyKey'));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'region', 'verified key advances');
+    assert.equal(checks, 2);
+    assert.equal(app.window.localStorage.getItem('ebird_api_key'), 'ACCEPTED-1067');
+    assert.equal(app.window.localStorage.getItem('bc_api_verified_v1:'), 'ACCEPTED-1067');
+    assert.equal(A.getDisplayName(), '', 'API verification must not authenticate an account');
+    assert.equal(A.getReportSlug(), '');
+    assert.equal(app.$('setupNext').disabled, true);
+    assert.equal(app.$('setupHome').disabled, true);
+    app.click(app.$('setupChooseRegion'));
+    app.click(app.$('regionChooser').querySelector('[data-region-choice="wa"]'));
+    await waitFor(() => app.$('regionChooser').hidden, 'explicit region choice');
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+    assert.equal(app.$('setupNext').disabled, false);
+    assert.match(app.$('setupSheetBody').textContent, /Selected: Washington/);
+    assert.equal(A.getHome(), null, 'region selection cannot adopt a Home');
+    app.click(app.$('setupHome'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.window.document.activeElement, app.$('homePlace'));
+    A.openSetupSheet();
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+    app.click(app.$('setupNext'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
+    assert.ok(app.$('setupSeenConnect'));
+    assert.equal(app.$('setupSeenCsv'), null);
+    app.click(app.$('setupContinue'));
+    assert.match(app.$('setupSheet').textContent, /eBird website not connected/);
+    assert.match(app.$('setupSheet').textContent, /personal API key verified/);
+    assert.match(app.$('setupSheet').textContent, /Home not set/);
+    assert.match(app.$('setupSheet').textContent, /seen list not ready/);
+  } finally { app.window.close(); }
+});
+
+test('F1067 account connection and key acquisition reuse separate persistent eBird paths with keyboard access', async () => {
+  const app = await boot({ report: null, key: null, home: false, sample: false });
+  try {
+    const A = app.window.__app, handlers = {}, opened = [];
+    let windowId;
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+      addListener(name, handler) { handlers[name] = handler; return { remove() {} }; },
+      openWebView(options) {
+        opened.push(options);
+        windowId = 'setup-1067-' + opened.length;
+        return Promise.resolve({ id: windowId });
+      },
+      hide() {}, show() {}, close() {},
+      executeScript() {
+        setTimeout(() => handlers.messageFromWebview({ id: windowId, detail: {
+          __ebird: true, kind: 'identity', ok: true,
+          data: { status: 'ok', displayName: 'Connected Birder', evidence: 'account-menu-aria-label' },
+        } }), 0);
+        return Promise.resolve();
+      },
+    } } };
+    async function connect(id, expectedOpens) {
+      app.click(app.$(id));
+      await waitFor(() => opened.length === expectedOpens && handlers.browserPageLoaded, 'identity browser opens');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      handlers.browserPageLoaded({ id: windowId });
+      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key', 'connected account advances');
+    }
+    await connect('setupConnectEbird', 1);
+    assert.equal(opened[0].url, 'https://ebird.org/profile');
+    assert.equal(opened[0].persistWebViewData, true);
+    assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+    assert.equal(A.getDisplayName(), 'Connected Birder');
+    assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
+    assert.equal(A.getReportSlug(), '', 'connecting cannot accept a region');
+    app.click(app.$('setupBack'));
+    await connect('setupReconnectEbird', 2);
+    assert.equal(A.getDisplayName(), 'Connected Birder', 'an unchanged valid identity can still advance');
+    app.click(app.$('setupGetKey'));
+    assert.equal(opened[2].url, 'https://ebird.org/api/keygen');
+    assert.equal(opened[2].persistWebViewData, true);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
+    const last = app.$('setupBack'), first = app.$('setupSheetClose');
+    last.focus();
+    last.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    assert.equal(app.window.document.activeElement, first);
+    first.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    assert.equal(app.window.document.activeElement, last);
+    last.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.match(app.$('setupSheet').textContent, /eBird website connected/);
+    assert.match(app.$('setupSheet').textContent, /personal API key not verified/);
+    app.click(app.$('setupContinue'));
+    assert.equal(app.window.document.activeElement, app.$('brandSettings'));
+  } finally { app.window.close(); }
+});
+
+test('F1067 delayed key verification cannot save after a step or profile change', async () => {
+  for (const change of ['step', 'profile', 'identity', 'saved key']) {
+    const app = await boot({ report: null, key: null, home: false, sample: false });
+    try {
+      const A = app.window.__app, originalFetch = app.window.fetch;
+      let release;
+      app.window.fetch = (url, options) => /ref\/region\/info\/US-WA/.test(url)
+        ? new Promise(resolve => { release = resolve; }) : originalFetch(url, options);
+      app.click(app.$('setupSkip'));
+      app.$('setupApiKey').value = 'DELAYED-1067';
+      app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+      app.click(app.$('setupVerifyKey'));
+      await waitFor(() => release, 'held key verification');
+      if (change === 'step') app.click(app.$('setupSkip'));
+      else if (change === 'profile') {
+        A.bcSetProfile('2');
+        app.window.localStorage.setItem(A.bcReal('bc_setup_step_v1'), 'key');
+      } else if (change === 'identity') {
+        A.applyCapturedIdentity({status:'ok',displayName:'Changed During Verification'});
+      } else app.window.localStorage.setItem('ebird_api_key','OTHER-SAVED-KEY');
+      release({ ok: true, status: 200 });
+      await new Promise(resolve => setImmediate(resolve));
+      const expectedKey = change === 'saved key' ? 'OTHER-SAVED-KEY' : null;
+      assert.equal(app.window.localStorage.getItem('ebird_api_key'), expectedKey);
+      assert.equal(app.window.localStorage.getItem(A.bcReal('ebird_api_key')), expectedKey);
+      assert.equal(app.window.localStorage.getItem('bc_api_verified_v1:'), null);
+      assert.doesNotMatch(JSON.stringify(Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]))), /DELAYED-1067/);
+      if (change === 'identity' || change === 'saved key') {
+        assert.equal(app.$('setupApiKey').disabled, false);
+        assert.equal(app.$('setupVerifyKey').disabled, false);
+        assert.match(app.$('setupActionStatus').textContent, /Setup changed.*verify it again/);
+      }
+    } finally { app.window.close(); }
+  }
+});
+
+async function setupOwnedSeenApp(codes = []) {
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(), storage: {
+    ebird_display_name: 'Sample Observer', ebird_seen_setup_skipped: '1',
+  } });
+  app.window.__app.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Observer' });
+  await seedSeen(app, codes, null, [
+    { code: 'stable', name: 'Stable bird' }, { code: 'rename', name: 'New name' },
+  ]);
+  return app;
+}
+
+test('F1067/F1068 preparation and exact-list pending share one read and accept positive or zero species', async () => {
+  for (const count of [1, 0]) {
+    let releaseTaxonomy, releaseList, taxonomyReads = 0, listReads = 0;
+    const app = await boot({ sample: false, indexedDB: new IDBFactory(), storage: {
+      ebird_display_name: 'Sample Observer', ebird_seen_setup_skipped: '1',
+    }, fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2024, latest: true }];
+      if (/ref\/taxonomy\/ebird/.test(url)) {
+        taxonomyReads++;
+        return new Promise(resolve => { releaseTaxonomy = resolve; });
+      }
+      if (/\/lifelist\//.test(url)) {
+        listReads++;
+        return new Promise(resolve => { releaseList = resolve; });
+      }
+      return [];
+    } });
+    try {
+      const A = app.window.__app;
+      A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Observer' });
+      app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+      A.renderKeyBanner();
+      assert.match(app.$('keyBanner').textContent, /Getting your seen birds/);
+      assert.equal(app.$('seenBannerBtn'), null);
+      await waitFor(() => releaseTaxonomy, 'held taxonomy preparation');
+      for (let i = 0; i < 5; i++) A.renderKeyBanner();
+      assert.equal(taxonomyReads, 1);
+      releaseTaxonomy(syntheticEditionRows('2024.0'));
+      await waitFor(() => releaseList, 'held exact-list read');
+      for (let i = 0; i < 5; i++) A.renderKeyBanner();
+      assert.equal(listReads, 1, 'taxonomy changing during preparation cannot launch a duplicate list read');
+      assert.equal(app.$('seenBannerBtn'), null);
+      A.openSetupSheet();
+      for (let i = 0; i < 3; i++) app.click(app.$('setupSkip'));
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
+      assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
+      assert.equal(app.$('setupSeenCsv'), null);
+      app.click(app.$('setupContinue'));
+      assert.match(app.$('setupSheet').textContent, /seen list fetching/);
+      releaseList(ownedPersonalListFixture({ count, codes: count ? ['stable'] : [] }));
+      await waitFor(() => /seen list ready/.test(app.$('setupSheet').textContent), 'live setup summary ready');
+      assert.equal(A.personalListEvidence().complete, true);
+      assert.equal(A.personalListEvidence().count, count);
+      app.click(app.$('setupContinue'));
+      assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+      assert.match(app.$('keyBanner').textContent, new RegExp(count + ' species'));
+      assert.equal(app.$('seenBannerBtn'), null);
+      assert.equal(listReads, 1);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1067/F1068 earlier setup steps and the Home detour cannot launch an extra main-page read', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let reads = 0, release;
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+      ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+    A.openSetupSheet();
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    for (const step of ['account', 'key', 'region']) {
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
+      for (let i = 0; i < 3; i++) A.renderKeyBanner();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(reads, 0, step + ' cannot trigger the main-page automatic acquisition');
+      if (step !== 'region') app.click(app.$('setupSkip'));
+    }
+    app.click(app.$('setupChooseRegion'));
+    A.renderKeyBanner();
+    app.click(app.$('regionChooserClose'));
+    assert.equal(reads, 0);
+    app.click(app.$('setupHome'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reads, 0, 'opening Home settings is not a transient visit to the main page');
+    A.openSetupSheet();
+    app.click(app.$('setupNext'));
+    const request = A.preparePersonalList(A.activeScope(), false);
+    await waitFor(() => release, 'the seen step starts its one shared acquisition');
+    assert.equal(reads, 1);
+    assert.equal(app.$('setupSeenCsv'), null);
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await request;
+    assert.match(app.$('setupSheet').textContent, /Your seen list is ready/);
+    assert.equal(reads, 1);
+  } finally { app.window.close(); }
+});
+
+test('F1068 failed acquisition offers CSV only after the attempt and retry retains matching last-good data', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let fail = true, reads = 0;
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    app.window.fetch = (url, options) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      reads++;
+      return Promise.resolve({ ok: !fail, status: fail ? 503 : 200,
+        text: async () => ownedPersonalListFixture() });
+    };
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    A.renderKeyBanner();
+    await assert.rejects(A.preparePersonalList(A.activeScope(), false), /503/);
+    assert.ok(app.$('seenBannerBtn'), 'CSV fallback appears after failed first acquisition');
+    assert.match(app.$('keyBanner').textContent, /Couldn't fetch your seen list/);
+    assert.match(app.$('keyBanner').textContent, /503/);
+    assert.ok(app.$('seenFetchBtn'));
+    for (let i = 0; i < 5; i++) A.renderKeyBanner();
+    assert.equal(reads, 1, 'repainting a failed fetch cannot retry it automatically');
+    app.click(app.$('seenBannerBtn'));
+    assert.equal(app.$('csvFile').closest('section').hidden, false);
+    assert.ok(app.$('csvFile'), 'fallback reuses the existing Settings importer');
+    A.showMenu();
+    fail = false;
+    app.click(app.$('seenFetchBtn'));
+    await waitFor(() => A.personalListEvidence().complete, 'explicit retry succeeds');
+    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+    assert.equal(app.$('seenBannerBtn'), null);
+    const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+    const saved = app.window.localStorage.getItem(key);
+    fail = true;
+    await assert.rejects(A.ensurePersonalList(A.activeScope(), true), /503/);
+    assert.equal(app.window.localStorage.getItem(key), saved);
+    assert.match(app.$('keyBanner').textContent, /Using your saved seen list/);
+    assert.equal(app.$('seenBannerBtn'), null, 'a failed refresh cannot demand an unnecessary CSV');
+    assert.equal(A.personalListEvidence().complete, true);
+    assert.equal(A.personalListEvidence().stale, true);
+    fail = false;
+    app.click(app.$('seenFetchBtn'));
+    await waitFor(() => !A.personalListEvidence().failure, 'saved-list retry heals failure');
+    assert.equal(reads, 4, 'only initial acquisition and three explicit retries read eBird');
+  } finally { app.window.close(); }
+});
+
+test('F1068 an existing direct read repaints setup and main without starting another acquisition', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let reads = 0, release;
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+      ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+    A.openSetupSheet();
+    for (let i = 0; i < 3; i++) app.click(app.$('setupSkip'));
+    const request = A.ensurePersonalList(A.activeScope(), true);
+    await waitFor(() => release, 'held direct acquisition');
+    assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
+    assert.equal(app.$('setupSeenCsv'), null);
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await request;
+    assert.match(app.$('setupSheet').textContent, /Your seen list is ready/);
+    app.click(app.$('setupContinue'));
+    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+    assert.equal(app.$('seenBannerBtn'), null);
+    assert.equal(reads, 1);
+  } finally { app.window.close(); }
+});
+
+test('F1068 an incomplete direct result remains an attempted acquisition instead of starting another browser read', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let reads = 0;
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    app.window.fetch = (url, options) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      reads++;
+      return reads > 1 ? new Promise(() => {}) : Promise.resolve({
+        ok: true, status: 200, text: async () => ownedPersonalListFixture({ count: 2 }),
+      });
+    };
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    await A.ensurePersonalList(A.activeScope(), true);
+    assert.equal(reads, 1, 'an acquired incomplete page cannot trigger an extra automatic read');
+    assert.equal(A.personalListEvidence().complete, false);
+    assert.ok(app.$('seenBannerBtn'), 'an unsuccessful verification has a fallback');
+    assert.match(app.$('keyBanner').textContent, /Couldn't fetch your seen list/);
+  } finally { app.window.close(); }
+});
+
+test('F1068 obsolete period or account reads cannot publish into a new owner', async () => {
+  for (const change of ['period', 'account']) {
+    const app = await setupOwnedSeenApp();
+    try {
+      const A = app.window.__app, originalFetch = app.window.fetch, pending = [];
+      app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+      app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+        ? new Promise(resolve => pending.push({ url, resolve })) : originalFetch(url, options);
+      app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+      A.renderKeyBanner();
+      const oldScope = A.activeScope(), oldRequest = A.preparePersonalList(oldScope, false);
+      await waitFor(() => pending.length === 1, 'first owner pending');
+      if (change === 'period') A.setPersonalPeriod('all');
+      else A.applyCapturedIdentity({ status: 'ok', displayName: 'Other Birder' });
+      await waitFor(() => pending.length === 2, 'new owner gets its own acquisition');
+      const currentRequest = A.preparePersonalList(A.activeScope(), false);
+      pending[0].resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+      await assert.rejects(oldRequest, /superseded/);
+      assert.equal(A.personalListEvidence().complete, false);
+      assert.match(app.$('keyBanner').textContent, /Getting your seen birds/);
+      assert.equal(app.$('seenBannerBtn'), null);
+      pending[1].resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture({
+        codes: ['rename'], period: change === 'period' ? 'all' : 'year',
+        account: change === 'account' ? 'Other Birder' : 'Sample Observer',
+      }) });
+      await currentRequest;
+      assert.equal(A.personalListEvidence().complete, true);
+      assert.equal(A.personalListEvidence().species.rename, 1);
+      assert.equal(A.personalListEvidence().species.stable, undefined);
+      assert.equal(app.$('seenBannerBtn'), null);
+      assert.equal(pending.length, 2);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1068 returning to a superseded pending scope exposes retry instead of a stuck loading state', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let release, reads = 0;
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    app.window.fetch = (url, options) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      reads++;
+      return new Promise(resolve => { release = resolve; });
+    };
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    A.renderKeyBanner();
+    const request = A.preparePersonalList(A.activeScope(), false);
+    await waitFor(() => release, 'held original scope');
+    A.setActiveReport('hi');
+    A.setActiveReport('wa');
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await assert.rejects(request, /superseded/);
+    assert.equal(A.personalListEvidence().complete, false);
+    assert.match(app.$('keyBanner').textContent, /Couldn't fetch your seen list/);
+    assert.ok(app.$('seenFetchBtn'));
+    assert.equal(reads, 1);
+    app.click(app.$('seenFetchBtn'));
+    await waitFor(() => reads === 2, 'explicit retry after superseded scope');
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await waitFor(() => A.personalListEvidence().complete, 'fresh scope succeeds');
+    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+  } finally { app.window.close(); }
+});
+
+test('F1067 saved CSV and explicit skips do not certify exact seen-list readiness', async () => {
+  const app = await boot({ sample: false, storage: {
+    ebird_display_name: 'Sample Observer',
+    ebird_seen_meta: JSON.stringify({ source: 'csv', count: 3, year: new Date().getFullYear() }),
+  } });
+  try {
+    app.window.__app.openSetupSheet();
+    app.click(app.$('setupSheetClose'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.match(app.$('setupSheet').textContent, /seen list CSV saved · exact list not ready/);
+    assert.equal(app.window.__app.personalListEvidence().complete, false);
+    assert.equal(app.$('keyBanner').hidden, true, 'the acknowledged importer is not repeatedly prompted');
+  } finally { app.window.close(); }
 });
 
 test('F793 chooser resets to its top without Search focus and returns keyboard focus', async () => {
@@ -9668,6 +10134,8 @@ test('F362 catalog clocks do not overwrite a geolocated region estimate', async 
       }],
     } : null,
   });
+  assert.equal(app.state.locations.length, 0, 'location discovery requires an explicit action');
+  app.click(app.$('regionLocateBtn'));
   await waitFor(() => {
     const value = JSON.parse(
       app.window.localStorage.getItem('bc_profile_region_recommendation_v1') || 'null');
@@ -9715,6 +10183,7 @@ test('F318: a clean profile has no implicit Washington region or request', async
     report: null,
     home: false,
     sample: false,
+    location: { lat: 47.6062, lng: -122.3321 },
     storage: { ebird_display_name: 'Configured Birder' },
   });
   const A = app.window.__app;
@@ -9734,6 +10203,7 @@ test('F318: a clean profile has no implicit Washington region or request', async
     'the first actionable step names the missing region');
   assert.ok(app.$('regionChooseBtn'), 'bundled and saved regions remain directly selectable');
   assert.ok(app.$('regionFindBtn'), 'a place-search fallback remains available');
+  assert.equal(app.state.locations.length, 0, 'account-first setup must not request location on paint');
   app.window.close();
 });
 
@@ -9780,6 +10250,8 @@ test('F318/F726: current location recommends a bundled region for explicit accep
     } : null,
   });
 
+  assert.equal(app.state.locations.length, 0);
+  app.click(app.$('regionLocateBtn'));
   await waitFor(() => app.window.localStorage.getItem('bc_profile_region_recommendation_v1'),
     'current location to recommend Washington');
   assert.equal(app.window.localStorage.getItem('ebird_report'), null);
@@ -9816,6 +10288,7 @@ test('F318/F726: an accepted unbundled recommendation persists without becoming 
   });
 
   const A = app.window.__app;
+  app.click(app.$('regionLocateBtn'));
   await waitFor(() => app.window.localStorage.getItem('bc_profile_region_recommendation_v1'),
     'current location to recommend Oregon');
   assert.equal(app.window.localStorage.getItem('ebird_report'), null);
@@ -9875,8 +10348,12 @@ test('F318: denied or malformed location leaves one usable chooser and stores no
       location: specimen.location,
       fetch: specimen.fetch,
     });
-    await waitFor(() => !!app.$('regionChooseBtn'),
-      specimen.name + ' setup to expose the chooser');
+    app.click(app.$('regionLocateBtn'));
+    await waitFor(() => {
+      const saved = app.window.localStorage.getItem('ebird_region_setup_v1');
+      return saved && JSON.parse(saved).status !== 'recommended';
+    }, specimen.name + ' location attempt to finish explicitly');
+    assert.equal(app.state.locations.length, 1);
     assert.equal(app.window.localStorage.getItem('ebird_report'), null,
       specimen.name + ' discovery must not store a guessed region');
     assert.equal(app.window.__app.getCustomRegions().length, 0,
@@ -9974,7 +10451,7 @@ test('F318: onboarding resumes in region, Home, key, identity, seen-list order',
         report: 'wa', home: false, sample: false,
         storage: { ...home, ebird_display_name: 'Sample Birder' },
       },
-      expected: /seen list/i,
+      expected: /seen birds/i,
     },
   ];
   for (const specimen of cases) {

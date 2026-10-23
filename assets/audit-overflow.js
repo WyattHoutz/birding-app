@@ -1120,8 +1120,16 @@ const AUDIT = `<script>
       }).then(function (rows) { A.seedEbirdCache(path, rows); });
     }));
     A.openSetupSheet();
-    out.push(scan('(F727 setup sheet)'));
+    out.push(scan('(F1067 setup account)'));
+    document.getElementById('setupSkip').click();
+    out.push(scan('(F1067 setup API key)'));
+    document.getElementById('setupSkip').click();
+    out.push(scan('(F1067 setup region)'));
+    document.getElementById('setupNext').click();
+    out.push(scan('(F1067 setup seen birds)'));
     document.getElementById('setupSheetClose').click();
+    out.push(scan('(F1067 setup summary)'));
+    document.getElementById('setupContinue').click();
     A.openRegionChooser();
     var chooser = document.getElementById('regionChooser');
     chooser.scrollTop = 800;
@@ -2813,6 +2821,79 @@ const AUDIT = `<script>
       convoyPhoto:convoyThumb.width};
     out.push(result);
   }
+  async function setupAcquisitionRegression(out) {
+    var A = window.__app, scope = A.activeScope(), owner = A.personalListOwner(scope);
+    var key = A.personalListKey(owner), saved = localStorage.getItem(key);
+    var originalFetch = window.fetch, release, request;
+    function require(condition, message) {
+      if (!condition) throw new Error('F1067/F1068 ' + message);
+    }
+    function record(surface, state, csvExpected) {
+      var csv = surface === 'setup' ? document.getElementById('setupSeenCsv')
+        : document.getElementById('seenBannerBtn');
+      require(!!csv === csvExpected, surface + ' ' + state + ' has the wrong CSV action');
+      var result = scan('(F1067/F1068 ' + surface + ' ' + state + ')');
+      result.setupAcquisition = {surface:surface,state:state,csv:!!csv};
+      out.push(result);
+    }
+    function openSeen() {
+      localStorage.setItem('bc_setup_step_v1','seen');
+      A.openSetupSheet();
+    }
+    function main() {
+      document.getElementById('setupSheetClose').click();
+      document.getElementById('setupContinue').click();
+      A.showMenu();
+    }
+    try {
+      localStorage.setItem('ebird_seen_setup_skipped','1');
+      if (!A.getDisplayName()) localStorage.setItem('ebird_display_name','Setup layout example');
+      localStorage.setItem(A.homeKey('lat'),'47.75');
+      localStorage.setItem(A.homeKey('lng'),'-122.16');
+      localStorage.removeItem(key);
+      window.fetch = function (url) {
+        if (/\\/lifelist\\//.test(String(url))) {
+          return new Promise(function (resolve) { release = resolve; });
+        }
+        return originalFetch.apply(this,arguments);
+      };
+      openSeen();
+      request = A.ensurePersonalList(scope,true);
+      require(!!release,'the exact-list read did not start');
+      localStorage.removeItem('ebird_seen_setup_skipped');
+      record('setup','pending',false);
+      main();
+      record('main','pending',false);
+      openSeen();
+      release({ok:false,status:503});
+      var rejected = false;
+      try { await request; }
+      catch (error) {
+        if (!/503/.test(error.message)) throw error;
+        rejected = true;
+      }
+      require(rejected,'the failed exact-list read unexpectedly succeeded');
+      record('setup','fallback',true);
+      main();
+      record('main','fallback',true);
+      var previous = saved || JSON.stringify({
+        owner:owner,coverage:'complete',declaredCount:1,unresolved:0,paginated:false,
+        codes:['amerob'],rows:[{code:'amerob',name:'American Robin'}],
+        source:A.personalListUrl(owner),readAt:new Date().toISOString(),readDate:A.todayStr()
+      });
+      localStorage.setItem(key,previous);
+      require(A.personalListEvidence().complete,'matching last-good evidence must remain usable');
+      A.renderKeyBanner();
+      record('main','saved',false);
+      openSeen();
+      record('setup','saved',false);
+      main();
+    } finally {
+      window.fetch = originalFetch;
+      if (saved) localStorage.setItem(key,saved);
+      else localStorage.removeItem(key);
+    }
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
@@ -2825,6 +2906,10 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await twitchRegression(out); }
       catch (error) { out.push({label:'(F908 regression)', fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await setupAcquisitionRegression(out); }
+      catch (error) { out.push({label:'(F1067/F1068 regression)',fixtureError:String(error)}); }
     }
     try {
       var x = new XMLHttpRequest();
@@ -3066,6 +3151,15 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    for (const surface of ['setup','main']) {
+      for (const state of ['pending','fallback','saved']) {
+        if (!report.some(r => r.setupAcquisition
+            && r.setupAcquisition.surface === surface && r.setupAcquisition.state === state)) {
+          bad++;
+          console.log('   F1067/F1068 FIXTURE missing ' + surface + ' ' + state);
+        }
+      }
+    }
     if (!report.some((r) => r.approvedRelease)) {
       bad++;
       console.log('   F1040-F1055 FIXTURE missing populated approved-release geometry');

@@ -3653,6 +3653,31 @@
     .setupstate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
       padding: 12px 0; border-bottom: 1px solid var(--line); }
     .setupstate strong { font-size: calc(16px * var(--s)); }
+    #setupSheet .sheethead { flex-wrap: wrap; }
+    #setupSheetBody { max-width: 490px; margin: 0 auto; }
+    .setupprogress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px; list-style: none; padding: 0; margin: 20px 0; }
+    .setupprogress li { min-width: 0; border-top: 3px solid var(--line); padding-top: 8px;
+      font-size: calc(12px * var(--s)); color: var(--muted); }
+    .setupprogress [aria-current="step"] { border-color: var(--safe-blue);
+      color: var(--ink); font-weight: 800; }
+    .setupstep { margin: 18px 0 8px; color: var(--muted); }
+    .setuptitle { font-size: calc(28px * var(--s)); line-height: 1.2; margin: 8px 0 16px; }
+    .setuppanel { padding: 16px; margin: 16px 0; border: 1px solid var(--line);
+      border-radius: var(--btn-radius); background: var(--card); }
+    .setuppanel h4 { margin: 0 0 10px; font-size: calc(18px * var(--s)); }
+    .setupnote { border-left: 4px solid var(--safe-blue); padding: 12px;
+      margin: 16px 0; background: var(--card); }
+    .setupactions { display: grid; gap: 10px; margin: 20px 0; }
+    #setupSheetBody button { min-height: 48px; max-width: 100%; white-space: normal; }
+    .setupactions button { width: 100%; min-width: 0; padding: 12px 14px; }
+    .setupactions button:not(.secondary) { background: var(--safe-blue); color: var(--accent-ink); }
+    .setupkeyget { width: 100%; padding: 12px; background: transparent;
+      color: var(--safe-blue); text-decoration: underline; text-align: left; }
+    #setupApiKey { width: 100%; min-width: 0; box-sizing: border-box; }
+    @media (max-width: 360px) {
+      .setupprogress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -3724,7 +3749,7 @@
     <div class="sheethead">
       <h2 id="setupSheetTitle">Setup Bird Chaser</h2>
       <button id="setupSheetClose" class="secondary" type="button"
-              aria-label="Close setup">Close</button>
+              aria-label="Set up later">Set up later</button>
     </div>
     <div id="setupSheetBody"></div>
   </div>
@@ -5123,7 +5148,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.168.2';
+      var APP_VERSION = '1.169.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6802,6 +6827,7 @@
         renderMenuIdentity();
         updateMyYear();
         renderMenuList();
+        renderKeyBanner();
         var visible = _sections.filter(function (section) { return !section.hidden; })[0];
         if (visible) autoLoad(visible);
       }
@@ -6819,6 +6845,9 @@
       function personalListUrl(owner) {
         return 'https://ebird.org/lifelist/' + encodeURIComponent(owner.region)
           + (owner.period === 'all' ? '' : '?time=year');
+      }
+      function personalPreparationKey(scope, generation) {
+        return scope.cacheIdentity + '|' + generation + '|' + taxonomyEdition();
       }
       function personalListRead(owner) {
         var key = personalListKey(owner), raw = localStorage.getItem(key);
@@ -7422,6 +7451,7 @@
         if (!getDisplayName()) {
           return Promise.reject(new Error('Fetch your signed-in eBird identity in Settings first.'));
         }
+        _personalAutoAttempts[personalPreparationKey(scope, generation)] = true;
         var url = personalListUrl(owner);
         _personalListLoads[loadKey] = fetchPublicHTML(url, true).then(function (html) {
           var page = parsePersonalListPage(html);
@@ -7487,17 +7517,25 @@
             dbg('warn', 'Personal list: ' + _personalListErrors[key]);
           }
           throw error;
-        }).finally(function () { delete _personalListLoads[loadKey]; });
+        }).finally(function () {
+          delete _personalListLoads[loadKey];
+          if (generation === _identityGeneration && scope.cacheIdentity === activeScope().cacheIdentity) {
+            renderKeyBanner();
+          }
+        });
+        renderKeyBanner();
         return _personalListLoads[loadKey];
       }
       function preparePersonalList(scope, force, onStatus) {
         scope = scope || activeScope();
         var generation = _identityGeneration;
-        var key = scope.cacheIdentity + '|' + generation + '|' + taxonomyEdition();
+        var key = personalPreparationKey(scope, generation);
         function current() { return scopeCurrent(scope) && generation === _identityGeneration; }
         var evidence = personalListEvidence(scope);
         if (!force && evidence.complete && !evidence.stale) return Promise.resolve(personalListRead(personalListOwner(scope)));
         if (_personalPreparations[key]) return _personalPreparations[key];
+        var pending = _personalListLoads[personalListKey(personalListOwner(scope)) + '|' + generation];
+        if (pending) return pending;
         if (!force && _personalAutoAttempts[key]) {
           return Promise.reject(new Error('Automatic personal-list refresh already attempted; use Refresh personal list to retry.'));
         }
@@ -7508,7 +7546,7 @@
         _personalPreparations[key] = ready.then(function (ok) {
           if (!current()) throw new Error('Personal-list request was superseded.');
           if (!ok || !_taxonomyModel) throw new Error('A checked official taxonomy is unavailable; retry in Settings.');
-          _personalAutoAttempts[scope.cacheIdentity + '|' + generation + '|' + taxonomyEdition()] = true;
+          _personalAutoAttempts[personalPreparationKey(scope, generation)] = true;
           return ensurePersonalList(scope, force, onStatus);
         }).catch(function (error) {
           if (current()) {
@@ -7516,7 +7554,13 @@
             dbg('warn', 'Personal-list preparation: ' + error.message);
           }
           throw error;
-        }).finally(function () { delete _personalPreparations[key]; });
+        }).finally(function () {
+          delete _personalPreparations[key];
+          if (generation === _identityGeneration && scope.cacheIdentity === activeScope().cacheIdentity) {
+            renderKeyBanner();
+          }
+        });
+        renderKeyBanner();
         return _personalPreparations[key];
       }
       // ── THE CSV ROUTE ────────────────────────────────────────────────────
@@ -28638,13 +28682,6 @@
       }
       function renderRegionOnboarding(el) {
         var state = regionSetupState();
-        if (!state && !_regionDiscoveryStarted) {
-          el.hidden = false;
-          el.innerHTML = '<div class="kbtitle">📍 Finding your region</div>'
-            + '<p id="regionSetupStatus">Asking for this device’s location…</p>';
-          setTimeout(function () { beginRegionDetection(false); }, 0);
-          return;
-        }
         var why = state && state.message
           ? '<p id="regionSetupStatus">' + esc(state.message)
             + ' Choose a saved region or find one by place.</p>'
@@ -28771,7 +28808,7 @@
         if (setup) setup.addEventListener('click', openHomeSetup);
       }
       function seenSetupComplete() {
-        return !!getSeenMeta() || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === '1';
+        return personalListEvidence().complete;
       }
       function apiKeyVerified() {
         var key = getKey();
@@ -28783,112 +28820,388 @@
           + '<strong><span aria-hidden="true">' + (ready ? '✓' : '!') + '</span> '
           + esc(label + ' ' + (ready ? readyText : missingText)) + '</strong></div>';
       }
+      var SETUP_STEP_KEY = 'bc_setup_step_v1';
+      var SETUP_STEPS = ['account', 'key', 'region', 'seen'];
+      var _setupRenderedProfile = null, _setupKeyDraft = '', _setupReturnFocus = null;
+      function setupStep() {
+        var step = localStorage.getItem(SETUP_STEP_KEY);
+        return SETUP_STEPS.indexOf(step) >= 0 || step === 'summary' ? step : 'account';
+      }
+      function setupWebsiteConnected() {
+        var meta = getIdentityMeta();
+        return !!(getDisplayName() && meta && meta.source === 'ebird-bird-list');
+      }
+      function seenSetupState() {
+        var scope = activeScope(), generation = _identityGeneration;
+        var evidence = personalListEvidence(scope);
+        var prefix = scope.cacheIdentity + '|' + generation + '|';
+        return {
+          scope: scope, evidence: evidence,
+          pending: !!_personalListLoads[personalListKey(personalListOwner(scope)) + '|' + generation]
+            || Object.keys(_personalPreparations).some(function (key) {
+              return key.indexOf(prefix) === 0;
+            }),
+          attempted: !!_personalAutoAttempts[personalPreparationKey(scope, generation)]
+            || !!evidence.failure,
+          acknowledged: !!getSeenMeta() || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === '1',
+          canFetch: !!getReportSlug() && setupWebsiteConnected(),
+          context: scope.label + ' · ' + personalBasisLabel()
+        };
+      }
+      function seenSetupMessage(state) {
+        var evidence = state.evidence;
+        if (evidence.complete) {
+          return {
+            title: evidence.failure ? 'Using your saved seen list.'
+              : state.pending ? 'Updating your saved seen list.' : 'Your seen list is ready.',
+            detail: evidence.count + ' species · ' + state.context + '. '
+              + (evidence.failure ? 'Could not refresh from eBird. ' + evidence.failure
+                : state.pending ? 'Your matching saved list remains available while eBird loads.'
+                  : evidence.stale ? 'This is a saved list; it has not been refreshed today.'
+                    : 'Your account, region and period match. No CSV import is needed.')
+          };
+        }
+        if (state.pending) return {
+          title: 'Getting your seen birds.',
+          detail: 'Fetching your list from eBird for ' + state.context
+            + '. You can keep using the app while it loads.'
+        };
+        if (state.attempted) return {
+          title: "Couldn't fetch your seen list.",
+          detail: (evidence.failure || evidence.reason || 'The eBird list could not be verified.')
+            + ' There is no usable saved list for this account, region and period.'
+        };
+        return {
+          title: !getReportSlug() ? 'Choose a region for your seen birds.'
+            : !setupWebsiteConnected() ? 'Connect eBird to fetch your seen birds.'
+              : 'Fetch your seen birds from eBird.',
+          detail: 'Bird Chaser reads your exact ' + personalBasisLabel()
+            + ' to distinguish seen and unseen birds. Signing in and verifying an API key are separate.'
+        };
+      }
+      function shouldPrepareSetupSeen(state) {
+        return state.canFetch && !state.acknowledged && !state.pending && !state.attempted
+          && (!state.evidence.complete || state.evidence.stale);
+      }
+      function startSetupSeen(force) {
+        var scope = activeScope(), generation = _identityGeneration;
+        return preparePersonalList(scope, force, function (message) {
+          if (!scopeCurrent(scope) || generation !== _identityGeneration) return;
+          var status = $('setupActionStatus');
+          if (status && !$('setupSheet').hidden && setupStep() === 'seen') {
+            status.textContent = message;
+          }
+        }).catch(function (error) {
+          dbg('warn', 'Seen-list setup: ' + (error.message || error));
+        });
+      }
+      function goSetupStep(step) {
+        localStorage.setItem(SETUP_STEP_KEY, step);
+        renderSetupSheet();
+        $('setupSheet').scrollTop = 0;
+        var heading = $('setupStepTitle');
+        if (heading) heading.focus({ preventScroll: true });
+      }
+      function finishSetup() {
+        localStorage.setItem(SETUP_STEP_KEY, 'summary');
+        localStorage.setItem('bc_setup_dismissed_v1', '1');
+        closeSetupSheet();
+      }
       function renderSetupSheet() {
         var body = $('setupSheetBody');
         if (!body) return;
-        var meta = getIdentityMeta();
-        var website = !!(getDisplayName() && meta && meta.source === 'ebird-bird-list');
+        var oldInput = $('setupApiKey'), focused = document.activeElement;
+        var restoreFocus = focused && body.contains(focused) ? focused.id : '';
+        if (_setupRenderedProfile !== bcProfile()) _setupKeyDraft = getKey();
+        else if (oldInput) _setupKeyDraft = oldInput.value;
+        _setupRenderedProfile = bcProfile();
+        var step = setupStep(), website = setupWebsiteConnected();
+        var state = seenSetupState();
+        if (step === 'seen' && !$('setupSheet').hidden && shouldPrepareSetupSeen(state)) {
+          startSetupSeen(false);
+          state = seenSetupState();
+        }
         var recommendation = storedProfileRegionRecommendation();
-        var regionReady = !!(recommendation && recommendation.status === 'supported');
-        var regionUnsupported = !!(recommendation && recommendation.status === 'unsupported');
-        body.innerHTML = '<p>Each capability is independent. Bird Chaser never receives or stores '
-          + 'your Cornell/eBird password; sign-in stays inside eBird.</p>'
-          + setupStateHtml('eBird website', website, 'connected', 'not connected')
-          + '<p class="hint">Enables identity, profile default and authenticated personal-list pages.</p>'
-          + setupStateHtml('default region', regionReady,
-            'parsed', regionUnsupported ? 'unsupported' : 'not parsed')
-          + '<p class="hint">A recommendation is not selected until you accept it.</p>'
-          + setupStateHtml('personal API key', apiKeyVerified(), 'verified', 'not verified')
-          + '<p class="hint">Enables live observation, notable, hotspot, taxonomy and checklist-product feeds.</p>'
-          + setupStateHtml('Home', !!getHome(), 'ready', 'not set')
-          + setupStateHtml('seen list', !!getSeenMeta(), 'ready', 'not ready')
-          + '<div class="keyrow"><button id="setupConnectEbird" type="button">'
-          + (website ? 'Refresh eBird profile' : 'Connect to eBird') + '</button>'
-          + (regionReady ? '<button id="setupAcceptRegion" class="secondary" type="button">'
-            + 'Use recommended ' + esc(recommendation.code) + '</button>' : '')
-          + '<button id="setupChooseRegion" class="secondary" type="button">Choose region</button></div>'
-          + '<label for="setupApiKey">Personal eBird API key</label>'
-          + '<input id="setupApiKey" type="password" autocomplete="off" '
-          + 'autocapitalize="off" autocorrect="off" spellcheck="false">'
-          + '<div class="keyrow"><button id="setupVerifyKey" type="button">Verify API key</button>'
-          + '<button id="setupHome" class="secondary" type="button">Set Home</button>'
-          + '<button id="setupSeen" class="secondary" type="button">Add seen list</button></div>'
-          + '<p id="setupActionStatus" class="hint" role="status"></p>'
-          + '<div class="keyrow"><button id="setupContinue" class="secondary" type="button">'
-          + 'Continue with limited features</button></div>';
+        var recommended = recommendation && recommendation.status === 'supported';
+        var progress = step === 'summary' ? '' : '<ol class="setupprogress" aria-label="Setup steps">'
+          + ['Account', 'Live birds', 'Region', 'Seen birds'].map(function (label, index) {
+            return '<li' + (SETUP_STEPS[index] === step ? ' aria-current="step"' : '') + '>'
+              + (index + 1) + '. ' + label + '</li>';
+          }).join('') + '</ol>';
+        var html = progress + '<p class="setupstep">'
+          + (step === 'summary' ? 'Your setup' : 'Step ' + (SETUP_STEPS.indexOf(step) + 1) + ' of 4')
+          + '</p>';
+        var actions = '';
+        if (step === 'account') {
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Let\'s get you birding.</h3>'
+            + '<p>A few quick steps to make Bird Chaser yours. You can skip any step and finish later in Settings.</p>'
+            + '<div class="setuppanel"><h4>Connect your eBird account</h4>'
+            + '<p>Use your existing Cornell/eBird sign-in to get your profile and a suggested birding region.</p>'
+            + '<p class="hint">Bird Chaser never receives or stores your Cornell/eBird password. '
+            + 'Your password stays with eBird.</p></div>'
+            + (website ? '<p class="setupnote">Connected as ' + esc(getDisplayName()) + '.</p>' : '')
+            + '<p class="hint">Next: a separate personal API key enables live bird reports.</p>';
+          actions = '<button id="setupConnectEbird" type="button">'
+            + (website ? 'Continue to live reports' : 'Connect to eBird') + '</button>'
+            + (website ? '<button id="setupReconnectEbird" class="secondary" type="button">Refresh eBird connection</button>' : '')
+            + '<button id="setupSkip" class="secondary" type="button">Skip account connection for now</button>';
+        } else if (step === 'key') {
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Turn on live bird reports.</h3>'
+            + '<p>eBird requires a personal API key for live sightings and hotspot data.</p>'
+            + '<p class="setupnote"><strong>Separate from signing in.</strong> Your eBird sign-in does not supply '
+            + 'this key. You only need to add it once.</p>'
+            + '<div class="setuppanel"><button id="setupGetKey" class="setupkeyget" type="button">'
+            + '1. Get my eBird API key</button><p>2. Sign in on eBird\'s key page, copy the key, then return here.</p>'
+            + '<label for="setupApiKey">3. Paste your personal API key</label>'
+            + '<input id="setupApiKey" type="password" autocomplete="off" placeholder="Paste key from eBird" '
+            + 'autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="setupKeyHelp">'
+            + '<p id="setupKeyHelp" class="hint">'
+            + (apiKeyVerified() ? 'Your saved API key is verified.' : 'The key is saved only after eBird accepts it.')
+            + '</p></div>';
+          actions = '<button id="setupVerifyKey" type="button">Verify API key</button>'
+            + '<button id="setupSkip" class="secondary" type="button">'
+            + (apiKeyVerified() ? 'Keep my current live reports' : 'Skip live reports for now') + '</button>';
+        } else if (step === 'region') {
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Where do you bird?</h3>'
+            + '<p>Choose the region for your bird reports. You can change it anytime.</p>'
+            + '<div class="setuppanel"><h4>Birding region</h4><p>'
+            + (getReportSlug() ? 'Selected: ' + esc(activeScope().label) : 'No region selected.')
+            + '</p><button id="setupChooseRegion" class="secondary" type="button">Choose region</button>'
+            + (recommended ? '<div class="setupactions"><button id="setupAcceptRegion" class="secondary" type="button">'
+              + 'Use recommended ' + esc(recommendation.code) + '</button></div>'
+              + '<p class="hint">A recommendation is not selected until you accept it.</p>' : '')
+            + '</div><div class="setuppanel"><h4>Home location · Optional</h4>'
+            + '<p>A Home is used for distances and nearby birding options. It is separate from your region.</p>'
+            + '<button id="setupHome" class="secondary" type="button"'
+            + (!getReportSlug() ? ' disabled' : '') + '>'
+            + (getHome() ? 'Review Home location' : 'Add a Home location') + '</button>'
+            + '<p class="hint">Opens your existing Home settings. Reopen Setup Bird Chaser to return here.</p></div>';
+          actions = '<button id="setupNext" type="button"' + (!getReportSlug() ? ' disabled' : '')
+            + '>Use this region</button><button id="setupSkip" class="secondary" type="button">Choose a region later</button>';
+        } else if (step === 'seen') {
+          var message = seenSetupMessage(state);
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">' + esc(message.title) + '</h3>'
+            + '<div class="setuppanel"><h4>' + esc(state.context) + '</h4>'
+            + '<p id="seenSetupStatus" role="status">' + esc(message.detail) + '</p></div>';
+          if (state.pending) {
+            html += '<p class="setupnote">You do not need to wait here. Setup updates when the fetch finishes.</p>';
+            actions = '<button type="button" disabled>Fetching seen birds...</button>';
+          } else if (!state.evidence.complete) {
+            actions = !getReportSlug()
+              ? '<button id="setupSeenRegion" type="button">Choose a region</button>'
+              : !website ? '<button id="setupSeenConnect" type="button">Connect to eBird</button>'
+                : '<button id="setupFetchSeen" type="button">'
+                  + (state.attempted ? 'Try eBird again' : 'Fetch my seen birds') + '</button>';
+            if (state.attempted) {
+              html += '<p class="hint">Try eBird again first. CSV is an optional fallback; '
+                + 'an imported annual file cannot certify this exact regional list.</p>';
+              actions += '<button id="setupSeenCsv" class="secondary" type="button">Import CSV instead</button>';
+            }
+          } else if (state.evidence.failure || state.evidence.stale) {
+            actions = '<button id="setupFetchSeen" class="secondary" type="button">Retry update</button>';
+          }
+          actions += '<button id="setupContinue"'
+            + (state.evidence.complete ? '' : ' class="secondary"') + ' type="button">'
+            + (state.evidence.complete ? 'Start birding' : state.pending ? 'Continue while fetching' : 'Finish setup for now')
+            + '</button>';
+        } else {
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Start now. Finish later.</h3>'
+            + '<p>Here is what is ready and what still needs setup. Each capability is independent.</p>'
+            + '<div class="setuppanel">'
+            + setupStateHtml('eBird website', website, 'connected', 'not connected')
+            + setupStateHtml('birding region', !!getReportSlug(), 'confirmed · ' + activeScope().label, 'not chosen')
+            + setupStateHtml('personal API key', apiKeyVerified(), 'verified', 'not verified')
+            + setupStateHtml('Home', !!getHome(), 'ready', 'not set · optional')
+            + setupStateHtml('seen list', seenSetupComplete(), 'ready · ' + state.evidence.count + ' species',
+              state.pending ? 'fetching' : usesBundledSeed() ? 'sample data only · exact list not ready'
+                : getSeenMeta() ? 'CSV saved · exact list not ready'
+                : 'not ready · finish later')
+            + '</div><p class="hint">Reopen setup in Settings at any time. Skipping a step does not mark it ready.</p>';
+          actions = '<button id="setupContinue" type="button">Start birding</button>'
+            + '<button id="setupReview" class="secondary" type="button">Review setup</button>';
+        }
+        body.dataset.setupStep = step;
+        body.innerHTML = html + '<p id="setupActionStatus" class="hint" role="status"></p>'
+          + '<div class="setupactions">' + actions
+          + (step !== 'account' && step !== 'summary'
+            ? '<button id="setupBack" class="secondary" type="button">Back</button>' : '') + '</div>';
         var input = $('setupApiKey');
-        if (input && getKey()) input.value = getKey();
-        var connect = $('setupConnectEbird');
-        if (connect) connect.addEventListener('click', function () {
+        if (input) {
+          input.value = _setupKeyDraft;
+          var updateVerify = function () {
+            var verify = $('setupVerifyKey'), key = input.value.trim();
+            verify.disabled = !key;
+            verify.textContent = apiKeyVerified() && key === getKey() ? 'Continue to region' : 'Verify API key';
+          };
+          input.addEventListener('input', updateVerify);
+          updateVerify();
+        }
+        function bind(id, action) {
+          var button = $(id);
+          if (button) button.addEventListener('click', action);
+        }
+        function connectAccount(event) {
+          var connect = event.currentTarget, profile = bcProfile();
           var status = $('setupActionStatus');
           connect.disabled = true;
-          if (status) status.textContent = 'Opening eBird…';
+          status.textContent = 'Opening eBird...';
           fetchIdentityFromBirdList(function (message) {
-            if ($('setupActionStatus')) $('setupActionStatus').textContent = message;
+            if (profile === bcProfile() && connect.isConnected) status.textContent = message;
           }).then(function (result) {
-            renderSetupSheet();
-            if (!result || !result.applied) {
-              if ($('setupActionStatus')) {
-                $('setupActionStatus').textContent = identityResultMessage(result);
-              }
-            }
+            if (profile !== bcProfile() || !connect.isConnected || $('setupSheet').hidden) return;
+            if (result && (result.applied || result.status === 'already-set')) goSetupStep('key');
+            else status.textContent = identityResultMessage(result);
           }).catch(function (error) {
-            if ($('setupActionStatus')) $('setupActionStatus').textContent =
-              (error && error.message) || 'Could not connect to eBird.';
+            if (profile === bcProfile() && connect.isConnected) {
+              status.textContent = error.message || 'Could not connect to eBird.';
+            }
           }).finally(function () {
-            if ($('setupConnectEbird')) $('setupConnectEbird').disabled = false;
+            if (profile === bcProfile() && connect.isConnected) connect.disabled = false;
           });
-        });
-        var accept = $('setupAcceptRegion');
-        if (accept) accept.addEventListener('click', function () {
-          acceptRegionRecommendation(recommendation);
-        });
-        var choose = $('setupChooseRegion');
-        if (choose) choose.addEventListener('click', openRegionChooser);
-        var verify = $('setupVerifyKey');
-        if (verify) verify.addEventListener('click', function () {
-          var key = String(($('setupApiKey') && $('setupApiKey').value) || '').trim();
+        }
+        bind('setupConnectEbird', website ? function () { goSetupStep('key'); } : connectAccount);
+        bind('setupReconnectEbird', connectAccount);
+        bind('setupGetKey', openKeygen);
+        bind('setupVerifyKey', function (event) {
+          var key = input.value.trim(), verify = event.currentTarget;
+          if (apiKeyVerified() && key === getKey()) { goSetupStep('region'); return; }
+          var profile = bcProfile(), generation = _identityGeneration;
+          var revision = identityRevision(), previousKey = getKey();
           var status = $('setupActionStatus');
+          function current() {
+            return profile === bcProfile() && generation === _identityGeneration
+              && revision === identityRevision() && previousKey === getKey()
+              && input.isConnected && setupStep() === 'key'
+              && !$('setupSheet').hidden;
+          }
           verify.disabled = true;
-          if (status) status.textContent = 'Checking with eBird…';
+          input.disabled = true;
+          status.textContent = 'Checking with eBird...';
           testApiKey(key).then(function (result) {
+            if (!current()) {
+              if (profile === bcProfile() && input.isConnected && !$('setupSheet').hidden) {
+                status.textContent = 'Setup changed while checking this key. Please verify it again.';
+              }
+              return;
+            }
             if (result.ok) {
+              _keySetupFromBanner = false;
+              discardBundledSeedForAccount();
               acceptWorkingKey(key);
-              renderSetupSheet();
-            } else if (status) status.textContent = result.why;
+              goSetupStep('region');
+            } else status.textContent = '! Key not verified. ' + result.why;
+          }).catch(function (error) {
+            if (profile === bcProfile() && input.isConnected && !$('setupSheet').hidden) {
+              status.textContent = '! API key could not be saved. ' + (error.message || error);
+            }
           }).finally(function () {
-            if ($('setupVerifyKey')) $('setupVerifyKey').disabled = false;
+            if (profile === bcProfile() && input.isConnected
+                && setupStep() === 'key' && !$('setupSheet').hidden) {
+              input.disabled = false; updateVerify();
+            }
           });
         });
-        var home = $('setupHome');
-        if (home) home.addEventListener('click', function () {
-          closeSetupSheet(); openHomeSetup();
+        bind('setupAcceptRegion', function () {
+          acceptRegionRecommendation(recommendation).catch(function (error) {
+            var status = $('setupActionStatus');
+            if (status) status.textContent = error.message || 'Could not select this region.';
+          });
         });
-        var seen = $('setupSeen');
-        if (seen) seen.addEventListener('click', function () {
-          closeSetupSheet(); showSettings(true);
-          var label = document.querySelector('label[for="csvFile"]');
-          if (label && label.scrollIntoView) label.scrollIntoView({ block: 'center' });
+        bind('setupChooseRegion', openRegionChooser);
+        bind('setupHome', function () {
+          closeSetupSheet(true); openHomeSetup();
         });
-        var limited = $('setupContinue');
-        if (limited) limited.addEventListener('click', function () {
-          localStorage.setItem('bc_setup_dismissed_v1', '1');
-          closeSetupSheet();
+        bind('setupNext', function () { if (getReportSlug()) goSetupStep('seen'); });
+        bind('setupSkip', function () {
+          goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) + 1]);
         });
+        bind('setupBack', function () { goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) - 1]); });
+        bind('setupSeenConnect', function () { goSetupStep('account'); });
+        bind('setupSeenRegion', function () { goSetupStep('region'); });
+        bind('setupFetchSeen', function () {
+          localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
+          startSetupSeen(true);
+        });
+        bind('setupSeenCsv', function () { closeSetupSheet(true); openCsvSettings(); });
+        bind('setupReview', function () { goSetupStep('account'); });
+        bind('setupContinue', function () {
+          if (step === 'summary' || state.evidence.complete) finishSetup();
+          else {
+            if (!state.pending && !state.attempted) localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
+            goSetupStep('summary');
+          }
+        });
+        if (restoreFocus) {
+          var target = $(restoreFocus) || $('setupStepTitle');
+          if (target) target.focus({ preventScroll: true });
+        }
       }
       function openSetupSheet() {
-        renderSetupSheet();
         var sheet = $('setupSheet');
-        if (sheet) sheet.hidden = false;
+        if (!sheet) return;
+        if (sheet.hidden) _setupReturnFocus = document.activeElement;
+        sheet.hidden = false;
+        renderSetupSheet();
+        sheet.scrollTop = 0;
+        $('setupSheetClose').focus({ preventScroll: true });
       }
-      function closeSetupSheet() {
+      function closeSetupSheet(deferMain) {
         var sheet = $('setupSheet');
         if (sheet) sheet.hidden = true;
+        _setupKeyDraft = '';
+        _setupRenderedProfile = null;
+        var input = $('setupApiKey');
+        if (input) input.value = '';
+        var target = _setupReturnFocus && _setupReturnFocus.isConnected
+            && _setupReturnFocus !== document.body && !_setupReturnFocus.closest('[hidden]')
+          ? _setupReturnFocus : $('brandSettings');
+        if (target) target.focus({ preventScroll: true });
+        _setupReturnFocus = null;
+        if (!deferMain) renderKeyBanner();
+      }
+      function renderSeenBanner(el) {
+        var state = seenSetupState();
+        if (menuVisible() && $('setupSheet').hidden && $('regionChooser').hidden
+            && shouldPrepareSetupSeen(state)) {
+          startSetupSeen(false);
+          state = seenSetupState();
+        }
+        if (state.acknowledged && !state.evidence.complete && !state.pending) {
+          el.hidden = true; el.innerHTML = ''; return;
+        }
+        var message = seenSetupMessage(state);
+        el.hidden = false;
+        el.innerHTML = '<div class="kbtitle">' + esc(message.title) + '</div>'
+          + '<p role="status">' + esc(message.detail) + '</p>'
+          + (!state.pending && (!state.evidence.complete || state.evidence.failure || state.evidence.stale)
+            ? '<div class="keyrow"><button id="seenFetchBtn" type="button">'
+              + (!state.canFetch ? 'Connect to eBird' : state.attempted ? 'Try eBird again' : 'Fetch my seen birds')
+              + '</button>'
+              + (!state.evidence.complete && state.attempted
+                ? '<button id="seenBannerBtn" class="secondary" type="button">Import CSV instead</button>' : '')
+              + (!state.evidence.complete ? '<button id="seenSkipBtn" class="secondary" type="button">Skip for now</button>' : '')
+              + '</div>' : '');
+        var fetch = $('seenFetchBtn');
+        if (fetch) fetch.addEventListener('click', function () {
+          if (state.canFetch) startSetupSeen(true);
+          else { goSetupStep('account'); openSetupSheet(); }
+        });
+        var csv = $('seenBannerBtn');
+        if (csv) csv.addEventListener('click', openCsvSettings);
+        var skip = $('seenSkipBtn');
+        if (skip) skip.addEventListener('click', function () {
+          localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
+          renderKeyBanner();
+        });
       }
       // One place that answers "can this app do anything right now?", shown on
       // the Contents menu so it is the first thing a first-run user reads
       // instead of discovering it one section at a time.
       function renderKeyBanner() {
+        if ($('setupSheet') && !$('setupSheet').hidden
+            && (_setupRenderedProfile !== bcProfile() || setupStep() === 'seen' || setupStep() === 'summary')) {
+          renderSetupSheet();
+        }
         var el = $('keyBanner'); if (!el) return;
         if (!getReportSlug()) {
           renderRegionOnboarding(el);
@@ -28927,30 +29240,8 @@
             });
             return;
           }
-          if (!seenSetupComplete()) {
-            el.hidden = false;
-            el.innerHTML = '<div class="kbtitle">📋 Add your seen list</div>'
-              + '<p>Import your eBird CSV so Bird Chaser can separate seen birds '
-              + 'from targets. You can skip this and add it later.</p>'
-              + '<div class="keyrow"><button id="seenBannerBtn" type="button">'
-              + 'Import seen list</button><button id="seenSkipBtn" class="secondary" '
-              + 'type="button">Skip for now</button></div>';
-            var importBtn = $('seenBannerBtn');
-            if (importBtn) importBtn.addEventListener('click', function () {
-              showSettings(true);
-              var label = document.querySelector('label[for="csvFile"]');
-              if (label && label.scrollIntoView) {
-                try { label.scrollIntoView({ block: 'center' }); } catch (e) {}
-              }
-            });
-            var skip = $('seenSkipBtn');
-            if (skip) skip.addEventListener('click', function () {
-              localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
-              renderKeyBanner();
-            });
-            return;
-          }
-          el.hidden = true; el.innerHTML = ''; return;
+          renderSeenBanner(el);
+          return;
         }
         el.hidden = false;
         el.innerHTML = '<div class="kbtitle">🔑 Add your eBird API key to begin</div>' +
@@ -49145,6 +49436,10 @@
         if (!chooser || chooser.hidden) return;
         chooser.hidden = true;
         var previous = _regionChooserReturnFocus;
+        if (!$('setupSheet').hidden && setupStep() === 'region') {
+          renderSetupSheet();
+          previous = $('setupChooseRegion');
+        }
         var target = previous && previous.isConnected ? previous : $('navRegion');
         if (target) target.focus({ preventScroll: true });
         _regionChooserReturnFocus = null;
@@ -49286,6 +49581,7 @@
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         _autoLoaded = {};
         renderMenuList();
+        renderKeyBanner();
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
         if (open) showSection(open.id);
       }
@@ -50367,7 +50663,28 @@
           }
         }
       });
-      $('setupSheetClose').addEventListener('click', closeSetupSheet);
+      $('setupSheetClose').addEventListener('click', function () {
+        if (setupStep() === 'summary') finishSetup();
+        else goSetupStep('summary');
+      });
+      $('setupSheet').addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          if (setupStep() === 'summary') finishSetup();
+          else goSetupStep('summary');
+        } else if (event.key === 'Tab') {
+          var controls = [].slice.call(this.querySelectorAll('button, input, a[href], select'))
+            .filter(function (element) {
+              return !element.disabled && !element.closest('[hidden]');
+            });
+          var first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault(); last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault(); first.focus();
+          }
+        }
+      });
       $('setupOpenBtn').addEventListener('click', openSetupSheet);
       $('regionCatalogRefresh').addEventListener('click', refreshRegionNames);
       ['apiKey', 'homePlace', 'homeLat', 'homeLng', 'tideStation',
