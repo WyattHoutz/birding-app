@@ -4784,7 +4784,7 @@ test('F872 migration arrival carries source observation timestamp through cached
   try {
     const A = app.window.__app, ctx = A.firstYearContext();
     const page = A.parseFirstYearBirdList(foySourceFixture(1));
-    const date = A.todayStr(), now = new Date(date + 'T18:00:00-07:00');
+    const date = A.todayStr(), now = new Date(date + 'T18:00:00');
     page.rows = [{code:'comnig',name:'Common Nighthawk',date,
       observedAt:date+'T13:47:00-07:00',locName:'Regional source',sensitive:false}];
     A.firstYearWrite(ctx.region,ctx.year,page);
