@@ -23,7 +23,7 @@
 (function (global) {
   'use strict';
 
-  var SCHEMA = 2;
+  var SCHEMA = 3;
   var GLOSS = /\s*\([^()]*\)\s*$/;
   var SPECIES_LIST = /^([A-Z][A-Za-z-]+)\s+([a-z][A-Za-z-]*(?:\/[A-Z][A-Za-z-]+\s+[a-z][A-Za-z-]*|\/[a-z][A-Za-z-]*)+)$/;
 
@@ -93,8 +93,8 @@
         Number(row.taxonOrder || 0)
       ];
       if (row.category === 'species') species.push(tuple);
-      else if (row.category === 'spuh') spuhs.push(tuple);
-      if (row.reportAs) {
+      else if (row.category === 'spuh' || row.category === 'slash') spuhs.push(tuple);
+      if (row.reportAs && row.category !== 'slash') {
         aliases.push([
           String(row.speciesCode), String(row.reportAs),
           String(row.comName || ''), String(row.sciName || ''),

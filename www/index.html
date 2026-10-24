@@ -688,7 +688,7 @@
          called. Padding and mark come down together - the mark is the
          header's height and the padding is its air, so trimming one alone
          just changes which looks wrong. */
-      padding: calc(env(safe-area-inset-top) + 8px) 20px 0;
+      padding: calc(env(safe-area-inset-top) + 2px) 12px 0;
       /* F138: `--accent-deep`, not a literal `#0b5a3c`. This is the second
          stop of the header gradient and it is an ACCENT shade, so it has to
          move when the accent does — hard-coded, the dark theme drew a
@@ -801,7 +801,7 @@
     html[data-display="high-visibility"] header > .hdrid {
       display: flex; flex-wrap: wrap; justify-content: space-between;
       grid-column: 1 / -1; grid-row: 2; min-width: 0;
-      align-items: center; gap: 8px; margin: 0; padding: 0; text-align: center;
+      align-items: center; gap: 2px 8px; margin: 0; padding: 0; text-align: center;
     }
     header .hdrid .hdrname,
     html[data-display="large"] header .hdrid .hdrname,
@@ -2635,6 +2635,12 @@
                      border-width: 3px; border-style: solid; border-color: var(--safe-blue); }
     .surgebadge-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
     .surgekind-favorite { background: #fff; color: #6B4400; border: 3px double #E69F00; }
+    .surgebadge-sensitive, .surgekind-sensitive {
+      background: #EAF7FF; color: #005B8F; border: 2px solid; border-color: var(--safe-blue); }
+    button.surge-leading-tag[data-surge-details] {
+      font: inherit; font-weight: 800; min-height: 44px; min-width: 44px;
+      cursor: pointer; }
+    [data-alert-kind="sensitive"] .surgeage { white-space: normal; overflow-wrap: anywhere; }
     .surgebadge-foy { background: #003B5C; color: #fff; border: 2px solid; border-color: var(--dark-safe-blue); }
     /* A feed that came back capped is not an error — the section still renders —
        but it is the difference between "these are the birds" and "these are the
@@ -5152,7 +5158,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.170.0';
+      var APP_VERSION = '1.171.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -14550,12 +14556,11 @@
           var siblings = compactSiblings(rank);
           if (siblings.length) compactLevels.push({ rank: rank, siblings: siblings });
         });
-        var sourceGroup = compactSiblings('group').filter(function (entry) {
-          return entry.node.code === sourceSpuhCode;
+        buckets.group.forEach(function (coverage) {
+          compactLevels.push({ rank: 'group', siblings: coverage.nodes.map(function (node) {
+            return { node: node, coverage: coverage };
+          }) });
         });
-        if (sourceGroup.length) {
-          compactLevels.push({ rank: 'group', siblings: sourceGroup });
-        }
         compactLevels.push({ species: species });
         var detailed = '<p class="hint">Broad to specific. Buttons on the same row are '
           + 'equivalent labels for one published candidate set; dashed labels have '
@@ -40720,7 +40725,8 @@
 
       function surgeAgeParts(t) {
         if (!(t > 0)) return { main: 'Time', tail: 'unknown' };
-        var mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+        if (t > Date.now()) return { main: 'Future', tail: 'source time' };
+        var mins = Math.floor((Date.now() - t) / 60000);
         if (mins < 1) return { main: 'Now', tail: '' };
         if (mins < 60) return { main: mins + 'min ago', tail: '' };
         var hours = Math.floor(mins / 60);
@@ -40811,10 +40817,15 @@
         var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte'].indexOf(a.kind) < 0;
         var headline = (a.namePrefix || '') + (birdHeadline
           ? '<span class="surgebirdname">' + a.name + '</span>' : a.name);
+        var ageTime = a.ageTime == null ? a.time : a.ageTime;
+        var ageLabel = a.ageLabel || (surgeTimeValue(a.when)
+          && !surgePreciseTimeValue(a.when) ? 'Date only' : '');
         var k = SURGE_KINDS[a.kind], reason = surgeReasonMeta(a), data = {
           'alert-kind': a.kind,
           'surge-priority': k.priority,
           'surge-latest': surgeTimeValue(a.when),
+          'surge-age-time': ageTime || 0,
+          'surge-age-label': ageLabel,
           'surge-order': order,
           'surge-seen': a.seenState || 'unseen',
           'species-code': a.code || '',
@@ -40843,17 +40854,16 @@
         }
         return SpeciesCards.small({
           icon: a.icon,
-          name: surgeCategoryTag(a.kind, reason.text).replace('class="surgebadge ',
-            'class="surge-leading-tag surgebadge ') + ' <span class="surgealerttitle">' + headline
+          name: (a.kind === 'sensitive'
+            ? '<button type="button" class="surge-leading-tag surgebadge surgebadge-sensitive"'
+              + ' data-surge-details aria-label="Show SENSITIVE monthly regional evidence">SENSITIVE</button>'
+            : surgeCategoryTag(a.kind, reason.text).replace('class="surgebadge ',
+              'class="surge-leading-tag surgebadge ')) + ' <span class="surgealerttitle">' + headline
             + (place ? (a.placeConnector || ' at ') + place : '') + (a.tags || '') + '</span>',
           tags: '',
-          sub: (a.kind === 'twitch' ? '<span class="surge-twitch-reports">'
-            + (a.lowerBound ? 'At least ' : '') + a.reports + ' report'
-            + (a.reports === 1 ? '' : 's') + ' in 24h</span>' : '')
-            + (warnings.length ? '<span class="surge-essential">'
+          sub: (warnings.length ? '<span class="surge-essential">'
               + esc(warnings.join(' · ')) + '</span>' : ''),
-          right: surgeKindRight(a.kind, a.ageTime == null ? a.time : a.ageTime,
-            a.ageLabel),
+          right: surgeKindRight(a.kind, ageTime, ageLabel),
           below: '<template data-surge-evidence>' + evidence + '</template>',
           data: data
         });
@@ -41000,9 +41010,9 @@
         return '<div class="surgecounts" aria-label="Alert counts by category">'
           + kinds.filter(visible).map(function (kind) {
             var state = status(kind);
-            var label = (counts[kind] || !state.loading && !state.retry.length
-              ? counts[kind] + ' ' : state.loading ? '⌛ ' : '') + SURGE_KINDS[kind].word
-              + (state.loading ? ' · loading' : '')
+            var label = (state.loading ? '⌛ ' : '')
+              + (counts[kind] || !state.loading && !state.retry.length
+                ? counts[kind] + ' ' : '') + SURGE_KINDS[kind].word
               + (state.retry.length ? state.failed ? ' · source failed'
                 : state.limited && !state.loading ? ' · loaded with limited coverage' : ' · incomplete' : '');
             return '<span class="surgecategory" data-category-state="'
@@ -41011,7 +41021,7 @@
               + ToggleControls.pressed({cls:'surgecount',data:{'count-kind':kind},
                 icon:kind === 'ppte' ? '' : SURGE_KINDS[kind].glyph,
                 iconHtml:kind === 'ppte' ? SURGE_KINDS[kind].glyph : '',
-                label:label, ariaLabel:label + (state.loading ? ', results not complete' : ''),
+                label:label, ariaLabel:label + (state.loading ? ', loading, results not complete' : ''),
                 pressed:_surgeCategory === kind})
               + (state.retry.length ? '<button type="button" class="surgeretry"'
                 + ' data-source-retry="' + state.retry.join(',') + '" aria-label="Retry failed sources for '
@@ -41731,18 +41741,24 @@
           return true;
         }).map(function (bird) {
           var url = speciesUrl(bird.code, scope.effectiveRegion);
+          var area = rankRegionName(bird.region);
+          if (/^US-[A-Z]{2}-\d{3}$/.test(bird.region) && area !== bird.region
+              && !/\b(?:County|Parish|Borough|Census Area|Municipality)$/i.test(area)) {
+            area += ' County';
+          }
           return {
             kind: 'sensitive',
             icon: photoSlot(bird.name, bird.code),
             name: '<a class="extlink" data-href="' + esc(url) + '">'
-              + esc(bird.name) + '</a> reported in your region this month.',
+              + esc(bird.name) + '</a> reported in ' + esc(area) + ' this month.',
             notificationKey: 'sensitive:' + bird.region + ':' + source.sourceMonth + ':' + bird.code,
             time: 0, ageTime: 0, ageLabel: period, omitWhen: true,
             when: '', alpha: '',
             where: 'eBird regional monthly list - ' + esc(period),
-            noteHeader: 'SENSITIVE: ' + bird.name + ' reported in your region this month.',
+            noteHeader: 'SENSITIVE: ' + bird.name + ' reported in ' + area + ' this month.',
             why: 'Sensitive species; exact observation date and location withheld by eBird.',
-            extra: 'Source calendar month: ' + esc(period) + '. Acquired '
+            extra: 'Sensitive species; exact observation date and location withheld by eBird. '
+              + 'Source calendar month: ' + esc(period) + '. Acquired '
               + esc(new Date(source.acquiredAt).toLocaleString())
               + (source.state === 'stale' || source.state === 'failed'
                 ? '; saved source evidence, not a fresh acquisition.' : '.'),
@@ -43101,7 +43117,7 @@
             name: speciesLink(event.name, event.code),
             namePrefix: event.recovered ? 'Unseen rarity ' : 'New unseen rarity ',
             rare: true, when: latest.dateStr, time: surgeTimeValue(latest.dateStr),
-            ageTime: event.firstAt, checklistId: latest.subId || '',
+            ageTime: surgePreciseTimeValue(latest.dateStr), checklistId: latest.subId || '',
             where: latest.loc ? surgePlaceLink(latest.loc, latest.locId) : '',
             count: latest.count, eventCount: latest.count,
             why: event.recovered
@@ -43111,12 +43127,11 @@
             reports: event.reports, lowerBound: event.lowerBound, unreviewed: event.unreviewed,
             extra: (event.recovered ? 'First alerted on explicit Refresh: ' : 'First detected by Bird Gen: ')
               + esc(new Date(event.firstAt).toLocaleString())
-              + '. Age is since this ' + (event.recovered ? 'alert' : 'detection')
-              + ', not the latest observation. '
+              + '. Displayed age is the source observation time, not this detection. '
               + (event.recovered ? 'Recovered eligibility is not evidence of a new arrival. ' : '')
               + (event.lowerBound ? 'At least ' : '') + event.reports
               + ' independent report' + (event.reports === 1 ? '' : 's') + ' in 24h at this locality.',
-            data: { 'twitch-first-at': event.firstAt, 'surge-latest': event.firstAt }
+            data: { 'twitch-first-at': event.firstAt }
           });
         });
         ppteRows.forEach(function (event) {
@@ -48212,8 +48227,6 @@
           var row = source.cloneNode(true), title = row.querySelector('.surgealerttitle');
           var age = row.querySelector('.surgeage'), subject = title.querySelector('.surgebirdname');
           var place = title.querySelector('.hslink');
-          var reportCount = row.querySelector('.surge-twitch-reports');
-          var essential = row.querySelector('.surge-essential');
           var kind = row.getAttribute('data-alert-kind');
           row.hidden = false;
           row.removeAttribute('id');
@@ -48237,15 +48250,11 @@
           [].forEach.call(row.querySelectorAll('.surgekindwrap,template,.sub,.surgebirdtag'), function (node) {
             node.remove();
           });
-          if (reportCount || essential) {
-            var facts = document.createElement('span');
-            facts.className = 'sub';
-            if (reportCount) facts.appendChild(reportCount);
-            if (essential) facts.appendChild(essential);
-            row.querySelector('.ntext').appendChild(facts);
-          }
-          if (!/Date only|Time\s*unknown/.test(age.textContent)) {
-            age.textContent = surgeAgeParts(Number(source.getAttribute('data-surge-latest'))).main;
+          var label = source.getAttribute('data-surge-age-label');
+          if (!label) {
+            var parts = surgeAgeParts(Number(source.getAttribute('data-surge-age-time')
+              || source.getAttribute('data-surge-latest')));
+            age.textContent = parts.main + (parts.tail ? ' ' + parts.tail : '');
           }
           var split = age.textContent.trim().match(/^(.*?)\s+ago$/);
           if (split) age.innerHTML = esc(split[1]) + ' <small>ago</small>';

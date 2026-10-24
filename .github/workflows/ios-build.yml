@@ -124,6 +124,9 @@ jobs:
             test -n "$OUT"
           done
 
+      - name: Preserve the reviewed exempt-encryption declaration
+        run: python3 assets/testflight-profile.py configure-export ios/App/App/Info.plist
+
       - name: Verify native notification trace on macOS
         run: node --test tests/birdgen-trace.test.js
 

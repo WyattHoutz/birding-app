@@ -728,7 +728,9 @@ test('F997 bounded automatic Menu and direct notable acquisition preserve their 
     await pending;
     assert.equal(calls().length, before + 3, 'explicit Refresh bypasses the warm memo once');
     assert.match(app.$('recentBirdGenRows').textContent, /Vermilion Flycatcher/);
-    assert.match(app.$('recentBirdGenRows').textContent, /Unreviewed report/);
+    assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Unreviewed report/);
+    assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="twitch"] .surge-essential')
+      .textContent, /Unreviewed report/, 'full-feed uncertainty survives compact preview');
     assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),
       'actual new acquisition, not seeded renderSurge paint, produces a TWITCH');
     assert.match(app.$('recentBirdGenRows').textContent, /Northern Waterthrush/,
@@ -862,8 +864,9 @@ test('F1046/F1050 source states keep unknown and failed category tags truthful a
     assert.equal(box.querySelector('[data-count-kind="migration"]'), null);
     assert.equal(box.querySelector('[data-count-kind="need"]'), null, 'healthy empty categories disappear');
     const hotspot = box.querySelector('[data-count-kind="hotspot"]');
-    assert.match(hotspot.textContent, /loading/);
-    assert.match(hotspot.getAttribute('aria-label'), /results not complete/);
+    assert.match(hotspot.textContent, /⌛/);
+    assert.doesNotMatch(hotspot.textContent, /loading/);
+    assert.match(hotspot.getAttribute('aria-label'), /loading, results not complete/);
     const cascade = box.querySelector('[data-count-kind="cascade"]');
     assert.match(cascade.textContent, /source failed/);
     assert.equal(cascade.parentElement.querySelector('[data-source-retry]').dataset.sourceRetry, 'leaderboard',
@@ -1100,7 +1103,10 @@ test('F1046 production observation retry refetches only failed feeds and cannot 
     pending = true;
     const retry = A.retrySurgeSources(['observations']);
     await waitFor(() => hold, 'the held retry request');
-    assert.match(box.querySelector('[data-count-kind="twitch"]').textContent, /loading/);
+    const loadingTwitch = box.querySelector('[data-count-kind="twitch"]');
+    assert.match(loadingTwitch.textContent, /⌛/);
+    assert.doesNotMatch(loadingTwitch.textContent, /loading/);
+    assert.match(loadingTwitch.getAttribute('aria-label'), /loading, results not complete/);
     assert.equal(box.dataset.sourcesComplete, 'false');
     app.click(app.$('navBack'));
     const retained = box.innerHTML;
@@ -1695,7 +1701,7 @@ test('F999 actual Pro patches detail uppercases its strongest status without cha
   } finally { app.window.close(); }
 });
 
-test('F1032/F987/F990/F1019 the five-row rolling preview keeps the newest detection and short accessible three-column rows', async () => {
+test('F1085/F1086/F1032 the five-row preview uses source order and compact accessible rows', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, now = Date.now();
@@ -1719,13 +1725,12 @@ test('F1032/F987/F990/F1019 the five-row rolling preview keeps the newest detect
     const list = app.$('recentBirdGenRows'), rows = [...list.children];
     assert.equal(rows.length, 5);
     assert.ok(app.$('surgeFeed').children.length > 5, 'the compact cap must not truncate the full feed');
-    assert.equal(rows[0].dataset.recentKind, 'twitch', 'the newest detection must enter the top five');
+    assert.equal(rows[0].dataset.recentKind, 'hotspot', 'source age, not insertion time, ranks the top five');
     assert.equal(rows[0].querySelector('.surgealerttitle').textContent,
-      'New unseen rarity Vermilion Flycatcher');
-    assert.match(rows[0].textContent, /At least 1 report in 24h/);
-    assert.match(rows[0].textContent, /Unreviewed report/);
-    assert.equal(rows[1].querySelector('.surgealerttitle').textContent, 'Actual public patch 0');
-    assert.doesNotMatch(list.textContent, /Actual public patch [4-6]|Omitted place/);
+      'Actual public patch 0');
+    assert.doesNotMatch(list.textContent, /At least 1 report in 24h|Unreviewed report/);
+    assert.equal(rows[1].querySelector('.surgealerttitle').textContent, 'Actual public patch 1');
+    assert.doesNotMatch(list.textContent, /Actual public patch [5-6]|Omitted place/);
     for (const row of rows) {
       const head = row.querySelector(':scope > .name'), age = head.lastElementChild;
       assert.equal(head.children.length, 3);
@@ -1744,7 +1749,7 @@ test('F1032/F987/F990/F1019 the five-row rolling preview keeps the newest detect
     assert.equal(app.state.fetches.filter(url => /api\.ebird\.org/.test(url)).length, before,
       'menu repaint must not create a source refresh wave');
     rows[0].querySelector('.name').click();
-    assert.equal(app.$('refreshBtn').closest('section').hidden, false, 'TWITCH opens Twitches');
+    assert.equal(app.$('stakeHsBtn').closest('section').hidden, false, 'hotspot opens its source destination');
     A.showMenu();
     const feed = app.$('surgeFeed');
     feed.innerHTML = patches.slice(0, 3).map((patch, i) => A.surgeAlertCard({
@@ -22135,7 +22140,10 @@ test('F801 durable retained results survive reopen without an API response', asy
   assert.match(second.$('surgeResults').textContent, /Marbled Godwit/);
   assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'loading',
     'retained evidence must not disguise the new pending acquisition');
-  assert.match(second.$('surgeResults').querySelector('[data-count-kind="favorite"]').textContent,/1.*loading/);
+  const loadingFavorite = second.$('surgeResults').querySelector('[data-count-kind="favorite"]');
+  assert.match(loadingFavorite.textContent, /⌛ 1 FAVORITE PATCH/);
+  assert.doesNotMatch(loadingFavorite.textContent, /loading/);
+  assert.match(loadingFavorite.getAttribute('aria-label'), /loading, results not complete/);
   second.window.close();
 });
 
@@ -26150,7 +26158,7 @@ test('F274 keeps the newest cascade place, date and checklist in one tuple', asy
     mega: 'notApplicable', observations: 'ok', leaderboard: 'failed', hotspots: 'notApplicable',
   });
   const dateOnly = app.document.querySelector('[data-alert-kind="cascade"]');
-  assert.match(dateOnly.querySelector('.surgeage').textContent, /Time\s*unknown/,
+  assert.match(dateOnly.querySelector('.surgeage').textContent, /Date only/,
     'a date-only leaderboard value is not presented as a precise age from midnight');
   assert.match(surgeEvidence(dateOnly).querySelector('.surgeabsolute').textContent, /time unavailable/,
     'the absolute field states that only the date is known');
@@ -53207,7 +53215,7 @@ test('F862 the identity row justifies natural-width facts and preserves the full
       assert.equal(style(button).minHeight, '44px');
     }
   }
-  assert.match(HTML, /padding:\s*calc\(env\(safe-area-inset-top\) \+ 8px\) 20px 0;/);
+  assert.match(HTML, /padding:\s*calc\(env\(safe-area-inset-top\) \+ 2px\) 12px 0;/);
   assert.match(HTML, /\.hdrid \.hdrcount \{[^}]*font:\s*inherit[^}]*font-weight:\s*700/);
   app.window.close();
 });
@@ -57869,7 +57877,7 @@ test('F356 live and cached eBird cost follows the request owner after navigation
 });
 
 require('./migration-setup-controls.cjs')({
-  test, assert, boot, seedSeen, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
+  test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
   formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml,
 });
 require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });

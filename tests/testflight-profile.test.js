@@ -68,6 +68,7 @@ with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
     executable = app / "App"
     executable.write_bytes(binary)
     native_info = {**info, "CFBundleExecutable": "App", "UIBackgroundModes": ["fetch"],
+                   "ITSAppUsesNonExemptEncryption": False,
                    **dict.fromkeys(usage_keys, "Find birding hotspots near you for a quick outing.")}
     def write_info(value):
         (app / "Info.plist").write_bytes(plistlib.dumps(value, fmt=plistlib.FMT_BINARY))
@@ -90,6 +91,18 @@ with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
     assert guard.verify_native(app) == {
         "nativeMarkers": 5, "backgroundFetch": True, "locationPurposeStrings": 2}
     check_commands(True)
+    for value in [None, True, "false", 0]:
+        changed = {k: v for k, v in native_info.items() if k != "ITSAppUsesNonExemptEncryption"}
+        if value is not None:
+            changed["ITSAppUsesNonExemptEncryption"] = value
+        write_info(changed)
+        check_commands(False, "ITSAppUsesNonExemptEncryption")
+    for _ in range(2):
+        subprocess.run([sys.executable, "-B", sys.argv[1], "configure-export",
+                        str(app / "Info.plist")], check=True, capture_output=True)
+        assert guard.read(app / "Info.plist")["ITSAppUsesNonExemptEncryption"] is False
+        check_commands(True)
+    write_info(native_info)
     for marker in markers:
         executable.write_bytes(binary.replace(marker, b""))
         rejects(lambda: guard.verify_native(app))

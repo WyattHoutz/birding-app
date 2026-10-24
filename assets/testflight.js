@@ -322,6 +322,8 @@ async function deliver() {
       path.join(root, 'native', 'ios', 'install-hidden-window-diagnostics.js'), root,
     ], { stdio: 'inherit' });
     configureAppSigning(root, profile, identity, bundleId);
+    run('python3', [path.join(root, 'assets', 'testflight-profile.py'), 'configure-export',
+      path.join(root, 'ios', 'App', 'App', 'Info.plist')]);
     run('xcodebuild', archiveArgs(root, work, version, number), { stdio: 'inherit' });
     const optionsJson = path.join(work, 'export-options.json');
     const optionsPlist = path.join(work, 'export-options.plist');

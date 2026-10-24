@@ -18,6 +18,16 @@ const build = state => ({
 });
 const included = [{ type: 'preReleaseVersions', id: 'release-id', attributes: { version: '1.168.0' } }];
 
+test('F1090 both native build paths persist the reviewed declaration before compiling', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ios-build.yml'), 'utf8');
+  const signed = fs.readFileSync(path.join(__dirname, '..', 'assets', 'testflight.js'), 'utf8');
+  const unsignedConfigure = workflow.indexOf('run: python3 assets/testflight-profile.py configure-export ios/App/App/Info.plist');
+  assert.ok(unsignedConfigure > workflow.indexOf('npx cap sync ios'));
+  assert.ok(unsignedConfigure < workflow.indexOf('- name: Build unsigned .app for device'));
+  assert.match(signed, /run\('python3', \[path\.join\(root, 'assets', 'testflight-profile\.py'\), 'configure-export',\s*path\.join\(root, 'ios', 'App', 'App', 'Info\.plist'\)\]\);/);
+  assert.ok(signed.indexOf("'configure-export'") < signed.indexOf("run('xcodebuild', archiveArgs"));
+});
+
 test('F1059 signing accepts only the exact successful main-push source repository and workflow', () => {
   const source = {
     id: 123, head_sha: 'a'.repeat(40), repository: { full_name: 'owner/app' },

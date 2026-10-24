@@ -30,6 +30,8 @@ def read(path):
 def verify_native(app):
     app = Path(app)
     info = read(app / "Info.plist")
+    if info.get("ITSAppUsesNonExemptEncryption") is not False:
+        raise ValueError("App must preserve the reviewed ITSAppUsesNonExemptEncryption Boolean false")
     executable = info.get("CFBundleExecutable", "")
     if not isinstance(executable, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", executable) or executable in (".", ".."):
         raise ValueError("App must name a valid native executable")
@@ -103,7 +105,13 @@ def verify_app(info, profile, entitlements, bundle_id, version, number, uuid):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "profile":
+    if sys.argv[1] == "configure-export":
+        path = Path(sys.argv[2])
+        info = read(path)
+        info["ITSAppUsesNonExemptEncryption"] = False
+        path.write_bytes(plistlib.dumps(info))
+        result = {"ITSAppUsesNonExemptEncryption": False}
+    elif sys.argv[1] == "profile":
         result = profile_info(read(sys.argv[2]), sys.argv[3])
     elif sys.argv[1] == "verify":
         result = verify_app(read(sys.argv[2]), read(sys.argv[3]), read(sys.argv[4]), *sys.argv[5:])

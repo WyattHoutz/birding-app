@@ -2,9 +2,252 @@
 const fs = require('node:fs');
 const path = require('node:path');
 module.exports = function registerMigrationSetupControls({
-  test, assert, boot, seedSeen, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
+  test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
   formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml
 }) {
+  test('F1085 both real Twitch renderers show the same two- and six-hour source ages', async () => {
+    const app = await boot();
+    try {
+      const A = app.window.__app;
+      await seedSeen(app, []);
+      const now = Date.now() + 60000;
+      A.setRaritySort('date');
+      const reports = [
+        { code: 'ancmur', name: 'Ancient Murrelet', hours: 2 },
+        { code: 'lcspet', name: "Leach's Storm-Petrel", hours: 6 }
+      ].map(bird => ({ ...bird, kind: 'Rarity',
+        dateStr: formatObsStamp(new Date(now - bird.hours * 3600000)),
+        loc: 'Synthetic public patch', locId: 'LSOURCE', subId: 'SSOURCE' + bird.hours,
+        observer: 'Synthetic observer', distMi: 2 }));
+      await seedRarityChase(app, reports, now);
+      app.window.Date.now = () => now;
+      for (let paint = 0; paint < 2; paint++) {
+        A.refresh();
+        await waitFor(() => app.$('results').querySelector('[data-ev-sub="SSOURCE6"]'),
+          'same-source Twitches repaint');
+        A.renderSurge([], [], [], [], [], { observations: 'ok',
+          twitchRows: reports.map(bird => ({ code: bird.code, name: bird.name,
+            firstAt: now, reports: 1, lowerBound: true, recovered: paint === 1,
+            latest: { ...bird, lat: 47.75, lon: -122.16, count: 1 } })) });
+        for (const bird of reports) {
+          assert.equal(app.$('results').querySelector('[data-ev-sub="' + bird.subId + '"] .spmetric-age strong')
+            .textContent, bird.hours + 'h');
+          const card = app.$('surgeFeed').querySelector('[data-species-code="' + bird.code + '"]');
+          assert.equal(card.querySelector('.surgeage').textContent, bird.hours + 'hr ago');
+          assert.equal(Number(card.dataset.twitchFirstAt), now);
+        }
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1085 source ages survive detection, merging, recovery and preview without inventing precision', async () => {
+    const app = await boot({ sample: false });
+    try {
+      const A = app.window.__app;
+      await seedSeen(app, []);
+      const now = Date.now();
+      app.window.Date.now = () => now;
+      const stamp = hours => formatObsStamp(new Date(now - hours * 3600000));
+      for (const recovered of [false, true]) {
+        for (const hours of [2, 6]) {
+          const event = { code: 'verfly', name: 'Vermilion Flycatcher', firstAt: now,
+            reports: 1, lowerBound: true, unreviewed: true, recovered,
+            latest: { dateStr: stamp(hours), locId: 'LSOURCE', loc: 'Public patch',
+              lat: 47.75, lon: -122.16, subId: 'SSOURCE', count: 1 } };
+          for (let paint = 0; paint < 2; paint++) {
+            A.renderSurge([], [], [], [{
+              code: 'verfly', name: 'Vermilion Flycatcher', reports: 3,
+              whenStr: stamp(hours), locName: 'Public patch', locId: 'LSOURCE', distMi: 1
+            }], [], { observations: 'ok', twitchRows: [event] });
+            const card = app.$('surgeFeed').querySelector('[data-alert-kind="twitch"]');
+            assert.ok(card.dataset.surgeReasons.includes('need'), 'exercise merged Celebrity evidence');
+            assert.equal(card.querySelector('.surgeage').textContent, hours + 'hr ago');
+            assert.equal(Number(card.dataset.twitchFirstAt), now, 'source age must not change detection identity');
+            assert.equal(app.$('recentBirdGenRows').querySelector('.recent-birdgen-time').textContent,
+              hours + 'hr ago');
+            assert.equal(card.querySelector('.surge-twitch-reports'), null);
+            assert.match(card.querySelector('template').content.textContent, /1 independent report in 24h/);
+            assert.match(card.querySelector('.surge-essential').textContent, /Unreviewed/);
+            assert.equal(app.$('recentBirdGenRows').querySelector('.sub,.surge-essential'), null);
+          }
+        }
+      }
+      const host = app.document.createElement('div');
+      for (const kind of Object.keys(app.window.BirdInfoDialogs.alertKinds)) {
+        for (const hours of [2, 6]) {
+          const when = stamp(hours);
+          host.innerHTML = A.surgeAlertCard({ kind, name: 'Source control', when,
+            time: new app.window.Date(when.replace(' ', 'T')).getTime() }, 0);
+          assert.equal(host.querySelector('.surgeage').textContent, hours + 'hr ago', kind);
+        }
+        host.innerHTML = A.surgeAlertCard({ kind, name: 'Date control', when: stamp(2).slice(0, 10),
+          time: new app.window.Date(stamp(2).slice(0, 10)).getTime() }, 0);
+        assert.equal(host.querySelector('.surgeage').textContent, 'Date only', kind);
+        host.innerHTML = A.surgeAlertCard({ kind, name: 'Missing control', when: '', time: 0 }, 0);
+        assert.match(host.querySelector('.surgeage').textContent, /Time\s+unknown/, kind);
+        const when = stamp(-1);
+        host.innerHTML = A.surgeAlertCard({ kind, name: 'Future control', when,
+          time: new app.window.Date(when.replace(' ', 'T')).getTime() }, 0);
+        assert.match(host.querySelector('.surgeage').textContent, /Future.*source time/, kind);
+      }
+      const feed = app.$('surgeFeed');
+      for (const label of ['Tonight', 'Saved forecast', 'October 2026', 'Date only']) {
+        feed.innerHTML = A.surgeAlertCard({ kind: 'migration', name: 'Source period',
+          when: stamp(1), time: now - 3600000, ageLabel: label }, 0);
+        A.updateRecentBirdGen();
+        assert.equal(app.$('recentBirdGenRows').querySelector('.recent-birdgen-time').textContent, label);
+      }
+      feed.innerHTML = A.surgeAlertCard({ kind: 'mega', name: 'Outside control',
+        when: stamp(1), time: now - 3600000, extra: 'Outside your chase area' }, 0);
+      A.updateRecentBirdGen();
+      assert.match(feed.querySelector('.surge-essential').textContent, /Outside chase area/);
+      assert.equal(app.$('recentBirdGenRows').querySelector('.sub'), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1087 padding-only header retains its structure, typography, safe area and controls', async () => {
+    const app = await boot();
+    try {
+      const rules = [...app.document.styleSheets].flatMap(sheet => [...sheet.cssRules]);
+      assert.match(HTML, /padding:\s*calc\(env\(safe-area-inset-top\) \+ 2px\) 12px 0;/,
+        'jsdom drops env() declarations; the Chrome guard verifies computed padding');
+      const identity = rules.find(rule => rule.selectorText?.includes('header > .hdrid,')
+        && rule.style?.getPropertyValue('flex-wrap') === 'wrap');
+      assert.equal(identity.style.gap, '2px 8px');
+      assert.equal(rules.find(rule => rule.selectorText === '.hdrid .hdrrank, .hdrid .hdrcount')
+        .style.getPropertyValue('min-height'), '44px');
+      assert.equal(app.window.getComputedStyle(app.document.querySelector('header .brandmark')).width, '44px');
+      assert.equal(app.document.querySelector('header > .brand').nextElementSibling.id, 'hdrPeriod');
+      assert.match(HTML, /header \.brandtext h1 \{ font-size: calc\(24px/);
+    } finally { app.window.close(); }
+  });
+
+  test('F1088 actual waxwing hierarchy preserves distinct overlapping published slash sets', async () => {
+    const app = await boot({ sample: false,
+      fetch: url => /data\/obs\//.test(url) ? [] : null,
+      storage: { 'ebird_species_v2:US-WA': JSON.stringify({ at: Date.now(), rows: [
+        { code: 'bohwax', name: 'Bohemian Waxwing', sci: 'Bombycilla garrulus' },
+        { code: 'cedwax', name: 'Cedar Waxwing', sci: 'Bombycilla cedrorum' },
+        { code: 'japwax1', name: 'Japanese Waxwing', sci: 'Bombycilla japonica' }
+      ] }) } });
+    try {
+      const A = app.window.__app;
+      const species = [
+        ['bohwax', 'Bohemian Waxwing', 'Bombycilla garrulus'],
+        ['cedwax', 'Cedar Waxwing', 'Bombycilla cedrorum'],
+        ['japwax1', 'Japanese Waxwing', 'Bombycilla japonica']
+      ].map(([speciesCode, comName, sciName], i) => ({ speciesCode, comName, sciName,
+        category: 'species', order: 'Passeriformes', familySciName: 'Bombycillidae',
+        familyComName: 'Waxwings', taxonOrder: i + 1 }));
+      const slashes = [
+        ['waxwin', 'Bohemian/Cedar Waxwing', 'Bombycilla garrulus/cedrorum'],
+        ['y00428', 'Bohemian/Japanese Waxwing', 'Bombycilla garrulus/japonica']
+      ].map(([speciesCode, comName, sciName], i) => ({ ...species[0], speciesCode, comName,
+        sciName, category: 'slash', taxonOrder: i + 10 }));
+      const model = app.window.Spuh.createFromTaxonomy([...species, ...slashes]);
+      A.setSpuhModel(model);
+      for (const [code, expected] of [
+        ['bohwax', ['waxwin', 'y00428']], ['cedwax', ['waxwin']], ['japwax1', ['y00428']]
+      ]) {
+        await A.renderSpuhStakeoutNav(code, model.speciesRow(code).name);
+        const nav = app.$('spLookupIdHelp');
+        assert.deepEqual([...nav.querySelectorAll('.spuhpathsentence [data-spuh]')]
+          .map(node => node.dataset.spuh), expected);
+        assert.deepEqual([...nav.querySelectorAll('.spuhtaxchoices [data-spuh]')]
+          .map(node => node.dataset.spuh), expected);
+        assert.equal(nav.querySelector('.spuhtaxequiv'), null, 'overlap is not equivalence');
+        assert.equal(nav.querySelectorAll('.spuhpathsentence [data-rank="group"]').length, expected.length);
+      }
+      for (const [code, members] of [['waxwin', ['bohwax', 'cedwax']], ['y00428', ['bohwax', 'japwax1']]]) {
+        assert.deepEqual(Array.from(model.candidates(code), row => row.code), members);
+        app.$('spLookup').value = model.node(code).name;
+        await A.runSpuhSearch();
+        assert.match(app.$('spLookupQueryHelp').textContent, /2 birds in its published set/);
+        assert.ok(app.$('spLookupQueryHelp').querySelector('[data-spuh="' + code + '"]'));
+      }
+      assert.equal(model.searchSpuh('waxwing', 10).length, 2);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1089 F1091 source recovery preserves real coverage limits and pills expose accessible loading only', async () => {
+    const app = await boot({ sample: false });
+    try {
+      const A = app.window.__app;
+      const states = { mega: 'ok', observations: 'ok', birdcast: 'notApplicable',
+        leaderboard: 'ok', hotspots: 'failed', favorites: 'ok', mass: 'partial',
+        ppte: 'partial', foy: 'ok' };
+      A.renderSurge([], [], [], [], [], states);
+      assert.match(app.$('surgeResults').querySelector('.surgesourcemeter').textContent, /1 failed/);
+      assert.equal(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]')
+        .closest('.surgecategory').dataset.categoryState, 'limited');
+      A.renderSurge([], [], [], [], [], { ...states, hotspots: 'ok' });
+      const box = app.$('surgeResults');
+      assert.match(box.querySelector('.surgesourcemeter').textContent, /8 of 8 loaded.*2 with limited coverage/);
+      assert.doesNotMatch(box.querySelector('.surgesourcemeter').textContent, /failed/);
+      assert.equal(box.dataset.sourcePpte, 'partial', 'retained union does not uncap RBA coverage');
+      assert.equal(box.dataset.sourcesComplete, 'false');
+      assert.equal(box.querySelector('[data-source-retry="hotspots"]'), null);
+      for (const mass of ['ok', 'loading', 'failed']) {
+        A.renderSurge([], [], [], [], [], { ...states, hotspots: 'ok', mass });
+        const sensitive = app.$('surgeResults').querySelector('[data-count-kind="sensitive"]');
+        if (mass === 'ok') assert.equal(sensitive, null);
+        else assert.equal(sensitive.closest('.surgecategory').dataset.categoryState, mass);
+      }
+      for (const counted of [false, true]) {
+        const root = app.document.createElement('div');
+        root.innerHTML = A.surgeCountHtml(counted ? [{ kind: 'mass' }] : [],
+          { mass: 'loading', hotspots: 'loading' }, { mass: true, hotspots: true });
+        for (const kind of ['mass', 'sensitive', 'hotspot']) {
+          const pill = root.querySelector('[data-count-kind="' + kind + '"]');
+          assert.doesNotMatch(pill.textContent, /loading/i);
+          assert.equal((pill.textContent.match(/⌛/g) || []).length, 1);
+          assert.match(pill.getAttribute('aria-label'), /loading, results not complete/);
+        }
+        assert.equal(/1 MASS FLOCK/.test(root.textContent), counted);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1092 F1093 Sensitive uses acquired coarse area and a real private-safe evidence action', async () => {
+    for (const county of [false, true]) {
+      const app = await boot({ sample: false, fetch: url => /bird-list\?.*rank=hc/.test(url)
+        ? preparedSensitivePage().replaceAll('US-WA', county ? 'US-WA-033' : 'US-WA') : [] });
+      try {
+        const A = app.window.__app;
+        if (county) A.setCountyView('US-WA-033');
+        const source = await A.loadMassFlockAlertSource(false, A.activeScope());
+        const requests = app.state.fetches.length;
+        const area = county ? 'King County' : 'Washington';
+        const rows = A.birdGenSensitiveRows(source, new Date());
+        assert.match(rows[0].name, new RegExp('reported in ' + area + ' this month'));
+        if (!county) assert.doesNotMatch(rows[0].name, /King|Snohomish|Home/);
+        A.renderSurge([], [], [], [], [], { massSource: source, mass: source.state });
+        const card = app.$('surgeFeed').querySelector('[data-alert-kind="sensitive"]');
+        const tag = card.querySelector('.surge-leading-tag');
+        assert.equal(tag.tagName, 'BUTTON');
+        assert.match(tag.getAttribute('aria-label'), /SENSITIVE.*evidence/);
+        assert.equal(app.window.getComputedStyle(tag).minHeight, '44px');
+        assert.equal(app.window.getComputedStyle(tag).borderTopWidth, '2px');
+        assert.equal(app.window.getComputedStyle(tag).borderTopStyle, 'solid');
+        assert.equal(app.window.getComputedStyle(tag).color, 'rgb(0, 91, 143)');
+        assert.equal(app.window.getComputedStyle(card.querySelector('.surgeage')).whiteSpace, 'normal');
+        app.click(tag);
+        assert.equal(app.$('appSheet').hidden, false);
+        assert.match(app.$('appSheet').textContent, /SENSITIVE alert details/);
+        assert.match(app.$('appSheet').textContent, new RegExp(area));
+        assert.match(app.$('appSheet').textContent, /exact observation date and location withheld/);
+        assert.equal(app.$('appSheet').querySelector('[data-loc],[data-subid],[data-q]'), null);
+        assert.equal(app.state.fetches.length, requests, 'coarse display/action makes no new source request');
+        assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  });
+
   test('F1072 prepared real-app shared thumbnails preserve the full count and adaptive photo geometry', async () => {
     const app = await boot({ sample: false });
     try {
@@ -315,7 +558,7 @@ module.exports = function registerMigrationSetupControls({
       assert.deepEqual(Object.keys(source.sensitiveRows[0]).sort(), ['code', 'count', 'name', 'region']);
       const first = A.birdGenSensitiveRows(source, new Date());
       assert.equal(first.length, 1, 'monthly information must appear on first success');
-      assert.match(first[0].name, /reported in your region this month\./);
+      assert.match(first[0].name, /reported in Washington this month\./);
       assert.match(first[0].name, /https:\/\/ebird.org\/species\/grgowl\/US-WA/);
       assert.doesNotMatch(first[0].name, /splink|data-sp|stakeout|checklist/i);
       assert.equal(first[0].time, 0, 'source membership is not an observation timestamp');
@@ -329,7 +572,7 @@ module.exports = function registerMigrationSetupControls({
       const card = app.document.querySelector('#surgeFeed [data-alert-kind="sensitive"]');
       assert.ok(card, 'actual feed must render the new category, not only a helper result');
       assert.match(card.textContent, /SENSITIVE/);
-      assert.match(card.textContent, /reported in your region this month/);
+      assert.match(card.textContent, /reported in Washington this month/);
       assert.equal(card.getAttribute('data-surge-latest'), '0');
       assert.equal(A.birdGenSensitiveRows({ ...source, sourceOwner: 'wrong-owner' }, new Date()).length, 0);
       assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);

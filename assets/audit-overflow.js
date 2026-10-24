@@ -1611,6 +1611,48 @@ const AUDIT = `<script>
       categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
       A.updateRecentBirdGen();
       out.push(recentScan);
+      var savedFeed=Array.from(categoryFeed.children);
+      categoryFeed.innerHTML=A.surgeAlertCard({
+        kind:'sensitive',name:'Great Gray Owl reported in King County this month.',
+        ageLabel:'September 2026',time:0,omitWhen:true,
+        why:'Sensitive species; exact observation date and location withheld by eBird.',
+        where:'eBird regional monthly list'
+      },0);
+      A.showSection('sec-surgeBtn',{load:false});
+      var sensitiveCard=categoryFeed.firstElementChild;
+      var sensitiveTag=sensitiveCard.querySelector('.surge-leading-tag');
+      var sensitiveAge=sensitiveCard.querySelector('.surgeage');
+      var monthRange=document.createRange();monthRange.selectNodeContents(sensitiveAge);
+      var monthBox=sensitiveAge.getBoundingClientRect();
+      var monthFits=Array.from(monthRange.getClientRects()).every(function(line){
+        return line.left>=monthBox.left-.5 && line.right<=monthBox.right+.5;
+      });
+      if (!monthFits || sensitiveTag.getBoundingClientRect().height<44
+          || getComputedStyle(sensitiveTag).borderTopWidth!=='2px') {
+        throw new Error('F1092 Sensitive badge target, border or source month is clipped');
+      }
+      out.push(scan('(F1092 Sensitive monthly evidence)'));
+      categoryFeed.innerHTML=A.surgeAlertCard({
+        kind:'twitch',name:'Representative rarity',when:previewStamp(5),time:previewNow-300000,
+        reports:1,lowerBound:true,unreviewed:true,extra:'At least 1 independent report in 24h'
+      },0);
+      A.updateRecentBirdGen();
+      A.showMenu();
+      var compactRow=document.querySelector('#recentBirdGenRows > li');
+      var compactHeight=compactRow.getBoundingClientRect().height;
+      var oldSub=document.createElement('span');oldSub.className='sub';
+      oldSub.textContent='At least 1 report in 24h Unreviewed report';
+      compactRow.querySelector('.ntext').appendChild(oldSub);
+      var oldHeight=compactRow.getBoundingClientRect().height;
+      oldSub.remove();
+      if (!(oldHeight>compactHeight) || compactRow.querySelector('.sub')) {
+        throw new Error('F1086 compact preview did not remove the supplemental row height');
+      }
+      var compactScan=scan('(F1086 compact preview height)');
+      compactScan.previewHeight={compact:compactHeight,withFormerSub:oldHeight};
+      out.push(compactScan);
+      categoryFeed.replaceChildren.apply(categoryFeed,savedFeed);
+      A.updateRecentBirdGen();
       document.querySelector('#surgeFeed [data-surge-details]').click();
       out.push(scan('(F991 Alert evidence)'));
       document.querySelector('#appSheet .sheetclose').click();
@@ -1660,8 +1702,16 @@ const AUDIT = `<script>
         var cells = [identity.querySelector('.hdrname')].concat(
           [].slice.call(identity.querySelector('.hdrstat').children));
         var cellBoxes = cells.map(function (cell) { return cell.getBoundingClientRect(); });
+        if (parseFloat(getComputedStyle(headerNode).paddingTop)!==2
+            || parseFloat(getComputedStyle(headerNode).paddingLeft)!==12
+            || getComputedStyle(identity).rowGap!=='2px') {
+          throw new Error('F1087 padding-only header spacing changed');
+        }
         header.personalHeader = {
           mode:mode, basis:periodButton.textContent,
+          paddingOnly:parseFloat(getComputedStyle(headerNode).paddingTop)===2
+            && parseFloat(getComputedStyle(headerNode).paddingLeft)===12
+            && getComputedStyle(identity).rowGap==='2px',
           region:document.getElementById('hdrScope').textContent,
           separated:periodBox.right <= scope.left && periodBox.width >= 44
             && periodBox.height >= 44 && scope.width >= 44 && scope.height >= 44,
@@ -3431,6 +3481,7 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      if (r.previewHeight) console.log('   F1086 PREVIEW HEIGHT ' + JSON.stringify(r.previewHeight));
       if (r.scopeHeader && (r.scopeHeader.region !== r.scopeHeader.expected
           || !r.scopeHeader.separate || !r.scopeHeader.touch || !r.scopeHeader.within)) {
         bad++;

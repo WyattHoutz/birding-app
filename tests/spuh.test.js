@@ -95,6 +95,36 @@ function build() {
   return Spuh.createFromTaxonomy(TAXONOMY);
 }
 
+test('F1088 published slash membership is exact, overlapping and not a reportAs alias', () => {
+  const rows = [
+    species('bohwax', 'Bohemian Waxwing', 'Bombycilla garrulus', 'Passeriformes', 'Bombycillidae', 1),
+    species('cedwax', 'Cedar Waxwing', 'Bombycilla cedrorum', 'Passeriformes', 'Bombycillidae', 2),
+    species('japwax1', 'Japanese Waxwing', 'Bombycilla japonica', 'Passeriformes', 'Bombycillidae', 3),
+    { ...spuh('waxwin', 'Bohemian/Cedar Waxwing', 'Bombycilla garrulus/cedrorum',
+      'Passeriformes', 'Bombycillidae', 4), category: 'slash', reportAs: 'bohwax' },
+    { ...spuh('y00428', 'Bohemian/Japanese Waxwing', 'Bombycilla garrulus/japonica',
+      'Passeriformes', 'Bombycillidae', 5), category: 'slash' },
+  ];
+  const packed = Spuh.packTaxonomy(rows);
+  assert.ok(Spuh.SCHEMA > 2, 'old cached packs omit slash nodes');
+  assert.equal(packed.spuhs.length, 2);
+  assert.equal(packed.aliases.length, 0);
+  const model = Spuh.create(packed);
+  assert.deepEqual(model.candidates('waxwin').map(row => row.code), ['bohwax', 'cedwax']);
+  assert.deepEqual(model.candidates('y00428').map(row => row.code), ['bohwax', 'japwax1']);
+  assert.notEqual(model.coverage('waxwin').id, model.coverage('y00428').id);
+  assert.equal(model.node('waxwin').route, 'species-list');
+  assert.equal(model.speciesRow('waxwin'), null);
+  assert.deepEqual(model.narrowestShared(['bohwax', 'japwax1']).map(row => row.node.code), ['y00428']);
+  assert.deepEqual(model.relatedForSpecies('cedwax').flatMap(row => row.nodes.map(node => node.code)), ['waxwin']);
+  assert.equal(model.nodes.some(node => /waxwing sp\./i.test(node.name)), false);
+  const shore = Spuh.createFromTaxonomy(TAXONOMY.concat({
+    ...spuh('semwes', 'Semipalmated/Western Sandpiper', 'Calidris pusilla/mauri',
+      'Charadriiformes', 'Scolopacidae', 113), category: 'slash'
+  }));
+  assert.deepEqual(shore.candidates('semwes').map(row => row.code), ['sem', 'wes']);
+});
+
 test('packTaxonomy keeps only the compact fields needed at runtime', () => {
   const packed = Spuh.packTaxonomy(TAXONOMY);
   assert.equal(packed.v, Spuh.SCHEMA);
