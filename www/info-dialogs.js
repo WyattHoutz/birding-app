@@ -37,6 +37,10 @@
       priority: 1, word: 'MIGRATION', glyph: '🌙', name: 'Migration news',
       description: 'County migration forecasts, heavy overnight movement, observed arrivals or expected departures. Expected movement is not a confirmed sighting.'
     },
+    sensitive: {
+      priority: 11, word: 'SENSITIVE', glyph: '!', name: 'Sensitive species this month',
+      description: 'Public regional species membership for the stated calendar month. Exact observation dates and locations are withheld by eBird. This is not a located chase opportunity.'
+    },
     mass: {
       priority: 2, word: 'MASS FLOCK', glyph: '🪶', name: 'Mass flocks',
       description: 'Large recent counts at verified public hotspots, qualifying as nearby unseen news or an evidence-backed new report.'

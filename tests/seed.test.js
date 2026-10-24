@@ -1,3 +1,5 @@
+// F1075 retires personal Watch defaults; preserve the reference-data guards.
+// The historical failures below explain why generation still needs proof.
 // The seed is DATA, and data can be wrong in ways code cannot: silently, and
 // without ever throwing. Both bugs found on 2026-08-07 were of that shape —
 // the owner reported a Yellow-headed Blackbird filed under "already on your
@@ -20,6 +22,8 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 
 const WWW = path.join(__dirname, '..', 'www');
 const SEED = JSON.parse(
@@ -29,71 +33,62 @@ const BUILDER = fs.readFileSync(
 const RELEASE_CONTRACT = JSON.parse(fs.readFileSync(
   path.join(__dirname, '..', 'assets', 'release-contract.json'), 'utf8'));
 
-test('the watchlist really came off — an empty one is indistinguishable from a broken parser', () => {
-  const held = [];
-  for (const slug of Object.keys(SEED.seenByReport)) {
-    held.push([slug, (SEED.seenByReport[slug].watchHeld || []).length]);
+test('F1075 bundled Watch is empty without dropping taxonomy or year-list references', () => {
+  assert.deepStrictEqual(SEED.watchlist, []);
+  assert.doesNotMatch(SEED.source, /needsverification/);
+  for (const [slug, report] of Object.entries(SEED.seenByReport)) {
+    assert.deepStrictEqual(report.watchHeld, [], slug + ' still subtracts personal Watch entries');
+    assert.ok(Array.isArray(report.yearList), slug + ' lost its year-list reference');
   }
-  const any = held.some(([, n]) => n > 0);
-  assert.ok(any,
-    'no report holds back a single watchlist species: ' + JSON.stringify(held)
-    + ' — either the authored list is genuinely empty, or the parser stopped '
-    + 'matching it. Those look identical from here, which is why this fails '
-    + 'loudly rather than shipping a seed that marks every unverified bird seen');
+  assert.ok(Object.keys(SEED.reportAsParents).length >= 4000);
+});
 
-  // A watchlist species must not ALSO be in the seen set, or it can never
-  // resurface as a target — which is the entire point of the list.
-  for (const slug of Object.keys(SEED.seenByReport)) {
-    const rep = SEED.seenByReport[slug];
-    const seen = new Set((rep.codes || []).map((c) => String(c).toLowerCase()));
-    for (const c of rep.watchHeld || []) {
-      assert.ok(!seen.has(String(c).toLowerCase()),
-        slug + ': ' + c + ' is held back AND marked seen');
+test('F1075 seed generator never consults the retired archive and retains reference species', () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'birding-seed-f1075-'));
+  const app = path.join(temporary, 'app'), source = path.join(temporary, 'birding');
+  try {
+    for (const directory of [path.join(app, 'assets'), path.join(app, 'www'), path.join(source, '.cache')]) {
+      fs.mkdirSync(directory, { recursive: true });
     }
+    const builder = path.join(app, 'assets', 'build-seed.js');
+    fs.writeFileSync(builder, BUILDER);
+    fs.copyFileSync(path.join(__dirname, '..', 'assets', 'taxonomy-aliases.js'),
+      path.join(app, 'assets', 'taxonomy-aliases.js'));
+    fs.copyFileSync(path.join(WWW, 'logic.js'), path.join(app, 'www', 'logic.js'));
+    fs.writeFileSync(path.join(source, 'birdlist-wa.md'),
+      '### Native and Naturalized (1)\n1. ##### [American Robin](/species/amerob/US-WA)\n'
+      + '[23 Oct 2026](/checklist/S1075)\n');
+    fs.writeFileSync(path.join(source, 'birdlist-needsverification.md'), '1. American Robin\n');
+    fs.writeFileSync(path.join(source, '.cache', 'taxonomy-en.json'), JSON.stringify([
+      { speciesCode: 'amerob', comName: 'American Robin', category: 'species' },
+      { speciesCode: 'rocpig', comName: 'Rock Pigeon', category: 'species' },
+      { speciesCode: 'rocpig2', comName: 'Rock Pigeon (Feral)', category: 'form', reportAs: 'rocpig' },
+    ]));
+    const probe = `
+      const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+      for (const operation of ['readFileSync', 'existsSync']) {
+        const original = fs[operation];
+        fs[operation] = function(file, ...args) {
+          assert.notEqual(path.basename(String(file)), 'birdlist-needsverification.md',
+            'reference generation consulted the retired personal Watch archive');
+          return original.call(this, file, ...args);
+        };
+      }
+      process.argv = [process.execPath, ${JSON.stringify(builder)}, ${JSON.stringify(source)}];
+      require(${JSON.stringify(builder)});
+    `;
+    const run = spawnSync(process.execPath, ['-e', probe], { encoding: 'utf8', timeout: 30000 });
+    assert.strictEqual(run.status, 0, run.stderr || String(run.error || 'generator failed'));
+    const generated = JSON.parse(fs.readFileSync(path.join(app, 'www', 'seed-birdlist.json'), 'utf8'));
+    assert.deepStrictEqual(generated.watchlist, []);
+    assert.deepStrictEqual(generated.seenByReport.wa.watchHeld, []);
+    assert.deepStrictEqual(generated.seenByReport.wa.codes, ['amerob']);
+    assert.strictEqual(generated.seenByReport.wa.yearList[0].code, 'amerob');
+    assert.strictEqual(generated.reportAsParents.rocpig2, 'rocpig');
+    assert.doesNotMatch(generated.source, /needsverification/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
-});
-
-test('the watchlist parser accepts the format the file is actually written in', () => {
-  // analyze.py takes "1." or "-"/"*"/"+"; the app must take the same set, or
-  // the two repos disagree about who is a target the moment the file is
-  // reformatted. This is the drift that actually happened.
-  const m = BUILDER.match(/const m = (\/\^[^\n]*\/)\.exec\(line\)/);
-  assert.ok(m, 'the watchlist line pattern is still recognisable in build-seed.js');
-  const re = new RegExp(m[1].slice(1, m[1].lastIndexOf('/')));
-  for (const line of ['1. American Pipit', '- American Pipit',
-                      '* American Pipit', '+ American Pipit',
-                      '  12. Western Grebe']) {
-    assert.ok(re.test(line), 'the parser must accept ' + JSON.stringify(line));
-  }
-  assert.ok(!re.test('# Birds Requiring Additional Verification'),
-    'and must not swallow the heading as a species');
-});
-
-test('every watchlist entry resolves to a species code', () => {
-  // A codeless entry is the quiet version of the bug above: the name still
-  // ships, so the list LOOKS right, but nothing can ever match it and the
-  // bird simply never appears among the verification chases.
-  //
-  // It happened on 2026-08-11. build-seed.js resolved watchlist names only
-  // against the union of the birdlists — the owner's own year lists — while
-  // analyze.py had always fallen back to the full eBird taxonomy. That gap is
-  // invisible until someone adds the very thing a watchlist is FOR: a bird
-  // they have never recorded. Red-necked Phalarope is on none of the nine
-  // birdlists, so the report resolved `renpha` and the app shipped `code: ''`.
-  const bad = (SEED.watchlist || []).filter((w) => !w || !w.code);
-  assert.strictEqual(bad.length, 0,
-    'watchlist entries with no species code: '
-    + JSON.stringify(bad.map((w) => w && w.name))
-    + ' — either the name is misspelled against the eBird taxonomy, or the '
-    + 'taxonomy fallback in build-seed.js stopped working. Both ship a bird '
-    + 'that can never be matched to a sighting');
-
-  // And the fallback has to still BE there: resolving only against the
-  // birdlists is what caused this, and every current entry resolving is not
-  // evidence it would keep working for the next never-recorded bird.
-  assert.match(BUILDER, /taxonomy-en\.json/,
-    'build-seed.js no longer consults the eBird taxonomy for watchlist names, '
-    + 'so the next bird you have never recorded will ship codeless');
 });
 
 test('no report claims to have seen a bird its own year list never names', () => {

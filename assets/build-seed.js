@@ -3,16 +3,13 @@
  * build-seed.js — generate www/seed-birdlist.json from the private report
  * pipeline's eBird year-list exports.
  *
- * The birding-app ships a snapshot of the owner's eBird 2026 year lists as
- * bundled sample data so every panel (Targets, Top destinations, My Ticks, …)
- * has something to chew on before an eBird "Download My Data" CSV is imported.
- * The app matches by eBird `speciesCode`, which is exactly what these exports
- * carry, so matching is exact and locale-independent.
+ * Preserve year-list reference data for parity and previously saved metadata,
+ * plus the taxonomy-derived reportAs map. Setup does not activate these lists
+ * and personal Watch entries are never bundled or subtracted.
  *
  * Source files live in the sibling `birding` repo (private):
  *   birdlist-*.md   — eBird year-list HTML→Markdown exports
  *                     (entries like `##### [American Robin](/species/amerob/US-WA)`)
- *   seen_codes.txt  — flat list of eBird species codes (one per line)
  *
  * Usage:
  *   node assets/build-seed.js [path-to-birding-repo]
@@ -37,14 +34,11 @@ if (!fs.existsSync(srcRoot)) {
   process.exit(1);
 }
 
-// eBird obsDt/name normalization matching analyze._norm (lower, collapse ws).
-function normName(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
-
 // Parse one birdlist-*.md export → { codes:Set, codeToName:{code:name},
-// nameToCode:{normName:code}, entries:[...] }. Mirrors analyze._parse_birdlist
+// entries:[...] }. Mirrors analyze._parse_birdlist
 // link shapes.
 function parseBirdlist(text) {
-  const codes = Object.create(null), codeToName = Object.create(null), nameToCode = Object.create(null);
+  const codes = Object.create(null), codeToName = Object.create(null);
   let m;
   // eBird writes the species link BOTH ways — "/species/moublu/US-WA" on some
   // exports and a bare "/species/moublu)" on others. Requiring the trailing
@@ -59,10 +53,9 @@ function parseBirdlist(text) {
   while ((m = nameRe.exec(text))) {
     const name = m[1].trim(), code = m[2];
     if (name && !codeToName[code]) codeToName[code] = name;
-    if (name && !nameToCode[normName(name)]) nameToCode[normName(name)] = code;
   }
   return {
-    codes: codes, codeToName: codeToName, nameToCode: nameToCode,
+    codes: codes, codeToName: codeToName,
     entries: parseYearEntries(text)
   };
 }
@@ -122,7 +115,6 @@ function parseYearEntries(text) {
 // --- parse every birdlist-<slug>.md, keyed by its file slug -----------------
 const listBySlug = Object.create(null);   // 'wa'|'lower48'|'hi'… → parsed birdlist
 const codeToNameAll = Object.create(null);
-const nameToCodeAll = Object.create(null);
 const usedFiles = [];
 fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f) && f !== 'birdlist-needsverification.md'; })
   .forEach(function (f) {
@@ -131,7 +123,6 @@ fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f)
     const parsed = parseBirdlist(text);
     listBySlug[slug] = parsed;
     Object.keys(parsed.codeToName).forEach(function (c) { if (!codeToNameAll[c]) codeToNameAll[c] = parsed.codeToName[c]; });
-    Object.keys(parsed.nameToCode).forEach(function (n) { if (!nameToCodeAll[n]) nameToCodeAll[n] = parsed.nameToCode[n]; });
     if (text.trim()) usedFiles.push(f);
   });
 
@@ -144,35 +135,13 @@ fs.readdirSync(srcRoot).filter(function (f) { return /^birdlist-.*\.md$/.test(f)
 // whose whole job is finding birds you still need. It bought nothing: it was a
 // strict superset of birdlist-wa.md.
 
-// needsverification.md — a numbered list of NAMES (a watchlist). The report
-// SUBTRACTS these from every region's seen set so they resurface as targets.
-// Resolve each name to a code via the union of all birdlist name→code maps,
-// then — for anything left — the full eBird taxonomy.
-//
-// That fallback is not optional, and analyze.py has always had it: the
-// watchlist is the one list that names birds you have NEVER recorded. A
-// tentative ID you want to refind is, by definition, often not on any year
-// list, so the birdlist union cannot resolve it and the entry shipped with
-// `code: ''`. Caught 2026-08-11 adding Red-necked Phalarope, which is on none
-// of the nine birdlists: the report resolved it to `renpha` and the app
-// shipped it codeless, so it could never match a sighting and the Watchlist
-// section would simply never mention the bird the owner had just asked to
-// track. Same two-repos-disagree shape as the numbered/bulleted drift below,
-// and just as silent.
-const nvCodes = Object.create(null);
-// The ORDER is the user's — it is a hand-maintained numbered list, not a set —
-// so it ships as a sequence, and a name that resolves to no code ships too
-// rather than disappearing between the report and the app.
-const nvEntries = [];
-const nvUnresolved = [];
-// The same cached taxonomy supplies both watchlist name fallback and the
-// child-taxon -> parent-species map. It lives in the SOURCE repo's
+// The cached taxonomy supplies the child-taxon -> parent-species map.
+// It lives in the SOURCE repo's
 // gitignored cache, which is the same "run this beside the private repo"
 // assumption every birdlist read above already makes. An empty alias map would
 // recreate the installed bug silently, so a missing/unreadable cache stops the
 // build instead of producing success-shaped data.
 let taxRows = null;
-let taxNameToCode = null;
 function taxonomyRows() {
   if (taxRows !== null) return taxRows;
   const taxPath = path.join(srcRoot, '.cache', 'taxonomy-en.json');
@@ -187,41 +156,7 @@ function taxonomyRows() {
   taxRows = parsed;
   return taxRows;
 }
-function taxonomyLookup(normalised) {
-  if (taxNameToCode === null) {
-    taxNameToCode = Object.create(null);
-    taxonomyRows().forEach(function (t) {
-      const k = normName(t.comName || '');
-      if (k && !taxNameToCode[k]) taxNameToCode[k] = t.speciesCode;
-    });
-  }
-  return taxNameToCode[normalised];
-}
-const nvPath = path.join(srcRoot, 'birdlist-needsverification.md');
-if (fs.existsSync(nvPath)) {
-  fs.readFileSync(nvPath, 'utf8').split(/\r?\n/).forEach(function (line) {
-    // Numbered "1." or bulleted "-" both count, mirroring
-    // analyze.py::set_region. The list is a SET of species whose order means
-    // nothing, so the hand-maintained numbers were dropped — and this parser
-    // was not updated with it. It silently matched NOTHING from that moment on,
-    // so the app subtracted an empty watchlist while the report subtracted 18
-    // species: every bird awaiting verification was marked "already seen" in
-    // the app and correctly shown as a target in the Markdown. Found
-    // 2026-08-07 while fixing the seen_codes.txt ratchet — the same class of
-    // bug, a parser and its file drifting apart with nothing asserting they
-    // still agree.
-    const m = /^\s*(?:\d+\.|[-*+])\s*(.+?)\s*$/.exec(line);
-    if (!m) return;
-    const key = normName(m[1]);
-    const code = nameToCodeAll[key] || taxonomyLookup(key);
-    if (code) nvCodes[code] = 1;
-    else nvUnresolved.push(m[1]);
-    nvEntries.push({ code: code || '', name: m[1] });
-  });
-  usedFiles.push('birdlist-needsverification.md');
-}
-
-// --- per-report seen set: seen = (seen_bl ∪ sc_wa) − watchlist --------------
+// --- per-report year-list reference ---------------------------------------
 // Keyed by REPORT slug so the app looks the set up directly by selected report.
 // The seen source birdlist follows Region.seen_from_region (resolved in
 // BirdLogic.seenSlugFor: mo/ks/az/ca→lower48, else own).
@@ -233,15 +168,6 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   const srcList = listBySlug[birdlistSlugToKey(seenSrcSlug)] || { codes: {}, codeToName: {} };
   const set = Object.create(null);
   Object.keys(srcList.codes).forEach(function (c) { set[c] = 1; });
-  // The WA-only seen_codes.txt union used to be applied here and is gone with
-  // the file — see the note above and analyze.py::set_region.
-  // Which watchlist codes this report actually HOLDS back — i.e. birds that
-  // would be "seen" here if they were not awaiting verification. Editing the
-  // watchlist on device has to be able to put them back, and only these are
-  // eligible: dropping a species you have never recorded must not invent a
-  // tick.
-  const watchHeld = Object.keys(nvCodes).filter(function (c) { return set[c]; }).sort();
-  Object.keys(nvCodes).forEach(function (c) { delete set[c]; });                       // watchlist resurfaces
   // Display names come from the report's OWN year list (birdlistSlug).
   const ownList = listBySlug[profile.birdlistSlug] || { codeToName: {}, entries: [] };
   const names = Object.keys(ownList.codeToName)
@@ -254,12 +180,12 @@ BirdLogic.REGION_ORDER.forEach(function (reportSlug) {
   seenByReport[reportSlug] = {
     codes: Object.keys(set).sort(),
     names: names,
-    watchHeld: watchHeld,
+    watchHeld: [],
     yearList: (ownList.entries || []).slice()
   };
 });
 
-// Combined union (backwards-compatible "seen anywhere" fallback for applySeed).
+// Combined reference union for previously saved metadata.
 const codeUnion = Object.create(null);
 Object.keys(listBySlug).forEach(function (slug) {
   Object.keys(listBySlug[slug].codes).forEach(function (c) { codeUnion[c] = 1; });
@@ -277,7 +203,7 @@ const seed = {
   seenField: 'speciesCode',
   codes: codeList,
   names: nameList,
-  watchlist: nvEntries,
+  watchlist: [],
   reportAsParents: reportAsParents(taxonomyRows()),
   seenByReport: seenByReport
 };
@@ -296,15 +222,7 @@ console.log('Wrote ' + jsPath);
 console.log('  files:  ' + usedFiles.join(', '));
 console.log('  codes:  ' + codeList.length + ' (combined union)');
 console.log('  reportAs aliases: ' + Object.keys(seed.reportAsParents).length);
-console.log('  watchlist subtracted: ' + Object.keys(nvCodes).length + ' of ' + nvEntries.length + ' entries');
-if (nvUnresolved.length) {
-  // Loud, and mirroring analyze.py's own [warn] line, because the failure is
-  // otherwise invisible: the entry still ships, just with no code, and a
-  // codeless watchlist bird can never match a sighting.
-  console.warn('[warn] could not resolve ' + nvUnresolved.length
-    + ' watchlist name(s): ' + JSON.stringify(nvUnresolved)
-    + ' — check the spelling against the eBird common name');
-}
+console.log('  Watch: empty; personal entries are stored only on the device');
 console.log('  seenByReport:');
 BirdLogic.REGION_ORDER.forEach(function (slug) {
   console.log('    ' + slug + ': ' + seenByReport[slug].codes.length + ' seen · ' +

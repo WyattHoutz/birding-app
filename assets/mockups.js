@@ -647,7 +647,89 @@ const EXTRA_SHOTS = [
 
 // Review-only states do not increase the derived mandatory release contract.
 // They are available through --only when a change needs a focused image.
+async function prepareSetupReview(A, document, state, personalFixture) {
+  const w = document.defaultView, storage = w.localStorage;
+  const later = ['seen', 'summary'].includes(state);
+  A.showMenu();
+  A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
+  storage.removeItem(A.homeKey('lat'));
+  storage.removeItem(A.homeKey('lng'));
+  storage.removeItem(A.homeKey('place'));
+  storage.removeItem('bc_setup_home_draft_v1');
+  if (state === 'account') {
+    storage.removeItem('ebird_display_name');
+    storage.removeItem('ebird_api_key');
+  } else if (state === 'application') storage.removeItem('ebird_api_key');
+  else A.acceptWorkingKey('SYNTHETIC_PREVIEW_ONLY');
+  if (['home', 'candidate'].includes(state)) storage.removeItem('ebird_report');
+  if (['candidate', 'region'].includes(state)) {
+    storage.setItem('bc_setup_home_draft_v1', JSON.stringify({
+      profile: A.bcProfile(),
+      point: { lat: 47.6, lng: -122.3, label: 'Example Seattle location' },
+      approved: state === 'region',
+      region: state === 'region'
+        ? { status: 'ok', code: 'US-WA', label: 'Washington', lat: 47.6, lng: -122.3 } : null
+    }));
+  }
+  if (later) {
+    storage.setItem(A.homeKey('lat'), '47.6');
+    storage.setItem(A.homeKey('lng'), '-122.3');
+    await personalFixture(A, w, { yearList: [
+      { code: 'amerob', name: 'American Robin' }, { code: 'grycat', name: 'Gray Catbird' }
+    ] });
+  }
+  const step = state === 'account' ? 'account'
+    : ['verified', 'application'].includes(state) ? 'key'
+      : later ? state : state === 'region' ? 'region' : 'home';
+  storage.setItem('bc_setup_step_v1', step);
+  A.openSetupSheet();
+  const body = document.getElementById('setupSheetBody');
+  if (body.dataset.setupStep !== step || document.getElementById('setupSheet').hidden) {
+    throw new Error('Setup review did not reach its real production step');
+  }
+  if (state === 'application') {
+    const help = body.querySelector('[data-birdchaser-api-help]');
+    if (!help) throw new Error('First-time application guidance is missing');
+    help.open = true;
+  }
+  if (state === 'verified' && !/saved API key is verified/.test(body.textContent)) {
+    throw new Error('Existing-key preview did not reach verified state');
+  }
+  if (later && !A.personalListEvidence().complete) throw new Error('Seen preview is not ready');
+  const notice = document.createElement('p');
+  notice.className = 'setupnote';
+  notice.textContent = 'REPRESENTATIVE STUB DATA - proposed flow; example account and location.';
+  if (state === 'application') {
+    const help = body.querySelector('[data-birdchaser-api-help]');
+    help.insertBefore(notice, help.querySelector('p'));
+  } else body.prepend(notice);
+  body.dataset.mockData = 'true';
+  if (state === 'application') {
+    const sheet = document.getElementById('setupSheet');
+    const help = body.querySelector('[data-birdchaser-api-help]');
+    const header = sheet.querySelector('.sheethead');
+    sheet.scrollTop += help.getBoundingClientRect().top
+      - header.getBoundingClientRect().bottom - 12;
+  }
+}
+
+const SETUP_REVIEW_SHOTS = [
+  ['account', '1. Connect your eBird account'],
+  ['verified', '2A. Existing API key captured and verified (simulated success)'],
+  ['application', '2B. First-time application - minimal generic examples'],
+  ['home', '3. Choose Home first'],
+  ['candidate', '4. Approve or correct the location candidate'],
+  ['region', '5. Confirm the Home-derived region'],
+  ['seen', '6. Exact seen list ready'],
+  ['summary', '7. Setup summary']
+].map(([state, title]) => ({
+  id: 'f1083-setup-' + state, title, freshApp: true,
+  prep: `await (${prepareSetupReview.toString()})(A, document, ${JSON.stringify(state)},
+    ${preparePersonalFixture.toString()});`
+}));
+
 const REVIEW_SHOTS = [
+  ...SETUP_REVIEW_SHOTS,
   { id: 'f928-watch-patches', at: 'destBtn',
     title: "Today's patches - screenshot-based WATCH-only examples",
     host: 'destResults', fullPage: true, freshApp: true,
@@ -1126,6 +1208,34 @@ const REVIEW_SHOTS = [
            A.showSection(sec.id);
            await FIX.prepare('surgeBtn', ${JSON.stringify(STUB_SPEC.surgeBtn)}, A, document, sec);
            var today = A.todayStr();
+           var window = document.defaultView, originalFetch = window.fetch;
+           var sourceMonth = new window.Date().toLocaleDateString('en-US', {
+             month:'short',year:'numeric',timeZone:'America/Los_Angeles'
+           });
+           var sensitivePage = '<a class="StatsIcon"><span class="StatsIcon-label">This Month</span>'
+             + '<span class="StatsIcon-secondary">'+sourceMonth+'</span></a>'
+             + '<div class="BirdList"><section class="BirdList-list">'
+             + '<h3>Native and Naturalized (1)</h3><ol>'
+             + '<li class="BirdList-list-list-item countable"><div class="Obs">'
+             + '<div class="Obs-species"><a href="https://ebird.org/species/grgowl/US-WA">'
+             + '<span class="Species-common">Great Gray Owl</span></a></div>'
+             + '<div class="Obs-count"># Count: 1</div>'
+             + '<button class="Sensitive-badge">Sensitive</button>'
+             + '</div></li></ol></section></div>';
+           window.fetch = function(request, options) {
+             return /bird-list\\?.*rank=hc/.test(String(request))
+               ? Promise.resolve({ok:true,text:function() {return Promise.resolve(sensitivePage);}})
+               : originalFetch.call(window,request,options);
+           };
+           A.fgCancelAll('Starting deterministic monthly Sensitive fixture');
+           A.fgSchedReset(window.Date.now());
+           var massSource;
+           try { massSource = await A.loadMassFlockAlertSource(true,A.activeScope()); }
+           finally { window.fetch = originalFetch; }
+           if (massSource.state === 'failed' || massSource.sensitiveRows.length !== 1
+               || massSource.rows.length !== 0) {
+             throw new Error('Representative monthly Sensitive source did not qualify independently');
+           }
            var at = function(time) { return today + ' ' + time; };
            var birders = Array.from({length:12}, function(_,i) {
              return {name:'Sample Top 100 birder '+(i+1),rank:i+1,
@@ -1145,7 +1255,7 @@ const REVIEW_SHOTS = [
                distMi:21.9,locName:'Example public mudflats',locId:'LMOCKCELEB',
                latestStr:at('16:00'),latestSubId:'SMOCKCELEB'}],
              [],
-             {mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
+             {massSource:massSource,mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
                favorites:'ok',mass:'ok',foy:'ok',ppte:'ok',deferPhotos:true,
                twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',
                  firstAt:Date.parse(today+'T17:20:00'),reports:3,lowerBound:true,unreviewed:true,
@@ -1309,12 +1419,19 @@ const REVIEW_SHOTS = [
                  throw new Error('F954 extra typography mismatch: '+property);
                }
              });
+             var members = extra.querySelector('ul.migrationmembers');
+             if (members && (card.dataset.alertKind !== 'migration'
+                 || members.parentNode !== extra || !members.children.length
+                 || Array.from(members.children).some(function(node) {return node.tagName !== 'LI';}))) {
+               throw new Error('F1069 grouped evidence requires a nonempty direct species list');
+             }
              if (actual.display !== 'inline' || actual.fontWeight !== '400'
                  || Array.from(extra.querySelectorAll('*')).some(function(node) {
                    var style = document.defaultView.getComputedStyle(node);
                    return style.fontWeight !== '400' || style.fontSize !== expected.fontSize
-                     || style.display === 'block' || style.display === 'inline-block';
-                 })) throw new Error('F954 evidence must be regular-weight inline text at one size');
+                     || style.display === 'inline-block'
+                     || style.display === 'block' && node !== members;
+                 })) throw new Error('F954 evidence must be regular-weight at one size; only F1069 members may form a block list');
            });
            document.querySelector('#appSheet .sheetclose').click();
            await FIX.fillFixturePhotos(host, document);

@@ -1124,12 +1124,27 @@ const AUDIT = `<script>
     document.getElementById('setupSkip').click();
     out.push(scan('(F1067 setup API key)'));
     document.getElementById('setupSkip').click();
-    out.push(scan('(F1067 setup region)'));
+    out.push(scan('(F1084 required setup Home)'));
+    var setupPoint = A.getHome();
+    localStorage.setItem('bc_setup_home_draft_v1',JSON.stringify({
+      profile:A.bcProfile(),point:{lat:setupPoint.lat,lng:setupPoint.lng,label:'Example city center'},
+      approved:true,region:{status:'ok',code:'US-WA',label:'Washington',
+        lat:setupPoint.lat,lng:setupPoint.lng}
+    }));
+    localStorage.setItem('bc_setup_step_v1','region');
+    A.renderSetupSheet();
+    out.push(scan('(F1084 setup matching region)'));
     document.getElementById('setupNext').click();
+    var setupDeadline = Date.now() + 5000;
+    while (document.getElementById('setupSheetBody').dataset.setupStep !== 'seen'
+        && Date.now() < setupDeadline) await new Promise(function(resolve){setTimeout(resolve,25);});
+    if (document.getElementById('setupSheetBody').dataset.setupStep !== 'seen') {
+      throw new Error('F1084 fixture pair confirmation did not advance');
+    }
     out.push(scan('(F1067 setup seen birds)'));
-    document.getElementById('setupSheetClose').click();
-    out.push(scan('(F1067 setup summary)'));
     document.getElementById('setupContinue').click();
+    out.push(scan('(F1067 setup summary)'));
+    document.getElementById('setupSheetClose').click();
     A.openRegionChooser();
     var chooser = document.getElementById('regionChooser');
     chooser.scrollTop = 800;
@@ -2754,7 +2769,29 @@ const AUDIT = `<script>
       latest:new Date().toISOString(),spots:[{loc:'A long named public marsh and river access',
         locId:'L1',lat:47.75,lng:-122.16,dateStr:new Date().toISOString()}]}],10);
     measurePill(document.querySelector('#easyControls .sortpick'),3);
+    var referencePillHeight = document.querySelector('#easyControls .sortbtn')
+      .getBoundingClientRect().height;
+    var referencePillStyle = getComputedStyle(document.querySelector('#easyControls .sortbtn'));
+    var referencePadding = ['paddingTop','paddingRight','paddingBottom','paddingLeft']
+      .map(function (side) { return parseFloat(referencePillStyle[side]); });
     out.push(scan('(F1051 populated Common birds)'));
+    A.showSection('sec-recentBtn', {load:false});
+    A.renderRecentChecklistBatch([
+      {subId:'SF1074NEAR',isoObsDate:'2026-10-23 08:00',numSpecies:30,
+        locId:'LF1074NEAR',loc:{name:'Public nearby park',latitude:47.751,longitude:-122.16}},
+      {subId:'SF1074FAR',isoObsDate:'2026-10-23 09:00',numSpecies:50,
+        locId:'LF1074FAR',loc:{name:'Public distant park',latitude:49.5,longitude:-122.3}}
+    ],1,1);
+    var recentPicker = document.getElementById('recentSortPick');
+    measurePill(recentPicker,3);
+    require(Array.from(recentPicker.querySelectorAll('button')).every(function (button) {
+      var style = getComputedStyle(button);
+      return Math.abs(button.getBoundingClientRect().height - referencePillHeight) <= .5
+        && ['paddingTop','paddingRight','paddingBottom','paddingLeft'].every(function (side,index) {
+          return Math.abs(parseFloat(style[side]) - referencePadding[index]) <= .5;
+        });
+    }), 'F1074 Recent sort sizing differs from the established three-way picker');
+    out.push(scan('(F1074 populated Recent checklist sort)'));
     A.showSection('sec-cklBtn', {load:false});
     A.LOADERS.cklBtn.fn();
     var deadline = Date.now() + 10000;
@@ -2832,6 +2869,10 @@ const AUDIT = `<script>
       var csv = surface === 'setup' ? document.getElementById('setupSeenCsv')
         : document.getElementById('seenBannerBtn');
       require(!!csv === csvExpected, surface + ' ' + state + ' has the wrong CSV action');
+      if (surface === 'setup' && state === 'saved') {
+        require(!/\\bCSV\\b/i.test(document.getElementById('setupSheetBody').textContent),
+          'ready setup mentions CSV recovery');
+      }
       var result = scan('(F1067/F1068 ' + surface + ' ' + state + ')');
       result.setupAcquisition = {surface:surface,state:state,csv:!!csv};
       out.push(result);
@@ -2842,7 +2883,6 @@ const AUDIT = `<script>
     }
     function main() {
       document.getElementById('setupSheetClose').click();
-      document.getElementById('setupContinue').click();
       A.showMenu();
     }
     try {
@@ -2894,6 +2934,157 @@ const AUDIT = `<script>
       else localStorage.removeItem(key);
     }
   }
+  async function homeApprovalRegression(out) {
+    var A = window.__app, fetch = window.fetch;
+    var descriptor = Object.getOwnPropertyDescriptor(navigator,'geolocation');
+    var step = localStorage.getItem('bc_setup_step_v1');
+    var draft = localStorage.getItem('bc_setup_home_draft_v1');
+    var savedHome = JSON.stringify(A.getHome()), requests = 0;
+    function require(value,message) { if (!value) throw new Error('F1079/F1080 ' + message); }
+    async function until(predicate,message) {
+      var deadline = Date.now() + 10000;
+      while (!predicate() && Date.now() < deadline) {
+        await new Promise(function (resolve) { setTimeout(resolve,25); });
+      }
+      require(predicate(),message);
+    }
+    function record(state) {
+      var root = document.getElementById(state === 'Settings Home candidate'
+        ? 'settingsPanel' : 'setupSheetBody');
+      require(root.getBoundingClientRect().width > 0,state + ' is hidden');
+      var controls = Array.from(root.querySelectorAll('button')).filter(function (button) {
+        return button.getBoundingClientRect().width > 0;
+      });
+      require(controls.length >= 2,state + ' has no usable controls');
+      var geometry = controls.map(function (button) {
+        var rect = button.getBoundingClientRect(), range = document.createRange();
+        require(rect.height > 0 && button.scrollWidth <= button.clientWidth + 1,
+          state + ': clipped control ' + button.id);
+        if (document.documentElement.getAttribute('data-a11y') === 'on') {
+          require(rect.width >= 43.5 && rect.height >= 43.5,
+            state + ': undersized control ' + button.id + ' ' + rect.width + 'x' + rect.height);
+        }
+        range.selectNodeContents(button);
+        require(Array.from(range.getClientRects()).every(function (line) {
+          return line.left >= rect.left - 1 && line.right <= rect.right + 1
+            && line.top >= rect.top - 1 && line.bottom <= rect.bottom + 1;
+        }),state + ': clipped control text ' + button.id);
+        return {id:button.id,width:rect.width,height:rect.height};
+      });
+      var result = scan('(F1079/F1080 ' + state + ')');
+      result.homeApprovalGeometry = {state:state,locationRequests:requests,controls:geometry};
+      out.push(result);
+    }
+    try {
+      Object.defineProperty(navigator,'geolocation',{configurable:true,value:{
+        getCurrentPosition:function (success) {
+          requests++;
+          success({coords:{latitude:47.6,longitude:-122.3}});
+        }
+      }});
+      window.fetch = function (url) {
+        if (/photon\\.komoot\\.io\\/(reverse|api)/.test(String(url))) {
+          var features = [
+            {properties:{name:'Springfield Public Nature Reserve',state:'Washington',
+              country:'United States',countrycode:'US'},
+              geometry:{type:'Point',coordinates:[-122.3,47.6]}},
+            {properties:{name:'Springfield Public Nature Reserve',state:'Oregon',
+              country:'United States',countrycode:'US'},
+              geometry:{type:'Point',coordinates:[-123,44]}}
+          ];
+          return Promise.resolve({ok:true,status:200,json:function () {
+            return Promise.resolve({features:/\\/reverse/.test(String(url)) ? features.slice(0,1) : features});
+          }});
+        }
+        return fetch.apply(this,arguments);
+      };
+      localStorage.removeItem('bc_setup_home_draft_v1');
+      localStorage.setItem('bc_setup_step_v1','home');
+      A.openSetupSheet();
+      require(requests === 0,'opening setup requested device permission');
+      record('Home choices');
+      document.getElementById('setupHomeHere').click();
+      await until(function () { return document.getElementById('setupHomeApprove'); },'missing candidate');
+      require(requests === 1 && JSON.stringify(A.getHome()) === savedHome,'candidate saved itself');
+      record('Home candidate');
+      document.getElementById('setupHomeApprove').click();
+      await until(function () { return document.getElementById('setupNext'); },'missing matching pair confirmation');
+      require(JSON.stringify(A.getHome()) === savedHome,'suggestion saved Home before confirmation');
+      require(!document.getElementById('setupHomeOutside'),'region mismatch override remains');
+      require(/Washington/.test(document.getElementById('setupHomeSuggested').textContent),
+        'Home region was not derived');
+      record('Home region confirmation');
+      document.getElementById('setupChangeHome').click();
+      var place = document.getElementById('setupHomePlace');
+      place.value = 'Springfield';
+      place.dispatchEvent(new Event('input',{bubbles:true}));
+      document.getElementById('setupHomeFind').click();
+      await until(function () {
+        return document.getElementById('setupHomeOptions').children.length === 2;
+      },'missing ambiguous manual choices');
+      record('Home manual choices');
+      document.getElementById('setupSheetClose').click();
+      A.showSection('settingsPanel');
+      document.getElementById('homeCurrentLocation').click();
+      await until(function () { return !document.getElementById('homeDeviceSave').hidden; },
+        'missing Settings approval');
+      require(requests === 2 && JSON.stringify(A.getHome()) === savedHome,'Settings candidate saved itself');
+      record('Settings Home candidate');
+      document.getElementById('homeFindCancel').click();
+      require(JSON.stringify(A.getHome()) === savedHome,'cancellation changed saved Home');
+    } finally {
+      window.fetch = fetch;
+      if (descriptor) Object.defineProperty(navigator,'geolocation',descriptor);
+      else delete navigator.geolocation;
+      if (!document.getElementById('setupSheet').hidden) document.getElementById('setupSheetClose').click();
+      if (step === null) localStorage.removeItem('bc_setup_step_v1');
+      else localStorage.setItem('bc_setup_step_v1',step);
+      if (draft === null) localStorage.removeItem('bc_setup_home_draft_v1');
+      else localStorage.setItem('bc_setup_home_draft_v1',draft);
+    }
+  }
+  function apiApplicationRegression(out) {
+    var A = window.__app, step = localStorage.getItem('bc_setup_step_v1');
+    function record(root,surface) {
+      var guide = root.querySelector('[data-birdchaser-api-help]');
+      if (!guide) throw new Error('F1083 missing ' + surface + ' guidance');
+      guide.open = true;
+      var answers = Array.from(guide.querySelectorAll('dd'),function(node) {return node.textContent;});
+      if (JSON.stringify(answers) !== JSON.stringify([
+        'None','Personal use','General','Personal use','Personal, non-commercial use of eBird data.'
+      ])) throw new Error('F1083 changed minimal generic examples in ' + surface);
+      var frame = guide.getBoundingClientRect(), summary = guide.querySelector('summary');
+      if (frame.width <= 0 || frame.left < -1 || frame.right > window.innerWidth + 1
+          || summary.getBoundingClientRect().height < 43.5) {
+        throw new Error('F1083 clipped guidance or undersized disclosure in ' + surface);
+      }
+      guide.querySelectorAll('summary,p,dt,dd').forEach(function(node) {
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        if (Array.from(range.getClientRects()).some(function(line) {
+          return line.left < frame.left - 1 || line.right > frame.right + 1;
+        })) throw new Error('F1083 clipped ' + surface + ' example: ' + node.textContent);
+      });
+      var result = scan('(F1083 ' + surface + ' application guidance)');
+      result.apiApplicationGeometry = {surface:surface,answers:answers,width:frame.width};
+      out.push(result);
+      guide.open = false;
+    }
+    try {
+      localStorage.setItem('bc_setup_step_v1','key');
+      A.openSetupSheet();
+      record(document.getElementById('setupSheetBody'),'setup');
+      document.getElementById('setupSheetClose').click();
+      A.showSection('settingsPanel');
+      record(document.getElementById('settingsPanel'),'Settings');
+    } finally {
+      if (!document.getElementById('setupSheet').hidden) {
+        document.getElementById('setupSheetClose').click();
+      }
+      if (step === null) localStorage.removeItem('bc_setup_step_v1');
+      else localStorage.setItem('bc_setup_step_v1',step);
+    }
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
@@ -2910,6 +3101,14 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await setupAcquisitionRegression(out); }
       catch (error) { out.push({label:'(F1067/F1068 regression)',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await homeApprovalRegression(out); }
+      catch (error) { out.push({label:'(F1079/F1080 regression)',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { apiApplicationRegression(out); }
+      catch (error) { out.push({label:'(F1083 regression)',fixtureError:String(error)}); }
     }
     try {
       var x = new XMLHttpRequest();
@@ -3157,6 +3356,13 @@ server.listen(0, '127.0.0.1', () => {
             && r.setupAcquisition.surface === surface && r.setupAcquisition.state === state)) {
           bad++;
           console.log('   F1067/F1068 FIXTURE missing ' + surface + ' ' + state);
+        }
+      }
+      for (const state of ['Home choices','Home candidate','Home region confirmation',
+        'Home manual choices','Settings Home candidate']) {
+        if (!report.some(r => r.homeApprovalGeometry && r.homeApprovalGeometry.state === state)) {
+          bad++;
+          console.log('   F1079/F1080 FIXTURE missing ' + state);
         }
       }
     }

@@ -3670,6 +3670,7 @@
       margin: 16px 0; background: var(--card); }
     .setupactions { display: grid; gap: 10px; margin: 20px 0; }
     #setupSheetBody button { min-height: 48px; max-width: 100%; white-space: normal; }
+    #setupSheetBody input:not([type="checkbox"]) { min-height: 44px; }
     .setupactions button { width: 100%; min-width: 0; padding: 12px 14px; }
     .setupactions button:not(.secondary) { background: var(--safe-blue); color: var(--accent-ink); }
     .setupkeyget { width: 100%; padding: 12px; background: transparent;
@@ -3749,7 +3750,7 @@
     <div class="sheethead">
       <h2 id="setupSheetTitle">Setup Bird Chaser</h2>
       <button id="setupSheetClose" class="secondary" type="button"
-              aria-label="Set up later">Set up later</button>
+              aria-label="Close setup and return later">Close</button>
     </div>
     <div id="setupSheetBody"></div>
   </div>
@@ -4356,10 +4357,12 @@
       <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
       <div class="keyrow">
         <button id="keyGetBtn" class="secondary" type="button">Get a key</button>
+        <button id="keyExternalBtn" class="secondary" type="button">Open key page externally</button>
         <button id="keyPasteBtn" class="secondary" type="button">Paste</button>
         <button id="keyTestBtn" class="secondary" type="button">Test &amp; save</button>
       </div>
       <p id="keyStatus" class="hint keystate"></p>
+      <div id="keyApplicationHelp"></div>
       <!-- F188: the profile sits beside the KEY it scopes, not fourteen
            controls further down. They are one decision — which account is
            this? — and separating them is why the picker could not be found. -->
@@ -4377,12 +4380,12 @@
         do not prove ownership. List seen totals include species-level Escapees;
         leaderboard and header totals exclude them.
         Hotspot, GBIF and taxonomy caches are shared because they describe places, not you.</p>
-      <p class="hint"><strong>Get a key</strong> opens eBird's key request form. Sign in with your eBird account, submit the short form, then copy the key it shows you and tap <strong>Paste</strong>. It is free, issued instantly, and stored only on this device — it is never sent anywhere but eBird.</p>
+      <p class="hint"><strong>Get a key</strong> reuses your eBird website sign-in. A labelled key displayed on eBird is captured and verified automatically before saving. If it cannot be read, copy it and tap <strong>Paste</strong>, or open the page externally. The key stays on this device and is sent only to eBird.</p>
       <label>Bird Chaser setup</label>
       <div class="row">
         <button id="setupOpenBtn" class="secondary" type="button">Open Setup Bird Chaser</button>
       </div>
-      <p class="hint">Region, eBird website connection, personal API key, Home and seen-list readiness are independent setup steps.</p>
+      <p class="hint">Set your initial Home and region together, connect eBird and prepare your seen list. Additional Home/region pairs can be added later.</p>
       <div class="row" style="margin-top:8px">
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
@@ -4391,7 +4394,9 @@
       <div class="row">
         <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
+        <button id="homeCurrentLocation" class="secondary" type="button">Use my current location</button>
         <button id="homeFindCancel" class="secondary" type="button">Cancel lookup</button>
+        <button id="homeDeviceSave" class="secondary" type="button" hidden>Use this location as Home</button>
         <button id="homeOutsideSave" class="secondary" type="button" hidden>Save this out-of-region Home</button>
         <button id="clearHomeBtn" class="secondary" type="button">Clear Home</button>
       </div>
@@ -4449,7 +4454,6 @@
       <output id="abaSid" class="settingvalue" aria-live="polite"></output>
       <p class="hint">The fixed eBird alert id used for the “ABA Rarities” needs alert.</p>
       <div class="row">
-        <button id="loadSeedBtn" class="secondary" type="button">Load sample data</button>
         <button id="openDebugBtn" class="secondary" type="button">🐞 Debug log</button>
       </div>
       <label>CCLO diagnosis</label>
@@ -5148,7 +5152,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.169.0';
+      var APP_VERSION = '1.170.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6291,7 +6295,9 @@
       // profile already ships its own home coord as the fallback. Values saved
       // before this was per-region migrate once, into whichever report was
       // active at the time.
-      function homeKey(field) { return 'ebird_home_' + field + ':' + getReportSlug(); }
+      function homeKey(field, slug) {
+        return 'ebird_home_' + field + ':' + (slug === undefined ? getReportSlug() : slug);
+      }
       function tideKey() { return 'ebird_tide_station:' + getReportSlug(); }
       function migrateHomeKeys() {
         if (!getReportSlug()) return;
@@ -19618,8 +19624,8 @@
         }, 40);
       }
 
-      function getHome() {
-        var la = parseFloat(localStorage.getItem(homeKey('lat'))), lo = parseFloat(localStorage.getItem(homeKey('lng')));
+      function getHome(slug) {
+        var la = parseFloat(localStorage.getItem(homeKey('lat', slug))), lo = parseFloat(localStorage.getItem(homeKey('lng', slug)));
         if (isFinite(la) && isFinite(lo)) return { lat: la, lng: lo };
         return null;
       }
@@ -19706,7 +19712,9 @@
         if (m) {
           var la = parseFloat(m[1]), lo = parseFloat(m[2]);
           if (isFinite(la) && isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180)
-            return Promise.resolve({ lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5), manualCoordinates: true });
+            return Promise.resolve(options.candidates
+              ? [{ lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5), manualCoordinates: true }]
+              : { lat: la, lng: lo, label: la.toFixed(5) + ', ' + lo.toFixed(5), manualCoordinates: true });
         }
         // GEOCODER: photon.komoot.io. Search was reported dead on device —
         // "i tried searching for everett in top destinations and it didnt work"
@@ -19738,14 +19746,15 @@
         //
         // The lat/lon BIAS is what makes a one-word query land on the Everett
         // you meant instead of the one in England.
-        var report = getReport(), wantState = BL.stateNameFor(report) || '';
-        var reportCode = String((report && report.stateCode) || '');
+        var report = getReport(), wantState = options.unscoped ? '' : BL.stateNameFor(report) || '';
+        var reportCode = options.unscoped ? '' : String((report && report.stateCode) || '');
         var countryCode = reportCode.split('-')[0].toLowerCase();
         if (options.home && !wantState && /^[A-Z]{2}-/.test(reportCode)) {
           wantState = rankRegionName(reportCode) || report.label || '';
         }
         var countryName = { us: 'United States', ca: 'Canada', pm: 'Saint Pierre and Miquelon' }[countryCode] || '';
-        var near = options.home ? regionWaypoint() : (quickAnchor(quickOrigin) || getHome());
+        var near = options.unscoped ? null
+          : options.home ? regionWaypoint() : (quickAnchor(quickOrigin) || getHome());
         var query = options.home && wantState
           ? [q, wantState, countryName].filter(Boolean).join(', ') : q;
         var url = 'https://' + GEOCODER_HOST + '/api/?limit=' + GEOCODER_LIMIT
@@ -19812,17 +19821,15 @@
             // lat/lon, which would have sent you to Redmond, Oregon under a
             // label reading "Redmond, Washington" - a wrong answer wearing a
             // right one's name, which is worse than an obviously wrong one.
-            var c = (top.geometry && top.geometry.coordinates) || [];
-            var lo = parseFloat(c[0]), la = parseFloat(c[1]);
-            if (!(isFinite(la) && isFinite(lo))) throw new Error('Geocoder returned no coordinates.');
-            var p = top.properties || {};
-            // Name, then the region that disambiguates it. Photon has no single
-            // display string, and "Everett" alone would not tell you which one
-            // the bias picked.
-            var label = [p.name, p.state || p.city || p.county, p.country]
-              .filter(Boolean).join(', ');
-            return { lat: la, lng: lo, label: label || q, state: p.state || '',
-              regionMatch: inHomeRegion(top) };
+            function candidate(feature) {
+              var c = (feature.geometry && feature.geometry.coordinates) || [];
+              var p = feature.properties || {};
+              var label = [p.name, p.state || p.city || p.county, p.country]
+                .filter(Boolean).join(', ');
+              return { lat: Number(c[1]), lng: Number(c[0]), label: label || q,
+                state: p.state || '', regionMatch: inHomeRegion(feature) };
+            }
+            return options.candidates ? feats.slice(0, GEOCODER_LIMIT).map(candidate) : candidate(top);
           });
       }
 
@@ -19830,7 +19837,7 @@
       // External URLs remain available through explicitly labelled eBird,
       // checklist, QR and Maps actions. Ordinary bird and public-hotspot names
       // stay inside the app through the two Stakeout screens.
-      function speciesUrl(code) { return code ? 'https://ebird.org/species/' + encodeURIComponent(code) + '/' + encodeURIComponent(getRegion()) : ''; }
+      function speciesUrl(code, region) { return code ? 'https://ebird.org/species/' + encodeURIComponent(code) + '/' + encodeURIComponent(region || getRegion()) : ''; }
       function checklistUrl(sub) { return sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : ''; }
       function hotspotUrl(locId) { return locId ? 'https://ebird.org/hotspot/' + encodeURIComponent(locId) : ''; }
       function extA(url, text, cls) {
@@ -21637,32 +21644,21 @@
       // so a bird awaiting confirmation is deliberately NOT counted as seen and
       // keeps resurfacing as a target everywhere.
       //
-      // The authored list lives in birdlist-needsverification.md and is bundled
-      // by assets/build-seed.js. Edits made here are DEVICE-LOCAL: the app has
-      // no runtime GitHub dependency and cannot write to the pipeline repo, so
-      // the 📋 button hands back the exact Markdown to paste. Saying so is the
-      // honest option — silently diverging from the report is not.
+      // Watch lists are device-local and start empty for each profile.
       var WATCH_KEY = 'ebird_watchlist_v1';
-      function seedWatchlist() {
-        var s = window.__SEED_BIRDLIST__, w = s && s.watchlist;
-        if (!Array.isArray(w)) return [];
-        return w.map(function (e) {
-          return { code: String(e.code || '').toLowerCase(), name: String(e.name || '') };
-        }).filter(function (e) { return e.code || e.name; });
-      }
-      // Absent key means "never edited", which is NOT the same as "emptied":
-      // an empty stored array must stay empty rather than snap back to the seed.
       function getWatchlist() {
-        var raw = null;
-        try { raw = localStorage.getItem(WATCH_KEY); } catch (e) { raw = null; }
-        if (raw === null) return seedWatchlist();
         try {
+          var raw = localStorage.getItem(WATCH_KEY);
+          if (raw === null) return [];
           var a = JSON.parse(raw);
-          if (!Array.isArray(a)) return seedWatchlist();
+          if (!Array.isArray(a)) throw new Error('Watch list is not an array.');
           return a.map(function (e) {
             return { code: String((e && e.code) || '').toLowerCase(), name: String((e && e.name) || '') };
           }).filter(function (e) { return e.code || e.name; });
-        } catch (e) { return seedWatchlist(); }
+        } catch (e) {
+          dbg('warn', 'Saved Watch list could not be read. Its storage has not been replaced.');
+          return [];
+        }
       }
       function watchCodes() {
         var out = {};
@@ -24366,6 +24362,7 @@
         if (!host) return;
         host.innerHTML = ToggleControls.group({
           id: 'recentSortPick',
+          cls: 'multipill',
           label: 'Order recent checklists',
           options: [
             { label: 'Distance', data: { sort: 'distance' },
@@ -27918,38 +27915,6 @@
         updateCsvStatus(); updateMyYear(); renderKeyBanner();
       }
 
-      // --- bundled sample data (owner's eBird 2026 year lists) -------------
-      // Ships in seed-birdlist.js (loaded as window.__SEED_BIRDLIST__) so every
-      // panel has real data to chew on before an eBird "Download My Data" CSV
-      // is imported. Matches by eBird speciesCode — exact and locale-proof.
-      // Fully replaceable: importing a CSV overrides it, and Clear removes it
-      // for good (the "Load sample data" button brings it back).
-      function applySeed(seed) {
-        var codes = (seed && seed.codes) || [], names = (seed && seed.names) || [];
-        var set = {};
-        codes.forEach(function (c) { c = String(c).trim().toLowerCase(); if (c) set[c] = 1; });
-        var n = Object.keys(set).length;
-        var sorted = names.slice().sort(function (a, b) { return String(a).localeCompare(String(b)); });
-        localStorage.setItem(K.seen, JSON.stringify(set));
-        localStorage.setItem(K.field, seed.seenField || 'speciesCode');
-        localStorage.setItem('ebird_year_names', JSON.stringify(sorted));
-        localStorage.setItem('ebird_life_names', '[]');
-        localStorage.setItem(K.seenMeta, JSON.stringify({
-          count: n, rows: n, date: new Date().toISOString(),
-          year: seed.year || new Date().getFullYear(),
-          yearCount: sorted.length, source: 'seed'
-        }));
-        return n;
-      }
-      function loadSeed(force) {
-        var seed = window.__SEED_BIRDLIST__;
-        if (!seed || !seed.codes) { $('csvStatus').textContent = 'Sample data is unavailable in this build.'; return false; }
-        if (force) localStorage.removeItem('ebird_seed_dismissed');
-        localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
-        applySeed(seed);
-        updateCsvStatus(); updateMyYear(); renderKeyBanner();
-        return true;
-      }
       // --- eBird account (login-gated): rankings + ABA rare-bird alert -------
       // These eBird pages redirect to Cornell SSO, so the eBird REST key can't
       // reach them. We open the target page in an in-app browser (Capgo
@@ -28535,21 +28500,206 @@
         if (/^https?:/i.test(k)) return 'looks like a URL, not a key';
         return '';
       }
-      // Open the key request form INSIDE the app rather than in the system
-      // browser: the user has to sign in to eBird to get a key, and an in-app
-      // web view keeps that session next to the field they are filling in.
+      function ebirdKeyResultUrl(value) {
+        try {
+          var url = new URL(value);
+          return url.origin === 'https://ebird.org' && !url.username && !url.password
+            && url.pathname.replace(/\/+$/, '') === '/api/keygen';
+        } catch (error) { return false; }
+      }
+      function parseEbirdKeyResult(doc, url) {
+        if (!ebirdKeyResultUrl(url)) return { status: 'wrong-page' };
+        if (doc.querySelector('input[type="password"], input[autocomplete="current-password"], '
+            + 'form[action*="/login"], form[action*="cassso"]')) return { status: 'login' };
+        var keys = Object.create(null);
+        function add(value) {
+          value = String(value || '').trim();
+          if (!keyLooksWrong(value)) keys[value] = true;
+        }
+        function resultValue(node) {
+          if (!node || node.closest('[hidden], [aria-hidden="true"], script, style, template')) return '';
+          if (/^(INPUT|TEXTAREA)$/.test(node.tagName)) {
+            if (node.tagName === 'INPUT' && node.type !== 'text'
+                || /username|password/i.test(node.autocomplete || '')) return '';
+            return node.value;
+          }
+          if (!/^(CODE|PRE|KBD|SAMP|STRONG|B|SPAN|P|DIV|OUTPUT|DD|TD)$/.test(node.tagName)
+              || node.querySelector('input, textarea, script, style, template')) return '';
+          return node.textContent;
+        }
+        doc.querySelectorAll('label, dt, th, h1, h2, h3, h4, p, div, span, strong, b').forEach(function (node) {
+          if (node.closest('[hidden], [aria-hidden="true"], script, style, template')) return;
+          var text = Array.prototype.filter.call(node.childNodes, function (child) {
+            return child.nodeType === 3;
+          }).map(function (child) { return child.textContent; }).join(' ').replace(/\s+/g, ' ').trim();
+          var label = /^(?:your\s+)?(?:ebird\s+)?api\s*key\b\s*(?:(?:is\b\s*[:=]?|[:=])\s*(.*))?$/i.exec(text);
+          if (!label) return;
+          var values = [], inline = (label[1] || '').trim();
+          if (inline && !keyLooksWrong(inline)) values.push(inline);
+          var fieldLabel = node.closest('label[for]');
+          if (!values.length && fieldLabel) {
+            var field = doc.getElementById(fieldLabel.getAttribute('for'));
+            var labelled = resultValue(field);
+            if (labelled && !keyLooksWrong(labelled)) values.push(labelled);
+          }
+          if (!values.length) Array.prototype.forEach.call(node.children, function (child) {
+            var value = resultValue(child);
+            if (value && !keyLooksWrong(value)) values.push(value);
+          });
+          if (!values.length) {
+            var adjacent = resultValue(node.nextElementSibling);
+            if (adjacent && !keyLooksWrong(adjacent)) values.push(adjacent);
+            var sibling = node.nextSibling;
+            if (!values.length && sibling && sibling.nodeType === 3) {
+              add(sibling.textContent.replace(/^\s*[:=]\s*/, ''));
+            }
+          }
+          values.forEach(add);
+        });
+        var found = Object.keys(keys);
+        var accessRequest = !found.length
+          && Array.from(doc.querySelectorAll('h1, h2, [role="heading"]')).some(function (heading) {
+            return heading.textContent.replace(/\s+/g, ' ').trim() === 'Request API Access';
+          }) && Array.from(doc.querySelectorAll('form')).some(function (form) {
+            return !form.closest('[hidden], [aria-hidden="true"]')
+              && form.querySelector('input[type="checkbox"][name="acceptTermsOfUse"]')
+              && form.querySelector('textarea[name="description"]');
+          });
+        if (accessRequest) return { status: 'access-request' };
+        return found.length === 1 ? { status: 'ok', key: found[0] }
+          : { status: found.length ? 'ambiguous' : 'not-ready' };
+      }
+      function ebirdApiApplicationHelpHtml(expanded) {
+        return '<details data-birdchaser-api-help' + (expanded ? ' open' : '')
+          + ' style="margin:12px 0;padding:12px;border:1px solid #0072B2;border-radius:8px;overflow-wrap:anywhere">'
+          + '<summary style="min-height:44px;padding:8px 0;box-sizing:border-box;cursor:pointer">'
+          + 'First-time API access: instructions and examples</summary>'
+          + '<p>Already have a key? The installed app reads and verifies it automatically. '
+          + 'If eBird shows Request API Access, complete that form yourself.</p>'
+          + '<p><strong>Examples only if accurate for your personal, non-commercial use.</strong> '
+          + 'Keep your description generic; your key is not limited to Bird Chaser.</p>'
+          + '<dl><dt><strong>Organization</strong></dt><dd>None</dd>'
+          + '<dt><strong>Project title</strong></dt><dd>Personal use</dd>'
+          + '<dt><strong>Project Type</strong></dt><dd>General</dd>'
+          + '<dt><strong>Use Cases</strong></dt><dd>Personal use</dd>'
+          + '<dt><strong>Description of Use</strong></dt>'
+          + '<dd>Personal, non-commercial use of eBird data.</dd></dl>'
+          + '<p>Use your own contact and organization details where applicable. For organizational or commercial use, describe '
+          + 'your actual use and review <a href="https://www.birds.cornell.edu/home/ebird-api-terms-of-use/" '
+          + 'target="_blank" rel="noopener">eBird API terms</a>; permission may be required.</p>'
+          + '<p>Review the form and terms before submitting it yourself. Bird Chaser does not '
+          + 'fill fields, accept terms or submit the request. When eBird displays a key, '
+          + 'capture continues automatically. If it is not issued now, return later or paste '
+          + 'your key manually. Approval is eBird\'s decision.</p></details>';
+      }
+      function buildKeyResultInject(requestId, attempt) {
+        return '(function(){function send(d){var m={detail:d};'
+          + 'if(window.mobileApp&&typeof window.mobileApp.postMessage==="function"){window.mobileApp.postMessage(m);return;}'
+          + 'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;'
+          + 'if(h&&typeof h.postMessage==="function")h.postMessage(m);}'
+          + ebirdKeyResultUrl.toString() + ';' + keyLooksWrong.toString() + ';'
+          + parseEbirdKeyResult.toString() + ';'
+          + 'try{var r=parseEbirdKeyResult(document,location.href);'
+          + 'if(r.status==="access-request"&&!document.querySelector("[data-birdchaser-api-help]")){'
+          + 'var help=document.createElement("aside");help.setAttribute("aria-label","Bird Chaser guidance, separate from the eBird form");'
+          + 'help.innerHTML=' + JSON.stringify(ebirdApiApplicationHelpHtml(true)) + ';'
+          + 'document.body.insertBefore(help,document.body.firstChild);}'
+          + 'send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId) + ','
+          + 'ok:r.status==="ok",needsLogin:r.status==="login",terminal:'
+          + (Number(attempt) >= 19) + ',parseStatus:r.status,'
+          + 'data:r.status==="ok"?{key:r.key,sourceUrl:location.origin+location.pathname}:null});'
+          + '}catch(e){send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId)
+          + ',ok:false,terminal:true,parseStatus:"unreadable"});}})();';
+      }
+      var _keyCaptureGeneration = 0, _keyCaptureJob = null;
+      function openKeygenExternal() {
+        ++_keyCaptureGeneration;
+        var setup = !$('setupSheet').hidden && setupStep() === 'key';
+        var get = $(setup ? 'setupGetKey' : 'keyGetBtn');
+        if (get) get.disabled = false;
+        if (setup) $('setupActionStatus').textContent = 'Open eBird in your browser, then return and paste the key here.';
+        else setKeyStatus('Open eBird in your browser, then return and use Paste.', '');
+        openExternal(EBIRD_KEYGEN_URL);
+      }
       function openKeygen() {
         var IB = ib();
-        if (IB && typeof IB.openWebView === 'function') {
-          try {
-            IB.openWebView({
-              url: EBIRD_KEYGEN_URL, showReloadButton: true,
-              title: 'eBird API key', persistWebViewData: true
-            });
-            return true;
-          } catch (e) {}
+        var setup = !$('setupSheet').hidden && setupStep() === 'key';
+        var input = $(setup ? 'setupApiKey' : 'apiKey');
+        var button = $(setup ? 'setupGetKey' : 'keyGetBtn');
+        var status = setup ? $('setupActionStatus') : $('keyStatus');
+        if (_keyCaptureJob && _keyCaptureJob.current()) return true;
+        var generation = ++_keyCaptureGeneration, profile = bcProfile();
+        var revision = identityRevision(), identity = _identityGeneration;
+        var previousKey = getKey(), draft = input && input.value, navigation = _navGeneration;
+        function contextCurrent() {
+          return generation === _keyCaptureGeneration && profile === bcProfile()
+            && revision === identityRevision() && previousKey === getKey()
+            && navigation === _navGeneration && input && input.isConnected && input.value === draft
+            && (setup ? !$('setupSheet').hidden && setupStep() === 'key' : !$('settingsPanel').hidden);
         }
-        openExternal(EBIRD_KEYGEN_URL);
+        function current() {
+          return contextCurrent() && identity === _identityGeneration
+            && !_webSessionClearing && _webSessionReady;
+        }
+        function message(text) { if (contextCurrent() && status) status.textContent = text; }
+        if (!(IB && typeof IB.openWebView === 'function'
+            && typeof IB.addListener === 'function' && typeof IB.executeScript === 'function')) {
+          message('Opened eBird in your browser. Return here and paste the key; automatic capture is available in the installed app.');
+          openExternal(EBIRD_KEYGEN_URL);
+          return true;
+        }
+        if (_webSessionClearing) {
+          message('The eBird session is changing. Wait for it to finish, then try again or paste your key.');
+          return true;
+        }
+        if (!_webSessionReady && typeof IB.clearAllBrowsingData !== 'function') {
+          message('This eBird browser session cannot be safely cleared. Restart the app or paste a key manually.');
+          return true;
+        }
+        if (button) button.disabled = true;
+        message('Opening the key page with your existing eBird login. A displayed key is checked before it is saved.');
+        var ready = Promise.resolve(true);
+        if (!_webSessionReady) {
+          var beforeClear = _identityGeneration;
+          ready = clearEbirdWebSession().then(function (cleared) {
+            if (!cleared || !contextCurrent() || _identityGeneration !== beforeClear + 2) {
+              throw new Error('The eBird session could not be safely prepared.');
+            }
+            identity = _identityGeneration;
+            return true;
+          });
+        }
+        var job = { current: current, promise: null };
+        _keyCaptureJob = job;
+        job.promise = ready.then(function () {
+          if (!current()) throw new Error('Key capture was cancelled because setup changed.');
+          return captureEbird({
+            kind: 'apiKey', url: EBIRD_KEYGEN_URL, title: 'eBird API key',
+            requestId: String(generation), alive: current, showImmediately: true,
+            keepOpenOnError: true, onStatus: message,
+            buildInject: function (attempt) { return buildKeyResultInject(String(generation), attempt); }
+          });
+        }).then(function (data) {
+          if (!current()) return;
+          message('Key captured. Checking it with eBird before saving...');
+          return testApiKey(data.key).then(function (result) {
+            if (!current()) return;
+            if (!result.ok) { message(result.why + ' No key was saved. You can retry or paste manually.'); return; }
+            if (setup) {
+              _keySetupFromBanner = false;
+              discardBundledSeedForAccount();
+            } else input.value = data.key;
+            acceptWorkingKey(data.key);
+            if (setup) goSetupStep('home');
+          });
+        }).catch(function (error) {
+          message((error.message || 'Automatic key capture did not finish.')
+            + ' Copy the key from eBird and use manual paste, or retry.');
+        }).finally(function () {
+          if (generation === _keyCaptureGeneration && profile === bcProfile()
+              && button && button.isConnected) button.disabled = false;
+          if (_keyCaptureJob === job) _keyCaptureJob = null;
+        });
         return true;
       }
       // Clipboard read, best effort. The Capacitor plugin is not installed, so
@@ -28731,6 +28881,176 @@
         renderMenuIdentity();
         return true;
       }
+      function homeLocationCandidate(point, label) {
+        if (!point || point.lat == null || point.lng == null
+            || String(point.lat).trim() === '' || String(point.lng).trim() === ''
+            || !isFinite(Number(point.lat)) || !isFinite(Number(point.lng))
+            || Math.abs(Number(point.lat)) > 90 || Math.abs(Number(point.lng)) > 180) {
+          throw new Error('The location did not contain valid coordinates.');
+        }
+        return { lat: Number(point.lat), lng: Number(point.lng),
+          label: String(label || point.label || 'Home candidate') };
+      }
+      function homeRegionContains(code) {
+        var region = getReportSlug() && String(getRegion() || '').toUpperCase();
+        code = String(code || '').toUpperCase();
+        return !!(region && code && EBIRD_REGION_RE.test(code)
+          && (region === code || region.indexOf(code + '-') === 0));
+      }
+      var SETUP_HOME_DRAFT_KEY = 'bc_setup_home_draft_v1';
+      var _setupHomeGeneration = 0, _setupHomeDraftUnreadable = false;
+      function setupHomeDraft() {
+        _setupHomeDraftUnreadable = false;
+        try {
+          var draft = JSON.parse(localStorage.getItem(SETUP_HOME_DRAFT_KEY) || 'null');
+          if (!draft) return null;
+          if (draft.profile !== bcProfile()) throw new Error('Different draft owner');
+          if (draft.point) draft.point = homeLocationCandidate(draft.point);
+          if (draft.approved && !draft.point) throw new Error('Missing approved candidate');
+          if (draft.region && (!EBIRD_REGION_RE.test(String(draft.region.code || ''))
+              || draft.region.status !== 'ok' || !draft.approved || !draft.point
+              || draft.region.lat !== draft.point.lat || draft.region.lng !== draft.point.lng)) {
+            throw new Error('Invalid or mismatched Home region');
+          }
+          draft.options = (draft.options || []).map(function (point) {
+            return homeLocationCandidate(point);
+          });
+          return draft;
+        } catch (error) {
+          _setupHomeDraftUnreadable = true;
+          dbg('warn', 'Setup Home draft could not be read; stored data was retained unchanged.');
+          return null;
+        }
+      }
+      function storeSetupHomeDraft(draft) {
+        localStorage.setItem(SETUP_HOME_DRAFT_KEY,
+          JSON.stringify(Object.assign({}, draft, { profile: bcProfile() })));
+      }
+      function setupHomeOperation(button) {
+        var generation = ++_setupHomeGeneration, profile = bcProfile();
+        var scope = activeScope(), identity = _identityGeneration;
+        return function () {
+          return generation === _setupHomeGeneration && profile === bcProfile()
+            && scopeCurrent(scope) && identity === _identityGeneration
+            && button.isConnected && setupStep() === 'home' && !$('setupSheet').hidden;
+        };
+      }
+      function lookupSetupHome(device) {
+        var input = $('setupHomePlace'), query = input.value.trim();
+        var button = $(device ? 'setupHomeHere' : 'setupHomeFind');
+        var status = $('setupActionStatus');
+        if (!device && !query) {
+          status.textContent = 'Enter a place or coordinates first.';
+          return;
+        }
+        var current = setupHomeOperation(button);
+        try { storeSetupHomeDraft({ query: query, approved: false }); }
+        catch (error) {
+          status.textContent = 'The Home draft could not be saved. Free device storage and retry.';
+          return;
+        }
+        $('setupHomeHere').disabled = true; $('setupHomeFind').disabled = true;
+        status.textContent = device
+          ? 'Asking for your location. Permission does not accept it as Home.'
+          : 'Looking up Home without using the old report region as a preference...';
+        var request = device ? getDeviceLocation().then(function (point) {
+          return [homeLocationCandidate(point, 'Current location')];
+        }) : geocodePlace(query, { unscoped: true, candidates: true });
+        return request.then(function (points) {
+          if (!current()) return;
+          var candidates = [], keys = {};
+          points.forEach(function (point) {
+            point = homeLocationCandidate(point);
+            var key = point.lat + '|' + point.lng;
+            if (!keys[key]) { keys[key] = true; candidates.push(point); }
+          });
+          if (!candidates.length) throw new Error('No Home candidate was found.');
+          storeSetupHomeDraft({ query: device ? '' : query, approved: false,
+            point: candidates.length === 1 ? candidates[0] : null,
+            options: candidates.length > 1 ? candidates : [] });
+          renderSetupSheet();
+          $('setupActionStatus').textContent = candidates.length > 1
+            ? 'More than one place matched. Choose a candidate before approving Home.'
+            : 'Check the candidate, then approve it or enter a correction. Nothing has been saved as Home.';
+        }).catch(function (error) {
+          if (current()) status.textContent = error.message
+            + ' Enter Home manually or retry. Your saved Home and region are unchanged.';
+        }).finally(function () {
+          if (current()) { $('setupHomeHere').disabled = false; $('setupHomeFind').disabled = false; }
+        });
+      }
+      function approveSetupHome(button) {
+        var draft = setupHomeDraft();
+        if (!draft || !draft.point) return;
+        var current = setupHomeOperation(button), status = $('setupActionStatus');
+        try {
+          draft.approved = true; draft.region = null; draft.options = [];
+          storeSetupHomeDraft(draft);
+        } catch (error) {
+          status.textContent = 'The approved Home draft could not be saved. Free device storage and retry.';
+          return;
+        }
+        button.disabled = true;
+        status.textContent = 'Home approved as a draft. Finding its state or province...';
+        return deriveRegionCode(draft.point.lat, draft.point.lng).then(function (region) {
+          if (!current()) return;
+          draft.region = region;
+          storeSetupHomeDraft(draft);
+          goSetupStep('region');
+          $('setupActionStatus').textContent = 'Your Home is in ' + region.label
+            + '. Confirm this pair before saving.';
+        }).catch(function (error) {
+          if (!current()) return;
+          renderSetupSheet();
+          $('setupActionStatus').textContent = error.message
+            + ' Your approved Home remains a draft. Retry the region lookup or choose a different Home; no default was selected.';
+        });
+      }
+      function setupHomeDestination(draft) {
+        if (!draft || !draft.region) return '';
+        var report = bundledRegionForCode(draft.region.code)
+          || getCustomRegions().filter(function (region) {
+            return region.stateCode.toUpperCase() === draft.region.code.toUpperCase();
+          })[0];
+        return report ? report.slug : '';
+      }
+      function confirmSetupRegion() {
+        var draft = setupHomeDraft(), status = $('setupActionStatus');
+        if (!draft || !draft.approved || !draft.point || !draft.region) {
+          goSetupStep('home');
+          $('setupActionStatus').textContent = 'Choose and approve Home before confirming its region.';
+          return;
+        }
+        var destination = setupHomeDestination(draft), saved = destination && getHome(destination);
+        var replacing = saved && (saved.lat.toFixed(5) !== draft.point.lat.toFixed(5)
+          || saved.lng.toFixed(5) !== draft.point.lng.toFixed(5));
+        if (replacing && (!$('setupHomeReplace') || !$('setupHomeReplace').checked)) {
+          status.textContent = 'This region already has a saved Home. Confirm replacement or change Home.';
+          return;
+        }
+        var profile = bcProfile(), identity = identityRevision();
+        var token = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
+        $('setupNext').disabled = true;
+        return selectResolvedRegion(draft.region).then(function () {
+          if (profile !== bcProfile() || identity !== identityRevision()
+              || token !== localStorage.getItem(SETUP_HOME_DRAFT_KEY)
+              || setupStep() !== 'region' || $('setupSheet').hidden) return;
+          if (String(getRegion()).toUpperCase() !== draft.region.code.toUpperCase()) {
+            throw new Error('Home and region do not match. Change Home or retry the region lookup.');
+          }
+          if (!saveOwnedHome(draft.point, draft.point.label)) {
+            throw new Error('Home could not be saved for its region. Keep the draft and retry.');
+          }
+          localStorage.removeItem(SETUP_HOME_DRAFT_KEY);
+          goSetupStep('seen');
+        }).catch(function (error) {
+          if (profile === bcProfile() && !$('setupSheet').hidden) {
+            renderSetupSheet();
+            $('setupActionStatus').textContent = (error.message || 'Home could not be saved.')
+              + ' The draft was retained. Check device storage and retry.';
+          }
+        });
+      }
       function openHomeSetup() {
         showSettings(true);
         var field = $('homePlace');
@@ -28791,18 +29111,8 @@
           + '<p id="homeSetupStatus" class="hint"></p>';
         var here = $('homeHereBtn');
         if (here) here.addEventListener('click', function () {
-          here.disabled = true;
-          $('homeSetupStatus').textContent = 'Asking for your location…';
-          getDeviceLocation().then(function (point) {
-            saveOwnedHome(point, 'Current location');
-          }).catch(function (error) {
-            var status = $('homeSetupStatus');
-            if (status) status.textContent = (error && error.message)
-              || 'Location is unavailable. Enter Home instead.';
-          }).finally(function () {
-            var current = $('homeHereBtn');
-            if (current) current.disabled = false;
-          });
+          openHomeSetup();
+          $('homeCurrentLocation').click();
         });
         var setup = $('homeSetupBtn');
         if (setup) setup.addEventListener('click', openHomeSetup);
@@ -28821,15 +29131,23 @@
           + esc(label + ' ' + (ready ? readyText : missingText)) + '</strong></div>';
       }
       var SETUP_STEP_KEY = 'bc_setup_step_v1';
-      var SETUP_STEPS = ['account', 'key', 'region', 'seen'];
+      var SETUP_STEPS = ['account', 'key', 'home', 'region', 'seen'];
       var _setupRenderedProfile = null, _setupKeyDraft = '', _setupReturnFocus = null;
       function setupStep() {
         var step = localStorage.getItem(SETUP_STEP_KEY);
+        if (step === 'region') {
+          var draft = setupHomeDraft();
+          if (!draft || !draft.approved || !draft.region) return 'home';
+        }
+        if (step === 'seen' && !getHome()) return 'home';
         return SETUP_STEPS.indexOf(step) >= 0 || step === 'summary' ? step : 'account';
       }
       function setupWebsiteConnected() {
         var meta = getIdentityMeta();
         return !!(getDisplayName() && meta && meta.source === 'ebird-bird-list');
+      }
+      function seenSetupSkipToken() {
+        return personalListKey(personalListOwner(activeScope()));
       }
       function seenSetupState() {
         var scope = activeScope(), generation = _identityGeneration;
@@ -28843,7 +29161,8 @@
             }),
           attempted: !!_personalAutoAttempts[personalPreparationKey(scope, generation)]
             || !!evidence.failure,
-          acknowledged: !!getSeenMeta() || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === '1',
+          acknowledged: !!getSeenMeta()
+            || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === seenSetupSkipToken(),
           canFetch: !!getReportSlug() && setupWebsiteConnected(),
           context: scope.label + ' · ' + personalBasisLabel()
         };
@@ -28858,7 +29177,7 @@
               + (evidence.failure ? 'Could not refresh from eBird. ' + evidence.failure
                 : state.pending ? 'Your matching saved list remains available while eBird loads.'
                   : evidence.stale ? 'This is a saved list; it has not been refreshed today.'
-                    : 'Your account, region and period match. No CSV import is needed.')
+                    : 'Your account, region and period match.')
           };
         }
         if (state.pending) return {
@@ -28903,6 +29222,11 @@
         if (heading) heading.focus({ preventScroll: true });
       }
       function finishSetup() {
+        if (!getHome()) {
+          goSetupStep('home');
+          $('setupActionStatus').textContent = 'Set your initial Home and region to complete setup.';
+          return;
+        }
         localStorage.setItem(SETUP_STEP_KEY, 'summary');
         localStorage.setItem('bc_setup_dismissed_v1', '1');
         closeSetupSheet();
@@ -28921,24 +29245,22 @@
           startSetupSeen(false);
           state = seenSetupState();
         }
-        var recommendation = storedProfileRegionRecommendation();
-        var recommended = recommendation && recommendation.status === 'supported';
         var progress = step === 'summary' ? '' : '<ol class="setupprogress" aria-label="Setup steps">'
-          + ['Account', 'Live birds', 'Region', 'Seen birds'].map(function (label, index) {
+          + ['Account', 'Live birds', 'Home', 'Region', 'Seen birds'].map(function (label, index) {
             return '<li' + (SETUP_STEPS[index] === step ? ' aria-current="step"' : '') + '>'
               + (index + 1) + '. ' + label + '</li>';
           }).join('') + '</ol>';
         var html = progress + '<p class="setupstep">'
-          + (step === 'summary' ? 'Your setup' : 'Step ' + (SETUP_STEPS.indexOf(step) + 1) + ' of 4')
+          + (step === 'summary' ? 'Your setup' : 'Step ' + (SETUP_STEPS.indexOf(step) + 1) + ' of ' + SETUP_STEPS.length)
           + '</p>';
         var actions = '';
         if (step === 'account') {
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Let\'s get you birding.</h3>'
-            + '<p>A few quick steps to make Bird Chaser yours. You can skip any step and finish later in Settings.</p>'
+            + '<p>Connect your account, enable live reports, then set your initial Home and region.</p>'
             + '<div class="setuppanel"><h4>Connect your eBird account</h4>'
-            + '<p>Use your existing Cornell/eBird sign-in to get your profile and a suggested birding region.</p>'
-            + '<p class="hint">Bird Chaser never receives or stores your Cornell/eBird password. '
-            + 'Your password stays with eBird.</p></div>'
+            + '<p>Connect once to read your profile, then reuse that sign-in to retrieve and verify your API key. '
+            + 'You will confirm Home and its matching region together.</p>'
+            + '<p class="hint">Sign in directly on eBird\'s website. Bird Chaser does not need your password.</p></div>'
             + (website ? '<p class="setupnote">Connected as ' + esc(getDisplayName()) + '.</p>' : '')
             + '<p class="hint">Next: a separate personal API key enables live bird reports.</p>';
           actions = '<button id="setupConnectEbird" type="button">'
@@ -28951,38 +29273,84 @@
             + '<p class="setupnote"><strong>Separate from signing in.</strong> Your eBird sign-in does not supply '
             + 'this key. You only need to add it once.</p>'
             + '<div class="setuppanel"><button id="setupGetKey" class="setupkeyget" type="button">'
-            + '1. Get my eBird API key</button><p>2. Sign in on eBird\'s key page, copy the key, then return here.</p>'
-            + '<label for="setupApiKey">3. Paste your personal API key</label>'
+            + 'Get my eBird API key</button><p>Your website login is reused. A displayed key is read and checked automatically. '
+            + 'Finish on eBird if prompted; manual paste remains available if capture cannot finish.</p>'
+            + '<button id="setupKeyExternal" class="secondary" type="button">Open key page externally</button>'
+            + '<label for="setupApiKey">Manual fallback: paste your personal API key</label>'
             + '<input id="setupApiKey" type="password" autocomplete="off" placeholder="Paste key from eBird" '
             + 'autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="setupKeyHelp">'
             + '<p id="setupKeyHelp" class="hint">'
             + (apiKeyVerified() ? 'Your saved API key is verified.' : 'The key is saved only after eBird accepts it.')
-            + '</p></div>';
+            + '</p><p class="hint">Key verification is sent directly to eBird. '
+            + 'Apply for a key on eBird\'s website; you review its form and terms.</p></div>'
+            + ebirdApiApplicationHelpHtml(false);
           actions = '<button id="setupVerifyKey" type="button">Verify API key</button>'
             + '<button id="setupSkip" class="secondary" type="button">'
             + (apiKeyVerified() ? 'Keep my current live reports' : 'Skip live reports for now') + '</button>';
+        } else if (step === 'home') {
+          var homeDraft = setupHomeDraft(), homePoint = homeDraft && homeDraft.point;
+          var approvedHome = !!(homeDraft && homeDraft.approved && homePoint);
+          var savedHome = getHome();
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Set your initial Home and region</h3>'
+            + '<p>Bird Chaser needs a Home location to find birds near you. Choose Home and we\'ll find its region.</p>'
+            + '<p>You can add more Home/region pairs later.</p>'
+            + '<div class="setuppanel"><h4>Choose your Home</h4>'
+            + '<p class="hint">A nearby city center is fine; no exact address is needed.</p>'
+            + '<p>The closer it is to where you bird, the more accurate nearby results and distances will be.</p>'
+            + (savedHome ? '<button id="setupUseSavedHome" class="secondary" type="button">Use saved Home in '
+              + esc(activeScope().label) + '</button>' : '')
+            + '<div class="setupactions"><button id="setupHomeHere" type="button">Use my current location</button></div>'
+            + '<p class="hint">Location is requested only when you tap this button.</p>'
+            + '<label for="setupHomePlace">Or enter a city or place</label>'
+            + '<input id="setupHomePlace" type="text" autocapitalize="words" autocorrect="off" '
+            + 'spellcheck="false" placeholder="e.g. Seattle">'
+            + '<div class="setupactions"><button id="setupHomeFind" class="secondary" type="button">Find Home</button>'
+            + '<button id="setupHomeCancel" class="secondary" type="button">Cancel lookup</button></div>'
+            + '<div id="setupHomeOptions" class="setupactions">'
+            + ((homeDraft && homeDraft.options) || []).map(function (point, index) {
+              return '<button class="secondary" type="button" data-setup-home-option="' + index + '">'
+                + esc(point.label) + ' (' + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5) + ')</button>';
+            }).join('') + '</div>'
+            + '<div id="setupHomeCandidate"' + (homePoint ? '' : ' hidden') + '>'
+            + (homePoint ? '<p>' + esc(homePoint.label) + ' (' + homePoint.lat.toFixed(5) + ', '
+              + homePoint.lng.toFixed(5) + '). '
+              + (approvedHome ? 'Approved draft; not yet saved as Home.' : 'Check your Home location before approving it.')
+              + '</p>' : '')
+            + (homePoint && (!approvedHome || !homeDraft.region)
+              ? '<button id="setupHomeApprove" class="secondary" type="button">'
+                + (approvedHome ? 'Retry region lookup' : 'Use this Home') + '</button>' : '')
+            + (approvedHome && homeDraft.region ? '<button id="setupHomeReview" type="button">Review Home and region</button>' : '')
+            + (homePoint ? '<button id="setupHomeDiscard" class="secondary" type="button">'
+              + 'Choose a different Home</button>' : '')
+            + '</div><p class="hint">Nothing is saved until you confirm Home and its matching region. '
+            + 'Existing saved Homes are unchanged.</p>'
+            + (_setupHomeDraftUnreadable ? '<p class="hint">The saved Home draft could not be read. '
+              + 'It was retained unchanged; enter Home again to replace the draft.</p>' : '')
+            + '</div><p class="hint">Home is required to complete setup. You can close this screen and return later.</p>';
         } else if (step === 'region') {
-          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Where do you bird?</h3>'
-            + '<p>Choose the region for your bird reports. You can change it anytime.</p>'
-            + '<div class="setuppanel"><h4>Birding region</h4><p>'
-            + (getReportSlug() ? 'Selected: ' + esc(activeScope().label) : 'No region selected.')
-            + '</p><button id="setupChooseRegion" class="secondary" type="button">Choose region</button>'
-            + (recommended ? '<div class="setupactions"><button id="setupAcceptRegion" class="secondary" type="button">'
-              + 'Use recommended ' + esc(recommendation.code) + '</button></div>'
-              + '<p class="hint">A recommendation is not selected until you accept it.</p>' : '')
-            + '</div><div class="setuppanel"><h4>Home location · Optional</h4>'
-            + '<p>A Home is used for distances and nearby birding options. It is separate from your region.</p>'
-            + '<button id="setupHome" class="secondary" type="button"'
-            + (!getReportSlug() ? ' disabled' : '') + '>'
-            + (getHome() ? 'Review Home location' : 'Add a Home location') + '</button>'
-            + '<p class="hint">Opens your existing Home settings. Reopen Setup Bird Chaser to return here.</p></div>';
-          actions = '<button id="setupNext" type="button"' + (!getReportSlug() ? ' disabled' : '')
-            + '>Use this region</button><button id="setupSkip" class="secondary" type="button">Choose a region later</button>';
+          var regionDraft = setupHomeDraft(), destination = setupHomeDestination(regionDraft);
+          var destinationHome = destination && getHome(destination);
+          var replaceHome = destinationHome
+            && (destinationHome.lat.toFixed(5) !== regionDraft.point.lat.toFixed(5)
+              || destinationHome.lng.toFixed(5) !== regionDraft.point.lng.toFixed(5));
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Confirm your initial Home and region</h3>'
+            + '<p>Your Home is in ' + esc(regionDraft.region.label) + '. We found this region from your approved Home.</p>'
+            + '<div class="setuppanel" id="setupHomeSuggested"><h4>Your initial pair</h4>'
+            + '<p><strong>Home:</strong> ' + esc(regionDraft.point.label) + '</p>'
+            + '<p><strong>Region:</strong> ' + esc(regionDraft.region.label) + ' (' + esc(regionDraft.region.code) + ')</p>'
+            + '<p>Your Home must be within its region. To use another region, choose a Home there.</p>'
+            + '<p class="hint">No additional device-location request is needed.</p>'
+            + (replaceHome ? '<label><input id="setupHomeReplace" type="checkbox"> Replace the existing Home in '
+              + esc(regionDraft.region.label) + ' with this approved Home.</label>' : '')
+            + '</div><p>You can add more Home/region pairs later, each with its own Home.</p>';
+          actions = '<button id="setupNext" type="button">Confirm Home and region</button>'
+            + '<button id="setupChangeHome" class="secondary" type="button">Change Home</button>';
         } else if (step === 'seen') {
           var message = seenSetupMessage(state);
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">' + esc(message.title) + '</h3>'
             + '<div class="setuppanel"><h4>' + esc(state.context) + '</h4>'
-            + '<p id="seenSetupStatus" role="status">' + esc(message.detail) + '</p></div>';
+            + '<p id="seenSetupStatus" role="status">' + esc(message.detail) + '</p>'
+            + '<p class="hint">This reads your eBird list for the selected region.</p></div>';
           if (state.pending) {
             html += '<p class="setupnote">You do not need to wait here. Setup updates when the fetch finishes.</p>';
             actions = '<button type="button" disabled>Fetching seen birds...</button>';
@@ -29004,6 +29372,9 @@
             + (state.evidence.complete ? '' : ' class="secondary"') + ' type="button">'
             + (state.evidence.complete ? 'Start birding' : state.pending ? 'Continue while fetching' : 'Finish setup for now')
             + '</button>';
+          if (state.evidence.complete && !state.pending && !state.evidence.failure && !state.evidence.stale) {
+            actions += '<button id="setupSeenDismiss" class="secondary" type="button">Dismiss</button>';
+          }
         } else {
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Start now. Finish later.</h3>'
             + '<p>Here is what is ready and what still needs setup. Each capability is independent.</p>'
@@ -29011,13 +29382,15 @@
             + setupStateHtml('eBird website', website, 'connected', 'not connected')
             + setupStateHtml('birding region', !!getReportSlug(), 'confirmed · ' + activeScope().label, 'not chosen')
             + setupStateHtml('personal API key', apiKeyVerified(), 'verified', 'not verified')
-            + setupStateHtml('Home', !!getHome(), 'ready', 'not set · optional')
+            + setupStateHtml('Home', !!getHome(), 'ready', 'not set · required')
             + setupStateHtml('seen list', seenSetupComplete(), 'ready · ' + state.evidence.count + ' species',
               state.pending ? 'fetching' : usesBundledSeed() ? 'sample data only · exact list not ready'
                 : getSeenMeta() ? 'CSV saved · exact list not ready'
                 : 'not ready · finish later')
-            + '</div><p class="hint">Reopen setup in Settings at any time. Skipping a step does not mark it ready.</p>';
-          actions = '<button id="setupContinue" type="button">Start birding</button>'
+            + '</div><p>You can add more Home/region pairs later. Each region has its own Home.</p>'
+            + '<p class="hint">Your Home can be approximate; an exact address is not required.</p>'
+            + '<p class="hint">Reopen setup in Settings at any time. Skipping a step does not mark it ready.</p>';
+          actions = '<button id="setupContinue" type="button">' + (getHome() ? 'Start birding' : 'Set Home and region') + '</button>'
             + '<button id="setupReview" class="secondary" type="button">Review setup</button>';
         }
         body.dataset.setupStep = step;
@@ -29031,7 +29404,7 @@
           var updateVerify = function () {
             var verify = $('setupVerifyKey'), key = input.value.trim();
             verify.disabled = !key;
-            verify.textContent = apiKeyVerified() && key === getKey() ? 'Continue to region' : 'Verify API key';
+            verify.textContent = apiKeyVerified() && key === getKey() ? 'Continue to Home and region' : 'Verify API key';
           };
           input.addEventListener('input', updateVerify);
           updateVerify();
@@ -29040,6 +29413,65 @@
           var button = $(id);
           if (button) button.addEventListener('click', action);
         }
+        var homeInput = $('setupHomePlace');
+        if (homeInput) {
+          homeInput.value = homeDraft && homeDraft.query || '';
+          homeInput.addEventListener('input', function () {
+            ++_setupHomeGeneration;
+            try { storeSetupHomeDraft({ query: homeInput.value, approved: false }); }
+            catch (error) {
+              $('setupActionStatus').textContent = 'The corrected Home draft could not be saved. Free device storage and retry.';
+              return;
+            }
+            $('setupHomeCandidate').hidden = true;
+            $('setupHomeOptions').innerHTML = '';
+            $('setupHomeHere').disabled = false; $('setupHomeFind').disabled = false;
+            $('setupActionStatus').textContent = 'Find and approve the corrected Home. Saved Home is unchanged.';
+          });
+          $('setupHomeOptions').querySelectorAll('[data-setup-home-option]').forEach(function (button) {
+            button.addEventListener('click', function () {
+              var draft = setupHomeDraft(), point = draft && draft.options[Number(button.dataset.setupHomeOption)];
+              if (!point || !button.isConnected || $('setupSheet').hidden) return;
+              ++_setupHomeGeneration;
+              try {
+                storeSetupHomeDraft({ query: draft.query, point: point, approved: false });
+                renderSetupSheet();
+              } catch (error) {
+                $('setupActionStatus').textContent = 'The selected Home draft could not be saved. Free device storage and retry.';
+              }
+            });
+          });
+        }
+        bind('setupHomeHere', function () { lookupSetupHome(true); });
+        bind('setupHomeFind', function () { lookupSetupHome(false); });
+        bind('setupUseSavedHome', function (event) {
+          var saved = getHome();
+          if (!saved) return;
+          try {
+            storeSetupHomeDraft({ point: homeLocationCandidate(saved,
+              localStorage.getItem(homeKey('place')) || 'Saved Home'), approved: false });
+            approveSetupHome(event.currentTarget);
+          } catch (error) {
+            $('setupActionStatus').textContent = 'The saved Home could not be prepared. ' + error.message;
+          }
+        });
+        bind('setupHomeReview', function () { goSetupStep('region'); });
+        bind('setupChangeHome', function () { goSetupStep('home'); });
+        bind('setupHomeApprove', function (event) { approveSetupHome(event.currentTarget); });
+        bind('setupHomeCancel', function () {
+          ++_setupHomeGeneration;
+          renderSetupSheet();
+          $('setupActionStatus').textContent = 'Lookup cancelled. Saved Home and region are unchanged.';
+        });
+        bind('setupHomeDiscard', function () {
+          ++_setupHomeGeneration;
+          try {
+            localStorage.removeItem(SETUP_HOME_DRAFT_KEY);
+            renderSetupSheet();
+          } catch (error) {
+            $('setupActionStatus').textContent = 'The draft could not be removed. Free device storage and retry.';
+          }
+        });
         function connectAccount(event) {
           var connect = event.currentTarget, profile = bcProfile();
           var status = $('setupActionStatus');
@@ -29049,7 +29481,10 @@
             if (profile === bcProfile() && connect.isConnected) status.textContent = message;
           }).then(function (result) {
             if (profile !== bcProfile() || !connect.isConnected || $('setupSheet').hidden) return;
-            if (result && (result.applied || result.status === 'already-set')) goSetupStep('key');
+            if (result && (result.applied || result.status === 'already-set')) {
+              goSetupStep('key');
+              if (!apiKeyVerified()) openKeygen();
+            }
             else status.textContent = identityResultMessage(result);
           }).catch(function (error) {
             if (profile === bcProfile() && connect.isConnected) {
@@ -29059,12 +29494,16 @@
             if (profile === bcProfile() && connect.isConnected) connect.disabled = false;
           });
         }
-        bind('setupConnectEbird', website ? function () { goSetupStep('key'); } : connectAccount);
+        bind('setupConnectEbird', website ? function () {
+          goSetupStep('key');
+          if (!apiKeyVerified()) openKeygen();
+        } : connectAccount);
         bind('setupReconnectEbird', connectAccount);
         bind('setupGetKey', openKeygen);
+        bind('setupKeyExternal', openKeygenExternal);
         bind('setupVerifyKey', function (event) {
           var key = input.value.trim(), verify = event.currentTarget;
-          if (apiKeyVerified() && key === getKey()) { goSetupStep('region'); return; }
+          if (apiKeyVerified() && key === getKey()) { goSetupStep('home'); return; }
           var profile = bcProfile(), generation = _identityGeneration;
           var revision = identityRevision(), previousKey = getKey();
           var status = $('setupActionStatus');
@@ -29088,7 +29527,7 @@
               _keySetupFromBanner = false;
               discardBundledSeedForAccount();
               acceptWorkingKey(key);
-              goSetupStep('region');
+              goSetupStep('home');
             } else status.textContent = '! Key not verified. ' + result.why;
           }).catch(function (error) {
             if (profile === bcProfile() && input.isConnected && !$('setupSheet').hidden) {
@@ -29101,17 +29540,7 @@
             }
           });
         });
-        bind('setupAcceptRegion', function () {
-          acceptRegionRecommendation(recommendation).catch(function (error) {
-            var status = $('setupActionStatus');
-            if (status) status.textContent = error.message || 'Could not select this region.';
-          });
-        });
-        bind('setupChooseRegion', openRegionChooser);
-        bind('setupHome', function () {
-          closeSetupSheet(true); openHomeSetup();
-        });
-        bind('setupNext', function () { if (getReportSlug()) goSetupStep('seen'); });
+        bind('setupNext', confirmSetupRegion);
         bind('setupSkip', function () {
           goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) + 1]);
         });
@@ -29123,11 +29552,17 @@
           startSetupSeen(true);
         });
         bind('setupSeenCsv', function () { closeSetupSheet(true); openCsvSettings(); });
+        bind('setupSeenDismiss', function (event) {
+          if (event.currentTarget.isConnected && _setupRenderedProfile === bcProfile()
+              && setupStep() === 'seen' && !$('setupSheet').hidden) finishSetup();
+        });
         bind('setupReview', function () { goSetupStep('account'); });
         bind('setupContinue', function () {
           if (step === 'summary' || state.evidence.complete) finishSetup();
           else {
-            if (!state.pending && !state.attempted) localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
+            if (!state.pending && !state.attempted) {
+              localStorage.setItem(SEEN_SETUP_SKIP_KEY, seenSetupSkipToken());
+            }
             goSetupStep('summary');
           }
         });
@@ -29146,6 +29581,7 @@
         $('setupSheetClose').focus({ preventScroll: true });
       }
       function closeSetupSheet(deferMain) {
+        ++_setupHomeGeneration;
         var sheet = $('setupSheet');
         if (sheet) sheet.hidden = true;
         _setupKeyDraft = '';
@@ -29166,7 +29602,10 @@
           startSetupSeen(false);
           state = seenSetupState();
         }
-        if (state.acknowledged && !state.evidence.complete && !state.pending) {
+        if (state.evidence.complete && !state.pending
+            && !state.evidence.failure && !state.evidence.stale
+            || !state.evidence.complete && !state.pending && !state.evidence.failure
+              && localStorage.getItem(SEEN_SETUP_SKIP_KEY) === seenSetupSkipToken()) {
           el.hidden = true; el.innerHTML = ''; return;
         }
         var message = seenSetupMessage(state);
@@ -29190,7 +29629,7 @@
         if (csv) csv.addEventListener('click', openCsvSettings);
         var skip = $('seenSkipBtn');
         if (skip) skip.addEventListener('click', function () {
-          localStorage.setItem(SEEN_SETUP_SKIP_KEY, '1');
+          localStorage.setItem(SEEN_SETUP_SKIP_KEY, seenSetupSkipToken());
           renderKeyBanner();
         });
       }
@@ -29255,11 +29694,17 @@
         });
       }
       function bindKeyHelpers() {
+        var help = $('keyApplicationHelp');
+        if (help && !help.firstElementChild) help.innerHTML = ebirdApiApplicationHelpHtml(false);
         var get = $('keyGetBtn'), paste = $('keyPasteBtn'), test = $('keyTestBtn');
+        var external = $('keyExternalBtn');
+        if (external && !external.dataset.bound) {
+          external.dataset.bound = '1';
+          external.addEventListener('click', openKeygenExternal);
+        }
         if (get && !get.dataset.bound) {
           get.dataset.bound = '1';
           get.addEventListener('click', function () {
-            setKeyStatus('Opening eBird… sign in, submit the form, then copy the key it gives you and tap Paste.', '');
             openKeygen();
           });
         }
@@ -29486,6 +29931,7 @@
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
           var massShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
+          var ownedUrl = opts.url;
           var revealDeadlineReached = false;
           function trace(stage, detail, level) {
             dbg(level || 'info', 'eBird capture ' + captureId + ' · ' + stage
@@ -29587,7 +30033,7 @@
             if (opts.kind === 'massHighCount') trace('capture result',
               (err ? 'failed' : 'success') + '; samples=' + sampleCount
               + '; rows=' + (data && Array.isArray(data.rows) ? data.rows.length : 0));
-            if (id) {
+            if (id && (!err || !opts.keepOpenOnError || !alive())) {
               try {
                 if (opts.kind === 'massHighCount') trace('close request', 'owned window');
                 if (opts.onCloseStatus) opts.onCloseStatus('request-started');
@@ -29674,7 +30120,24 @@
               if (!alive()) { stopObsolete(); return; }
               var d = owned && owned.detail; if (!d || !d.__ebird) return;
               if (opts.kind && d.kind !== opts.kind) return;
-              trace('bridge receipt', (d.transport || 'unknown transport')
+              if (opts.kind === 'apiKey') {
+                if (d.requestId !== opts.requestId) return;
+                if (d.ok && (!ebirdKeyResultUrl(ownedUrl) || !d.data
+                    || !ebirdKeyResultUrl(d.data.sourceUrl) || typeof d.data.key !== 'string'
+                    || keyLooksWrong(d.data.key))) return;
+                trace('bridge receipt', d.ok ? 'labelled key result received' : 'waiting for labelled key');
+                if (!d.ok && d.parseStatus === 'access-request' && ebirdKeyResultUrl(ownedUrl)) {
+                  reveal();
+                  if (opts.onStatus) opts.onStatus('First-time API access: complete eBird\'s Request API Access form yourself. '
+                    + 'Bird Chaser does not fill it, accept terms or submit it. The displayed key will be checked before saving.');
+                  return;
+                }
+                if (!d.ok && d.terminal && ebirdKeyResultUrl(ownedUrl)
+                    && ['not-ready', 'ambiguous', 'unreadable'].indexOf(d.parseStatus) >= 0) {
+                  finish(new Error('A single labelled API key could not be read safely.'));
+                  return;
+                }
+              } else trace('bridge receipt', (d.transport || 'unknown transport')
                 + (d.parseStatus ? ' · parse=' + d.parseStatus : '')
                 + (opts.kind === 'identity'
                   ? (d.hasName ? ' · name found' : ' · no name') : '')
@@ -29702,7 +30165,7 @@
                 }
               } else {
                 massMalformedSamples = 0;
-                if (opts.kind !== 'massHighCount' && d.pageShape) {
+                if (opts.kind !== 'massHighCount' && opts.kind !== 'apiKey' && d.pageShape) {
                   trace('profile shape', JSON.stringify(d.pageShape));
                 }
               }
@@ -29742,7 +30205,8 @@
             whenOwned(ev, function (owned) {
               if (!alive()) { stopObsolete(); return; }
               var u = (owned && owned.url) || '';
-              trace('navigation', safeUrl(u));
+              ownedUrl = u;
+              trace('navigation', opts.kind === 'apiKey' ? 'owned key window navigated' : safeUrl(u));
               if (/cassso|cornell|signin|\/login|accounts\.google|facebook|apple/i.test(u)) reveal();
             });
           });
@@ -29765,10 +30229,12 @@
           Promise.all(registrations).then(function () {
             trace('listeners ready', registrations.length + ' registered before open');
             trace('open start', safeUrl(opts.url));
-            return IB.openWebView({
+            var opening = {
               url: opts.url, showReloadButton: true, hidden: true,
               persistWebViewData: true
-            });
+            };
+            if (opts.title) opening.title = opts.title;
+            return IB.openWebView(opening);
           }).then(function (r) {
             traceWindowState(r && r.windowState, 'open result');
             id = r && r.id;
@@ -29777,7 +30243,8 @@
             if (done) { try { IB.close({ id: id }); } catch (e) {} return; }
             flushPending();
             if (done) return;
-            try { IB.hide({ id: id }); } catch (e) {}
+            if (opts.showImmediately) reveal();
+            else try { IB.hide({ id: id }); } catch (e) {}
             if (opts.revealAfterDelay !== false) {
               revealTimer = setTimeout(function () {
                 // A populated but repeatedly rejected Mass page needs a retry,
@@ -33978,6 +34445,8 @@
         var noon = Date.UTC(parts.year, parts.month - 1, parts.day, 12);
         var offset = BL.regionUtcOffset(noon, report.tzStdOffset,
           report.tzObservesDst !== false);
+        offset = BL.regionUtcOffset(wall - offset * 3600000, report.tzStdOffset,
+          report.tzObservesDst !== false);
         return wall - offset * 3600000;
       }
       function birdcastCompletedNight(now, report) {
@@ -34223,7 +34692,7 @@
             return response.json();
           })
           .then(function (doc) {
-            return { value: birdcastForecastFromJson(doc, local), error: '' };
+            return { value: birdcastForecastFromJson(doc, local), error: '', at: Date.now() };
           })
           .catch(function (error) {
             return { value: null, error: (error && error.message) || 'Forecast unavailable' };
@@ -34246,7 +34715,9 @@
               var count = birdcastCountFromHtml(html);
               count.countyLabel = county.label;
               count.dateRange = completedNight.range;
+              count.night = completedNight.night;
               count.nightEndedAt = completedNight.endedAt;
+              count.fetchedAt = Date.now();
               return {
                 countyCode: county.code,
                 count: count,
@@ -34288,6 +34759,8 @@
           var snapshot = {
             key: key,
             fetchedAt: Date.now(),
+            sourceScope: key.split('|')[0],
+            forecastFetchedAt: parts[0].at || 0,
             forecast: parts[0].value,
             count: parts[1].value,
             migrants: parts[2].value,
@@ -34462,21 +34935,22 @@
         }
         return Object.keys(rows).map(function (code) {
           var row = rows[code], selected = row.events.filter(function (event) {
-            return !!kinds[event.kind];
+            return !!kinds[event.kind] && (!event.observed || event.ageDays === 0);
           });
           if (!selected.length) return null;
           selected.sort(function (a, b) {
-            return priority(a) - priority(b)
-              || a.days - b.days
+            return Math.max(0, a.days) - Math.max(0, b.days)
+              || priority(a) - priority(b)
               || a.kind.localeCompare(b.kind);
           });
           row.selectedEvents = selected;
           row.primary = selected[0];
           return row;
         }).filter(Boolean).sort(function (a, b) {
-          return b.primary.days - a.primary.days
+          return Math.max(0, a.primary.days) - Math.max(0, b.primary.days)
             || priority(a.primary) - priority(b.primary)
-            || a.name.localeCompare(b.name);
+            || a.name.localeCompare(b.name)
+            || a.code.localeCompare(b.code);
         });
       }
       function migrationRelative(event) {
@@ -34512,7 +34986,8 @@
         } else if (!rows.length) {
           body = '<div class="birdcast-migrants-empty">No migration events match these filters.</div>';
         } else {
-          body = SpeciesCards.list('small', rows.map(function (row) {
+          function list(group) {
+            return SpeciesCards.list('small', group.map(function (row) {
             var event = row.primary;
             var sources = row.selectedEvents.map(function (item) {
               return item.source;
@@ -34535,6 +35010,11 @@
               data: { 'species-code': row.code, 'migration-kind': event.kind }
             });
           }), 'birdcast-migrant-list migration-list');
+          }
+          var current = rows.filter(function (row) { return row.primary.days <= 0; });
+          var upcoming = rows.filter(function (row) { return row.primary.days > 0; });
+          body = (current.length ? '<h4>Now</h4>' + list(current) : '')
+            + (upcoming.length ? '<h4>Upcoming</h4>' + list(upcoming) : '');
         }
         return '<div class="birdcast-migrants" role="region" '
           + 'aria-label="Combined migration watch">'
@@ -34548,7 +35028,7 @@
           + body
           + '<div class="hint">' + rows.length + ' bird'
           + (rows.length === 1 ? '' : 's')
-          + ' \u00b7 newest event date first; expected dates are seasonal estimates \u00b7 '
+          + ' \u00b7 now first, then nearest upcoming; expected dates are seasonal estimates \u00b7 '
           + 'observations and predictions remain labelled.</div></div>';
       }
       function renderBirdcast(now, suppliedSnapshot, localOnly) {
@@ -34650,7 +35130,8 @@
         return '<a class="thumb surgebirdcastthumb birdcast-count-tile seclink"'
           + ' data-sec="sec-bcBody" data-birdcast-level="HIGH"'
           + ' aria-label="' + esc(shortCount
-            + ' birds migrated last night. Open Migration') + '">'
+            + ' birds (estimated), measured source night '
+            + (snapshot.count.night || 'unavailable') + '. Open Migration') + '">'
           + '<span class="birdcast-flight birdcast-flight-high" aria-hidden="true">'
           + '<span class="birdcast-flight-moon"></span>'
           + '<span class="birdcast-flight-label">' + esc(shortCount)
@@ -34664,36 +35145,60 @@
           return [];
         }
         var state = birdcastAlertState(now, report);
-        if (!state || !snapshot) return [];
+        if (!state || !snapshot || snapshot.sourceScope
+            && snapshot.sourceScope !== getReportSlug()) return [];
         var rows = [];
         var county = birdcastCountCounty(snapshot.count);
         if (county === 'your county') county = countyLabelStr();
-        var forecastDate = snapshot.forecast && String(snapshot.forecast.date || '');
-        var forecastParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(forecastDate);
-        if (forecastParts) {
-          forecastParts = {
-            year: Number(forecastParts[1]),
-            month: Number(forecastParts[2]),
-            day: Number(forecastParts[3])
+        function dateParts(date) {
+          var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
+          if (!match) return null;
+          var parts = {
+            year: Number(match[1]), month: Number(match[2]), day: Number(match[3])
           };
           var dateCheck = new Date(Date.UTC(
-            forecastParts.year, forecastParts.month - 1, forecastParts.day));
-          if (birdcastIsoDate({
+            parts.year, parts.month - 1, parts.day));
+          return birdcastIsoDate({
             year: dateCheck.getUTCFullYear(),
             month: dateCheck.getUTCMonth() + 1,
             day: dateCheck.getUTCDate()
-          }) !== forecastDate) forecastParts = null;
+          }) === date ? parts : null;
+        }
+        var forecastDate = snapshot.forecast && String(snapshot.forecast.date || '');
+        var forecastParts = dateParts(forecastDate);
+        var count = snapshot.count, countDate = count && count.night;
+        if (!countDate && count && count.nightEndedAt > 0) {
+          countDate = birdcastIsoDate(birdcastShiftDate(
+            birdcastLocalParts(new Date(count.nightEndedAt), report), -1));
+        }
+        var countParts = dateParts(countDate);
+        var validCount = countParts && count && typeof count.birds === 'number'
+          && isFinite(count.birds) && count.birds >= 0;
+        var countEstimate = validCount ? birdcastMillions(count.birds) + ' (est.)' : '';
+        var countPeriod = countParts ? birdcastTonightRange(countParts) : '';
+        function freshness(label, at, error) {
+          return label + (at > 0 ? ' acquired ' + new Date(at).toLocaleString() : ': update time unavailable')
+            + (error ? '; saved evidence, refresh failed' : '') + '.';
         }
         if (snapshot.forecast && forecastParts
-            && ['Medium', 'High'].indexOf(snapshot.forecast.level) >= 0) {
+            && ['Low', 'Medium', 'High'].indexOf(snapshot.forecast.level) >= 0) {
           var level = snapshot.forecast.level;
-          var intensity = level === 'High' ? 'Heavy' : 'Moderate';
-          var referenceTime = birdcastLocalTimeMs(forecastParts, 21, report);
+          var referenceTime = birdcastLocalTimeMs(forecastParts, 0, report);
+          var updatedAt = Number(snapshot.forecastFetchedAt || snapshot.fetchedAt || 0);
+          var fresh = !snapshot.forecastError && updatedAt > 0
+            && now.getTime() >= updatedAt && now.getTime() - updatedAt < BIRDCAST_REFRESH_MS
+            && forecastDate === birdcastIsoDate(birdcastLocalParts(now, report));
+          var title = fresh ? level + ' migration tonight'
+            : 'Saved ' + level + ' forecast - ' + birdcastDateLabel(forecastParts);
+          var estimate = validCount
+            ? 'Latest measured night ' + countPeriod + ': ' + countEstimate
+            : 'Measured-night count unavailable';
           rows.push({
             kind: 'migration',
             icon: birdcastLevelTile(snapshot),
             notificationKey: 'migration-forecast:' + forecastDate,
-            name: '<a class="seclink" data-sec="sec-bcBody">' + level + ' migration tonight</a>',
+            name: '<a class="seclink" data-sec="sec-bcBody">' + esc(title)
+              + '</a><br><strong>' + esc(estimate) + '</strong>',
             alpha: '',
             where: '<a class="seclink" data-sec="sec-bcBody">'
               + esc(county) + ' Birdcast Alert · '
@@ -34702,143 +35207,147 @@
             when: new Date(referenceTime).toISOString(),
             time: referenceTime,
             ageTime: 0,
-            ageLabel: 'Tonight',
+            ageLabel: fresh ? 'Tonight' : 'Saved forecast',
             omitWhen: true,
-            noteHeader: 'MIGRATION: ' + intensity
-              + ' migration expected between dusk and dawn',
-            why: '<b>' + level + ' migration tonight</b>',
-            extra: '<span class="dim">' + (snapshot.forecastError
-                ? '⚠️ ' + esc(snapshot.forecastError) + '.'
-                : 'Open Migration for forecast details.')
+            noteHeader: 'MIGRATION: ' + title,
+            why: esc(title) + '. Forecast - not a sighting; migration expected between dusk and dawn. Forecast source night: ' + esc(forecastDate)
+              + (fresh ? '.' : '; saved evidence, not a current forecast.'),
+            extra: '<span class="dim">Forecast - not a sighting; migration expected between dusk and dawn. '
+              + esc(freshness('Forecast', updatedAt, snapshot.forecastError))
+              + (validCount ? ' ' + esc(countEstimate + ' crossed ' + county + ' on source night '
+                + countDate + '. The measured night is separate from the forecast.')
+                + ' ' + esc(freshness('Count', count.fetchedAt || snapshot.fetchedAt, snapshot.countError)) : '')
               + '</span>'
           });
         }
-        if (snapshot.count && snapshot.count.high) {
-          var shortCount = birdcastShortMillions(snapshot.count.birds);
-          var dateRange = snapshot.count.dateRange
-            || birdcastNightRange(birdcastLocalParts(now, report));
-          var sentence = birdcastMillions(snapshot.count.birds)
-            + ' crossed ' + county + ' last night';
-          var completedNight = birdcastCompletedNight(now, report);
+        if (validCount && count.high) {
+          var shortCount = birdcastShortMillions(count.birds);
+          var sentence = countEstimate + ' crossed ' + county + ' on source night ' + countDate;
+          var countTime = birdcastLocalTimeMs(countParts, 0, report);
           rows.push({
             kind: 'migration',
             icon: birdcastCountTile(snapshot),
-            notificationKey: 'migration-count:' + String(snapshot.count.nightEndedAt || completedNight.endedAt),
+            notificationKey: 'migration-count:' + countDate,
             name: '<a class="seclink" data-sec="sec-bcBody">' + esc(shortCount)
-              + ' migration last night</a>',
+              + ' migration - source night ' + esc(countDate) + ' (est.)</a>',
             alpha: '',
             where: '<a class="seclink" data-sec="sec-bcBody">'
-              + esc(county) + ' Birdcast Alert · ' + esc(dateRange) + '</a>',
-            when: new Date(snapshot.count.nightEndedAt || completedNight.endedAt).toISOString(),
-            time: snapshot.count.nightEndedAt || completedNight.endedAt,
-            ageTime: snapshot.count.nightEndedAt || completedNight.endedAt,
+              + esc(county) + ' Birdcast Alert · ' + esc(countPeriod) + '</a>',
+            when: new Date(countTime).toISOString(),
+            time: countTime,
+            ageTime: 0,
+            ageLabel: birdcastDateLabel(countParts),
             omitWhen: true,
             noteHeader: 'MIGRATION: ' + sentence,
             why: '<b>' + esc(sentence) + '</b>',
             extra: '<span class="dim">Shown because BirdCast classified '
-              + 'the county\u2019s night as High.</span>'
+              + 'the county\u2019s source night as High. '
+              + esc(freshness('Count', count.fetchedAt || snapshot.fetchedAt, snapshot.countError))
+              + '</span>'
           });
         }
         return rows;
+      }
+      function birdGenBirdThumbnail(species) {
+        var used = Object.create(null);
+        var birds = (species || []).filter(function (bird) {
+          if (!bird) return false;
+          var key = String(bird.code || bird.speciesCode || bird.name || bird.comName || '')
+            .trim().toLowerCase();
+          if (!key || used[key]) return false;
+          used[key] = true;
+          return true;
+        });
+        if (!birds.length) return '';
+        function name(bird) { return bird.name || bird.comName || bird.code || bird.speciesCode; }
+        function photo(bird) { return photoSlot(name(bird), bird.code || bird.speciesCode); }
+        var count = birds.length;
+        var label = count + ' species: ' + birds.map(name).join(', ');
+        if (count === 1) return photo(birds[0]).replace('<span ',
+          '<span data-birdgen-total="1" role="img" aria-label="' + esc(label) + '" ');
+        var grid = count === 4;
+        return '<span class="thumb ' + (grid ? 'surgepatchthumb' : 'ppte-bird-composite')
+          + '" role="img" data-birdgen-total="' + count + '" aria-label="' + esc(label) + '">'
+          + (grid ? '<span class="surgepatchgrid" aria-hidden="true">' : '')
+          + birds.slice(0, grid ? 4 : 2).map(photo).join('')
+          + (grid ? '</span>' : '')
+          + (count === 3 || count > 4
+            ? '<span class="ppte-extra-birds" aria-hidden="true">' + count + '</span>' : '')
+          + '</span>';
       }
       function migrationSignificantRows(now, snapshot) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var all = migrationUnifiedRows(snapshot, now, {
           tonight: true, arrivals: true, departures: true
         });
-        var observed = [], expected = [], lastChance = [];
-        all.forEach(function (row) {
-          row.events.forEach(function (event) {
-            if (event.kind === 'arrivals' && event.observed) {
-              observed.push({ row: row, event: event });
-            } else if (event.kind === 'arrivals' && event.days <= 0) {
-              expected.push({ row: row, event: event });
-            } else if (event.kind === 'departures' && event.days === 0) {
-              lastChance.push({ row: row, event: event });
-            }
+        var members = all.map(function (row) {
+          var events = row.selectedEvents.filter(function (event) {
+            return event.kind === 'arrivals' && (event.observed ? event.ageDays === 0 : event.days <= 0)
+              || event.kind === 'departures' && event.days <= 0;
           });
+          return events.length ? { code: row.code, name: row.name, events: events } : null;
+        }).filter(Boolean).sort(function (a, b) {
+          return a.name.localeCompare(b.name) || a.code.localeCompare(b.code);
         });
-        observed.sort(function (a, b) {
-          return a.event.ageDays - b.event.ageDays || a.row.name.localeCompare(b.row.name);
+        if (!members.length) return [];
+        var arriving = members.every(function (bird) {
+          return bird.events.every(function (event) { return event.kind === 'arrivals'; });
         });
-        lastChance.sort(function (a, b) {
-          return a.row.name.localeCompare(b.row.name);
+        var departing = members.every(function (bird) {
+          return bird.events.every(function (event) { return event.kind === 'departures'; });
         });
-        var news = [];
-        observed.forEach(function (arrival) {
-          var arrivalDate = arrival.event.observedAt || '';
-          news.push({
-            kind: 'migration',
-            icon: photoSlot(arrival.row.name, arrival.row.code),
-            notificationKey: 'migration-arrival:' + arrival.row.code + ':' + arrivalDate.slice(0, 10),
-            name: '<a class="seclink" data-sec="sec-bcBody">'
-              + '<span class="surgebirdname">' + esc(arrival.row.name)
-              + '</span></a> ' + (arrival.event.ageDays === 0
-                ? 'is showing up now' : 'was first reported ' + migrationRelative(arrival.event)),
-            alpha: '',
-            headlinePlace: !!arrival.event.locName,
-            where: arrival.event.locName
-              ? locLink(arrival.event.locName, null, null,
-                arrival.event.locId, arrival.event.isPrivate)
-              : '<a class="seclink" data-sec="sec-bcBody">'
-                + esc(arrival.event.source) + '</a>',
-            when: arrivalDate,
-            time: surgeTimeValue(arrivalDate),
-            ageTime: surgePreciseTimeValue(arrivalDate),
-            ageLabel: surgePreciseTimeValue(arrivalDate) ? '' : 'Date only',
-            noteHeader: 'MIGRATION ARRIVAL: ' + arrival.row.name,
-            why: '<b>First regional report this year</b>',
-            checklistId: arrival.event.subId || '',
-            extra: '<span class="dim">'
-              + (arrival.event.locName ? esc(arrival.event.source) + ' · ' : '')
-              + 'Observed on eBird, not inferred from a forecast.</span>'
-          });
+        var verb = arriving ? 'arriving now' : departing ? 'departing now' : 'migrating now';
+        function link(bird) { return '<span class="surgebirdname">' + speciesLink(bird.name, bird.code) + '</span>'; }
+        var names = members.slice(0, 2).map(link);
+        var headline = members.length === 1 ? names[0] : members.length === 2
+          ? names.join(' and ') : names.join(', ') + ', and <span class="nowrap">'
+            + (members.length - 2) + ' more</span>';
+        var local = birdcastLocalParts(now, getReport());
+        var midnight = birdcastLocalTimeMs(local, 0, getReport());
+        var expected = members.some(function (bird) {
+          return bird.events.some(function (event) { return !event.observed; });
         });
-        var expectedCodes = {};
-        expected.forEach(function (arrival) {
-          if (expectedCodes[arrival.row.code]
-              || observed.some(function (item) { return item.row.code === arrival.row.code; })) return;
-          expectedCodes[arrival.row.code] = true;
-          news.push({
-            kind: 'migration',
-            icon: photoSlot(arrival.row.name, arrival.row.code),
-            notificationKey: 'migration-expected-arrival:' + arrival.row.code + ':'
-              + birdcastIsoDate(birdcastLocalParts(now, getReport())),
-            name: 'Arrival window for <a class="seclink" data-sec="sec-bcBody">'
-              + '<span class="surgebirdname">' + esc(arrival.row.name) + '</span></a>',
-            alpha: '', where: '<a class="seclink" data-sec="sec-bcBody">'
-              + esc(arrival.event.source) + '</a>',
-            time: surgeTimeValue(birdcastIsoDate(birdcastLocalParts(now, getReport()))),
-            ageTime: 0, ageLabel: 'Expected', omitWhen: true,
-            noteHeader: 'EXPECTED MIGRATION ARRIVAL: ' + arrival.row.name,
-            why: '<b>Seasonal arrival window</b>',
-            extra: '<span class="dim">Expected from local history; not a confirmed arrival.</span>'
-          });
+        var observed = members.some(function (bird) {
+          return bird.events.some(function (event) { return event.observed; });
         });
-        var departureCodes = {};
-        lastChance.forEach(function (departure) {
-          if (departureCodes[departure.row.code]) return;
-          departureCodes[departure.row.code] = true;
-          var departureDate = birdcastIsoDate(birdcastLocalParts(now, getReport()));
-          news.push({
-            kind: 'migration',
-            icon: photoSlot(departure.row.name, departure.row.code),
-            notificationKey: 'migration-departure:' + departure.row.code + ':' + departureDate,
-            name: 'Last chance for <a class="seclink" data-sec="sec-bcBody">'
-              + '<span class="surgebirdname">' + esc(departure.row.name) + '</span></a>',
-            alpha: '',
-            where: '<a class="seclink" data-sec="sec-bcBody">'
-              + esc(departure.event.source) + '</a>',
-            when: departureDate,
-            time: surgeTimeValue(departureDate),
-            ageTime: 0, ageLabel: 'Expected',
-            omitWhen: true,
-            noteHeader: 'MIGRATION DEPARTURE: ' + departure.row.name,
-            why: '<b>County history puts departure in the current week</b>',
-            extra: '<span class="dim">Expected from local history; not a confirmed departure.</span>'
-          });
-        });
-        return news;
+        var identity = members.map(function (bird) {
+          return bird.code + ':' + bird.events.map(function (event) {
+            return event.kind + ':' + (event.observed ? event.observedAt : event.source);
+          }).sort().join('|');
+        }).sort().join(';');
+        return [{
+          kind: 'migration',
+          icon: birdGenBirdThumbnail(members),
+          notificationKey: 'migration-now:' + local.year + ':' + identity,
+          name: headline + ' ' + verb + '.',
+          alpha: '',
+          when: new Date(midnight).toISOString(),
+          time: midnight,
+          ageTime: 0,
+          ageLabel: expected ? observed ? 'Expected / Observed' : 'Expected' : 'Observed today',
+          omitWhen: true,
+          noteHeader: 'MIGRATION: ' + members.length + ' current opportunities',
+          why: expected
+            ? 'Current migration opportunities; expected seasonal windows are estimates, not confirmed sightings.'
+            : 'Observed eBird first reports for today in the report-local calendar.',
+          extra: '<ul class="migrationmembers">' + members.map(function (bird) {
+            return '<li>' + link(bird) + ': ' + bird.events.map(function (event) {
+              return esc(event.movement) + ' (' + (event.observed ? 'Observed' : 'Expected')
+                + ') - ' + esc(event.source)
+                + (event.observed
+                  ? ' - ' + surgeFactsHtml({
+                    kind: 'migration', when: event.observedAt,
+                    where: event.locName
+                      ? locLink(event.locName, null, null, event.locId, event.isPrivate)
+                      : esc(event.source),
+                    checklistId: event.subId || ''
+                  }) + ' - Observed on eBird, not inferred from a forecast.'
+                  : ' - Expected seasonal window, not a confirmed '
+                    + (event.kind === 'departures' ? 'departure.' : 'arrival.'));
+            }).join('; ') + '</li>';
+          }).join('') + '</ul>',
+          data: { 'migration-group-count': members.length }
+        }];
       }
       function birdcastSurgeRow(now, snapshot) {
         return birdcastSurgeRows(now, snapshot)[0] || null;
@@ -40081,10 +40590,15 @@
       }
       function surgeSourceProgress(states, pendingSources) {
         var groups = surgeSourceSummary(states, pendingSources);
-        var loaded = groups.loaded.length, total = groups.total;
+        var limited = groups.incomplete.filter(function (key) { return states[key] === 'partial'; });
+        var loaded = groups.loaded.length + limited.length, total = groups.total;
         var pct = total ? Math.round(loaded * 100 / total) : 0;
         var label = 'Bird Gen - ' + loaded + ' of ' + total + ' loaded';
-        [['failed', 'failed'], ['incomplete', 'incomplete'], ['pending', 'loading'],
+        if (limited.length) label += ' · ' + limited.length + ' with limited coverage';
+        if (groups.incomplete.length > limited.length) {
+          label += ' · ' + (groups.incomplete.length - limited.length) + ' incomplete';
+        }
+        [['failed', 'failed'], ['pending', 'loading'],
           ['skipped', 'not applicable']].forEach(function (entry) {
           if (groups[entry[0]].length) label += ' · ' + groups[entry[0]].length + ' ' + entry[1];
         });
@@ -40098,7 +40612,10 @@
           + ['failed', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
             return groups[group].map(function (key) {
               return '<li>' + esc(SURGE_SOURCE_LABELS[key]) + ': '
-                + { failed: 'Failed', incomplete: 'Incomplete', pending: 'Loading',
+                + { failed: 'Failed',
+                  incomplete: states[key] === 'partial' ? 'Loaded with limited coverage'
+                    : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
+                  pending: 'Loading',
                   loaded: 'Loaded', skipped: 'Not applicable' }[group]
                 + (group === 'failed' || group === 'incomplete'
                   ? ' <button type="button" class="surgeretry" data-source-retry="' + key
@@ -40356,7 +40873,7 @@
               || row.kind === 'favorite' && !joinsTwitch
               || row.kind === 'mass' && !joinsTwitch
               || row.kind === 'ppte'
-              || row.kind === 'migration') {
+              || row.kind === 'migration' || row.kind === 'sensitive') {
             out.push(row);
             return;
           }
@@ -40450,7 +40967,7 @@
         twitch: ['observations'], mega: ['mega'], migration: ['birdcast'],
         need: ['observations'], crowd: ['observations'], cascade: ['leaderboard', 'observations'],
         hotspot: ['hotspots'], patch: ['observations'], favorite: ['favorites'],
-        mass: ['mass'], ppte: ['ppte'], foy: ['foy']
+        mass: ['mass'], sensitive: ['mass'], ppte: ['ppte'], foy: ['foy']
       };
       function surgeCountHtml(rows, states, pendingSources) {
         states = states || {};
@@ -40465,6 +40982,11 @@
           return {
             loading: deps.some(function (key) { return summary.pending.indexOf(key) >= 0; }),
             failed: deps.some(function (key) { return summary.failed.indexOf(key) >= 0; }),
+            limited: deps.some(function (key) {
+              return summary.incomplete.indexOf(key) >= 0 && states[key] === 'partial';
+            }) && deps.every(function (key) {
+              return summary.incomplete.indexOf(key) < 0 || states[key] === 'partial';
+            }),
             retry: deps.filter(function (key) {
               return summary.failed.indexOf(key) >= 0 || summary.incomplete.indexOf(key) >= 0;
             })
@@ -40481,9 +41003,11 @@
             var label = (counts[kind] || !state.loading && !state.retry.length
               ? counts[kind] + ' ' : state.loading ? '⌛ ' : '') + SURGE_KINDS[kind].word
               + (state.loading ? ' · loading' : '')
-              + (state.retry.length ? state.failed ? ' · source failed' : ' · incomplete' : '');
+              + (state.retry.length ? state.failed ? ' · source failed'
+                : state.limited && !state.loading ? ' · loaded with limited coverage' : ' · incomplete' : '');
             return '<span class="surgecategory" data-category-state="'
-              + (state.loading ? 'loading' : state.failed ? 'failed' : state.retry.length ? 'incomplete' : 'loaded') + '">'
+              + (state.loading ? 'loading' : state.failed ? 'failed'
+                : state.retry.length ? state.limited ? 'limited' : 'incomplete' : 'loaded') + '">'
               + ToggleControls.pressed({cls:'surgecount',data:{'count-kind':kind},
                 icon:kind === 'ppte' ? '' : SURGE_KINDS[kind].glyph,
                 iconHtml:kind === 'ppte' ? SURGE_KINDS[kind].glyph : '',
@@ -40722,21 +41246,20 @@
           var key = bird.code || String(bird.comName || '').toLowerCase();
           if (!key || used[key]) return;
           used[key] = true;
-          if (birds.length < 4) birds.push(bird);
+          birds.push(bird);
         });
         var counts = { input: (species || []).length, unseen: split.unseen.length,
           seen: split.seen.length, unknown: split.unknown.length,
-          eligible: Object.keys(used).length, selected: birds.length };
+          eligible: Object.keys(used).length, selected: birds.length === 4 ? 4 : Math.min(2, birds.length) };
         var attributes = Object.keys(counts).map(function (key) {
           return ' data-patch-' + key + '="' + counts[key] + '"';
         }).join('');
         if (!birds.length) return surgePlaceTile().replace('<span ', '<span' + attributes + ' ');
         var label = (state === 'unseen' ? 'Unseen birds' : 'Birds with unknown personal history')
-          + ' at ' + place + ': ' + birds.map(function (bird) { return bird.comName; }).join(', ');
-        return '<span' + attributes + ' class="thumb surgepatchthumb" role="img" data-patch-birds="' + state
-          + '" aria-label="' + esc(label) + '"><span class="surgepatchgrid" aria-hidden="true">'
-          + birds.map(function (bird) { return photoSlot(bird.comName, bird.code); }).join('')
-          + '</span></span>';
+          + ' at ' + place;
+        return birdGenBirdThumbnail(birds)
+          .replace('<span ', '<span' + attributes + ' data-patch-birds="' + state + '" ')
+          .replace('aria-label="', 'aria-label="' + esc(label) + '. ');
       }
 
       function surgePatchDiagnostics() {
@@ -40747,7 +41270,7 @@
             ['input', 'unseen', 'seen', 'unknown', 'eligible', 'selected'].forEach(function (key) {
               counts[key] = Number(tile.getAttribute('data-patch-' + key));
             });
-            var slots = tile.querySelectorAll('.surgepatchgrid > .thumb');
+            var slots = tile.matches('[data-bird]') ? [tile] : tile.querySelectorAll('.thumb[data-bird]');
             counts.slots = slots.length;
             counts.loadedImages = [].filter.call(slots, function (slot) {
               var image = slot.querySelector('img');
@@ -40960,11 +41483,19 @@
       }
 
       function enrichMassArrivals(result, work, onProgress, force) {
+        var baseCoverage = result.arrivalBaseCoverage || result.coverage;
+        var baseState = result.arrivalBaseState || result.state;
         var candidates = result.rows.filter(function (flock) { return !massNews(flock).length; });
-        if (!candidates.length) return Promise.resolve(result);
-        var baseCoverage = result.coverage, baseState = result.state;
+        if (!candidates.length) {
+          result.arrivalPending = false;
+          result.state = baseState;
+          result.coverage = baseCoverage;
+          return Promise.resolve(result);
+        }
         var requests = {}, now = Date.now();
         result.arrivalDays = result.arrivalDays || {};
+        result.arrivalBaseCoverage = baseCoverage;
+        result.arrivalBaseState = baseState;
         result.arrivalPending = true;
         result.state = 'partial';
         result.coverage = baseCoverage + '; arrival evidence loading';
@@ -41173,6 +41704,83 @@
         });
       }
 
+      function birdGenSensitiveRows(source, now) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        var scope = activeScope(), report = getReport();
+        if (!source || source.source !== 'highCountPage'
+            || source.sourceOwner !== surgeRetainedContext()
+            || source.sourceRegion !== scope.effectiveRegion
+            || !Array.isArray(source.sensitiveRows)
+            || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(source.sourceMonth || '')
+            || !(source.acquiredAt > 0) || source.acquiredAt > now.getTime()) return [];
+        function monthAt(date) {
+          var parts = birdcastLocalParts(date, report);
+          return parts.year + '-' + String(parts.month).padStart(2, '0');
+        }
+        if (source.sourceMonth !== monthAt(now)
+            || source.sourceMonth !== monthAt(new Date(source.acquiredAt))) return [];
+        var period = new Date(source.sourceMonth + '-01T12:00:00Z').toLocaleDateString('en-US', {
+          month: 'long', year: 'numeric', timeZone: 'UTC'
+        });
+        var used = Object.create(null);
+        return source.sensitiveRows.filter(function (bird) {
+          if (!bird || !/^[a-z0-9]+$/.test(bird.code || '')
+              || bird.region !== scope.effectiveRegion || typeof bird.name !== 'string'
+              || !bird.name.trim() || used[bird.code]) return false;
+          used[bird.code] = true;
+          return true;
+        }).map(function (bird) {
+          var url = speciesUrl(bird.code, scope.effectiveRegion);
+          return {
+            kind: 'sensitive',
+            icon: photoSlot(bird.name, bird.code),
+            name: '<a class="extlink" data-href="' + esc(url) + '">'
+              + esc(bird.name) + '</a> reported in your region this month.',
+            notificationKey: 'sensitive:' + bird.region + ':' + source.sourceMonth + ':' + bird.code,
+            time: 0, ageTime: 0, ageLabel: period, omitWhen: true,
+            when: '', alpha: '',
+            where: 'eBird regional monthly list - ' + esc(period),
+            noteHeader: 'SENSITIVE: ' + bird.name + ' reported in your region this month.',
+            why: 'Sensitive species; exact observation date and location withheld by eBird.',
+            extra: 'Source calendar month: ' + esc(period) + '. Acquired '
+              + esc(new Date(source.acquiredAt).toLocaleString())
+              + (source.state === 'stale' || source.state === 'failed'
+                ? '; saved source evidence, not a fresh acquisition.' : '.'),
+            data: { 'sensitive-species': bird.code, 'sensitive-region': bird.region,
+              'source-month': source.sourceMonth, 'source-acquired-at': source.acquiredAt }
+          };
+        });
+      }
+      function massSourceMonth(doc) {
+        var months = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+        var found = [];
+        Array.from(doc.querySelectorAll('.StatsIcon')).forEach(function (icon) {
+          var label = icon.querySelector('.StatsIcon-label');
+          var period = icon.querySelector('.StatsIcon-secondary');
+          if (!label || label.textContent.trim() !== 'This Month' || !period) return;
+          var match = /^([A-Z][a-z]{2})\s+(\d{4})$/.exec(period.textContent.trim());
+          if (!match || !months[match[1]]) return;
+          var month = match[2] + '-' + months[match[1]];
+          if (found.indexOf(month) < 0) found.push(month);
+        });
+        return found.length === 1 ? found[0] : '';
+      }
+      function massSensitiveRow(item, region) {
+        var marker = item.querySelector('button.Sensitive-badge');
+        if (!marker || marker.textContent.trim() !== 'Sensitive') return null;
+        var bird = item.querySelector('.Obs-species a');
+        var species = bird && /^https:\/\/ebird\.org\/species\/([a-z0-9]+)\/([^/?#]+)$/
+          .exec(bird.getAttribute('href') || '');
+        var count = item.querySelector('.Obs-count');
+        var number = count && /Count:\s*([0-9][0-9,]*|X)\s*$/i.exec(count.textContent);
+        var name = bird && (bird.querySelector('.Species-common') || bird).textContent.trim();
+        if (!species || species[2] !== region || !number || !name) return null;
+        return {
+          code: species[1], name: name, region: region,
+          count: number[1].toUpperCase() === 'X' ? null : Number(number[1].replace(/,/g, ''))
+        };
+      }
       function parseMassHighCountPage(text, region, allowPartial) {
         var kind = pageKind(text);
         if (kind !== 'OPEN') throw new Error('High-count page needs website access (' + kind + ').');
@@ -41204,8 +41812,13 @@
         if (!hasSpeciesSection || items.length !== declared) {
           invalid('incomplete-rows', 'High-count species rows are missing or incomplete.');
         }
-        var rejected = 0, errors = [];
+        var rejected = 0, errors = [], sensitiveRows = [];
         var rows = items.map(function (item, index) {
+          var sensitive = massSensitiveRow(item, region);
+          if (sensitive) {
+            sensitiveRows.push(sensitive);
+            return null;
+          }
           var bird = item.querySelector('.Obs-species a');
           var count = item.querySelector('.Obs-count');
           var time = item.querySelector('.Obs-date time[datetime]');
@@ -41256,26 +41869,41 @@
             locationPrivate: !placeMatch
           };
         }).filter(function (row) { return row !== null; });
-        if (rejected && !rows.length) {
+        if (rejected && !rows.length && !sensitiveRows.length) {
           Object.assign(shape, errors[0]);
           invalid('malformed-row', 'Malformed high-count inventory: no usable observations.');
         }
         if (allowPartial) rows.rowCoverage = {
-          total: items.length, accepted: rows.length, rejected: rejected, errors: errors
+          total: items.length, accepted: rows.length, rejected: rejected, errors: errors,
+          sensitiveRows: sensitiveRows, sourceMonth: massSourceMonth(doc)
         };
         return rows;
       }
 
       function massHighCountCoverage(rows, coverage, region) {
+        var sensitiveRows = coverage && coverage.sensitiveRows == null ? []
+          : coverage && coverage.sensitiveRows;
         if (!coverage || !Number.isInteger(coverage.total) || coverage.total < 0
             || coverage.total > 100000
             || coverage.accepted !== rows.length
             || !Number.isInteger(coverage.rejected) || coverage.rejected < 0
-            || coverage.total !== coverage.accepted + coverage.rejected
+            || !Array.isArray(sensitiveRows)
+            || coverage.total !== coverage.accepted + coverage.rejected + sensitiveRows.length
+            || coverage.sourceMonth != null && coverage.sourceMonth !== ''
+              && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(coverage.sourceMonth)
             || !Array.isArray(coverage.errors)
             || coverage.errors.length !== Math.min(20, coverage.rejected)) {
           throw new Error('High-count row coverage did not match the parsed inventory.');
         }
+        sensitiveRows = sensitiveRows.map(function (bird) {
+          if (!bird || Object.keys(bird).sort().join(',') !== 'code,count,name,region'
+              || !/^[a-z0-9]+$/.test(bird.code || '') || bird.region !== region
+              || typeof bird.name !== 'string' || !bird.name.trim()
+              || bird.count !== null && (!Number.isSafeInteger(bird.count) || bird.count < 0)) {
+            throw new Error('Invalid regional Sensitive species evidence.');
+          }
+          return { code: bird.code, count: bird.count, name: bird.name, region: bird.region };
+        });
         var seen = {};
         var errors = coverage.errors.map(function (error) {
           if (!error || !Number.isInteger(error.invalidRow) || error.invalidRow < 0
@@ -41305,7 +41933,8 @@
         });
         return {
           total: coverage.total, accepted: coverage.accepted,
-          rejected: coverage.rejected, errors: errors
+          rejected: coverage.rejected, errors: errors,
+          sensitiveRows: sensitiveRows, sourceMonth: coverage.sourceMonth || ''
         };
       }
 
@@ -41315,13 +41944,13 @@
         }
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var allowedTags = {
-          DIV: 1, SECTION: 1, H3: 1, OL: 1, LI: 1, A: 1, SPAN: 1, TIME: 1
+          DIV: 1, SECTION: 1, H3: 1, OL: 1, LI: 1, A: 1, SPAN: 1, TIME: 1, BUTTON: 1
         };
         var allowedClasses = {
           BirdList: 1, 'BirdList-list': 1, 'BirdList-list-list-item': 1,
           countable: 1, Obs: 1, 'Obs-species': 1, 'Obs-count': 1,
           'Obs-date': 1, 'Obs-location': 1, 'Obs-location-name': 1,
-          'Species-common': 1
+          'Species-common': 1, 'Sensitive-badge': 1
         };
         function escaped(value) {
           return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -41359,6 +41988,12 @@
           var classes = String(node.getAttribute('class') || '').split(/\s+/)
             .filter(function (name) { return allowedClasses[name]; });
           var classText = classes.length ? ' class="' + escaped(classes.join(' ')) + '"' : '';
+          if (node.tagName === 'BUTTON') {
+            return classes.indexOf('Sensitive-badge') < 0 ? ''
+              : '<button class="Sensitive-badge">'
+                + (node.textContent.trim() === 'Sensitive' ? 'Sensitive' : '[unrecognized]')
+                + '</button>';
+          }
           var nextContext = context;
           if (classes.indexOf('Obs-species') >= 0 || classes.indexOf('Species-common') >= 0) {
             nextContext = 'species';
@@ -41494,6 +42129,7 @@
           'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
           'if(h&&h.postMessage){detail.transport="webkit";h.postMessage({detail:detail});}}' +
           'try{' + pageKind.toString() + ';' + sanitizeMassCaptureMarkup.toString() + ';'
+            + massSourceMonth.toString() + ';' + massSensitiveRow.toString() + ';'
             + parseMassHighCountPage.toString() + ';' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
           'var want=new URL(' + JSON.stringify(expectedUrl) + ');var here=new URL(location.href);' +
@@ -41515,7 +42151,8 @@
           'detail.transport="mobileApp";window.mobileApp.postMessage({detail:detail});return;}}catch(_){}' +
           'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;' +
           'if(h&&h.postMessage){detail.transport="webkit";h.postMessage({detail:detail});}}' +
-          'try{' + pageKind.toString() + ';' + parseMassHighCountPage.toString() + ';'
+          'try{' + pageKind.toString() + ';' + massSourceMonth.toString() + ';'
+            + massSensitiveRow.toString() + ';' + parseMassHighCountPage.toString() + ';'
             + sanitizeMassCaptureMarkup.toString() + ';'
             + sanitizeMassHighCountFragment.toString() + ';' +
           'var H=document.documentElement?document.documentElement.outerHTML:"";' +
@@ -41856,11 +42493,6 @@
           storeKeys(MASS_DAY_CACHE_NS).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
         function finish(result, cancelled) {
-          // Acquisition freshness is separate from the age of retained display rows.
-          if (!cancelled && result.source === 'highCountPage'
-              && !result.arrivalPending && ['ok', 'partial'].indexOf(result.state) >= 0) {
-            result = Object.assign({}, result, { acquiredAt: Date.now() });
-          }
           dbg(result.state === 'ok' ? 'net' : 'warn',
             'Bird Gen Mass Flock verdict: ' + (cancelled ? 'cancelled'
               : result.state === 'failed' ? 'source failed'
@@ -41886,13 +42518,22 @@
           var acquiredAt = value && value.acquiredAt != null ? value.acquiredAt : part && part.at;
           var age = part ? now - Number(acquiredAt) : NaN;
           var retainedAge = part ? now - Number(part.at) : NaN;
+          var resumable = value && value.arrivalPending
+            && value.sourceOwner === surgeRetainedContext()
+            && value.sourceRegion === scope.effectiveRegion
+            && value.includeProvisional === true
+            && Number.isFinite(value.acquiredAt) && value.acquiredAt > 0
+            && ['ok', 'partial'].indexOf(value.arrivalBaseState) >= 0
+            && typeof value.arrivalBaseCoverage === 'string' && !!value.arrivalBaseCoverage
+            && birdcastIsoDate(birdcastLocalParts(new Date(value.acquiredAt), getReport())).slice(0, 7)
+              === birdcastIsoDate(birdcastLocalParts(new Date(now), getReport())).slice(0, 7);
           var reason = force ? 'forced refresh'
             : !cache ? 'missing cache'
             : !contextMatches ? 'context mismatch'
             : !part ? 'missing Mass part'
             : !value ? 'missing value'
             : value.source !== 'highCountPage' ? 'different source'
-            : value.arrivalPending ? 'arrival pending'
+            : value.arrivalPending && !resumable ? 'arrival pending'
             : ['ok', 'partial'].indexOf(value.state) < 0 ? 'incomplete state'
             : !Array.isArray(value.evidenceRows) ? 'invalid evidence'
             : !Array.isArray(value.rows) ? 'invalid rows'
@@ -41907,6 +42548,11 @@
             + '; retained row age ' + (isFinite(retainedAge) ? retainedAge + 'ms' : 'unknown'));
           if (!reason) {
             var retained = surgeRetainedModel(cache).mass;
+            if (resumable) {
+              dbg('net', 'Bird Gen Mass resumes owned acquired page; arrival checks still required.');
+              return enrichMassArrivals(Object.assign({}, retained, { state: value.state }),
+                work, onProgress, false).then(function (result) { return finish(result); });
+            }
             return Object.assign({}, retained, { state: value.state });
           }
           return acquire();
@@ -41954,8 +42600,13 @@
         }).then(function (rows) {
           if (!workCurrent(work)) throw queueCancelledError(work);
           var rowCoverage = massHighCountCoverage(rows, rows.rowCoverage, scope.effectiveRegion);
+          var acquiredAt = Date.now();
           pageRows = rowCoverage.total;
           diagnostics.unusableHighCountRows = rowCoverage.rejected;
+          var unverifiedSensitivePeriod = rowCoverage.sensitiveRows.length && !rowCoverage.sourceMonth;
+          if (unverifiedSensitivePeriod) {
+            dbg('warn', 'Sensitive species source month could not be verified; no monthly cards published.');
+          }
           if (rowCoverage.rejected) {
             dbg('warn', 'Bird Gen Mass high-count inventory incomplete: '
               + rowCoverage.accepted + ' of ' + rowCoverage.total + ' rows usable; '
@@ -41992,13 +42643,20 @@
               !== new Date(now).getMonth();
             var result = {
               source: 'highCountPage',
+              sourceOwner: surgeRetainedContext(),
+              sourceRegion: scope.effectiveRegion,
+              sourceMonth: rowCoverage.sourceMonth,
+              sensitiveRows: rowCoverage.sensitiveRows,
+              acquiredAt: acquiredAt,
               includeProvisional: true,
-              state: rowCoverage.rejected || unresolved || monthLimited ? 'partial' : 'ok',
+              state: rowCoverage.rejected || unresolved || monthLimited || unverifiedSensitivePeriod
+                ? 'partial' : 'ok',
               coverage: 'Current-month high counts; single-observation evidence; public hotspots only'
                 + (rowCoverage.rejected ? '; ' + rowCoverage.accepted + ' of '
                   + rowCoverage.total + ' high-count rows usable; '
                   + rowCoverage.rejected + ' unusable rows excluded; error details logged' : '')
                 + (unresolved ? '; ' + unresolved + ' locations could not be resolved safely' : '')
+                + (unverifiedSensitivePeriod ? '; Sensitive source month unverified; monthly cards withheld' : '')
                 + (monthLimited ? '; previous-month days not covered' : ''),
               evidenceRows: evidence, diagnostics: diagnostics, rowCoverage: rowCoverage,
               rows: massFlockAlerts(evidence, {
@@ -42300,14 +42958,7 @@
       }
 
       function ppteBirdComposite(event) {
-        var more = event.species.length - 2;
-        return '<span class="thumb ppte-bird-composite" role="img" aria-label="'
-          + esc(event.species.map(function (bird) { return bird.name; }).join(', ')) + '">'
-          + event.species.slice(0, 2).map(function (bird) {
-            return photoSlot(bird.name, bird.code);
-          }).join('')
-          + (more > 0 ? '<span class="ppte-extra-birds" aria-hidden="true">+'
-            + more + '</span>' : '') + '</span>';
+        return birdGenBirdThumbnail(event.species);
       }
 
       function renderSurge(
@@ -42371,7 +43022,8 @@
         var sourceStates = surgeSourceStates(mega, sourceState);
         var migrationNow = new Date();
         var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
-          .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot));
+          .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot))
+          .concat(birdGenSensitiveRows(sourceState && sourceState.massSource, migrationNow));
         var diagnostics = [surgeSourceWarning(sourceStates)];
         var ppteRows = sourceState && sourceState.ppteRows || [];
         var twitchRows = sourceState && sourceState.twitchRows || [];
@@ -42870,7 +43522,7 @@
           row.seenState = (row.kind === 'hotspot' || row.kind === 'patch'
               || row.kind === 'mass'
               || row.kind === 'ppte'
-              || row.kind === 'migration')
+              || row.kind === 'migration' || row.kind === 'sensitive')
             ? 'not-applicable'
             : (isSeen(row.speciesKey || row.code, row.speciesNameKey) === true ? 'seen'
               : isSeen(row.speciesKey || row.code, row.speciesNameKey) === false ? 'unseen' : 'unknown');
@@ -43423,7 +44075,8 @@
             surgeModel.observed.needs,
             _merged,
             Object.assign({}, states, {
-              massCoverage: surgeModel.mass.coverage, deferPhotos: !renderReady,
+              massCoverage: surgeModel.mass.coverage, massSource: surgeModel.mass,
+              deferPhotos: !renderReady,
               pendingSources: Object.assign({}, pendingSources),
               ppteRows: surgeModel.ppte.rows, ppteCoverage: surgeModel.ppte.coverage,
               retainedAt: retainedDates.length ? Math.min.apply(Math, retainedDates) : 0,
@@ -48092,6 +48745,7 @@
 
       function showSection(id) {
         var options = arguments[1] || {};
+        if (id !== 'settingsPanel' && !$('settingsPanel').hidden) cancelHomeLookup();
         if (id === 'settingsPanel' && _birdGenNotifyInitialised) updateBirdGenNotifications(false);
         if (id === 'sec-surgeBtn') resetSurgeCategory();
         // F261. THE PAGE IS LAID OUT AGAINST A STALE VIEWPORT, AND NOTHING
@@ -48298,6 +48952,7 @@
         });
       }
       function showMenu() {
+        if (!$('settingsPanel').hidden) cancelHomeLookup();
         var from = visibleSectionId();
         if (!menuVisible()) {
           performanceCancelSection(from, 'navigation');
@@ -50664,14 +51319,12 @@
         }
       });
       $('setupSheetClose').addEventListener('click', function () {
-        if (setupStep() === 'summary') finishSetup();
-        else goSetupStep('summary');
+        closeSetupSheet();
       });
       $('setupSheet').addEventListener('keydown', function (event) {
         if (event.key === 'Escape') {
           event.preventDefault();
-          if (setupStep() === 'summary') finishSetup();
-          else goSetupStep('summary');
+          closeSetupSheet();
         } else if (event.key === 'Tab') {
           var controls = [].slice.call(this.querySelectorAll('button, input, a[href], select'))
             .filter(function (element) {
@@ -51569,7 +52222,6 @@
       });
       $('csvFile').addEventListener('change', onCsvFile);
       $('clearCsv').addEventListener('click', clearCsv);
-      $('loadSeedBtn').addEventListener('click', function () { loadSeed(true); });
       $('ccloTraceArm').addEventListener('click', armCcLoTraceCapture);
       $('ccloTraceCopy').addEventListener('click', function () {
         var text = ccLoTraceText();
@@ -51654,10 +52306,14 @@
       function cancelHomeLookup() {
         ++_homeLookupGeneration;
         _homeOutsideCandidate = null;
+        _homeDeviceCandidate = null;
         $('homeOutsideSave').hidden = true;
+        $('homeDeviceSave').hidden = true;
         $('geocodeBtn').disabled = false;
+        $('homeCurrentLocation').disabled = false;
       }
       var _homeOutsideCandidate = null;
+      var _homeDeviceCandidate = null;
       $('homeFindCancel').addEventListener('click', function () {
         cancelHomeLookup();
         $('geocodeStatus').textContent = 'Lookup cancelled. Saved Home is unchanged.';
@@ -51672,17 +52328,22 @@
           return Promise.resolve(false);
         }
         var generation = ++_homeLookupGeneration, report = getReportSlug();
+        var profile = bcProfile(), scope = activeScope(), identity = _identityGeneration;
         var st = $('geocodeStatus'), btn = $('geocodeBtn');
         function current() {
-          return generation === _homeLookupGeneration && report === getReportSlug();
+          return generation === _homeLookupGeneration && report === getReportSlug()
+            && profile === bcProfile() && scopeCurrent(scope) && identity === _identityGeneration;
         }
         btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
         _homeOutsideCandidate = null;
+        _homeDeviceCandidate = null;
         $('homeOutsideSave').hidden = true;
+        $('homeDeviceSave').hidden = true;
         return geocodePlace(q, { home: true }).then(function (res) {
           if (!current()) return false;
           if (res.regionMatch !== true && !res.manualCoordinates) {
-            _homeOutsideCandidate = { result: res, generation: generation, report: report };
+            _homeOutsideCandidate = { result: res, generation: generation, report: report,
+              profile: profile, scope: scope, identity: identity };
             $('homeOutsideSave').hidden = false;
             st.textContent = 'Warning: ' + res.label + ' (' + res.lat.toFixed(4)
               + ', ' + res.lng.toFixed(4) + ') is outside ' + getReport().label
@@ -51703,17 +52364,75 @@
           return false;
         }).finally(function () { if (current()) btn.disabled = false; });
       }
-      $('homeOutsideSave').addEventListener('click', function () {
-        var candidate = _homeOutsideCandidate;
+      function confirmSettingsHomeCandidate(candidate, outside) {
         if (!candidate || candidate.generation !== _homeLookupGeneration
-            || candidate.report !== getReportSlug()) return;
+            || candidate.report !== getReportSlug() || candidate.profile !== bcProfile()
+            || !scopeCurrent(candidate.scope) || candidate.identity !== _identityGeneration
+            || $('settingsPanel').hidden) return;
         var res = candidate.result;
         $('homeLat').value = res.lat.toFixed(5);
         $('homeLng').value = res.lng.toFixed(5);
         $('homePlace').value = res.label;
         cancelHomeLookup();
-        persistSettings();
-        $('geocodeStatus').textContent = 'Explicitly saved out-of-region Home: ' + res.label + '.';
+        if (candidate.device) saveOwnedHome(res, res.label);
+        else persistSettings();
+        $('geocodeStatus').textContent = outside
+          ? 'Explicitly saved out-of-region Home: ' + res.label + '.'
+          : 'Approved and saved Home: ' + res.label + '.';
+      }
+      $('homeOutsideSave').addEventListener('click', function () {
+        confirmSettingsHomeCandidate(_homeOutsideCandidate, true);
+      });
+      $('homeDeviceSave').addEventListener('click', function () {
+        confirmSettingsHomeCandidate(_homeDeviceCandidate, false);
+      });
+      $('homeCurrentLocation').addEventListener('click', function () {
+        cancelHomeLookup();
+        var generation = _homeLookupGeneration, profile = bcProfile();
+        var scope = activeScope(), identity = _identityGeneration;
+        var button = this, status = $('geocodeStatus');
+        function current() {
+          return generation === _homeLookupGeneration && profile === bcProfile()
+            && scopeCurrent(scope) && identity === _identityGeneration
+            && !$('settingsPanel').hidden;
+        }
+        if (!getReportSlug()) {
+          status.textContent = 'Choose a report region before saving Home, or use Home-first setup.';
+          return;
+        }
+        button.disabled = true;
+        status.textContent = 'Asking for your location. Your saved Home will not change until you approve.';
+        getDeviceLocation().then(function (point) {
+          if (!current()) return;
+          var candidate = homeLocationCandidate(point, 'Current location');
+          return deriveRegionCode(candidate.lat, candidate.lng).then(function (region) {
+            candidate.regionMatch = homeRegionContains(region.code);
+            candidate.label += ' - ' + region.label;
+          }).catch(function (error) {
+            candidate.regionWarning = error.message
+              + ' The location needs explicit out-of-region/unverified confirmation.';
+          }).then(function () {
+            if (!current()) return;
+            var owned = { result: candidate, generation: generation, report: getReportSlug(),
+              profile: profile, scope: scope, identity: identity, device: true };
+            $('homePlace').value = candidate.lat.toFixed(5) + ', ' + candidate.lng.toFixed(5);
+            status.textContent = (candidate.regionWarning ? candidate.regionWarning + ' ' : '') + 'Candidate: ' + candidate.label + ' ('
+              + candidate.lat.toFixed(5) + ', ' + candidate.lng.toFixed(5)
+              + '). Approve it or correct the place and tap Find. Saved Home is unchanged.';
+            if (candidate.regionMatch === true) {
+              _homeDeviceCandidate = owned;
+              $('homeDeviceSave').hidden = false;
+            } else {
+              _homeOutsideCandidate = owned;
+              $('homeOutsideSave').hidden = false;
+              status.textContent += ' Warning: this is outside the selected region or its region is unverified.';
+            }
+          });
+        }).catch(function (error) {
+          if (current()) status.textContent = error.message + ' Enter Home manually or retry. Saved Home is unchanged.';
+        }).finally(function () {
+          if (generation === _homeLookupGeneration && profile === bcProfile()) button.disabled = false;
+        });
       });
       $('clearHomeBtn').addEventListener('click', function () {
         cancelHomeLookup();
@@ -51750,9 +52469,6 @@
         localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
         // Identity is read-only and belongs to the authenticated eBird account.
         // Settings must never turn stale field contents into an override.
-        var oldAbaSid = getAbaSid();
-        localStorage.setItem('ebird_aba_sid', (($('abaSid').value || '').trim().toUpperCase()) || 'SN10489');
-        if (getAbaSid() !== oldAbaSid) invalidateMegaViews();
         // Switch profiles without persisting an editable identity label.
         var wantP = $('bcProfileSel') ? ($('bcProfileSel').value || '') : bcProfile();
         if (wantP !== bcProfile()) { bcSetProfile(wantP); return; }
@@ -52186,6 +52902,7 @@
         birdcastSurgeRow: birdcastSurgeRow,
         birdcastSurgeRows: birdcastSurgeRows,
         birdcastLevelTile: birdcastLevelTile, birdcastCountTile: birdcastCountTile,
+        birdGenBirdThumbnail: birdGenBirdThumbnail, birdGenSensitiveRows: birdGenSensitiveRows,
         migrationSignificantRows: migrationSignificantRows,
         migrationUnifiedRows: migrationUnifiedRows,
         surgeAlertCard: surgeAlertCard,
@@ -52495,7 +53212,7 @@
         testApiKey: testApiKey, acceptWorkingKey: acceptWorkingKey,
         openKeygen: openKeygen, EBIRD_KEYGEN_URL: EBIRD_KEYGEN_URL,
         importCSV: importCSV, unzipEbirdCsv: unzipEbirdCsv,
-        loadSeed: loadSeed, getSeenMeta: getSeenMeta,
+        getSeenMeta: getSeenMeta,
         usesBundledSeed: usesBundledSeed,
         migrationManualRuns: function () { return _migrationManualRuns; },
         auditPageContext: auditPageContext, auditSafeSettings: auditSafeSettings,

@@ -172,8 +172,8 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
   try {
     const A = app.window.__app, ctx = A.firstYearContext(), now = new Date();
     const taxa = [
-      { code: 'trokin', name: 'Tropical Kingbird', sci: 'Tyrannus melancholicus' },
-      { code: 'verfly', name: 'Vermilion Flycatcher', sci: 'Pyrocephalus rubinus' },
+      { code: 'oldmig', name: 'Tropical Kingbird', sci: 'Historicalis primus' },
+      { code: 'oldermig', name: 'Vermilion Flycatcher', sci: 'Historicalis secundus' },
       { code: 'newmig', name: 'New Migrant', sci: 'New migrans' },
       { code: 'currmig', name: 'Current Migrant', sci: 'Current migrans' },
       { code: 'overmig', name: 'Overdue Migrant', sci: 'Overdue migrans' },
@@ -188,8 +188,8 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
     };
     const page = A.parseFirstYearBirdList(foySourceFixture(1));
     page.rows = [
-      { code: 'verfly', name: 'Vermilion Flycatcher', date: day(-11), observedAt: day(-11)+' 08:00' },
-      { code: 'trokin', name: 'Tropical Kingbird', date: day(-10), observedAt: day(-10)+' 08:00' },
+      { code: 'oldermig', name: 'Vermilion Flycatcher', date: day(-11), observedAt: day(-11)+' 08:00' },
+      { code: 'oldmig', name: 'Tropical Kingbird', date: day(-10), observedAt: day(-10)+' 08:00' },
       { code: 'newmig', name: 'New Migrant', date: day(0), observedAt: day(0)+' 08:00' }
     ];
     A.firstYearWrite(ctx.region, ctx.year, page);
@@ -202,31 +202,34 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
     }));
     const before = app.state.fetches.length;
     const rows = A.migrationUnifiedRows(null, now, { arrivals: true, departures: true, tonight: true });
-    assert.ok(rows.length >= 6, 'cached current and future predictions must not require opening another view');
-    const offsets = Array.from(rows, row => row.primary.days);
-    assert.deepEqual(offsets, offsets.slice().sort((a,b) => b-a));
+    assert.equal(rows.length, 4, 'all current and future predictions remain; past-only observations retire: '
+      + JSON.stringify(Array.from(rows, row => ({code:row.code,events:row.selectedEvents}))));
+    const offsets = Array.from(rows, row => Math.max(0, row.primary.days));
+    assert.deepEqual(offsets, offsets.slice().sort((a,b) => a-b));
     const observed = rows.filter(row => row.primary.observed);
-    assert.deepEqual(Array.from(observed, row => row.code), ['newmig','trokin','verfly']);
+    assert.deepEqual(Array.from(observed, row => row.code), ['newmig']);
     const news = A.migrationSignificantRows(now, null);
-    assert.equal(news.filter(row => row.notificationKey.startsWith('migration-arrival:')).length, 3);
-    const old = news.find(row => row.notificationKey.startsWith('migration-arrival:trokin:'));
-    assert.match(old.name, /was first reported 10 days ago/);
-    assert.doesNotMatch(old.name, /showing up now/);
-    assert.match(news.find(row => row.notificationKey.startsWith('migration-arrival:newmig:')).name,
-      /showing up now/);
-    const expected = news.filter(row => row.notificationKey.startsWith('migration-expected-arrival:'));
-    assert.deepEqual(Array.from(expected, row => row.notificationKey.split(':')[1]).sort(),
-      ['currmig','overmig']);
-    assert.ok(expected.every(row => row.ageLabel === 'Expected'
-      && /not a confirmed arrival/.test(row.extra)));
+    assert.equal(news.length, 1);
+    assert.equal(news[0].data['migration-group-count'], 3);
+    assert.match(news[0].name, /arriving now/);
+    for (const name of ['Current Migrant','Overdue Migrant','New Migrant']) {
+      assert.ok(news[0].extra.includes(name), name + ' lost its underlying evidence');
+    }
+    assert.doesNotMatch(news[0].extra, /Tropical Kingbird|Vermilion Flycatcher|Next Migrant/);
+    assert.equal(news[0].ageLabel, 'Expected / Observed');
+    assert.match(news[0].extra, /not a confirmed arrival/);
     assert.equal(app.state.fetches.length, before, 'computing cached migration alerts spends no requests');
     A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
-    assert.equal(A.migrationSignificantRows(now, null)
-      .filter(row => row.notificationKey.startsWith('migration-arrival:')).length, 0,
-    'a successful empty observed source must retire old observation cards');
+    const empty = A.migrationSignificantRows(now, null);
+    assert.equal(empty.length, 1, 'expected opportunities survive a successful empty observed source');
+    assert.equal(empty[0].data['migration-group-count'], 2);
+    assert.doesNotMatch(empty[0].extra, /New Migrant/);
     A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [{
       code: 'newmig', name: 'New Migrant', date: `${ctx.year}-12-30`,
       observedAt: `${ctx.year}-12-30 08:00`
+    }, {
+      code: 'currmig', name: 'Current Migrant', date: `${ctx.year}-12-31`,
+      observedAt: `${ctx.year}-12-31 08:00`
     }] });
     app.window.localStorage.setItem('bc_arrival_v1:US-WA|Washington', JSON.stringify({
       at: Date.now(), done: { 'Next migrans': { day: '01-03', records: 100 } }
@@ -234,8 +237,8 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
     const boundary = new Date(ctx.year, 11, 31, 12);
     const yearRows = A.migrationUnifiedRows(null, boundary,
       { arrivals: true, departures: false, tonight: false });
-    assert.deepEqual(Array.from(yearRows, row => row.code), ['nextmig','newmig'],
-      'expected January dates must sort after December observations across the year boundary');
+    assert.deepEqual(Array.from(yearRows, row => row.code), ['currmig','nextmig'],
+      'current December observations precede January opportunities; yesterday is not a current observation');
     assert.equal(A.migrationUnifiedRows(null, boundary,
       { arrivals: false, departures: true, tonight: false }).length, 0);
   } finally { app.window.close(); }
@@ -851,10 +854,11 @@ test('F1046/F1050 source states keep unknown and failed category tags truthful a
       foy: 'retained', ppte: 'failed' };
     A.renderSurge([], [], [], [], [], states);
     const meter = box.querySelector('.surgesourcemeter');
-    assert.equal(meter.getAttribute('aria-valuenow'), '2');
+    assert.equal(meter.getAttribute('aria-valuenow'), '3');
     assert.equal(meter.getAttribute('aria-valuemax'), '8', 'skipped is not a successfully loaded source');
-    assert.equal(box.querySelector('.fill').style.width, '25%');
-    assert.match(meter.textContent, /2 of 8 loaded.*2 failed.*3 incomplete.*1 loading.*1 not applicable/);
+    assert.equal(box.querySelector('.fill').style.width, '38%');
+    assert.match(meter.textContent,
+      /3 of 8 loaded.*1 with limited coverage.*2 incomplete.*2 failed.*1 loading.*1 not applicable/);
     assert.equal(box.querySelector('[data-count-kind="migration"]'), null);
     assert.equal(box.querySelector('[data-count-kind="need"]'), null, 'healthy empty categories disappear');
     const hotspot = box.querySelector('[data-count-kind="hotspot"]');
@@ -3476,10 +3480,10 @@ async function settleMegaEntry(app, code) {
   }
 }
 
-function recentFirstYearFixture(species, region = 'US-WA') {
+function recentFirstYearFixture(species, region = 'US-WA', daysAgo = 4) {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() - 4);
+  d.setDate(d.getDate() - daysAgo);
   const iso = [
     d.getFullYear(),
     String(d.getMonth() + 1).padStart(2, '0'),
@@ -4780,28 +4784,32 @@ test('F872 migration arrival carries source observation timestamp through cached
   try {
     const A = app.window.__app, ctx = A.firstYearContext();
     const page = A.parseFirstYearBirdList(foySourceFixture(1));
-    const date = recentObsStamp(1).slice(0,10);
+    const date = A.todayStr(), now = new Date(date + 'T18:00:00-07:00');
     page.rows = [{code:'comnig',name:'Common Nighthawk',date,
       observedAt:date+'T13:47:00-07:00',locName:'Regional source',sensitive:false}];
     A.firstYearWrite(ctx.region,ctx.year,page);
     const saved = A.firstYearRead(ctx.region,ctx.year);
     assert.equal(saved.rows[0].observedAt,page.rows[0].observedAt);
-    let row = A.migrationSignificantRows(new Date(),{}).find(r=>r.notificationKey.startsWith('migration-arrival:'));
+    let row = A.migrationSignificantRows(now,{}).find(r=>r.notificationKey.startsWith('migration-now:'));
     assert.ok(row);
-    assert.equal(row.when,page.rows[0].observedAt);
-    assert.equal(row.ageTime,Date.parse(row.when));
+    assert.equal(row.omitWhen,true, 'the group date must not masquerade as an observation time');
+    assert.equal(row.ageTime,0);
     const host = app.document.createElement('div');
     host.innerHTML = A.surgeAlertCard(row,0);
     assert.doesNotMatch(host.textContent,/Timeunknown|time unavailable/);
-    assert.equal(surgeEvidence(host).querySelector('time').getAttribute('datetime'),page.rows[0].observedAt);
+    let time = surgeEvidence(host).querySelector('time');
+    assert.ok(time, 'the observed member lost its original timestamp without a checklist ID');
+    assert.equal(time.getAttribute('datetime'),page.rows[0].observedAt);
     assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/local time/);
     page.rows[0].observedAt=date;
     A.firstYearWrite(ctx.region,ctx.year,page);
-    row = A.migrationSignificantRows(new Date(),{}).find(r=>r.notificationKey.startsWith('migration-arrival:'));
-    assert.equal(row.when,date);
-    assert.equal(row.ageLabel,'Date only');
+    row = A.migrationSignificantRows(now,{}).find(r=>r.notificationKey.startsWith('migration-now:'));
+    assert.ok(row);
+    assert.equal(row.omitWhen,true);
     host.innerHTML = A.surgeAlertCard(row,0);
-    assert.match(host.textContent,/Date only/);
+    time = surgeEvidence(host).querySelector('time');
+    assert.ok(time, 'the observed member lost its date-only evidence');
+    assert.equal(time.getAttribute('datetime'),date);
     assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/date only/);
   } finally { app.window.close(); }
 });
@@ -6587,7 +6595,7 @@ test('F269 On passage renders a report-local zero-call event countdown', async (
 
 test('F268 On passage loads first-year data by default and caches one region-year daily', async () => {
   const calls = [];
-  const fixture = recentFirstYearFixture();
+  const fixture = recentFirstYearFixture(undefined, 'US-WA', 0);
   const app = await boot({
     fetch(url) {
       calls.push(String(url));
@@ -6605,8 +6613,14 @@ test('F268 On passage loads first-year data by default and caches one region-yea
     'the automatic request is the current-year regional list');
   assert.match(app.$('migFirstResults').textContent, /Common Nighthawk/);
   assert.match(app.$('migFirstResults').textContent, /first reported/i);
-  assert.match(app.$('migFirstResults').textContent, /Gyrfalcon/);
-  assert.match(app.$('migFirstResults').textContent, /date and location withheld by eBird/i);
+  assert.match(app.$('migFirstResults').textContent, /Gyrfalcon.*presentthis year/,
+    'the separate annual reference preserves safely labelled undated membership');
+  assert.equal(A.migrationUnifiedRows(null, new Date()).some(row => row.code === 'gyrfal'
+    && row.selectedEvents.some(event => event.observed)), false,
+    'undated annual Sensitive membership cannot claim an observed arrival today');
+  assert.ok(A.firstYearRead('US-WA', new Date().getFullYear()).rows
+    .some(row => row.code === 'gyrfal' && row.sensitive),
+    'filtering today does not erase the annual source evidence');
   assert.equal(app.$('migFirstResults').querySelector('[data-q="null,null"]'), null,
     'a public hotspot without coordinates gets no bogus map control');
   assert.equal(app.$('migFirstResults').querySelector('.mapwrap'), null,
@@ -6623,7 +6637,7 @@ test('F268 On passage loads first-year data by default and caches one region-yea
   assert.ok(app.window.localStorage.getItem(key), 'the valid page is cached');
   const migrationNews = A.migrationSignificantRows(new Date(), null);
   assert.match(migrationNews.map((row) => row.name).join(' '),
-    /Common Nighthawk.*was first reported 4 days ago/,
+    /Common Nighthawk.*arriving now/,
     'Bird Gen did not promote the observed first arrival from the merged feed');
   assert.match(migrationNews.map((row) => row.extra).join(' '),
     /Observed on eBird, not inferred from a forecast/,
@@ -6899,18 +6913,27 @@ test('F268 On passage uses county history before bundled GBIF forecasts', async 
     'the same species is not duplicated by the lower-priority GBIF source');
   assert.doesNotMatch(text, /Rufous Hummingbird/,
     'GBIF cannot fill a species covered by county history outside the current window');
-  assert.match(text, /first reported Jan 2/i,
-    'the winter first report remains separate context on the history forecast');
+  assert.match(text, /first reported Jan 2 statewide/i,
+    'a current expected window preserves the annual source as provenance');
+  assert.equal(A.migrationUnifiedRows(null, now).some(row => row.code === 'westan'
+    && row.selectedEvents.some(event => event.observed)), false,
+    'the winter observation cannot become a current observed migration event');
+  assert.equal(A.firstYearRead('US-WA', now.getFullYear()).rows[0].date,
+    now.getFullYear() + '-01-02', 'the display filter must not rewrite source history');
   assert.ok(app.$('migResults').querySelector('.obs.big.xl.icon-sm'),
     'forecast medium cards use the compact icon modifier at phone width');
   const departureNews = A.migrationSignificantRows(now, null);
   const departureText = app.document.createElement('div');
   departureText.innerHTML = departureNews.map((row) => row.name).join(' ');
   assert.match(departureText.textContent,
-    /Last chance for Departing Migrant/,
+    /Departing Migrant.*now/,
     'Bird Gen did not promote a current-week county-history departure');
+  assert.equal(departureNews.length, 1);
+  assert.equal(departureNews[0].data['migration-group-count'], 1);
+  assert.match(departureNews[0].extra, /Last chance this week \(Expected\)/,
+    'a possibly overlapping arrival window cannot erase the departure direction');
   assert.match(departureNews.map((row) => row.extra).join(' '),
-    /Expected from local history; not a confirmed departure/,
+    /County history.*Expected seasonal window, not a confirmed departure/s,
     'Bird Gen presented a predicted departure as observed');
 
   await seedSeen(app, ['amecro', 'depmig', 'purmar']);
@@ -9541,16 +9564,18 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.equal(sheet.hidden, false);
   assert.match(sheet.textContent, /Setup Bird Chaser/);
   assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
-  assert.match(sheet.textContent, /Step 1 of 4/);
-  assert.match(sheet.textContent, /Bird Chaser never receives or stores.*password/i);
+  assert.match(sheet.textContent, /Step 1 of 5/);
+  assert.match(sheet.textContent, /Sign in directly.*eBird.*does not need your password/i);
   assert.equal(sheet.querySelectorAll('[data-setup-state]').length, 0,
     'first run must lead with an action, not five incomplete warnings');
-  for (const step of ['key', 'region', 'seen']) {
+  for (const step of ['key', 'home']) {
     app.click(app.$('setupSkip'));
     assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
   }
   assert.equal(app.$('setupSeenCsv'), null, 'CSV cannot lead before an eBird attempt');
-  app.click(app.$('setupContinue'));
+  assert.equal(app.$('setupSkip'), null, 'required Home cannot be skipped');
+  app.window.localStorage.setItem('bc_setup_step_v1', 'summary');
+  A.renderSetupSheet();
   assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
   assert.match(sheet.textContent, /eBird website (?:not connected|connected)/i);
   assert.match(sheet.textContent, /birding region not chosen/i);
@@ -9573,8 +9598,11 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.match(sheet.textContent, /seen list not ready/i,
     'skipping personal data was falsely labelled as an available seen list');
   app.click(app.$('setupContinue'));
+  assert.equal(sheet.hidden, false, 'missing Home cannot complete setup');
+  assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+  assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), null);
+  app.click(app.$('setupSheetClose'));
   assert.equal(sheet.hidden, true);
-  assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
   A.openSetupSheet();
   assert.equal(sheet.hidden, false, 'limited setup cannot be resumed');
   app.window.close();
@@ -9598,16 +9626,15 @@ test('F1067 setup resumes its step without persisting an unverified key draft', 
     assert.equal(resumed.$('setupApiKey').value, '');
     assert.equal(resumed.$('setupVerifyKey').disabled, true);
     resumed.click(resumed.$('setupSheetClose'));
-    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'summary');
-    assert.match(resumed.$('setupSheet').textContent, /personal API key not verified/);
-    resumed.click(resumed.$('setupContinue'));
     assert.equal(resumed.$('setupSheet').hidden, true);
+    assert.equal(resumed.window.localStorage.getItem('bc_setup_dismissed_v1'), null);
     resumed.window.__app.openSetupSheet();
-    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.equal(resumed.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(resumed.$('setupApiKey').value, '');
   } finally { resumed.window.close(); }
 });
 
-test('F1067 key rejection stays actionable and success requires an explicit region with optional Home', async () => {
+test('F1067 F1084 key rejection stays actionable and verified success advances to required Home', async () => {
   const app = await boot({ report: null, key: null, home: false, sample: false });
   try {
     const A = app.window.__app, originalFetch = app.window.fetch;
@@ -9634,39 +9661,28 @@ test('F1067 key rejection stays actionable and success requires an explicit regi
     status = 200;
     enter('ACCEPTED-1067');
     app.click(app.$('setupVerifyKey'));
-    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'region', 'verified key advances');
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'home', 'verified key advances');
     assert.equal(checks, 2);
     assert.equal(app.window.localStorage.getItem('ebird_api_key'), 'ACCEPTED-1067');
     assert.equal(app.window.localStorage.getItem('bc_api_verified_v1:'), 'ACCEPTED-1067');
     assert.equal(A.getDisplayName(), '', 'API verification must not authenticate an account');
     assert.equal(A.getReportSlug(), '');
-    assert.equal(app.$('setupNext').disabled, true);
-    assert.equal(app.$('setupHome').disabled, true);
-    app.click(app.$('setupChooseRegion'));
-    app.click(app.$('regionChooser').querySelector('[data-region-choice="wa"]'));
-    await waitFor(() => app.$('regionChooser').hidden, 'explicit region choice');
-    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
-    assert.equal(app.$('setupNext').disabled, false);
-    assert.match(app.$('setupSheetBody').textContent, /Selected: Washington/);
-    assert.equal(A.getHome(), null, 'region selection cannot adopt a Home');
-    app.click(app.$('setupHome'));
-    assert.equal(app.$('setupSheet').hidden, true);
-    assert.equal(app.window.document.activeElement, app.$('homePlace'));
-    A.openSetupSheet();
-    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
-    app.click(app.$('setupNext'));
-    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
-    assert.ok(app.$('setupSeenConnect'));
+    assert.equal(app.$('setupNext'), null);
+    assert.equal(app.$('setupHomeHere').disabled, false, 'Home can precede region selection');
+    assert.equal(app.$('setupChooseRegion'), null);
+    assert.equal(app.$('setupSkip'), null);
+    assert.match(app.$('setupSheetBody').textContent, /Home is required/);
+    assert.equal(A.getHome(), null);
+    assert.ok(app.$('setupHomePlace'), 'Home is entered inline rather than through a Settings detour');
     assert.equal(app.$('setupSeenCsv'), null);
-    app.click(app.$('setupContinue'));
-    assert.match(app.$('setupSheet').textContent, /eBird website not connected/);
-    assert.match(app.$('setupSheet').textContent, /personal API key verified/);
-    assert.match(app.$('setupSheet').textContent, /Home not set/);
-    assert.match(app.$('setupSheet').textContent, /seen list not ready/);
+    app.click(app.$('setupSheetClose'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), null);
+    assert.equal(A.getReportSlug(), '');
   } finally { app.window.close(); }
 });
 
-test('F1067 account connection and key acquisition reuse separate persistent eBird paths with keyboard access', async () => {
+test('F1067 account connection starts persistent key acquisition and retains keyboard access', async () => {
   const app = await boot({ report: null, key: null, home: false, sample: false });
   try {
     const A = app.window.__app, handlers = {}, opened = [];
@@ -9692,7 +9708,8 @@ test('F1067 account connection and key acquisition reuse separate persistent eBi
       await waitFor(() => opened.length === expectedOpens && handlers.browserPageLoaded, 'identity browser opens');
       await new Promise(resolve => setTimeout(resolve, 20));
       handlers.browserPageLoaded({ id: windowId });
-      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key', 'connected account advances');
+      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key'
+        && opened.length === expectedOpens + 1, 'connected account starts owned key capture');
     }
     await connect('setupConnectEbird', 1);
     assert.equal(opened[0].url, 'https://ebird.org/profile');
@@ -9702,11 +9719,13 @@ test('F1067 account connection and key acquisition reuse separate persistent eBi
     assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
     assert.equal(A.getReportSlug(), '', 'connecting cannot accept a region');
     app.click(app.$('setupBack'));
-    await connect('setupReconnectEbird', 2);
+    await connect('setupReconnectEbird', 3);
     assert.equal(A.getDisplayName(), 'Connected Birder', 'an unchanged valid identity can still advance');
     app.click(app.$('setupGetKey'));
-    assert.equal(opened[2].url, 'https://ebird.org/api/keygen');
-    assert.equal(opened[2].persistWebViewData, true);
+    assert.equal(opened[1].url, 'https://ebird.org/api/keygen');
+    assert.equal(opened[3].url, 'https://ebird.org/api/keygen');
+    assert.equal(opened[3].persistWebViewData, true);
+    assert.equal(opened.length, 4, 'Get must join the automatically started capture');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
     assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
     const last = app.$('setupBack'), first = app.$('setupSheetClose');
@@ -9716,10 +9735,10 @@ test('F1067 account connection and key acquisition reuse separate persistent eBi
     first.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
     assert.equal(app.window.document.activeElement, last);
     last.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
-    assert.match(app.$('setupSheet').textContent, /eBird website connected/);
-    assert.match(app.$('setupSheet').textContent, /personal API key not verified/);
-    app.click(app.$('setupContinue'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+    assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
     assert.equal(app.window.document.activeElement, app.$('brandSettings'));
   } finally { app.window.close(); }
 });
@@ -9763,12 +9782,17 @@ test('F1067 delayed key verification cannot save after a step or profile change'
 
 async function setupOwnedSeenApp(codes = []) {
   const app = await boot({ sample: false, indexedDB: new IDBFactory(), storage: {
-    ebird_display_name: 'Sample Observer', ebird_seen_setup_skipped: '1',
+    ebird_display_name: 'Sample Observer',
+    ebird_seen_meta: JSON.stringify({ source: 'csv', count: 0, year: new Date().getFullYear() }),
   } });
   app.window.__app.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Observer' });
   await seedSeen(app, codes, null, [
     { code: 'stable', name: 'Stable bird' }, { code: 'rename', name: 'New name' },
   ]);
+  // Replace the bootstrap acknowledgement with the installed fixture's exact owner.
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_seen_setup_skipped', A.personalListKey(A.personalListOwner()));
+  app.window.localStorage.removeItem('ebird_seen_meta');
   return app;
 }
 
@@ -9804,8 +9828,8 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       for (let i = 0; i < 5; i++) A.renderKeyBanner();
       assert.equal(listReads, 1, 'taxonomy changing during preparation cannot launch a duplicate list read');
       assert.equal(app.$('seenBannerBtn'), null);
+      app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
       A.openSetupSheet();
-      for (let i = 0; i < 3; i++) app.click(app.$('setupSkip'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
       assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
       assert.equal(app.$('setupSeenCsv'), null);
@@ -9816,40 +9840,52 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       assert.equal(A.personalListEvidence().complete, true);
       assert.equal(A.personalListEvidence().count, count);
       app.click(app.$('setupContinue'));
-      assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
-      assert.match(app.$('keyBanner').textContent, new RegExp(count + ' species'));
+      assert.equal(app.$('keyBanner').hidden, true, 'healthy matching readiness retires main onboarding');
+      assert.equal(A.personalListEvidence().count, count);
       assert.equal(app.$('seenBannerBtn'), null);
       assert.equal(listReads, 1);
     } finally { app.window.close(); }
   }
 });
 
-test('F1067/F1068 earlier setup steps and the Home detour cannot launch an extra main-page read', async () => {
+test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra main-page read', async () => {
   const app = await setupOwnedSeenApp();
   try {
     const A = app.window.__app, originalFetch = app.window.fetch;
     let reads = 0, release;
     app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
     app.window.fetch = (url, options) => /\/lifelist\//.test(url)
-      ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+      ? (reads++, new Promise(resolve => { release = resolve; }))
+      : /photon\.komoot\.io\/reverse/.test(url)
+        ? Promise.resolve({ ok: true, json: async () => ({ features: [{
+          properties: { state: 'Washington', countrycode: 'US' }
+        }] }) }) : originalFetch(url, options);
     A.openSetupSheet();
     app.window.localStorage.removeItem('ebird_seen_setup_skipped');
-    for (const step of ['account', 'key', 'region']) {
+    for (const step of ['account', 'key', 'home']) {
       assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
       for (let i = 0; i < 3; i++) A.renderKeyBanner();
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(reads, 0, step + ' cannot trigger the main-page automatic acquisition');
-      if (step !== 'region') app.click(app.$('setupSkip'));
+      if (step !== 'home') app.click(app.$('setupSkip'));
     }
-    app.click(app.$('setupChooseRegion'));
+    assert.equal(app.$('setupChooseRegion'), null);
     A.renderKeyBanner();
-    app.click(app.$('regionChooserClose'));
     assert.equal(reads, 0);
-    app.click(app.$('setupHome'));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(reads, 0, 'opening Home settings is not a transient visit to the main page');
-    A.openSetupSheet();
+    app.$('setupHomePlace').value = '47.75, -122.16';
+    app.click(app.$('setupHomeFind'));
+    await waitFor(() => app.$('setupHomeApprove'), 'inline Home candidate');
+    assert.equal(reads, 0, 'preparing Home is not a transient visit to the main page');
+    app.click(app.$('setupHomeDiscard'));
+    assert.equal(app.$('setupNext'), null, 'discarding Home must not allow a region-only bypass');
+    app.$('setupHomePlace').value = '47.75, -122.16';
+    app.click(app.$('setupHomeFind'));
+    await waitFor(() => app.$('setupHomeApprove'), 'replacement Home candidate');
+    app.click(app.$('setupHomeApprove'));
+    await waitFor(() => app.$('setupNext'), 'matching Home region');
+    assert.equal(reads, 0, 'reviewing the pair cannot start seen-list acquisition');
     app.click(app.$('setupNext'));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'seen', 'pair confirmation advances');
     const request = A.preparePersonalList(A.activeScope(), false);
     await waitFor(() => release, 'the seen step starts its one shared acquisition');
     assert.equal(reads, 1);
@@ -9882,6 +9918,10 @@ test('F1068 failed acquisition offers CSV only after the attempt and retry retai
     assert.ok(app.$('seenFetchBtn'));
     for (let i = 0; i < 5; i++) A.renderKeyBanner();
     assert.equal(reads, 1, 'repainting a failed fetch cannot retry it automatically');
+    app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+    A.openSetupSheet();
+    assert.ok(app.$('setupSeenCsv'), 'setup exposes CSV recovery after the failed acquisition');
+    app.click(app.$('setupSheetClose'));
     app.click(app.$('seenBannerBtn'));
     assert.equal(app.$('csvFile').closest('section').hidden, false);
     assert.ok(app.$('csvFile'), 'fallback reuses the existing Settings importer');
@@ -9889,7 +9929,7 @@ test('F1068 failed acquisition offers CSV only after the attempt and retry retai
     fail = false;
     app.click(app.$('seenFetchBtn'));
     await waitFor(() => A.personalListEvidence().complete, 'explicit retry succeeds');
-    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+    assert.equal(app.$('keyBanner').hidden, true);
     assert.equal(app.$('seenBannerBtn'), null);
     const key = A.bcReal(A.personalListKey(A.personalListOwner()));
     const saved = app.window.localStorage.getItem(key);
@@ -9915,8 +9955,8 @@ test('F1068 an existing direct read repaints setup and main without starting ano
     app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
     app.window.fetch = (url, options) => /\/lifelist\//.test(url)
       ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+    app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
     A.openSetupSheet();
-    for (let i = 0; i < 3; i++) app.click(app.$('setupSkip'));
     const request = A.ensurePersonalList(A.activeScope(), true);
     await waitFor(() => release, 'held direct acquisition');
     assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
@@ -9924,8 +9964,11 @@ test('F1068 an existing direct read repaints setup and main without starting ano
     release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
     await request;
     assert.match(app.$('setupSheet').textContent, /Your seen list is ready/);
+    assert.doesNotMatch(app.$('setupSheetBody').textContent, /\bCSV\b/i,
+      'successful setup must not mention CSV recovery');
+    assert.equal(app.$('setupSeenCsv'), null);
     app.click(app.$('setupContinue'));
-    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+    assert.equal(app.$('keyBanner').hidden, true);
     assert.equal(app.$('seenBannerBtn'), null);
     assert.equal(reads, 1);
   } finally { app.window.close(); }
@@ -10015,22 +10058,23 @@ test('F1068 returning to a superseded pending scope exposes retry instead of a s
     await waitFor(() => reads === 2, 'explicit retry after superseded scope');
     release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
     await waitFor(() => A.personalListEvidence().complete, 'fresh scope succeeds');
-    assert.match(app.$('keyBanner').textContent, /Your seen list is ready/);
+    assert.equal(app.$('keyBanner').hidden, true);
   } finally { app.window.close(); }
 });
 
 test('F1067 saved CSV and explicit skips do not certify exact seen-list readiness', async () => {
   const app = await boot({ sample: false, storage: {
     ebird_display_name: 'Sample Observer',
+    bc_setup_step_v1: 'summary',
     ebird_seen_meta: JSON.stringify({ source: 'csv', count: 3, year: new Date().getFullYear() }),
   } });
   try {
     app.window.__app.openSetupSheet();
-    app.click(app.$('setupSheetClose'));
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
     assert.match(app.$('setupSheet').textContent, /seen list CSV saved · exact list not ready/);
     assert.equal(app.window.__app.personalListEvidence().complete, false);
-    assert.equal(app.$('keyBanner').hidden, true, 'the acknowledged importer is not repeatedly prompted');
+    assert.equal(app.$('keyBanner').hidden, false, 'unscoped CSV metadata cannot hide missing exact evidence');
+    assert.doesNotMatch(app.$('keyBanner').textContent, /Your seen list is ready/);
   } finally { app.window.close(); }
 });
 
@@ -10475,12 +10519,20 @@ test('F207: Use my location becomes Home only after the explicit tap', async () 
     key: null,
     sample: false,
     location: { lat: 47.6205, lng: -122.3493 },
+    fetch: url => /photon\.komoot\.io\/reverse/.test(url) ? { features: [{
+      properties: { state: 'Washington', countrycode: 'US' },
+      geometry: { type: 'Point', coordinates: [-122.3493, 47.6205] }
+    }] } : null,
   });
   const A = app.window.__app;
   assert.equal(A.getHome(), null,
     'having location permission does not silently make the current position Home');
   assert.ok(app.$('homeHereBtn'));
   app.click(app.$('homeHereBtn'));
+  await waitFor(() => !app.$('homeDeviceSave').hidden, 'the explicit Home candidate');
+  assert.equal(A.getHome(), null, 'requesting location does not approve its candidate');
+  assert.equal(app.$('settingsPanel').hidden, false);
+  app.click(app.$('homeDeviceSave'));
   await waitFor(() => !!A.getHome(), 'the explicit Home location choice to persist');
   assert.equal(JSON.stringify(A.getHome()),
     JSON.stringify({ lat: 47.6205, lng: -122.3493 }));
@@ -13322,12 +13374,12 @@ test('F914 settled sources have compact static progress, while real pending sour
       A.renderSurge([],[],[],[],[],{...states,mass});
       const box = app.$('surgeResults');
       assert.equal(box.querySelector('[role="progressbar"]'),null);
-      const loaded = total - (mass === 'ok' ? 0 : 1);
+      const loaded = total - (mass === 'failed' ? 1 : 0);
       assert.equal(box.querySelector('.surgesourceprogress .fill').style.width,
         Math.round(loaded * 100 / total) + '%');
       assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
         `Bird Gen - ${loaded} of ${total} loaded`
-        + (mass === 'ok' ? '' : mass === 'failed' ? ' · 1 failed' : ' · 1 incomplete')
+        + (mass === 'ok' ? '' : mass === 'failed' ? ' · 1 failed' : ' · 1 with limited coverage')
         + ' · 1 not applicable');
       if (mass !== 'ok') {
         assertSurgeDiagnostic(app, mass === 'failed' ? /Mass flock feeds failed/ : /incomplete or capped/);
@@ -13356,9 +13408,9 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     A.renderSurge([], [], [], [], [], states);
     const box = app.$('surgeResults');
     assert.equal(box.querySelector('[role="progressbar"]'), null);
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '75%');
+    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '88%');
     assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
-      'Bird Gen - 6 of 8 loaded · 1 failed · 1 incomplete · 1 not applicable');
+      'Bird Gen - 7 of 8 loaded · 1 with limited coverage · 1 failed · 1 not applicable');
     assertSurgeDiagnostic(app, /Patagonia picnic table effect RBA feeds have incomplete or capped coverage/);
     assertSurgeDiagnostic(app, /Mass flock feeds failed/);
     assert.doesNotMatch(box.textContent, /incomplete or capped coverage|Mass flock feeds failed/);
@@ -13368,7 +13420,8 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     for (const key of ['ppte', 'mega']) {
       A.renderSurge([], [], [], [], [], { ...states, [key]: 'loading' });
       assert.equal(box.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),
-        String(Object.values({...states,[key]:'loading'}).filter(state => state === 'ok').length));
+        String(Object.values({...states,[key]:'loading'})
+          .filter(state => state === 'ok' || state === 'partial').length));
     }
     A.renderSurge([], [], [], [], [], { ...states, mega: 'partial' });
     assert.equal(box.querySelector('[role="progressbar"]'),null,
@@ -13413,9 +13466,9 @@ test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with
     assertCompact();
     const settled = box.querySelector('.surgesourcemeter');
     assert.ok(settled, 'settled Bird Gen progress must remain visible');
-    assert.equal(settled.textContent, 'Bird Gen - 6 of 9 loaded · 1 failed · 2 incomplete');
+    assert.equal(settled.textContent, 'Bird Gen - 8 of 9 loaded · 2 with limited coverage · 1 failed');
     assert.equal(settled.getAttribute('role'), 'status');
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '67%');
+    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '89%');
     assert.equal(box.dataset.sourcesComplete, 'false');
     assert.equal(box.dataset.sourceLeaderboard, 'failed');
     assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
@@ -13436,9 +13489,9 @@ test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with
     assertCompact();
     const pending = box.querySelector('.surgesourcemeter[role="progressbar"]');
     assert.ok(pending, 'pending acquisition retains real progress semantics');
-    assert.equal(pending.textContent, 'Bird Gen - 5 of 9 loaded · 1 failed · 2 incomplete · 1 loading',
-      'pending and incomplete sources must not be counted as successfully loaded');
-    assert.equal(pending.getAttribute('aria-valuenow'), '5');
+    assert.equal(pending.textContent, 'Bird Gen - 7 of 9 loaded · 2 with limited coverage · 1 failed · 1 loading',
+      'pending and failed sources remain separate from acquired limited evidence');
+    assert.equal(pending.getAttribute('aria-valuenow'), '7');
     assert.equal(pending.getAttribute('aria-valuemax'), '9');
     assert.equal(box.dataset.sourceMega, 'loading');
     const complete = Object.fromEntries(Object.keys(states).filter(key =>
@@ -16398,9 +16451,14 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
       { code: 'sabgul', name: "Sabine's Gull", reports: 2 }, { code: 'eargre', name: 'Eared Grebe', reports: 2 },
       { code: 'reshaw', name: 'Red-shouldered Hawk', reports: 2 },
     ]) };
+    card = render({ ...five, species: five.species.slice(0, 4) });
+    assert.ok(card.querySelector('[data-birdgen-total="4"]'),
+      'Patagonia must retain the full membership through the shared renderer');
+    assert.equal(card.querySelectorAll('.surgepatchgrid > .thumb').length, 4);
+    assert.equal(card.querySelector('.ppte-extra-birds'), null);
     card = render(five);
     assert.equal(card.querySelectorAll('.ppte-bird-composite > .thumb').length, 2);
-    assert.equal(card.querySelector('.ppte-extra-birds').textContent, '+3');
+    assert.equal(card.querySelector('.ppte-extra-birds').textContent, '5');
     assert.match(card.querySelector('.surgealerttitle').textContent, /\+3 more at/);
     assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Red-shouldered Hawk/);
     A.resetTransientAnchor();
@@ -19220,15 +19278,15 @@ test('F637/F642 opening Migration loads due-back data without a refresh tap', as
     'Migration to auto-load due-back data on section open');
   const cards = [...app.$('bcBody').querySelectorAll('.migration-list > li')];
   assert.deepEqual(cards.map((row) => row.querySelector('.splink').textContent),
-    ['Next Migrant', 'Regional Migrant', 'Returned Migrant'],
-    'the arrival timeline is not newest-event-date first across today: '
+    ['Regional Migrant', 'Returned Migrant', 'Next Migrant'],
+    'the arrival timeline must show Now before nearest Upcoming: '
       + JSON.stringify(A.migrationUnifiedRows(null, now)));
-  assert.equal(cards[2].querySelector('.migration-event').getAttribute('aria-label'),
+  assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
     'Arrival window is now, now, expected');
   assert.equal(cards[0].querySelector('.migration-event-icon').textContent, '🛬');
   assert.equal(cards[1].querySelector('.migration-event').getAttribute('aria-label'),
     'Arrival window is now, now, expected');
-  assert.equal(cards[0].querySelector('.migration-event').getAttribute('aria-label'),
+  assert.equal(cards[2].querySelector('.migration-event').getAttribute('aria-label'),
     'Arriving soon, in 5 days, expected');
   app.window.close();
 });
@@ -21317,25 +21375,25 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
 // returning null falls back to the bundled seed, but a stored [] stays empty.
 test('the watchlist tells "never edited" apart from "emptied"', async () => {
   const fresh = await boot();
-  const seeded = arr(fresh.window.__app.getWatchlist(), (e) => e.code);
-  const authored = arr(fresh.window.__SEED_BIRDLIST__.watchlist, (e) => e.code);
-  assert.ok(seeded.length > 0, 'a fresh install starts from the authored list');
-  // Named species make this guard fail the day one is verified and removed,
-  // which says nothing about the code. The invariant is that an unedited
-  // install shows EXACTLY birdlist-needsverification.md, whatever is on it.
-  assert.deepEqual(seeded, authored,
-    'the bundled seed carries birdlist-needsverification.md');
+  fresh.window.__SEED_BIRDLIST__.watchlist = [{ code: 'amerob', name: 'Synthetic bundled bird' }];
+  assert.deepEqual(arr(fresh.window.__app.getWatchlist()), [],
+    'fresh personal Watch cannot inherit bundled defaults');
+  assert.equal(fresh.window.localStorage.getItem('ebird_watchlist_v1'), null,
+    'reading absent storage must not create an explicit personal list');
   fresh.window.close();
 
   const emptied = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   assert.deepEqual(arr(emptied.window.__app.getWatchlist()), [],
     'an emptied list must not snap back to the seed');
+  assert.equal(emptied.window.localStorage.getItem('ebird_watchlist_v1'), '[]');
   emptied.window.close();
 
   // Corrupt storage is not an instruction to erase the list.
   const junk = await boot({ storage: { ebird_watchlist_v1: 'not json' } });
-  assert.ok(arr(junk.window.__app.getWatchlist()).length > 0,
-    'unparseable storage falls back to the seed rather than emptying');
+  assert.deepEqual(arr(junk.window.__app.getWatchlist()), []);
+  assert.equal(junk.window.localStorage.getItem('ebird_watchlist_v1'), 'not json',
+    'unreadable saved bytes must be preserved for recovery');
+  assert.ok(junk.window.__dbg.buf.some(row => /Watch list could not be read/.test(row.msg)));
   junk.window.close();
 });
 
@@ -21401,38 +21459,30 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
   app.window.close();
 });
 
-// analyze.py computes seen = birdlist − watchlist, and the bundled seed
-// already has the AUTHORED list subtracted. Device edits are a delta on top,
-// and the delta has to be right in BOTH directions.
+// Watch edits can hold back an owned tick, but cannot invent personal evidence.
 test('editing the watchlist moves species in and out of the seen set', async () => {
   const app = await boot();
   const A = app.window.__app;
-  const held = app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld;
-  // Two codes THIS report actually held back, read from the seed rather than
-  // named here: the authored list is user data and a verified bird leaves it.
-  assert.ok(held.length >= 2, 'fixture assumption: WA really holds watchlist codes back');
-  const tracked = held[0], other = held[1];
+  const tracked = 'amerob', other = 'grycat';
   await seedSeen(app,[tracked]);
+  A.setWatchlist([{ code: tracked, name: 'American Robin' }]);
 
   assert.equal(A.getReportSeen()[tracked], undefined,
     'a tracked species is deliberately NOT seen — that is what makes it resurface');
 
   A.setWatchlist([]);
   assert.equal(A.getReportSeen()[tracked], 1,
-    'dropping it restores the tick the report was holding back');
+    'dropping it restores the owned tick Watch was holding back');
 
   A.setWatchlist([{ code: tracked, name: 'Tracked Bird' }]);
   assert.equal(A.getReportSeen()[tracked], undefined, 'and re-tracking holds it off again');
 
-  // The guard that matters: a bird you never recorded must not become a tick
-  // just because you stopped tracking it. Only codes this report ACTUALLY held
-  // back are eligible to come back.
   A.setWatchlist([]);
-  app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld = [tracked];
+  app.window.__SEED_BIRDLIST__.seenByReport.wa.watchHeld = [other];
   const seen = A.getReportSeen();
-  assert.equal(seen[tracked], 1, 'a species this report held back returns when untracked');
+  assert.equal(seen[tracked], 1, 'an owned tick held back by Watch returns when untracked');
   assert.equal(seen[other], undefined,
-    'a species it never held back must NOT be invented as a year tick');
+    'retired bundled holdback metadata must NOT invent a personal year tick');
 
   A.setWatchlist([{ code: 'zzznope', name: 'Imaginary Bird' }]);
   assert.equal(A.getReportSeen().zzznope, undefined, 'tracking an unrecorded bird changes nothing');
@@ -24040,24 +24090,30 @@ test('F967 migration headlines emphasize only named birds and preserve the obser
     page.rows=[{code:'trokin',name:'Tropical Kingbird',date:day,observedAt:day+' 08:00',
       locId:'L967',locName:'Example public marsh',subId:'S967',sensitive:false,isPrivate:false}];
     A.firstYearWrite(ctx.region,ctx.year,page);
-    let row=A.migrationSignificantRows(new Date(),null).find(r=>/showing up/.test(r.name));
+    let row=A.migrationSignificantRows(new Date(),null).find(r=>r.notificationKey.startsWith('migration-now:'));
+    assert.ok(row);
     const host=app.document.createElement('ul');
     host.className='surgefeed obs card-sm';
     app.document.body.appendChild(host);
     host.innerHTML=A.surgeAlertCard(row,0);
     let title=host.querySelector('.surgealerttitle');
-    assert.equal(title.textContent,'Tropical Kingbird is showing up now at Example public marsh');
-    assert.equal(title.querySelector('.surgebirdname').textContent,'Tropical Kingbird');
-    assert.equal(title.querySelector('.hslink').dataset.loc,'L967');
-    assert.equal(title.querySelector('.seclink').textContent,'Tropical Kingbird');
+    assert.equal(title.textContent,'Tropical Kingbird arriving now.');
+    const namedBird=title.querySelector('.surgebirdname');
+    assert.ok(namedBird,'the named bird must retain its scoped emphasis');
+    assert.equal(namedBird.textContent,'Tropical Kingbird');
+    assert.equal(title.querySelector('.hslink'),null,
+      'a grouped opportunity headline must not imply one shared observation location');
+    assert.equal(title.querySelector('.splink').textContent,'Tropical Kingbird');
     assert.equal(app.window.getComputedStyle(title).fontWeight,'400');
     assert.match(surgeEvidence(host).querySelector('.surgeabsolute a').dataset.href,/S967$/);
+    assert.equal(surgeEvidence(host).querySelector('.surgeexplainextra .hslink').dataset.loc,'L967');
     assert.match(surgeEvidence(host).querySelector('.surgeexplainextra').textContent,/eBird first report.*Observed on eBird/s);
     page.rows[0].isPrivate=true;
     A.firstYearWrite(ctx.region,ctx.year,page);
-    row=A.migrationSignificantRows(new Date(),null).find(r=>/showing up/.test(r.name));
+    row=A.migrationSignificantRows(new Date(),null).find(r=>r.notificationKey.startsWith('migration-now:'));
+    assert.ok(row);
     host.innerHTML=A.surgeAlertCard(row,0);
-    assert.equal(host.querySelector('.surgealerttitle .hslink'),null,
+    assert.equal(surgeEvidence(host).querySelector('.surgeexplainextra .hslink'),null,
       'an arrival cannot turn a private observation into a public hotspot link');
   } finally {app.window.close();}
 });
@@ -24233,24 +24289,29 @@ test('F956 Top Patch uses only distinct patch birds, prefers proven unseen and l
     }
     for (let n=0;n<=5;n++) {
       const card=render([...birds.slice(0,n),birds[5],...birds.slice(0,n)]);
-      const tiles=[...card.querySelectorAll('.surgepatchgrid > .thumb')];
-      assert.equal(tiles.length,Math.min(n,4),'up to four distinct unseen birds, never padding with seen birds');
-      assert.deepEqual(tiles.map(tile=>tile.dataset.code),birds.slice(0,Math.min(n,4)).map(row=>row.code));
+      const selected=n===4?4:Math.min(n,2);
+      const tiles=[...card.querySelectorAll('.thumb[data-bird]')];
+      assert.equal(tiles.length,selected,'adaptive photos use only distinct unseen birds, never padding with seen birds');
+      assert.deepEqual(tiles.map(tile=>tile.dataset.code),birds.slice(0,selected).map(row=>row.code));
       assert.equal(card.querySelector('.surgekindtile').textContent.trim(),'🥇');
       assert.equal(card.dataset.hsloc,'LF956');
       if (n) {
-        const tile=card.querySelector('.surgepatchthumb');
+        const tile=card.querySelector('[data-patch-birds]');
         assert.equal(tile.dataset.patchBirds,'unseen');
-        assert.match(tile.getAttribute('aria-label'),/^Unseen birds at Owned patch:/);
+        assert.equal(tile.dataset.patchEligible,String(n));
+        assert.equal(tile.dataset.patchSelected,String(selected));
+        assert.equal(tile.dataset.birdgenTotal,String(n),'shared rendering preserves the full qualifying count');
+        assert.equal(!!tile.querySelector('.surgepatchgrid'),n===4);
+        assert.match(tile.getAttribute('aria-label'),/^Unseen birds at Owned patch\./);
         tiles.forEach(bird=>assert.ok(tile.getAttribute('aria-label').includes(bird.dataset.bird)));
       } else assert.ok(card.querySelector('.surgeplacethumb'),'all-seen/empty patches retain a meaningful fallback');
     }
     assert.ok(render([]).querySelector('.surgeplacethumb'));
-    assert.equal(render([birds[6]]).querySelector('.surgepatchgrid > .thumb').dataset.code,'f956nophoto',
+    assert.equal(render([birds[6]]).querySelector('.thumb[data-bird]').dataset.code,'f956nophoto',
       'a missing bundled photograph retains the existing photo fallback slot');
     assert.equal(app.state.fetches.length,before,'the grid performs no source acquisition');
     await seedSeen(app,[],[],taxa);
-    assert.equal(render([birds[5]]).querySelector('.surgepatchgrid > .thumb').dataset.code,'amerob',
+    assert.equal(render([birds[5]]).querySelector('.thumb[data-bird]').dataset.code,'amerob',
       'selection rechecks changed personal membership rather than caching a seen/unseen decision');
   } finally {app.window.close();}
   const unknown=await boot({sample:false});
@@ -24260,9 +24321,9 @@ test('F956 Top Patch uses only distinct patch birds, prefers proven unseen and l
         {code:'snogoo',comName:'Snow Goose',dateStr:recentObsStamp()}
       ]
     }]);
-    const tile=unknown.$('surgeFeed').querySelector('.surgepatchthumb');
+    const tile=unknown.$('surgeFeed').querySelector('[data-patch-birds]');
     assert.equal(tile.dataset.patchBirds,'unknown');
-    assert.match(tile.getAttribute('aria-label'),/^Birds with unknown personal history at Unverified-history patch: Snow Goose$/);
+    assert.match(tile.getAttribute('aria-label'),/^Birds with unknown personal history at Unverified-history patch\. 1 species: Snow Goose$/);
   } finally {unknown.window.close();}
 });
 
@@ -24304,10 +24365,11 @@ test('F1017 actual patch acquisition groups suffixes before qualification, count
     A.renderSurge([], [], [], [], [], { deferPhotos: true }, observed.patches);
     const patch = app.$('surgeFeed').querySelector('[data-hsloc="L10171"]');
     assert.match(surgeEvidence(patch).textContent, /2 distinct target species/);
-    assert.equal(patch.querySelectorAll('.surgepatchgrid > .thumb').length, 2);
-    assert.equal(patch.querySelector('.surgepatchthumb').dataset.patchEligible, '2');
+    assert.equal(patch.querySelectorAll('.thumb[data-bird]').length, 2);
+    assert.equal(patch.querySelector('[data-patch-birds]').dataset.patchEligible, '2');
+    assert.equal(patch.querySelector('[data-birdgen-total]').dataset.birdgenTotal, '2');
     const internal = app.$('surgeFeed').querySelector('[data-hsloc="L10172"]');
-    assert.equal(internal.querySelectorAll('.surgepatchgrid > .thumb').length, 2,
+    assert.equal(internal.querySelectorAll('.thumb[data-bird]').length, 2,
       'meaningful internal parentheses do not collapse a different base name');
     storage = Object.fromEntries(Object.keys(app.window.localStorage)
       .map(key => [key, app.window.localStorage.getItem(key)]));
@@ -24327,7 +24389,7 @@ test('F1017 actual patch acquisition groups suffixes before qualification, count
     const patch = retained.$('surgeFeed').querySelector('[data-hsloc="L10171"]');
     assert.match(surgeEvidence(patch).textContent, /2 distinct target species/,
       'legacy projected evidence is grouped again at paint');
-    assert.equal(patch.querySelectorAll('.surgepatchgrid > .thumb').length, 2);
+    assert.equal(patch.querySelectorAll('.thumb[data-bird]').length, 2);
     assert.equal(saved.species.length, 3, 'painting must not mutate retained source evidence');
     assert.deepEqual(retained.state.errors, []);
   } finally { retained.window.close(); }
@@ -24465,7 +24527,8 @@ test('F960 Busy Patch repeats the crowd with its actual multiplier and rejects o
     assert.equal(image.getAttribute('role'),'img');
     assert.match(image.getAttribute('aria-label'),/9 independent parties; 4\.5×/);
     assert.equal(hotspot.querySelector('.surgeplacethumb'),null);
-    assert.ok(patch.querySelector('.surgepatchthumb'),'Top Patch keeps its own bird grid');
+    assert.ok(patch.querySelector('[data-patch-birds][data-birdgen-total="1"]'),
+      'Top Patch keeps its qualifying full single-bird photo, not a crowd tile');
     assert.equal(patch.querySelector('.surgehotspotthumb'),null);
     assert.equal(patch.querySelector('.surgealerttitle').textContent,'High-yield patch at Example top patch');
     assert.equal(hotspot.querySelector('.surgekindtile').textContent.trim(),'📍');
@@ -26278,7 +26341,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   const sourceStates = () => Object.entries(box.dataset).filter(([key]) => /^source[A-Z]/.test(key))
     .map(([,value]) => value);
   const sourceCount = sourceStates().filter(state => state !== 'notApplicable').length;
-  const loaded = sourceStates().filter(state => state === 'ok').length;
+  const loaded = sourceStates().filter(state => state === 'ok' || state === 'partial').length;
   assert.equal(progress.getAttribute('aria-valuenow'), String(loaded));
   assert.equal(progress.getAttribute('aria-valuemax'), String(sourceCount));
   assert.ok(progress.textContent.includes(`${loaded} of ${sourceCount} loaded`));
@@ -26294,7 +26357,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   const settled = box.querySelector('.surgesourcemeter');
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
   assert.equal(settled.getAttribute('role'), 'status');
-  const loadedAfter = sourceStates().filter(state => state === 'ok').length;
+  const loadedAfter = sourceStates().filter(state => state === 'ok' || state === 'partial').length;
   assert.equal(settled.querySelector('.fill').style.width, Math.round(loadedAfter * 100 / sourceCount) + '%');
   assert.ok(settled.textContent.includes(`${loadedAfter} of ${sourceCount} loaded`));
   assert.match(settled.textContent,/failed/,'a failed leaderboard cannot inflate loaded progress');
@@ -27682,8 +27745,13 @@ test('F13: with no key stored the Contents menu leads with a way to get one', as
 
 test('F13: a stored key hides the banner', async () => {
   const app = await boot({ storage: { ebird_display_name: 'Sample Birder' } });
+  assert.equal(app.$('keyBanner').hidden, false,
+    'a working key alone cannot hide missing personal evidence');
+  await seedSeen(app, ['amerob']);
+  app.window.__app.renderKeyBanner();
   assert.equal(app.$('keyBanner').hidden, true,
-    'once a key is stored the banner is noise and must get out of the way');
+    'once every prerequisite is ready, the banner must get out of the way');
+  app.window.close();
 });
 
 test('F13: Settings offers get / paste / test beside the key field', async () => {
@@ -27786,7 +27854,7 @@ test('F527 Settings cannot persist a programmatic identity override', async () =
   app.window.close();
 });
 
-test('F315: a clean install stays empty until sample data or a CSV is chosen', async () => {
+test('F315 F1077: a clean install stays empty until imported or acquired personal evidence', async () => {
   const app = await boot({ key: null, sample: false });
   const A = app.window.__app;
   assert.equal(A.getSeenMeta(), null);
@@ -27794,9 +27862,15 @@ test('F315: a clean install stays empty until sample data or a CSV is chosen', a
   assert.equal(Object.keys(A.getReportSeen()).length, 0);
   assert.doesNotMatch(app.$('hdrId').textContent, /209sp/,
     'a new account cannot display the owner snapshot as its own');
-  assert.equal(A.loadSeed(true), true, 'sample data remains an explicit demo action');
-  assert.equal(A.usesBundledSeed(), true);
-  assert.ok(A.reportYearList().length > 0);
+  assert.equal(A.loadSeed, undefined, 'the retired sample action cannot populate personal evidence');
+  assert.equal(app.$('loadSeedBtn'), null);
+  assert.equal(A.usesBundledSeed(), false);
+  assert.equal(A.importCSV('Common Name,Scientific Name,Date,First Name,Last Name\n'
+    + 'American Robin,Turdus migratorius,2026-09-04,Sample,Birder'), 1);
+  assert.equal(A.getSeenMeta().source, 'csv');
+  assert.equal(A.usesBundledSeed(), false);
+  assert.equal(A.reportYearList().length, 0);
+  app.window.close();
 });
 
 test('F560: CSV import retains annual captures and profile identity without certifying exact membership or counts', async () => {
@@ -31807,7 +31881,8 @@ test('F787 migration ordering uses validity dates and completed-night events, no
       nightEndedAt: Date.parse('2026-10-04T14:00:00Z') } };
   const first = arr(A.birdcastSurgeRows(now, snapshot), (row) => row.when);
   const later = arr(A.birdcastSurgeRows(new Date(now.getTime() + 60000), snapshot), (row) => row.when);
-  assert.deepEqual(first, ['2026-10-05T04:00:00.000Z', '2026-10-04T14:00:00.000Z']);
+  assert.deepEqual(first, ['2026-10-04T07:00:00.000Z', '2026-10-03T07:00:00.000Z'],
+    'forecast and measured-night ordering use their separate stable source-night midnights');
   assert.deepEqual(later, first, 'a repaint invented a newer migration event');
   app.window.close();
 });
@@ -35705,6 +35780,8 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     /\.birdcast-flight-high\s*\{\s*--migration-art:\s*url\("assets\/migration-high\.png"\)/,
     'Migration lost the shape-cut High migration flock');
 
+  // This historical response fixture was acquired on its forecast date.
+  snapshot.forecastFetchedAt = daytime.getTime();
   const rows = A.birdcastSurgeRows(daytime, snapshot);
   assert.equal(rows.length, 2,
     'Bird Gen did not split tonight’s High forecast from last night’s High count');
@@ -35719,43 +35796,45 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
   assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
   assert.equal(rows[0].ageLabel, 'Tonight');
-  assert.match(rows[0].noteHeader, /migration expected between dusk and dawn/);
+  assert.match(rows[0].extra, /migration expected between dusk and dawn/);
   assert.doesNotMatch(rows[0].where + rows[0].noteHeader + rows[0].extra,
     /9 pm|app-selected reference time/);
-  assert.equal(rows[0].time, Date.parse('2026-09-29T04:00:00.000Z'),
-    'the Pacific-time reference is not 9 pm on the validated forecast date');
+  assert.equal(rows[0].time, Date.parse('2026-09-28T07:00:00.000Z'),
+    'the forecast lost its stable source-night midnight');
   assert.equal(rows[0].omitWhen, true,
     'the forecast source line still appends Bird Chaser’s render time');
-  assert.match(rows[0].noteHeader, /Heavy migration expected between dusk and dawn/);
-  assert.match(rows[1].name, />1\.8M migration last night</);
+  assert.match(rows[0].noteHeader, /High migration tonight/);
+  assert.match(rows[1].name, />1\.8M migration - source night 2026-09-27 \(est\.\)</);
   assert.match(rows[1].where, /King County Birdcast Alert · 9\/27-28/);
   assert.match(rows[1].noteHeader,
-    /1\.8 million birds crossed King County last night/);
+    /1\.8 million birds \(est\.\) crossed King County on source night 2026-09-27/);
   assert.match(rows[1].icon, /birdcast-flight-label">1\.8M</,
     'last night’s measured count is not printed inside its migration tile');
   assert.equal(rows[1].omitWhen, true,
     'the completed-night source line still appends Bird Chaser’s render time');
-  assert.equal(rows[1].ageLabel, undefined,
-    'the clipped fixed Last night label still overrides relative age');
-  assert.equal(rows[1].ageTime, snapshot.count.nightEndedAt,
-    'the relative age is not measured from the ending sunrise');
+  assert.match(rows[1].ageLabel, /Sep 27/);
+  assert.equal(rows[1].ageTime, 0,
+    'acquisition or observation age must not replace the source calendar date');
+  const realNow = app.window.Date.now;
   app.window.Date.now = () => daytime.getTime();
   const card = app.document.createElement('div');
   card.innerHTML = A.surgeAlertCard(rows[1], 1);
   assert.equal(surgeEvidence(card).querySelector('.surgefacts').textContent.trim(),
     'King County Birdcast Alert · 9/27-28',
     'the source line includes a generated timestamp after the overnight range');
-  assert.match(card.querySelector('.surgeage').textContent, /^\d+hr ago$/,
-    'the completed night does not show a compact time-ago label');
+  assert.match(card.querySelector('.surgeage').textContent, /Sep 27/,
+    'the completed night lost its stable source date');
+  app.window.Date.now = realNow;
 
   const low = JSON.parse(JSON.stringify(snapshot));
   low.forecast.level = 'Low';
-  assert.equal(A.birdcastSurgeRows(daytime, low).map((row) => row.name).join(''),
-    rows[1].name,
-    'Bird Gen treated an ordinary Low forecast as news');
+  const lowRows = A.birdcastSurgeRows(daytime, low);
+  assert.equal(lowRows.length, 2);
+  assert.match(lowRows[0].name, />Low migration tonight</);
+  assert.equal(lowRows[1].name, rows[1].name);
   low.count.high = false;
-  assert.equal(A.birdcastSurgeRows(daytime, low).length, 0,
-    'Bird Gen showed last night without BirdCast’s official High classification');
+  assert.equal(A.birdcastSurgeRows(daytime, low).length, 1,
+    'a non-High measured night must not become a separate count alert');
   assert.match(HTML,
     /\.surgebirdcastthumb \.birdcast-flight-label\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s,
     'Bird Gen migration labels can overflow and crop HIGH or the measured count');
@@ -40395,36 +40474,38 @@ test('F763 latest checklist supplies MEGA count; unknown counts and held explana
   app.window.close();
 });
 
-test('F761 Bird Gen includes Medium and High forecasts, never Low forecasts', async () => {
+test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but never invents missing data', async () => {
   const app = await boot();
   const A = app.window.__app;
   const now = new Date('2026-09-28T18:00:00Z');
-  for (const level of ['Medium', 'High']) {
+  for (const level of ['Low', 'Medium', 'High']) {
     const rows = A.birdcastSurgeRows(now, {
+      fetchedAt: now.getTime(),
       forecast: { level, date: '2026-09-28' },
     });
     assert.equal(rows.length, 1);
     assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight<'));
-    assert.match(rows[0].noteHeader, level === 'High' ? /Heavy/ : /Moderate/);
+    assert.equal(rows[0].noteHeader, 'MIGRATION: ' + level + ' migration tonight');
     assert.match(rows[0].name, /data-sec="sec-bcBody"/);
   }
   assert.equal(A.birdcastSurgeRows(now, {
-    forecast: { level: 'Low', date: '2026-09-28' },
+    forecast: { level: 'Loading', date: '2026-09-28' },
   }).length, 0);
+  assert.equal(A.birdcastSurgeRows(now, {forecast:null}).length, 0);
   app.window.close();
 });
 
-test('F817 Medium and High forecast cards say Tonight and dusk to dawn without a visible reference time', async () => {
+test('F817/F1070 forecast cards distinguish Tonight from failed saved forecasts and retain dusk-to-dawn provenance', async () => {
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
   const now = new Date('2026-10-05T18:00:00Z');
   for (const level of ['Medium', 'High']) {
     for (const forecastError of ['', 'Forecast refresh unavailable']) {
-      const snapshot = { forecast: { level, date: '2026-10-05' }, forecastError };
+      const snapshot = { forecast: { level, date: '2026-10-05' }, forecastError, fetchedAt:now.getTime() };
       const row = A.birdcastSurgeRows(now, snapshot)[0];
       const host = app.document.createElement('div');
       host.innerHTML = A.surgeAlertCard(row, 1);
-      assert.equal(host.querySelector('.surgeage').textContent, 'Tonight');
+      assert.equal(host.querySelector('.surgeage').textContent, forecastError ? 'Saved forecast' : 'Tonight');
       assert.match(surgeEvidence(host).textContent, /migration expected between dusk and dawn/);
       assert.match(host.textContent, /Forecast - not a sighting/);
       assert.doesNotMatch(host.textContent, /9\s*pm|reference time|app-selected/i);
@@ -40437,22 +40518,29 @@ test('F817 Medium and High forecast cards say Tonight and dusk to dawn without a
       const official = app.$('bcBody').querySelector('.birdcast-destination');
       assert.match(official.getAttribute('data-href'), /^https:\/\/alert\.birdcast\.org\/\?/);
       assert.match(official.textContent, /Alert for your Home/);
-      if (forecastError) assert.match(surgeEvidence(host).textContent, /Forecast refresh unavailable/);
+      if (forecastError) assert.match(surgeEvidence(host).textContent, /saved evidence, refresh failed/);
     }
   }
   app.window.close();
 });
 
-test('F806/F817 tonight forecast keeps its validated internal local reference across midnight and DST', async () => {
+test('F806/F817/F1070 forecast keeps its validated source-night midnight across refresh and DST', async () => {
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
   const beforeMidnight = new Date('2026-10-05T06:50:00Z');
-  const oldForecast = { forecast: { level: 'Medium', date: '2026-10-04' } };
+  const oldForecast = { forecast: { level: 'Medium', date: '2026-10-04' },
+    fetchedAt:beforeMidnight.getTime() };
   const oldRow = A.birdcastSurgeRows(beforeMidnight, oldForecast)[0];
-  assert.equal(oldRow.time, Date.parse('2026-10-05T04:00:00.000Z'));
+  assert.equal(oldRow.time, Date.parse('2026-10-04T07:00:00.000Z'));
   assert.match(oldRow.where, /10\/4-5/);
   A.setBirdcastSnapshot(oldForecast);
+  const RealDate=app.window.Date;
+  app.window.Date=class extends RealDate {
+    constructor(...args) {super(...(args.length?args:[beforeMidnight.getTime()]));}
+    static now() {return beforeMidnight.getTime();}
+  };
   A.renderSurge([], [], [], [], []);
+  app.window.Date=RealDate;
   const forecastCard = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
   assert.ok(forecastCard, 'the forecast reference never reached the rendered Bird Gen feed');
   assert.equal(forecastCard.querySelector('.surgeage').textContent, 'Tonight');
@@ -40468,8 +40556,8 @@ test('F806/F817 tonight forecast keeps its validated internal local reference ac
   const refreshed = A.birdcastSurgeRows(afterMidnight, {
     forecast: { level: 'High', date: '2026-10-05' },
   })[0];
-  assert.equal(refreshed.time, Date.parse('2026-10-06T04:00:00.000Z'),
-    'a refreshed forecast did not use 9 pm PDT for its own validated date');
+  assert.equal(refreshed.time, Date.parse('2026-10-05T07:00:00.000Z'),
+    'a refreshed forecast did not use midnight PDT for its own source date');
 
   const beforeDst = A.birdcastSurgeRows(new Date('2026-11-01T02:00:00Z'), {
     forecast: { level: 'High', date: '2026-10-31' },
@@ -40477,10 +40565,15 @@ test('F806/F817 tonight forecast keeps its validated internal local reference ac
   const afterDst = A.birdcastSurgeRows(new Date('2026-11-02T08:00:00Z'), {
     forecast: { level: 'High', date: '2026-11-01' },
   })[0];
-  assert.equal(beforeDst.time, Date.parse('2026-11-01T04:00:00.000Z'),
-    'the pre-DST local reference did not use daylight time');
-  assert.equal(afterDst.time, Date.parse('2026-11-02T05:00:00.000Z'),
-    'the post-DST local reference did not use standard time');
+  assert.equal(beforeDst.time, Date.parse('2026-10-31T07:00:00.000Z'),
+    'October source-night midnight did not use daylight time');
+  assert.equal(afterDst.time, Date.parse('2026-11-01T07:00:00.000Z'),
+    'transition-day midnight must not use the offset after the transition');
+  const standard=A.birdcastSurgeRows(new Date('2026-11-02T20:00:00Z'), {
+    forecast:{level:'High',date:'2026-11-02'}
+  })[0];
+  assert.equal(standard.time,Date.parse('2026-11-02T08:00:00.000Z'),
+    'the next source-night midnight must use standard time');
   assert.equal(A.birdcastSurgeRows(afterMidnight, {
     forecast: { level: 'High' },
   }).length, 0, 'a forecast without its validated source date invented a reference');
@@ -40600,6 +40693,7 @@ test('F748 slow-scan warning and owned progress survive a pending band switch wi
     return null;
   } });
   const A = app.window.__app;
+  await seedSeen(app, []);
   A.setCountySeed({});
   A.setCountyBoundOverride(() => ({
     bounds: { minX: -117.6, maxX: -117.2, minY: 47.4, maxY: 47.8 },
@@ -49423,7 +49517,7 @@ test('F810 Advanced disclosure preserves the exact inventory without network or 
   assert.equal(advanced.open, false);
   assert.equal(advanced.querySelector('summary').textContent, 'Advanced / Debug');
   const moved = ['wallProbeBtn', 'wallProbeStatus', 'lifeProbeBtn', 'lifeProbeStatus',
-    'openDebugBtn', 'loadSeedBtn', 'regionCatalogRefresh', 'regionCatalogStatus',
+    'openDebugBtn', 'regionCatalogRefresh', 'regionCatalogStatus',
     'taxonomyCheckBtn', 'taxonomyStatus', 'namingLocale', 'namingLocalesBtn',
     'namingStatus', 'region', 'abaSid'];
   moved.forEach((id) => assert.equal(app.$(id).closest('details'), advanced, id));
@@ -52864,6 +52958,9 @@ test('F724 Today’s patches names and shares its county year-list prerequisite'
   const A = app.window.__app;
   await seedSeen(app,[],null,[{code:'kingfixture',name:'King Fixture Bird'}]);
   A.setCountyView('US-WA-033');
+  A.setWatchlist([{code:'kingfixture',name:'King Fixture Bird'}]);
+  assert.ok(Object.keys(A.personalListEvidence().needsProof).length,
+    'the personal target must be explicitly selected, not an inherited Watch default');
   const scope = A.activeScope();
 
   const existing = A.ensureCountySeenEvidence(scope);
@@ -52900,6 +52997,9 @@ test('F724 a failed county year-list prerequisite leaves an explicit retry', asy
   const A = app.window.__app;
   await seedSeen(app,[]);
   A.setCountyView('US-WA-033');
+  A.setWatchlist([{code:'amerob',name:'American Robin'}]);
+  assert.ok(Object.keys(A.personalListEvidence().needsProof).length,
+    'the retry fixture requires an explicit personal target');
 
   assert.equal(await A.loadDestinations(), false,
     'a missing exact county list was reported as a successful section load');
@@ -57767,3 +57867,9 @@ test('F356 live and cached eBird cost follows the request owner after navigation
     false, 'navigation created cost rows for work owned by My Ticks');
   app.window.close();
 });
+
+require('./migration-setup-controls.cjs')({
+  test, assert, boot, seedSeen, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
+  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml,
+});
+require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });
