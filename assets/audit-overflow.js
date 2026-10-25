@@ -2833,9 +2833,9 @@ const AUDIT = `<script>
     }
     A.showSection('sec-easyBtn', {load:false});
     A.renderEasyMisses([{code:'bohwax',name:'Bohemian Waxwing',freq:.8,days:8,
-      latest:new Date().toISOString(),spots:[{loc:'A long named public marsh and river access',
-        locId:'L1',lat:47.75,lng:-122.16,dateStr:new Date().toISOString()}]}],10);
-    measurePill(document.querySelector('#easyControls .sortpick'),3);
+      latest:new Date().toISOString(),spots:[{name:'A long named public marsh and river access',
+        locId:'L1',lat:47.75,lng:-122.16,when:new Date().toISOString()}]}],7);
+    measurePill(document.querySelector('#easyControls .sortpick'),2);
     var referencePillHeight = document.querySelector('#easyControls .sortbtn')
       .getBoundingClientRect().height;
     var referencePillStyle = getComputedStyle(document.querySelector('#easyControls .sortbtn'));

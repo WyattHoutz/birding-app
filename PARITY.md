@@ -15,6 +15,14 @@ have a **row in the matrix below**, enforced from both repos
 
 ## Current candidate — F805/F812 personal ownership and F811 dual boards
 
+F1104 replaces the app's Common birds prevalence presentation with an app-only
+seven-day public-hotspot opportunity feed. Each personally eligible bird/place
+pair remains separate and uses production Twitch cards. Geographic discovery,
+bounded additional-place checks, scoped saved evidence and global source-time
+or distance sorting are device policies, not changes to shared algorithms.
+The archived report retains historical prevalence; the app no longer claims
+its county-frequency thresholds or encounter probabilities.
+
 F987/F990/F991/F992 add a cached six-row Recent Bird Gen preview, compact
 evidence sheets, uppercase category labels and Patches / Birder Jargon /
 Bird alerts ordering. TWITCH is device-owned arrival tracking, not a change

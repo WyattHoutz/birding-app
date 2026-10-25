@@ -15858,7 +15858,7 @@ test('F895 eligible personal sources survive a filtered public representative an
   } finally {app.window.close();}
 });
 
-test('F899 Common birds uses the live radius for its label and every displayed source', async () => {
+test('F899 F1104 Common birds uses the live radius for its scope and every displayed source', async () => {
   const app = await boot({fetch:()=>null});
   try {
     const A=app.window.__app;
@@ -15877,16 +15877,17 @@ test('F899 Common birds uses the live radius for its label and every displayed s
     for (const [radius,expected] of [[35,['S899-15','S899-30']],[20,['S899-15']]]) {
       app.window.localStorage.setItem(A.chaseMiKey(),String(radius));
       A.renderEasyMisses(rows,30);
-      assert.equal(app.$('easyNear').textContent,radius+'mi','live chase-distance label');
+      assert.match(app.$('easyResults').textContent,new RegExp(radius+' straight-line miles'));
       assert.deepEqual(sources(),expected,'each displayed source obeys the chosen radius');
     }
     A.setRarityFilter('distance','region');
     A.renderEasyMisses(rows,30);
-    assert.deepEqual(sources(),['S899-15','S899-30','S899-40'],'All restores farther source evidence');
+    assert.deepEqual(sources(),['S899-15'],'another report’s All preference cannot bypass this feed’s radius');
     app.click(app.$('chaseMiUp'));
     app.click(app.$('chaseMiUp'));
     app.click(app.$('chaseMiUp'));
-    assert.equal(app.$('easyNear').textContent,'35mi','changing Settings synchronizes the label');
+    A.renderEasyMisses(rows,7);
+    assert.match(app.$('easyResults').textContent,/35 straight-line miles/);
     assert.equal(rows[0].spots.length,3,'filtering never mutates the prevalence sample');
   } finally {app.window.close();}
 });
@@ -16983,6 +16984,219 @@ test('rankings: the duplicate standing header stays removed', async () => {  con
     'the token is resolved by parameter NAME, so eBird can reorder its args');
 });
 
+test('F1104 Common birds keeps public, owned bird/place evidence flat and globally ordered', async () => {
+  const app = await boot({fetch:()=>null});
+  try {
+    const A=app.window.__app, now=recentObsStamp(1,10), old=recentObsStamp(2,9);
+    const hotspots=[
+      {locId:'L1104A',locName:'Twin Park',lat:47.76,lng:-122.16,subnational1Code:'US-WA'},
+      {locId:'L1104B',locName:'Twin Park',lat:47.80,lng:-122.16,subnational1Code:'US-WA'},
+      {locId:'L1104OR',locName:'Other State Park',lat:47.76,lng:-122.16,subnational1Code:'US-OR'},
+    ];
+    const row=(code,loc='L1104A',extra={})=>({
+      speciesCode:code,comName:code==='verfly'?'Vermilion Flycatcher':'Northern Saw-whet Owl',
+      locId:loc,locName:'Twin Park',obsDt:now,subId:'S'+code+loc,...extra
+    });
+    const data=[
+      row('verfly','L1104A',{obsValid:true,obsReviewed:false}),
+      row('verfly','L1104A',{obsDt:old,subId:'S1104OLD'}),
+      row('verfly','L1104A',{obsDt:old,subId:'S1104PARTY'}),
+      row('verfly','L1104B',{obsDt:recentObsStamp(1,8)}),
+      row('nswowl','L1104A',{obsValid:false,obsReviewed:false}),
+      row('amerob','L1104A',{comName:'American Robin'}),
+      row('unknown1104'),row('verfly','L1104OR'),row('verfly','LPRIVATE'),
+      row('verfly','L1104A',{locationPrivate:true,subId:'SPRIVATE'}),
+      row('verfly','L1104A',{obsSensitive:true,subId:'SSENSITIVE'}),
+      row('verfly','L1104A',{obsReviewed:true,obsValid:false,subId:'SREJECTED'}),
+      row('verfly','L1104A',{exoticCategory:'X',subId:'SESCAPEE'}),
+      row('verfly','L1104A',{obsDt:'1999-01-01 08:00',subId:'SSTALE'}),
+    ];
+    await seedSeen(app,['amerob'],['American Robin'],[
+      {code:'verfly',name:'Vermilion Flycatcher'},
+      {code:'nswowl',name:'Northern Saw-whet Owl'},
+    ]);
+    const safe=A.easyPublicObservations(data,hotspots,A.activeScope(),A.anchorPoint(),35);
+    assert.equal(safe.length,7,'private, sensitive, rejected, escapee, stale and out-of-region evidence is withheld');
+    const rows=A.computeEasyMisses(safe,7,{});
+    const flat=A.easyReportRows(rows);
+    assert.deepEqual(Array.from(flat,r=>[r.code,r.locId]),[
+      ['verfly','L1104A'],['nswowl','L1104A'],['verfly','L1104B'],
+    ].sort((a,b)=>a[1]===b[1]?a[0].localeCompare(b[0]):a[1].localeCompare(b[1])),
+    'seen and unknown membership are not targets; public owls are not blanket-masked');
+    assert.equal(flat.find(r=>r.code==='verfly'&&r.locId==='L1104A').siteEvidence.events,2,
+      'two checklists at one site/minute are one dated event, not independent visits');
+    assert.equal(flat.find(r=>r.code==='verfly'&&r.locId==='L1104A').siteEvidence.days,2);
+    assert.equal(flat.find(r=>r.code==='verfly'&&r.locId==='L1104A').obsValid,true);
+    assert.equal(flat.find(r=>r.code==='nswowl').obsValid,false);
+    assert.equal(flat.find(r=>r.locId==='L1104B').obsValid,undefined,
+      'missing source validation is not confirmation');
+    assert.equal(Object.hasOwn(flat[0],'count'),false,'a missing source count must stay missing');
+    A.setTwitchView('grouped');
+    A.renderEasyMisses(rows,7);
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,3);
+    assert.ok(app.$('easyResults').querySelector('ul.obs.big.xl'),
+      'the standard profile keeps the production Twitch list wrapper');
+    assert.doesNotMatch(app.$('easyResults').textContent,/×X/);
+    assert.match(app.$('easyResults').textContent,/2 reports · 2 days/);
+    assert.match(app.$('easyResults').textContent,/Source validated; unreviewed/);
+    assert.match(app.$('easyResults').textContent,/Source unvalidated; unreviewed/);
+    assert.match(app.$('easyResults').textContent,/Source validation unavailable/);
+    assert.doesNotMatch(app.$('easyResults').textContent,/CONFIRMED/);
+    assert.equal(app.$('easyResults').querySelector('.birdreportplaces'),null);
+    assert.ok(app.$('easyResults').innerHTML.includes('L1104B'),'the alternative has its own hotspot action');
+    const detail=app.$('easyResults').querySelector('details.ckmore');
+    assert.ok(detail,'older site evidence remains available without another opportunity row');
+    app.click(detail.querySelector('summary'));
+    assert.ok(detail.querySelector('[data-ev-sub="S1104OLD"]'));
+    const profile=A.getDisplayProfile();
+    A.setDisplayProfile('high-visibility');
+    A.renderEasyMisses(rows,7);
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard .bcbody').length,3,
+      'Common birds must use the production Twitch high-visibility card path');
+    assert.ok(app.$('easyResults').querySelector('ul.cards.card-lg.twitchgroups'),
+      'large Twitch cards require the production large-list wrapper too');
+    A.setDisplayProfile(profile);
+  } finally {app.window.close();}
+});
+
+test('F1104 Common birds paints before place enrichment, bounds calls and reuses owned saved evidence', async () => {
+  const calls=[],taxa=Array.from({length:8},(_,i)=>({code:'f1104bird'+i,name:'Target Bird '+i}));
+  const stamp=recentObsStamp(1,9);
+  const hotspots=[
+    {locId:'L1104LOADA',locName:'First Park',lat:47.76,lng:-122.16,subnational1Code:'US-WA'},
+    {locId:'L1104LOADB',locName:'Second Park',lat:47.78,lng:-122.16,subnational1Code:'US-WA'},
+  ];
+  const records=taxa.map(t=>({speciesCode:t.code,comName:t.name,obsDt:stamp,
+    locId:'L1104LOADA',locName:'First Park',lat:47.76,lng:-122.16,subId:'S'+t.code}));
+  let release,fail=false,hold=true,checklistCalls=0;
+  const app=await boot({fetch(url) {
+    const u=String(url);
+    if (/\/ref\/hotspot\/geo\?/.test(u)) {calls.push(u);return hotspots;}
+    if (/\/data\/obs\/geo\/recent\?/.test(u)) {
+      calls.push(u);return fail?{__status:404}:records;
+    }
+    if (/\/data\/nearest\/geo\/recent\//.test(u)) {
+      calls.push(u);
+      const code=/\/recent\/([^?]+)/.exec(u)[1],base=records.find(r=>r.speciesCode===code);
+      const rows=[{...base,locId:'L1104LOADB',locName:'Second Park',subId:'SALT'+code}];
+      if (hold) {
+        hold=false;
+        return new Promise(resolve=>{release=()=>resolve(Array.from({length:100},()=>({...rows[0]})));});
+      }
+      return rows;
+    }
+    if (/\/product\/checklist\/view\//.test(u)) {
+      checklistCalls++;
+      return {obs:[],comments:'',durationHrs:1};
+    }
+    return null;
+  }});
+  try {
+    const A=app.window.__app;
+    await seedSeen(app,[],[],taxa);
+    A.setRarityNotes(false);
+    await A.zcPut(A.easyOpportunityKey(),{v:1,at:Date.now(),rows:[],hotspots:[],
+      checked:'invalid-owner-data',geoDone:3,failures:0});
+    const start=Date.now(),loading=A.loadEasyMisses(true);
+    const deadline=Date.now()+8000;
+    while (!release && Date.now()<deadline) await new Promise(r=>setTimeout(r,10));
+    assert.equal(typeof release,'function','the first optional place request reached its held response');
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,8,
+      'useful geographic targets must paint before optional place evidence settles');
+    const firstMs=Date.now()-start;
+    release();
+    assert.equal(await loading,true);
+    const fullMs=Date.now()-start;
+    assert.equal(calls.filter(u=>/\/ref\/hotspot\/geo/.test(u)).length,1);
+    assert.equal(calls.filter(u=>/\/data\/obs\/geo/.test(u)).length,3);
+    assert.equal(calls.filter(u=>/\/data\/nearest/.test(u)).length,7,
+      'initial alternative-site work is seven discovered species, not every regional taxon');
+    assert.equal(checklistCalls,0,'optional checklist notes cannot consume the discovery queue by default');
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,15);
+    assert.match(app.$('easyStatus').textContent,/source response limit reached/,
+      'a capped representative response is not exhaustive site coverage');
+    assert.equal(app.$('easyPlaces').hidden,false,'the eighth discovered species has an explicit continuation');
+    assert.ok(!calls.some(u=>/historic|notable/.test(u)),'ordinary discovery has no history or rare-only prerequisite');
+    const before=calls.length,warmStart=Date.now();
+    assert.equal(await A.loadEasyMisses(),true);
+    assert.equal(calls.length,before,'a fresh owned snapshot needs zero source requests');
+    const warmMs=Date.now()-warmStart;
+    await A.easyFindMorePlaces(true);
+    assert.equal(calls.length,before+1);
+    assert.equal(app.$('easyPlaces').hidden,true);
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,16);
+    const key=A.easyOpportunityKey(),saved=await A.zcGet(key);
+    fail=true;
+    assert.equal(await A.loadEasyMisses(true),false,'all discovery failures are not successful empty results');
+    assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,16,
+      'failed refresh must retain useful saved targets');
+    assert.match(app.$('easyStatus').textContent,/unavailable|retry/i);
+    assert.equal((await A.zcGet(key)).at,saved.at,'a failed acquisition cannot replace the good saved answer');
+    A.useFoundAnchor({lat:46,lng:-122.16},'Moved test anchor');
+    assert.notEqual(A.easyOpportunityKey(),key,'the snapshot is not portable to a different anchor');
+    console.log('F1104 controlled app wall timings '+JSON.stringify({
+      firstUsefulMs:firstMs,initialEnrichmentMs:fullMs,warmMs,initialSourceCalls:11,
+      note:'offline fixtures and test scheduler, not live eBird latency'
+    }));
+  } finally {if(release) release();app.window.close();}
+});
+
+test('F1104 discovery geometry covers the declared disk and discloses larger selected radii', async () => {
+  const app=await boot({fetch:()=>null});
+  try {
+    const A=app.window.__app;
+    for (const lat of [-70,0,47.75,70]) {
+      const origin={lat,lng:179.9},plan=A.easyDiscoveryPlan(origin,1000);
+      assert.equal(plan.centers.length,3);
+      assert.ok(plan.coveredMi>35&&plan.coveredMi<36);
+      for (let bearing=0;bearing<360;bearing+=2) {
+        const rad=Math.PI/180,d=plan.coveredMi*1.609344/6371;
+        const y=Math.asin(Math.sin(lat*rad)*Math.cos(d)
+          +Math.cos(lat*rad)*Math.sin(d)*Math.cos(bearing*rad));
+        const x=origin.lng*rad+Math.atan2(Math.sin(bearing*rad)*Math.sin(d)*Math.cos(lat*rad),
+          Math.cos(d)-Math.sin(lat*rad)*Math.sin(y));
+        const nearest=Math.min(...Array.from(plan.centers,c=>BL.haversineMi(c.lat,c.lng,y/rad,x/rad)*1.609344));
+        assert.ok(nearest<=50,`coverage hole at ${lat}/${bearing}: ${nearest} km`);
+      }
+    }
+    assert.equal(A.easyDiscoveryPlan({lat:47.75,lng:-122.16},20).centers.length,1);
+  } finally {app.window.close();}
+});
+
+for (const change of ['anchor','personal period','credential']) {
+  test('F1104 obsolete acquisition cannot paint or save after changing '+change, async () => {
+    let release;
+    const hotspot={locId:'L1104OLD',locName:'Public Park',lat:47.76,lng:-122.16,
+      subnational1Code:'US-WA'};
+    const app=await boot({fetch(url) {
+      if (/\/ref\/hotspot\/geo\?/.test(String(url))) return [hotspot];
+      if (/\/data\/obs\/geo\/recent\?/.test(String(url))) {
+        if (!release) return new Promise(resolve=>{release=resolve;});
+        return [];
+      }
+      return null;
+    }});
+    try {
+      const A=app.window.__app;
+      await seedSeen(app,[],[],[{code:'verfly',name:'Vermilion Flycatcher'}]);
+      const key=A.easyOpportunityKey(),loading=A.loadEasyMisses(true);
+      const deadline=Date.now()+8000;
+      while (!release&&Date.now()<deadline) await new Promise(r=>setTimeout(r,10));
+      assert.equal(typeof release,'function');
+      if (change==='anchor') A.useFoundAnchor({lat:46,lng:-122.16},'Other anchor');
+      else if (change==='personal period') A.setPersonalPeriod('all');
+      else app.window.localStorage.setItem('ebird_api_key','OTHER-FIXTURE-KEY');
+      if (change!=='credential') assert.notEqual(A.easyOpportunityKey(),key);
+      const before=app.$('easyResults').innerHTML;
+      release([{...hotspot,speciesCode:'verfly',comName:'Vermilion Flycatcher',
+        obsDt:recentObsStamp(),subId:'S1104OBSOLETE'}]);
+      assert.equal(await loading,false,'obsolete source work is not a completed new-scope load');
+      assert.equal(app.$('easyResults').innerHTML,before,'obsolete results painted in the new scope');
+      assert.equal(await A.zcGet(key),null,'obsolete work wrote a successful saved snapshot');
+    } finally {app.window.close();}
+  });
+}
+
 test('easy misses: ranked by location-days, excluding birds on your year list', async () => {
   // Ports report.section_common_missing. The two things that make this list
   // worth chasing are (a) it never suggests a bird you already have and
@@ -17054,7 +17268,7 @@ test('F414 Nemesis retains qualifiers beyond row 25 and reveals them without ref
         speciesCode: code, comName: 'Nemesis Bird ' + i,
         obsDt: '2026-09-' + day + ' 08:00',
         locId: 'L' + i, locName: 'Place ' + i,
-        lat: 19.9 + i / 1000, lng: -155.8,
+        lat: 47.7 + i / 1000, lng: -122.16,
       });
     }
   }
@@ -17102,7 +17316,7 @@ test('easy misses: a fetched day is cached, because a past day never changes', a
   app.window.close();
 });
 
-test('F476 Common birds completes and paints one regional day at a time', async () => {
+test('F476 historical cache completes and paints one regional day at a time', async () => {
   const calls = [];
   const app = await boot({
     fetch(url) {
@@ -17162,9 +17376,8 @@ test('F476 Common birds completes and paints one regional day at a time', async 
 
   const loader = HTML.slice(HTML.indexOf('function loadEasyMisses('),
     HTML.indexOf('// --- P14:', HTML.indexOf('function loadEasyMisses(')));
-  assert.match(loader,
-    /easyFetch\([\s\S]*renderEasyProgress\(partial, daysDone, daysTotal, progressiveParents\)/,
-    'the real Common birds loader does not wire day completion to the visible report');
+  assert.doesNotMatch(loader,/easyFetch\(/,
+    'F1104 must not make historical county sampling a prerequisite again');
   app.window.close();
 });
 
@@ -18191,7 +18404,7 @@ test('F422 the species QR action stays on the bird-name line', async () => {
 // Easy misses hand-rolled its own row markup and so drifted into a different
 // card, a different place list and a "#N" rank badge. The card system's rule is
 // that no section rolls its own bird row; this is that rule one layer up.
-test('Easy misses renders through the SAME card as All unseen', async () => {
+test('F1104 Common birds renders distinct places through production Twitch cards', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -18203,18 +18416,19 @@ test('Easy misses renders through the SAME card as All unseen', async () => {
       { locId: 'L2', name: 'Juanita Bay', lat: 47.70, lng: -122.20, when: '2026-07-28 09:00', sub: 'S2', mi: 9.1 },
     ],
   }], { minFreq: 0.4 }), 30);
-  app.click(doc.getElementById('easyView'));
   const box = doc.getElementById('easyResults');
   const ul = box.querySelector('ul');
-  for (const cls of ['obs', 'big', 'xl', 'icon-sm']) {
+  for (const cls of ['obs', 'big', 'xl']) {
     assert.ok(ul.className.split(/\s+/).includes(cls),
-      'the same wrapper All unseen uses, missing: ' + cls);
+      'the production Twitch wrapper is missing: ' + cls);
   }
   const miles = BL.haversineMi(47.75, -122.16, 47.66, -122.11).toFixed(1);
   assert.match(box.textContent, new RegExp(miles.replace('.', '\\.') + '\\s*mi'),
     'the shared grouped card computes distance from the selected anchor, not a stale spot value');
-  assert.ok(box.querySelector('.birdreportplaces'), 'places render through the shared place list');
-  assert.ok(box.querySelector('.cklcards'), 'with their checklists beneath them');
+  assert.equal(box.querySelectorAll('.twitchcard').length,2,
+    'one species at two public places must produce two production Twitch cards');
+  assert.equal(box.querySelector('.birdreportplaces'),null,'a Group preference cannot hide the alternative');
+  assert.match(box.textContent,/Juanita Bay/);
   assert.ok(!/#1/.test(box.textContent), 'and the "#N" rank badge is gone');
   assert.match(box.textContent, /Marymoor Park/, 'the places are still named');
   app.window.close();
@@ -21333,14 +21547,14 @@ test('every section carries an info button that opens its calculation notes', as
  * absolute, and by mid-year the genuinely common birds are already on your year
  * list. An honest section that nobody can use is still a section nobody can use.
  */
-test('easy misses lowers its threshold until the section is worth reading', async () => {
+test('F1104 Common birds admits one-off birds without a frequency threshold', async () => {
   const app = await boot();
   const compute = app.window.__app.computeEasyMisses;
   const days = 20;
   // 12 species, each on a different number of the 20 sampled days: one at 90%,
   // the rest between 10% and 45%. At a fixed 40% bar this yields 2 rows.
   const obs = [];
-  const freqs = [18, 9, 8, 7, 6, 5, 5, 4, 4, 3, 3, 2];
+  const freqs = [18, 9, 8, 7, 6, 5, 5, 4, 4, 3, 3, 2, 1];
   freqs.forEach((n, s) => {
     for (let d = 0; d < n; d++) {
       obs.push({
@@ -21352,11 +21566,8 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
   });
   await seedSeen(app,[],null,obs);
   const rows = compute(obs, days, {});
-  assert.ok(rows.length >= 10,
-    'the bar drops until at least ten birds qualify (got ' + rows.length + ')');
-  assert.ok(rows.minFreq < 0.4, 'and the section says it lowered the bar');
-  assert.ok(rows.every((r) => r.freq >= rows.minFreq),
-    'every row really clears the bar that was reported');
+  assert.equal(rows.length,freqs.length,'a useful one-off must survive even below the former 8% floor');
+  assert.equal(rows.minFreq,0,'frequency is no longer an admission rule');
   // Still ranked by location-days, not by the relaxed frequency: a bird
   // reported from eight places is one you can go and get.
   const sd = arr(rows, (r) => r.siteDays);
@@ -21374,8 +21585,8 @@ test('easy misses lowers its threshold until the section is worth reading', asyn
     }
     await seedSeen(app,[],null,rich);
   }
-  assert.equal(compute(rich, days, {}).minFreq, 0.4,
-    'the bar only moves when it has to');
+  assert.equal(compute(rich, days, {}).minFreq, 0,
+    'a rich sample must not restore a frequency admission rule');
 });
 // --- v1.0.23: Needs verification, map provider, Happening-now legibility -----
 
@@ -35110,11 +35321,11 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
     JSON.stringify({ year: 'all', distance: 'region' }));
   const rows = [
     { code: 'a', name: 'Alpha', freq: 0.9, days: 27, totalDays: 30, locs: 3,
-      latest: '2026-08-10 08:00', spots: [{ name: 'Far Park', locId: 'L1',
-        lat: 48.6, lng: -122.9, mi: 80, when: '2026-08-10 08:00', sub: 'S1' }] },
+      latest: '2026-08-28 08:00', spots: [{ name: 'Far Park', locId: 'L1',
+        lat: 47.9, lng: -122.16, mi: 10, when: '2026-08-28 08:00', sub: 'S1' }] },
     { code: 'b', name: 'Bravo', freq: 0.5, days: 15, totalDays: 30, locs: 2,
-      latest: '2026-08-28 08:00', spots: [{ name: 'Near Park', locId: 'L2',
-        lat: 47.76, lng: -122.17, mi: 1, when: '2026-08-28 08:00', sub: 'S2' }] },
+      latest: '2026-08-10 08:00', spots: [{ name: 'Near Park', locId: 'L2',
+        lat: 47.76, lng: -122.17, mi: 1, when: '2026-08-10 08:00', sub: 'S2' }] },
   ];
   rows.minFreq = 0.4;
 
@@ -35124,11 +35335,11 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
 
   const order = () => [...doc.querySelectorAll('#easyResults > ul > li')]
     .map((li) => li.textContent).join('|');
-  assert.match(order(), /Alpha[\s\S]*Bravo/, 'commonest first by default');
+  assert.match(order(), /Alpha[\s\S]*Bravo/, 'newest source sighting first by default');
 
   const before = calls;
   doc.getElementById('easyByDate').click();
-  assert.match(order(), /Bravo[\s\S]*Alpha/, 'by date puts the freshest first');
+  assert.match(order(), /Alpha[\s\S]*Bravo/, 'by date puts the freshest first');
   doc.getElementById('easyByDist').click();
   assert.match(order(), /Bravo[\s\S]*Alpha/, 'by distance puts the nearest first');
   assert.equal(calls, before,
@@ -35137,14 +35348,11 @@ test('Common birds sorts by date and distance without refetching (F246)', async 
   // The pressed state must follow, or a colour-blind reader has no way to tell
   // which mode is active: aria-pressed is the non-colour channel here.
   assert.equal(doc.getElementById('easyByDist').getAttribute('aria-pressed'), 'true');
-  assert.equal(doc.getElementById('easyByFreq').getAttribute('aria-pressed'), 'false');
+  assert.equal(doc.getElementById('easyByDate').getAttribute('aria-pressed'), 'false');
 
   assert.equal(doc.querySelector('#easyResults .birdreportplaces'), null);
-  doc.getElementById('easyView').click();
-  assert.equal(doc.getElementById('easyView').getAttribute('aria-pressed'), 'true');
-  assert.equal(doc.getElementById('easyResults').classList.contains('report-list-view'), false);
-  assert.ok(doc.querySelector('#easyResults .birdreportplaces'),
-    'Group must visibly replace checklist rows with grouped place content');
+  assert.equal(doc.getElementById('easyView'),null);
+  assert.equal(doc.getElementById('easyResults').classList.contains('report-list-view'), true);
 
   const note = doc.querySelector('#easyResults .cknote');
   assert.ok(note && !note.hidden,
@@ -50449,12 +50657,12 @@ test('F533 diagnostics count only visible photos and export each section sort', 
     'hidden report sections inflated the on-screen photo count');
 
   A.setRaritySort('distance');
-  A.setEasySort('freq');
+  A.setEasySort('dist');
   A.recordSectionCoverage(nemesis, true);
   A.recordSectionCoverage(common, true);
   const sections = JSON.parse(A.coverageAuditExport()).sections;
   assert.equal(sections.find((row) => row.section === 'nemesis').sort, 'distance');
-  assert.equal(sections.find((row) => row.section === 'common_birds').sort, 'freq');
+  assert.equal(sections.find((row) => row.section === 'common_birds').sort, 'dist');
   app.window.close();
 });
 
@@ -57595,7 +57803,7 @@ test('F320 every long section-owned history plan carries one navigation token', 
   const easy = HTML.slice(HTML.indexOf('function easyFetch('),
     HTML.indexOf('// --- Hot / cold hotspots'));
   assert.match(easy, /ebirdBg\(path, work\)/);
-  assert.match(easy, /var work = navWork\('Common-bird history'\)/);
+  assert.match(easy, /work:\s*navWork\('Common birds opportunities'\)/);
 
   const migration = HTML.slice(HTML.indexOf('function migFetchDate('),
     HTML.indexOf('// --- Birder convoys'));

@@ -581,21 +581,23 @@
     },
     "easyBtn": {
       "report": "## 🐦 Common birds — Common birds you still need",
-      "summary": "Common birds you should already have — the highest hit-rate chase list.",
+      "summary": "Nearby birds you still need, with a separate target for each reported public hotspot.",
       "inputs": [
-        "the accumulated history of daily report snapshots for this region"
+        "the selected exact personal list, account, region, period and taxonomy",
+        "seven-day recent geographic observations and the public-hotspot directory, directly from eBird",
+        "nearest-species reports for additional places, in batches of seven discovered eligible birds"
       ],
       "how": [
-        "A species qualifies if it appeared on at least 40% of the sampled days and is proven absent from the exact selected personal list, or has an explicit Needs proof exception. Rank uses location-days: a bird reported from eight places is one you can go and get, while eight reports from one feeder is one lucky yard.",
-        "If fewer than 10 species clear that bar, the bar DROPS - 40%, then 25%, 15%, 8% - rather than print a two-row section. The intro always names the bar actually used, because '>=15% of days' is a materially different claim from '>=40%'.",
-        "Recorded birds are removed before the bar is applied, except explicit Needs proof. Unknown membership is withheld with coverage disclosure, never converted to absence.",
-        "Ranked by how many different PLACES reported the bird, not by how many reports there were.",
-        "In the app the first run samples a month of checklists in the background; each day is cached, so every later run is instant."
+        "One entry means one countable needed bird at one source-supported public hotspot. Different hotspots remain separate, even when their names match. Repeat source checklists are retained in that entry instead of creating duplicate targets.",
+        "Apply the selected radius and source-supported personal-list region before aggregating evidence. Unknown membership is withheld; explicit Needs proof and Watch exceptions retain their labels.",
+        "Newest sorts all bird/place entries by source observation time. Nearest sorts by that hotspot's straight-line distance. Neither sort refetches observations.",
+        "Saved applicable evidence paints first. Each completed discovery feed can add targets before optional additional-place or checklist enrichment finishes. Refresh bypasses warm source answers.",
+        "One geographic circle is used up to approximately 31 miles; three capped circles cover up to 35.9 miles. Larger selected radii disclose the narrower discovery footprint. The app then checks seven discovered eligible birds for additional places; Find more places continues another batch. No commonness percentage is an admission rule."
       ],
       "limits": [
-        "This section naturally shrinks as the selected personal list grows. The widening ladder degrades a shrinking section into a longer-shot list rather than nothing; it never compensates for unavailable personal history by guessing targets.",
-        "A lower bar means a lower hit rate. A bird reported on 8% of days is a real target, but it is not the near-certainty a 40% bird is - read the stated threshold before driving.",
-        "The app and the report measure prevalence over different windows: the report uses every daily snapshot it has committed for the region, the app samples the last 30 days live, so the two can pick different bars on the same day."
+        "These API feeds return representatives, not every observation or every nearby bird/place pair. Coverage, unfinished place checks, source response caps and failed requests remain explicit. Empty results are not proof that every nearby bird has been seen.",
+        "A public hotspot is not permission to enter, a precise bird position or evidence that a bird remains. Repeat history is not fully checked; multiple source checklists do not establish independent visits. There is no estimated encounter probability.",
+        "The archived report still uses historical prevalence. This app-only opportunity feed replaces that presentation; shared chase-evidence algorithms retain their Python/JavaScript parity."
       ]
     },
     "nvResults": {

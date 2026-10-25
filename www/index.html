@@ -4189,33 +4189,20 @@
       <div class="row">
         <button id="easyBtn">Find common birds</button>
       </div>
-      <div id="easyStatus" class="status"></div>
-      <!-- F246. "after the data loads, it needs the toggle for sorting by
-           date or distance used in other reports." Same `sortbtn` shape as
-           the Stakeout bird row above, so the control a reader has already
-           learned works the same way here.
-           ⚠️ HIDDEN until there are rows. A sort control above an empty
-           list offers to reorder nothing, and this section takes ~60
-           throttled calls to fill on a cold cache — so it would sit there
-           inert for a minute promising something it cannot do. -->
+      <div id="easyStatus" class="status" role="status"></div>
       <div class="raritycontrols" id="easySortRow" hidden>
         <div class="raritycontrolrow rarityfilterrow raritysortrow" id="easyControls">
-          <span class="sortpick multipill" role="group" aria-label="Sort common birds">
-            <button id="easyByFreq" class="sortbtn" type="button" aria-pressed="true">Commonest</button>
-            <button id="easyByDate" class="sortbtn" type="button" aria-pressed="false">Newest</button>
+          <span class="sortpick twopill" role="group" aria-label="Sort common birds">
+            <button id="easyByDate" class="sortbtn" type="button" aria-pressed="true">Newest</button>
             <button id="easyByDist" class="sortbtn" type="button" aria-pressed="false">Nearest</button>
           </span>
-          <span class="sortpick twopill" role="group" aria-label="Filter common birds by distance">
-            <button id="easyNear" class="sortbtn" type="button" aria-pressed="true">Nearby</button>
-            <button id="easyAll" class="sortbtn" type="button" aria-pressed="false">All</button>
-          </span>
           <button id="easyNotes" class="pressbtn" type="button" aria-pressed="false"><span class="pressicon" aria-hidden="true">💬</span><span class="presslabel">Notes</span></button>
-          <button id="easyView" class="pressbtn" type="button" aria-pressed="false"><span class="pressicon" aria-hidden="true">▦</span><span class="presslabel">Group</span></button>
         </div>
       </div>
       <div id="easyResults"></div>
       <div class="row">
         <button id="easyMore" class="secondary" type="button" hidden>Show 25 more</button>
+        <button id="easyPlaces" class="secondary" type="button" hidden>Find more places</button>
       </div>
     </section>
 
@@ -5159,7 +5146,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.172.0';
+      var APP_VERSION = '1.173.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13424,7 +13411,8 @@
           statusLine: large ? tags : '',
           primary: birdReportMetric(r, opts.sortMode),
           sub: large ? '' : evidence,
-          below: large ? '<div class="bcsub">' + evidence + '</div>' + note : '',
+          below: (large ? '<div class="bcsub">' + evidence + '</div>' + note : '')
+            + (opts.below || ''),
           metaAction: large ? '' : note,
           data: data
         });
@@ -35953,15 +35941,8 @@
           .finally(function () { btn.disabled = false; });
       }
 
-      // --- 🐦 Common birds — common birds not on your year list ------------
-      // Ports report.section_common_missing. The report tallies the daily
-      // snapshots it has been committing since May; the app has no archive, so
-      // it samples the same kind of feed those snapshots are made of — one
-      // historic day per county — and derives the same prevalence from it.
-      //
-      // Ranked by LOCATION-DAYS, not raw report count, exactly as the report
-      // does: a bird reported from eight different places is one you can go
-      // and get, while eight reports from one feeder is one lucky yard.
+      // Historic day caches remain shared with Hot patches. Common birds
+      // uses recent public-hotspot opportunities instead of county prevalence.
       var EASY_MISS_DAYS = 30, EASY_MISS_MIN_FREQ = 0.40, EASY_MISS_BATCH = 25;
       // The 40% bar is right in January and wrong in August: by mid-year the
       // common birds ARE on your year list, so an absolute threshold quietly
@@ -36273,12 +36254,21 @@
       }
 
       function computeEasyMisses(obs, totalDays, parentOf) {
-        var per = {};
+        var per = {}, origin = anchorPoint();
         (obs || []).forEach(function (o) {
-          var code = o.speciesCode, day = String(o.obsDt || '').slice(0, 10);
+          var code = BL.resolveReportAs(o.speciesCode, parentOf || {}),
+            day = String(o.obsDt || '').slice(0, 10);
           if (!code || !day) return;
+          if (!origin || o.lat == null || o.lng == null
+              || !isFinite(+o.lat) || !isFinite(+o.lng)
+              || haversineMi(origin.lat, origin.lng, +o.lat, +o.lng) > chaseMaxMi()) return;
+          if (BL.taxonKind(o.comName, o.exoticCategory) !== 'species'
+              || o.locationPrivate || o.location_private || o.obsSensitive
+              || o.obsReviewed === true && o.obsValid === false) return;
           var loc = o.locId || '';
-          var d = per[code] || (per[code] = { name: o.comName || code, days: {}, siteDays: {}, spots: {}, latest: '' });
+          if (!loc) return;
+          var taxon = _taxonomyModel && _taxonomyModel.byCode[code];
+          var d = per[code] || (per[code] = { name: taxon && taxon.name || o.comName || code, days: {}, siteDays: {}, spots: {}, latest: '' });
           d.days[day] = 1;
           d.siteDays[day + '|' + loc] = 1;
           if ((o.obsDt || '') > d.latest) d.latest = o.obsDt || '';
@@ -36287,24 +36277,22 @@
               locId: loc, name: o.locName || loc, lat: +o.lat, lng: +o.lng,
               when: '', sub: '', checklists: []
             });
-            if (o.subId && !s.checklists.some(function (c) {
-              return c.subId === o.subId;
+            if (!s.checklists.some(function (c) {
+              return c.subId === (o.subId || '') && c.dateStr === o.obsDt;
             })) {
-              s.checklists.push({
-                subId: o.subId, dateStr: o.obsDt || '',
-                lat: +o.lat, lng: +o.lng
-              });
+              var evidence = {
+                subId: o.subId || '', dateStr: o.obsDt || '',
+                lat: +o.lat, lng: +o.lng,
+                obsValid: o.obsValid, obsReviewed: o.obsReviewed
+              };
+              if (Object.prototype.hasOwnProperty.call(o, 'howMany')
+                  && (o.howMany === 'X' || typeof o.howMany === 'number'
+                    && isFinite(o.howMany) && o.howMany > 0)) evidence.count = o.howMany;
+              s.checklists.push(evidence);
             }
             if ((o.obsDt || '') > s.when) { s.when = o.obsDt || ''; s.sub = o.subId || ''; }
           }
         });
-        // F241. THE CHOSEN ANCHOR, not always the house. Common birds gained
-        // the Here / Home / Find… switch, so "near you" has to mean the point
-        // the reader picked, exactly the "ranking, not gathering" pattern
-        // every other anchor section already follows: the checklists are
-        // still fetched by COUNTY (unchanged), only the DISTANCE each spot is
-        // ranked by moves. `anchorPoint()` already falls back to home, so the
-        // untouched default is bit-for-bit what this was before.
         var home = anchorPoint(), rows = [];
         Object.keys(per).forEach(function (code) {
           var d = per[code];
@@ -36326,19 +36314,12 @@
             // The shared renderer shows five and folds the rest, so a hard
             // truncation here would silently cap the expander at a number the
             // reader is told nothing about.
-            spots: spots.slice(0, EASY_MISS_SPOTS), latest: d.latest
+            spots: spots, latest: d.latest
           });
         });
         rows.sort(function (a, b) { return (b.siteDays - a.siteDays) || (b.freq - a.freq); });
-        // Lower the bar only as far as it takes to have a section worth reading.
-        var bar = EASY_MISS_WIDEN_FREQ[0], kept = [];
-        for (var bi = 0; bi < EASY_MISS_WIDEN_FREQ.length; bi++) {
-          bar = EASY_MISS_WIDEN_FREQ[bi];
-          kept = rows.filter(function (r) { return r.freq >= bar; });
-          if (kept.length >= EASY_MISS_MIN_ROWS) break;
-        }
-        kept.minFreq = bar;
-        return kept;
+        rows.minFreq = 0;
+        return rows;
       }
       // ONE renderer for "a species, and the places it has been" — used by All
       // unseen and by Easy misses, which had hand-rolled its own row markup and
@@ -36472,15 +36453,7 @@
         });
         return out;
       }
-      // F246. "after the data loads, it needs the toggle for sorting by date or
-      // distance used in other reports."
-      //
-      // ⚠️ SORTING IS A VIEW, NOT A REBUILD — the same rule Stakeout bird
-      // already states. These rows cost ~60 throttled calls to assemble; a
-      // sort that refetched would spend a minute of the rate-limit budget to
-      // reorder a list already in memory, which is the opposite of what a
-      // toggle is for.
-      var _easySort = 'freq';
+      var _easySort = 'date';
       var _easyRows = null, _easyDays = 0, _easyVisible = EASY_MISS_BATCH;
       var _easySample = null, _easyParentOf = {}, _easyCompletedDays = 0,
         _easyTotalDays = 0, _easyCountyScope = null;
@@ -36523,7 +36496,7 @@
         return best;
       }
       function setEasySort(mode) {
-        _easySort = mode === 'dist' ? 'dist' : mode === 'date' ? 'date' : 'freq';
+        _easySort = mode === 'dist' ? 'dist' : 'date';
         ['easyByFreq', 'easyByDate', 'easyByDist'].forEach(function (id) {
           var b = $(id);
           if (!b) return;
@@ -36535,55 +36508,45 @@
       function easyReportRows(rows) {
         var out = [];
         (rows || []).forEach(function (bird) {
-          easySpotsToPlaces(bird.spots || []).forEach(function (place) {
-            var checklists = place.checklists && place.checklists.length
-              ? place.checklists : [{ subId: '', dateStr: place.dateStr }];
-            checklists.forEach(function (checklist) {
-              var lat = checklist.lat != null ? checklist.lat : place.lat;
-              var lon = checklist.lon != null ? checklist.lon : place.lon;
-              var mi = easyNearestMi({spots:[{lat:lat, lng:lon}]});
-              if (rarityFilters().distance === 'near' && mi != null && mi > chaseMaxMi()) return;
-              out.push({
-                code: bird.code, name: bird.name, sci: sciFor(bird.code),
-                dateStr: checklist.dateStr || place.dateStr || bird.latest || '',
-                subId: checklist.subId || '', count: checklist.count,
-                observer: checklist.observer || '', durationHrs: checklist.durationHrs,
-                evidence: checklist.evidence || '',
-                loc: place.loc, locId: place.locId,
-                locationPrivate: place.locationPrivate,
-                lat: lat, lon: lon, distMi: mi
-              });
+          (bird.spots || []).forEach(function (place) {
+            var checklists = (place.checklists || []).slice().sort(function (a, b) {
+              return String(b.dateStr || '').localeCompare(String(a.dateStr || ''))
+                || String(a.subId || '').localeCompare(String(b.subId || ''));
             });
+            var checklist = checklists[0] || { subId: place.sub, dateStr: place.when };
+            var mi = easyNearestMi({ spots: [place] });
+            if (mi == null || mi > chaseMaxMi()) return;
+            var record = {
+              code: bird.code, name: bird.name, sci: sciFor(bird.code),
+              dateStr: checklist.dateStr || place.when || '',
+              subId: checklist.subId || '',
+              obsValid: checklist.obsValid, obsReviewed: checklist.obsReviewed,
+              loc: place.name, locId: place.locId,
+              lat: place.lat, lon: place.lng, distMi: mi,
+              siteEvidence: BL.chaseConfidence(checklists, { nowMs: Date.now() }),
+              checklists: checklists
+            };
+            if (Object.prototype.hasOwnProperty.call(checklist, 'count')) record.count = checklist.count;
+            out.push(record);
           });
+        });
+        out.sort(function (a, b) {
+          return (_easySort === 'dist' ? a.distMi - b.distMi : 0)
+            || String(b.dateStr).localeCompare(String(a.dateStr))
+            || a.distMi - b.distMi || a.code.localeCompare(b.code)
+            || String(a.locId).localeCompare(String(b.locId));
         });
         return out;
       }
-      function easyGroupFor(bird) {
-        var records = easyReportRows([bird]);
-        var groups = buildAllUnseen(records);
-        if (groups.length) return groups[0];
-        return {
-          code: bird.code, name: bird.name, sci: sciFor(bird.code),
-          places: [], dateStr: bird.latest || ''
-        };
-      }
       function renderEasyMisses(rows, totalDays, keepVisible) {
         var box = $('easyResults');
-        $('easyNear').textContent = chaseMaxMi() + 'mi';
+        if (rows && rows.scopeKey && rows.scopeKey !== easyOpportunityKey()) return;
         // Remembered so a sort tap re-renders from data already in hand.
         _easyRows = rows; _easyDays = totalDays;
         var sortRow = $('easySortRow');
         if (sortRow) sortRow.hidden = !(rows && rows.length);
         if (!keepVisible) _easyVisible = EASY_MISS_BATCH;
-        if (rows && rows.length) {
-          rows = easySortRows(rows);
-          if (rarityFilters().distance === 'near') {
-            rows = rows.filter(function (row) {
-              var mi = easyNearestMi(row);
-              return mi == null || mi <= chaseMaxMi();
-            });
-          }
-        }
+        rows = easyReportRows(rows);
         var totalRows = rows ? rows.length : 0;
         if (rows && rows.length) rows = rows.slice(0, _easyVisible);
         var more = $('easyMore');
@@ -36593,40 +36556,46 @@
             Math.max(0, totalRows - _easyVisible)) + ' more';
         }
         if (!rows || !rows.length) {
-          box.innerHTML = '<div class="status">Nothing common is missing — every bird reported on at least '
-            + Math.round(EASY_MISS_WIDEN_FREQ[EASY_MISS_WIDEN_FREQ.length - 1] * 100) + '% of the last ' + totalDays
-            + ' sampled days near you is already on your ' + esc(personalBasisLabel()) + '. Nicely done.</div>';
+          box.innerHTML = '<div class="status">No eligible bird/place targets in this sample. '
+            + 'This is not a complete survey of nearby birds.</div>';
           return;
         }
-        var bar = Math.round((rows.minFreq || EASY_MISS_WIDEN_FREQ[0]) * 100);
-        var statusHtml = '<div class="status">Reported on <b>' + bar + '%+</b> of the last ' + totalDays
-          + ' sampled days near you, ranked by how many location-days had them.'
-          + (bar < Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
-             ? ' The bar starts at ' + Math.round(EASY_MISS_WIDEN_FREQ[0] * 100)
-               + '% and drops until at least ' + EASY_MISS_MIN_ROWS
-               + ' birds qualify — at this point in the year you already have the truly common ones.'
-             : '')
-          + '</div>';
-        var grouped = twitchView() === 'grouped';
-        var cards = grouped
-          ? rows.map(function (r) {
-              return birdReportGroupCard(easyGroupFor(r), {
-                sortMode: _easySort === 'dist' ? 'distance' : 'date'
-              });
+        var statusHtml = '<div class="status">Recent reports at public hotspots within '
+          + chaseMaxMi() + ' straight-line miles. Verify access before visiting; '
+          + 'repeat history is not fully checked.</div>';
+        var cards = rows.map(function (r) {
+          var otherReports = (r.checklists || []).slice(1);
+          var sourceState = r.obsValid === true ? 'Source validated'
+            : r.obsValid === false ? 'Source unvalidated' : 'Source validation unavailable';
+          var reviewState = r.obsReviewed === true ? '; reviewed'
+            : r.obsReviewed === false ? '; unreviewed' : '; review status unavailable';
+          return birdReportListCard(r, {
+            cls: 'twitchcard', need: true,
+            sortMode: _easySort === 'dist' ? 'distance' : 'date',
+            below: '<div class="bcsub">' + speciesMetaRow({
+              tail: esc(BL.confidenceNote(r.siteEvidence) + ' \u00b7 ' + sourceState + reviewState)
+            }) + '</div>' + moreDetails(otherReports.length, {
+              one: 'source checklist at this hotspot',
+              many: 'source checklists at this hotspot across '
+                + r.siteEvidence.days + ' sampled dates'
+            }, function () {
+              return ChecklistCards.list('small', otherReports.map(function (report) {
+                return birdReportChecklistCard(report, r, r, {});
+              }));
             })
-          : easyReportRows(rows).map(function (r) {
-              return birdReportListCard(r, {
-                sortMode: _easySort === 'dist' ? 'distance' : 'date'
-              });
-            });
-        box.innerHTML = statusHtml + '<ul class="obs big xl icon-sm">'
+          });
+        });
+        var listClass = largeBirdReportList({ cls: 'twitchcard' })
+          ? 'cards card-lg twitchgroups' : 'obs big xl';
+        box.innerHTML = statusHtml + '<ul class="' + listClass + '">'
           + cards.join('') + '</ul>';
-        box.classList.toggle('report-list-view', twitchView() === 'list');
+        box.classList.add('report-list-view');
         box.classList.toggle('report-notes-on', rarityNotes());
+        $('easyNotes').setAttribute('aria-pressed', String(rarityNotes()));
         syncReportNotesVisibility(box);
         mountProgressiveLists(box);
         hydratePhotos(box);
-        hydrateChecklistEvidence(box);
+        if (rarityNotes()) hydrateChecklistEvidence(box);
       }
       function easySeedParentOf() {
         var seed = window.__SEED_BIRDLIST__ || {};
@@ -36654,69 +36623,280 @@
           _easyParentOf);
         return true;
       }
-      function loadEasyMisses() {
+      var EASY_OPPORTUNITY_DAYS = 7, EASY_PLACE_BATCH = 7, _easyOpportunities = null;
+      function easyOpportunityKey() {
+        var a = anchorPoint() || {};
+        return 'common_opportunities_v1:' + JSON.stringify([
+          activeScope().cacheIdentity, taxonomyEdition(), a.lat, a.lng, chaseMaxMi()
+        ]);
+      }
+      function easyDiscoveryPlan(anchor, radiusMi) {
+        if (!anchor || !isFinite(anchor.lat) || !isFinite(anchor.lng)
+            || !isFinite(radiusMi) || radiusMi <= 0) {
+          throw new Error('Choose Home, Here, or Find before loading Common birds.');
+        }
+        var wanted = radiusMi * 1.609344;
+        // Three 50-km circles cover a disk of radius 100/sqrt(3).
+        // Reserve 20 metres for rounding the requested centre coordinates.
+        var covered = Math.min(wanted, 2 * 49.98 / Math.sqrt(3));
+        var centers = [{ lat: anchor.lat, lng: anchor.lng }];
+        if (wanted > 49.98) {
+          centers = [0, 120, 240].map(function (bearing) {
+            var rad = Math.PI / 180, lat = anchor.lat * rad, lon = anchor.lng * rad;
+            var angle = covered / 2 / 6371, b = bearing * rad;
+            var y = Math.asin(Math.sin(lat) * Math.cos(angle)
+              + Math.cos(lat) * Math.sin(angle) * Math.cos(b));
+            var x = lon + Math.atan2(Math.sin(b) * Math.sin(angle) * Math.cos(lat),
+              Math.cos(angle) - Math.sin(lat) * Math.sin(y));
+            return { lat: BL.round4(y / rad), lng: BL.round4((x / rad + 540) % 360 - 180) };
+          });
+        }
+        return {
+          centers: centers, dist: Math.min(50, Math.max(1, Math.ceil(wanted))),
+          coveredMi: covered / 1.609344,
+          catalogKm: Math.ceil(covered)
+        };
+      }
+      function easyHotspotInScope(hotspot, scope) {
+        var region = scope.effectiveRegion;
+        if (region === 'lower48' || region === 'aba') {
+          var country = hotspot.countryCode, state = hotspot.subnational1Code;
+          return (country === 'US' || region === 'aba' && country === 'CA')
+            && !!state && getReport().excludeSubnational1.indexOf(state) < 0;
+        }
+        var source = hotspot.subnational2Code || hotspot.subnational1Code || hotspot.countryCode || '';
+        return source === region || source.indexOf(region + '-') === 0;
+      }
+      function easyPublicObservations(rows, hotspots, scope, anchor, radius) {
+        var places = {};
+        (hotspots || []).forEach(function (h) {
+          if (!h || !h.locId || !h.locName || !BL.isPublicPlace(h.locName)
+              || !easyHotspotInScope(h, scope) || h.lat == null || h.lng == null
+              || !isFinite(+h.lat) || !isFinite(+h.lng)
+              || Math.abs(+h.lat) > 90 || Math.abs(+h.lng) > 180
+              || haversineMi(anchor.lat, anchor.lng, +h.lat, +h.lng) > radius) return;
+          places[h.locId] = h;
+        });
+        var cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - EASY_OPPORTUNITY_DAYS);
+        cutoff.setHours(0, 0, 0, 0);
+        return (rows || []).filter(function (o) {
+          if (!o || !places[o.locId] || !BL.isPublicPlace(o.locName || places[o.locId].locName)
+              || o.locationPrivate || o.location_private
+              || o.obsSensitive || o.locationSensitive || o.isSensitive
+              || o.obsReviewed === true && o.obsValid === false
+              || BL.taxonKind(o.comName, o.exoticCategory) !== 'species') return false;
+          var date = BL.parseObsDt(o.obsDt);
+          return date && date >= cutoff && date.getTime() <= Date.now() + 86400000;
+        }).map(function (o) {
+          var place = places[o.locId], clean = {
+            speciesCode: o.speciesCode, comName: o.comName,
+            obsDt: o.obsDt, subId: o.subId || '', locId: place.locId,
+            locName: place.locName, lat: +place.lat, lng: +place.lng
+          };
+          ['howMany', 'obsValid', 'obsReviewed', 'exoticCategory'].forEach(function (key) {
+            if (Object.prototype.hasOwnProperty.call(o, key)) clean[key] = o[key];
+          });
+          return clean;
+        });
+      }
+      function easyOpportunityCurrent(state) {
+        return state === _easyOpportunities && scopeCurrent(state.scope)
+          && state.key === easyOpportunityKey() && state.credential === getKey()
+          && state.targets === _chaseTargetGeneration
+          && state.work.navGeneration === _navGeneration
+          && state.work.cancelGeneration === _workCancelGeneration;
+      }
+      function easyOpportunitySpecies(state) {
+        var parents = _taxonomyModel && _taxonomyModel.parents || easySeedParentOf();
+        var rows = computeEasyMisses(easyPublicObservations(
+          state.rows, state.hotspots, state.scope, state.anchor, state.radius),
+        EASY_OPPORTUNITY_DAYS, parents);
+        rows.scopeKey = state.key;
+        return rows;
+      }
+      function paintEasyOpportunities(state, saved) {
+        if (!easyOpportunityCurrent(state)) return;
+        var rows = easyOpportunitySpecies(state);
+        renderEasyMisses(rows, EASY_OPPORTUNITY_DAYS, true);
+        var remaining = rows.filter(function (r) { return !state.checked[r.code]; }).length;
+        var more = $('easyPlaces');
+        more.hidden = !remaining || !state.discoveryFinished;
+        more.disabled = state.busy;
+        more.textContent = 'Find more places for ' + Math.min(EASY_PLACE_BATCH, remaining)
+          + ' more birds';
+        $('easyStatus').textContent = (saved ? 'Saved reports'
+          + (Date.now() - state.at >= EB_CACHE_MS ? ' (stale)' : '') + '; ' : '')
+          + easyReportRows(rows).length + ' bird/place targets; last '
+          + EASY_OPPORTUNITY_DAYS + ' days; ' + state.geoDone + '/'
+          + state.plan.centers.length + ' discovery feeds; '
+          + rows.filter(function (r) { return !!state.checked[r.code]; }).length + '/' + rows.length
+          + ' birds checked for additional places'
+          + (state.radius > state.plan.coveredMi + 0.01
+            ? '; geographic discovery covers the inner ' + state.plan.coveredMi.toFixed(1)
+              + 'mi of your ' + state.radius + 'mi radius' : '')
+          + '; representative reports, not a complete survey'
+          + (state.capped ? '; source response limit reached' : '')
+          + (state.failures ? '; partial: ' + state.failures + ' requests unavailable; Retry refresh' : '')
+          + (state.busy ? '; checking more places' : '')
+          + (state.at ? '; discovery acquired ' + fmtDateTime(new Date(state.at)) : '');
+        _birdReportDisplayRefresh.easy = function () {
+          if (easyOpportunityCurrent(state)) paintEasyOpportunities(state, saved);
+        };
+      }
+      function saveEasyOpportunities(state) {
+        if (!easyOpportunityCurrent(state)) return Promise.resolve(false);
+        return zcPut(state.key, {
+          v: 1, at: state.at, rows: state.rows, hotspots: state.hotspots,
+          checked: state.checked, geoDone: state.geoDone,
+          capped: state.capped, failures: state.failures,
+          discoveryFinished: state.discoveryFinished
+        }, null, function () { return easyOpportunityCurrent(state); });
+      }
+      function mergeEasyObservations(state, rows) {
+        var seen = {};
+        state.rows = state.rows.concat(easyPublicObservations(rows, state.hotspots,
+          state.scope, state.anchor, state.radius)).filter(function (o) {
+          var key = [o.speciesCode, o.locId, o.obsDt, o.subId].join('|');
+          if (seen[key]) return false;
+          seen[key] = true;
+          return true;
+        });
+      }
+      function easyFindMorePlaces(force) {
+        var state = _easyOpportunities;
+        if (!state || !easyOpportunityCurrent(state) || state.busy) return Promise.resolve(false);
+        var codes = easyOpportunitySpecies(state).slice().sort(function (a, b) {
+          return String(b.latest).localeCompare(String(a.latest)) || a.code.localeCompare(b.code);
+        }).filter(function (r) { return !state.checked[r.code]; })
+          .slice(0, EASY_PLACE_BATCH).map(function (r) { return r.code; });
+        state.busy = true;
+        paintEasyOpportunities(state);
+        return codes.reduce(function (chain, code) {
+          return chain.then(function () {
+            if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+            return ebird('data/nearest/geo/recent/' + encodeURIComponent(code)
+              + '?lat=' + state.anchor.lat + '&lng=' + state.anchor.lng
+              + '&back=' + EASY_OPPORTUNITY_DAYS + '&detail=full&maxResults=100',
+            true, false, !!force, state.work).then(function (rows) {
+              if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+              if (!Array.isArray(rows)) throw new Error('Invalid nearby species response');
+              mergeEasyObservations(state, rows.filter(function (o) {
+                return o && BL.resolveReportAs(o.speciesCode,
+                  _taxonomyModel && _taxonomyModel.parents || easySeedParentOf()) === code;
+              }));
+              state.checked[code] = true;
+              if (rows.length >= 100) state.capped = true;
+              paintEasyOpportunities(state);
+              return saveEasyOpportunities(state);
+            }).catch(function (error) {
+              if (error && error.queueCancelled) throw error;
+              if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+              state.failures++;
+              dbg('warn', 'Common birds place evidence unavailable: ' + netErr(error));
+              paintEasyOpportunities(state);
+            });
+          });
+        }, Promise.resolve()).then(function () { return true; }).finally(function () {
+          state.busy = false;
+          if (easyOpportunityCurrent(state)) paintEasyOpportunities(state);
+        });
+      }
+      function loadEasyMisses(force) {
         if (!personalTargetsReady('easyBtn')) return Promise.resolve(false);
         if (!getKey()) { $('easyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return Promise.resolve(false); }
         var btn = $('easyBtn'), st = $('easyStatus');
-        // ⚠️ F247. The results are NOT cleared here any more.
-        //
-        // Owner, from the device: *"upon refresh the existing data clears"* —
-        // photographed mid-sweep, showing an empty panel under "Sampling
-        // recent days… 3/60". This line wiped the answer before ~60 throttled
-        // calls had even started, so a refresh cost a minute of blank screen
-        // to redraw what was already on it. The rows are replaced when the
-        // new ones are ready; until then the old ones are the best answer
-        // available, exactly as Hot patches treats its own last scan.
-        var dates = todDates(EASY_MISS_DAYS);
-        var work = navWork('Common-bird history');
+        force = force === true;
+        var anchor = anchorPoint(), plan;
+        try { plan = easyDiscoveryPlan(anchor, chaseMaxMi()); }
+        catch (error) { st.textContent = error.message; return Promise.resolve(false); }
+        var state = {
+          key: easyOpportunityKey(), scope: activeScope(), anchor: anchor,
+          credential: getKey(), targets: _chaseTargetGeneration, radius: chaseMaxMi(),
+          plan: plan, work: navWork('Common birds opportunities'), rows: [],
+          hotspots: [], checked: {}, geoDone: 0, failures: 0, capped: false,
+          at: 0, busy: false, discoveryFinished: false
+        };
+        _easyOpportunities = state;
+        state.work.current = function () { return easyOpportunityCurrent(state); };
+        _easyVisible = EASY_MISS_BATCH;
         btn.disabled = true;
-        var had = !!$('easyResults').querySelector('li');
-        st.textContent = (had ? 'Refreshing — ' : '')
-          + 'Identifying the county at ' + ((anchorPoint() || {}).label || 'the selected place') + '…';
-        var progressiveParents = easySeedParentOf();
-        return easyCountyForAnchor(anchorPoint(), work).then(function (scope) {
-          _easyCountyScope = scope;
-          if ($('easyRegionLabel')) $('easyRegionLabel').textContent = '· ' + scope.label;
-          st.textContent = (had ? 'Refreshing — ' : '') + 'Sampling '
-            + EASY_MISS_DAYS + ' days of checklists in ' + scope.label + '…';
-          return easyFetch([scope.code], dates,
-            function (i, n, partial, daysDone, daysTotal) {
-              st.textContent = 'Sampling ' + scope.label + '… ' + daysDone + '/'
-                + daysTotal + ' days complete (' + i + '/' + n + ' feeds)';
-              if (partial && partial.length) {
-                renderEasyProgress(partial, daysDone, daysTotal, progressiveParents);
-              }
-            }, work);
-        }).then(function (all) {
-          var sample = easySampleState(all);
-          if (sample.allFailed) {
-            throw new Error('No Common birds day feeds could be read. Reopen this section to retry.');
+        st.textContent = 'Reading recent public-hotspot reports...';
+        return zcGet(state.key).then(function (cached) {
+          if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+          if (cached && cached.v === 1 && Array.isArray(cached.rows)
+              && Array.isArray(cached.hotspots) && cached.checked
+              && typeof cached.checked === 'object' && !Array.isArray(cached.checked)
+              && Number.isFinite(cached.at) && cached.at > 0 && cached.at <= Date.now()
+              && Number.isInteger(cached.geoDone) && cached.geoDone >= 0
+              && cached.geoDone <= plan.centers.length
+              && Number.isInteger(cached.failures) && cached.failures >= 0) {
+            state.rows = cached.rows;
+            state.hotspots = cached.hotspots;
+            state.checked = cached.checked;
+            state.geoDone = Number(cached.geoDone) || 0;
+            state.failures = Number(cached.failures) || 0;
+            state.capped = !!cached.capped;
+            state.discoveryFinished = cached.discoveryFinished === true;
+            state.at = cached.at;
+            paintEasyOpportunities(state, true);
+            if (!force && Date.now() - state.at < EB_CACHE_MS
+                && state.discoveryFinished
+                && state.geoDone === plan.centers.length && !state.failures) return true;
+          } else if (cached) {
+            dbg('warn', 'Saved Common birds evidence is invalid; fetching fresh reports.');
           }
-          var codes = {};
-          all.forEach(function (o) { if (o.speciesCode) codes[o.speciesCode] = 1; });
-          var keys = Object.keys(codes);
-          if (!keys.length) return [all, {}, sample];
-          // The same reportAs map the convoy section needs: without it a
-          // subspecies report of a bird you already have reads as a miss.
-          return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(keys.join(',')))
-            .catch(function () { return []; })
-            .then(function (tax) {
-              var parentOf = {};
-              (Array.isArray(tax) ? tax : []).forEach(function (t) {
-                if (t.speciesCode && t.reportAs) parentOf[t.speciesCode] = t.reportAs;
+          return ebird('ref/hotspot/geo?lat=' + anchor.lat + '&lng=' + anchor.lng
+            + '&dist=' + plan.catalogKm + '&fmt=json', false, !!force, force, state.work)
+            .then(function (hotspots) {
+              if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+              if (!Array.isArray(hotspots)) throw new Error('Public-hotspot directory unavailable');
+              state.hotspots = hotspots;
+              state.rows = [];
+              state.checked = {};
+              state.geoDone = 0;
+              state.failures = 0;
+              state.capped = false;
+              return plan.centers.reduce(function (chain, center) {
+                return chain.then(function () {
+                  if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+                  return ebird('data/obs/geo/recent?lat=' + center.lat + '&lng=' + center.lng
+                    + '&dist=' + plan.dist + '&back=' + EASY_OPPORTUNITY_DAYS
+                    + '&detail=full&hotspot=true&maxResults=10000',
+                  false, false, force, state.work).then(function (rows) {
+                    if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+                    if (!Array.isArray(rows)) throw new Error('Recent observations unavailable');
+                    mergeEasyObservations(state, rows);
+                    state.geoDone++;
+                    if (rows.length >= 10000) state.capped = true;
+                    state.at = Date.now();
+                    paintEasyOpportunities(state);
+                    return saveEasyOpportunities(state);
+                  }).catch(function (error) {
+                    if (error && error.queueCancelled) throw error;
+                    if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+                    state.failures++;
+                    dbg('warn', 'Common birds discovery unavailable: ' + netErr(error));
+                  });
+                });
+              }, Promise.resolve());
+            }).then(function () {
+              if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
+              if (!state.geoDone) throw new Error('All Common birds discovery feeds are unavailable. Retry refresh.');
+              state.discoveryFinished = true;
+              paintEasyOpportunities(state);
+              return easyFindMorePlaces(force).then(function () {
+                return saveEasyOpportunities(state).then(function () { return true; });
               });
-              return [all, parentOf, sample];
             });
-        }).then(function (pair) {
-          var rows = computeEasyMisses(pair[0], dates.length, pair[1]);
-          renderEasyProgress(pair[0], dates.length, dates.length, pair[1]);
-          st.textContent = easyResultStatus(rows, dates.length, pair[2]);
-          return true;
         }).catch(function (e) {
-          st.textContent = netErr(e);
+          if (easyOpportunityCurrent(state)) {
+            st.textContent = 'Common birds refresh unavailable. Retry refresh. ' + netErr(e);
+          }
           return false;
-        })
-          .finally(function () { btn.disabled = false; });
+        }).finally(function () {
+          if (_easyOpportunities === state) btn.disabled = false;
+        });
       }
 
       // --- P14: hot & cold hotspots (2 API calls, ranked from home) ---
@@ -51804,34 +51984,27 @@
         if (_birdReportDisplayRefresh.foy) _birdReportDisplayRefresh.foy();
       });
       $('todBtn').addEventListener('click', loadTimeOfDay);
-      $('easyBtn').addEventListener('click', loadEasyMisses);
+      $('easyBtn').addEventListener('click', function () { loadEasyMisses(true); });
+      $('easyPlaces').addEventListener('click', function () {
+        easyFindMorePlaces(true).catch(function (error) {
+          if (_easyOpportunities && easyOpportunityCurrent(_easyOpportunities)) {
+            $('easyStatus').textContent = netErr(error);
+          }
+        });
+      });
       $('easyMore').addEventListener('click', function () {
         _easyVisible += EASY_MISS_BATCH;
         if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
       });
-      ['easyByFreq', 'easyByDate', 'easyByDist'].forEach(function (id) {
+      ['easyByDate', 'easyByDist'].forEach(function (id) {
         var b = $(id);
         if (b) b.addEventListener('click', function () {
-          setEasySort(id === 'easyByDist' ? 'dist' : id === 'easyByDate' ? 'date' : 'freq');
-        });
-      });
-      ['easyNear', 'easyAll'].forEach(function (id) {
-        var b = $(id);
-        if (b) b.addEventListener('click', function () {
-          setRarityFilter('distance', id === 'easyNear' ? 'near' : 'region');
-          $('easyNear').setAttribute('aria-pressed', String(id === 'easyNear'));
-          $('easyAll').setAttribute('aria-pressed', String(id === 'easyAll'));
-          if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
+          setEasySort(id === 'easyByDist' ? 'dist' : 'date');
         });
       });
       if ($('easyNotes')) $('easyNotes').addEventListener('click', function () {
         setRarityNotes(!rarityNotes());
         $('easyNotes').setAttribute('aria-pressed', String(rarityNotes()));
-        if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
-      });
-      if ($('easyView')) $('easyView').addEventListener('click', function () {
-        setTwitchView(twitchView() === 'grouped' ? 'list' : 'grouped');
-        $('easyView').setAttribute('aria-pressed', String(twitchView() === 'grouped'));
         if (_easyRows) renderEasyMisses(_easyRows, _easyDays, true);
       });
       $('iconicBtn').addEventListener('click', loadIconicSpots);      if ($('iconicByBird')) $('iconicByBird').addEventListener('click', function () { setIconicView('bird'); });
@@ -53043,6 +53216,9 @@
         useFoundAnchor: useFoundAnchor, resetTransientAnchor: resetTransientAnchor,
         extractWebKey: extractWebKey, ebirderCount: ebirderCount,
         computeEasyMisses: computeEasyMisses, easyFetch: easyFetch,
+        loadEasyMisses: loadEasyMisses, easyOpportunityKey: easyOpportunityKey,
+        easyDiscoveryPlan: easyDiscoveryPlan, easyPublicObservations: easyPublicObservations,
+        easyFindMorePlaces: easyFindMorePlaces, easyReportRows: easyReportRows,
         renderEasyProgress: renderEasyProgress,
         rerankEasyFromAnchor: rerankEasyFromAnchor,
         easyCountyForAnchor: easyCountyForAnchor,

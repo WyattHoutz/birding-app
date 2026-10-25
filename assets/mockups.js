@@ -3176,10 +3176,14 @@ const BOOTSTRAP = `
             {code:'bohwax',name:'Bohemian Waxwing',sci:'Bombycilla garrulus',alpha:'BOWA'}
           ]);
         A.renderEasyMisses([{code:'bohwax',name:'Bohemian Waxwing',freq:.8,days:8,
-          latest:A.todayStr()+' 08:30',spots:[{loc:'Marymoor Park--Audubon Bird Loop',
-            locId:'L1',lat:47.658,lng:-122.118,dateStr:A.todayStr()+' 08:30'}]}],10);
-        if (document.querySelectorAll('#easyControls .multipill button').length !== 3
-            || !host.querySelector('.obs')) throw new Error('Common birds production fixture missing');
+          latest:A.todayStr()+' 08:30',spots:[{name:'Marymoor Park--Audubon Bird Loop',
+            locId:'L1',lat:47.658,lng:-122.118,when:A.todayStr()+' 08:30'},
+            {name:'Juanita Bay Park',locId:'L2',lat:47.704,lng:-122.207,
+              when:A.todayStr()+' 07:30'}]}],7);
+        if (document.querySelectorAll('#easyControls .twopill button').length !== 2
+            || host.querySelectorAll('.twitchcard').length !== 2) {
+          throw new Error('Common birds production bird/place fixture missing');
+        }
         await fillFixturePhotos(host,document);
         markHost(host,label);
       } else if (at === 'refreshBtn') await prepareTwitches(A, document, sec, false);
