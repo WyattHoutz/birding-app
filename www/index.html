@@ -2638,7 +2638,8 @@
     .surgebadge-sensitive, .surgekind-sensitive {
       background: #EAF7FF; color: #005B8F; border: 2px solid; border-color: var(--safe-blue); }
     button.surge-leading-tag[data-surge-details] {
-      font: inherit; font-weight: 800; min-height: 44px; min-width: 44px;
+      background: transparent; border: 0; padding: 0;
+      min-height: 44px; min-width: 44px;
       cursor: pointer; }
     [data-alert-kind="sensitive"] .surgeage { white-space: normal; overflow-wrap: anywhere; }
     .surgebadge-foy { background: #003B5C; color: #fff; border: 2px solid; border-color: var(--dark-safe-blue); }
@@ -5158,7 +5159,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.171.0';
+      var APP_VERSION = '1.172.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9034,6 +9035,7 @@
         fgProgressSync();
       }
       function fgCancelAll(message) {
+        if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');
         _workCancelGeneration++;
         _fgWaiters = fgRejectQueued(_fgWaiters, function () { return true; }, message);
         _fgBgWaiters = fgRejectQueued(_fgBgWaiters, function () { return true; }, message);
@@ -28378,22 +28380,36 @@
         if (m) return { code: 'CA-' + m[1], country: country || 'Canada' };
         return { code: '', country: country };
       }
-      function megaAlertSourceMatches(html, sid) {
+      function megaAlertSourceCheck(html, sid) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var canonical = doc.querySelectorAll('link[rel~="canonical"]');
-        if (canonical.length !== 1 || !sid) return false;
+        var check = {
+          canonicalCount: Math.min(100000, canonical.length), originMatches: false,
+          pathMatches: false, selectionParameterCount: 0, selectionMatches: false,
+          accepted: false
+        };
+        if (canonical.length !== 1 || !sid) return check;
         try {
           var source = new URL(canonical[0].getAttribute('href'), 'https://ebird.org');
-          return source.origin === 'https://ebird.org'
-            && source.pathname === '/alert/summary'
-            && source.searchParams.getAll('sid').length === 1
-            && source.searchParams.get('sid') === sid;
-        } catch (e) { return false; }
+          check.originMatches = source.origin === 'https://ebird.org';
+          check.pathMatches = source.pathname === '/alert/summary';
+          var parameters = source.searchParams.getAll('sid');
+          check.selectionParameterCount = Math.min(100000, parameters.length);
+          check.selectionMatches = source.searchParams.get('sid') === sid;
+          check.accepted = check.originMatches && check.pathMatches
+            && parameters.length === 1 && check.selectionMatches;
+        } catch (e) { /* Invalid canonical URLs remain rejected. */ }
+        return check;
+      }
+      function megaAlertSourceMatches(html, sid) {
+        return megaAlertSourceCheck(html, sid).accepted;
       }
       function verifiedMegaAlertRows(html, sid) {
         var kind = pageKind(html);
         if (kind !== 'OPEN') throw new Error('Alert page requires website access (' + kind + ').');
-        if (!megaAlertSourceMatches(html, sid || getAbaSid())) {
+        var selection = megaAlertSourceCheck(html, sid || getAbaSid());
+        if (!selection.accepted) {
+          dbg('warn', 'Mega source selection: ' + JSON.stringify(selection));
           throw new Error('The page does not verify the requested Mega alert selection.');
         }
         var list = parseAlertHTML(html);
@@ -28607,7 +28623,7 @@
           + 'try{var r=parseEbirdKeyResult(document,location.href);'
           + 'if(r.status==="access-request"&&!document.querySelector("[data-birdchaser-api-help]")){'
           + 'var help=document.createElement("aside");help.setAttribute("aria-label","Bird Chaser guidance, separate from the eBird form");'
-          + 'help.innerHTML=' + JSON.stringify(ebirdApiApplicationHelpHtml(true)) + ';'
+          + 'help.innerHTML=' + JSON.stringify(ebirdApiApplicationHelpHtml(false)) + ';'
           + 'document.body.insertBefore(help,document.body.firstChild);}'
           + 'send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId) + ','
           + 'ok:r.status==="ok",needsLogin:r.status==="login",terminal:'
@@ -28837,6 +28853,11 @@
       }
       function renderRegionOnboarding(el) {
         var state = regionSetupState();
+        var recommendation = storedProfileRegionRecommendation();
+        var supported = recommendation && recommendation.status === 'supported';
+        var recommendationLabel = supported && (recommendation.resolved && recommendation.resolved.label
+          || recommendation.label || recommendation.parentCode || recommendation.code);
+        var profile = bcProfile(), scope = activeScope(), identity = _identityGeneration;
         var why = state && state.message
           ? '<p id="regionSetupStatus">' + esc(state.message)
             + ' Choose a saved region or find one by place.</p>'
@@ -28844,6 +28865,8 @@
         el.hidden = false;
         el.innerHTML = '<div class="kbtitle">🌎 Choose a region</div>'
           + why
+          + (supported ? '<div class="keyrow"><button id="regionAcceptBtn" type="button">Use '
+            + esc(recommendationLabel) + '</button></div>' : '')
           + '<div class="keyrow"><button id="regionChooseBtn" type="button">'
           + 'Choose from all regions</button></div>'
           + '<div class="keyrow"><input id="regionFindPlace" type="text" '
@@ -28854,6 +28877,16 @@
           + 'type="button">Try current location</button></div>';
         var choose = $('regionChooseBtn');
         if (choose) choose.addEventListener('click', openRegionChooser);
+        var accept = $('regionAcceptBtn');
+        if (accept) accept.addEventListener('click', function () {
+          if (profile !== bcProfile() || !scopeCurrent(scope) || identity !== _identityGeneration
+              || !accept.isConnected
+              || JSON.stringify(storedProfileRegionRecommendation()) !== JSON.stringify(recommendation)) return;
+          accept.disabled = true;
+          acceptRegionRecommendation(recommendation).catch(regionFailure).finally(function () {
+            if (accept.isConnected) accept.disabled = false;
+          });
+        });
         var find = $('regionFindBtn');
         if (find) find.addEventListener('click', function () {
           var field = $('regionFindPlace');
@@ -28940,10 +28973,15 @@
             && button.isConnected && setupStep() === 'home' && !$('setupSheet').hidden;
         };
       }
+      function placeSetupActionStatus(button) {
+        var status = $('setupActionStatus');
+        if (button && status) button.parentNode.insertBefore(status, button.nextSibling);
+        return status;
+      }
       function lookupSetupHome(device) {
         var input = $('setupHomePlace'), query = input.value.trim();
         var button = $(device ? 'setupHomeHere' : 'setupHomeFind');
-        var status = $('setupActionStatus');
+        var status = placeSetupActionStatus(button);
         if (!device && !query) {
           status.textContent = 'Enter a place or coordinates first.';
           return;
@@ -28974,6 +29012,7 @@
             point: candidates.length === 1 ? candidates[0] : null,
             options: candidates.length > 1 ? candidates : [] });
           renderSetupSheet();
+          placeSetupActionStatus($(device ? 'setupHomeHere' : 'setupHomeFind'));
           $('setupActionStatus').textContent = candidates.length > 1
             ? 'More than one place matched. Choose a candidate before approving Home.'
             : 'Check the candidate, then approve it or enter a correction. Nothing has been saved as Home.';
@@ -28987,7 +29026,7 @@
       function approveSetupHome(button) {
         var draft = setupHomeDraft();
         if (!draft || !draft.point) return;
-        var current = setupHomeOperation(button), status = $('setupActionStatus');
+        var current = setupHomeOperation(button), status = placeSetupActionStatus(button);
         try {
           draft.approved = true; draft.region = null; draft.options = [];
           storeSetupHomeDraft(draft);
@@ -29007,6 +29046,7 @@
         }).catch(function (error) {
           if (!current()) return;
           renderSetupSheet();
+          placeSetupActionStatus($('setupHomeApprove'));
           $('setupActionStatus').textContent = error.message
             + ' Your approved Home remains a draft. Retry the region lookup or choose a different Home; no default was selected.';
         });
@@ -29403,6 +29443,14 @@
           + '<div class="setupactions">' + actions
           + (step !== 'account' && step !== 'summary'
             ? '<button id="setupBack" class="secondary" type="button">Back</button>' : '') + '</div>';
+        if (step === 'home' || step === 'key') {
+          placeSetupActionStatus($(step === 'home' ? 'setupHomeHere' : 'setupGetKey'));
+          ['setupHomeHere', 'setupHomeFind', 'setupHomeApprove', 'setupHomeReview',
+            'setupGetKey', 'setupKeyExternal', 'setupVerifyKey'].forEach(function (id) {
+            var control = $(id);
+            if (control) control.setAttribute('aria-describedby', 'setupActionStatus');
+          });
+        }
         var input = $('setupApiKey');
         if (input) {
           input.value = _setupKeyDraft;
@@ -29795,8 +29843,9 @@
           'var summary=want.pathname==="/alert/summary";' +
           'var onPage=location.origin===want.origin&&location.pathname===want.pathname' +
           '&&(!summary||new URL(location.href).searchParams.get("sid")===want.searchParams.get("sid"));' +
-          megaAlertSourceMatches.toString() + ';' +
-          'var owned=onPage&&(!summary||megaAlertSourceMatches(H,want.searchParams.get("sid")));' +
+          megaAlertSourceCheck.toString() + ';' +
+          'var selection=summary?megaAlertSourceCheck(H,want.searchParams.get("sid")):null;' +
+          'var owned=onPage&&(!summary||selection.accepted);' +
           'var _US_STATES=' + JSON.stringify(_US_STATES) + ';' +
           resolveSubnat1.toString() + ';' +
           parseAlertHTML.toString() + ';' +
@@ -29804,6 +29853,7 @@
           'var found=document.querySelectorAll(".Observation").length;' +
           'window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",' +
           'ok:owned&&found>0&&A.length===found,terminal:summary&&onPage&&!owned,' +
+          'pageShape:summary&&onPage&&!owned?selection:null,' +
           'parseStatus:!onPage?"wrong-page":!owned?"wrong-source":A.length===found?"ok":"incomplete",data:A}});' +
           '}catch(e){try{window.mobileApp.postMessage({detail:{__ebird:true,kind:"aba",ok:false,error:String(e&&e.message||e)}});}catch(_){}}})();';
       }
@@ -29829,7 +29879,7 @@
           'var status=!onPage?"wrong-page":R&&R.valid&&!owned?"wrong-source":owned?"ok":R&&R.rows&&R.rows.length?"incomplete":"no-rows";' +
           'var attempt=' + Math.max(0, Number(attempt) || 0) + ';' +
           'var shape=(attempt===0||attempt===19||attempt===59||attempt===119)' +
-          '?{path:path,title:String(document.title||"").slice(0,80),' +
+          '?{onPage:onPage,sourceMatches:owned,' +
           'htmlChars:H.length,items:document.querySelectorAll("li").length,' +
           'birdItems:document.querySelectorAll("li.BirdList-list-list-item").length,' +
           'countable:document.querySelectorAll("li.BirdList-list-list-item.countable").length,' +
@@ -29935,7 +29985,7 @@
           var captureId = (opts.kind || 'page') + '-' + (++_captureEbirdAttempt);
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
-          var massShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
+          var massShapeLast = '', sourceShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
           var ownedUrl = opts.url;
           var revealDeadlineReached = false;
           function trace(stage, detail, level) {
@@ -30170,7 +30220,28 @@
                 }
               } else {
                 massMalformedSamples = 0;
-                if (opts.kind !== 'massHighCount' && opts.kind !== 'apiKey' && d.pageShape) {
+                if ((opts.kind === 'aba' || opts.kind === 'firstYear') && d.pageShape) {
+                  var safeShape = {};
+                  ['canonicalCount', 'originMatches', 'pathMatches', 'selectionParameterCount',
+                    'selectionMatches', 'accepted', 'onPage', 'sourceMatches', 'htmlChars',
+                    'items', 'birdItems', 'countable', 'declared', 'rows'].forEach(function (key) {
+                    var value = d.pageShape[key];
+                    if (typeof value === 'boolean' || Number.isInteger(value)
+                        && value >= 0 && value <= 100000) safeShape[key] = value;
+                  });
+                  ['missingCodeRows', 'missingNameRows', 'missingScientificNameRows',
+                    'membershipComplete', 'countMatches', 'parsedRows'].forEach(function (key) {
+                    var value = d.pageShape.validation && d.pageShape.validation[key];
+                    if (typeof value === 'boolean' || Number.isInteger(value)
+                        && value >= 0 && value <= 100000) safeShape[key] = value;
+                  });
+                  var safeDetail = JSON.stringify(safeShape);
+                  if (!d.ok && safeDetail !== sourceShapeLast) {
+                    sourceShapeLast = safeDetail;
+                    if (opts.kind === 'aba') dbg('warn', 'Mega source selection: ' + safeDetail);
+                    else trace('annual-first parser', safeDetail, 'warn');
+                  }
+                } else if (opts.kind !== 'massHighCount' && opts.kind !== 'apiKey' && d.pageShape) {
                   trace('profile shape', JSON.stringify(d.pageShape));
                 }
               }
@@ -38916,8 +38987,27 @@
           if (typeof onStatus === 'function') onStatus(message);
           else if ($('migFirstStatus')) $('migFirstStatus').textContent = message;
         }
+        var rejection = null;
         function read(html) {
           var page = parseFirstYearBirdList(html);
+          var validation = page.validation;
+          function count(value) {
+            return Number.isSafeInteger(value) && value > 0 ? Math.min(100000, value) : 0;
+          }
+          rejection = {
+            classification: !validation.membershipComplete ? 'invalid-membership'
+              : validation.parsedRows && !validation.countMatches ? 'row-count-mismatch'
+              : !page.valid ? 'no-recognized-table' : 'source-mismatch',
+            parsedRows: count(validation.parsedRows), declaredRows: count(page.declared),
+            missingCodeRows: count(validation.missingCodeRows),
+            missingNameRows: count(validation.missingNameRows),
+            missingScientificNameRows: count(validation.missingScientificNameRows),
+            membershipComplete: validation.membershipComplete === true,
+            countMatches: validation.countMatches === true,
+            regionMatches: page.source && page.source.region === region,
+            yearMatches: page.source && page.source.year === year,
+            annualFirst: !!(page.source && page.source.kind === 'annual-first')
+          };
           if (!page.valid) {
             throw new Error('eBird bird-list markup did not contain its declared Native/Naturalized rows');
           }
@@ -38928,7 +39018,8 @@
         }
         return fetchPublicHTML(url).then(read).catch(function (error) {
           if (!current()) throw new Error('The eBird load was superseded by a new report.');
-          dbg('warn', 'Annual-first direct source rejected: ' + error.message);
+          dbg('warn', 'Annual-first direct source rejected: '
+            + JSON.stringify(rejection || { classification: 'acquisition-failed' }));
           if (allowBrowser === false || !ibAvail()) throw error;
           status('eBird needs its browser session; finishing the same regional page there…');
           return captureEbird({
@@ -40593,12 +40684,16 @@
         groups.total = keys.length - groups.skipped.length;
         return groups;
       }
-      function surgeSourceProgress(states, pendingSources) {
+      function surgeSourceProgress(states, pendingSources, outcome) {
         var groups = surgeSourceSummary(states, pendingSources);
         var limited = groups.incomplete.filter(function (key) { return states[key] === 'partial'; });
         var loaded = groups.loaded.length + limited.length, total = groups.total;
         var pct = total ? Math.round(loaded * 100 / total) : 0;
         var label = 'Bird Gen - ' + loaded + ' of ' + total + ' loaded';
+        if (!groups.pending.length) {
+          label += ' · ' + (outcome === 'cancelled' ? 'Cancelled' : outcome === 'failed' ? 'Failed'
+            : groups.failed.length ? loaded ? 'Finished with failures' : 'Failed' : 'Finished');
+        }
         if (limited.length) label += ' · ' + limited.length + ' with limited coverage';
         if (groups.incomplete.length > limited.length) {
           label += ' · ' + (groups.incomplete.length - limited.length) + ' incomplete';
@@ -40611,14 +40706,15 @@
           + (groups.pending.length ? ' role="progressbar" aria-label="' + esc(label)
             + '" aria-valuemin="0" aria-valuemax="' + total + '" aria-valuenow="' + loaded + '"'
             : ' role="status"') + '>'
-          + '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>'
+          + (groups.pending.length
+            ? '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>' : '')
           + '<div class="label">' + esc(label) + '</div></div>'
           + '<details class="surgesources"><summary>Source status</summary><ul>'
           + ['failed', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
             return groups[group].map(function (key) {
               return '<li>' + esc(SURGE_SOURCE_LABELS[key]) + ': '
                 + { failed: 'Failed',
-                  incomplete: states[key] === 'partial' ? 'Loaded with limited coverage'
+                  incomplete: states[key] === 'partial' ? 'Partially loaded'
                     : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
                   pending: 'Loading',
                   loaded: 'Loaded', skipped: 'Not applicable' }[group]
@@ -40814,7 +40910,8 @@
 
       function surgeAlertCard(a, order) {
         var place = surgeHeadlinePlace(a);
-        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte'].indexOf(a.kind) < 0;
+        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte'].indexOf(a.kind) < 0
+          && !(a.kind === 'foy' && a.foyMembers && a.foyMembers.length > 1);
         var headline = (a.namePrefix || '') + (birdHeadline
           ? '<span class="surgebirdname">' + a.name + '</span>' : a.name);
         var ageTime = a.ageTime == null ? a.time : a.ageTime;
@@ -40855,8 +40952,9 @@
         return SpeciesCards.small({
           icon: a.icon,
           name: (a.kind === 'sensitive'
-            ? '<button type="button" class="surge-leading-tag surgebadge surgebadge-sensitive"'
-              + ' data-surge-details aria-label="Show SENSITIVE monthly regional evidence">SENSITIVE</button>'
+            ? '<button type="button" class="surge-leading-tag"'
+              + ' data-surge-details aria-label="Show SENSITIVE monthly regional evidence">'
+              + '<span class="surgebadge surgebadge-sensitive">SENSITIVE</span></button>'
             : surgeCategoryTag(a.kind, reason.text).replace('class="surgebadge ',
               'class="surge-leading-tag surgebadge ')) + ' <span class="surgealerttitle">' + headline
             + (place ? (a.placeConnector || ' at ') + place : '') + (a.tags || '') + '</span>',
@@ -40987,6 +41085,13 @@
         });
         kinds.forEach(function (kind) { counts[kind] = 0; });
         rows.forEach(function (r) { counts[r.kind] += 1; });
+        var foyCodes = Object.create(null);
+        rows.forEach(function (row) {
+          (row.foyMembers || (row.kind === 'foy' ? [row] : [])).forEach(function (bird) {
+            if (bird.code) foyCodes[bird.code] = true;
+          });
+        });
+        counts.foy = Object.keys(foyCodes).length;
         function status(kind) {
           var deps = SURGE_CATEGORY_SOURCES[kind];
           return {
@@ -41013,15 +41118,17 @@
             var label = (state.loading ? '⌛ ' : '')
               + (counts[kind] || !state.loading && !state.retry.length
                 ? counts[kind] + ' ' : '') + SURGE_KINDS[kind].word
-              + (state.retry.length ? state.failed ? ' · source failed'
-                : state.limited && !state.loading ? ' · loaded with limited coverage' : ' · incomplete' : '');
+              + (state.retry.length ? ' ⚠' : '');
             return '<span class="surgecategory" data-category-state="'
               + (state.loading ? 'loading' : state.failed ? 'failed'
                 : state.retry.length ? state.limited ? 'limited' : 'incomplete' : 'loaded') + '">'
               + ToggleControls.pressed({cls:'surgecount',data:{'count-kind':kind},
                 icon:kind === 'ppte' ? '' : SURGE_KINDS[kind].glyph,
                 iconHtml:kind === 'ppte' ? SURGE_KINDS[kind].glyph : '',
-                label:label, ariaLabel:label + (state.loading ? ', loading, results not complete' : ''),
+                label:label, ariaLabel:label + (state.loading ? ', loading, results not complete' : '')
+                  + (state.failed ? ', source failed' : state.retry.length
+                    ? state.limited ? ', Partially loaded' : ', incomplete' : '')
+                  + '. Filter alerts.',
                 pressed:_surgeCategory === kind})
               + (state.retry.length ? '<button type="button" class="surgeretry"'
                 + ' data-source-retry="' + state.retry.join(',') + '" aria-label="Retry failed sources for '
@@ -41032,7 +41139,9 @@
       function applySurgeCategory() {
         var visible = 0, feed = $('surgeFeed');
         if (feed) [].forEach.call(feed.children, function (row) {
-          row.hidden = !!_surgeCategory && row.getAttribute('data-alert-kind') !== _surgeCategory;
+          row.hidden = !!_surgeCategory && row.getAttribute('data-alert-kind') !== _surgeCategory
+            && !(_surgeCategory === 'foy'
+              && (row.getAttribute('data-surge-reasons') || '').split(',').indexOf('foy') >= 0);
           if (!row.hidden) visible++;
         });
         var box = $('surgeResults');
@@ -41195,6 +41304,8 @@
                 var summary = box.querySelector('.surgesources summary');
                 if (summary) summary.focus();
               }
+            } else {
+              loadSurge();
             }
           });
         });
@@ -43050,7 +43161,8 @@
         if (sourceState && sourceState.ppteCoverage) {
           diagnostics.push(sourceState.ppteCoverage);
         }
-        var sourceProgress = surgeSourceProgress(sourceStates, sourceState && sourceState.pendingSources);
+        var sourceProgress = surgeSourceProgress(sourceStates, sourceState && sourceState.pendingSources,
+          sourceState && sourceState.outcome);
         var coverage = sourceState && sourceState.massCoverage;
         if (coverage) diagnostics.push(coverage);
         if (sourceState && sourceState.retainedAt) diagnostics.push('Earlier results retained from '
@@ -43597,30 +43709,14 @@
       }
       function appendFoySurgeReasons(rows, annualFirsts) {
         var recent = BL.firstYearEvidence(annualFirsts || [],
-          new Date(todayStr() + 'T12:00:00'), 7).recent.slice(0, 3);
-        recent.forEach(function (first) {
+          new Date(todayStr() + 'T12:00:00'), 7).recent;
+        var admitted = Object.create(null), groups = Object.create(null);
+        function memberRow(first) {
           var why = 'Annual first in ' + esc(rankRegionName(foyContext().region))
             + ' ' + foyContext().year + ': ' + esc(fmtDate(first.date))
             + '. Newly learned since the verified list read ' + esc(fmtDate(first.previousReadDate))
             + '; not proof of current presence or rarity.';
-          var matches = rows.filter(function (row) {
-            return row.kind !== 'hotspot' && row.kind !== 'patch' && row.kind !== 'migration'
-              && (row.speciesKey || row.code) === first.code;
-          }).sort(function (a, b) {
-            return SURGE_KINDS[a.kind].priority - SURGE_KINDS[b.kind].priority
-              || b.time - a.time;
-          });
-          if (matches.length) {
-            var hit = matches[0];
-            hit.reasons = hit.reasons || [{ kind: hit.kind, why: hit.why }];
-            if (!hit.reasons.some(function (reason) { return reason.kind === 'foy'; })) {
-              hit.reasons.push({ kind: 'foy', why: why });
-              hit.extra = (hit.extra || '') + '<span data-alert-evidence-kind="foy">'
-                + 'FOY · ' + why + '</span>';
-            }
-            return;
-          }
-          rows.push({
+          return {
             kind: 'foy', speciesKey: first.code, speciesNameKey: first.name,
             code: first.code, alpha: alphaFor(first.code),
             icon: photoSlot(first.name, first.code), name: speciesLink(first.name, first.code),
@@ -43632,7 +43728,58 @@
               ? stakeHotspotLink(first.locId, first.locName)
               : locLink(first.locName, null, null, first.locId, first.isPrivate)) : '',
             checklistId: first.subId || '', count: null, eventCount: null
+          };
+        }
+        recent.forEach(function (first) {
+          if (admitted[first.code]) return;
+          admitted[first.code] = true;
+          var member = memberRow(first);
+          var matches = rows.filter(function (row) {
+            return row.kind !== 'hotspot' && row.kind !== 'patch' && row.kind !== 'migration'
+              && (row.speciesKey || row.code) === first.code;
+          }).sort(function (a, b) {
+            return SURGE_KINDS[a.kind].priority - SURGE_KINDS[b.kind].priority
+              || b.time - a.time;
           });
+          if (matches.length) {
+            var hit = matches[0];
+            hit.foyMembers = (hit.foyMembers || []).concat(first);
+            hit.reasons = hit.reasons || [{ kind: hit.kind, why: hit.why }];
+            if (!hit.reasons.some(function (reason) { return reason.kind === 'foy'; })) {
+              hit.reasons.push({ kind: 'foy', why: member.why });
+              hit.extra = (hit.extra || '') + '<span data-alert-evidence-kind="foy">'
+                + 'FOY · ' + member.name + ' · ' + surgeFactsHtml(member)
+                + ' · ' + member.why + '</span>';
+            }
+            return;
+          }
+          (groups[first.date] || (groups[first.date] = [])).push(first);
+        });
+        Object.keys(groups).forEach(function (date) {
+          var members = groups[date], row = memberRow(members[0]);
+          row.foyMembers = members;
+          row.data = { 'foy-date': date };
+          if (members.length > 1) {
+            row.code = row.speciesKey = row.speciesNameKey = row.alpha = '';
+            row.notificationKey = 'annual-first|' + date;
+            row.icon = birdGenBirdThumbnail(members);
+            row.name = members.slice(0, 2).map(function (bird) {
+              return '<span class="surgebirdname">' + speciesLink(bird.name, bird.code) + '</span>';
+            }).join('<span class="ppte-connector"> and </span>')
+              + (members.length > 2 ? '<span class="ppte-connector"> +'
+                + (members.length - 2) + ' more</span>' : '');
+            row.when = date;
+            row.time = surgeTimeValue(date);
+            row.where = row.checklistId = '';
+            row.why = members.length + ' regional annual firsts on ' + esc(fmtDate(date))
+              + '; not proof of current presence or rarity.';
+            row.extra = '<ul class="foymembers">' + members.map(function (bird) {
+              var detail = memberRow(bird);
+              return '<li>' + detail.name + ' · ' + surgeFactsHtml(detail)
+                + ' · ' + detail.why + '</li>';
+            }).join('') + '</ul>';
+          }
+          rows.push(row);
         });
         return rows;
       }
@@ -43848,7 +43995,7 @@
         beginCcLoTraceCapture(generation);
         var loadRetainedContext = surgeRetainedContext();
         var loadNavigation = _navGeneration, loadCancellation = _workCancelGeneration;
-        var stopped = false, autoload = typeof performanceLoadId === 'string';
+        var stopped = false, terminalOutcome = '', autoload = typeof performanceLoadId === 'string';
         var section = $('sec-surgeBtn');
         if (typeof performanceLoadId !== 'string') {
           performanceLoadId = performanceStart(section, deepHistory ? 'deep-history' : 'refresh');
@@ -43862,7 +44009,21 @@
         }
         var activeLoad = {
           current: current, deepHistory: deepHistory === true, fullRefresh: fullRefresh,
-          primary: null, settled: null
+          primary: null, settled: null,
+          end: function (outcome) {
+            if (!current()) return;
+            terminalOutcome = outcome;
+            Object.keys(pendingSources).forEach(function (key) {
+              if (pendingSources[key]) attemptStates[key] = outcome;
+              pendingSources[key] = false;
+            });
+            paintSurgeModel();
+            stopped = true;
+            _surgeRetrySources = _surgeHotspotRetry = _surgeRepaint = _surgeEarlyPaint = null;
+            if (_surgeActiveLoad === activeLoad) _surgeActiveLoad = null;
+            btn.disabled = false;
+            releasePerformance();
+          }
         };
         var acquired = surgeAcquiredSources(), birdcastState = 'loading';
         var attemptStates = {}, pendingSources = {}, sourceTasks = {}, runningSources = {};
@@ -43981,7 +44142,7 @@
               .then(function (result) {
               if (!current()) throw queueCancelledError({ label: 'Bird Gen reachability' });
               if (showUnreachable(st, result)) {
-                stopped = true;
+                activeLoad.end('failed');
                 st.hidden = false;
                 _autoLoaded[section.id] = false;
                 if (_performance) _performance.fail(performanceLoadId, { reason: 'unreachable' });
@@ -44093,6 +44254,8 @@
               massCoverage: surgeModel.mass.coverage, massSource: surgeModel.mass,
               deferPhotos: !renderReady,
               pendingSources: Object.assign({}, pendingSources),
+              outcome: terminalOutcome,
+              suppressNotifications: terminalOutcome === 'cancelled',
               ppteRows: surgeModel.ppte.rows, ppteCoverage: surgeModel.ppte.coverage,
               retainedAt: retainedDates.length ? Math.min.apply(Math, retainedDates) : 0,
               retentionFailed: retentionFailed,
@@ -46026,6 +46189,7 @@
           _performance.cancel(loadId, { reason: reason || 'navigation' });
         }
         if (sectionId === 'sec-surgeBtn' && reason === 'navigation') {
+          if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');
           _autoLoaded[sectionId] = false;
           _surgeLoadGeneration++;
           _surgeEarlyPaint = null;

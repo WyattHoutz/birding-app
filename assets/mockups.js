@@ -1288,6 +1288,25 @@ const REVIEW_SHOTS = [
                when:at('17:30'),time:Date.parse(today+'T17:30:00'),checklistId:'SMOCKMASS'}]);
            var host = document.getElementById('surgeResults');
            var kinds = Object.keys(document.defaultView.BirdInfoDialogs.alertKinds);
+           var sensitiveTarget = host.querySelector('[data-alert-kind="sensitive"] button.surge-leading-tag');
+           var sensitiveChip = sensitiveTarget && sensitiveTarget.querySelector('.surgebadge-sensitive');
+           var peerChip = host.querySelector('.surge-leading-tag.surgebadge:not(button)');
+           if (!sensitiveTarget || !sensitiveChip || !peerChip
+               || !sensitiveTarget.hasAttribute('data-surge-details')) {
+             throw new Error('F1097 requires a compact badge inside its independent evidence button');
+           }
+           var chipStyle = document.defaultView.getComputedStyle(sensitiveChip);
+           var peerStyle = document.defaultView.getComputedStyle(peerChip);
+           var targetRect = sensitiveTarget.getBoundingClientRect();
+           if (targetRect.width < 44 || targetRect.height < 44
+               || Math.abs(sensitiveChip.getBoundingClientRect().height
+                 - peerChip.getBoundingClientRect().height) > 1
+               || ['fontSize','fontWeight','lineHeight','paddingTop','paddingRight',
+                 'paddingBottom','paddingLeft'].some(function(property) {
+                 return chipStyle[property] !== peerStyle[property];
+               })) {
+             throw new Error('F1097 painted badge must match peers without shrinking its 44px target');
+           }
            kinds.forEach(function(kind) {
              if (!host.querySelector('[data-alert-kind="'+kind+'"]')) {
                throw new Error('All-alert mockup is missing '+kind);
@@ -1444,6 +1463,59 @@ const REVIEW_SHOTS = [
            sec.dataset.mockAt = 'surgeBtn'; sec.dataset.mockReady = 'true';
            return true;` },
 ];
+
+const foyGroupBase = REVIEW_SHOTS.find(shot => shot.id === 'f951-birdgen-all');
+REVIEW_SHOTS.push({
+  ...foyGroupBase, id: 'f1102-foy-many',
+  title: 'Bird Gen — 26 annual firsts, including merged evidence (representative data)',
+  prep: foyGroupBase.prep.replace(/return true;\s*$/, '') + `
+    var existingMega = host.querySelector('[data-alert-kind="mega"]');
+    var megaCode = existingMega.dataset.speciesCode;
+    var megaName = existingMega.querySelector('.splink').textContent;
+    var visibleBirds = [{code:megaCode,name:megaName},
+      {code:'amepip',name:'American Pipit'},{code:'tufpuf',name:'Tufted Puffin'}];
+    var firsts = Array.from({length:26},function(_,index) {
+      return {code:visibleBirds[index] ? visibleBirds[index].code : 'zzannualfixture'+index,
+        name:visibleBirds[index] ? visibleBirds[index].name : 'Example annual bird '+index,
+        date:today,observedAt:today+' 08:00',previousReadDate:today};
+    });
+    A.renderSurge([],[],[],[],[],{
+      mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',birdcast:'notApplicable',
+      favorites:'ok',mass:'ok',foy:'ok',ppte:'ok',pendingSources:{},foyRows:firsts,
+      deferPhotos:true,suppressNotifications:true
+    });
+    var group = host.querySelector('[data-alert-kind="foy"]');
+    var filter = host.querySelector('[data-count-kind="foy"]');
+    if (!group || host.querySelectorAll('[data-alert-kind="foy"]').length !== 1
+        || !/26 FOY/.test(filter.textContent)
+        || group.querySelector('[data-birdgen-total]').dataset.birdgenTotal !== '25'
+        || !/\\+23\\b/.test(group.querySelector('.surgealerttitle').textContent)) {
+      throw new Error('F1102 real-app preview lost complete compact same-day membership');
+    }
+    filter.click();
+    var visible = Array.from(host.querySelector('#surgeFeed').children).filter(function(row) {
+      return !row.hidden;
+    });
+    if (visible.length !== 2 || !visible.some(function(row) {return row.dataset.alertKind==='mega';})) {
+      throw new Error('F1102 filter lost merged annual-first evidence');
+    }
+    group.querySelector('[data-surge-details]').click();
+    var details = document.getElementById('appSheet');
+    if (details.querySelectorAll('.foymembers > li').length !== 25
+        || firsts.slice(1).some(function(bird) {return !details.textContent.includes(bird.name);})) {
+      throw new Error('F1102 evidence must expose every grouped bird');
+    }
+    details.querySelector('.sheetclose').click();
+    filter.click();
+    await FIX.fillFixturePhotos(host,document);
+    host.setAttribute('data-mock-data','true');
+    var notice = document.createElement('p');
+    notice.className='mocklabel';
+    notice.textContent='REPRESENTATIVE STUB DATA — 26 same-day FOY birds, not current sightings';
+    host.prepend(notice);
+    return true;
+  `
+});
 
 const SHOTS = [
   { id: 'menu', title: 'Contents menu',

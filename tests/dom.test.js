@@ -868,7 +868,8 @@ test('F1046/F1050 source states keep unknown and failed category tags truthful a
     assert.doesNotMatch(hotspot.textContent, /loading/);
     assert.match(hotspot.getAttribute('aria-label'), /loading, results not complete/);
     const cascade = box.querySelector('[data-count-kind="cascade"]');
-    assert.match(cascade.textContent, /source failed/);
+    assert.match(cascade.textContent, /⚠/);
+    assert.match(cascade.getAttribute('aria-label'), /source failed/);
     assert.equal(cascade.parentElement.querySelector('[data-source-retry]').dataset.sourceRetry, 'leaderboard',
       'the successful observation dependency must not be retried');
     assert.equal(cascade.querySelector('button'), null, 'filter and retry must not be nested');
@@ -4835,7 +4836,7 @@ test('F865 small patch bird cards allow a break after the complete name before f
   }finally{app.window.close();}
 });
 
-test('F863 Bird Gen selects at most three recent annual firsts including merged reasons', async () => {
+test('F863/F1102 Bird Gen retains every eligible recent annual first including merged reasons', async () => {
   const app=await boot({sample:false});
   try {
     const A=app.window.__app;
@@ -4850,7 +4851,7 @@ test('F863 Bird Gen selects at most three recent annual firsts including merged 
       {...first('withheld',0),sensitive:true}];
     const rows=[{kind:'mega',code:'today',speciesKey:'today',time:1,why:'Existing mega'}];
     A.appendFoySurgeReasons(rows,candidates);
-    assert.deepEqual(arr(rows,row=>row.code),['today','one','two']);
+    assert.deepEqual(arr(rows,row=>row.code),['today','one','two','three','week']);
     assert.equal(rows[0].reasons.filter(reason=>reason.kind==='foy').length,1);
     const boundary=[];
     A.appendFoySurgeReasons(boundary,[first('week',7),first('older',8),first('future',-1)]);
@@ -13368,7 +13369,7 @@ test('F913 Bird Gen excludes hybrids across species lanes while retaining specie
   } finally { app.window.close(); }
 });
 
-test('F914 settled sources have compact static progress, while real pending sources retain live progress', async () => {
+test('F914/F1101 settled sources have text outcomes only, while real pending sources retain live progress', async () => {
   const app = await boot();
   try {
     const A = app.window.__app;
@@ -13380,10 +13381,10 @@ test('F914 settled sources have compact static progress, while real pending sour
       const box = app.$('surgeResults');
       assert.equal(box.querySelector('[role="progressbar"]'),null);
       const loaded = total - (mass === 'failed' ? 1 : 0);
-      assert.equal(box.querySelector('.surgesourceprogress .fill').style.width,
-        Math.round(loaded * 100 / total) + '%');
+      assert.equal(box.querySelector('.surgesourceprogress .track'), null);
       assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
         `Bird Gen - ${loaded} of ${total} loaded`
+        + (mass === 'failed' ? ' · Finished with failures' : ' · Finished')
         + (mass === 'ok' ? '' : mass === 'failed' ? ' · 1 failed' : ' · 1 with limited coverage')
         + ' · 1 not applicable');
       if (mass !== 'ok') {
@@ -13413,9 +13414,9 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     A.renderSurge([], [], [], [], [], states);
     const box = app.$('surgeResults');
     assert.equal(box.querySelector('[role="progressbar"]'), null);
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '88%');
+    assert.equal(box.querySelector('.surgesourceprogress .track'), null);
     assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
-      'Bird Gen - 7 of 8 loaded · 1 with limited coverage · 1 failed · 1 not applicable');
+      'Bird Gen - 7 of 8 loaded · Finished with failures · 1 with limited coverage · 1 failed · 1 not applicable');
     assertSurgeDiagnostic(app, /Patagonia picnic table effect RBA feeds have incomplete or capped coverage/);
     assertSurgeDiagnostic(app, /Mass flock feeds failed/);
     assert.doesNotMatch(box.textContent, /incomplete or capped coverage|Mass flock feeds failed/);
@@ -13471,9 +13472,9 @@ test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with
     assertCompact();
     const settled = box.querySelector('.surgesourcemeter');
     assert.ok(settled, 'settled Bird Gen progress must remain visible');
-    assert.equal(settled.textContent, 'Bird Gen - 8 of 9 loaded · 2 with limited coverage · 1 failed');
+    assert.equal(settled.textContent, 'Bird Gen - 8 of 9 loaded · Finished with failures · 2 with limited coverage · 1 failed');
     assert.equal(settled.getAttribute('role'), 'status');
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '89%');
+    assert.equal(box.querySelector('.surgesourceprogress .track'), null);
     assert.equal(box.dataset.sourcesComplete, 'false');
     assert.equal(box.dataset.sourceLeaderboard, 'failed');
     assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
@@ -13505,8 +13506,8 @@ test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with
     A.renderSurge([], [], [], needs, [], complete);
     assertCompact();
     assert.equal(box.dataset.sourcesComplete, 'true');
-    assert.equal(box.querySelector('.surgesourcemeter[role="status"]').textContent, 'Bird Gen - 9 of 9 loaded');
-    assert.equal(box.querySelector('.surgesourceprogress .fill').style.width, '100%');
+    assert.equal(box.querySelector('.surgesourcemeter[role="status"]').textContent, 'Bird Gen - 9 of 9 loaded · Finished');
+    assert.equal(box.querySelector('.surgesourceprogress .track'), null);
   } finally { app.window.close(); }
 });
 
@@ -26366,7 +26367,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.ok(settled, 'a settled source failure must remain disclosed in the status widget');
   assert.equal(settled.getAttribute('role'), 'status');
   const loadedAfter = sourceStates().filter(state => state === 'ok' || state === 'partial').length;
-  assert.equal(settled.querySelector('.fill').style.width, Math.round(loadedAfter * 100 / sourceCount) + '%');
+  assert.equal(settled.querySelector('.track'), null);
   assert.ok(settled.textContent.includes(`${loadedAfter} of ${sourceCount} loaded`));
   assert.match(settled.textContent,/failed/,'a failed leaderboard cannot inflate loaded progress');
   assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
@@ -57880,4 +57881,7 @@ require('./migration-setup-controls.cjs')({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
   formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml,
 });
-require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });
+const { preparedKeyNative } = require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });
+require('./release172-controls.cjs')({
+  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative
+});

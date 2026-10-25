@@ -1500,7 +1500,8 @@ const AUDIT = `<script>
       countTicks.tickMetric=document.querySelector('#lastNewResults [data-tick-metric]').getAttribute('data-tick-metric');
       out.push(countTicks);
       document.querySelector('#lastNewSort [data-ticksort="date"]').click();
-      A.showSection('sec-surgeBtn');
+      A.showSection('sec-surgeBtn',{load:false});
+      A.cancelStalledWork();
       document.getElementById('surgeResults').innerHTML='<ul id="surgeFeed" class="obs card-sm surgefeed">'
         + A.surgeAlertCard({kind:'need',icon:window.BirdIcons.photoSlot('Western Grebe','wesgre'),
           name:'Western Grebe',code:'wesgre',when:A.todayStr(),time:Date.now(),
@@ -1621,6 +1622,20 @@ const AUDIT = `<script>
       A.showSection('sec-surgeBtn',{load:false});
       var sensitiveCard=categoryFeed.firstElementChild;
       var sensitiveTag=sensitiveCard.querySelector('.surge-leading-tag');
+      var sensitivePaint=sensitiveTag.querySelector('.surgebadge-sensitive');
+      categoryFeed.insertAdjacentHTML('beforeend',A.surgeAlertCard({
+        kind:'cascade',name:'Representative badge peer',time:0,why:'Geometry control'
+      },1));
+      var badgePeer=categoryFeed.lastElementChild;
+      var peerPaint=badgePeer.querySelector('.surgebadge');
+      var sensitiveStyle=getComputedStyle(sensitivePaint), peerStyle=getComputedStyle(peerPaint);
+      var compactPaint=Math.abs(sensitivePaint.getBoundingClientRect().height
+        - peerPaint.getBoundingClientRect().height)<1
+        && ['fontSize','fontWeight','lineHeight','paddingTop','paddingRight',
+          'paddingBottom','paddingLeft'].every(function(key) {
+          return sensitiveStyle[key]===peerStyle[key];
+        });
+      badgePeer.remove();
       var sensitiveAge=sensitiveCard.querySelector('.surgeage');
       var monthRange=document.createRange();monthRange.selectNodeContents(sensitiveAge);
       var monthBox=sensitiveAge.getBoundingClientRect();
@@ -1628,8 +1643,10 @@ const AUDIT = `<script>
         return line.left>=monthBox.left-.5 && line.right<=monthBox.right+.5;
       });
       if (!monthFits || sensitiveTag.getBoundingClientRect().height<44
-          || getComputedStyle(sensitiveTag).borderTopWidth!=='2px') {
-        throw new Error('F1092 Sensitive badge target, border or source month is clipped');
+          || sensitiveTag.getBoundingClientRect().width<44 || !compactPaint
+          || sensitiveStyle.borderTopWidth!=='2px'
+          || sensitiveStyle.borderTopColor!=='rgb(0, 114, 178)') {
+        throw new Error('F1092/F1097 Sensitive paint, independent target or source month is clipped');
       }
       out.push(scan('(F1092 Sensitive monthly evidence)'));
       categoryFeed.innerHTML=A.surgeAlertCard({
@@ -1752,7 +1769,7 @@ const AUDIT = `<script>
       if (savedRanks == null) localStorage.removeItem(A.RANK_CACHE_KEY);
       else localStorage.setItem(A.RANK_CACHE_KEY, savedRanks);
       A.renderMenuIdentity();
-      A.showSection('sec-surgeBtn');
+      A.showSection('sec-surgeBtn',{load:false});
       A.renderSurge([], [], [], [], [], {
         mega:'notApplicable', observations:'ok', leaderboard:'notApplicable',
         hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
@@ -3135,6 +3152,37 @@ const AUDIT = `<script>
       else localStorage.setItem('bc_setup_step_v1',step);
     }
   }
+  function annualFirstGroupRegression(out) {
+    var A=window.__app, date=A.todayStr();
+    var members=Array.from({length:26},function(_,index) {
+      return {code:'auditannual'+index,name:'Example annual bird '+index,
+        date:date,observedAt:date+' 08:00',previousReadDate:date};
+    });
+    A.showSection('sec-surgeBtn',{load:false});
+    A.renderSurge([],[],[],[],[],{
+      observations:'ok',mega:'ok',leaderboard:'ok',hotspots:'ok',birdcast:'notApplicable',
+      favorites:'ok',mass:'ok',ppte:'ok',foy:'ok',pendingSources:{},foyRows:members,
+      deferPhotos:true,suppressNotifications:true
+    });
+    var root=document.getElementById('surgeResults');
+    var groups=root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]');
+    var group=groups[0];
+    if (groups.length!==1 || group.dataset.foyDate!==date
+        || group.querySelector('[data-birdgen-total]').dataset.birdgenTotal!=='26'
+        || root.querySelector('[data-count-kind="foy"]').textContent.indexOf('26 FOY')<0
+        || group.querySelector('.surgealerttitle').textContent.indexOf('+24')<0) {
+      throw new Error('F1102 compact same-day group lost complete annual-first membership');
+    }
+    out.push(scan('(F1102 26-member annual-first group)'));
+    group.querySelector('[data-surge-details]').click();
+    var details=document.getElementById('appSheet');
+    if (details.hidden || details.querySelectorAll('.foymembers > li').length!==26
+        || members.some(function(bird) {return details.textContent.indexOf(bird.name)<0;})) {
+      throw new Error('F1102 grouped evidence action lost an annual-first member');
+    }
+    out.push(scan('(F1102 complete annual-first evidence)'));
+    details.querySelector('.sheetclose').click();
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
@@ -3159,6 +3207,10 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { apiApplicationRegression(out); }
       catch (error) { out.push({label:'(F1083 regression)',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { annualFirstGroupRegression(out); }
+      catch (error) { out.push({label:'(F1102 regression)',fixtureError:String(error)}); }
     }
     try {
       var x = new XMLHttpRequest();

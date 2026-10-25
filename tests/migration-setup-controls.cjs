@@ -231,9 +231,11 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(tag.tagName, 'BUTTON');
         assert.match(tag.getAttribute('aria-label'), /SENSITIVE.*evidence/);
         assert.equal(app.window.getComputedStyle(tag).minHeight, '44px');
-        assert.equal(app.window.getComputedStyle(tag).borderTopWidth, '2px');
-        assert.equal(app.window.getComputedStyle(tag).borderTopStyle, 'solid');
-        assert.equal(app.window.getComputedStyle(tag).color, 'rgb(0, 91, 143)');
+        const painted = tag.querySelector('.surgebadge-sensitive');
+        assert.ok(painted, 'compact painted chip is independent of its 44px target');
+        assert.equal(app.window.getComputedStyle(painted).borderTopWidth, '2px');
+        assert.equal(app.window.getComputedStyle(painted).borderTopStyle, 'solid');
+        assert.equal(app.window.getComputedStyle(painted).color, 'rgb(0, 91, 143)');
         assert.equal(app.window.getComputedStyle(card.querySelector('.surgeage')).whiteSpace, 'normal');
         app.click(tag);
         assert.equal(app.$('appSheet').hidden, false);
@@ -749,11 +751,12 @@ module.exports = function registerMigrationSetupControls({
         pendingSources: { mass: false, ppte: true, hotspots: false, observations: false }
       });
       const status = app.$('surgeResults').querySelector('.surgesources');
-      assert.match(status.textContent, /Mass flock feeds: Loaded with limited coverage/);
+      assert.match(status.textContent, /Mass flock feeds: Partially loaded/);
       assert.match(status.textContent, /Patagonia[^:]*: Loading/);
       assert.match(status.textContent, /Hotspot activity feeds: Failed/);
       const limited = app.$('surgeResults').querySelector('[data-count-kind="mass"]');
-      assert.match(limited.textContent, /loaded with limited coverage/);
+      assert.match(limited.textContent, /⚠/);
+      assert.match(limited.getAttribute('aria-label'), /Partially loaded/);
       assert.equal(limited.closest('.surgecategory').dataset.categoryState, 'limited');
       assert.ok(app.$('surgeResults').querySelector('[data-source-retry="mass"]'));
       assert.equal(A.surgeSourceSummary({ mass: 'partial' }, { mass: true }).pending[0], 'mass');

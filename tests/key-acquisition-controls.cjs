@@ -336,7 +336,7 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         const id = bridge.opened[0].id, page = bridge.page(id);
         const help = page.document.querySelector('[data-birdchaser-api-help]');
         assertApplicationGuidance(help);
-        assert.equal(help.open, true, 'first-time applicants must see the guidance in the owned eBird window');
+        assert.equal(help.open, false, 'first-time guidance must not obscure the vendor form');
         assert.equal(page.document.querySelectorAll('[data-birdchaser-api-help]').length, 1);
         assert.equal(help.closest('form'), null, 'guidance must remain separate from the vendor form');
         assert.equal(page.document.querySelector('form').outerHTML, originalForm);
@@ -378,4 +378,5 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       } finally { bridge.destroy(); app.window.close(); }
     }
   });
+  return { preparedKeyNative };
 };
