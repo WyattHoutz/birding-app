@@ -1049,10 +1049,13 @@ test('F1048 Mass flocks sorts locally and flips the shared primary age or distan
     const row = (code, when, distanceMi) => ({ code, name: code, when, distanceMi,
       minCount: 600, maxCount: 700, evidenceCount: 2, locId: 'LF1048', locName: 'Public marsh',
       checklistId: 'S' + code, lat: 47.7, lng: -122.1 });
+    const fixtureDay = new Date();
+    fixtureDay.setDate(fixtureDay.getDate() - 1);
+    fixtureDay.setHours(12, 0, 0, 0);
     const source = { state: 'partial', coverage: 'Current month only', retainedAt: Date.now(),
-      rows: [row('near', new Date(Date.now() - 3600000).toISOString(), 2),
-        row('new', new Date(Date.now() - 60000).toISOString(), 20),
-        row('unknown', '', null), row('dateonly', todayFixtureDate(), 5)] };
+      rows: [row('near', new Date(fixtureDay.getTime() - 3600000).toISOString(), 2),
+        row('new', new Date(fixtureDay.getTime() - 60000).toISOString(), 20),
+        row('unknown', '', null), row('dateonly', formatObsStamp(fixtureDay).slice(0, 10), 5)] };
     A.renderEventFeed('mass', source);
     const codes = () => [...app.$('massResults').querySelectorAll('[data-flock-code]')].map(row => row.dataset.flockCode);
     assert.deepEqual(codes(), ['new', 'near', 'dateonly', 'unknown']);
