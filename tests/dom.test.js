@@ -24428,7 +24428,7 @@ test('F954 every alert keeps its original extra after matching-style observation
       host.innerHTML = app.window.__app.surgeAlertCard(row,0);
       const extra = surgeEvidence(host).querySelector('.surgeexplainextra');
       const facts = extra.querySelector('.surgefacts');
-      const birdPlace = !['ppte','hotspot','patch','migration'].includes(kind);
+      const birdPlace = !['ppte','hotspot','patch','migration','sensitive'].includes(kind);
       assert.equal(host.querySelector('.surgealerttitle').textContent,
         'Example bird'+(birdPlace?' at Example public marsh':''),kind);
       const birdName=host.querySelector('.surgebirdname');
@@ -24518,7 +24518,12 @@ test('F967 Bird Gen keeps connectors regular and bird and place links equally bo
         for (const connector of title.querySelectorAll('.ppte-connector')) {
           assert.equal(app.window.getComputedStyle(connector).fontWeight,'400');
         }
-        assert.equal(title.querySelector('.hslink').dataset.loc,'L967');
+        if (kind === 'sensitive') {
+          assert.equal(title.querySelector('.hslink'),null,
+            'monthly Sensitive source context must not become a public-hotspot headline');
+        } else {
+          assert.equal(title.querySelector('.hslink').dataset.loc,'L967');
+        }
       }
     }
     A.renderSurge([],[],[],[],[],{},[{
