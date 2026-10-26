@@ -1446,13 +1446,13 @@ const REVIEW_SHOTS = [
                      .getPropertyValue('--s'))) > 0.1
                  || Array.from(title.querySelectorAll('a')).some(function(link) {
                    var style = document.defaultView.getComputedStyle(link);
-                   var named = link.matches('.splink,.hslink,.ppte-event-link')
+                   var named = link.matches('.splink,.hslink,.ppte-event-link,.sensitive-region-link')
                      || link.closest('.surgebirdname');
                    return style.fontWeight !== (named ? '700' : '400')
                      || style.textDecorationLine !== 'none'
                      || style.fontSize !== document.defaultView.getComputedStyle(title).fontSize;
                  })
-                 || Array.from(title.querySelectorAll('.surgebirdname,.splink,.hslink,.ppte-event-link')).some(function(bird) {
+                 || Array.from(title.querySelectorAll('.surgebirdname,.splink,.hslink,.ppte-event-link,.sensitive-region-link')).some(function(bird) {
                    var style = document.defaultView.getComputedStyle(bird);
                    return style.fontWeight !== '700'
                      || style.color !== document.defaultView.getComputedStyle(card.querySelector('.name')).color;

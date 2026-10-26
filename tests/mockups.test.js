@@ -166,7 +166,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'abayearrefresh', 'favoritesregion', 'spuhcompact', 'birdspcompact',
       'birdspdetail', 'spuhdetail', 'spuhinfo',
       'stakeoutreports', 'meganearest',
-      'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f951-birdgen-all', 'f1102-foy-many'],
+      'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f1110-sensitive', 'f951-birdgen-all', 'f1102-foy-many'],
     'focused review states stay available without inflating the release contract');
   assert.equal(mockups.REVIEW_SHOTS.find((shot) => shot.id === 'spuhcompact')
     .maxHostHeight, undefined,
