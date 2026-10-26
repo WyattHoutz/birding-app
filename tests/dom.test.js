@@ -15480,7 +15480,7 @@ function f890EvidenceFixture() {
     locId: '', lat: null, lng: null, locationPrivate: true };
   const older = row('S-F890-OLDER', 25, 4);
   const ordinary = row('S-F890-ORDINARY', 26);
-  const other = { ...row('S-F890-OTHER'), speciesCode: 'mallar3', comName: 'Mallard' };
+  const other = { ...row('S89009999'), speciesCode: 'mallar3', comName: 'Mallard' };
   const species = notable.slice(0, 18).map((r) => ({
     ...r, __notable: false, __stateRba: false,
   })).concat(ordinary);
@@ -16040,8 +16040,9 @@ for (const reversed of [false,true]) {
       assert.match(app.$('stakeHsResults').textContent,/Nearby personal locations/);
       assert.match(app.$('stakeHsResults').textContent,/RBA: loading/);
       const records=personal.concat(remote,missing);
+      const locatedRba=records.filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lng));
       if (reversed) twitches.resolve(records.slice().reverse());
-      else rba.resolve(megaAlertHtml(records));
+      else rba.resolve(megaAlertHtml(locatedRba));
       await new Promise(resolve=>setTimeout(resolve,100));
       const expand=async()=>{
         for(let n=0;n<10;n++){
@@ -16060,7 +16061,7 @@ for (const reversed of [false,true]) {
         assert.ok(evidence.rows.every(row=>row.location_private===null),
           'alert HTML does not declare whether a location is personal');
       }
-      if (reversed) rba.resolve(megaAlertHtml(records));
+      if (reversed) rba.resolve(megaAlertHtml(locatedRba));
       else twitches.resolve(records.slice().reverse());
       await new Promise(resolve=>setTimeout(resolve,100));
       if (!reversed) await expand();
@@ -16867,6 +16868,9 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
       when: `${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
       lat: row.lat, lng: row.lon, place: row.loc, observer: row.observer, count: row.count };
   });
+  const cappedRows = sourceRows.concat(Array.from({length:500 - sourceRows.length},(_,i) => ({
+    ...sourceRows[0],code:'mallar3',name:'Mallard',subId:`S9319${String(i).padStart(4,'0')}`
+  })));
   const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
   let phase = 'county-needed';
   const app = await boot({ sample: false, fetch(url) {
@@ -16874,7 +16878,7 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
     if (/alert\/rba\//.test(url)) {
       if (phase === 'failed') return { __status: 503 };
       if (/\/US-WA\?/.test(url)) {
-        return phase === 'capped' ? megaAlertHtml(sourceRows).repeat(125)
+        return phase === 'capped' ? megaAlertHtml(cappedRows)
           : megaAlertHtml(sourceRows.slice(0, 2));
       }
       return megaAlertHtml(sourceRows);
@@ -16917,7 +16921,7 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
   } finally { app.window.close(); }
 });
 
-test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial, failed and empty acquisitions', async () => {
+test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial, failed and malformed acquisitions', async () => {
   const rows = ppteFixture();
   const sourceRows = rows.map(row => {
     const date = new Date(row.dateStr.replace(' ', 'T'));
@@ -16932,7 +16936,7 @@ test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial
       if (phase === 'failed' || (phase === 'partial' && !/\/US-WA\?/.test(url))) {
         return { __status: 503 };
       }
-      if (phase === 'empty') return '<div class="Observation"></div>';
+      if (phase === 'malformed') return '<div class="Observation"></div>';
       return megaAlertHtml(phase === 'partial' ? sourceRows.slice(0, 2) : sourceRows);
     }
     if (/ref\/hotspot\/US-WA/.test(url)) return [
@@ -16973,10 +16977,11 @@ test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial
       assert.equal(A.loadSurgeRetained().ppte.rows[0].id, episodeId,
         'retained source waves must not create a new notification episode');
     }
-    phase = 'empty';
+    phase = 'malformed';
     app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
     await settled();
-    assert.equal(box.dataset.sourcePpte, 'partial');
+    assert.equal(box.dataset.sourcePpte, 'failed',
+      'a malformed placeholder is not a verified successful-empty RBA acquisition');
     assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 1);
     assert.equal(A.loadSurgeRetained().ppte.rows.length, 1);
     assert.equal(A.loadSurgeRetained().ppte.rows[0].id, episodeId);
@@ -21761,7 +21766,9 @@ test('every section carries an info button that opens its calculation notes', as
   secs.forEach((s) => {
     const b = s.querySelector('.docbtn');
     assert.ok(b, s.id + ' has an info button');
-    if (s.id === 'sec-surgeBtn') assert.equal(b.getAttribute('aria-haspopup'), 'dialog');
+    if (['sec-surgeBtn','sec-massBtn','sec-ppteBtn'].includes(s.id)) {
+      assert.equal(b.getAttribute('aria-haspopup'), 'dialog');
+    }
     else assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
     assert.match(b.getAttribute('aria-label') || '', /is calculated/,
       s.id + ' names what the button explains');
@@ -22814,7 +22821,10 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
     if (/top100/.test(url)) return fs.readFileSync(
       path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
     if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
-    if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
+    if (/alert\/rba\//.test(url)) return megaAlertHtml([{
+      code:'mallar3',name:'Mallard',subId:'S801900',when:recentObsStamp(),
+      lat:47.75,lng:-122.16,place:'Synthetic public marsh',count:1
+    }]);
     return /data\/obs\/LF801REOPEN/.test(url) ? [{
       speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801REOPEN',
       obsDt: f801Day() + ' 00:01', subId: 'SF801REOPEN', howMany: 2,
