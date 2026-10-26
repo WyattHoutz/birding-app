@@ -1612,6 +1612,35 @@ const AUDIT = `<script>
       categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
       A.updateRecentBirdGen();
       out.push(recentScan);
+      A.renderSurge([],[],[],[],[],{
+        mega:'notApplicable',observations:'ok',suppressNotifications:true,
+        twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-60000,
+          reports:3,latest:{dateStr:previewStamp(2),locId:'LF1111LAYOUT',
+            loc:'Representative long public wetland and wildlife viewing area',subId:'S1111LAYOUT'}}]
+      });
+      A.showMenu();
+      var twitchPreviewScan=scan('(F1111 Recent Twitch source hotspot)');
+      var twitchPreview=document.querySelector('#recentBirdGenRows [data-recent-kind="twitch"]');
+      var twitchPlace=twitchPreview && twitchPreview.querySelector('.hslink');
+      var twitchBird=twitchPreview && twitchPreview.querySelector('.splink');
+      var twitchAge=twitchPreview && twitchPreview.querySelector('button.recent-birdgen-time');
+      if (!twitchPlace || twitchPlace.getAttribute('data-loc')!=='LF1111LAYOUT'
+          || twitchPlace.textContent!=='Representative long public wetland and wildlife viewing area'
+          || !twitchBird || !twitchAge
+          || twitchAge.getBoundingClientRect().width<44 || twitchAge.getBoundingClientRect().height<44
+          || [twitchPlace,twitchBird].some(function(link){
+            var age=twitchAge.getBoundingClientRect();
+            return link.tabIndex!==0 || link.getAttribute('role')!=='link'
+              || Array.from(link.getClientRects()).some(function(rect){
+                return rect.width<=0 || rect.left<0 || rect.right>twitchPreviewScan.vw+.5
+                  || rect.left<age.right && rect.right>age.left && rect.top<age.bottom && rect.bottom>age.top;
+              });
+          })) throw new Error('F1111 Recent Twitch source actions overlap, clip or lose their destination');
+      twitchPreviewScan.twitchPlace=twitchPlace.textContent;
+      out.push(twitchPreviewScan);
+      categoryFeed=document.getElementById('surgeFeed');
+      categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
+      A.updateRecentBirdGen();
       var savedFeed=Array.from(categoryFeed.children);
       var sensitiveNow=new Date(), sensitiveScope=A.activeScope();
       var sensitiveParts=A.birdcastLocalParts(sensitiveNow,A.getReport());

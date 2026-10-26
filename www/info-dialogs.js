@@ -406,6 +406,19 @@
   }
 
   var CATALOG = {
+    'event-feed': {
+      name: 'Mass Flocks and Patagonia calculations',
+      group: 'Category and calculation sheets',
+      contextLabel: 'Sample Mass Flocks calculation; live coverage and retained-result notes vary.',
+      render: function (context) {
+        if (!context.sectionHtml) throw new Error('Event-feed calculation notes are required');
+        return {
+          title: context.title,
+          subtitle: 'Source rules and current coverage',
+          bodyHtml: context.sectionHtml
+        };
+      }
+    },
     'bird-gen-feed': {
       name: 'Bird Gen alert categories',
       group: 'Category and calculation sheets',
@@ -506,6 +519,14 @@
 
   function renderSample(id, deps) {
     var esc = deps && deps.escapeHtml;
+    if (id === 'event-feed') {
+      var doc = deps && deps.sectionDocs && deps.sectionDocs.massBtn;
+      if (!doc) throw new Error('Mass Flocks section docs are required for the catalog sample');
+      return render(id, {
+        title: 'Mass Flocks',
+        sectionHtml: renderSectionDocHtml(doc, '', esc)
+      }, deps);
+    }
     if (id === 'bird-gen-feed') {
       return render(id, {
         contextHtml: birdGenContext({

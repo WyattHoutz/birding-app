@@ -171,7 +171,8 @@ test('the generated catalog has exact bidirectional section and sheet coverage',
   const data = GENERATOR.inventory();
   assert.equal(data.sections.length, CONTRACT.menu.length,
     'enabled section-information surfaces');
-  assert.equal(data.dialogs.length, 2, 'informational bottom-sheet families');
+  assert.equal(data.dialogs.length, Object.keys(INFO.catalog).length,
+    'informational bottom-sheet families');
   assert.equal(data.sections.length + data.dialogs.length,
     CONTRACT.menu.length + Object.keys(INFO.catalog).length,
     'total in-scope informational surfaces');

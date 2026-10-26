@@ -50,6 +50,7 @@ function inventory() {
     const rendered = INFO.renderSample(id, {
       BirdLogic: BL,
       escapeHtml,
+      sectionDocs: docs,
     });
     if (!rendered.title || !rendered.subtitle || !rendered.bodyHtml) {
       throw new Error(`Informational dialog ${id} has an incomplete sample`);

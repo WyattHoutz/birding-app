@@ -737,6 +737,11 @@ test('F1106 completing first setup starts the owned full feed without a manual R
       'the same source is eligible before and after explicit Refresh');
     assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),
       'explicit Refresh still recovers the known never-alerted rarity');
+    const twitchPlace = app.$('recentBirdGenRows')
+      .querySelector('[data-recent-kind="twitch"] .hslink');
+    assert.equal(twitchPlace?.dataset.loc,rarity.locId,
+      'the actually acquired Twitch preview must preserve its source hotspot');
+    assert.equal(twitchPlace.textContent,rarity.locName);
     assert.deepEqual(app.state.errors,[]);
   } finally {if(release)release();app.window.close();}
 });
@@ -1175,7 +1180,9 @@ test('F1048 Mass flocks sorts locally and flips the shared primary age or distan
     assert.deepEqual(codes(), ['near', 'dateonly', 'new', 'unknown']);
     assert.equal(A.raritySort(), 'distance');
     assert.match(app.$('massResults').querySelector('.spmetricstack').firstElementChild.className, /dist/);
-    assert.match(app.$('massStatus').textContent, /Incomplete.*Current month only.*Earlier results retained/);
+    assert.match(app.$('massStatus').textContent, /Incomplete.*Earlier results retained.*information/);
+    assert.match(app.$('massBtn').closest('section').querySelector('.sectiondoc').dataset.note,
+      /Current month only.*Earlier results retained/);
     assert.match(app.$('massResults').textContent, /600.*700.*independent visits/);
     assert.equal(app.state.fetches.length, before, 'sort toggles must not acquire source data');
     assert.equal(app.$('massResults').querySelector('[data-flock-code="dateonly"] .spmetricstack .spmetric-age').textContent
@@ -2926,7 +2933,9 @@ test('F980 separate event menus reveal qualifying flocks without relaxing core e
       A.renderEventFeed('mass',{state:'partial',rows,coverage:'288 of 289 rows usable; 1 excluded'});
       assert.equal(app.$('massResults').querySelectorAll('[data-flock-code="snogoo"]').length,1);
       assert.match(app.$('massResults').textContent,/held back/i);
-      assert.match(app.$('massStatus').textContent,/incomplete.*288 of 289/i);
+      assert.match(app.$('massStatus').textContent,/incomplete.*information/i);
+      assert.match(app.$('massBtn').closest('section').querySelector('.sectiondoc').dataset.note,
+        /288 of 289/);
       assert.equal(A.massFlockAlerts([{...raw,howMany:499}],{
         region:'US-WA',singleObservation:true}).length,0);
       assert.equal(A.massFlockAlerts([{...raw,locationPrivate:true}],{
@@ -2953,7 +2962,9 @@ test('F980 PPTE browsing preserves qualification, unknown distance and private-l
       assert.equal(A.ppteEvents(ppteFixture().slice(0,4)).length,0,
         'inclusive browsing must not manufacture an uncorroborated effect');
       A.renderEventFeed('ppte',{state:'partial',rows:[],coverage:'RBA page reaches its row cap'});
-      assert.match(app.$('ppteStatus').textContent,/incomplete.*row cap/i);
+      assert.match(app.$('ppteStatus').textContent,/incomplete.*information/i);
+      assert.match(app.$('ppteBtn').closest('section').querySelector('.sectiondoc').dataset.note,
+        /row cap/);
       assert.match(app.$('ppteResults').textContent,/usable evidence.*not exhaustive/i);
     } finally {app.window.close();}
   });
@@ -5327,7 +5338,7 @@ for (const regional of [false, true]) {
       const saved = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
       assert.equal(saved.rows.length, regional ? 1 : 0);
       assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'),
-        new RegExp('mega alert source · classification OPEN · observation elements '
+        new RegExp('alert parser verification · classification OPEN · observation elements '
           + (regional ? '1 · parsed 1' : '500 · parsed 500')),
         'invalid transport or error retention is not successful-acquisition proof');
       assert.doesNotMatch(app.$('abaStatus').textContent, /failed|could not|Cached/i);
@@ -22939,6 +22950,423 @@ test('F729 Favorite Patch alerts keep only fresh unseen evidence in the active c
   app.window.close();
 });
 
+test('F1111 Recent Twitch keeps source hotspots and separate keyboard/full-alert actions', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = Date.now();
+    await seedSeen(app, ['amerob'], null, [
+      {code:'rocwre',name:'Rock Wren'}, {code:'trokin',name:'Tropical Kingbird'}
+    ]);
+    const events = ['rocwre','trokin'].map((code, index) => ({
+      code, name:index ? 'Tropical Kingbird' : 'Rock Wren', firstAt:now - 300000,
+      reports:2, recovered:!!index, latest:{
+        dateStr:formatObsStamp(new Date(now - 600000)), locId:'L1111' + index,
+        loc:index ? 'Long public wetland and wildlife viewing area' : 'Public fixture bay',
+        subId:'S11110' + index, count:1
+      }
+    }));
+    A.renderSurge([], [], [], [], [], {
+      mega:'notApplicable', observations:'ok', twitchRows:events, suppressNotifications:true
+    });
+    const rows = [...app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="twitch"]')];
+    assert.equal(rows.length,2);
+    for (const row of rows) {
+      const place = row.querySelector('.hslink');
+      const source = events.find(event => event.latest.locId === place?.dataset.loc);
+      assert.ok(source,'the preview dropped or substituted its reported hotspot');
+      assert.equal(place.textContent,source.latest.loc);
+      assert.match(row.querySelector('.surgealerttitle').textContent,/ at /);
+      assert.equal(place.tabIndex,0);
+      assert.equal(row.querySelector(':scope > .name').getAttribute('role'),'group');
+      assert.ok(row.querySelector('button[aria-label="Open full TWITCH alert"]'));
+    }
+    const matching = [...app.$('surgeFeed').querySelectorAll('[data-alert-kind="twitch"]')]
+      .find(row => row.querySelector('.hslink')?.dataset.loc === rows[0].querySelector('.hslink').dataset.loc);
+    assert.ok(matching,'the full-alert action must resolve the matching source, not its list position');
+    const source = matching.querySelector(':scope > .name');
+    assert.equal(source.getAttribute('aria-label'),'Open Twitches');
+    app.click(rows[0].querySelector('button[aria-label="Open full TWITCH alert"]'));
+    assert.equal(app.$('sec-refreshBtn').hidden,false,
+      'the full-alert action must retain the original Twitches destination');
+    const bird = rows[1].querySelector('.splink');
+    assert.equal(bird.tabIndex,0);
+    bird.dispatchEvent(new app.window.KeyboardEvent('keydown',{
+      key:'Enter',bubbles:true,cancelable:true
+    }));
+    assert.equal(app.$('sec-spLookupBtn').hidden,false);
+    assert.equal(app.$('spLookup').value,bird.dataset.spname);
+    const place = rows[1].querySelector('.hslink');
+    place.dispatchEvent(new app.window.KeyboardEvent('keydown',{
+      key:'Enter',bubbles:true,cancelable:true
+    }));
+    assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+    assert.equal(app.$('stakeHs').value,place.textContent);
+    A.renderSurge([],[],[],[],[],{
+      mega:'notApplicable',observations:'ok',suppressNotifications:true,
+      twitchRows:[{...events[0],latest:{...events[0].latest,loc:'',locId:''}}]
+    });
+    assert.equal(app.$('recentBirdGenRows').querySelector('.hslink'),null);
+    assert.doesNotMatch(app.$('recentBirdGenRows').textContent,/ at undefined| at null/);
+    assert.deepEqual(app.state.errors,[]);
+  } finally { app.window.close(); }
+});
+
+test('F1112 raw and normalized alert markup agree without weakening exact source verification', async () => {
+  const item = {code:'rocwre',name:'Rock Wren',subId:'S111200',when:recentObsStamp(),
+    lat:47,lng:-122,place:'Public fixture bay',count:2,observer:'Synthetic observer'};
+  let html = megaAlertHtml([item]).replace(
+    'id="obs-OBS30400" class="Observation"',
+    "class='Observation alternate-layout' id='obs-OBS30400'");
+  const app = await boot({sample:false,fetch:url => /alert\/summary/.test(url) ? html : []});
+  try {
+    const A = app.window.__app;
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
+    const first = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    assert.equal(first.rows[0].speciesCode,'rocwre');
+    assert.equal(first.rows[0].userDisplayName,'Synthetic observer');
+    assert.equal(first.rows[0].subId,item.subId);
+    html = new app.window.DOMParser().parseFromString(html,'text/html').documentElement.outerHTML;
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
+    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows,first.rows);
+    const previous = app.window.localStorage.getItem(A.MEGA_SNAP_KEY);
+    html += '<div class="Observation" id="obs-OBS999999"></div>';
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),false,'partial parsing must still fail closed');
+    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY),previous);
+    html = megaAlertHtml([item],'SN99999');
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),false,'wrong source must remain rejected');
+  } finally { app.window.close(); }
+});
+
+test('F1112 explicit Bird Gen retry recovers through owned native capture without opening Mega', async () => {
+  const app = await boot({sample:false,fetch:url =>
+    /alert\/summary/.test(url) ? '<html>anubis_challenge</html>' : []});
+  const handlers = {};
+  let opened = 0, shown = 0, closed = 0;
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(name,fn) { handlers[name]=fn; return {remove(){}}; },
+    openWebView() { opened++; return Promise.resolve({id:'f1112-owned'}); },
+    close() { closed++; return Promise.resolve(); },
+    hide() {}, show() { shown++; }
+  }}};
+  try {
+    const A = app.window.__app;
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),false);
+    assert.equal(opened,0,'automatic acquisition must not reveal an unsolicited sign-in window');
+    const pending = A.lazyRefreshMegaSnapshot(null,true,() => true,true);
+    await waitFor(() => opened === 1,'explicit owned Mega capture');
+    await new Promise(resolve => setTimeout(resolve,0));
+    handlers.messageFromWebview({id:'f1112-owned',detail:{
+      __ebird:true,kind:'aba',ok:true,data:[{
+        speciesCode:'rocwre',comName:'Rock Wren',obsDt:recentObsStamp(),
+        subnational1Code:'US-WA',locName:'Public fixture bay',lat:47,lng:-122
+      }]
+    }});
+    assert.equal(await pending,true);
+    assert.equal(closed,1);
+    assert.equal(shown,0,'an already signed-in capture must remain hidden');
+    assert.equal(A.megaAlertSourceState(A.megaLane([])),'ok');
+    assert.equal(app.$('abaResults').children.length,0,'recovery cannot require visiting the Mega view');
+  } finally { app.window.close(); }
+});
+
+test('F1112 capped empty regional Mega snapshots retain their limited-coverage verdict', async () => {
+  const html = megaAlertHtml(Array.from({length:500},(_,i) => ({
+    code:'mallar3',name:'Mallard',subId:'S' + (1112000+i),when:recentObsStamp(),
+    lat:45,lng:-123,place:'Public fixture lake',count:1
+  }))).replaceAll(', Washington, United States',', Oregon, United States');
+  const app = await boot({sample:false,fetch:url => /alert\/summary/.test(url) ? html : []});
+  try {
+    const A = app.window.__app;
+    assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
+    const snapshot = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    assert.equal(snapshot.sourceCount,500);
+    assert.equal(snapshot.capped,true);
+    assert.equal(snapshot.rows.length,0);
+    assert.equal(A.megaAlertSourceState(A.megaLane([])),'partial');
+    A.renderSurge([],[],[],[],[],{observations:'ok',suppressNotifications:true});
+    assert.equal(app.$('surgeResults').dataset.sourceMega,'partial');
+    assert.doesNotMatch(app.$('surgeResults').textContent,/no eligible ABA Code 3\+ mega is news today/i);
+  } finally { app.window.close(); }
+});
+
+test('F1112 actual full Menu acquisition permits Mega sign-in only after an explicit refresh', async () => {
+  const app = await boot({sample:false,fetch:url => {
+    if (/alert\/summary/.test(url)) return '<html>anubis_challenge</html>';
+    if (/bird-list/.test(url)) return f821Page([]);
+    return [];
+  }});
+  const opened = [];
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener() { return {remove(){}}; },
+    openWebView(options) {
+      opened.push(options.url);
+      return Promise.reject(new Error('Synthetic native source unavailable'));
+    },
+    close() { return Promise.resolve(); },hide() {},show() {}
+  }}};
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[]);
+    await A.refreshFullBirdGen(true);
+    assert.ok(app.state.fetches.some(url => /alert\/summary/.test(url)));
+    assert.equal(opened.filter(url => /alert\/summary/.test(url)).length,0,
+      'first setup must not request a Mega sign-in handoff');
+    await A.refreshFullBirdGen();
+    assert.equal(opened.filter(url => /alert\/summary/.test(url)).length,1,
+      'a manual full refresh must allow the same owned recovery as source retry');
+    assert.equal(app.$('surgeResults').dataset.sourceMega,'failed',
+      'a failed native read must not become successful acquisition');
+  } finally { app.window.close(); }
+});
+
+test('F1112 actual Bird Gen source retry can recover the independently failed Mega source', async () => {
+  const app = await boot({sample:false,fetch:url => {
+    if (/alert\/summary/.test(url)) return '<html>anubis_challenge</html>';
+    if (/bird-list/.test(url)) return f821Page([]);
+    return [];
+  }});
+  const handlers = {};
+  let opened = 0;
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[]);
+    await A.loadSurge('f1112-automatic',false);
+    await waitFor(() => app.$('surgeResults').dataset.sourceMega === 'failed',
+      'actual independent Mega failure',30000);
+    assert.ok(app.state.fetches.some(url => /alert\/summary/.test(url)),
+      'the real source scheduler must actually attempt Mega acquisition');
+    app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn) { handlers[name]=fn; return {remove(){}}; },
+      openWebView() { opened++; return Promise.resolve({id:'f1112-retry'}); },
+      close() { return Promise.resolve(); },hide() {},show() {}
+    }}};
+    const pending = A.retrySurgeSources(['mega']);
+    await waitFor(() => opened === 1,'source-owned explicit retry capture',30000);
+    await new Promise(resolve => setTimeout(resolve,0));
+    handlers.messageFromWebview({id:'f1112-retry',detail:{
+      __ebird:true,kind:'aba',ok:true,data:[{
+        speciesCode:'rocwre',comName:'Rock Wren',obsDt:recentObsStamp(),
+        subnational1Code:'US-WA',locName:'Public fixture bay',lat:47,lng:-122
+      }]
+    }});
+    await pending;
+    assert.equal(app.$('surgeResults').dataset.sourceMega,'ok');
+    assert.equal(app.$('abaResults').children.length,0);
+    assert.doesNotMatch(app.window.__dbg.buf.map(row => row.msg).join('\n'),/work is not defined/);
+  } finally { app.window.close(); }
+});
+
+test('F1113 Sensitive availability explains shared Mass coverage without changing selection or retry', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = new Date();
+    const parts = A.birdcastLocalParts(now,A.getReport());
+    const source = {source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+      sourceRegion:A.activeScope().effectiveRegion,acquiredAt:now.getTime(),
+      sourceMonth:parts.year + '-' + String(parts.month).padStart(2,'0'),
+      sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:A.activeScope().effectiveRegion}]};
+    for (const state of ['partial','failed','loading','ok']) {
+      A.renderSurge([],[],[],[],[],{
+        mass:state,massSource:{...source,state},suppressNotifications:true
+      });
+      assert.ok(app.$('surgeFeed').querySelector('[data-alert-kind="sensitive"]'));
+      const note = app.$('surgeResults').querySelector('[data-sensitive-coverage]');
+      if (state === 'ok') assert.equal(note,null);
+      else {
+        assert.ok(note,'available Sensitive alerts must explain the shared-source warning');
+        assert.match(note.textContent,/1 alert available; shared Mass flock source/);
+        assert.match(note.textContent,state === 'partial' ? /limited coverage/
+          : state === 'loading' ? /still loading/ : /failed/);
+        assert.match(note.textContent,/checkmark.*selected filter/i);
+        const category = app.$('surgeResults').querySelector('[data-count-kind="sensitive"]');
+        const selected = category.getAttribute('aria-pressed') === 'true';
+        app.click(category);
+        assert.equal(category.getAttribute('aria-pressed'),String(!selected));
+        if (state !== 'loading') {
+          assert.equal(app.$('surgeResults').querySelector('[data-source-retry="mass"]').dataset.sourceRetry,'mass');
+        }
+        assert.equal(app.$('surgeResults').querySelector('[data-sensitive-coverage]').textContent,note.textContent);
+      }
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1114 malformed or challenged RBA pages cannot replace acquired evidence with verified-empty success', async () => {
+  const valid = megaAlertHtml([{code:'rocwre',name:'Rock Wren',subId:'S111400',
+    when:recentObsStamp(),lat:47,lng:-122,place:'Public fixture bay',count:1}]);
+  let html = valid;
+  const app = await boot({sample:false,fetch:url => /alert\/rba\//.test(url) ? html : []});
+  try {
+    const A = app.window.__app;
+    const first = await A.stateRbaRecords(true,null,'US-WA',false);
+    assert.equal(first.complete,true);
+    assert.equal(first.rows.length,1);
+    for (html of [valid + '<div class="Observation"></div>', '<p>anubis_challenge</p>' + valid]) {
+      const failed = await A.stateRbaRecords(true,null,'US-WA',false);
+      assert.equal(failed.complete,false);
+      assert.equal(failed.acquiredRows,0);
+      assert.equal(failed.rows.length,1,'failed verification must retain usable prior evidence');
+      assert.equal(failed.retainedRows,1);
+    }
+    html = valid;
+    assert.equal((await A.stateRbaRecords(true,null,'US-WA',false)).complete,true);
+  } finally { app.window.close(); }
+});
+
+test('F1115 F1116 event menus put current detail in the existing info action and keep bold keyboard hotspots', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    const mass = A.massFlockAlerts([{speciesCode:'snogoo',comName:'Snow Goose',howMany:1200,
+      obsDt:recentObsStamp(0),locId:'L1116',locName:'Public fixture wetland',
+      lat:47,lng:-122,subId:'S111600',subnational1Code:'US-WA'}],
+      {region:'US-WA',singleObservation:true});
+    const event = {...A.ppteEvents(ppteFixture())[0],
+      publicHotspot:{locId:'L1116',locName:'Public fixture wetland'}};
+    for (const [kind,rows] of [['mass',mass],['ppte',[event]]]) {
+      const section = app.$(kind + 'Btn').closest('section');
+      const coverage = 'Current coverage: seven arrival histories remain unverified.';
+      A.renderEventFeed(kind,{state:'partial',rows,coverage,retainedAt:Date.now()});
+      assert.doesNotMatch(app.$(kind + 'Status').textContent,/seven arrival histories/);
+      assert.match(app.$(kind + 'Status').textContent,/Incomplete source coverage.*information/);
+      assert.equal(section.querySelector(':scope > p.hint'),null);
+      const button = section.querySelector('.docbtn');
+      button.focus();
+      app.click(button);
+      await waitFor(() => !app.$('appSheet').hidden
+        && app.$('appSheet').textContent.includes(coverage),'live event information dialog');
+      assert.match(app.$('appSheet').textContent,/not.*exhaustive|does not establish causation/i);
+      assert.equal(app.document.activeElement,app.$('appSheet').querySelector('.sheetclose'));
+      A.renderEventFeed(kind,{state:'partial',rows,coverage:'Updated bounded coverage note.'});
+      await waitFor(() => app.$('appSheet').textContent.includes('Updated bounded coverage note.'),
+        'already-open information must reflect the matching new result');
+      assert.doesNotMatch(app.$('appSheet').textContent,/seven arrival histories/);
+      app.click(app.$('appSheet').querySelector('.sheetclose'));
+      assert.equal(app.document.activeElement,button);
+      const place = app.$(kind + 'Results').querySelector('b > .hslink');
+      assert.ok(place,'a verified public hotspot must use bold shared link markup');
+      assert.equal(place.dataset.loc,'L1116');
+      place.dispatchEvent(new app.window.KeyboardEvent('keydown',{
+        key:'Enter',bubbles:true,cancelable:true
+      }));
+      assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+      assert.equal(app.$('stakeHs').value,'Public fixture wetland');
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1117 reported-here rarity is exact-source, independent of personal state and scoped to current acquisition', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,['trokin','amerob'],null,[
+      {code:'rocwre',name:'Rock Wren'},{code:'trokin',name:'Tropical Kingbird'}
+    ]);
+    const birds = [
+      {speciesCode:'rocwre',comName:'Rock Wren',locId:'L1117'},
+      {speciesCode:'trokin',comName:'Tropical Kingbird',locId:'L1117'},
+      {speciesCode:'amerob',comName:'American Robin',locId:'L1117'}
+    ];
+    const rare = birds.slice(0,2).map(row => ({
+      kind:'Rarity',code:row.speciesCode,name:row.comName,dateStr:recentObsStamp()
+    }));
+    const nearby = {rarityContext:JSON.stringify(['US-WA',A.chaseFetchBaseKey(A.chaseProfile())]),
+      rba:rare.concat([{kind:'Rarity',code:'amerob',name:'American Robin'}]),rbaStatus:'loaded',
+      twitches:rare,twitchesStatus:'loaded',rarityReady:true};
+    function paint(source) { A.renderStakeHs('L1117','Public fixture bay',[],birds,{},false,'loaded',null,source); }
+    paint(nearby);
+    const box = app.$('stakeHsResults');
+    assert.equal(box.querySelectorAll('.hsunseen .rarebadge').length,1);
+    assert.equal(box.querySelectorAll('.hsseen .rarebadge').length,1);
+    assert.equal(box.querySelectorAll('.rarebadge').length,2);
+    assert.match(box.querySelector('.rarebadge').getAttribute('aria-label'),/Rare/);
+    assert.equal(box.querySelector('.rarebadge svg text').textContent,'R');
+    for (const control of [
+      {...nearby,rarityContext:'different region or acquisition context'},
+      {...nearby,rarityReady:false,twitchesStatus:'unavailable'},
+      {...nearby,rarityReady:false},
+      {...nearby,twitches:rare.map(row => ({...row,code:row.code + 'form'}))}
+    ]) {
+      paint(control);
+      assert.equal(box.querySelectorAll('.rarebadge').length,0,
+        'stale, failed, wrong-scope or different exact forms cannot confer rarity');
+    }
+    paint({...nearby,rba:[],rarityReady:true,twitches:rare});
+    assert.equal(box.querySelectorAll('.hsunseen .rarebadge').length,1);
+    assert.equal(box.querySelectorAll('.hsseen .rarebadge').length,1);
+  } finally { app.window.close(); }
+});
+
+test('F1117 actual hotspot acquisition paints warm and late rarity without visiting Twitches', async () => {
+  for (const rarityFirst of [false,true]) {
+    let resolveRba, resolveObs;
+    let holdRarity = !rarityFirst;
+    const pendingNotable = [];
+    const stamp = recentObsStamp();
+    const rare = [
+      {code:'rocwre',name:'Rock Wren'},{code:'trokin',name:'Tropical Kingbird'}
+    ];
+    const html = megaAlertHtml(rare.concat([
+      {code:'amerob',name:'American Robin'},{code:'recros',name:'Red Crossbill'}])
+      .map((bird,i) => ({...bird,subId:'S111710' + i,when:stamp,
+        lat:47.75,lng:-122.16,place:'Public fixture bay',count:1})));
+    const notable = rare.concat([{code:'redcro9',name:'Red Crossbill (Type 4)'}])
+      .map(bird => ({speciesCode:bird.code,comName:bird.name,
+      obsDt:stamp,lat:47.75,lng:-122.16,locId:'L1117',locName:'Public fixture bay',
+      subId:'S1117100',obsValid:true,obsReviewed:true}));
+    const app = await boot({sample:false,fetch:url => {
+      if (/alert\/rba\//.test(url)) return new Promise(resolve => { resolveRba=() => resolve(html); });
+      if (/recent\/notable/.test(url)) {
+        return holdRarity ? new Promise(resolve => { pendingNotable.push(resolve); }) : notable;
+      }
+      if (/product\/lists\/L1117/.test(url)) return [{
+        subId:'S1117100',isoObsDate:stamp,numSpecies:4,userDisplayName:'Synthetic observer',
+        loc:{locId:'L1117',name:'Public fixture bay',lat:47.75,lng:-122.16}
+      }];
+      if (/data\/obs\/L1117\/recent/.test(url)) return new Promise(resolve => {
+        resolveObs=() => resolve(rare.map(bird => ({speciesCode:bird.code,comName:bird.name,
+          locId:'L1117',obsDt:stamp,subId:'S1117100'})).concat([
+            {speciesCode:'amerob',comName:'American Robin',locId:'L1117',obsDt:stamp},
+            {speciesCode:'recros',comName:'Red Crossbill',locId:'L1117',obsDt:stamp}
+          ]));
+      });
+      return [];
+    }});
+    try {
+      const A = app.window.__app;
+      await seedSeen(app,['trokin','amerob','recros'],null,rare.concat([
+        {code:'recros',name:'Red Crossbill'},
+        {code:'redcro9',name:'Red Crossbill (Type 4)',category:'issf',reportAs:'recros'}
+      ]));
+      if (rarityFirst) await A.getChaseRarity(false,true);
+      A.showSection('sec-stakeHsBtn',{load:false});
+      const pending = A.stakeHsOpen('L1117','Public fixture bay');
+      await waitFor(() => resolveRba && resolveObs,'both independent source requests');
+      resolveRba();
+      resolveObs();
+      if (!rarityFirst) {
+        await waitFor(() => app.$('stakeHsResults').querySelector('.hsunseen .splink'),
+          'initial observation-only paint');
+        assert.equal(app.$('stakeHsResults').querySelectorAll('.rarebadge').length,0);
+        await waitFor(() => pendingNotable.length,'independent current notable acquisition');
+        holdRarity = false;
+        pendingNotable.forEach(resolve => resolve(notable));
+      }
+      await pending;
+      await waitFor(() => app.$('stakeHsResults').querySelectorAll('.rarebadge').length === 2,
+        'late source rarity repaint');
+      assert.equal(app.$('stakeHsResults').querySelectorAll('.hsunseen .rarebadge').length,1);
+      assert.equal(app.$('stakeHsResults').querySelectorAll('.hsseen .rarebadge').length,1);
+      assert.equal(app.state.fetches.filter(url => /alert\/rba\//.test(url)).length,1);
+      const notableCalls = app.state.fetches.filter(url => /recent\/notable/.test(url));
+      assert.ok(notableCalls.length > 0);
+      await A.getChaseRarity(false,true);
+      assert.equal(app.state.fetches.filter(url => /recent\/notable/.test(url)).length,
+        notableCalls.length,'reported-here classification must reuse the acquired notable cache');
+    } finally { app.window.close(); }
+  }
+});
+
 test('F1006 Recent Bird Gen keeps each matched Favorite Patch name, age and navigation', async () => {
   const app = await boot();
   try {
@@ -39397,9 +39825,13 @@ test('F935 late Mega repaints ignore legacy ABA scope and retain F304 routing', 
     'scope and sort repaints reuse the fetch timestamp');
   assert.doesNotMatch(paintSource, /nowTime\(\)/,
     'a local repaint cannot make stale alert data look newly fetched');
+  assert.match(load, /fetchMegaAlertRows\(url, startSid, \{/,
+    'the standalone page uses the shared verified direct/native acquisition');
+  assert.match(load, /current: stillCurrent, allowBrowser: true/,
+    'the shared fallback receives the standalone load ownership and explicit permission');
   assert.match(load,
-    /captureEbird\(\{[\s\S]{0,180}kind: 'aba'[\s\S]{0,180}alive: stillCurrent[\s\S]{0,180}if \(stillCurrent\(\)\) st\.textContent = m/,
-    'the browser fallback and its status updates belong to the current load');
+    /onStatus: function \(message\) \{ if \(stillCurrent\(\)\) st\.textContent = message;/,
+    'shared capture status updates still belong to the current standalone load');
   const terminalCatch = load.slice(load.lastIndexOf('.catch(function (e)'),
     load.lastIndexOf('.finally(function ()'));
   assert.match(terminalCatch,
