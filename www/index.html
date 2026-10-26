@@ -2457,6 +2457,9 @@
     .surgeexplainextra { display: block; margin-top: 3px; color: var(--muted); }
     .surgealerttitle { display: inline; font-size: calc(16px * var(--s));
                        font-weight: 400; color: var(--ink); }
+    [data-alert-kind="sensitive"] .surgealerttitle .extlink {
+      display: inline; margin-top: 0;
+    }
     .surgefeed .surgealerttitle a,
     .recent-birdgen-list .surgealerttitle a,
     .surgefeed .surgealerttitle .ppte-connector {
@@ -2468,6 +2471,7 @@
     .recent-birdgen-list .surgealerttitle .hslink,
     .surgefeed .surgealerttitle .splink,
     .surgefeed .surgealerttitle .hslink,
+    .surgefeed .surgealerttitle .sensitive-region-link,
     .surgefeed .surgealerttitle .ppte-event-link {
       font-weight: 700; color: var(--accent); text-decoration: none;
     }
@@ -2562,6 +2566,13 @@
       display: block; grid-column: 1 / -1; grid-row: 2;
       padding: 0 16px; margin-bottom: 12px; font-weight: 400;
     }
+    html[data-display="high-visibility"] .surgefeed > li[data-alert-kind="sensitive"] > .name > .ntext {
+      display: block; grid-column: 1 / -1; grid-row: 2;
+      padding: 0 16px; margin-bottom: 12px;
+    }
+    html[data-display="high-visibility"] .surgefeed [data-alert-kind="sensitive"] .surgealerttitle {
+      display: inline; padding: 0; margin-bottom: 0;
+    }
     html[data-display="high-visibility"] .surgefeed > li > .name > .ntext > .sub {
       display: block; grid-column: 1; grid-row: 3; min-width: 0;
       padding: 0 0 0 16px; margin-top: 0; color: var(--muted);
@@ -2638,8 +2649,11 @@
     .surgebadge-sensitive, .surgekind-sensitive {
       background: #EAF7FF; color: #005B8F; border: 2px solid; border-color: var(--safe-blue); }
     button.surge-leading-tag[data-surge-details] {
+      display: inline-flex; align-items: flex-end; justify-content: center;
       background: transparent; border: 0; padding: 0;
       min-height: 44px; min-width: 44px;
+      /* Keep the chip inline; extend the extra tap area above the text. */
+      margin-top: calc(1em - 44px); vertical-align: text-bottom;
       cursor: pointer; }
     [data-alert-kind="sensitive"] .surgeage { white-space: normal; overflow-wrap: anywhere; }
     .surgebadge-foy { background: #003B5C; color: #fff; border: 2px solid; border-color: var(--dark-safe-blue); }
@@ -5146,7 +5160,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.173.0';
+      var APP_VERSION = '1.173.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -11637,6 +11651,31 @@
             lat: hotspot.lat, lng: hotspot.lng };
         });
       }
+      function ppteQualifiedRows(records, notableRows, region, acquiredAt) {
+        var qualified = Object.create(null);
+        (notableRows || []).forEach(function (row) {
+          if (!row || !row.speciesCode || !row.obsDt
+              || row.subnational1Code !== region.slice(0, 5)
+              || region.length > 5 && row.subnational2Code && row.subnational2Code !== region
+              || row.obsReviewed === true && row.obsValid === false) return;
+          var previous = qualified[row.speciesCode];
+          if (!previous || row.obsDt > previous.obsDt) qualified[row.speciesCode] = row;
+        });
+        return (records || []).map(function (row) {
+          var copy = Object.assign({}, row), evidence = qualified[row.code];
+          delete copy.ppteRarity;
+          delete copy.ppteSourceRegion;
+          if (evidence) {
+            copy.ppteSourceRegion = region;
+            copy.ppteRarity = { code: row.code, region: region,
+              at: acquiredAt, observedAt: evidence.obsDt };
+            if (typeof evidence.comName === 'string' && evidence.comName.trim()) {
+              copy.name = evidence.comName;
+            }
+          }
+          return copy;
+        });
+      }
       function ppteEvents(records, options) {
         options = options || {};
         var today = options.today || todayStr();
@@ -11675,6 +11714,14 @@
         }
         mergeRarityRecords(records || [], []).forEach(function (row) {
           var date = String(row.dateStr || '').slice(0, 10), time = Date.parse(date + 'T00:00:00Z');
+          var rarity = row.ppteRarity;
+          var qualifiedDay = rarity && String(rarity.observedAt || '').slice(0, 10);
+          var qualifiedTime = Date.parse(qualifiedDay + 'T00:00:00Z');
+          if (!rarity || rarity.code !== row.code || rarity.region !== row.ppteSourceRegion
+              || !/^US-[A-Z]{2}(?:-\d{3})?$/.test(rarity.region || '')
+              || !Number.isSafeInteger(rarity.at) || rarity.at < cutoff || rarity.at > Date.now()
+              || !isFinite(qualifiedTime) || qualifiedTime < cutoff || qualifiedDay > today
+              || new Date(qualifiedTime).toISOString().slice(0, 10) !== qualifiedDay) return;
           if (!row.code || !isFinite(time) || time < cutoff || date > today
               || new Date(time).toISOString().slice(0, 10) !== date) return;
           var p = point(row);
@@ -11923,6 +11970,11 @@
               seen[key].location_private = true;
             }
             if (!seen[key].locId && row.locId) seen[key].locId = row.locId;
+            if (!seen[key].ppteRarity && row.ppteRarity && seen[key].code === row.code) {
+              seen[key].ppteRarity = row.ppteRarity;
+              seen[key].ppteSourceRegion = row.ppteSourceRegion;
+              seen[key].name = row.name;
+            }
             return;
           }
           var copy = Object.assign({}, row);
@@ -12070,8 +12122,26 @@
         var regions = selected ? [selected] : [parent].concat(countyCodes());
         regions = regions.filter(function (region, index) { return regions.indexOf(region) === index; });
         return Promise.all(regions.map(function (region) {
-          return stateRbaRecords(retryRegions ? retryRegions.indexOf(region) >= 0 : force,
-            null, region, false);
+          var refresh = retryRegions ? retryRegions.indexOf(region) >= 0 : force;
+          return stateRbaRecords(refresh, null, region, false).then(function (source) {
+            if (!current() || !source.rows.length) return source;
+            var work = navWork('Patagonia rarity qualification');
+            work.current = current;
+            return ebird('data/obs/' + encodeURIComponent(region)
+              + '/recent/notable?detail=full&back=' + BL.CONST.FETCH_BACK + '&maxResults=1000',
+              false, refresh, refresh, work).then(function (notable) {
+                if (!Array.isArray(notable)) throw new Error('Notable qualification did not return observations');
+                return Object.assign({}, source, {
+                  rows: ppteQualifiedRows(source.rows, notable, region, Date.now()),
+                  capped: source.capped || notable.length >= 1000
+                });
+              }).catch(function (error) {
+                if (error && error.queueCancelled) throw error;
+                dbg('warn', 'Patagonia rarity qualification unavailable for ' + region + ': ' + netErr(error));
+                return Object.assign({}, source, { complete: false, qualificationFailed: true,
+                  rows: ppteQualifiedRows(source.rows, [], region, Date.now()) });
+              });
+          });
         })).then(function (sources) {
           if (!current()) return { state: 'cancelled', rows: [] };
           var failed = regions.filter(function (region, i) { return !sources[i].complete; });
@@ -12090,6 +12160,8 @@
             rows: ppteEvents(evidence), evidenceRows: evidence,
             sourceDiagnostics: sources.map(function (source) { return source.diagnostics || null; }),
             coverage: (failed.length ? 'Unavailable RBA feeds: ' + failed.join(', ') + '. ' : '')
+              + (sources.some(function (source) { return source.qualificationFailed; })
+                ? 'Independent rarity qualification unavailable; unqualified participants withheld. ' : '')
               + (failed.length ? 'RBA failure details: ' + sources.filter(function (source) {
                 return !source.complete && source.diagnostics;
               }).map(function (source) {
@@ -13335,7 +13407,8 @@
         var count = '';
         var media = BirdLogic.recordIcons(r);
         if (Object.prototype.hasOwnProperty.call(r || {}, 'count')) {
-          count = '\u00d7' + (r.count == null || r.count === '' ? 'X' : r.count);
+          count = opts.uncountedLabel && r.count === 'X' ? opts.uncountedLabel
+            : '\u00d7' + (r.count == null || r.count === '' ? 'X' : r.count);
         }
         return speciesMetaRow({
           when: r.subId
@@ -13392,7 +13465,7 @@
         }
         if (data && opts.rare && !opts.notesUnknown) data['ev-notes-expected'] = '1';
         var evidence = birdReportEvidence(r, {
-          rare: opts.rare
+          rare: opts.rare, uncountedLabel: opts.uncountedLabel
         });
         var large = largeBirdReportList(opts);
         var tags = birdReportTags([r], opts.rare) + (opts.rare ? reviewFlag(r) : '')
@@ -19832,7 +19905,10 @@
       // External URLs remain available through explicitly labelled eBird,
       // checklist, QR and Maps actions. Ordinary bird and public-hotspot names
       // stay inside the app through the two Stakeout screens.
-      function speciesUrl(code, region) { return code ? 'https://ebird.org/species/' + encodeURIComponent(code) + '/' + encodeURIComponent(region || getRegion()) : ''; }
+      function speciesUrl(code, region) {
+        return code ? 'https://ebird.org/species/' + encodeURIComponent(code)
+          + (region === null ? '' : '/' + encodeURIComponent(region || getRegion())) : '';
+      }
       function checklistUrl(sub) { return sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : ''; }
       function hotspotUrl(locId) { return locId ? 'https://ebird.org/hotspot/' + encodeURIComponent(locId) : ''; }
       function extA(url, text, cls) {
@@ -29260,9 +29336,14 @@
           $('setupActionStatus').textContent = 'Set your initial Home and region to complete setup.';
           return;
         }
+        var firstCompletion = localStorage.getItem('bc_setup_dismissed_v1') !== '1';
         localStorage.setItem(SETUP_STEP_KEY, 'summary');
         localStorage.setItem('bc_setup_dismissed_v1', '1');
         closeSetupSheet();
+        if (firstCompletion) {
+          _recentBirdGenSetupContext = recentBirdGenKey();
+          if (menuVisible()) renderRecentBirdGen();
+        }
       }
       function renderSetupSheet() {
         var body = $('setupSheetBody');
@@ -36571,6 +36652,7 @@
             : r.obsReviewed === false ? '; unreviewed' : '; review status unavailable';
           return birdReportListCard(r, {
             cls: 'twitchcard', need: true,
+            uncountedLabel: 'Present; not counted',
             sortMode: _easySort === 'dist' ? 'distance' : 'date',
             below: '<div class="bcsub">' + speciesMetaRow({
               tail: esc(BL.confidenceNote(r.siteEvidence) + ' \u00b7 ' + sourceState + reviewState)
@@ -40964,7 +41046,7 @@
 
       function surgeHeadlinePlace(a) {
         return a.kind === 'migration' && !a.headlinePlace || a.kind === 'hotspot'
-          || a.kind === 'patch' || a.kind === 'ppte' ? '' : (a.where || '');
+          || a.kind === 'patch' || a.kind === 'ppte' || a.kind === 'sensitive' ? '' : (a.where || '');
       }
 
       function surgeFactsHtml(a) {
@@ -41090,7 +41172,7 @@
 
       function surgeAlertCard(a, order) {
         var place = surgeHeadlinePlace(a);
-        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte'].indexOf(a.kind) < 0
+        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte', 'sensitive'].indexOf(a.kind) < 0
           && !(a.kind === 'foy' && a.foyMembers && a.foyMembers.length > 1);
         var headline = (a.namePrefix || '') + (birdHeadline
           ? '<span class="surgebirdname">' + a.name + '</span>' : a.name);
@@ -42005,6 +42087,10 @@
         });
       }
 
+      function massHighCountPageUrl(region) {
+        return 'https://ebird.org/region/' + encodeURIComponent(region)
+          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+      }
       function birdGenSensitiveRows(source, now) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var scope = activeScope(), report = getReport();
@@ -42031,17 +42117,22 @@
           used[bird.code] = true;
           return true;
         }).map(function (bird) {
-          var url = speciesUrl(bird.code, scope.effectiveRegion);
+          var url = speciesUrl(bird.code, bird.region || null);
           var area = rankRegionName(bird.region);
           if (/^US-[A-Z]{2}-\d{3}$/.test(bird.region) && area !== bird.region
               && !/\b(?:County|Parish|Borough|Census Area|Municipality)$/i.test(area)) {
             area += ' County';
           }
+          var areaUrl = massHighCountPageUrl(bird.region);
+          var areaLabel = area + (/^US-[A-Z]{2}$/.test(bird.region) ? ' region' : '');
           return {
             kind: 'sensitive',
             icon: photoSlot(bird.name, bird.code),
-            name: '<a class="extlink" data-href="' + esc(url) + '">'
-              + esc(bird.name) + '</a> reported in ' + esc(area) + ' this month.',
+            name: '<a class="extlink" href="' + esc(url) + '" data-href="' + esc(url) + '">'
+              + '<span class="surgebirdname">' + esc(bird.name) + '</span></a> reported in '
+              + '<a class="extlink sensitive-region-link" href="' + esc(areaUrl)
+              + '" data-href="' + esc(areaUrl) + '">' + esc(areaLabel) + '</a>'
+              + ' in ' + esc(period),
             notificationKey: 'sensitive:' + bird.region + ':' + source.sourceMonth + ':' + bird.code,
             time: 0, ageTime: 0, ageLabel: period, omitWhen: true,
             when: '', alpha: '',
@@ -42556,8 +42647,7 @@
                 ? 'Capture ready. No owned browser window was opened to close.'
                 : 'Capture ready. The owned-window close request is pending; visual disappearance is not confirmed.';
         }
-        var url = 'https://ebird.org/region/' + encodeURIComponent(region)
-          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+        var url = massHighCountPageUrl(region);
         status.textContent = 'Opening the active-region high-count page for a bounded rendered-DOM sample…';
         return captureEbird({
           kind: 'massPageDiagnostic',
@@ -42794,8 +42884,7 @@
         };
         var diagnostics = {}, started = Date.now(), pageRows = 0;
         var directoryState = 'not needed', controller = null;
-        var url = 'https://ebird.org/region/' + encodeURIComponent(scope.effectiveRegion)
-          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+        var url = massHighCountPageUrl(scope.effectiveRegion);
         try {
           storeKeys(MASS_DAY_CACHE_NS).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
@@ -48516,6 +48605,7 @@
       var _recentBirdGenModel = null, _recentBirdGenWarm = null;
       var _recentBirdGenAttempt = '', _recentBirdGenJob = null;
       var _recentBirdGenFullJob = null;
+      var _recentBirdGenSetupContext = '';
       function recentBirdGenKey() {
         var scope = activeScope();
         return scope.cacheIdentity + '||' + scope.generation + '||' + surgeRetainedContext();
@@ -48555,7 +48645,10 @@
         });
         if (section) $('recentBirdGenOpen').setAttribute('data-sec', section.id);
         updateRecentBirdGen();
-        if (!root.hidden) refreshRecentBirdGen(false);
+        if (!root.hidden && menuVisible() && _recentBirdGenSetupContext === recentBirdGenKey()) {
+          _recentBirdGenSetupContext = '';
+          refreshFullBirdGen(true);
+        } else if (!root.hidden) refreshRecentBirdGen(false);
       }
       function updateRecentBirdGen() {
         var list = $('recentBirdGenRows');
@@ -48674,14 +48767,14 @@
         _recentBirdGenJob.cancelled = true;
         fgCancelObsolete();
       }
-      function refreshFullBirdGen() {
+      function refreshFullBirdGen(automatic) {
         if (_recentBirdGenFullJob) {
           if (_recentBirdGenFullJob.current()) return _recentBirdGenFullJob.promise;
           var nextContext = recentBirdGenKey(), navigation = _navGeneration;
           return _recentBirdGenFullJob.promise.then(function () {
             if (!_appUnloading && window.document && menuVisible()
                 && nextContext === recentBirdGenKey() && navigation === _navGeneration) {
-              return refreshFullBirdGen();
+              return refreshFullBirdGen(automatic);
             }
           });
         }
@@ -48715,7 +48808,7 @@
         progress(null, false);
         job.promise = Promise.resolve().then(function () {
           if (!current()) throw queueCancelledError(null, 'Full Bird Gen context changed');
-          return loadSurge(null, false, {
+          return loadSurge(automatic === true ? 'setup-birdgen' : null, false, {
             fullRefresh: true, current: current,
             onProgress: function (states) { progress(states, false); }
           });
@@ -53252,6 +53345,9 @@
         birdcastSurgeRows: birdcastSurgeRows,
         birdcastLevelTile: birdcastLevelTile, birdcastCountTile: birdcastCountTile,
         birdGenBirdThumbnail: birdGenBirdThumbnail, birdGenSensitiveRows: birdGenSensitiveRows,
+        birdcastLocalParts: birdcastLocalParts, surgeRetainedContext: surgeRetainedContext,
+        speciesUrl: speciesUrl,
+        ppteQualifiedRows: ppteQualifiedRows,
         migrationSignificantRows: migrationSignificantRows,
         migrationUnifiedRows: migrationUnifiedRows,
         surgeAlertCard: surgeAlertCard,

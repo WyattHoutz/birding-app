@@ -539,7 +539,10 @@ const EXTRA_SHOTS = [
              return Object.assign({}, row, {obsId:'OBS-MOCK-H-' + i,
                loc:'Example public patch', lat:47.7, lon:-122.3});
            });
-           var events = A.ppteEvents(rows.concat(publicRows), {hotspots:[
+           var qualified=A.ppteQualifiedRows(rows.concat(publicRows),rows.map(function(row){
+             return {speciesCode:row.code,comName:row.name,obsDt:row.dateStr,subnational1Code:'US-WA'};
+           }),'US-WA',document.defaultView.Date.now());
+           var events = A.ppteEvents(qualified, {hotspots:[
              {locId:'L999999999',locName:'Example public patch',lat:47.7,lng:-122.3}
            ]});
            var speciesKey = A.speciesCacheKey(A.getObsRegion());
@@ -1199,6 +1202,41 @@ const REVIEW_SHOTS = [
            var sec = anchor.closest('section');
            A.showSection(sec.id);
            await FIX.prepareF629BirdGen(A, document, sec);
+           return true;` },
+  { id: 'f1110-sensitive', at: 'surgeBtn',
+    title: 'Sensitive alert - source-region bird link and continuous headline (representative data)',
+    host: 'surgeResults', fullPage: true, freshApp: true,
+    expects: ['[data-alert-kind="sensitive"] .surgealerttitle a[href="https://ebird.org/species/grgowl/US-WA"]'],
+    prep: `FIX.before('surgeBtn', A, document);
+           A.setCountyView('');
+           var W=document.defaultView, PreviousDate=W.Date;
+           var october=PreviousDate.parse('2026-10-15T12:00:00-07:00');
+           W.Date=class extends PreviousDate {
+             constructor(...args){super(...(args.length?args:[october]));}
+             static now(){return october;}
+           };
+           var sec=document.getElementById('surgeBtn').closest('section');
+           A.showSection(sec.id,{load:false});
+           var now=new document.defaultView.Date(), parts=A.birdcastLocalParts(now,A.getReport());
+           var source={source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+             sourceRegion:A.activeScope().effectiveRegion,
+             sourceMonth:parts.year+'-'+String(parts.month).padStart(2,'0'),
+             acquiredAt:now.getTime(),state:'ok',
+             sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:'US-WA'}]};
+           A.renderSurge([],[],[],[],[],{massSource:source,mass:'ok',
+             mega:'notApplicable',observations:'notApplicable',leaderboard:'notApplicable',
+             hotspots:'notApplicable',favorites:'notApplicable',ppte:'notApplicable',
+             foy:'notApplicable',suppressNotifications:true});
+           var title=document.querySelector('[data-alert-kind="sensitive"] .surgealerttitle');
+           if(!title || title.querySelector('a').textContent!=='Great Gray Owl'
+               || / at eBird|this month/.test(title.textContent)) {
+             throw new Error('F1110 representative headline is not the production correction: '
+               +JSON.stringify({region:source.sourceRegion,month:source.sourceMonth,
+                 title:title&&title.textContent,rows:A.birdGenSensitiveRows(source,now).length}));
+           }
+           sec.dataset.mockAt='surgeBtn';sec.dataset.mockReady='true';
+           document.getElementById('surgeResults').dataset.mockData='true';
+           document.querySelector('[data-count-kind="sensitive"]').click();
            return true;` },
   { id: 'f951-birdgen-all', at: 'surgeBtn',
     title: 'Bird Gen — every alert type, including a distant Cascade (representative data)',
@@ -2727,6 +2765,9 @@ const BOOTSTRAP = `
           subId:'S980013',observer:'Representative birder 2',dateStr:effectDay+' 12:00'}));
         effectRows.push(Object.assign({},effectRows[0],{obsId:'OBS-E-prior',
           subId:'S980014',dateStr:prior.toISOString().slice(0,10)+' 08:00'}));
+        effectRows=A.ppteQualifiedRows(effectRows,effectRows.map(function(row){
+          return {speciesCode:row.code,comName:row.name,obsDt:row.dateStr,subnational1Code:'US-WA'};
+        }),'US-WA',Date.now());
         var effects=A.ppteEvents(effectRows);
         if(effects.length!==1 || effects[0].anchorSightings!==4) {
           throw new Error('PPTE browsing fixture did not meet unchanged corroboration');

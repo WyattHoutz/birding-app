@@ -223,7 +223,9 @@ module.exports = function registerMigrationSetupControls({
         const requests = app.state.fetches.length;
         const area = county ? 'King County' : 'Washington';
         const rows = A.birdGenSensitiveRows(source, new Date());
-        assert.match(rows[0].name, new RegExp('reported in ' + area + ' this month'));
+        const headline = app.document.createElement('span');
+        headline.innerHTML = rows[0].name;
+        assert.match(headline.textContent, new RegExp('reported in ' + area + (county ? '' : ' region') + ' in '));
         if (!county) assert.doesNotMatch(rows[0].name, /King|Snohomish|Home/);
         A.renderSurge([], [], [], [], [], { massSource: source, mass: source.state });
         const card = app.$('surgeFeed').querySelector('[data-alert-kind="sensitive"]');
@@ -245,6 +247,62 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('appSheet').querySelector('[data-loc],[data-subid],[data-q]'), null);
         assert.equal(app.state.fetches.length, requests, 'coarse display/action makes no new source request');
         assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  });
+
+  test('F1110 Sensitive headline links its bird and source area in one sentence', async () => {
+    const now = Date.parse('2026-10-15T12:00:00-07:00');
+    for (const region of ['US-WA', 'US-WA-061']) {
+      const external = [];
+      const app = await boot({ sample: false, fetch: url => /bird-list\?.*rank=hc/.test(url)
+        ? preparedSensitivePage(new Date(now)).replaceAll('US-WA', region) : [] });
+      try {
+        const A = app.window.__app, RealDate = app.window.Date;
+        assert.equal(A.speciesUrl('grgowl', null), 'https://ebird.org/species/grgowl',
+          'an explicitly unknown source region never falls back to Home');
+        app.window.Date = class extends RealDate {
+          constructor(...args) { super(...(args.length ? args : [now])); }
+          static now() { return now; }
+        };
+        A.fgWindowReset();
+        A.fgSchedReset(now);
+        if (region !== 'US-WA') A.setCountyView(region);
+        const source = await A.loadMassFlockAlertSource(false, A.activeScope());
+        assert.notEqual(source.state, 'failed');
+        A.renderSurge([], [], [], [], [], { massSource: source, mass: source.state });
+        A.showSection('sec-surgeBtn', { load: false });
+        const card = app.$('surgeFeed').querySelector('[data-alert-kind="sensitive"]');
+        const title = card.querySelector('.surgealerttitle');
+        const area = region === 'US-WA' ? 'Washington region' : 'Snohomish County';
+        assert.equal(title.textContent, 'Great Gray Owl reported in ' + area + ' in October 2026');
+        const links = title.querySelectorAll('a');
+        assert.equal(links.length, 2);
+        assert.equal(links[0].textContent, 'Great Gray Owl');
+        assert.equal(title.querySelector('.surgebirdname').textContent, 'Great Gray Owl');
+        const url = 'https://ebird.org/species/grgowl/' + region;
+        assert.equal(links[0].getAttribute('href'), url);
+        assert.equal(links[0].tabIndex, 0, 'real bird link remains keyboard reachable');
+        const areaUrl = 'https://ebird.org/region/' + region
+          + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
+        assert.equal(links[1].textContent, area);
+        assert.equal(links[1].getAttribute('href'), areaUrl);
+        assert.equal(links[1].tabIndex, 0);
+        const areaStyle = app.window.getComputedStyle(links[1]);
+        assert.equal(areaStyle.fontWeight, '700');
+        assert.equal(areaStyle.textDecoration, 'none');
+        assert.equal(app.window.getComputedStyle(links[0]).display, 'inline');
+        assert.equal(app.window.getComputedStyle(links[0]).marginTop, '0px');
+        assert.equal(title.querySelector('br,a a'), null);
+        app.window.open = url => { external.push(url); return null; };
+        app.click(links[0]);
+        assert.deepEqual(external, [url], 'actual alert tap uses the external page, not Stakeout');
+        app.click(links[1]);
+        assert.deepEqual(external, [url, areaUrl], 'area opens the acquired current-month species list');
+        assert.match(card.querySelector('template').content.textContent, /exact observation date and location withheld/);
+        assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="sensitive"]'), null,
+          'monthly presence must not acquire a false recent observation timestamp');
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
     }
@@ -560,7 +618,6 @@ module.exports = function registerMigrationSetupControls({
       assert.deepEqual(Object.keys(source.sensitiveRows[0]).sort(), ['code', 'count', 'name', 'region']);
       const first = A.birdGenSensitiveRows(source, new Date());
       assert.equal(first.length, 1, 'monthly information must appear on first success');
-      assert.match(first[0].name, /reported in Washington this month\./);
       assert.match(first[0].name, /https:\/\/ebird.org\/species\/grgowl\/US-WA/);
       assert.doesNotMatch(first[0].name, /splink|data-sp|stakeout|checklist/i);
       assert.equal(first[0].time, 0, 'source membership is not an observation timestamp');
@@ -574,7 +631,7 @@ module.exports = function registerMigrationSetupControls({
       const card = app.document.querySelector('#surgeFeed [data-alert-kind="sensitive"]');
       assert.ok(card, 'actual feed must render the new category, not only a helper result');
       assert.match(card.textContent, /SENSITIVE/);
-      assert.match(card.textContent, /reported in Washington this month/);
+      assert.match(card.textContent, /reported in Washington region in /);
       assert.equal(card.getAttribute('data-surge-latest'), '0');
       assert.equal(A.birdGenSensitiveRows({ ...source, sourceOwner: 'wrong-owner' }, new Date()).length, 0);
       assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);

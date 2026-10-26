@@ -690,6 +690,114 @@ for (const cancel of [false, true]) {
   });
 }
 
+test('F1106 completing first setup starts the owned full feed without a manual Refresh', async () => {
+  let release, hold=true, favoriteReads=0;
+  const favorite={speciesCode:'margod',comName:'Marbled Godwit',locId:'L1106',
+    locName:'Example setup marsh',lat:47.75,lng:-122.16,
+    obsDt:formatObsStamp(new Date()),subId:'S1106',howMany:2};
+  const rarity={...favorite,speciesCode:'verfly',comName:'Vermilion Flycatcher',
+    subId:'S11061',obsValid:true,obsReviewed:false};
+  const app=await boot({sample:false,storage:{
+    ebird_favs:JSON.stringify([{id:'setup',locId:'L1106',locName:favorite.locName,region:'US-WA'}])
+  },fetch(url){
+    if(/data\/obs\/L1106/.test(url)) {
+      favoriteReads++;
+      return hold?new Promise(resolve=>{release=()=>resolve([favorite]);}):[favorite];
+    }
+    if(/data\/obs\/.*\/recent\/notable/.test(url)) return [rarity];
+    return [];
+  }});
+  try {
+    const A=app.window.__app,store=app.window.localStorage;
+    await seedSeen(app,[],null,[{code:'margod',name:favorite.comName},
+      {code:'verfly',name:rarity.comName}]);
+    await A.refreshRecentBirdGen(false);
+    store.removeItem('bc_setup_dismissed_v1');
+    store.setItem('bc_setup_step_v1','summary');
+    A.openSetupSheet();
+    app.click(app.$('setupContinue'));
+    assert.equal(app.$('setupSheet').hidden,true);
+    await waitFor(()=>release,'first setup automatically requests full-feed Favorite evidence');
+    assert.equal(app.$('recentBirdGenRefresh').disabled,true,'pending acquisition is visible');
+    A.openSetupSheet();
+    app.click(app.$('setupContinue'));
+    assert.equal(favoriteReads,1,'reopening completed setup cannot duplicate in-flight work');
+    release();
+    hold=false;
+    await waitFor(()=>app.$('recentBirdGenRows').querySelector('[data-recent-kind="favorite"]'),
+      'first-setup Favorite alert paints without Refresh',30000);
+    const row=app.$('recentBirdGenRows').querySelector('[data-recent-kind="favorite"]');
+    assert.match(row.textContent,/Marbled Godwit/);
+    await waitFor(()=>!app.$('recentBirdGenRefresh').disabled,'automatic full feed settles',60000);
+    const first=row.querySelector('.surgealerttitle').textContent;
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),null,
+      'first setup must preserve the known-rarity baseline rather than acting as explicit recovery');
+    await A.refreshFullBirdGen();
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="favorite"] .surgealerttitle').textContent,first,
+      'the same source is eligible before and after explicit Refresh');
+    assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),
+      'explicit Refresh still recovers the known never-alerted rarity');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {if(release)release();app.window.close();}
+});
+
+for(const change of ['navigation','county']) {
+  test('F1106 first-setup full feed cannot publish after '+change+' changes its owner', async () => {
+    let release;
+    const app=await boot({sample:false,storage:{
+      ebird_favs:JSON.stringify([{id:'cancel',locId:'L1106C',locName:'Example held marsh',region:'US-WA'}])
+    },fetch(url){
+      if(/data\/obs\/L1106C/.test(url)) return new Promise(resolve=>{release=resolve;});
+      return [];
+    }});
+    try {
+      const A=app.window.__app,store=app.window.localStorage;
+      await seedSeen(app,[],null,[{code:'margod',name:'Marbled Godwit'}]);
+      await A.refreshRecentBirdGen(false);
+      store.removeItem('bc_setup_dismissed_v1');
+      store.setItem('bc_setup_step_v1','summary');
+      A.openSetupSheet();
+      app.click(app.$('setupContinue'));
+      await waitFor(()=>release,'owned first-setup source');
+      const pending=A.refreshFullBirdGen(true);
+      if(change==='navigation') A.showSection(app.$('settingsPanel').closest('section').id,{load:false});
+      else A.setCountyView('US-WA-033');
+      release([{speciesCode:'margod',comName:'Marbled Godwit',locId:'L1106C',
+        locName:'Example held marsh',lat:47.75,lng:-122.16,
+        obsDt:formatObsStamp(new Date()),subId:'S1106C',howMany:2}]);
+      await pending;
+      assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="favorite"]'),null,
+        'late source cannot paint the retired setup owner');
+      assert.equal(app.$('recentBirdGenRefresh').disabled,false);
+      assert.deepEqual(app.state.errors,[]);
+    } finally {if(release)release([]);app.window.close();}
+  });
+}
+
+test('F1106 setup completed outside Menu defers its one full acquisition until matching entry', async () => {
+  let favoriteReads=0;
+  const app=await boot({sample:false,storage:{
+    ebird_favs:JSON.stringify([{id:'defer',locId:'L1106D',locName:'Example empty marsh',region:'US-WA'}])
+  },fetch(url){if(/data\/obs\/L1106D/.test(url))favoriteReads++;return [];}});
+  try {
+    const A=app.window.__app,store=app.window.localStorage;
+    await A.refreshRecentBirdGen(false);
+    A.showSection(app.$('settingsPanel').closest('section').id,{load:false});
+    store.removeItem('bc_setup_dismissed_v1');
+    store.setItem('bc_setup_step_v1','summary');
+    A.openSetupSheet();app.click(app.$('setupContinue'));
+    assert.equal(favoriteReads,0,'hidden Menu must not acquire its feed');
+    A.showMenu();
+    await A.refreshFullBirdGen(true);
+    assert.equal(favoriteReads,1);
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="favorite"]'),null,
+      'successful empty evidence cannot manufacture an alert');
+    A.showMenu();
+    assert.equal(favoriteReads,1,'ordinary later Menu entries remain notable-only');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
 test('F997 bounded automatic Menu and direct notable acquisition preserve their narrower source contract', async () => {
   let observations = [], failure = false;
   const app = await boot({ sample: false, fetch(url) {
@@ -1009,6 +1117,7 @@ test('F1046 PPTE failed-region retry preserves successful region caches and fres
       lat:row.lat,lng:row.lon,place:row.loc,observer:row.observer,count:row.count};
   });
   const app = await boot({sample:false,fetch(url) {
+    if (/data\/obs\/US-WA(?:-\d{3})?\/recent\/notable/.test(url)) return ppteNotableFixture();
     if (/alert\/rba\/US-WA-033\?/.test(url) && failed) return {__status:400};
     if (/alert\/rba\//.test(url)) return megaAlertHtml(rows);
     return [];
@@ -16191,6 +16300,10 @@ test('the checklist id is really bigger than a plain external link', () => {
 // Pinned to the PROPERTY — the waiting state must differ from the settled ones
 // by something other than its wording — rather than to the markup, because a
 // guard that names one class breaks the moment the spinner is restyled.
+function ppteNotableFixture() {
+  return ppteFixture().map(row=>({speciesCode:row.code,comName:row.name,obsDt:row.dateStr,
+    subnational1Code:'US-WA'}));
+}
 function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
   const rows = ['verfly', 'swaspa'].flatMap((code, bird) => [0, 1].map(person => ({
     kind: 'Rarity', code, name: bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
@@ -16198,6 +16311,8 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
     observer: `Test reporter ${person + 1}`, dateStr: `${day} ${String(9 + person).padStart(2, '0')}:00`,
     loc: person ? '123 Sample St SE, Test County' : 'Sample Street SE, Test County',
     lat: 47 + person * 0.00018, lon: -122, count: 99, __stateRba: true,
+    ppteSourceRegion:'US-WA',
+    ppteRarity:{code,region:'US-WA',at:Date.now(),observedAt:day},
   })));
   const before = new Date(day + 'T12:00:00Z');
   before.setUTCDate(before.getUTCDate() - 1);
@@ -16208,6 +16323,88 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
       dateStr: `${before.toISOString().slice(0, 10)} 08:00` },
   ]);
 }
+
+test('F1109 Patagonia requires independently qualified exact taxa, not source labels or review status', async () => {
+  const app=await boot({sample:false,fetch:()=>[]});
+  try {
+    const A=app.window.__app, rows=ppteFixture();
+    const unknown=rows.map(({ppteRarity,ppteSourceRegion,...row})=>row);
+    assert.equal(A.ppteEvents(unknown).length,0,
+      'a legacy RBA label and corroboration alone do not qualify every participant');
+    const notable=rows.map(row=>({speciesCode:row.code,comName:row.name,obsDt:row.dateStr,
+      subnational1Code:'US-WA'}));
+    const qualified=A.ppteQualifiedRows(unknown,notable,'US-WA',Date.now());
+    assert.equal(A.ppteEvents(qualified).length,1);
+    const ordinary=unknown.map(row=>row.code==='swaspa'
+      ?{...row,code:'purfin',name:'Purple Finch',kind:'Rarity',valid:true,reviewed:true}:row);
+    assert.equal(A.ppteEvents(A.ppteQualifiedRows(ordinary,notable,'US-WA',Date.now())).length,0,
+      'one rarity plus a common confirmed companion is not Patagonia');
+    const crossbills=unknown.map(row=>row.code==='swaspa'
+      ?{...row,code:'recros',name:'Red Crossbill'}:row);
+    const subtype=notable.map(row=>row.speciesCode==='swaspa'
+      ?{...row,speciesCode:'redcro9',comName:'Red Crossbill (Type 4)'}:row);
+    assert.equal(A.ppteEvents(A.ppteQualifiedRows(crossbills,subtype,'US-WA',Date.now())).length,0,
+      'a rare crossbill subtype cannot qualify the ordinary parent species');
+    const exact=crossbills.map(row=>row.code==='recros'
+      ?{...row,code:'redcro9',name:'Red Crossbill (Type 4)'}:row);
+    const event=A.ppteEvents(A.ppteQualifiedRows(exact,subtype,'US-WA',Date.now()))[0];
+    assert.ok(event);
+    assert.ok(event.species.some(bird=>bird.code==='redcro9'&&bird.name==='Red Crossbill (Type 4)'));
+    for(const changed of [
+      qualified.map(row=>({...row,ppteSourceRegion:'US-OR'})),
+      qualified.map(row=>({...row,ppteRarity:{...row.ppteRarity,code:'anotherbird'}})),
+      qualified.map(row=>({...row,ppteRarity:{...row.ppteRarity,at:Date.now()+60000}})),
+      qualified.map(row=>({...row,ppteRarity:{...row.ppteRarity,observedAt:'1999-01-01'}}))
+    ]) assert.equal(A.ppteEvents(changed).length,0,'invalid qualification must fail closed');
+    assert.equal(A.ppteEvents(A.ppteQualifiedRows(unknown,
+      notable.map(row=>({...row,subnational1Code:'US-OR'})),'US-WA',Date.now())).length,0);
+    const saved={state:'ok',rows:A.ppteEvents(unknown),evidenceRows:unknown};
+    await A.saveSurgeRetainedPart('ppte',saved);
+    assert.equal(A.loadSurgeRetained().ppte.rows.length,0,'old evidence is requalified on warm replay');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1109 production Patagonia source qualifies each feed region and fails closed on missing notable coverage', async () => {
+  let mode='ordinary';
+  const rows=ppteFixture(), sourceRows=rows.map(row=>{
+    const date=new Date(row.dateStr.replace(' ','T'));
+    return {code:row.code,name:row.name,subId:row.subId,
+      when:`${date.toLocaleString('en-US',{month:'short'})} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
+      lat:row.lat,lng:row.lon,place:row.loc,observer:row.observer,count:row.count};
+  });
+  const app=await boot({sample:false,fetch(url){
+    if(/alert\/rba\//.test(url)) return megaAlertHtml(sourceRows);
+    if(/data\/obs\/US-WA-033\/recent\/notable/.test(url)) {
+      if(mode==='failed') return {__status:403};
+      return ppteNotableFixture().filter(row=>mode==='qualified'||row.speciesCode==='verfly');
+    }
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    A.setCountyView('US-WA-033');
+    const ordinary=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(ordinary.rows.length,0,'corroboration and RBA labels cannot qualify the companion');
+    mode='qualified';
+    const qualified=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(qualified.rows.length,1);
+    assert.ok(qualified.evidenceRows.every(row=>row.ppteRarity.region==='US-WA-033'));
+    assert.ok(app.state.fetches.some(url=>/data\/obs\/US-WA-033\/recent\/notable/.test(url)));
+    assert.equal(app.state.fetches.some(url=>/data\/obs\/US-WA\/recent\/notable/.test(url)),false,
+      'county qualification cannot silently use statewide rarity');
+    mode='failed';
+    const failed=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(failed.state,'failed');
+    assert.equal(failed.rows.length,0);
+    assert.match(failed.coverage,/rarity qualification unavailable/);
+    assert.deepEqual(Array.from(failed.failedRegions),['US-WA-033']);
+    const retained=A.mergeEventFeedResult('ppte',qualified,failed);
+    assert.equal(retained.rows.length,1);
+    assert.equal(retained.state,'failed','saved qualified evidence is never called freshly confirmed');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
 
 test('F943 PPTE needs a celebrity-style anchor, subsequent rarity and per-bird freshness', async () => {
   const app = await boot({ sample: false });
@@ -16662,6 +16859,7 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
   const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
   let phase = 'county-needed';
   const app = await boot({ sample: false, fetch(url) {
+    if (/data\/obs\/US-WA(?:-\d{3})?\/recent\/notable/.test(url)) return ppteNotableFixture();
     if (/alert\/rba\//.test(url)) {
       if (phase === 'failed') return { __status: 503 };
       if (/\/US-WA\?/.test(url)) {
@@ -16718,6 +16916,7 @@ test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial
   });
   let phase = 'complete';
   const app = await boot({ sample: false, storage: f801Days(), fetch(url) {
+    if (/data\/obs\/US-WA(?:-\d{3})?\/recent\/notable/.test(url)) return ppteNotableFixture();
     if (/alert\/rba\//.test(url)) {
       if (phase === 'failed' || (phase === 'partial' && !/\/US-WA\?/.test(url))) {
         return { __status: 503 };
@@ -16982,6 +17181,37 @@ test('rankings: the duplicate standing header stays removed', async () => {  con
     'window.__NUXT__=(function(a,b,c){return {x:a,cfg:{ebirdApiKey:b}}}("zz","jfekjedvescr",1));');
   assert.equal(key, 'jfekjedvescr',
     'the token is resolved by parameter NAME, so eBird can reorder its args');
+});
+
+test('F1103 Common birds distinguishes absent counts from explicit uncounted evidence while updating', async () => {
+  const app = await boot({sample:false,fetch:()=>[]});
+  try {
+    const A=app.window.__app;
+    await seedSeen(app,[],null,[{code:'verfly',name:'Vermilion Flycatcher'}]);
+    const raw={speciesCode:'verfly',comName:'Vermilion Flycatcher',
+      locId:'L1103',locName:'Example public park',lat:47.75,lng:-122.16,
+      obsDt:recentObsStamp(0),subId:'S1103'};
+    for(const days of [2,30]) {
+      for(const [label,extra,expected] of [
+        ['missing',{},''],['undefined',{howMany:undefined},''],
+        ['null',{howMany:null},''],['empty',{howMany:''},''],
+        ['uncounted',{howMany:'X'},'Present; not counted'],
+        ['numeric',{howMany:3},'\u00d73']
+      ]) {
+        const rows=A.computeEasyMisses([{...raw,...extra}],days,{});
+        assert.equal(rows.length,1,label+' stays visible');
+        A.renderEasyMisses(rows,days);
+        const card=app.$('easyResults').querySelector('.twitchcard');
+        assert.ok(card,label+' renders without withholding progressive results');
+        assert.doesNotMatch(card.textContent,/\u00d7X|\u00d70|\u00d7undefined|\u00d7null|count loading/i);
+        if(expected) assert.ok(card.textContent.includes(expected),label+': '+card.textContent);
+        else assert.doesNotMatch(card.textContent,/\u00d7|Present; not counted/);
+        assert.equal(card.getAttribute('data-ev-sub'),'S1103','source checklist stays available');
+        assert.equal(A.easyReportRows(rows)[0].locId,'L1103');
+      }
+    }
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
 });
 
 test('F1104 Common birds keeps public, owned bird/place evidence flat and globally ordered', async () => {

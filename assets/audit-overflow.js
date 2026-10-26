@@ -1613,16 +1613,105 @@ const AUDIT = `<script>
       A.updateRecentBirdGen();
       out.push(recentScan);
       var savedFeed=Array.from(categoryFeed.children);
-      categoryFeed.innerHTML=A.surgeAlertCard({
-        kind:'sensitive',name:'Great Gray Owl reported in King County this month.',
-        ageLabel:'September 2026',time:0,omitWhen:true,
-        why:'Sensitive species; exact observation date and location withheld by eBird.',
-        where:'eBird regional monthly list'
-      },0);
+      var sensitiveNow=new Date(), sensitiveScope=A.activeScope();
+      var sensitiveParts=A.birdcastLocalParts(sensitiveNow,A.getReport());
+      var sensitiveMonth=sensitiveParts.year+'-'+String(sensitiveParts.month).padStart(2,'0');
+      var sensitiveRows=A.birdGenSensitiveRows({
+        source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+        sourceRegion:sensitiveScope.effectiveRegion,sourceMonth:sensitiveMonth,
+        acquiredAt:sensitiveNow.getTime(),state:'ok',
+        sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:sensitiveScope.effectiveRegion}]
+      },sensitiveNow);
+      if(sensitiveRows.length!==1) throw new Error('F1110 owned Sensitive fixture was not admitted');
+      categoryFeed.innerHTML=A.surgeAlertCard(sensitiveRows[0],0);
       A.showSection('sec-surgeBtn',{load:false});
       var sensitiveCard=categoryFeed.firstElementChild;
+      categoryFeed.insertAdjacentHTML('afterbegin',A.surgeAlertCard({
+        kind:'cascade',name:'<a class="splink" data-sp="amerob">American Robin</a>'
+          +' reported at a representative public patch',time:0,why:'Previous-row target control'
+      },1));
+      var sensitivePrevious=categoryFeed.firstElementChild;
       var sensitiveTag=sensitiveCard.querySelector('.surge-leading-tag');
       var sensitivePaint=sensitiveTag.querySelector('.surgebadge-sensitive');
+      var sensitiveTitle=sensitiveCard.querySelector('.surgealerttitle');
+      var sensitiveLink=sensitiveTitle.querySelector('a'), sensitiveLinkStyle=getComputedStyle(sensitiveLink);
+      var sensitiveRange=document.createRange(), sensitiveText=document.createTreeWalker(sensitiveTitle,NodeFilter.SHOW_TEXT);
+      var sensitiveLines=[], sensitiveNode;
+      while((sensitiveNode=sensitiveText.nextNode())) {
+        sensitiveRange.selectNodeContents(sensitiveNode);
+        Array.from(sensitiveRange.getClientRects()).forEach(function(rect){
+          if(rect.width>0 && rect.height>0) sensitiveLines.push(rect.top);
+        });
+      }
+      sensitiveLines.sort(function(a,b){return a-b;});
+      var sensitiveLineHeight=parseFloat(getComputedStyle(sensitiveCard.querySelector('.ntext')).lineHeight);
+      if(!isFinite(sensitiveLineHeight)) throw new Error('F1110 headline line height is not measurable');
+      var sensitiveGap=sensitiveLines.some(function(top,index){
+        return index && top-sensitiveLines[index-1]>sensitiveLineHeight*1.5;
+      });
+      if(sensitiveTitle.textContent!=='Great Gray Owl reported in Washington region in '+sensitiveRows[0].ageLabel
+          || sensitiveTitle.querySelectorAll('a').length!==2 || sensitiveTitle.querySelector('br')
+          || sensitiveLink.textContent!=='Great Gray Owl'
+          || sensitiveLink.getAttribute('href')!=='https://ebird.org/species/grgowl/'+sensitiveScope.effectiveRegion
+          || sensitiveLinkStyle.display!=='inline' || parseFloat(sensitiveLinkStyle.marginTop)!==0
+          || sensitiveGap) {
+        throw new Error('F1110 Sensitive headline, bird-only link or contiguous wrapping regressed: '
+          +JSON.stringify({title:sensitiveTitle.textContent,period:sensitiveRows[0].ageLabel,
+            href:sensitiveLink.getAttribute('href'),display:sensitiveLinkStyle.display,
+            margin:sensitiveLinkStyle.marginTop,lineHeight:sensitiveLineHeight,lines:sensitiveLines}));
+      }
+      var sensitiveArea=sensitiveTitle.querySelector('.sensitive-region-link');
+      if(!sensitiveArea || sensitiveArea.textContent!=='Washington region'
+          || sensitiveArea.getAttribute('href')!=='https://ebird.org/region/'
+            +sensitiveScope.effectiveRegion+'/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en'
+          || getComputedStyle(sensitiveArea).fontWeight!=='700'
+          || getComputedStyle(sensitiveArea).textDecorationLine!=='none') {
+        throw new Error('F1110 Sensitive area must link to its acquired current-month source');
+      }
+      var sensitiveWord=document.createRange();
+      sensitiveWord.setStart(sensitiveTitle.querySelector('.surgebirdname').firstChild,0);
+      sensitiveWord.setEnd(sensitiveTitle.querySelector('.surgebirdname').firstChild,5);
+      var sensitiveWordBox=sensitiveWord.getBoundingClientRect();
+      var sensitivePaintBox=sensitivePaint.getBoundingClientRect();
+      var sensitiveCanFit=sensitiveTag.getBoundingClientRect().width+sensitiveWordBox.width+15
+        <=sensitiveCard.querySelector('.ntext').getBoundingClientRect().width;
+      var sensitiveStart=sensitiveCard.querySelector('.ntext').getBoundingClientRect().top;
+      if(sensitivePaintBox.top-sensitiveStart>sensitiveLineHeight/2
+          || sensitiveCanFit && sensitiveWordBox.top-sensitiveStart>sensitiveLineHeight/2) {
+        throw new Error('F1110 Sensitive headline has an empty leading line: '
+          +JSON.stringify({start:sensitiveStart,chip:sensitivePaintBox.top,
+            bird:sensitiveWordBox.top,lineHeight:sensitiveLineHeight}));
+      }
+      if(sensitiveCanFit && (sensitiveWordBox.top>=sensitivePaintBox.bottom
+          || sensitiveWordBox.bottom<=sensitivePaintBox.top)) {
+        throw new Error('F1110 Sensitive chip must share the opening bird text line when it fits');
+      }
+      sensitiveRange.selectNodeContents(sensitiveTitle.querySelector('.surgebirdname'));
+      var sensitiveNameLines=Array.from(sensitiveRange.getClientRects());
+      var sensitiveTextLeft=sensitiveCard.querySelector('.ntext').getBoundingClientRect().left
+        +parseFloat(getComputedStyle(sensitiveCard.querySelector('.ntext')).paddingLeft);
+      if(sensitiveNameLines.length>1 && sensitiveNameLines[1].left
+          >sensitiveTextLeft+1) {
+        throw new Error('F1110 Sensitive headline must wrap back beneath its tag like other alerts');
+      }
+      var sensitiveTarget=sensitiveTag.getBoundingClientRect();
+      sensitiveText.currentNode=sensitiveTitle;
+      while((sensitiveNode=sensitiveText.nextNode())) {
+        sensitiveRange.selectNodeContents(sensitiveNode);
+        if(Array.from(sensitiveRange.getClientRects()).some(function(rect){
+          return Math.min(rect.right,sensitiveTarget.right)-Math.max(rect.left,sensitiveTarget.left)>.5
+            && Math.min(rect.bottom,sensitiveTarget.bottom)-Math.max(rect.top,sensitiveTarget.top)>.5;
+        })) throw new Error('F1110 Sensitive evidence target overlaps headline text or links');
+      }
+      sensitiveText=document.createTreeWalker(sensitivePrevious.querySelector('.ntext'),NodeFilter.SHOW_TEXT);
+      while((sensitiveNode=sensitiveText.nextNode())) {
+        sensitiveRange.selectNodeContents(sensitiveNode);
+        if(Array.from(sensitiveRange.getClientRects()).some(function(rect){
+          return Math.min(rect.right,sensitiveTarget.right)-Math.max(rect.left,sensitiveTarget.left)>.5
+            && Math.min(rect.bottom,sensitiveTarget.bottom)-Math.max(rect.top,sensitiveTarget.top)>.5;
+        })) throw new Error('F1110 Sensitive evidence target overlaps the preceding alert');
+      }
+      sensitivePrevious.remove();
       categoryFeed.insertAdjacentHTML('beforeend',A.surgeAlertCard({
         kind:'cascade',name:'Representative badge peer',time:0,why:'Geometry control'
       },1));
@@ -1812,6 +1901,9 @@ const AUDIT = `<script>
         obsId:'OBS-AUDIT-support',subId:'S81003',observer:'Sample reporter 2',dateStr:ppteDay+' 11:00'}));
       ppteEvidence.push(Object.assign({},ppteEvidence[0],{
         obsId:'OBS-AUDIT-earlier',subId:'S81004',dateStr:pptePriorDay+' 08:00'}));
+      ppteEvidence=A.ppteQualifiedRows(ppteEvidence,ppteEvidence.map(function(row){
+        return {speciesCode:row.code,comName:row.name,obsDt:row.dateStr,subnational1Code:'US-WA'};
+      }),'US-WA',Date.now());
       var ppteEvents = A.ppteEvents(ppteEvidence);
       if (ppteEvents.length !== 1 || ppteEvents[0].anchorSightings !== 4) {
         throw new Error('F943 PPTE fixture must establish one Celebrity-style event');
