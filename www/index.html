@@ -1268,7 +1268,6 @@
                border-radius: var(--btn-radius-pill); border: 1px solid var(--warn);
                background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn-ink); }
     .warnbtn[aria-expanded=true] { background: var(--warn); color: #fff; border-color: transparent; }
-    #abaCapWarn[hidden] { display: none; }
     .sectiondoc { border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
                   padding: 12px 14px; margin: 10px 0 14px; }
     .sectiondoc[hidden] { display: none; }
@@ -4171,7 +4170,6 @@
       <div class="status"><div id="abaControls" class="raritycontrols">
         <div id="abaStatus" class="twitchhead">Continent-wide megararities from eBird's ABA alert, flagged against your seen list.</div>
       </div></div>
-      <div id="abaCapWarn" hidden></div>
       <ul id="abaResults" class="obs"></ul>
     </section>
 
@@ -4440,6 +4438,12 @@
            is the one outcome a control called "erase everything" must not have. -->
       <details id="advancedSettings">
       <summary>Advanced / Debug</summary>
+      <label for="manualRetryControls">Show manual Retry/Cancel controls</label>
+      <select id="manualRetryControls">
+        <option value="off">Off (automatic retry)</option>
+        <option value="on">On (manual recovery)</option>
+      </select>
+      <p class="hint">Automatically recover stopped requests by default. Enable the full manual control for debugging.</p>
       <button id="regionCatalogRefresh" class="secondary" type="button">Refresh region names</button>
       <p id="regionCatalogStatus" class="hint" role="status">All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US and Canadian reference names, not observations.</p>
       <label>Taxonomy edition and common names</label>
@@ -5156,7 +5160,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.173.2';
+      var APP_VERSION = '1.174.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8645,12 +8649,37 @@
         return Math.max(0, (now == null ? Date.now() : now) - startedAt
           - Math.max(0, _sleptMs - sleptAtStart));
       }
-      function fgMarkStalled(path, activeMs, work) {
+      function manualRetryControlsEnabled() {
+        return localStorage.getItem('bc_manual_retry_controls_v1') === 'on';
+      }
+      function fgScheduleStallRecovery(stall) {
+        if (stall.awaitingAbort || stall.autoQueued || stall.autoStarted) return;
+        stall.autoQueued = true;
+        setTimeout(function () {
+          Promise.resolve().then(function () {
+            stall.autoQueued = false;
+            if (_fgStall !== stall || manualRetryControlsEnabled()) return false;
+            if (!stall.current()) { fgClearStall(); return false; }
+            if (!fgVisibleStall()) return false;
+            stall.autoStarted = true;
+            return retryStalledSection();
+          }).catch(function (error) {
+            dbg('error', 'Automatic request recovery failed: ' + netErr(error));
+          });
+        }, 0);
+      }
+      function fgMarkStalled(path, activeMs, work, awaitingAbort) {
+        var navigation = _navGeneration, scope = activeScope(), context = surgeSourceContext();
         _fgStall = {
           path: path,
           activeMs: Math.max(0, activeMs || 0),
           sectionId: (work && work.sectionId) || visibleSectionId(),
-          workLabel: (work && work.label) || ''
+          workLabel: (work && work.label) || '',
+          awaitingAbort: !!awaitingAbort,
+          current: function () {
+            return navigation === _navGeneration && workCurrent(work)
+              && scopeCurrent(scope) && context === surgeSourceContext();
+          }
         };
         dbg('error', 'active eBird request stopped after '
           + Math.round(_fgStall.activeMs / 1000) + 's runtime · ' + path);
@@ -8665,10 +8694,10 @@
         return !_fgStall.sectionId || _fgStall.sectionId === visibleSectionId()
           ? _fgStall : null;
       }
-      function fgCheckActiveStall(path, stat, startedAt, now, work) {
+      function fgCheckActiveStall(path, stat, startedAt, now, work, awaitingAbort) {
         var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
         if (activeMs < FG_ACTIVE_STALL_MS) return false;
-        fgMarkStalled(path, activeMs, work);
+        fgMarkStalled(path, activeMs, work, awaitingAbort);
         return true;
       }
       function fgWatchActive(path, stat, controller, work) {
@@ -8679,7 +8708,7 @@
           heartbeat();
           var now = Date.now();
           var activeMs = fgActiveRuntimeMs(stat, startedAt, now);
-          if (fgCheckActiveStall(path, stat, startedAt, now, work)) {
+          if (fgCheckActiveStall(path, stat, startedAt, now, work, true)) {
             try { controller.abort(); } catch (e) {}
             return;
           }
@@ -8855,6 +8884,10 @@
             + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
             + Object.keys(_progressHolds).length;
           var stall = fgVisibleStall();
+          if (stall && !manualRetryControlsEnabled()) {
+            fgScheduleStallRecovery(stall);
+            stall = null;
+          }
           if (_stage || busy || stall) {
             if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
           } else if (!_fgIdleTimer) {
@@ -9283,6 +9316,8 @@
                   + Math.round(_fgStall.activeMs / 1000)
                   + 's of active runtime. Retry this section.');
                 stalled.ebirdStalled = true;
+                _fgStall.awaitingAbort = false;
+                fgProgressSync();
                 throw stalled;
               }
               if (e && typeof e === 'object') e.ebirdTransport = true;
@@ -12166,8 +12201,9 @@
           evidence = rarityFilterRecords(evidence, anchorPoint(), { year: 'all', distance: 'region' });
           var result = {
             failedRegions: failed,
+            capped: capped, retainedRows: retainedCount, backfillCapped: backfillCapped,
             state: failed.length === regions.length ? 'failed'
-              : failed.length || capped || retainedCount || backfillCapped || retentionFailed ? 'partial' : 'ok',
+              : failed.length || retentionFailed ? 'partial' : 'ok',
             rows: ppteEvents(evidence), evidenceRows: evidence,
             sourceDiagnostics: sources.map(function (source) { return source.diagnostics || null; }),
             coverage: (failed.length ? 'Unavailable RBA feeds: ' + failed.join(', ') + '. ' : '')
@@ -12182,7 +12218,7 @@
               }).join('; ') + '. ' : '')
               + (capped ? 'At least one RBA page reaches its row cap; coverage is not exhaustive.' : '')
               + (retainedCount ? ' Earlier acquired RBA evidence is included with original dates; not freshly reconfirmed.' : '')
-              + (backfillCapped ? ' Retained RBA evidence reaches its storage bound; coverage remains partial.' : '')
+              + (backfillCapped ? ' Retained RBA evidence reaches its normal storage bound.' : '')
               + (retentionFailed ? ' Latest RBA evidence could not be saved on this device.' : '')
           };
           if (onResult) onResult(result);
@@ -34261,7 +34297,7 @@
                 ? (n + ' ABA Code 3+ species in ' + whereLbl + ' · ' + reports
                   + ' reports · ' + needSummary + ' ('
                   + activeScope().label + ' ' + personalBasisLabel() + ') · ' + fetchedAt)
-                : ('None — no ABA Code 3+ rarities currently reported in '
+                : ('No ABA Code 3+ rarities in the current snapshot for '
                   + whereLbl + ' · ' + fetchedAt);
               var _abaUl = $('abaResults') && $('abaResults').querySelector('ul');
               verdict('Mega rarities',
@@ -34340,58 +34376,6 @@
       // species vanish rather than each losing a few rows.
       var ABA_ALERT_MAX_ROWS = 500;
       var _abaTruncated = false;
-      function abaAlertWarning(rowCount) {
-        if (_abaTruncated) {
-          return '<div class="capwarn"><b>⚠️ The alert was full, so species are missing.</b>' +
-            'It returned exactly ' + ABA_ALERT_MAX_ROWS + ' observations — its cap — and publishes no total, ' +
-            'so there is no way to see what it dropped. The loss is not random: the page is grouped by ' +
-            'species in taxonomic order, so the cut always falls on the tail and takes whole species with it. ' +
-            'Per-species report counts here are a share of that budget, not a census of the bird.</div>';
-        }
-        // An empty list is the one case where silence is itself a claim. The cap
-        // exists whether or not it was hit today, so an absence of rarities is
-        // weaker evidence than it looks.
-        if (!rowCount) {
-          return '<div class="capwarn"><b>Nothing here does not mean nothing is out there.</b>' +
-            'This is built from an alert capped at ' + ABA_ALERT_MAX_ROWS + ' observations continent-wide ' +
-            'and grouped by species in taxonomic order, so a bird late in that order can be cut from the ' +
-            'page entirely.</div>';
-        }
-        return '';
-      }
-      // The notice lives behind a ⚠ button next to the section's ℹ button. It is
-      // created on demand and REMOVED when there is nothing to say, so the icon's
-      // mere presence is the signal — an always-visible warning that is sometimes
-      // inert teaches you to ignore it.
-      function setAbaWarn(html) {
-        var box = $('abaCapWarn');
-        if (!box) return;
-        var sec = box.closest ? box.closest('section') : null;
-        var h2 = sec && sec.querySelector('h2');
-        var btn = h2 && h2.querySelector('.warnbtn');
-        if (!html) {
-          box.hidden = true; box.innerHTML = '';
-          if (btn) btn.parentNode.removeChild(btn);
-          return;
-        }
-        box.innerHTML = html;
-        if (!btn && h2) {
-          btn = document.createElement('button');
-          btn.type = 'button'; btn.className = 'warnbtn'; btn.textContent = '\u26A0';
-          btn.setAttribute('aria-expanded', 'false');
-          btn.setAttribute('aria-label', 'Why some species may be missing');
-          btn.addEventListener('click', function () {
-            var open = box.hidden;
-            box.hidden = !open;
-            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-          });
-          // After the ℹ button so the pair reads "explain, then caveat".
-          h2.appendChild(btn);
-        }
-        // Re-rendering must not silently reopen or reclose the box; leave the
-        // user's choice alone and only sync the button to it.
-        if (btn) btn.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
-      }
       // Two states is a bird on the move; six is a wave. Naming them all would
       // be a paragraph per row, so the count carries the rest - the same shape
       // "...and N more" uses everywhere else in this app.
@@ -34531,7 +34515,6 @@
           meta = null;
         }
         if (wide == null) wide = grouped && abaScope() === 'aba';
-        setAbaWarn(abaAlertWarning((list || []).length));
         if (grouped) return renderMegaIndex(list || [], url, wide, meta, repaint);
 
         // Rarity-tracker reports never had a Mega detail view. Preserve their
@@ -40934,7 +40917,6 @@
         if (entry && entry.promise) return mega ? 'stale' : 'partial';
         if (!mega && entry && entry.outcome === 'notApplicable') return 'notApplicable';
         if (!mega) return 'notLoaded';
-        if (mega.capped) return 'partial';
         var age = (Date.now() - Number(mega.at || 0)) / 3600000;
         return isFinite(age) && age >= 0 && age < MEGA_LAZY_MAX_H ? 'ok' : 'stale';
       }
@@ -40984,7 +40966,8 @@
           if (state === 'partial') {
             unavailable.push(key === 'favorites' ? label + ' failed'
               : key === 'birdcast' ? label + ' have incomplete coverage'
-              : key === 'mass' || key === 'ppte' ? label + ' have incomplete or capped coverage'
+              : key === 'mass' ? label + ' have incomplete or capped coverage'
+              : key === 'ppte' ? label + ' have incomplete coverage'
               : label + ' still loading');
           }
           if (state === 'stale') {
@@ -40998,7 +40981,7 @@
           if (state === 'partial' && key === 'mega') {
             var megaRequest = _megaLazyByKey[getRegion() + '|' + getAbaSid()];
             unavailable[unavailable.length - 1] = label + (megaRequest && megaRequest.promise
-              ? ' loading' : ' has incomplete or capped coverage');
+              ? ' loading' : ' has incomplete coverage');
           }
         });
         if (!unavailable.length) return '';
@@ -41051,10 +41034,8 @@
               var detail = key === 'birdcast' && states[key] === 'partial' && _birdcastSnapshot
                 ? [_birdcastSnapshot.forecastError, _birdcastSnapshot.countError,
                     _birdcastSnapshot.migrantsError].filter(Boolean).join('; ')
-                : key === 'mega' && states[key] === 'partial'
-                  ? 'Upstream coverage may be capped; retry cannot remove the source limit.'
-                  : key === 'ppte' && states[key] === 'partial'
-                    ? 'Coverage is incomplete or capped; retained reports are not freshly reconfirmed.' : '';
+                : key === 'ppte' && states[key] === 'partial'
+                  ? 'Some source evidence could not be acquired, qualified or saved.' : '';
               return '<li>' + esc(SURGE_SOURCE_LABELS[key]) + ': '
                 + { failed: 'Failed',
                   incomplete: states[key] === 'partial' ? 'Partially loaded'
@@ -42818,7 +42799,9 @@
             coverage: result.coverage || previous.coverage || '',
             retainedAt: previous.retainedAt || Date.now() });
         }
-        if (result.state !== 'partial' && result.state !== 'loading') return result;
+        var boundedPpte = kind === 'ppte' && result.state === 'ok'
+          && (result.capped || result.retainedRows || result.backfillCapped);
+        if (result.state !== 'partial' && result.state !== 'loading' && !boundedPpte) return result;
         if (kind === 'ppte') {
           var evidence = mergeRarityRecords(result.evidenceRows || [], previous.evidenceRows || []);
           var hotspots = result.hotspots || previous.hotspots || [];
@@ -42855,12 +42838,14 @@
           ? 'Source failed; this is not evidence of no ' + (kind === 'mass' ? 'flocks' : 'events') + '.'
           : state === 'loading' ? 'Loading source evidence.'
             : incomplete ? 'Incomplete source coverage.' : rows.length + ' qualifying events.')
-          + (source.retainedAt ? ' Earlier results retained.' : '')
-          + (source.coverage || source.retainedAt ? ' Details in information.' : '');
+          + (source.retainedAt && (kind !== 'ppte' || incomplete) ? ' Earlier results retained.' : '')
+          + ((source.coverage || source.retainedAt) && (kind !== 'ppte' || incomplete)
+            ? ' Details in information.' : '');
         setSectionNote(box.closest('section'),
           (source.coverage ? '<p>' + esc(source.coverage) + '</p>' : '')
           + (source.retainedAt ? '<p>Earlier results retained from '
-            + esc(new Date(source.retainedAt).toLocaleString()) + '.</p>' : ''));
+            + esc(new Date(source.retainedAt).toLocaleString()) + '.</p>' : ''),
+          kind !== 'ppte' || incomplete);
         box.innerHTML = rows.map(function (row) {
           if (kind === 'mass') {
             var news = massNews(row);
@@ -47560,11 +47545,9 @@
       // first two rows of the answer it was qualifying. It belongs with the
       // rest of the explanation of how the section works.
       //
-      // The ℹ button MARKS ITSELF when a note is attached, because an
-      // explanation nobody knows is there is the same as no explanation. The
-      // note is cleared, not just overwritten, so a caveat that no longer
-      // applies cannot linger behind the icon from a previous load.
-      function setSectionNote(sec, html) {
+      // Actionable notes mark the Info button; ordinary coverage notes opt out.
+      // Clear old notes too, so a previous failure cannot linger after recovery.
+      function setSectionNote(sec, html, attention) {
         if (!sec) return;
         var box = sec.querySelector('.sectiondoc');
         var btn = sec.querySelector('.docbtn');
@@ -47572,8 +47555,9 @@
         if (html) box.setAttribute('data-note', html);
         else box.removeAttribute('data-note');
         if (btn) {
-          btn.classList.toggle('hasnote', !!html);
-          btn.setAttribute('aria-label', (html ? 'Important note, and how ' : 'How ')
+          var important = !!html && attention !== false;
+          btn.classList.toggle('hasnote', important);
+          btn.setAttribute('aria-label', (important ? 'Important note, and how ' : 'How ')
             + (sec._label || 'this section') + ' is calculated');
         }
         // Already filled and open/closed by the reader — refill in place so the
@@ -50921,6 +50905,7 @@
         if ($('displayProfile')) $('displayProfile').value = getDisplayProfile();
         $('reportMenuBadges').value = localStorage.getItem('bc_report_menu_badges_v1') === 'hide' ? 'hide' : 'show';
         $('nemesisMenuBadge').value = localStorage.getItem('bc_nemesis_menu_badge_v1') === 'show' ? 'show' : 'hide';
+        $('manualRetryControls').value = manualRetryControlsEnabled() ? 'on' : 'off';
         if ($('themeMode')) $('themeMode').value = getTheme();
         if ($('mapProvider')) $('mapProvider').value = getMapProvider();
         syncChaseMi();
@@ -51891,6 +51876,10 @@
       bindZoomReset();
       if ($('loadRetry')) $('loadRetry').addEventListener('click', retryStalledSection);
       if ($('loadCancel')) $('loadCancel').addEventListener('click', cancelStalledWork);
+      $('manualRetryControls').addEventListener('change', function () {
+        localStorage.setItem('bc_manual_retry_controls_v1', this.value);
+        fgProgressSync();
+      });
       // F265. STARTUP, not a repaint. The header reads a rank cache whose
       // only writer was opening Top 100 — so on the first run of the day it
       // read a cache nobody had filled. Once per session, background lane.

@@ -2961,14 +2961,14 @@ test('F980 PPTE browsing preserves qualification, unknown distance and private-l
       assert.match(app.$('ppteResults').textContent,/does not prove causation/i);
       assert.equal(A.ppteEvents(ppteFixture().slice(0,4)).length,0,
         'inclusive browsing must not manufacture an uncorroborated effect');
-      A.renderEventFeed('ppte',{state:'partial',rows:[],coverage:'RBA page reaches its row cap'});
+      A.renderEventFeed('ppte',{state:'partial',rows:[],coverage:'Independent rarity qualification unavailable'});
       assert.match(app.$('ppteStatus').textContent,/incomplete.*information/i);
       assert.match(app.$('ppteBtn').closest('section').querySelector('.sectiondoc').dataset.note,
-        /row cap/);
+        /qualification unavailable/);
       assert.match(app.$('ppteResults').textContent,/usable evidence.*not exhaustive/i);
     } finally {app.window.close();}
   });
-test('F980 event source merging preserves failed and partial evidence but clears successful empty results', async () => {
+test('F980/F1127 event merging retains bounded PPTE history without warnings but clears complete empty results', async () => {
   const app=await boot({sample:false,fetch:()=>[]});
   try {
     const A=app.window.__app, evidence=ppteFixture();
@@ -2978,6 +2978,18 @@ test('F980 event source merging preserves failed and partial evidence but clears
       assert.equal(result.rows.length,1);
       assert.equal(result.state,state);
       assert.equal(result.retainedAt,12345);
+    }
+    for (const bounds of [{ capped: true }, { retainedRows: 1 }, { backfillCapped: true }]) {
+      const result = A.mergeEventFeedResult('ppte', previous, {
+        state: 'ok', rows: [], evidenceRows: [], coverage: 'Dated report history.', ...bounds
+      });
+      assert.equal(result.rows.length, 1, 'normal status must not discard previously qualified bounded history');
+      assert.equal(result.state, 'ok');
+      assert.deepEqual(Array.from(result.evidenceRows, row => row.dateStr).sort(),
+        evidence.map(row => row.dateStr).sort(), 'retained observations keep their actual dates');
+      A.renderEventFeed('ppte', result);
+      assert.doesNotMatch(app.$('ppteStatus').textContent, /incomplete|details|retained|cap/i);
+      assert.equal(app.$('sec-ppteBtn').querySelector('.docbtn').classList.contains('hasnote'), false);
     }
     assert.equal(A.mergeEventFeedResult('ppte',previous,{
       state:'ok',rows:[],evidenceRows:[]}).rows.length,0);
@@ -5368,7 +5380,7 @@ for (const regional of [false, true]) {
         'retiring index membership must not erase historical evidence');
       assert.equal(app.state.fetches.filter(url => /alert\/summary/.test(url)).length, 1,
         'local projections must not refetch the source');
-      if (!regional) assert.match(app.$('abaCapWarn').textContent, /500|cap/i);
+      if (!regional) assert.equal(app.$('sec-abaBtn').querySelector('.warnbtn'), null);
       assert.deepEqual(app.state.errors, []);
     } finally {
       await settleMegaEntry(app, 'litsti');
@@ -8640,10 +8652,8 @@ test('the ABA-wide stat counts locations, and says so', () => {
 //      Morelet's Seedeater), so the cut always takes the tail and whole species
 //      vanish rather than each shedding a few rows.
 //
-// The failure mode is silence: a confident list of 6 birds out of an unknown
-// number. These guards pin that the app detects the cap before filtering, says
-// what kind of thing was lost, and stays quiet when the feed was complete.
-test('a capped ABA alert is stated, and measured before the state filter', () => {
+// Preserve source provenance without turning a normal bounded snapshot into a failure.
+test('F1126 cap provenance is measured before the state filter', () => {
   const cap = /var ABA_ALERT_MAX_ROWS = (\d+)/.exec(HTML);
   assert.ok(cap, 'the app must name the cap it is checking against');
   assert.equal(cap[1], '500',
@@ -8670,46 +8680,29 @@ test('a capped ABA alert is stated, and measured before the state filter', () =>
   assert.doesNotMatch(load, /_abaTruncated = rows\./,
     'counting the filtered rows would read a capped feed as healthy');
 
-  const warn = HTML.slice(HTML.indexOf('function abaAlertWarning('),
-    HTML.indexOf('function renderAbaAlert('));
-  // Assert against the TRUNCATION branch specifically. Both branches mention
-  // taxonomic order, so a whole-function match would stay green while the
-  // truncation notice lost the only sentence that says what kind of thing went
-  // missing — which is the difference between a warning and a shrug.
-  const iEmpty = warn.indexOf('if (!rowCount)');
-  assert.ok(iEmpty > -1,
-    'an empty list cannot assert the state has no rarities — the cap may have eaten them');
-  const truncBranch = warn.slice(0, iEmpty);
-  assert.match(truncBranch, /taxonomic order/,
-    'the warning must say WHICH species are lost, not merely that some are');
-  assert.match(truncBranch, /falls on the tail/,
-    'the loss is directional — a reader who thinks it is a random sample will trust the counts');
-  assert.match(truncBranch, /ABA_ALERT_MAX_ROWS/,
-    'the warning names the cap so the reader can check it');
-  assert.match(warn.slice(iEmpty), /taxonomic order/,
-    'the empty-state hedge must explain why absence is weak evidence');
-  assert.match(warn, /return '';/,
-    'a complete feed must raise no alarm, or the warning becomes noise');
+});
 
-  // The notice needs its own element: #abaResults is a <ul> whose class flips
-  // to `cards` (a grid), so a warning appended there would be laid out as a card.
-  // It ships `hidden`: a full-height warning above the results pushed the cards
-  // off the first screen every single day, since the alert is capped every day.
-  assert.match(HTML, /<div id="abaCapWarn" hidden><\/div>/,
-    'the warning needs a container outside the results list, collapsed by default');
-  const render = HTML.slice(HTML.indexOf('function renderAbaAlert('),
-    HTML.indexOf('function birdcastSeason('));
-  assert.match(render, /setAbaWarn\(abaAlertWarning\(/,
-    'every repaint must refresh the warning, including the deepening pass');
-  const setWarn = HTML.slice(HTML.indexOf('function setAbaWarn('),
-    HTML.indexOf('function abaWhereLabel('));
-  assert.match(setWarn, /\$\('abaCapWarn'\)/, 'and it must write into that container');
-  // The icon's PRESENCE is the signal. An always-visible ⚠ that is sometimes
-  // inert is worse than none, so an empty warning must remove the button.
-  assert.match(setWarn, /if \(!html\)[\s\S]{0,200}removeChild\(btn\)/,
-    'nothing to warn about means no warning icon at all');
-  assert.match(setWarn, /'warnbtn'/, 'the notice collapses behind a ⚠ button');
-  assert.match(setWarn, /aria-expanded/, 'and the button states whether it is open');
+test('F1126 Mega coverage is ordinary Info, not a separate warning or attention marker', async () => {
+  const app = await boot({ sample: false, fetch: url =>
+    /alert\/summary/.test(url) ? otherStateMegaAlertHtml() : [] });
+  try {
+    const A = app.window.__app, sec = app.$('sec-abaBtn');
+    A.LOADERS.abaBtn.fn = () => true;
+    A.LOADERS.abaBtn.reachability = false;
+    A.showSection(sec.id);
+    await A.loadAbaAlert();
+    assert.equal(sec.querySelector('.warnbtn'), null);
+    assert.equal(app.$('abaCapWarn'), null);
+    const info = sec.querySelector('.docbtn');
+    assert.equal(info.classList.contains('hasnote'), false);
+    assert.doesNotMatch(info.getAttribute('aria-label'), /important/i);
+    assert.match(app.$('abaStatus').textContent, /current snapshot/);
+    app.click(info);
+    await waitFor(() => !sec.querySelector('.sectiondoc').hidden
+      && /500 observations/.test(sec.querySelector('.sectiondoc').textContent), 'Mega Info coverage note');
+    assert.match(sec.querySelector('.sectiondoc').textContent, /omit whole species/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
 });
 
 // --- Favorite hotspots ------------------------------------------------------
@@ -13603,7 +13596,7 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
     assert.equal(box.querySelector('.surgesourceprogress .track'), null);
     assert.equal(box.querySelector('.surgesourcemeter[role="status"] .label').textContent,
       'Bird Gen - 7 of 8 loaded · Finished with failures · 1 with limited coverage · 1 failed · 1 not applicable');
-    assertSurgeDiagnostic(app, /Patagonia picnic table effect RBA feeds have incomplete or capped coverage/);
+    assertSurgeDiagnostic(app, /Patagonia picnic table effect RBA feeds have incomplete coverage/);
     assertSurgeDiagnostic(app, /Mass flock feeds failed/);
     assert.doesNotMatch(box.textContent, /incomplete or capped coverage|Mass flock feeds failed/);
     assert.doesNotMatch(box.textContent, /Patagonia picnic table effect RBA feeds still loading/);
@@ -16923,7 +16916,7 @@ test('F1009 failed persistence remains explicit while useful current RBA rows su
   } finally { proto.setItem = set; W.close(); }
 });
 
-test('F931 PPTE source supplements capped/statewide rows with county evidence and reports failures honestly', async () => {
+test('F931/F1127 PPTE supplements capped/statewide rows without treating normal retained evidence as failure', async () => {
   const rows = ppteFixture();
   const sourceRows = rows.map(row => {
     const date = new Date(row.dateStr.replace(' ', 'T'));
@@ -16944,7 +16937,7 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
         return phase === 'capped' ? megaAlertHtml(cappedRows)
           : megaAlertHtml(sourceRows.slice(0, 2));
       }
-      return megaAlertHtml(sourceRows);
+      return megaAlertHtml(phase === 'retained' ? sourceRows.slice(0, 2) : sourceRows);
     }
     if (/ref\/hotspot\/US-WA/.test(url)) return [hotspot];
     return null;
@@ -16961,16 +16954,42 @@ test('F931 PPTE source supplements capped/statewide rows with county evidence an
     assert.ok(app.state.fetches.some(url => /alert\/rba\/US-WA-\d{3}/.test(url)));
     phase = 'capped';
     const capped = await A.loadPpteAlertSource(true, () => true);
-    assert.equal(capped.state, 'partial');
+    assert.equal(capped.state, 'ok');
+    const boundedModel = A.mergeEventFeedResult('ppte', first,
+      { ...capped, rows: [], evidenceRows: [] });
+    assert.equal(boundedModel.rows.length, 1, 'real source bounds must reach both retained-model consumers');
     assert.match(capped.coverage, /row cap.*not exhaustive/);
     assert.deepEqual(Array.from(capped.rows[0].species, bird => bird.reports), [2, 3],
       'repeated observations across state/county sources do not multiply report totals');
+    phase = 'retained';
+    const retained = await A.loadPpteAlertSource(true, () => true);
+    assert.equal(retained.state, 'ok', 'dated archive evidence alone is not a failed acquisition');
+    const archivedModel = A.mergeEventFeedResult('ppte', first,
+      { ...retained, capped: false, backfillCapped: false, rows: [], evidenceRows: [] });
+    assert.equal(archivedModel.rows.length, 1, 'real retained provenance must preserve qualified model history');
+    assert.match(retained.coverage, /Earlier acquired RBA evidence.*original dates/);
+    assert.deepEqual(Array.from(retained.rows[0].species, bird => bird.reports), [2, 3]);
+    A.renderEventFeed('ppte', retained);
+    const section = app.$('sec-ppteBtn');
+    assert.doesNotMatch(app.$('ppteStatus').textContent, /incomplete|details|cap|retained/i);
+    assert.equal(section.querySelector('.docbtn').classList.contains('hasnote'), false);
+    assert.match(section.querySelector('.sectiondoc').getAttribute('data-note'), /original dates/);
+    A.LOADERS.ppteBtn.fn = () => true;
+    A.LOADERS.ppteBtn.reachability = false;
+    A.showSection(section.id);
+    app.click(section.querySelector('.docbtn'));
+    await waitFor(() => !app.$('appSheet').hidden
+      && /original dates/.test(app.$('appSheet').textContent), 'normal retained evidence in Patagonia Info');
+    app.click(app.$('appSheet').querySelector('.sheetclose'));
     await A.saveSurgeRetainedPart('ppte', first);
     assert.equal(A.loadSurgeRetained().ppte.rows.length, 1);
     phase = 'failed';
     const failed = await A.loadPpteAlertSource(true, () => true);
     assert.equal(failed.state, 'failed');
     assert.match(failed.coverage, /Unavailable RBA feeds/);
+    A.renderEventFeed('ppte', failed);
+    assert.match(app.$('ppteStatus').textContent, /Source failed/);
+    assert.equal(section.querySelector('.docbtn').classList.contains('hasnote'), true);
     assert.equal(await A.saveSurgeRetainedPart('ppte', failed), false);
     assert.equal(A.loadSurgeRetained().ppte.rows.length, 1, 'failure does not poison last-good evidence');
     const old = rows.map(row => ({ ...row, dateStr: recentObsStamp(20) }));
@@ -23142,7 +23161,7 @@ test('F1112 explicit Bird Gen retry recovers through owned native capture withou
   } finally { app.window.close(); }
 });
 
-test('F1112 capped empty regional Mega snapshots retain their limited-coverage verdict', async () => {
+test('F1126 capped empty regional Mega snapshots are loaded without cap-only attention or retry', async () => {
   const html = megaAlertHtml(Array.from({length:500},(_,i) => ({
     code:'mallar3',name:'Mallard',subId:'S' + (1112000+i),when:recentObsStamp(),
     lat:45,lng:-123,place:'Public fixture lake',count:1
@@ -23155,10 +23174,12 @@ test('F1112 capped empty regional Mega snapshots retain their limited-coverage v
     assert.equal(snapshot.sourceCount,500);
     assert.equal(snapshot.capped,true);
     assert.equal(snapshot.rows.length,0);
-    assert.equal(A.megaAlertSourceState(A.megaLane([])),'partial');
+    assert.equal(A.megaAlertSourceState(A.megaLane([])),'ok');
     A.renderSurge([],[],[],[],[],{observations:'ok',suppressNotifications:true});
-    assert.equal(app.$('surgeResults').dataset.sourceMega,'partial');
-    assert.doesNotMatch(app.$('surgeResults').textContent,/no eligible ABA Code 3\+ mega is news today/i);
+    assert.equal(app.$('surgeResults').dataset.sourceMega,'ok');
+    assert.equal(app.$('surgeResults').querySelector('[data-source-retry="mega"]'), null);
+    assert.doesNotMatch(app.$('surgeResults').querySelector('.surgesourceprogress').textContent,
+      /capped|limited coverage|fail|retry/i);
   } finally { app.window.close(); }
 });
 
@@ -58426,8 +58447,120 @@ test('F320 navigation during phase one cannot start phase two under the new sect
   app.window.close();
 });
 
-test('F320 a runtime-active stall exposes labelled retry and cancel controls', async () => {
+test('F1125 the persisted manual opt-in controls the entire panel and switching off recovers', async () => {
+  const app = await boot({ sample: false, storage: { bc_manual_retry_controls_v1: 'on' } });
+  try {
+    const A = app.window.__app, control = app.$('manualRetryControls');
+    let retries = 0;
+    A.setSurgeHotspotRetry(() => { retries++; return Promise.resolve(true); });
+    assert.equal(control.value, 'on', 'the saved debugging preference must load');
+    A.fgMarkStalled('probe/manual-recovery', 30001, { sectionId: '(menu)' });
+    assert.equal(app.$('loadBar').hidden, false);
+    assert.equal(app.$('loadBarActions').hidden, false);
+    assert.match(app.$('loadBarText').textContent, /Request stopped/);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(retries, 0, 'opt-in manual mode must wait for the reader');
+    control.value = 'off';
+    control.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+    assert.equal(app.window.localStorage.getItem('bc_manual_retry_controls_v1'), 'off');
+    assert.equal(app.$('loadBarActions').hidden, true);
+    assert.equal(app.$('loadBar').hidden, true);
+    await waitFor(() => retries === 1, 'switching the whole control to automatic recovery');
+    assert.equal(A.fgStall(), null);
+    control.value = 'on';
+    control.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+    assert.equal(app.window.localStorage.getItem('bc_manual_retry_controls_v1'), 'on');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1125 queued automatic recovery cannot replay after context, navigation or owner invalidation', async () => {
   const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    let retries = 0;
+    A.setSurgeHotspotRetry(() => { retries++; return Promise.resolve(true); });
+    const mark = work => A.fgMarkStalled('probe/obsolete-recovery', 30001,
+      work || { sectionId: '(menu)' });
+    const settle = () => new Promise(resolve => setTimeout(resolve, 10));
+    const key = A.homeKey('lat'), home = store.getItem(key);
+    mark();
+    store.setItem(key, '45');
+    await settle();
+    assert.equal(retries, 0);
+    assert.equal(A.fgStall(), null);
+    if (home == null) store.removeItem(key); else store.setItem(key, home);
+    mark();
+    A.LOADERS.destBtn.fn = () => true;
+    A.LOADERS.destBtn.reachability = false;
+    A.showSection('sec-destBtn');
+    await settle();
+    assert.equal(retries, 0);
+    A.showMenu();
+    let current = true;
+    mark({ sectionId: '(menu)', current: () => current });
+    current = false;
+    await settle();
+    assert.equal(retries, 0);
+    assert.equal(A.fgStall(), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1125 the real watchdog waits for abort classification before automatic recovery', async () => {
+  const app = await boot({ sample: false });
+  const W = app.window, A = W.__app, originalFetch = W.fetch;
+  const originalTimeout = W.setTimeout, originalNow = W.Date.now;
+  let watch, signal, releaseAbort, classified, recoveryClassified, retries = 0;
+  try {
+    W.setTimeout = function (callback, delay, ...args) {
+      if (delay === 5000) watch = callback;
+      return originalTimeout.call(this, callback, delay, ...args);
+    };
+    W.fetch = (url, init) => {
+      if (!String(url).includes('probe/real-watchdog')) return originalFetch(url, init);
+      signal = init.signal;
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          releaseAbort = () => reject(new W.DOMException('Delayed synthetic abort', 'AbortError'));
+        }, { once: true });
+      });
+    };
+    A.setSurgeHotspotRetry(() => {
+      recoveryClassified = !!(classified && classified.ebirdStalled);
+      retries++;
+      return Promise.resolve(true);
+    });
+    A.fgSchedReset(Date.now());
+    const pending = A.ebird('probe/real-watchdog').catch(error => {
+      classified = error;
+      return error;
+    });
+    await waitFor(() => signal && watch, 'the real request and watchdog');
+    W.Date.now = () => originalNow() + A.FG_ACTIVE_STALL_MS + 1;
+    A.beat(W.Date.now());
+    watch();
+    W.Date.now = originalNow;
+    assert.equal(signal.aborted, true);
+    A.fgProgressSync();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(retries, 0, 'a delayed abort must not be reclassified as ordinary transport failure');
+    assert.equal(app.$('loadBarActions').hidden, true);
+    releaseAbort();
+    assert.equal((await pending).ebirdStalled, true);
+    await waitFor(() => retries === 1, 'automatic recovery after the aborted attempt settles');
+    assert.equal(recoveryClassified, true, 'recovery must observe the original stalled-error classification');
+    assert.equal(A.fgStall(), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    W.Date.now = originalNow;
+    W.setTimeout = originalTimeout;
+    W.close();
+  }
+});
+
+test('F320 a runtime-active stall exposes labelled retry and cancel controls', async () => {
+  const app = await boot({ sample: false, storage: { bc_manual_retry_controls_v1: 'on' } });
   const A = app.window.__app;
   const start = 100000;
   A.sleepReset();
@@ -58465,7 +58598,7 @@ test('F320 a runtime-active stall exposes labelled retry and cancel controls', a
 });
 
 test('F347 a My Ticks timeout never paints failure controls on Today’s patches', async () => {
-  const app = await boot({ sample: false });
+  const app = await boot({ sample: false, storage: { bc_manual_retry_controls_v1: 'on' } });
   const A = app.window.__app;
   A.showSection('sec-myYearBody');
   const work = {
@@ -58535,7 +58668,7 @@ test('F1123 the real hotspot dispatcher distinguishes unhandled work from a hand
 
 test('F1123 Menu retry waits for the full owner and reacquires an unhandled failed source', async () => {
   let releaseMass, massReads = 0, hold = true;
-  const app = await boot({ sample: false, fetch(url) {
+  const app = await boot({ sample: false, storage: { bc_manual_retry_controls_v1: 'on' }, fetch(url) {
     if (/bird-list/.test(url)) {
       massReads++;
       return hold ? new Promise(resolve => { releaseMass = () => resolve(f821Page([])); }) : f821Page([]);
@@ -58592,7 +58725,7 @@ test('F1123 Menu retry waits for the full owner and reacquires an unhandled fail
   } finally { if (releaseMass) releaseMass(); app.window.close(); }
 });
 
-test('F674 Bird Gen retries only its failed hotspot source', async () => {
+test('F674/F1125 automatic Bird Gen recovery retries only its failed hotspot source once', async () => {
   const app = await boot({ sample: false });
   const A = app.window.__app;
   let releaseSibling;
@@ -58629,12 +58762,21 @@ test('F674 Bird Gen retries only its failed hotspot source', async () => {
       sectionId: 'sec-surgeBtn',
     }), true);
 
-  let retried = '';
+  let retried = '', retries = 0;
   A.setSurgeHotspotRetry((path) => {
+    retries++;
     retried = path;
     return Promise.resolve(true);
   });
-  assert.equal(await A.retryStalledSection(), true);
+  A.fgProgressSync();
+  A.fgProgressSync();
+  assert.equal(app.$('manualRetryControls').value, 'off');
+  assert.equal(app.$('loadBarActions').hidden, true);
+  assert.doesNotMatch(app.$('loadBarText').textContent, /Request stopped/);
+  await waitFor(() => retries === 1, 'automatic owned-source recovery');
+  A.fgProgressSync();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(retries, 1, 'progress repaint must not duplicate recovery');
   assert.equal(retried, failedPath,
     'Retry this section did not target the one failed Bird Gen source');
   assert.equal(siblingAborted, false,
