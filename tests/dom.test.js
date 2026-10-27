@@ -899,7 +899,7 @@ async function openBirdGenHelp(app) {
     'the primary Bird Gen information sheet');
 }
 
-test('F1040/F1044/F1054 ordinary menu tiles are frosted and Common birds follows Favorite patches', async () => {
+test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the selected order', async () => {
   const app = await boot();
   try {
     const ordinary = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
@@ -912,11 +912,28 @@ test('F1040/F1044/F1054 ordinary menu tiles are frosted and Common birds follows
     const common = app.document.querySelector(ORIGINAL_MENU + '[data-at="easyBtn"]');
     assert.ok(common, 'Common birds remains a visible ordinary menu destination');
     assert.equal(common.closest('li').previousElementSibling.querySelector('.toclink')?.dataset.at,
-      'favResults', 'Common birds immediately follows Favorite patches');
+      'abaBtn', 'Common birds immediately follows Mega rarities');
     let heading = common.closest('li').previousElementSibling;
     while (heading && !heading.classList.contains('tocgroup')) heading = heading.previousElementSibling;
-    assert.equal(heading?.textContent, 'Patches - Go birding');
+    assert.equal(heading?.textContent, 'Bird alerts');
+    assert.deepEqual(menuGroupIds(app, 'Bird alerts'),
+      ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'allUnseenBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
+    assert.equal(app.document.querySelectorAll(ORIGINAL_MENU + '[data-at="easyBtn"]').length, 1);
+    assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="activeBtn"]'), null);
     assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+  } finally { app.window.close(); }
+});
+
+test('F1128 Patches uses the selected order while saved Common birds shortcuts keep their destination', async () => {
+  const saved = ['easyBtn', 'destBtn', 'iconicBtn'];
+  const app = await boot({ storage: { [SHORTCUT_KEY]: JSON.stringify(saved) } });
+  try {
+    assert.deepEqual(menuGroupIds(app, 'Patches - Go birding'),
+      ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn', 'iconicBtn']);
+    assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="tripBtn"]'), null);
+    assert.deepEqual(shortcutIds(app), saved);
+    app.click(app.document.querySelector('.menuShortcut .toclink[data-at="easyBtn"]'));
+    assert.equal(app.$('sec-easyBtn').hidden, false);
   } finally { app.window.close(); }
 });
 
@@ -17925,6 +17942,17 @@ function menuToolDescription(app, button) {
 }
 function shortcutIds(app) {
   return [...app.document.querySelectorAll('#menuList .menuShortcut .toclink')].map(button => button.dataset.at);
+}
+function menuGroupIds(app, label) {
+  const heading = [...app.document.querySelectorAll('#menuList > .tocgroup')]
+    .find(node => node.textContent === label);
+  assert.ok(heading, 'the menu must render ' + label);
+  const ids = [];
+  for (let row = heading.nextElementSibling; row && !row.classList.contains('tocgroup'); row = row.nextElementSibling) {
+    const tile = row.querySelector('.toclink');
+    if (tile) ids.push(tile.dataset.at);
+  }
+  return ids;
 }
 function shortcutMenu(app, button, keyboard = false) {
   button.dispatchEvent(keyboard
