@@ -48420,7 +48420,7 @@
       function menuShortcutKeys() {
         try {
           var raw = localStorage.getItem(MENU_SHORTCUTS_KEY);
-          if (raw === null) return ['destBtn', 'refreshBtn', 'spLookupBtn'];
+          if (raw === null) return ['destBtn', 'refreshBtn', 'myYearBody'];
           var keys = JSON.parse(raw);
           if (!Array.isArray(keys)) throw new Error('Invalid shortcuts');
           var valid = keys.filter(function (key, index) {
@@ -48431,7 +48431,7 @@
           return valid;
         } catch (e) {
           dbg('warn', 'Menu shortcuts: saved preferences unavailable; using defaults');
-          return ['destBtn', 'refreshBtn', 'spLookupBtn'];
+          return ['destBtn', 'refreshBtn', 'myYearBody'];
         }
       }
       function renderMenuShortcuts(list) {
@@ -48618,7 +48618,6 @@
         MENU_GROUPS.forEach(function (group) {
           var members = shown.filter(function (s) { return s._group === group; });
           if (!members.length) return;
-          if (group === 'Bird alerts') renderJargonTip(list);
           var h = document.createElement('li');
           h.className = 'tocgroup';
           h.setAttribute('role', 'presentation');
@@ -48695,6 +48694,7 @@
           (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
           li.appendChild(a); list.appendChild(li);
           });
+          if (group === 'Stakeouts') renderJargonTip(list);
         });
         if (!list.querySelector('.jargontip')) renderJargonTip(list);
         renderMenuShortcuts(list);

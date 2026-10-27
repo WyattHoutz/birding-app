@@ -920,7 +920,7 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
       ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'allUnseenBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
     assert.equal(app.document.querySelectorAll(ORIGINAL_MENU + '[data-at="easyBtn"]').length, 1);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="activeBtn"]'), null);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
   } finally { app.window.close(); }
 });
 
@@ -17961,11 +17961,11 @@ function shortcutMenu(app, button, keyboard = false) {
   assert.equal(app.$('menuShortcutPopup').hidden, false);
 }
 
-test('F1044 defaults duplicate three destinations without moving originals or losing menu icons', async () => {
+test('F1044/F1132 defaults duplicate three destinations without moving originals or losing menu icons', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, list = app.$('menuList');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
     assert.match(app.$('menuShortcutsHint').textContent, /Long press a menu item to edit shortcuts/);
     assert.equal(list.querySelector('.menuPin, #menuEditFavorites'), null);
     const originals = [...list.querySelectorAll(':scope > li:not(.menuShortcut) > .toclink')];
@@ -17992,7 +17992,7 @@ test('F1044 defaults duplicate three destinations without moving originals or lo
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn', 'surgeBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'surgeBtn']);
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
@@ -18001,18 +18001,20 @@ test('F1044 defaults duplicate three destinations without moving originals or lo
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
     assert.equal(bird.querySelector('.tileicon'), icons[originals.indexOf(bird)]);
     for (let i = 0; i < 3; i++) A.showMenu();
     assert.equal(app.document.querySelectorAll('#menuShortcutPopup').length, 1);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn'], 'repaints must not duplicate shortcuts');
-    for (const selector of ['#menuList .menuShortcut .toclink[data-at="destBtn"]',
-      ORIGINAL_MENU + '[data-at="destBtn"]']) {
-      app.document.querySelector(selector).click();
-      assert.equal(app.$('destBtn').closest('section').hidden, false, 'both entry points open the same section');
-      A.showMenu();
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody'], 'repaints must not duplicate shortcuts');
+    for (const at of ['destBtn', 'myYearBody']) {
+      for (const selector of ['#menuList .menuShortcut .toclink[data-at="' + at + '"]',
+        ORIGINAL_MENU + '[data-at="' + at + '"]']) {
+        app.document.querySelector(selector).click();
+        assert.equal(app.$(at).closest('section').hidden, false, 'both entry points open the same section');
+        A.showMenu();
+      }
     }
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -18020,6 +18022,7 @@ test('F1044 defaults duplicate three destinations without moving originals or lo
 
 test('F1031 saved shortcuts survive boots, preserve empty selections and sanitize invalid destinations', async () => {
   for (const [saved, expected] of [
+    [['destBtn', 'refreshBtn', 'spLookupBtn'], ['destBtn', 'refreshBtn', 'spLookupBtn']],
     [['surgeBtn', 'destBtn'], ['surgeBtn', 'destBtn']],
     [[], []],
     [['surgeBtn', 'surgeBtn', 'not-a-tool', 'destBtn'], ['surgeBtn', 'destBtn']],
@@ -18027,6 +18030,8 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
     const app = await boot({ storage: { [SHORTCUT_KEY]: JSON.stringify(saved) } });
     try {
       assert.deepEqual(shortcutIds(app), expected);
+      assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), saved,
+        'new defaults must not overwrite an existing saved selection');
       app.window.__app.showMenu();
       assert.deepEqual(shortcutIds(app), expected);
       if (!expected.length) {
@@ -18042,7 +18047,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
   }
   const app = await boot({ storage: { [SHORTCUT_KEY]: '{invalid' } });
   try {
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
     assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'), /saved preferences unavailable/);
   } finally { app.window.close(); }
 });
@@ -18131,7 +18136,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
     query('');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual([...app.document.querySelectorAll('.menuShortcut:not([hidden]) .toclink')]
-      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'myYearBody']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null, 'filtering must not rewrite saved preferences');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -18166,7 +18171,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
       && row.msg === 'Menu shortcuts: preferences could not be saved'));
@@ -18205,7 +18210,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
     assert.equal(app.$('menuShortcutAction').dataset.action, 'remove');
     button.click();
     assert.equal(app.$('menuPanel').hidden, false, 'the hold-release click must not navigate');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'spLookupBtn'], 'holding never silently changes pins');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody'], 'holding never silently changes pins');
     app.$('menuShortcutAction').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.$('menuShortcutPopup').hidden, true);
     assert.equal(app.document.activeElement, button);
@@ -18220,7 +18225,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
   } finally { app.window.close(); }
 });
 
-test('F987/F992 Recent Bird Gen preserves destinations and Patches precedes Jargon and Bird alerts', async () => {
+test('F987/F992/F1133 Recent Bird Gen preserves destinations and jargon follows complete Stakeouts', async () => {
   const app = await boot();
   const A = app.window.__app;
   const authored = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
@@ -18257,9 +18262,10 @@ test('F987/F992 Recent Bird Gen preserves destinations and Patches precedes Jarg
     assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
     assert.equal(app.$('recentBirdGenOpen').getAttribute('aria-label'), 'Open full Bird Gen feed');
     const jargon = app.$('menuList').querySelector('.jargontip');
-    assert.equal(jargon.nextElementSibling.textContent, 'Bird alerts');
+    assert.equal(jargon.nextElementSibling.textContent, 'Rankings');
     assert.equal(jargon.previousElementSibling.querySelector('.toclink').dataset.at,
-      groups[0].ids.at(-1), 'jargon follows the complete Patches group');
+      groups.find(group => group.name === 'Stakeouts').ids.at(-1),
+      'jargon follows the complete Stakeouts group');
     const ppte = links.find((a) => a.dataset.at === 'ppteBtn');
     assert.equal(ppte.querySelector('.tilelabel').textContent, 'Patagonia effect');
     assert.equal(ppte.querySelector('.tilesub').textContent, 'Patagonia picnic table effect');
@@ -47404,7 +47410,7 @@ test('the birder glossary is defined once, and says where each word is used (F14
     'the subjective term can become an app-assigned species label');
 });
 
-test('F475/F992 the main menu shows one cached Birder Jargon definition between complete groups', async () => {
+test('F475/F992/F1133 the main menu keeps one cached rotating jargon tip after Stakeouts', async () => {
   const jargonDoc = JSON.parse(fs.readFileSync(wwwFixture('birder-jargon.json'), 'utf8'));
   let jargonFetches = 0;
   const app = await boot({
@@ -47423,9 +47429,12 @@ test('F475/F992 the main menu shows one cached Birder Jargon definition between 
   const firstGroup = list.querySelector(':scope > li.tocgroup:not(#menuShortcutsTitle)');
   assert.ok(tip && firstGroup, 'the jargon tip or Patches heading is missing');
   assert.equal(firstGroup.textContent, 'Patches - Go birding');
-  assert.ok([...list.children].indexOf(tip) > [...list.children].indexOf(firstGroup),
-    'Birder Jargon must follow Patches');
-  assert.equal(tip.nextElementSibling.textContent, 'Bird alerts');
+  assert.equal(list.querySelectorAll(':scope > li.jargontip').length, 1);
+  let heading = tip.previousElementSibling;
+  while (heading && !heading.classList.contains('tocgroup')) heading = heading.previousElementSibling;
+  assert.equal(heading?.textContent, 'Stakeouts');
+  assert.equal(tip.previousElementSibling.querySelector('.toclink')?.dataset.at, 'stakeHsBtn');
+  assert.equal(tip.nextElementSibling.textContent, 'Rankings');
   assert.equal(tip.querySelector('.jargonlabel').textContent, 'Birder Jargon');
   const entry = tip.querySelector(':scope > p.jargonentry');
   assert.ok(entry, 'the term and definition are not one wrapping dictionary paragraph');
