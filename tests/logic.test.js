@@ -732,6 +732,42 @@ test('F353 offshore hotspots route to Half-day and ordinary marinas remain Today
     'the 29.6-mile offshore trip belongs in Half-day, not Full-day');
 });
 
+test('F1118 local recommendations use crossing costs without hiding Day trips or rarity discovery', () => {
+  const home = { lat: 47.75, lng: -122.16 };
+  const sites = [
+    ['Point No Point', 47.9120, -122.5260],
+    ['Mutiny Bay', 48.0090, -122.5720],
+    ['Edmonds Marsh', 47.804, -122.375],
+    ['Edmonds pelagic', 47.81, -122.38]
+  ];
+  const rows = sites.map(([loc, lat, lon], i) => ({
+    kind: 'Rarity', code: 'bird' + i, name: 'Bird ' + i,
+    loc, locId: 'L' + i, lat, lon, dateStr: '2026-10-27 08:00',
+    distMi: BL.haversineMi(home.lat, home.lng, lat, lon)
+  }));
+  const opts = { radiusMi: 35, travelCfg: TZ, home };
+  const local = BL.destinations(rows.filter(r => BL.isChaseable(r, {})), opts);
+  assert.deepEqual(local.map(r => r.loc), ['Edmonds Marsh']);
+  const trips = BL.excursions(rows, opts);
+  for (const name of ['Point No Point', 'Mutiny Bay', 'Edmonds pelagic']) {
+    assert.ok(trips.some(r => r.loc === name), name + ' must remain a Day trip');
+  }
+  assert.equal(rows.length, 4, 'recommendation eligibility must not mutate rarity discovery');
+  const island = { lat: 47.8, lng: -122.5 };
+  const fromIsland = [{ ...rows[0],
+    distMi: BL.haversineMi(island.lat, island.lng, rows[0].lat, rows[0].lon) }];
+  assert.equal(BL.destinations(fromIsland, { ...opts, home: island }).length, 1);
+  const profile = { ...BL.profileFor('wa'), chaseMaxMi: 35 };
+  const cv = BL.computeChaseViews(profile, {
+    rowsToday: waSnapshot({ 'king-recent.json': rows.map((r, i) => OBS({
+      speciesCode: r.code, comName: r.name, locName: r.loc, locId: r.locId,
+      lat: r.lat, lng: r.lon, obsDt: r.dateStr, subId: 'S1118' + i
+    })) }), seen: {}, ownName: 'Nobody', snapshotDate: '2026-10-27', home, travelCfg: TZ
+  });
+  assert.ok(!cv.destinations.some(r => r.loc === 'Point No Point' || r.loc === 'Mutiny Bay'));
+  assert.ok(cv.dayTrip.some(r => r.loc === 'Point No Point'));
+});
+
 test('F884 Today patches rank the full configured radius before taking ten', () => {
   const wa = Object.assign({}, BL.profileFor('wa'), {
     dailyDriveMi: 12,

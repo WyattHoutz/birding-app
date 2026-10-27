@@ -1085,7 +1085,16 @@
     var threshold = opts.radiusMi == null
       ? destinationRadius(scored, base, opts.chaseMaxMi, opts.minRows)
       : opts.radiusMi;
-    var near = scored.filter(function (c) { return c.distMi <= threshold; });
+    var near = scored.filter(function (c) {
+      if (opts.travelCfg && opts.home) {
+        c.travelNote = travelNote(opts.travelCfg, c.distMi,
+          opts.home.lat, opts.home.lng, c.lat, c.lon);
+      }
+      return (opts.travelCfg && opts.home
+        ? travelEffectiveMi(opts.travelCfg, c.distMi,
+            opts.home.lat, opts.home.lng, c.lat, c.lon)
+        : c.distMi) <= threshold;
+    });
     var out = near.slice(0, top);
     out.radiusMi = threshold;
     return out;
@@ -1115,7 +1124,10 @@
     // report.section_excursions's far filter).
     var scored = scoreDestinationClusters(
       excursionRecent, opts.watch, opts.reportAs).filter(function (c) {
-      return c.distMi > threshold ||
+      var distance = opts.travelCfg && opts.home
+        ? travelEffectiveMi(opts.travelCfg, c.distMi,
+            opts.home.lat, opts.home.lng, c.lat, c.lon) : c.distMi;
+      return distance > threshold ||
              c.records.some(function (r) { return isSpecialTrip(r); });
     }).map(function (c) {
       if (opts.travelCfg && opts.home) {
@@ -2703,6 +2715,8 @@
       chaseMaxMi: profile.chaseMaxMi,
       watch: watch,
       minRows: destinationMinRows(profile),
+      travelCfg: opts.travelCfg,
+      home: home,
       // Today's patches answers "where is the best place I am willing to
       // chase?", not "where are the first four nearby places?". Species
       // enrichment can add a much stronger location near the outer edge, so
@@ -3419,7 +3433,8 @@
   // Port Townsend is ~33 mi from home as the crow flies and about two and a
   // quarter hours away: a ferry, then the Hood Canal Bridge.
   //
-  // THE PENALTY RANKS AND LABELS. IT MUST NEVER FILTER. F1 decision 5. Every
+  // Discovery keeps true miles (F1); Today's outing budget uses the added
+  // crossing cost (F1118), while rare-bird discovery stays unfiltered. Every
   // function here takes the straight-line distance as an ARGUMENT rather than
   // computing one, so there is no way to call this that replaces a distance —
   // only ways to add to a copy of it. `<= CHASE_MAX_MI` and the geo feed radius
@@ -3539,7 +3554,7 @@
     return mins ? (mins / 60) * travelMph(cfg) : 0;
   }
 
-  // A SORT KEY, NOT A FILTER.
+  // Discovery keeps true miles; local outing eligibility may use this cost.
   function travelEffectiveMi(cfg, straightMi, lat1, lng1, lat2, lng2) {
     var base = Number(straightMi);
     if (!isFinite(base)) return 0;

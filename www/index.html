@@ -5156,7 +5156,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.173.1';
+      var APP_VERSION = '1.173.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -5250,7 +5250,7 @@
         'US-HI': 'region-boundaries-hi.json'
       };
       var _regionBoundaryPromises = {};
-      var _travelZonesPromise = null;
+      var _travelZonesPromise = null, _travelZones = null;
 
       function loadTravelZones() {
         if (_travelZonesPromise) return _travelZonesPromise;
@@ -5261,6 +5261,7 @@
           if (!cfg || !Array.isArray(cfg.bands)) {
             throw new Error('Travel zones have no day bands');
           }
+          _travelZones = cfg;
           return cfg;
         }).catch(function (e) {
           _travelZonesPromise = null;
@@ -6857,7 +6858,7 @@
           + (owner.period === 'all' ? '' : '?time=year');
       }
       function personalPreparationKey(scope, generation) {
-        return scope.cacheIdentity + '|' + generation + '|' + taxonomyEdition();
+        return scope.cacheIdentity + '|' + generation + '|' + taxonomyEdition() + '|' + todayStr();
       }
       function personalListRead(owner) {
         var key = personalListKey(owner), raw = localStorage.getItem(key);
@@ -8868,7 +8869,8 @@
           if (stall) {
             el.hidden = false;
             if (fill) fill.style.width = '100%';
-            if (txt) txt.textContent = 'Request stopped after '
+            if (txt) txt.textContent = (stall.workLabel ? stall.workLabel + ': ' : '')
+              + 'Request stopped after '
               + Math.round(stall.activeMs / 1000)
               + 's of active runtime. Retry this section or cancel queued work.';
             if (actions) actions.hidden = false;
@@ -15517,7 +15519,8 @@
         });
         var radius = Math.min(chaseMaxMi(), SCOUT_DIST_KM / BL.CONST.KM_PER_MI);
         var ranked = BL.destinations(eligible, {
-          radiusMi: radius, watch: watchCodes()
+          radiusMi: radius, watch: watchCodes(), travelCfg: _travelZones,
+          home: { lat: data.lat, lng: data.lng }
         }).map(function (row) { return toDest(row); });
         renderDestinations(ranked, map, results, false);
         results.setAttribute('data-patch-context', patchContextKey('today'));
@@ -15798,7 +15801,10 @@
           if (thin) thin.remove();
         }
         var run = ++_scoutRun;
-        return scoutAtPlace(place, run, hosts).catch(function (e) {
+        return (hosts.today ? loadTravelZones() : Promise.resolve()).then(function () {
+          if (run !== _scoutRun || !box.isConnected) return null;
+          return scoutAtPlace(place, run, hosts);
+        }).catch(function (e) {
           if (run !== _scoutRun || !box.isConnected) return null;
           hosts.st.textContent = (e && e.message) || netErr(e);
           return null;
@@ -18364,13 +18370,14 @@
         out.push(radius);
         return out.filter(function (mi, i) { return !i || mi > out[i - 1]; });
       }
-      function destinationDirectCandidates(hotspots, home, radiusMi, limit) {
+      function destinationDirectCandidates(hotspots, home, radiusMi, limit, travelCfg) {
         if (!home || !isFinite(home.lat) || !isFinite(home.lng)) return [];
         return (hotspots || []).map(function (h) {
           var dist = BL.haversineMi(home.lat, home.lng, Number(h.lat), Number(h.lng));
           return Object.assign({}, h, { distMi: dist });
         }).filter(function (h) {
-          return h.locId && isFinite(h.distMi) && h.distMi <= radiusMi;
+          return h.locId && isFinite(h.distMi) && BL.travelEffectiveMi(
+            travelCfg, h.distMi, home.lat, home.lng, h.lat, h.lng) <= radiusMi;
         }).sort(function (a, b) {
           return (Number(b.n) || 0) - (Number(a.n) || 0)
             || a.distMi - b.distMi;
@@ -23829,13 +23836,10 @@
         minRows = minRows || DEST_THIN_ROWS;
         var todayDays = BL.CONST.CUTOFF_DAYS;
         var localDays = QUICK_LOC_SPECIES_DAYS || 30;
-        var opening = rad > base
-          ? 'Widened to <b>' + rad + ' mi</b> because too few public-access hotspots '
-            + 'within ' + base + ' mi had an unlogged bird in the last <b>'
-            + todayDays + ' days</b>.'
-          : 'That is every <b>public-access</b> hotspot within <b>' + rad
-            + ' mi</b> that has an unlogged bird reported in the last <b>'
-            + todayDays + ' days</b>.';
+        var opening = 'Ranked public-access hotspots within your <b>' + rad
+          + ' mi</b> chase budget, including measured crossing costs, with an '
+          + 'unlogged bird reported in the last <b>' + todayDays
+          + ' days</b>. Displayed distances are straight-line miles.';
         var fallback = olderCount
           ? ' Because fewer than ' + minRows + ' fresh choices were '
             + 'available, ' + olderCount + ' labelled '
@@ -23889,7 +23893,12 @@
               + ' personal list is unavailable, so unseen results were not calculated.');
           }
           if (needsCountyYear) rankStatus();
-          return getChase(takeForce() ? 'obs' : false);
+          return loadTravelZones().then(function (cfg) {
+            return getChase(takeForce() ? 'obs' : false).then(function (c) {
+              return projectChaseResult(c,
+                Object.assign({}, c.profile || chaseProfile(), { travelCfg: cfg }), getReport().slug);
+            });
+          });
         }).then(function (c) {
           if (!scopeCurrent(scope) || !workCurrent(work)
               || contextKey !== patchContextKey('today')) return false;
@@ -23928,7 +23937,7 @@
               if (row.kind === 'Rarity' && row.code) rareCodes[row.code] = 1;
             });
             loadHotspotIndex(p.stateCode, work).then(function (hotspots) {
-              var candidates = destinationDirectCandidates(hotspots, home, radius, 20);
+              var candidates = destinationDirectCandidates(hotspots, home, radius, 20, p.travelCfg);
               var rounds = destinationDirectCheckpoints(radius);
               return rounds.reduce(function (chain, round) {
                 return chain.then(function () {
@@ -29332,8 +29341,7 @@
             || Object.keys(_personalPreparations).some(function (key) {
               return key.indexOf(prefix) === 0;
             }),
-          attempted: !!_personalAutoAttempts[personalPreparationKey(scope, generation)]
-            || !!evidence.failure,
+          attempted: !!_personalAutoAttempts[personalPreparationKey(scope, generation)],
           acknowledged: !!getSeenMeta()
             || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === seenSetupSkipToken(),
           canFetch: !!getReportSlug() && setupWebsiteConnected(),
@@ -34736,13 +34744,14 @@
         } catch (e) { return ''; }
       }
       function birdcastForecastFromJson(doc, local) {
-        var row = doc && Array.isArray(doc.forecastNights) && doc.forecastNights[0];
-        if (!row) throw new Error('BirdCast returned no current forecast');
         var expected = local.year + '-' + String(local.month).padStart(2, '0')
           + '-' + String(local.day).padStart(2, '0');
-        if (String(row.date || '').slice(0, 10) !== expected) {
-          throw new Error('BirdCast returned a forecast for another date');
-        }
+        var nights = doc && Array.isArray(doc.forecastNights) && doc.forecastNights;
+        if (!nights || !nights.length) throw new Error('BirdCast returned no current forecast');
+        var row = nights.find(function (night) {
+          return night && String(night.date || '').slice(0, 10) === expected;
+        });
+        if (!row) throw new Error('BirdCast returned a forecast for another date');
         var levels = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High' };
         var level = levels[Number(row.code)];
         if (!level || !isFinite(Number(row.total))) {
@@ -35389,31 +35398,29 @@
           var title = fresh ? level + ' migration tonight'
             : 'Saved ' + level + ' forecast - ' + birdcastDateLabel(forecastParts);
           var estimate = validCount
-            ? 'Latest measured night ' + countPeriod + ': ' + countEstimate
+            ? countEstimate + ' crossed ' + county + ' · ' + countPeriod
             : 'Measured-night count unavailable';
           rows.push({
             kind: 'migration',
             icon: birdcastLevelTile(snapshot),
             notificationKey: 'migration-forecast:' + forecastDate,
             name: '<a class="seclink" data-sec="sec-bcBody">' + esc(title)
-              + '</a><br><strong>' + esc(estimate) + '</strong>',
+              + ' · ' + esc(birdcastTonightRange(forecastParts))
+              + '</a><br><span>' + esc(estimate) + '</span>',
             alpha: '',
-            where: '<a class="seclink" data-sec="sec-bcBody">'
-              + esc(county) + ' Birdcast Alert · '
-              + esc(birdcastTonightRange(forecastParts))
-              + '</a>',
+            where: '',
             when: new Date(referenceTime).toISOString(),
             time: referenceTime,
             ageTime: 0,
             ageLabel: fresh ? 'Tonight' : 'Saved forecast',
             omitWhen: true,
-            noteHeader: 'MIGRATION: ' + title,
+            noteHeader: 'MIGRATION: Forecast source night ' + forecastDate,
             why: esc(title) + '. Forecast - not a sighting; migration expected between dusk and dawn. Forecast source night: ' + esc(forecastDate)
               + (fresh ? '.' : '; saved evidence, not a current forecast.'),
-            extra: '<span class="dim">Forecast - not a sighting; migration expected between dusk and dawn. '
+            extra: '<span class="dim">migration expected between dusk and dawn. '
               + esc(freshness('Forecast', updatedAt, snapshot.forecastError))
-              + (validCount ? ' ' + esc(countEstimate + ' crossed ' + county + ' on source night '
-                + countDate + '. The measured night is separate from the forecast.')
+              + (validCount ? ' ' + esc('Measured source night '
+                + countDate + '; separate from the forecast.')
                 + ' ' + esc(freshness('Count', count.fetchedAt || snapshot.fetchedAt, snapshot.countError)) : '')
               + '</span>'
           });
@@ -41041,12 +41048,20 @@
           + '<details class="surgesources"><summary>Source status</summary><ul>'
           + ['failed', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
             return groups[group].map(function (key) {
+              var detail = key === 'birdcast' && states[key] === 'partial' && _birdcastSnapshot
+                ? [_birdcastSnapshot.forecastError, _birdcastSnapshot.countError,
+                    _birdcastSnapshot.migrantsError].filter(Boolean).join('; ')
+                : key === 'mega' && states[key] === 'partial'
+                  ? 'Upstream coverage may be capped; retry cannot remove the source limit.'
+                  : key === 'ppte' && states[key] === 'partial'
+                    ? 'Coverage is incomplete or capped; retained reports are not freshly reconfirmed.' : '';
               return '<li>' + esc(SURGE_SOURCE_LABELS[key]) + ': '
                 + { failed: 'Failed',
                   incomplete: states[key] === 'partial' ? 'Partially loaded'
                     : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
                   pending: 'Loading',
                   loaded: 'Loaded', skipped: 'Not applicable' }[group]
+                + (detail ? ' — ' + esc(detail) : '')
                 + (group === 'failed' || group === 'incomplete'
                   ? ' <button type="button" class="surgeretry" data-source-retry="' + key
                     + '" aria-label="Retry only ' + esc(SURGE_SOURCE_LABELS[key]) + '">Retry</button>' : '')
@@ -41221,18 +41236,19 @@
 
       function surgeExplanationHtml(a, reasonText) {
         var word = SURGE_KINDS[a.kind].word;
-        var extra = (a.kind === 'ppte' ? '' : surgeFactsHtml(a))
-          + (a.extra ? (a.kind === 'ppte' ? '' : ' - ') + a.extra : '');
+        var noLocation = a.kind === 'ppte' || a.kind === 'migration' && !a.where;
+        var extra = (noLocation ? '' : surgeFactsHtml(a))
+          + (a.extra ? (noLocation ? '' : ' - ') + a.extra : '');
         var text = a.noteHeader
           || (word + ': Current alert rule matched!');
         var prefix = word + ':';
         if (text.slice(0, prefix.length).toUpperCase() === prefix.toUpperCase()) {
           text = text.slice(prefix.length).trim();
         }
-        if (!/[.!?]$/.test(text)) text += '!';
+        if (!/[.!?]$/.test(text)) text += a.kind === 'migration' ? '.' : '!';
         return '<div class="surgeexplain">'
           + surgeCategoryTag(a.kind, reasonText)
-          + '<b>' + esc(text) + '</b>'
+          + (a.kind === 'migration' ? '<span>' + esc(text) + '</span>' : '<b>' + esc(text) + '</b>')
           + (extra ? '<span class="surgeexplainextra">' + extra + '</span>' : '')
           + '</div>';
       }
@@ -44975,11 +44991,11 @@
               };
           }
           _surgeHotspotRetry = function (path) {
-            if (!current()) return Promise.resolve(false);
+            if (!current()) return null;
             var feed = feeds.filter(function (f) {
               return BL.requestUrl(f) === path;
             })[0];
-            if (!feed) return Promise.resolve(false);
+            if (!feed) return null;
             var source = convergenceByPath[path];
             if (source && source.state === 'loading' && source.promise) {
               dbg('net', 'joining active Bird Gen hotspot source · ' + path);
@@ -49756,12 +49772,27 @@
         if (!stall) return;
         if (stall.path && _ebCache[stall.path]) delete _ebCache[stall.path];
         var sec = stall.sectionId && $(stall.sectionId);
-        if (sec && sec._at === 'surgeBtn' && typeof _surgeHotspotRetry === 'function') {
-          fgClearStall();
-          return _surgeHotspotRetry(stall.path);
+        var menu = stall.sectionId === '(menu)' && menuVisible();
+        if ((menu || sec && !sec.hidden && sec._at === 'surgeBtn') && typeof _surgeHotspotRetry === 'function') {
+          var retry = _surgeHotspotRetry(stall.path);
+          if (retry !== null) {
+            fgClearStall();
+            return retry;
+          }
         }
-        fgCancelAll('Retrying after a stopped request');
+        if (menu || sec && !sec.hidden && sec._at === 'surgeBtn') {
+          var pending = menu && _recentBirdGenFullJob ? _recentBirdGenFullJob.promise
+            : _surgeActiveLoad && _surgeActiveLoad.settled;
+          var navigation = _navGeneration, scope = activeScope(), context = surgeSourceContext();
+          fgClearStall();
+          return Promise.resolve(pending).then(function () {
+            if (navigation !== _navGeneration || !scopeCurrent(scope)
+                || context !== surgeSourceContext() || (menu ? !menuVisible() : sec.hidden)) return false;
+            return menu ? refreshFullBirdGen() : loadSurge(null, false, { fullRefresh: true });
+          });
+        }
         if (!sec || sec.hidden || !sec._loader || !sec._loader.fn) return;
+        fgClearStall();
         _autoLoaded[sec.id] = false;
         setTimeout(function () { autoLoad(sec); }, 0);
       }
@@ -50013,7 +50044,10 @@
         //   viewport  — a resize is the engine telling us it changed its mind
         checkGeometry('boot');
         document.addEventListener('visibilitychange', function () {
-          if (!document.hidden) checkGeometry('resume');
+          if (!document.hidden) {
+            checkGeometry('resume');
+            if (menuVisible()) renderKeyBanner();
+          }
         });
         window.addEventListener('pageshow', function () { checkGeometry('pageshow'); });
         if (vv && vv.addEventListener) {

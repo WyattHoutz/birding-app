@@ -9925,6 +9925,66 @@ async function setupOwnedSeenApp(codes = []) {
   return app;
 }
 
+test('F1119 automatic seen refresh rearms daily after success and failure without repaint loops', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch, RealDate = app.window.Date;
+    let now = Date.now(), reads = 0, fail = false, release;
+    app.window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+    app.window.fetch = (url, init) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, init);
+      reads++;
+      return new Promise(resolve => {
+        release = () => resolve({ ok: !fail, status: fail ? 503 : 200,
+          text: async () => ownedPersonalListFixture() });
+      });
+    };
+    let pending = A.preparePersonalList(A.activeScope(), true);
+    await waitFor(() => release, 'initial successful read');
+    release();
+    await pending;
+    assert.equal(reads, 1);
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    now += 86400000;
+    release = null;
+    app.document.dispatchEvent(new app.window.Event('visibilitychange'));
+    await waitFor(() => reads === 2, 'foreground return rearms the next-day refresh');
+    for (let i = 0; i < 5; i++) A.renderKeyBanner();
+    assert.equal(reads, 2, 'repaints cannot duplicate an active acquisition');
+    now += 86400000;
+    for (let i = 0; i < 5; i++) A.renderKeyBanner();
+    assert.equal(reads, 2, 'an acquisition spanning midnight remains one pending owner');
+    pending = A.preparePersonalList(A.activeScope(), false);
+    release();
+    await pending;
+    assert.equal(A.personalListEvidence().stale, false);
+    assert.equal(A.personalListEvidence().count, 1);
+    now += 86400000;
+    fail = true;
+    release = null;
+    A.renderKeyBanner();
+    await waitFor(() => release, 'the following day starts a new refresh');
+    pending = A.preparePersonalList(A.activeScope(), false);
+    release();
+    await assert.rejects(pending, /503/);
+    assert.ok(A.personalListEvidence().failure);
+    for (let i = 0; i < 5; i++) A.renderKeyBanner();
+    assert.equal(reads, 3, 'a same-day failure must not create an automatic loop');
+    now += 86400000;
+    release = null;
+    A.renderKeyBanner();
+    await waitFor(() => release, 'a previous failure must not suppress the next day');
+    pending = A.preparePersonalList(A.activeScope(), false);
+    release();
+    await assert.rejects(pending, /503/);
+    assert.equal(reads, 4);
+    assert.equal(A.personalListEvidence().count, 1, 'refresh failures preserve matching last-good membership');
+  } finally { app.window.close(); }
+});
+
 test('F1067/F1068 preparation and exact-list pending share one read and accept positive or zero species', async () => {
   for (const count of [1, 0]) {
     let releaseTaxonomy, releaseList, taxonomyReads = 0, listReads = 0;
@@ -36684,10 +36744,10 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     'Bird Gen migration icon does not use the High migration cutout flock');
   assert.match(rows[0].icon, /birdcast-flight-label">HIGH</,
     'Bird Gen migration artwork does not print its level directly');
-  assert.match(rows[0].name, />High migration tonight</);
+  assert.match(rows[0].name, />High migration tonight · 9\/28-29</);
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
-  assert.match(rows[0].where, /King County Birdcast Alert · 9\/28-29/);
+  assert.match(rows[0].name, /King County · 9\/27-28/);
   assert.equal(rows[0].ageLabel, 'Tonight');
   assert.match(rows[0].extra, /migration expected between dusk and dawn/);
   assert.doesNotMatch(rows[0].where + rows[0].noteHeader + rows[0].extra,
@@ -36696,7 +36756,7 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     'the forecast lost its stable source-night midnight');
   assert.equal(rows[0].omitWhen, true,
     'the forecast source line still appends Bird Chaser’s render time');
-  assert.match(rows[0].noteHeader, /High migration tonight/);
+  assert.match(rows[0].noteHeader, /Forecast source night 2026-09-28/);
   assert.match(rows[1].name, />1\.8M migration - source night 2026-09-27 \(est\.\)</);
   assert.match(rows[1].where, /King County Birdcast Alert · 9\/27-28/);
   assert.match(rows[1].noteHeader,
@@ -36723,7 +36783,7 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   low.forecast.level = 'Low';
   const lowRows = A.birdcastSurgeRows(daytime, low);
   assert.equal(lowRows.length, 2);
-  assert.match(lowRows[0].name, />Low migration tonight</);
+  assert.match(lowRows[0].name, />Low migration tonight · 9\/28-29</);
   assert.equal(lowRows[1].name, rows[1].name);
   low.count.high = false;
   assert.equal(A.birdcastSurgeRows(daytime, low).length, 1,
@@ -41371,6 +41431,57 @@ test('F763 latest checklist supplies MEGA count; unknown counts and held explana
   app.window.close();
 });
 
+test('F1122 forecast selection finds the current night without accepting a wrong or malformed day', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    const local = { year: 2026, month: 10, day: 27 };
+    const yesterday = { date: '2026-10-26T00:00:00', code: 3, total: 999 };
+    const current = { date: '2026-10-27T00:00:00', code: 1, total: 123 };
+    assert.equal(A.birdcastForecastFromJson({ forecastNights: [yesterday, current] }, local).traffic, 123);
+    assert.throws(() => A.birdcastForecastFromJson({ forecastNights: [yesterday] }, local), /another date/);
+    assert.throws(() => A.birdcastForecastFromJson({
+      forecastNights: [yesterday, { ...current, total: 'bad' }]
+    }, local), /malformed/);
+    A.setBirdcastSnapshot({ forecastError: 'Forecast missing <night>', countError: 'Count unavailable' });
+    A.renderSurge([], [], [], [], [], {
+      birdcast: 'partial', mega: 'partial', ppte: 'partial', suppressNotifications: true
+    });
+    const sources = app.$('surgeResults').querySelector('.surgesources');
+    assert.match(sources.textContent, /Forecast missing <night>.*Count unavailable/);
+    assert.match(sources.textContent, /retry cannot remove the source limit/);
+    assert.match(sources.textContent, /retained reports are not freshly reconfirmed/);
+    assert.equal(sources.querySelector('night'), null, 'source errors must be escaped as text');
+  } finally { app.window.close(); }
+});
+
+test('F1121 full and Recent Bird Gen keep a plain, nonduplicated migration estimate', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = new Date();
+    const date = A.todayStr();
+    A.setBirdcastSnapshot({ forecast: { level: 'Low', date }, fetchedAt: now.getTime(),
+      count: { birds: 109900, night: date, countyLabel: 'King County' } });
+    A.renderSurge([], [], [], [], []);
+    const full = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
+    assert.ok(full);
+    A.updateRecentBirdGen();
+    const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="migration"]');
+    assert.ok(recent, 'the real Recent projection must include the same current migration card');
+    for (const card of [full, recent]) {
+      const title = card.querySelector('.surgealerttitle');
+      assert.equal(title.querySelectorAll('b,strong').length, 0);
+      assert.equal(app.window.getComputedStyle(title).fontWeight, '400');
+      assert.equal((title.textContent.match(/109,900/g) || []).length, 1);
+      assert.equal((title.textContent.match(/King County/g) || []).length, 1);
+      assert.doesNotMatch(title.textContent, /Birdcast Alert|Latest measured night/);
+      assert.match(title.textContent, /est\./);
+    }
+    assert.equal(surgeEvidence(full).querySelectorAll('b,strong').length, 0);
+    assert.doesNotMatch(surgeEvidence(full).textContent, /Location unavailable|109,900/);
+  } finally { app.window.close(); }
+});
+
 test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but never invents missing data', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -41381,8 +41492,8 @@ test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but ne
       forecast: { level, date: '2026-09-28' },
     });
     assert.equal(rows.length, 1);
-    assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight<'));
-    assert.equal(rows[0].noteHeader, 'MIGRATION: ' + level + ' migration tonight');
+    assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight · 9/28-29<'));
+    assert.match(rows[0].noteHeader, /Forecast source night 2026-09-28/);
     assert.match(rows[0].name, /data-sec="sec-bcBody"/);
   }
   assert.equal(A.birdcastSurgeRows(now, {
@@ -41408,7 +41519,7 @@ test('F817/F1070 forecast cards distinguish Tonight from failed saved forecasts 
       assert.doesNotMatch(host.textContent, /9\s*pm|reference time|app-selected/i);
       assert.match(host.querySelector('[data-birdcast-level]').getAttribute('data-birdcast-level'),
         new RegExp('^' + level.toUpperCase() + '$'));
-      assert.ok(surgeEvidence(host).querySelector('.surgefacts [data-sec="sec-bcBody"]'),
+      assert.ok(host.querySelector('.surgealerttitle [data-sec="sec-bcBody"]'),
         'the forecast lost its Migration details destination');
       A.setBirdcastSnapshot(snapshot);
       A.renderBirdcast(now, snapshot);
@@ -41429,7 +41540,7 @@ test('F806/F817/F1070 forecast keeps its validated source-night midnight across 
     fetchedAt:beforeMidnight.getTime() };
   const oldRow = A.birdcastSurgeRows(beforeMidnight, oldForecast)[0];
   assert.equal(oldRow.time, Date.parse('2026-10-04T07:00:00.000Z'));
-  assert.match(oldRow.where, /10\/4-5/);
+  assert.match(oldRow.noteHeader, /2026-10-04/);
   A.setBirdcastSnapshot(oldForecast);
   const RealDate=app.window.Date;
   app.window.Date=class extends RealDate {
@@ -41449,7 +41560,7 @@ test('F806/F817/F1070 forecast keeps its validated source-night midnight across 
   const stillOld = A.birdcastSurgeRows(afterMidnight, oldForecast)[0];
   assert.equal(stillOld.time, oldRow.time,
     'repainting after midnight moved yesterday’s forecast to tonight');
-  assert.match(stillOld.where, /10\/4-5/);
+  assert.match(stillOld.noteHeader, /2026-10-04/);
   const refreshed = A.birdcastSurgeRows(afterMidnight, {
     forecast: { level: 'High', date: '2026-10-05' },
   })[0];
@@ -55384,6 +55495,12 @@ test('F884 direct Today-patch acquisition is radius-aware and bounded', async ()
   assert.equal(candidates[0].locId, 'L21', 'diversity orders the measured shortlist');
   assert.ok(!candidates.some((h) => h.locId === 'OUT'),
     'a high-diversity hotspot outside the configured radius is never queried');
+  const crossing = { locId: 'CROSS', locName: 'Point No Point',
+    lat: 47.912, lng: -122.526, n: 9999 };
+  const cfg = JSON.parse(fs.readFileSync(wwwFixture('travel-zones.json'), 'utf8'));
+  const adjusted = A.destinationDirectCandidates([crossing, ...hotspots], home, 35, 20, cfg);
+  assert.equal(adjusted.length, 20, 'filter before limiting so eligible mainland candidates refill');
+  assert.ok(!adjusted.some(h => h.locId === 'CROSS'));
 
   const merged = A.mergeDirectDestinationRows({}, [], [candidates[0]], {
     L21: [{ code: 'snogoo', name: 'Snow Goose', dateStr: '2026-10-10 08:00' }]
@@ -58391,6 +58508,83 @@ test('F347 a My Ticks timeout never paints failure controls on Today’s patches
     /cancellableWork\('My Ticks backfill', 'sec-myYearBody'\)/,
     'the resumable My Ticks fallback has no stable section owner');
   app.window.close();
+});
+
+test('F1123 the real hotspot dispatcher distinguishes unhandled work from a handled pending retry', async () => {
+  const start = HTML.indexOf('_surgeHotspotRetry = function (path) {');
+  const end = HTML.indexOf('return Promise.all(feeds.map(function (feed)', start);
+  assert.ok(start >= 0 && end > start, 'the real production dispatcher must be located');
+  const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+  const feed = { path: 'product/lists/US-WA-033', params: { maxResults: 1200 } };
+  const known = BL.requestUrl(feed);
+  const parts = { [known]: { state: 'loading', promise: Promise.resolve({ state: 'ok' }) } };
+  let current = true;
+  const retry = new Function('current', 'feeds', 'BL', 'convergenceByPath', 'dbg',
+    'var _surgeHotspotRetry;\n' + HTML.slice(start, end) + '\nreturn _surgeHotspotRetry;')(
+    () => current, [feed], BL, parts, () => {});
+  assert.equal(await retry(known), true, 'the known active source must still be joined');
+  assert.equal(retry('birdcast/forecast'), null, 'unknown work must reach the full-feed fallback');
+  current = false;
+  assert.equal(retry(known), null, 'an obsolete dispatcher cannot claim current work');
+});
+
+test('F1123 Menu retry waits for the full owner and reacquires an unhandled failed source', async () => {
+  let releaseMass, massReads = 0, hold = true;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/bird-list/.test(url)) {
+      massReads++;
+      return hold ? new Promise(resolve => { releaseMass = () => resolve(f821Page([])); }) : f821Page([]);
+    }
+    if (/top100/.test(url)) return fs.readFileSync(path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const waves = () => app.window.__dbg.buf.filter(row =>
+      row.msg === 'Bird Gen ready source · birdcast').length;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    const first = A.refreshFullBirdGen();
+    await waitFor(() => releaseMass, 'held optional source');
+    await A.loadSurge('F1123-primary-join');
+    const firstWaves = waves();
+    assert.ok(firstWaves > 0, 'the control must start the real BirdCast source');
+    const mark = () => {
+      A.sleepReset();
+      assert.equal(A.fgCheckActiveStall('birdcast/forecast',
+        { activeSlept0: A.sleptMs() }, 100000, 100000 + A.FG_ACTIVE_STALL_MS + 1,
+        { label: 'BirdCast forecast', sectionId: '(menu)' }), true);
+    };
+    mark();
+    assert.match(app.$('loadBarText').textContent, /BirdCast forecast:/);
+    const retry = A.retryStalledSection();
+    assert.equal(A.fgStall(), null);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(massReads, 1, 'a retry cannot overlap the current full acquisition');
+    hold = false;
+    releaseMass();
+    await first;
+    await retry;
+    assert.equal(waves(), firstWaves + 1,
+      'Menu must start a new source wave, not count more pages from the original wave');
+    const settledReads = massReads;
+    assert.equal(app.$('recentBirdGenRefresh').disabled, false);
+    assert.ok(app.$('sec-surgeBtn').hidden, 'the retry must keep the owner on Menu');
+    hold = true;
+    releaseMass = null;
+    const third = A.refreshFullBirdGen();
+    await waitFor(() => releaseMass, 'held source for changed-context control');
+    await A.loadSurge('F1123-primary-context-control');
+    mark();
+    const obsolete = A.retryStalledSection();
+    app.window.localStorage.setItem(A.homeKey('lat'), '48.75');
+    releaseMass();
+    await third;
+    assert.equal(await obsolete, false);
+    assert.equal(massReads, settledReads + 1, 'an obsolete retry cannot reacquire after Home changes');
+    assert.equal(waves(), firstWaves + 2, 'Home changes must suppress the fourth source wave');
+  } finally { if (releaseMass) releaseMass(); app.window.close(); }
 });
 
 test('F674 Bird Gen retries only its failed hotspot source', async () => {
