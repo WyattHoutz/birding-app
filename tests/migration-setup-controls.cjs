@@ -422,8 +422,7 @@ module.exports = function registerMigrationSetupControls({
       const row = A.birdcastSurgeRows(now, snapshot)[0];
       assert.ok(row);
       assert.match(row.name, /Low migration tonight/);
-      assert.match(row.name, /109,900 birds \(est\.\)/);
-      assert.match(row.name, /Latest measured night 3\/7-8/);
+      assert.match(row.name, /109,900 birds \(est\.\) crossed King County · 3\/7-8/);
       assert.match(row.extra, /source night 2026-03-07.*separate from the forecast/);
       assert.equal(row.when, '2026-03-08T08:00:00.000Z', 'spring midnight precedes the DST transition');
       const refreshed = A.birdcastSurgeRows(new Date('2026-03-08T21:00:00Z'), {

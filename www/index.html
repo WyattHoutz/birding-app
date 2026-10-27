@@ -41236,7 +41236,9 @@
 
       function surgeExplanationHtml(a, reasonText) {
         var word = SURGE_KINDS[a.kind].word;
-        var noLocation = a.kind === 'ppte' || a.kind === 'migration' && !a.where;
+        var plainMigration = a.kind === 'migration'
+          && /^migration-(?:forecast|count):/.test(a.notificationKey || '');
+        var noLocation = a.kind === 'ppte' || plainMigration && !a.where;
         var extra = (noLocation ? '' : surgeFactsHtml(a))
           + (a.extra ? (noLocation ? '' : ' - ') + a.extra : '');
         var text = a.noteHeader
@@ -41245,10 +41247,10 @@
         if (text.slice(0, prefix.length).toUpperCase() === prefix.toUpperCase()) {
           text = text.slice(prefix.length).trim();
         }
-        if (!/[.!?]$/.test(text)) text += a.kind === 'migration' ? '.' : '!';
+        if (!/[.!?]$/.test(text)) text += plainMigration ? '.' : '!';
         return '<div class="surgeexplain">'
           + surgeCategoryTag(a.kind, reasonText)
-          + (a.kind === 'migration' ? '<span>' + esc(text) + '</span>' : '<b>' + esc(text) + '</b>')
+          + (plainMigration ? '<span>' + esc(text) + '</span>' : '<b>' + esc(text) + '</b>')
           + (extra ? '<span class="surgeexplainextra">' + extra + '</span>' : '')
           + '</div>';
       }

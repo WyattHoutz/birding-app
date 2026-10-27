@@ -1465,12 +1465,19 @@ const REVIEW_SHOTS = [
              card.querySelector('[data-surge-details]').click();
              var extra = document.querySelector('#appSheet .surgeexplainextra');
              var facts = extra && extra.querySelector('.surgefacts');
-             if (!facts || extra.firstElementChild !== facts
+             var forecast = card.dataset.alertKind === 'migration'
+               && card.querySelector('[data-birdcast-level]') && !facts;
+             if (!extra || !forecast && (!facts || extra.firstElementChild !== facts)
                  || card.querySelector('.name .surgefacts')) {
                throw new Error('F954 facts must precede existing extra below the headline');
              }
+             if (forecast && (!/Forecast source night/.test(
+                   document.querySelector('#appSheet .surgeexplain').textContent)
+                 || document.querySelector('#appSheet .surgeexplain b, #appSheet .surgeexplain strong'))) {
+               throw new Error('F1121 forecast evidence must preserve its source night without bold or invented location facts');
+             }
              var expected = document.defaultView.getComputedStyle(extra);
-             var actual = document.defaultView.getComputedStyle(facts);
+             var actual = document.defaultView.getComputedStyle(facts || extra.firstElementChild);
              ['fontSize','lineHeight','fontFamily','fontWeight','color'].forEach(function(property) {
                if (actual[property] !== expected[property]) {
                  throw new Error('F954 extra typography mismatch: '+property);
@@ -2906,7 +2913,13 @@ const BOOTSTRAP = `
       var cards = Array.prototype.slice.call(document.querySelectorAll('#surgeFeed > li'));
       if (!cards.length || cards.some(function (row) {
         var evidence = row.querySelector('template[data-surge-evidence]');
-        return !evidence || !evidence.content.querySelector('.surgeexplainextra > .surgefacts')
+        var explanation = evidence && evidence.content.querySelector('.surgeexplain');
+        if (!explanation || !explanation.querySelector('.surgeexplainextra')) return true;
+        if (row.dataset.alertKind === 'migration' && row.querySelector('[data-birdcast-level]')) {
+          return !/source night/i.test(explanation.textContent)
+            || !!explanation.querySelector('b,strong');
+        }
+        return !evidence.content.querySelector('.surgeexplainextra > .surgefacts')
           || !evidence.content.querySelector('.surgeexplain > b');
       })) throw new Error('Bird Gen release fixture lost its on-demand evidence');
       var mega = document.querySelector('#surgeFeed [data-species-code="nazboo1"]');

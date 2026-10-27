@@ -9929,7 +9929,10 @@ test('F1119 automatic seen refresh rearms daily after success and failure withou
   const app = await setupOwnedSeenApp();
   try {
     const A = app.window.__app, originalFetch = app.window.fetch, RealDate = app.window.Date;
-    let now = Date.now(), reads = 0, fail = false, release;
+    const clock = new Date();
+    clock.setDate(15);
+    clock.setHours(12, 0, 0, 0);
+    let now = clock.getTime(), reads = 0, fail = false, release;
     app.window.Date = class extends RealDate {
       constructor(...args) { super(...(args.length ? args : [now])); }
       static now() { return now; }
@@ -57737,7 +57740,9 @@ test('F341 Today patches paints fresh rows, then labels bounded older evidence',
   });
   let releaseFallback;
   let requestedFallbackUrl = '';
-  app.window.fetch = (url) => {
+  const originalFetch = app.window.fetch;
+  app.window.fetch = (url, options) => {
+    if (String(url).includes('travel-zones.json')) return originalFetch(url, options);
     const body = String(url).includes(
       '/data/obs/US-HI-001/recent?back=30&detail=full&hotspot=true')
       ? fallback : [];
