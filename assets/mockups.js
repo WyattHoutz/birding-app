@@ -1606,6 +1606,69 @@ const SHOTS = [
         return true;`) },
 ].concat(SECTION_SHOTS, EXTRA_SHOTS);
 
+REVIEW_SHOTS.push({
+  id: 'f1130-menu-recommendation',
+  title: 'Approved recommended menu organization',
+  prep: SHOTS.find(shot => shot.id === 'menu').prep.replace(/return true;\s*$/, `
+    document.querySelector('#recentBirdGen .mocklabel').textContent =
+      'APPROVED RECOMMENDATION - sample data';
+    return true;
+  `)
+});
+
+REVIEW_SHOTS.push({
+  id: 'f1131-collapsed-menu',
+  title: 'Collapsible menu concept (preview only)',
+  prep: SHOTS.find(shot => shot.id === 'menu').prep.replace(/return true;\s*$/, `
+    var list = document.getElementById('menuList');
+    var headings = Array.from(list.querySelectorAll(':scope > .tocgroup'))
+      .filter(node => node.id !== 'menuShortcutsTitle');
+    headings.forEach(heading => {
+      var name = heading.textContent, rows = [], next = heading.nextElementSibling;
+      while (next && !next.classList.contains('tocgroup')) {
+        rows.push(next);
+        next = next.nextElementSibling;
+      }
+      var count = rows.filter(row => row.querySelector('.toclink')).length;
+      var wrapper = document.createElement('li');
+      wrapper.style.gridColumn = '1 / -1';
+      var details = document.createElement('details');
+      details.className = 'scopepick';
+      details.style.width = '100%';
+      details.open = ['Patches - Go birding', 'Bird alerts'].includes(name);
+      var summary = document.createElement('summary');
+      var label = document.createElement('span');
+      label.className = 'scopewhere';
+      label.textContent = name + ' (' + count + ' items)';
+      var action = document.createElement('span');
+      action.className = 'scopechange';
+      var sync = function() { action.textContent = details.open ? 'Hide' : 'Show'; };
+      sync();
+      details.addEventListener('toggle', sync);
+      summary.append(label, action);
+      var body = document.createElement('div');
+      var tiles = document.createElement('ul');
+      tiles.className = 'toc';
+      rows.forEach(row => tiles.append(row));
+      body.append(tiles);
+      details.append(summary, body);
+      wrapper.append(details);
+      list.insertBefore(wrapper, heading);
+      heading.remove();
+    });
+    if (list.querySelectorAll('details.scopepick:not([open])').length !== 5) {
+      throw new Error('Collapsed menu preview must keep only Patches and Bird alerts open');
+    }
+    if (Array.from(list.querySelectorAll('details[open] .toc')).some(grid =>
+      document.defaultView.getComputedStyle(grid).gridTemplateColumns.split(/\\s+/).length !== 2)) {
+      throw new Error('Collapsed menu preview must preserve the production two-column tile grid');
+    }
+    document.querySelector('#recentBirdGen .mocklabel').textContent =
+      'COLLAPSE CONCEPT ONLY - sample data; not applied';
+    return true;
+  `)
+});
+
 function shotReadinessProblems(ready) {
   const problems = [];
   if (!ready || ready.error) problems.push((ready && ready.error) || 'missing readiness result');

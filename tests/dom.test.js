@@ -929,7 +929,7 @@ test('F1128 Patches uses the selected order while saved Common birds shortcuts k
   const app = await boot({ storage: { [SHORTCUT_KEY]: JSON.stringify(saved) } });
   try {
     assert.deepEqual(menuGroupIds(app, 'Patches - Go birding'),
-      ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn', 'iconicBtn']);
+      ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn']);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="tripBtn"]'), null);
     assert.deepEqual(shortcutIds(app), saved);
     app.click(app.document.querySelector('.menuShortcut .toclink[data-at="easyBtn"]'));
@@ -18242,7 +18242,7 @@ test('F987/F992 Recent Bird Gen preserves destinations and Patches precedes Jarg
       { name: 'Patches - Go birding', ids: authored.filter((m) =>
         m.group === 'Patches - Go birding' && A.menuApplies(m)).map((m) => m.at) },
       { name: 'Bird alerts', ids: [
-        'surgeBtn', 'refreshBtn', 'abaBtn', 'allUnseenBtn', 'foyBtn', 'ppteBtn', 'massBtn',
+        'surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'allUnseenBtn', 'ppteBtn', 'massBtn', 'foyBtn',
       ] },
     ]);
     assert.deepEqual(groups.slice(2).flatMap((g) => g.ids),
@@ -40201,7 +40201,7 @@ test('F794 Huge-text Twitches List uses large cards without changing its data or
 // mistake." Two top-level sections had become options inside a THIRD section's
 // control, so finding "excursions" meant knowing it lived on the Quick outing
 // panel. They are menu entries again, grouped with the other place-finders.
-test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', async () => {
+test('F1130 the complete menu uses the approved groups, membership and ordering', async () => {
   const app = await boot({ storage: { ebird_home_lat: '47.75', ebird_home_lng: '-122.16' } });
   const doc = app.document;
   // Trip planner is deliberately absent: switched off behind `enabled: false`
@@ -40230,10 +40230,7 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   // patches moved IN — which is coherent: the first two start from a thing you
   // have already chosen, the rest answer "where shall I go".
   //
-  // F595 moves the chosen-target searches below the predictive patch group.
-  // Bird alerts now follows Patches; Stakeouts and Birding Tools follow it.
-  const GO = ['destBtn', 'quickBtn', 'excBtn', 'favResults', 'easyBtn',
-              'iconicBtn', 'hotBtn', 'coldBtn'];
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
@@ -40252,15 +40249,11 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
   // 2. They sit under one heading, contiguously — a group with a gap in it is
   //    not a group, it is a coincidence.
   const kids = [...doc.querySelectorAll('#menuList > li')];
-  const headings = kids.filter((k) => k.classList.contains('tocgroup'))
+  const headings = kids.filter((k) => k.classList.contains('tocgroup') && k.id !== 'menuShortcutsTitle')
     .map((k) => k.textContent.trim());
-  const stakeoutIdx = headings.indexOf('Stakeouts - Birds and Hotspots');
-  const patchesIdx = headings.indexOf('Patches - Go birding');
-  const toolsIdx = headings.indexOf('Birding Tools');
-  assert.ok(stakeoutIdx > -1, 'the dedicated Stakeouts heading is missing');
-  assert.equal(headings[patchesIdx + 1], 'Bird alerts', 'Bird alerts must immediately follow Patches');
-  assert.equal(stakeoutIdx, patchesIdx + 2, 'Stakeouts must immediately follow Bird alerts');
-  assert.equal(toolsIdx, stakeoutIdx + 1, 'Birding Tools must immediately follow Stakeouts');
+  assert.deepEqual(headings, ['Patches - Go birding', 'Bird alerts',
+    'Stakeouts', 'Rankings', 'Birding Insights',
+    'My Bird List', 'Settings & Help']);
 
   function labelsUnder(heading) {
     const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
@@ -40273,11 +40266,14 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     }
     return result;
   }
-  assert.deepEqual(labelsUnder('Stakeouts - Birds and Hotspots'),
+  assert.deepEqual(labelsUnder('Stakeouts'),
     ['🦉 Stakeout Birds', '🏜️ Stakeout Patches']);
-  assert.deepEqual(labelsUnder('Birding Tools'), [
+  assert.deepEqual(menuGroupIds(app, 'Rankings'),
+    ['lastNewBtn', 'rankBtn', 'patchBtn', 'cklBtn']);
+  assert.deepEqual(labelsUnder('Birding Insights'), [
     '🌤 Twitch weather', '🌙 Migration',
-    '🌄 Dawn and dusk', '🏅 Break a record',
+    '🌄 Dawn and dusk', '🖼 Iconic Patches',
+    '👥 Convoys', '📋 Recent checklists', '🏅 Break a record',
   ]);
   const migrationTiles = [...doc.querySelectorAll('#menuList .toclink')]
     .filter((tile) => /Migration|Due back soon|On passage/i.test(
@@ -40310,35 +40306,22 @@ test('Stakeouts, Patches, and Birding Tools are separate ordered menu groups', a
     'exactly the place-finding sections sit under it, got: ' + under.join(' | '));
   assert.deepEqual(under, [
     '🏞 Today’s patches',
-    '🚶 Nearby Patches',
     '🚗 Day trip patches',
-    '🖼 Iconic Patches',
+    '🚶 Nearby Patches',
+    '⭐ Favorite patches',
     '🥶 Cold patches',
     '🔥 Hot patches',
-    '⭐ Favorite patches',
-    '🐦 Common birds',
   ], 'patch menu icons and owner-selected order must stay exact');
   assert.match(under[0], /Today’s patches/);
-  assert.match(under[1], /Nearby Patches/,
-    'Nearby Patches is not immediately after Today’s patches');
+  assert.match(under[1], /Day trip patches/,
+    'Day trip patches is not immediately after Today’s patches');
   assert.ok(labels.some((label) => label === '❓ Watch List'),
     'the Needs proof Contents tile was not renamed Watch List');
   assert.ok(!labels.some((label) => label === '❓ Needs proof'),
     'the old Needs proof menu label remains');
 
-  // 3. The MENU ARRAY order is a contract with the Markdown report and is
-  //    never touched. Grouping changes only the LAYOUT: a group collects its
-  //    members wherever they sit, because "eBird Rankings" belongs with My
-  //    year even though the report prints it third. What must hold is that
-  //    every entry declares a group the renderer knows how to place.
-  const order = [...HTML.matchAll(/\{ at: '([A-Za-z0-9_]+)',[^\n]*group: '([^']+)'/g)]
-    .map((m) => ({ at: m[1], group: m[2] }));
-  // DERIVED, not a hard-coded 26. The count is not the property being tested —
-  // "every entry declares a group" is — and pinning a number here means adding
-  // a section fails a test about grouping for a reason that has nothing to do
-  // with grouping.
-  const declared = (HTML.match(/\{ at: '[A-Za-z0-9_]+',/g) || []).length;
-  assert.equal(order.length, declared, 'every menu entry declares a group');
+  const order = JSON.parse(app.$('menu-definition').textContent);
+  assert.ok(order.length, 'the production menu contract must not be empty');
   const known = /var MENU_GROUPS = \[([\s\S]*?)\];/.exec(HTML);
   assert.ok(known, 'the group order is DECLARED, not derived from position — '
     + 'a group whose members are scattered has no position to derive from');
@@ -44990,7 +44973,7 @@ test('the help section is generated from the notes each section already carries'
   // groups, preserving the original intent exactly: the manual is still
   // the last thing before it.
   const secGroups = groups.filter((g) => !/glossary/i.test(g));
-  assert.equal(secGroups[secGroups.length - 1], 'Settings & Doc',
+  assert.equal(secGroups[secGroups.length - 1], 'Settings & Help',
     'and the group it lives in is the last one');
   app.window.close();
 });

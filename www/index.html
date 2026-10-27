@@ -4698,14 +4698,6 @@
     "group": "Patches - Go birding"
   },
   {
-    "at": "iconicBtn",
-    "icon": "🖼",
-    "title": "Iconic Patches",
-    "subtitle": "Hotspot specialities",
-    "needs": "geo",
-    "group": "Patches - Go birding"
-  },
-  {
     "at": "tripBtn",
     "icon": "🧭",
     "title": "Trip planner",
@@ -4792,45 +4784,14 @@
     "icon": "🦉",
     "title": "Stakeout Birds",
     "subtitle": "Lookup birds & spuhs",
-    "group": "Stakeouts - Birds and Hotspots"
+    "group": "Stakeouts"
   },
   {
     "at": "stakeHsBtn",
     "icon": "🏜️",
     "title": "Stakeout Patches",
     "subtitle": "Look up hotspot",
-    "group": "Stakeouts - Birds and Hotspots"
-  },
-  {
-    "at": "wxBtn",
-    "icon": "🌤",
-    "title": "Twitch weather",
-    "subtitle": "Is today worth chasing",
-    "needs": "geo",
-    "group": "Birding Tools"
-  },
-  {
-    "at": "bcBody",
-    "icon": "🌙",
-    "title": "Migration",
-    "subtitle": "Tonight, arrivals, and departures",
-    "needs": "county",
-    "group": "Birding Tools"
-  },
-  {
-    "at": "todBtn",
-    "icon": "🌄",
-    "title": "Dawn and dusk",
-    "subtitle": "Time-of-day specialists",
-    "needs": "county",
-    "group": "Birding Tools"
-  },
-  {
-    "at": "recordBody",
-    "icon": "🏅",
-    "title": "Break a record",
-    "subtitle": "Overdue megararities",
-    "group": "Birding Tools"
+    "group": "Stakeouts"
   },
   {
     "at": "lastNewBtn",
@@ -4838,7 +4799,7 @@
     "title": "Leaderboard Ticks",
     "subtitle": "Newest on the board",
     "needs": "geo",
-    "group": "Leader Board / Ranking"
+    "group": "Rankings"
   },
   {
     "at": "rankBtn",
@@ -4846,7 +4807,7 @@
     "title": "Top 100",
     "subtitle": "Leaderboard",
     "dynamicSubtitle": "leaderboard-scope",
-    "group": "Leader Board / Ranking"
+    "group": "Rankings"
   },
   {
     "at": "patchBtn",
@@ -4854,7 +4815,7 @@
     "title": "Pro patches",
     "subtitle": "Where the top 100 actually bird",
     "needs": "county",
-    "group": "Leader Board / Ranking"
+    "group": "Rankings"
   },
   {
     "at": "cklBtn",
@@ -4862,15 +4823,39 @@
     "title": "Big days",
     "subtitle": "Biggest day lists",
     "needs": "county",
-    "group": "Leader Board / Ranking"
+    "group": "Rankings"
   },
   {
-    "at": "recentBtn",
-    "icon": "📋",
-    "title": "Recent checklists",
-    "subtitle": "All recent county checklists",
+    "at": "wxBtn",
+    "icon": "🌤",
+    "title": "Twitch weather",
+    "subtitle": "Is today worth chasing",
+    "needs": "geo",
+    "group": "Birding Insights"
+  },
+  {
+    "at": "bcBody",
+    "icon": "🌙",
+    "title": "Migration",
+    "subtitle": "Tonight, arrivals, and departures",
     "needs": "county",
-    "group": "Leader Board / Ranking"
+    "group": "Birding Insights"
+  },
+  {
+    "at": "todBtn",
+    "icon": "🌄",
+    "title": "Dawn and dusk",
+    "subtitle": "Time-of-day specialists",
+    "needs": "county",
+    "group": "Birding Insights"
+  },
+  {
+    "at": "iconicBtn",
+    "icon": "🖼",
+    "title": "Iconic Patches",
+    "subtitle": "Hotspot specialities",
+    "needs": "geo",
+    "group": "Birding Insights"
   },
   {
     "at": "convoyBtn",
@@ -4878,7 +4863,22 @@
     "title": "Convoys",
     "subtitle": "Groups birding together",
     "needs": "county",
-    "group": "Leader Board / Ranking"
+    "group": "Birding Insights"
+  },
+  {
+    "at": "recentBtn",
+    "icon": "📋",
+    "title": "Recent checklists",
+    "subtitle": "All recent county checklists",
+    "needs": "county",
+    "group": "Birding Insights"
+  },
+  {
+    "at": "recordBody",
+    "icon": "🏅",
+    "title": "Break a record",
+    "subtitle": "Overdue megararities",
+    "group": "Birding Insights"
   },
   {
     "at": "myYearBody",
@@ -4900,14 +4900,14 @@
     "icon": "⚙️",
     "title": "Settings",
     "subtitle": "Region, display, data",
-    "group": "Settings & Doc"
+    "group": "Settings & Help"
   },
   {
     "at": "helpBody",
     "icon": "📘",
     "title": "How each section works",
     "subtitle": "What every button does",
-    "group": "Settings & Doc"
+    "group": "Settings & Help"
   }
 ]
   </script>
@@ -47949,11 +47949,11 @@
       var MENU_GROUPS = [
         'Patches - Go birding',
         'Bird alerts',
-        'Stakeouts - Birds and Hotspots',
-        'Birding Tools',
-        'Leader Board / Ranking',
+        'Stakeouts',
+        'Rankings',
+        'Birding Insights',
         'My Bird List',
-        'Settings & Doc',
+        'Settings & Help',
       ];
       // Who you are, on the way in. Costs NOTHING.
       //
