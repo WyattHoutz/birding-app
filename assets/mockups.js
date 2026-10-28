@@ -1269,6 +1269,16 @@ const REVIEW_SHOTS = [
            };
            A.fgCancelAll('Starting deterministic monthly Sensitive fixture');
            A.fgSchedReset(window.Date.now());
+           var sensitiveNow = new window.Date();
+           var sensitiveParts = A.birdcastLocalParts(sensitiveNow, A.getReport());
+           window.localStorage.removeItem(A.sensitiveJournalKey());
+           A.birdGenSensitiveJournal({
+             source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+             sourceRegion:A.activeScope().effectiveRegion,
+             sourceMonth:sensitiveParts.year+'-'+String(sensitiveParts.month).padStart(2,'0'),
+             acquiredAt:sensitiveNow.getTime()-1,state:'ok',acquired:true,
+             inventoryComplete:true,sensitiveRows:[]
+           }, sensitiveNow);
            var massSource;
            try { massSource = await A.loadMassFlockAlertSource(true,A.activeScope()); }
            finally { window.fetch = originalFetch; }
@@ -1565,7 +1575,7 @@ REVIEW_SHOTS.push({
 });
 
 const SHOTS = [
-  { id: 'menu', title: 'Contents menu',
+  { id: 'menu', title: 'Contents menu', freshApp: true,
     prep: REVIEW_SHOTS.find(shot => shot.id === 'f951-birdgen-all').prep.replace(
       'var today = A.todayStr();', `A.cancelStalledWork();
       var W = document.defaultView, savedFetch = W.fetch, savedNow = W.Date.now;

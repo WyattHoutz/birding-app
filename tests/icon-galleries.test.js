@@ -10,12 +10,12 @@ const numbers = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'assets', 'icon-review-numbers.json'), 'utf8'));
 
 test('F446 worldwide icon review numbers are unique and stable across scopes', () => {
-  const worldwide = coverage.scopes.worldwide.speciesCodes;
-  assert.equal(Object.keys(numbers).length, worldwide.length);
-  assert.equal(new Set(Object.values(numbers)).size, worldwide.length);
+  const species = new Set(Object.values(coverage.scopes).flatMap(scope => scope.speciesCodes));
+  assert.equal(Object.keys(numbers).length, species.size);
+  assert.equal(new Set(Object.values(numbers)).size, species.size);
   assert.deepEqual(
     [...Object.values(numbers)].sort((a, b) => a - b),
-    Array.from({ length: worldwide.length }, (_, index) => index + 1));
+    Array.from({ length: species.size }, (_, index) => index + 1));
   for (const scope of Object.values(coverage.scopes)) {
     for (const code of scope.speciesCodes) {
       assert.ok(Number.isInteger(numbers[code]),
