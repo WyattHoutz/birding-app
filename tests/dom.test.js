@@ -4226,7 +4226,7 @@ test('F815 FOY saves a silent baseline, discovers once, acknowledges and retains
     assert.match(app.$('foyResults').textContent, /New Annual Bird/);
     const menu = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'));
     assert.equal(menu.findIndex(item => item.at === 'foyBtn'),
-      menu.findIndex(item => item.at === 'allUnseenBtn') + 1);
+      menu.findIndex(item => item.at === 'massBtn') + 1);
     assert.ok(A.LOADERS.foyBtn.fn);
   } finally { app.window.close(); }
 });
@@ -20378,7 +20378,7 @@ test('F407 calls the seen-year surface My Year List and explains its scope', asy
     },
     'F316 title and subtitle are the product wording, not aliases derived from code');
 
-  const app = await boot();
+  const app = await boot({ storage: { [SHORTCUT_KEY]: '[]' } });
   const headingEl = app.document.getElementById('myYearBody')
     .closest('section').querySelector('h2');
   const heading = [...headingEl.childNodes]
@@ -20504,8 +20504,8 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
     .map((row) => row.textContent).join(' ');
   assert.ok(alertsAt >= 0 && /Nemesis birds/.test(alertsText),
     'the current-sighting Nemesis report is not in the Bird alerts menu block');
-  assert.ok(!/Common birds/.test(alertsText),
-    'the historical Common birds report was incorrectly moved into Bird alerts');
+  assert.ok(/Common birds/.test(alertsText),
+    'Common birds belongs in the owner-approved Bird alerts menu block');
   app.window.close();
 });
 
@@ -41490,8 +41490,10 @@ test('F1122 forecast selection finds the current night without accepting a wrong
     });
     const sources = app.$('surgeResults').querySelector('.surgesources');
     assert.match(sources.textContent, /Forecast missing <night>.*Count unavailable/);
-    assert.match(sources.textContent, /retry cannot remove the source limit/);
-    assert.match(sources.textContent, /retained reports are not freshly reconfirmed/);
+    assert.doesNotMatch(sources.textContent,
+      /retry cannot remove the source limit|retained reports are not freshly reconfirmed/);
+    assert.ok(sources.querySelector('[data-source-retry="birdcast"]'),
+      'a genuine forecast failure keeps its actionable retry');
     assert.equal(sources.querySelector('night'), null, 'source errors must be escaped as text');
   } finally { app.window.close(); }
 });
@@ -57072,7 +57074,7 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
 //   F265  the header reads a rank only Top 100 writes.
 // The read is free and looks correct in every test, which is why all three
 // shipped. So this guard is about OWNERSHIP, not about the rank.
-test('F265: every lazy cache read at boot has a writer at boot', () => {
+test('F265: every lazy cache read at boot has a writer at boot', async () => {
   // The prefetch exists, is bounded, and repaints — a fetch whose result
   // nothing redraws is the F256 bug one level down.
   const fn = HTML.slice(HTML.indexOf('function lazyFetchRankMe()'),
@@ -57089,17 +57091,21 @@ test('F265: every lazy cache read at boot has a writer at boot', () => {
   assert.match(fn, /headerIdentityRefresh\(\)/,
     'and it MUST repaint, or the fetch is invisible — that is F256 exactly');
 
-  // ⚠️ Pinned to the CALL, not the name: a guard bounded by a name matches its
-  // own comment, which is how one was made unfailable three times here.
-  //
-  // ⚠️ AND IT MUST BE CALLED FROM BOOT, NOT FROM A REPAINT. My first version
-  // hung this off renderMenuIdentity and the suite caught it: `the menu names
-  // you, from cache, without spending a call` is a real invariant, because the
-  // menu and header repaint constantly and a fetch on a repaint has no bound.
-  const bootSeq = HTML.slice(HTML.indexOf('bindZoomReset();'),
-                             HTML.indexOf('bindZoomReset();') + 500);
-  assert.match(bootSeq, /lazyFetchRankMe\(\)/,
-    'the prefetch runs at startup, which happens once');
+  const app = await boot({
+    sample: false,
+    storage: { ebird_display_name: 'Fixture Birder' },
+    fetch: url => /top100/.test(url) ? dualRankFixture(
+      new URL(url).searchParams.get('rankedBy'),
+      [{ rank: 1, name: 'Fixture Birder', species: 10, checklists: 20 }],
+      'US-WA', String(new Date().getFullYear())) : [],
+  });
+  try {
+    await waitFor(() => app.state.fetches.filter(url => /top100/.test(url)).length >= 2,
+      'both startup rank writers without opening Top 100');
+    assert.deepEqual(app.state.fetches.filter(url => /top100/.test(url))
+      .map(url => new URL(url).searchParams.get('rankedBy')).sort(), ['cl', 'spp'],
+    'startup acquires each independently owned board once');
+  } finally { app.window.close(); }
   const menuFn = HTML.slice(HTML.indexOf('function renderMenuIdentity'),
                             HTML.indexOf('function lazyFetchRankMe()'));
   assert.ok(!/\n\s*lazyFetchRankMe\(\);/.test(menuFn),
