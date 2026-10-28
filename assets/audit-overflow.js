@@ -956,7 +956,7 @@ const AUDIT = `<script>
         }),
         shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
           return button.dataset.at;
-        }).join(',') === 'destBtn,refreshBtn,spLookupBtn',
+        }).join(',') === 'destBtn,refreshBtn,myYearBody',
         frosted: ['light', 'dark'].every(function (theme) {
           var originalTheme = window.__app.getTheme();
           window.__app.setTheme(theme);
@@ -979,8 +979,8 @@ const AUDIT = `<script>
             && Math.abs(bird.getBoundingClientRect().width - normal.getBoundingClientRect().width) <= .5;
         })(),
         jargonBetween: !!jargon && menuList.querySelectorAll('.jargontip').length === 1
-          && jargon.previousElementSibling.querySelector('[data-at="easyBtn"]') !== null
-          && jargon.nextElementSibling.textContent.trim() === 'Bird alerts'
+          && jargon.previousElementSibling.querySelector('[data-at="stakeHsBtn"]') !== null
+          && jargon.nextElementSibling.textContent.trim() === 'Rankings'
       };
       window.__menuFirstGroupMargin = getComputedStyle(menuList.querySelector('.tocgroup')).marginTop;
     }
@@ -3831,7 +3831,7 @@ server.listen(0, '127.0.0.1', () => {
         if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween || !menu.shortcuts || !menu.birdGenNormal || !menu.frosted
             || JSON.stringify(menu.groups) !== JSON.stringify(['Patches - Go birding', 'Bird alerts'])
             || JSON.stringify(menu.order) !== JSON.stringify([
-              'destBtn', 'quickBtn', 'excBtn', 'iconicBtn', 'coldBtn', 'hotBtn', 'favResults', 'easyBtn'
+              'destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn', 'surgeBtn', 'refreshBtn'
             ])) {
           bad++;
           console.log('   F987/F992 MENU LAYOUT FAILED');
