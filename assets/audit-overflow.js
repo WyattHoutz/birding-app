@@ -956,7 +956,7 @@ const AUDIT = `<script>
         }),
         shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
           return button.dataset.at;
-        }).join(',') === 'destBtn,refreshBtn,myYearBody',
+        }).join(',') === 'destBtn,refreshBtn,myYearBody,spLookupBtn',
         frosted: ['light', 'dark'].every(function (theme) {
           var originalTheme = window.__app.getTheme();
           window.__app.setTheme(theme);
@@ -1645,12 +1645,20 @@ const AUDIT = `<script>
       var sensitiveNow=new Date(), sensitiveScope=A.activeScope();
       var sensitiveParts=A.birdcastLocalParts(sensitiveNow,A.getReport());
       var sensitiveMonth=sensitiveParts.year+'-'+String(sensitiveParts.month).padStart(2,'0');
-      var sensitiveRows=A.birdGenSensitiveRows({
+      var sensitiveSaved=localStorage.getItem(A.sensitiveJournalKey());
+      localStorage.removeItem(A.sensitiveJournalKey());
+      var sensitiveSource={
         source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
         sourceRegion:sensitiveScope.effectiveRegion,sourceMonth:sensitiveMonth,
-        acquiredAt:sensitiveNow.getTime(),state:'ok',
+        acquiredAt:sensitiveNow.getTime(),state:'ok',acquired:true,inventoryComplete:true,
         sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:sensitiveScope.effectiveRegion}]
-      },sensitiveNow);
+      };
+      A.birdGenSensitiveJournal(Object.assign({},sensitiveSource,{
+        acquiredAt:sensitiveNow.getTime()-1,sensitiveRows:[]}),sensitiveNow);
+      A.birdGenSensitiveJournal(sensitiveSource,sensitiveNow);
+      var sensitiveRows=A.birdGenSensitiveRows(sensitiveNow);
+      var sensitivePeriod=new Date(sensitiveMonth+'-01T12:00:00Z').toLocaleDateString('en-US',
+        {month:'long',year:'numeric',timeZone:'UTC'});
       if(sensitiveRows.length!==1) throw new Error('F1110 owned Sensitive fixture was not admitted');
       categoryFeed.innerHTML=A.surgeAlertCard(sensitiveRows[0],0);
       A.showSection('sec-surgeBtn',{load:false});
@@ -1678,14 +1686,14 @@ const AUDIT = `<script>
       var sensitiveGap=sensitiveLines.some(function(top,index){
         return index && top-sensitiveLines[index-1]>sensitiveLineHeight*1.5;
       });
-      if(sensitiveTitle.textContent!=='Great Gray Owl reported in Washington region in '+sensitiveRows[0].ageLabel
+      if(sensitiveTitle.textContent!=='Great Gray Owl reported in Washington region in '+sensitivePeriod
           || sensitiveTitle.querySelectorAll('a').length!==2 || sensitiveTitle.querySelector('br')
           || sensitiveLink.textContent!=='Great Gray Owl'
           || sensitiveLink.getAttribute('href')!=='https://ebird.org/species/grgowl/'+sensitiveScope.effectiveRegion
           || sensitiveLinkStyle.display!=='inline' || parseFloat(sensitiveLinkStyle.marginTop)!==0
           || sensitiveGap) {
         throw new Error('F1110 Sensitive headline, bird-only link or contiguous wrapping regressed: '
-          +JSON.stringify({title:sensitiveTitle.textContent,period:sensitiveRows[0].ageLabel,
+          +JSON.stringify({title:sensitiveTitle.textContent,period:sensitivePeriod,
             href:sensitiveLink.getAttribute('href'),display:sensitiveLinkStyle.display,
             margin:sensitiveLinkStyle.marginTop,lineHeight:sensitiveLineHeight,lines:sensitiveLines}));
       }
@@ -1786,7 +1794,66 @@ const AUDIT = `<script>
       var compactScan=scan('(F1086 compact preview height)');
       compactScan.previewHeight={compact:compactHeight,withFormerSub:oldHeight};
       out.push(compactScan);
+      var migrationNow=new Date(), migrationLocal=A.birdcastLocalParts(migrationNow,A.getReport());
+      function migrationDay(offset) {
+        return new Date(Date.UTC(migrationLocal.year,migrationLocal.month-1,
+          migrationLocal.day+offset)).toISOString().slice(0,10);
+      }
+      function migrationCopyFits(card, state) {
+        if(!card) throw new Error('F1135 missing '+state+' migration card');
+        var title=card.querySelector('.surgealerttitle'), age=card.querySelector('.surgeage');
+        var box=card.getBoundingClientRect(), ageBox=age.getBoundingClientRect();
+        if(box.width<=0 || box.height<=0 || age.textContent!==state
+            || title.querySelector('b,strong') || getComputedStyle(title).fontWeight!=='400') {
+          throw new Error('F1135 migration status, visibility or ordinary weight changed');
+        }
+        var range=document.createRange(), walker=document.createTreeWalker(title,NodeFilter.SHOW_TEXT), node;
+        function fits(rect) {
+          return rect.left>=box.left-.5 && rect.right<=box.right+.5
+            && rect.left>=-.5 && rect.right<=innerWidth+.5;
+        }
+        range.selectNodeContents(age);
+        if(Array.from(range.getClientRects()).some(function(rect) {
+          return !fits(rect) || rect.left<ageBox.left-.5 || rect.right>ageBox.right+.5;
+        })) throw new Error('F1135 '+state+' status clips');
+        while((node=walker.nextNode())) {
+          range.selectNodeContents(node);
+          if(Array.from(range.getClientRects()).some(function(rect) {
+            return !fits(rect) || Math.min(rect.right,ageBox.right)-Math.max(rect.left,ageBox.left)>.5
+              && Math.min(rect.bottom,ageBox.bottom)-Math.max(rect.top,ageBox.top)>.5;
+          })) throw new Error('F1135 '+state+' text clips or overlaps status');
+        }
+      }
+      [
+        {level:'Low',state:'Current',offset:-1},
+        {level:'Low',state:'Saved',offset:-1},
+        {level:'Medium',state:'Saved',offset:-4},
+        {level:'High',state:'Current',offset:-1,high:true}
+      ].forEach(function(fixture) {
+        var source={forecast:{level:fixture.level,date:migrationDay(0)},fetchedAt:+migrationNow,
+          forecastError:fixture.state==='Saved'?'Representative refresh failure':'',
+          count:{birds:38500,night:migrationDay(fixture.offset),countyLabel:'King County',high:!!fixture.high}};
+        var rows=A.birdcastSurgeRows(migrationNow,source);
+        categoryFeed.innerHTML=rows.map(function(row,i){return A.surgeAlertCard(row,i);}).join('');
+        A.showSection('sec-surgeBtn',{load:false});
+        var full=categoryFeed.querySelector('[data-alert-kind="migration"]');
+        migrationCopyFits(full,fixture.state);
+        if(fixture.offset===-4 && /last night/.test(full.querySelector('.surgealerttitle').textContent)) {
+          throw new Error('F1135 stale count mislabeled last night');
+        }
+        if(fixture.high && (rows.length!==2
+            || !/source night.*\(est\.\)/.test(categoryFeed.lastElementChild.querySelector('.surgealerttitle').textContent))) {
+          throw new Error('F1135 separate High measured-count semantics changed');
+        }
+        out.push(scan('(F1135 '+fixture.state+' '+fixture.level+' full migration copy)'));
+        A.updateRecentBirdGen();
+        A.showMenu();
+        migrationCopyFits(document.querySelector('#recentBirdGenRows [data-recent-kind="migration"]'),fixture.state);
+        out.push(scan('(F1135 '+fixture.state+' '+fixture.level+' Recent migration copy)'));
+      });
       categoryFeed.replaceChildren.apply(categoryFeed,savedFeed);
+      if(sensitiveSaved===null) localStorage.removeItem(A.sensitiveJournalKey());
+      else localStorage.setItem(A.sensitiveJournalKey(),sensitiveSaved);
       A.updateRecentBirdGen();
       document.querySelector('#surgeFeed [data-surge-details]').click();
       out.push(scan('(F991 Alert evidence)'));
@@ -2476,6 +2543,16 @@ const AUDIT = `<script>
         message + ': reading anchor ' + anchor.id + ' moved from ' + anchor.top
         + ' to ' + (row && row.getBoundingClientRect().top));
     }
+    function progressReflow(host, anchor) {
+      var bar = document.getElementById('loadBar');
+      var before = bar.getBoundingClientRect().height;
+      A.progressStage('Synthetic source progress with a long wrapped explanation. '.repeat(4),3,1,2);
+      require(Math.abs(bar.getBoundingClientRect().height - before) > 2,
+        'progress control did not change the global bar height');
+      retained(host, anchor, 'shared progress bar grew');
+      A.progressEnd();
+      retained(host, anchor, 'shared progress bar shrank');
+    }
     var stamp = Date.now() - 86400000;
     function observation(i, newer) {
       return {speciesCode:'verfly', comName:'Vermilion Flycatcher',
@@ -2566,6 +2643,7 @@ const AUDIT = `<script>
     require(document.querySelector('#spLookupResults [data-hero]') === loadedHero,
       'F904 a changed species title replaced the loaded portrait photo');
     retained(host, anchor, 'F903 changed species metadata without browser scroll anchoring');
+    progressReflow(host, anchor);
     release(newer.concat(rows));
     await lookup;
     retained(host, anchor, 'late source prepended newer reports');
@@ -2603,6 +2681,7 @@ const AUDIT = `<script>
       return {subId:row.subId, isoObsDate:row.obsDt, numSpecies:3, durationHrs:1};
     }).concat(patch));
     retained(host, anchor, 'Patch late-prepend refresh');
+    progressReflow(host, anchor);
     require(visible(host).length >= expanded.length + newer.length, 'Patch lost expanded prefix');
     var personal = logic.mergeSnapshot([{kind:'notable',src:'synthetic',
       rows:rows.slice(0,36)}]).map(function (row, i) {
@@ -2713,7 +2792,8 @@ const AUDIT = `<script>
   async function twitchRegression(out) {
     var A = window.__app, logic = window.BirdLogic, errors = [], measurements = [];
     var profileName = ${JSON.stringify(PROFILE)};
-    var result = {label:'(F908 production Twitches reading retention)', measurements:measurements};
+    var result = scan('(F908 production Twitches reading retention)');
+    result.measurements = measurements;
     out.push(result);
     var pause = function (ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); };
     var painted = function () { return new Promise(function (resolve) {
@@ -2724,7 +2804,11 @@ const AUDIT = `<script>
         if (fn()) return;
         await pause(30);
       }
-      throw new Error('F908 timeout: ' + label);
+      throw new Error('F908 timeout: ' + label + '; ' + JSON.stringify({
+        cards: host && cards(host).length, initialCards: before && before.length,
+        scrollY: window.scrollY, viewportHeight: window.innerHeight,
+        host: host && host.getBoundingClientRect().toJSON()
+      }));
     }
     function check(ok, label) { if (!ok) errors.push(label); }
     function cards(host) {
@@ -2770,7 +2854,10 @@ const AUDIT = `<script>
         geoNotableKm:logic.geoNotableDistKm(profile), speciesCodes:codes,
         rows:files, cv:A.computeChaseRows(profile,'wa',files,codes)};
     }
-    for (var mode of ['list','grouped','week']) {
+    var weekEnabled = document.getElementById('sec-activeBtn')._enabled !== false;
+    for (var mode of ['list','grouped','week'].filter(function (value) {
+      return value !== 'week' || weekEnabled;
+    })) {
       var rows = Array.from({length:45}, function (_, i) { return obs(i, false); });
       rows.forEach(function (row) {
         A.seedEbirdCache('product/checklist/view/' + row.subId,
@@ -2876,7 +2963,9 @@ const AUDIT = `<script>
       check(window.scrollY === 0 && !document.getElementById('sec-nvResults').hidden,
         mode + ': hidden refresh undid navigation');
     }
-    for (var groupedMode of ['grouped','week']) {
+    for (var groupedMode of ['grouped','week'].filter(function (value) {
+      return value !== 'week' || weekEnabled;
+    })) {
       A.setRarityInflight(null);
       A.setTwitchView('grouped');
       mode = 'expanded-' + groupedMode;
@@ -3304,6 +3393,97 @@ const AUDIT = `<script>
     out.push(scan('(F1102 complete annual-first evidence)'));
     details.querySelector('.sheetclose').click();
   }
+  async function refreshHitRegression(out) {
+    var A = window.__app, navigation = document.getElementById('navRegion');
+    var originalLabel = navigation.textContent;
+    var originalScale = document.documentElement.style.getPropertyValue('--s');
+    var originalA11y = document.documentElement.dataset.a11y;
+    var originalWidth = window.frameElement.style.width;
+    var panels = Array.from(document.querySelectorAll('section > h2 .refreshbtn'))
+      .filter(function (button) { return button.closest('section')._enabled !== false; });
+    if (panels.length < 20) throw new Error('F1140 refresh-menu enumeration is incomplete');
+    var override = document.createElement('style'), probes = 0, actions = 0, directActions = 0;
+    async function probe(label, exercise) {
+      var wrong = [];
+      for (var refresh of panels) {
+        var sec = refresh.closest('section');
+        A.showSection(sec.id, {load:false});
+        navigation.textContent = label;
+        window.scrollTo(0, 0);
+        await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+        var rect = refresh.getBoundingClientRect();
+        if (!rect.width || rect.top < 0 || rect.bottom > window.innerHeight)
+          throw new Error('F1140 refresh is not visibly testable: ' + sec.id);
+        var load = sec.querySelector(':scope > .row[hidden] button:not(.secondary):not(.pressbtn):not(.sortbtn):not([hidden])');
+        var direct = !load && /^(stakeHsRefresh|spLookupRefresh)$/.test(refresh.id);
+        if (direct) load = refresh;
+        if (!load) throw new Error('F1140 original refresh action missing: ' + sec.id);
+        var forwarded = 0, disabled = load.disabled;
+        function capture(event) {
+          forwarded++; event.preventDefault(); event.stopImmediatePropagation();
+        }
+        load.disabled = false;
+        load.addEventListener('click', capture, true);
+        try {
+          var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+          var points = [[cx, cy], [rect.left + 4, cy], [rect.right - 4, cy],
+            [cx, rect.top + 4], [cx, rect.bottom - 4]];
+          for (var point of points) {
+            var hit = document.elementFromPoint(point[0], point[1]);
+            probes++;
+            if (!hit || hit.closest('button') !== refresh) {
+              wrong.push({section:sec.id,point:point,hit:hit && (hit.id || hit.className)});
+              continue;
+            }
+            if (exercise) {
+              var before = forwarded;
+              hit.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,
+                clientX:point[0],clientY:point[1]}));
+              if (forwarded !== before + 1 || !document.getElementById('regionChooser').hidden)
+                throw new Error('F1140 tap did not exclusively refresh ' + sec.id);
+              if (direct) directActions++;
+              else actions++;
+            }
+          }
+        } finally {
+          load.removeEventListener('click', capture, true); load.disabled = disabled;
+        }
+      }
+      return wrong;
+    }
+    try {
+      for (var label of [originalLabel, 'Newfoundland and Labrador / Western coastal islands']) {
+        var failures = await probe(label, true);
+        if (failures.length) throw new Error('F1140 intercepted refresh taps: '
+          + JSON.stringify(failures.slice(0, 8)));
+      }
+      window.frameElement.style.width = '402px';
+      document.documentElement.style.setProperty('--s', '1.35');
+      document.documentElement.dataset.a11y = 'off';
+      override.textContent = '#navRegion { overflow: visible !important; }';
+      document.head.appendChild(override);
+      var mutant = await probe('Newfoundland and Labrador / Western coastal islands', false);
+      if (!mutant.length) throw new Error('F1140 unclipped mutation was not detected');
+    } finally {
+      override.remove();
+      navigation.textContent = originalLabel;
+      window.frameElement.style.width = originalWidth;
+      document.documentElement.style.setProperty('--s', originalScale);
+      document.documentElement.dataset.a11y = originalA11y;
+    }
+    var globe = navigation.getBoundingClientRect();
+    var globeHit = document.elementFromPoint(globe.left + globe.width / 2, globe.top + globe.height / 2);
+    if (!globeHit || globeHit.closest('button') !== navigation)
+      throw new Error('F1140 deliberate region button is not hit-testable');
+    globeHit.click();
+    if (document.getElementById('regionChooser').hidden)
+      throw new Error('F1140 deliberate globe tap did not open the chooser');
+    document.getElementById('regionChooserClose').click();
+    out.push(Object.assign(scan('(F1140 all-menu refresh hit targets)'), {
+      refreshHitTargets:{menus:panels.length,probes:probes,forwardedActions:actions,directActions:directActions,
+        mutationIntercepts:mutant.length,globeOpens:true}
+    }));
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
@@ -3332,6 +3512,10 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { annualFirstGroupRegression(out); }
       catch (error) { out.push({label:'(F1102 regression)',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await refreshHitRegression(out); }
+      catch (error) { out.push({label:'(F1140 regression)',fixtureError:String(error)}); }
     }
     try {
       var x = new XMLHttpRequest();
@@ -3592,6 +3776,13 @@ server.listen(0, '127.0.0.1', () => {
     if (!report.some((r) => r.approvedRelease)) {
       bad++;
       console.log('   F1040-F1055 FIXTURE missing populated approved-release geometry');
+    }
+    const refreshHits = report.find((r) => r.refreshHitTargets);
+    if (!refreshHits) {
+      bad++;
+      console.log('   F1140 FIXTURE missing all-menu refresh hit testing');
+    } else {
+      console.log('   F1140 HIT TARGETS ' + JSON.stringify(refreshHits.refreshHitTargets));
     }
     if (!report.some((r) => r.menuLayout)) {
       bad++;

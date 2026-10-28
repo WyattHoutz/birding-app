@@ -1168,7 +1168,7 @@
        list it opens stays legible. opacity:0 still receives taps. */
     .navregion { position: relative; flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: calc(38px * var(--s)); height: calc(38px * var(--s)); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
     .navregion .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
-    #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
+    #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; overflow: hidden; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     /* Beside the name, hard right. `margin-left: auto` rather than a fixed
        width, so a long region label ("Waikoloa / Big Island") grows leftwards
@@ -3786,7 +3786,7 @@
     </section>
 
     <section class="panel">
-      <h2>🦅 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
+      <h2>🐦 Nemesis birds <span class="dim" id="allUnseenRegionLabel"></span></h2>
       <span id="targetRegionLabel" hidden></span>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
@@ -4005,7 +4005,8 @@
         <button id="quickHereFind" class="secondary" type="button">Find</button>
         <button id="quickFindCancel" class="secondary" type="button">Cancel Find</button>
       </div>
-      <div id="quickStatus" class="status">The richest active eBird hotspots within 5 mi of Home (needs Home set).</div>
+      <div id="quickSpeciesScopeRow"></div>
+      <div id="quickStatus" class="status">Recently active eBird hotspots from a 32-km scan near Home, closest first (needs Home set).</div>
       <div id="quickMap"></div>
       <ul id="quickResults" class="obs dest"></ul>
     </section>
@@ -4192,15 +4193,15 @@
     </section>
 
     <section class="panel">
-      <h2>🐦 Common birds <span class="dim" id="easyRegionLabel"></span></h2>
+      <h2>🦅 Birds I Need <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
-        <button id="easyBtn">Find common birds</button>
+        <button id="easyBtn">Find birds I need</button>
       </div>
       <div id="easyStatus" class="status" role="status"></div>
       <div class="raritycontrols" id="easySortRow" hidden>
         <div class="raritycontrolrow rarityfilterrow raritysortrow" id="easyControls">
-          <span class="sortpick twopill" role="group" aria-label="Sort common birds">
+          <span class="sortpick twopill" role="group" aria-label="Sort birds I need">
             <button id="easyByDate" class="sortbtn" type="button" aria-pressed="true">Newest</button>
             <button id="easyByDist" class="sortbtn" type="button" aria-pressed="false">Nearest</button>
           </span>
@@ -4314,6 +4315,7 @@
         <option value="hide">Hide notification counts</option>
       </select>
       <p class="hint">Hides report-menu badges only. Bird Gen alerts, report counts and data loading stay unchanged.</p>
+      <div id="nemesisBadgeSettings" hidden>
       <label for="nemesisMenuBadge">Nemesis birds menu badge</label>
       <select id="nemesisMenuBadge">
         <option value="hide">Hide notification count (default)</option>
@@ -4321,6 +4323,7 @@
       </select>
       <p class="hint">Opt in to the Nemesis menu count. The global Hide notification counts setting still takes precedence. The tool and its data stay available.</p>
       <p id="nemesisMenuBadgeStatus" class="hint" role="status"></p>
+      </div>
       <label for="themeMode">Theme</label>
       <select id="themeMode">
         <option value="system">System</option>
@@ -4621,6 +4624,7 @@
   <script src="logic.js"></script>
   <script src="birdgen-notifications.js"></script>
   <script src="birdgen-twitches.js"></script>
+  <script src="birdgen-sensitive.js"></script>
   <script src="aba-regions.js"></script>
   <script src="ebird-events.js"></script>
   <script src="info-dialogs.js"></script>
@@ -4732,19 +4736,21 @@
   },
   {
     "at": "easyBtn",
-    "icon": "🐦",
-    "title": "Common birds",
-    "subtitle": "Common birds you still need",
+    "icon": "🦅",
+    "title": "Birds I Need",
+    "sectionTitle": "🦅 Birds I Need",
+    "subtitle": "Birds you still need",
     "needs": "county",
     "group": "Bird alerts"
   },
   {
     "at": "allUnseenBtn",
-    "icon": "🦅",
+    "icon": "🐦",
     "title": "Nemesis birds",
     "subtitle": "Closest unseen birds reported now",
     "needs": "county",
-    "group": "Bird alerts"
+    "group": "Bird alerts",
+    "enabled": false
   },
   {
     "at": "ppteBtn",
@@ -5160,7 +5166,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.174.0';
+      var APP_VERSION = '1.175.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8375,8 +8381,9 @@
         hydratePhotos(el);
       }
 
-      function mountNearbyProgressive(host, items, renderItem, afterAppend) {
+      function mountNearbyProgressive(host, items, renderItem, afterAppend, options) {
         if (!window.ProgressiveList) throw new Error('The progressive list control is unavailable.');
+        options = options || {};
         host.innerHTML = '';
         return ProgressiveList.mount({
           host: host,
@@ -8384,6 +8391,7 @@
           items: items || [],
           initialCount: 10,
           batchSize: 10,
+          autoLoad: options.autoLoad !== false,
           renderItem: renderItem,
           afterAppend: afterAppend
         });
@@ -12262,8 +12270,15 @@
           if (el && el.id === 'loadBar') host = document.querySelector(
             'section:not([hidden]) #results, section:not([hidden]) #activeResults');
           var list = host && host._twitchList, reading = list && list.capture();
+          var stakeout = el && el.id === 'loadBar' && window.scrollY
+            ? document.querySelector('section:not([hidden]) #spLookupRecent, '
+              + 'section:not([hidden]) #stakeHsResults') : null;
+          var stakeoutReading = stakeout && captureStakeoutReading(stakeout);
           try { return update(value); }
-          finally { if (list) list.restore(reading); }
+          finally {
+            if (list) list.restore(reading);
+            if (stakeout) restoreStakeoutReading(stakeout, stakeoutReading);
+          }
         };
       }
       function twitchList(host, context) {
@@ -13233,6 +13248,7 @@
         });
       }
       function loadAllUnseen() {
+        if ($('allUnseenBtn').closest('section')._enabled === false) return Promise.resolve(false);
         if (!personalTargetsReady('allUnseenBtn')) return Promise.resolve(false);
         if (!getKey()) { $('allUnseenStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         if ($('allUnseenRegionLabel')) $('allUnseenRegionLabel').textContent = '· ' + getReport().label;
@@ -15670,7 +15686,7 @@
         if (st) st.textContent = data.label + ' · ' + groups.length + ' species · '
           + (unknown.length ? personalUnknownLabel(unknown.length) + ' · ' : wantBirds
              ? needs.length + ' you need · '
-             : needs.length + ' you need (see Common birds / Nemesis birds) · ')
+             : needs.length + ' you need (see Birds I Need) · ')
           + hs.length + ' hotspots · '
           + (partial ? 'loading…' : 'fetched ' + fmtDateTime(new Date(data.at)));
       }
@@ -21862,6 +21878,7 @@
       var TAXONOMY_CHECK_MS = 30 * 86400000;
       var _taxonomyMeta = null, _taxonomyModel = null, _taxonomyPrevious = null;
       var _taxonomyUnresolved = {}, _taxonomyGeneration = 0, _taxonomyEpoch = 0;
+      var _taxonomyReferenceEpoch = 0;
       var _taxonomyEvidenceKey = '';
       var _canonicalParentSource, _canonicalParentModel, _canonicalParentUnresolved, _canonicalParentMap;
       var _namingGeneration = 0, _namingLocale = 'en', _namingNames = {};
@@ -21964,6 +21981,25 @@
         _canonicalParentMap = parents;
         return parents;
       }
+      function invalidateTaxonomyReferences(edition) {
+        function affected(path) {
+          if (/^product\/spplist\//.test(path)) return true;
+          if (!/^ref\/taxonomy\/ebird(?:\?|$)/.test(path)) return false;
+          var version = /[?&]version=([^&]+)/.exec(path);
+          return !version || decodeURIComponent(version[1]) === edition;
+        }
+        storeKeys('ebird_species_v3:' + edition + ':')
+          .concat(storeKeys('ebird_species_v2:')).forEach(function (key) {
+            localStorage.removeItem(key);
+          });
+        storeKeys(EB_REF_NS).forEach(function (key) {
+          if (affected(key.slice(EB_REF_NS.length))) localStorage.removeItem(key);
+        });
+        Object.keys(_ebCache).forEach(function (path) {
+          if (affected(path)) delete _ebCache[path];
+        });
+        _taxonomyReferenceEpoch++;
+      }
       function checkTaxonomyEdition(force) {
         var scope = activeScope(), generation = ++_taxonomyGeneration, epoch = _taxonomyEpoch;
         var work = cancellableWork('Taxonomy edition reference', 'settingsPanel');
@@ -21981,8 +22017,8 @@
         return ebird('ref/taxonomy/versions', true, !!force, !!force, work).then(function (versions) {
           if (!workCurrent(work)) throw queueCancelledError(work);
           var edition = BirdTaxonomy.latestEdition(versions);
-          if (_taxonomyModel && taxonomyEdition() === edition) return { model: _taxonomyModel, changed: false };
-          return taxonomyStore('get', 'identity:' + edition).then(function (cached) {
+          if (!force && _taxonomyModel && taxonomyEdition() === edition) return { model: _taxonomyModel, changed: false };
+          return (force ? Promise.resolve(null) : taxonomyStore('get', 'identity:' + edition)).then(function (cached) {
             if (cached && cached.schema === 1 && cached.edition === edition
                 && cached.byCode && Object.keys(cached.byCode).length >= 9000) {
               try {
@@ -21996,7 +22032,12 @@
               if (!Array.isArray(rows) || rows.length < 9000) throw new Error('Incomplete canonical taxonomy.');
               var model = BirdTaxonomy.create(rows, edition);
               return taxonomyStore('put', 'identity:' + edition, model).then(function () {
-                return { model: model, changed: edition !== taxonomyEdition() };
+                if (!workCurrent(work)) throw queueCancelledError(work);
+                _spuhCacheEpoch++;
+                return spuhCacheDelete(false, SPUH_CACHE_KEY + ':' + edition);
+              }).then(function (cleared) {
+                if (!cleared) throw new Error('The previous Stakeout taxonomy cache could not be refreshed.');
+                return { model: model, changed: edition !== taxonomyEdition(), refreshed: true };
               });
             });
           });
@@ -22007,13 +22048,16 @@
             previousEdition: loaded.changed && previous ? previous.edition
               : _taxonomyMeta && _taxonomyMeta.previousEdition || '' };
           localStorage.setItem(TAXONOMY_META_KEY, JSON.stringify(meta));
-          if (loaded.changed) {
-            _taxonomyPrevious = previous;
+          if (loaded.changed || loaded.refreshed) {
             _taxonomyUnresolved = {};
             _taxonomyEvidenceKey = '';
             _spuhCacheEpoch++;
             _spuhModel = null;
             _spuhModelPromise = null;
+          }
+          if (loaded.refreshed) invalidateTaxonomyReferences(loaded.model.edition);
+          if (loaded.changed) {
+            _taxonomyPrevious = previous;
             if (previous) _namingGeneration++;
             _namingLocale = 'en';
             _namingNames = {};
@@ -22310,7 +22354,7 @@
       }
 
       function loadSpeciesIndex(region) {
-        var key = speciesCacheKey(region), edition = taxonomyEdition();
+        var key = speciesCacheKey(region), edition = taxonomyEdition(), referenceEpoch = _taxonomyReferenceEpoch;
         try {
           var c = JSON.parse(localStorage.getItem(key) || 'null');
           if (c && c.at && (Date.now() - c.at) < SPECIES_TTL_MS
@@ -22342,7 +22386,9 @@
           return pool(chunks, 3, function (ch) {
             return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')), true)
               .then(function (list) {
-                if (edition !== taxonomyEdition()) throw new Error('Taxonomy edition changed; retry the regional index.');
+                if (edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
+                  throw new Error('Taxonomy reference changed; retry the regional index.');
+                }
                 (list || []).forEach(function (t) {
                   // bandingCodes/comNameCodes were being thrown away. eBird sends
                   // them in the SAME response, so keeping them costs nothing and is
@@ -22355,7 +22401,9 @@
                 });
               }).catch(function () { failed = true; });
           }).then(function () {
-            if (edition !== taxonomyEdition()) throw new Error('Taxonomy edition changed; retry the regional index.');
+            if (edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
+              throw new Error('Taxonomy reference changed; retry the regional index.');
+            }
             if (failed || rows.length !== all.length) {
               throw new Error('eBird returned an incomplete regional taxonomy.');
             }
@@ -27280,12 +27328,8 @@
         });
       }
 
-      // --- Quick outing (best hotspots within an impulse detour) ---
-      // Mirrors report.section_quick_outing: the section is for a spontaneous
-      // few-minute outing, so the five-mile radius is a hard promise and the
-      // list READS closest-first. Every active hotspot inside the boundary
-      // participates; the progressive list shows the closest ten first.
-      var QUICK_OUTING_MAX_MI = 5;
+      // Nearby uses the existing API circle, not a second five-mile cut.
+      var QUICK_OUTING_SCAN_KM = 32;
       // Quick outing ranks all-time-rich hotspots, so its local evidence must
       // be wider than the 3-day "what is here today" correction used by chase
       // cards. The date stays on each species row, and the card labels this
@@ -27314,13 +27358,13 @@
         });
         all = uniq;
         var near = all.filter(function (h) {
-          return h.dist != null && h.dist <= QUICK_OUTING_MAX_MI;
+          return h.dist != null && isFinite(h.dist);
         });
         near.sort(function (a, b) {
           var da = a.dist == null ? Infinity : a.dist, db = b.dist == null ? Infinity : b.dist;
           return da - db;
         });
-        near.radiusMi = QUICK_OUTING_MAX_MI;
+        near.radiusMi = QUICK_OUTING_SCAN_KM / 1.609344;
         return near;
       }
 
@@ -27335,13 +27379,51 @@
       var _anchorResolveGeneration = 0;
       var _anchorResolvePromise = null;
       var _quickPaintRows = [], _quickPaintAnchor = null, _quickPaintFreshness = '';
+      var _quickSpeciesScope = 'all';
       function quickStatusText(rows, anchor, freshness) {
         rows = rows || [];
         return rows.length + ' hotspot' + (rows.length === 1 ? '' : 's')
-          + ' within ' + (rows.radiusMi || 0) + ' mi of '
+          + ' near '
           + ((anchor && anchor.label) || 'the selected place')
-          + ' \u00b7 closest first'
+          + ' \u00b7 ' + QUICK_OUTING_SCAN_KM + '-km scan \u00b7 closest first'
           + (freshness || (' \u00b7 updated ' + nowTime()));
+      }
+      function renderQuickSpeciesScope() {
+        var host = $('quickSpeciesScopeRow');
+        host.innerHTML = ToggleControls.group({
+          id: 'quickSpeciesScope', cls: 'raritypick', label: 'Filter Nearby patches',
+          options: ['all', 'unseen'].map(function (value) {
+            return { label: value === 'all' ? 'All' : 'Unseen', cls: 'rarityfilterbtn',
+              data: { quickscope: value }, pressed: _quickSpeciesScope === value };
+          })
+        });
+        host.onclick = function (event) {
+          var button = event.target.closest('[data-quickscope]');
+          if (!button) return;
+          _quickSpeciesScope = button.getAttribute('data-quickscope');
+          renderQuickSpeciesScope();
+          applyQuickSpeciesScope();
+        };
+      }
+      function applyQuickSpeciesScope() {
+        var results = $('quickResults'), cards = [].slice.call(results.querySelectorAll('[data-hsloc]'));
+        if (!cards.length) return;
+        var isSeen = seenResolver();
+        cards.forEach(function (card) {
+          var count = card.getAttribute('data-unseen-n'), hasTargets = Number(count) > 0;
+          if (count === null) {
+            try {
+              hasTargets = JSON.parse(card.getAttribute('data-scored') || '[]')
+                .some(function (row) { return isSeen(row.code, row.name) === false; });
+            } catch (error) { hasTargets = false; }
+          }
+          card.hidden = _quickSpeciesScope === 'unseen' && !hasTargets;
+        });
+        var visible = visibleNearbyCards(results);
+        nearbyMapFromCards($('quickMap'), visible, _quickPaintAnchor);
+        $('quickStatus').textContent = quickStatusText(_quickPaintRows, _quickPaintAnchor, _quickPaintFreshness)
+          + (_quickSpeciesScope === 'unseen' ? ' \u00b7 ' + visible.length
+            + ' loaded patches with confirmed unseen/WATCH targets' : '');
       }
       var quickFound = null;  // a geocoded place, this session only
       var QUICK_CACHE_NS = 'ebird_quick_hotspots_v1:';
@@ -27354,7 +27436,7 @@
           getReportSlug(),
           isFinite(lat) ? lat.toFixed(5) : '',
           isFinite(lng) ? lng.toFixed(5) : '',
-          32,
+          QUICK_OUTING_SCAN_KM,
           30
         ].join(':');
       }
@@ -27799,8 +27881,8 @@
             _quickPaintFreshness = freshness || '';
             results.innerHTML = '';
             map.innerHTML = '';
-            st.textContent = freshness || ('No recently active eBird hotspots within '
-              + QUICK_OUTING_MAX_MI + ' mi of '
+            st.textContent = freshness || ('No recently active eBird hotspots in the '
+              + QUICK_OUTING_SCAN_KM + '-km scan near '
               + a.label + '.');
             return Promise.resolve(top);
           }
@@ -27823,7 +27905,7 @@
             });
           }
           function repaintQuickMap() {
-            nearbyMapFromCards($('quickMap'), visibleNearbyCards(results), a);
+            if (current()) applyQuickSpeciesScope();
           }
           var hydration = Promise.resolve();
           mountNearbyProgressive(results, top, renderQuickCard, function () {
@@ -27838,7 +27920,7 @@
             }).catch(function (e) {
               dbg('warn', 'quick outing hotspots: ' + ((e && e.message) || e));
             });
-          });
+          }, { autoLoad: false });
           repaintQuickMap();
           return hydration.then(function () { return top; });
         }
@@ -27852,7 +27934,7 @@
             paint(cached.rows, cachedStatus(cached, false));
           }
           return ebird('ref/hotspot/geo?lat=' + a.lat + '&lng=' + a.lng
-            + '&dist=32&back=30&fmt=json');
+            + '&dist=' + QUICK_OUTING_SCAN_KM + '&back=30&fmt=json');
         }).then(function (hs) {
           if (!current() || hs == null) return null;
           zcPut(cacheKey, { t: Date.now(), rows: Array.isArray(hs) ? hs : [] });
@@ -35378,32 +35460,35 @@
           var fresh = !snapshot.forecastError && updatedAt > 0
             && now.getTime() >= updatedAt && now.getTime() - updatedAt < BIRDCAST_REFRESH_MS
             && forecastDate === birdcastIsoDate(birdcastLocalParts(now, report));
-          var title = fresh ? level + ' migration tonight'
-            : 'Saved ' + level + ' forecast - ' + birdcastDateLabel(forecastParts);
+          var title = level + ' migration forecast for ' + county;
+          var lastNight = birdcastIsoDate(birdcastShiftDate(
+            birdcastLocalParts(now, report), -1));
           var estimate = validCount
-            ? countEstimate + ' crossed ' + county + ' · ' + countPeriod
+            ? birdcastMillions(count.birds) + (countDate === lastNight
+              ? ' last night' : ' on ' + birdcastDateLabel(countParts))
             : 'Measured-night count unavailable';
           rows.push({
             kind: 'migration',
             icon: birdcastLevelTile(snapshot),
             notificationKey: 'migration-forecast:' + forecastDate,
             name: '<a class="seclink" data-sec="sec-bcBody">' + esc(title)
-              + ' · ' + esc(birdcastTonightRange(forecastParts))
               + '</a><br><span>' + esc(estimate) + '</span>',
             alpha: '',
             where: '',
             when: new Date(referenceTime).toISOString(),
             time: referenceTime,
             ageTime: 0,
-            ageLabel: fresh ? 'Tonight' : 'Saved forecast',
+            ageLabel: fresh ? 'Current' : 'Saved',
             omitWhen: true,
             noteHeader: 'MIGRATION: Forecast source night ' + forecastDate,
             why: esc(title) + '. Forecast - not a sighting; migration expected between dusk and dawn. Forecast source night: ' + esc(forecastDate)
               + (fresh ? '.' : '; saved evidence, not a current forecast.'),
-            extra: '<span class="dim">migration expected between dusk and dawn. '
+            extra: '<span class="dim">Forecast - not a sighting; migration expected between dusk and dawn. '
+              + 'Forecast night ' + esc(birdcastTonightRange(forecastParts)) + '. '
               + esc(freshness('Forecast', updatedAt, snapshot.forecastError))
               + (validCount ? ' ' + esc('Measured source night '
-                + countDate + '; separate from the forecast.')
+                + countDate + '; ' + birdcastMillions(count.birds)
+                + ' estimated, separate from the forecast total.')
                 + ' ' + esc(freshness('Count', count.fetchedAt || snapshot.fetchedAt, snapshot.countError)) : '')
               + '</span>'
           });
@@ -36089,12 +36174,12 @@
       }
       function easyCountyForAnchor(anchor, work) {
         if (!anchor || !isFinite(anchor.lat) || !isFinite(anchor.lng)) {
-          return Promise.reject(new Error('Choose Home, Here, or Find… before loading Common birds.'));
+          return Promise.reject(new Error('Choose Home, Here, or Find… before loading Birds I Need.'));
         }
         return gbifCountyRegion(anchor.lat, anchor.lng).then(function (region) {
           var abbr = region && _US_STATES[region.state];
           if (!region || !abbr) {
-            throw new Error('Common birds could not identify the county at this location.');
+            throw new Error('Birds I Need could not identify the county at this location.');
           }
           var parent = 'US-' + abbr;
           var path = 'ref/region/list/subnational2/' + encodeURIComponent(parent);
@@ -36758,7 +36843,7 @@
       function easyDiscoveryPlan(anchor, radiusMi) {
         if (!anchor || !isFinite(anchor.lat) || !isFinite(anchor.lng)
             || !isFinite(radiusMi) || radiusMi <= 0) {
-          throw new Error('Choose Home, Here, or Find before loading Common birds.');
+          throw new Error('Choose Home, Here, or Find before loading Birds I Need.');
         }
         var wanted = radiusMi * 1.609344;
         // Three 50-km circles cover a disk of radius 100/sqrt(3).
@@ -36850,7 +36935,7 @@
         more.disabled = state.busy;
         more.textContent = 'Find more places for ' + Math.min(EASY_PLACE_BATCH, remaining)
           + ' more birds';
-        $('easyStatus').textContent = (saved ? 'Saved reports'
+        var detail = (saved ? 'Saved reports'
           + (Date.now() - state.at >= EB_CACHE_MS ? ' (stale)' : '') + '; ' : '')
           + easyReportRows(rows).length + ' bird/place targets; last '
           + EASY_OPPORTUNITY_DAYS + ' days; ' + state.geoDone + '/'
@@ -36865,6 +36950,12 @@
           + (state.failures ? '; partial: ' + state.failures + ' requests unavailable; Retry refresh' : '')
           + (state.busy ? '; checking more places' : '')
           + (state.at ? '; discovery acquired ' + fmtDateTime(new Date(state.at)) : '');
+        setSectionNote($('easyBtn').closest('section'), '<p>' + esc(detail) + '</p>',
+          !!(state.capped || state.failures));
+        $('easyStatus').textContent = state.failures
+          ? 'Some reports unavailable; Retry refresh.'
+          : state.busy ? 'Checking more places…'
+          : saved ? 'Saved reports' + (Date.now() - state.at >= EB_CACHE_MS ? ' (stale).' : '.') : '';
         _birdReportDisplayRefresh.easy = function () {
           if (easyOpportunityCurrent(state)) paintEasyOpportunities(state, saved);
         };
@@ -37007,7 +37098,7 @@
               }, Promise.resolve());
             }).then(function () {
               if (!easyOpportunityCurrent(state)) throw queueCancelledError(state.work);
-              if (!state.geoDone) throw new Error('All Common birds discovery feeds are unavailable. Retry refresh.');
+              if (!state.geoDone) throw new Error('All Birds I Need discovery feeds are unavailable. Retry refresh.');
               state.discoveryFinished = true;
               paintEasyOpportunities(state);
               return easyFindMorePlaces(force).then(function () {
@@ -37016,7 +37107,7 @@
             });
         }).catch(function (e) {
           if (easyOpportunityCurrent(state)) {
-            st.textContent = 'Common birds refresh unavailable. Retry refresh. ' + netErr(e);
+            st.textContent = 'Birds I Need refresh unavailable. Retry refresh. ' + netErr(e);
           }
           return false;
         }).finally(function () {
@@ -41248,7 +41339,7 @@
         var k = SURGE_KINDS[a.kind], reason = surgeReasonMeta(a), data = {
           'alert-kind': a.kind,
           'surge-priority': k.priority,
-          'surge-latest': surgeTimeValue(a.when),
+          'surge-latest': a.kind === 'sensitive' ? a.time : surgeTimeValue(a.when),
           'surge-age-time': ageTime || 0,
           'surge-age-label': ageLabel,
           'surge-order': order,
@@ -41267,7 +41358,8 @@
         if (a.kind !== 'twitch' && /outside (?:your )?chase (?:area|radius)/i.test(evidenceText.textContent)) {
           warnings.push('Outside chase area');
         }
-        if (a.kind === 'migration' && /tonight|forecast|expected/i.test(headline.replace(/<[^>]*>/g, ''))) {
+        if (a.kind === 'migration' && !/^migration-forecast:/.test(a.notificationKey || '')
+            && /tonight|forecast|expected/i.test(headline.replace(/<[^>]*>/g, ''))) {
           warnings.push('Forecast - not a sighting');
         }
         if (a.kind === 'foy') warnings.push('Annual first - not current presence');
@@ -42165,32 +42257,100 @@
         return 'https://ebird.org/region/' + encodeURIComponent(region)
           + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
       }
-      function birdGenSensitiveRows(source, now) {
+      var _sensitiveHistoryStatus = '';
+      var _sensitiveClock = null;
+      function sensitiveJournalKey() {
+        return 'bc_sensitive_v1:' + activeScope().effectiveRegion;
+      }
+      function birdGenSensitiveJournal(source, now) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var scope = activeScope(), report = getReport();
-        if (!source || source.source !== 'highCountPage'
-            || source.sourceOwner !== surgeRetainedContext()
-            || source.sourceRegion !== scope.effectiveRegion
-            || !Array.isArray(source.sensitiveRows)
-            || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(source.sourceMonth || '')
-            || !(source.acquiredAt > 0) || source.acquiredAt > now.getTime()) return [];
-        function monthAt(date) {
-          var parts = birdcastLocalParts(date, report);
-          return parts.year + '-' + String(parts.month).padStart(2, '0');
+        var key = sensitiveJournalKey(), raw, previous = null;
+        try { raw = localStorage.getItem(key); }
+        catch (error) {
+          _sensitiveHistoryStatus = 'Sensitive alert history is unavailable; new alerts withheld.';
+          dbg('warn', _sensitiveHistoryStatus + ' ' + storageErrorName(error));
+          return [];
         }
-        if (source.sourceMonth !== monthAt(now)
-            || source.sourceMonth !== monthAt(new Date(source.acquiredAt))) return [];
-        var period = new Date(source.sourceMonth + '-01T12:00:00Z').toLocaleDateString('en-US', {
-          month: 'long', year: 'numeric', timeZone: 'UTC'
+        if (raw != null) {
+          try { previous = JSON.parse(raw); }
+          catch (error) { previous = { damaged:true }; }
+          if (previous == null) previous = { damaged:true };
+        }
+        var options = {
+          now:now.getTime(), region:scope.effectiveRegion, owner:surgeRetainedContext(),
+          monthAt:function (time) {
+            var parts = birdcastLocalParts(new Date(time), report);
+            return parts.year + '-' + String(parts.month).padStart(2, '0');
+          }
+        };
+        var result = window.BirdGenSensitive.evaluate(previous, source, options);
+        if (result.changed) {
+          var serialized = JSON.stringify(result.journal), stored = false;
+          try {
+            stored = storeWithReclaim(key, serialized) && localStorage.getItem(key) === serialized;
+          } catch (error) {
+            dbg('warn', 'Sensitive alert history verification failed: ' + storageErrorName(error));
+          }
+          if (!stored) {
+            _sensitiveHistoryStatus = 'Sensitive alert history was not saved; new alerts withheld. Refresh to retry.';
+            dbg('warn', _sensitiveHistoryStatus);
+            return window.BirdGenSensitive.visible(previous, options);
+          }
+          _sensitiveHistoryStatus = '';
+        }
+        return result.alerts;
+      }
+      function armSensitiveClock(alerts, now) {
+        clearTimeout(_sensitiveClock);
+        _sensitiveClock = null;
+        if (!alerts.length || _appUnloading) return;
+        var local = birdcastLocalParts(new Date(now), getReport());
+        var next = local.month === 12 ? {year:local.year + 1,month:1,day:1}
+          : {year:local.year,month:local.month + 1,day:1};
+        var deadline = birdcastLocalTimeMs(next, 0, getReport());
+        alerts.forEach(function (alert) {
+          deadline = Math.min(deadline, alert.expiresAt,
+            alert.firstDetectedAt + (Math.floor((now - alert.firstDetectedAt) / 60000) + 1) * 60000);
         });
-        var used = Object.create(null);
-        return source.sensitiveRows.filter(function (bird) {
-          if (!bird || !/^[a-z0-9]+$/.test(bird.code || '')
-              || bird.region !== scope.effectiveRegion || typeof bird.name !== 'string'
-              || !bird.name.trim() || used[bird.code]) return false;
-          used[bird.code] = true;
-          return true;
-        }).map(function (bird) {
+        _sensitiveClock = setTimeout(sensitiveClockTick, Math.max(1, deadline - now));
+      }
+      function sensitiveClockTick() {
+        clearTimeout(_sensitiveClock);
+        _sensitiveClock = null;
+        var model = _recentBirdGenModel;
+        if (_appUnloading || !model || model.context !== recentBirdGenKey()) return;
+        var now = Date.now(), alerts = birdGenSensitiveJournal(null, now);
+        var active = Object.create(null);
+        alerts.forEach(function (alert) { active[alert.code] = alert; });
+        var expired = false;
+        var rows = $('surgeResults').querySelectorAll('[data-alert-kind="sensitive"]');
+        [].forEach.call(rows, function (row) {
+          var alert = active[row.getAttribute('data-sensitive-species')];
+          if (!alert || alert.sourceMonth !== row.getAttribute('data-source-month')) {
+            expired = true;
+            return;
+          }
+          row.querySelector('.surgeage').textContent = surgeAgeParts(alert.firstDetectedAt).main;
+        });
+        if (expired) renderSurge.apply(null, model.args);
+        else {
+          updateRecentBirdGen();
+          armSensitiveClock(alerts, now);
+        }
+      }
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) sensitiveClockTick();
+      });
+      window.addEventListener('pageshow', sensitiveClockTick);
+      function birdGenSensitiveRows(now) {
+        now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
+        var alerts = birdGenSensitiveJournal(null, now);
+        armSensitiveClock(alerts, now.getTime());
+        return alerts.map(function (bird) {
+          var period = new Date(bird.sourceMonth + '-01T12:00:00Z').toLocaleDateString('en-US', {
+            month:'long',year:'numeric',timeZone:'UTC'
+          });
           var url = speciesUrl(bird.code, bird.region || null);
           var area = rankRegionName(bird.region);
           if (/^US-[A-Z]{2}-\d{3}$/.test(bird.region) && area !== bird.region
@@ -42207,19 +42367,19 @@
               + '<a class="extlink sensitive-region-link" href="' + esc(areaUrl)
               + '" data-href="' + esc(areaUrl) + '">' + esc(areaLabel) + '</a>'
               + ' in ' + esc(period),
-            notificationKey: 'sensitive:' + bird.region + ':' + source.sourceMonth + ':' + bird.code,
-            time: 0, ageTime: 0, ageLabel: period, omitWhen: true,
+            notificationKey: bird.notificationKey,
+            time: bird.firstDetectedAt, ageTime: bird.firstDetectedAt, omitWhen: true,
             when: '', alpha: '',
             where: 'eBird regional monthly list - ' + esc(period),
             noteHeader: 'SENSITIVE: ' + bird.name + ' reported in ' + area + ' this month.',
             why: 'Sensitive species; exact observation date and location withheld by eBird.',
             extra: 'Sensitive species; exact observation date and location withheld by eBird. '
-              + 'Source calendar month: ' + esc(period) + '. Acquired '
-              + esc(new Date(source.acquiredAt).toLocaleString())
-              + (source.state === 'stale' || source.state === 'failed'
-                ? '; saved source evidence, not a fresh acquisition.' : '.'),
+              + 'Source calendar month: ' + esc(period) + '. First detected by the app: '
+              + esc(new Date(bird.firstDetectedAt).toLocaleString())
+              + '. Visible for 24 hours; monthly record retained to prevent repeats.',
             data: { 'sensitive-species': bird.code, 'sensitive-region': bird.region,
-              'source-month': source.sourceMonth, 'source-acquired-at': source.acquiredAt }
+              'source-month': bird.sourceMonth, 'source-acquired-at': bird.acquiredAt,
+              'first-detected-at':bird.firstDetectedAt, 'expires-at':bird.expiresAt }
           };
         });
       }
@@ -43081,6 +43241,13 @@
           pageRows = rowCoverage.total;
           diagnostics.unusableHighCountRows = rowCoverage.rejected;
           var unverifiedSensitivePeriod = rowCoverage.sensitiveRows.length && !rowCoverage.sourceMonth;
+          birdGenSensitiveJournal({
+            source:'highCountPage', sourceOwner:surgeRetainedContext(),
+            sourceRegion:scope.effectiveRegion, sourceMonth:rowCoverage.sourceMonth,
+            acquiredAt:acquiredAt, acquired:true, sensitiveRows:rowCoverage.sensitiveRows,
+            inventoryComplete:rowCoverage.rejected === 0,
+            state:rowCoverage.rejected || unverifiedSensitivePeriod ? 'partial' : 'ok'
+          }, acquiredAt);
           if (unverifiedSensitivePeriod) {
             dbg('warn', 'Sensitive species source month could not be verified; no monthly cards published.');
           }
@@ -43500,8 +43667,9 @@
         var migrationNow = new Date();
         var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
           .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot))
-          .concat(birdGenSensitiveRows(sourceState && sourceState.massSource, migrationNow));
+          .concat(birdGenSensitiveRows(migrationNow));
         var diagnostics = [surgeSourceWarning(sourceStates)];
+        if (_sensitiveHistoryStatus) diagnostics.push(_sensitiveHistoryStatus);
         var ppteRows = sourceState && sourceState.ppteRows || [];
         var twitchRows = sourceState && sourceState.twitchRows || [];
         if (_twitchTracking.key === twitchJournalKey() && _twitchTracking.status) {
@@ -43944,7 +44112,7 @@
         });
 
         rows.forEach(function (row) {
-          row.time = surgeTimeValue(row.when);
+          row.time = row.kind === 'sensitive' ? row.ageTime : surgeTimeValue(row.when);
           row.mega = row.kind === 'mega'
             || isMegaBird(row.speciesKey || row.code, row.speciesNameKey);
         });
@@ -46275,7 +46443,7 @@
         }
       }
       function autoLoad(sec) {
-        if (_appUnloading || !window.document || !sec || _autoLoaded[sec.id]) return;
+        if (_appUnloading || !window.document || !sec || sec._enabled === false || _autoLoaded[sec.id]) return;
         var spec = sec._loader;
         if (!spec || !spec.fn) return;
         // Release mockups paint deterministic fixtures into the real result
@@ -47579,7 +47747,7 @@
         return window.BirdInfoDialogs.sectionNoteHtml(warning, esc);
       }
       function toggleSectionDoc(sec) {
-        if (sec._at === 'massBtn' || sec._at === 'ppteBtn') {
+        if (sec._at === 'massBtn' || sec._at === 'ppteBtn' || sec._at === 'easyBtn') {
           return loadSectionDocs().then(function (docs) {
             if (!docs[sec._at]) throw new Error('Event-feed calculation notes are unavailable.');
             showInfoSheet('event-feed', {
@@ -47628,7 +47796,7 @@
         if (!h2 || sec.querySelector('.docbtn')) return;
         var btn = document.createElement('button');
         btn.type = 'button'; btn.className = 'docbtn'; btn.textContent = '\u2139';
-        if (['surgeBtn', 'massBtn', 'ppteBtn'].indexOf(sec._at) >= 0) {
+        if (['surgeBtn', 'massBtn', 'ppteBtn', 'easyBtn'].indexOf(sec._at) >= 0) {
           btn.setAttribute('aria-haspopup', 'dialog');
         }
         else btn.setAttribute('aria-expanded', 'false');
@@ -48420,7 +48588,7 @@
       function menuShortcutKeys() {
         try {
           var raw = localStorage.getItem(MENU_SHORTCUTS_KEY);
-          if (raw === null) return ['destBtn', 'refreshBtn', 'myYearBody'];
+          if (raw === null) return ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'];
           var keys = JSON.parse(raw);
           if (!Array.isArray(keys)) throw new Error('Invalid shortcuts');
           var valid = keys.filter(function (key, index) {
@@ -48431,7 +48599,7 @@
           return valid;
         } catch (e) {
           dbg('warn', 'Menu shortcuts: saved preferences unavailable; using defaults');
-          return ['destBtn', 'refreshBtn', 'myYearBody'];
+          return ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'];
         }
       }
       function renderMenuShortcuts(list) {
@@ -49305,6 +49473,10 @@
 
       function showSection(id) {
         var options = arguments[1] || {};
+        if ($(id) && $(id)._enabled === false) {
+          showMenu();
+          return false;
+        }
         if (id !== 'settingsPanel' && !$('settingsPanel').hidden) cancelHomeLookup();
         if (id === 'settingsPanel' && _birdGenNotifyInitialised) updateBirdGenNotifications(false);
         if (id === 'sec-surgeBtn') resetSurgeCategory();
@@ -52195,6 +52367,7 @@
       $('tripBtn').addEventListener('click', loadTripPlanner);
       $('cklBtn').addEventListener('click', loadChecklists);
       $('recentBtn').addEventListener('click', loadRecentChecklists);
+      renderQuickSpeciesScope();
       $('quickBtn').addEventListener('click', function () { resetTransientAnchor(); loadQuickOuting('home'); });
       $('quickFindCancel').addEventListener('click', closeTemporaryFind);
       $('quickHereBtn').addEventListener('click', quickUseHere);
@@ -53373,6 +53546,10 @@
         massNews: massNews, massArrivalEvidence: massArrivalEvidence,
         enrichMassArrivals: enrichMassArrivals,
         parseMassHighCountPage: parseMassHighCountPage,
+        birdGenSensitiveJournal: birdGenSensitiveJournal,
+        birdGenSensitiveRows: birdGenSensitiveRows,
+        sensitiveJournalKey: sensitiveJournalKey,
+        sensitiveClockTick: sensitiveClockTick,
         buildMassHighCountInject: buildMassHighCountInject,
         loadMassFlockAlertSource: loadMassFlockAlertSource,
         loadFavoritePatchAlertSource: loadFavoritePatchAlertSource,

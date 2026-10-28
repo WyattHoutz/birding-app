@@ -333,19 +333,18 @@
       ],
       "how": [
         "Pick the anchor — home, your current location, or a place you search for. Home is the default, which is what the Markdown report uses.",
-        "All shows the local hotspots scored on all-time species with a distance decay, so a 40-species puddle two minutes away does not beat a real site.",
-        "Unseen switches to the closest-patches target pipeline: it removes birds already on your list, applies chaseability rules, clusters nearby reports, and ranks places by distance.",
-        "But the LIST IS SORTED BY DISTANCE, not by score: score decides which spots make the cut, proximity decides the order.",
-        "The radius starts at 5 mi and widens to 10 then 15 rather than print an empty section in a sparse region.",
-        "Hotspots birded in the last 10 days are penalised but not removed.",
+        "The app sorts every acquired hotspot by distance, with no second five-mile result cutoff. Its existing 32-km scan covers about 20 miles; it does not widen acquisition.",
+        "Unseen filters the loaded patches to places with confirmed unseen or explicit WATCH targets, using the same local species evidence as All. Seen-only and taxonomically unverified history do not qualify.",
+        "The app initially shows 10 places; load more deliberately to check up to 10 additional places per click. Scrolling does not load another batch.",
+        "The archived Markdown report retains its five-mile, closest-ten snapshot rather than the app's interactive scan and filter.",
         "In All mode, a hotspot already present in Today's patches reuses that section's scored unseen rows; otherwise the card hydrates unseen and seen species from the place's last 30 days, with the wider local-history window labelled and each row keeping its report date.",
         "A successful directory read replaces the matching on-device fallback. An unavailable refresh retains that exact anchor's cached cards and says so in text."
       ],
       "limits": [
-        "The place ranking is about all-time richness, not a claim that every listed bird is present today. The app's species list is recent local evidence, not a live forecast.",
-        "Unseen applies the chaseability gate: explicitly private, restricted, or no-public-access locations are excluded unless the stakeout evidence qualifies them.",
+        "Unseen describes targets found among loaded patches, not an exhaustive search of every acquired place. Load more to check the remaining places.",
+        "Public hotspot evidence does not grant access to private or restricted land. Existing access, crossing/ferry classifications and separate chase/alert settings are unchanged.",
         "In the app the origin is yours to choose, so the rows can differ from the Markdown report, which can only ever rank from a fixed anchor.",
-        "Both views initially show 10 places and reveal more in batches; the map contains exactly the places currently visible in the list."
+        "The map contains exactly the places currently visible in the list; switching All/Unseen retains deliberately expanded cards."
       ]
     },
     "excBtn": {

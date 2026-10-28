@@ -199,20 +199,12 @@
       "sub": "Saved hotspots"
     },
     {
-      "at": "allUnseenBtn",
-      "label": "🦅 Nemesis birds",
-      "report": "## 🦅 Nemesis birds — Closest unseen birds reported now",
-      "map": null,
-      "why": "F474 consolidates Open targets and the proposed Closest unseen birds report into one bird-first current-sightings report. Every unseen report is collapsed to one row per species-per-place at 250 m and species are ranked nearest first. It remains mapless because every place row links its hotspot and checklist directly.",
-      "sub": "Closest unseen birds reported now"
-    },
-    {
       "at": "easyBtn",
-      "label": "🐦 Common birds",
+      "label": "🦅 Birds I Need",
       "report": "## 🐦 Common birds — Common birds you still need",
       "map": null,
-      "why": "F474 gives the historical prevalence report the literal name Common birds. It answers what commonly reported species are still absent from the year list, which is distinct from Nemesis birds' current nearby reports.",
-      "sub": "Common birds you still need"
+      "why": "F1145/F1146 rename and re-icon the app-only opportunity presentation as Birds I Need. The archived report keeps its Common birds historical-prevalence heading and policy; stable app destination and personal eligibility are unchanged.",
+      "sub": "Birds you still need"
     },
     {
       "at": "nvResults",
@@ -281,10 +273,12 @@
     "## 📅 Year-to-date ABA rarities": "BACKLOG: rarity-tracker-only archive of the whole year; the app shows the live ABA alert instead",
     "## 🚨 Twitches this week — Rarities this week": "F452: the app combines today's checklist list and the weekly bird/place grouping behind one Twitches — Rare Bird Alerts menu item; refreshBtn maps to the report's today heading and this second report heading is deliberately represented by the same unified app surface",
     "## 🛬 On passage — What’s arriving and leaving": "F642: the app merges On passage, Due back soon, and Nightly Migration into the one Migration screen; the archived report keeps its separately generated On passage section",
-    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it"
+    "## 🧭 Trip planner": "switched off behind a feature flag (enabled: false) pending a redesign - the code, the panel and the loader are all intact, so this is a hidden section rather than a removed one, and the report still emits it",
+    "## 🦅 Nemesis birds — Closest unseen birds reported now": "F1143 temporarily disables this app tool with enabled: false while preserving its implementation and saved data; the archived report remains unchanged"
   },
   "menuOmittedAts": [
     "activeBtn",
+    "allUnseenBtn",
     "tripBtn",
     "scoutBtn",
     "dueBackBtn",

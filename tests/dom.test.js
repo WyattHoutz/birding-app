@@ -917,10 +917,35 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
     while (heading && !heading.classList.contains('tocgroup')) heading = heading.previousElementSibling;
     assert.equal(heading?.textContent, 'Bird alerts');
     assert.deepEqual(menuGroupIds(app, 'Bird alerts'),
-      ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'allUnseenBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
+      ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
     assert.equal(app.document.querySelectorAll(ORIGINAL_MENU + '[data-at="easyBtn"]').length, 1);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="activeBtn"]'), null);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+  } finally { app.window.close(); }
+});
+
+test('F1143/F1146 disabled Nemesis stays inaccessible while Birds I Need owns the exchanged icon', async () => {
+  const saved = JSON.stringify(['allUnseenBtn', 'easyBtn']);
+  const app = await boot({ storage: { bc_menu_shortcuts_v1: saved } });
+  try {
+    const A = app.window.__app;
+    const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="easyBtn"]');
+    assert.match(bird.textContent, /Birds I Need/);
+    assert.equal(bird.querySelector('.tileicon').textContent, '🦅');
+    assert.equal(app.document.querySelector('#menuList [data-at="allUnseenBtn"]'), null);
+    assert.ok(app.$('nemesisMenuBadge').closest('[hidden]'));
+    const section = app.$('allUnseenBtn').closest('section');
+    A.showSection(section.id);
+    assert.equal(section.hidden, true, 'retained navigation cannot reopen a disabled tool');
+    const status = app.$('allUnseenStatus').textContent;
+    app.$('allUnseenBtn').click();
+    assert.equal(app.$('allUnseenStatus').textContent, status,
+      'the retained button cannot start Nemesis-only work');
+    assert.equal(app.window.localStorage.getItem('bc_menu_shortcuts_v1'), saved);
+    assert.deepEqual(shortcutIds(app), ['easyBtn']);
+    const definition = JSON.parse(app.$('menu-definition').textContent);
+    assert.equal(definition.find(row => row.at === 'allUnseenBtn').icon, '🐦');
+    assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
 
@@ -3870,7 +3895,12 @@ function boot(opts = {}) {
     // jsdom has no layout engine, so scrollTo/resizeTo are expected no-ops.
     if (!/Not implemented/.test(e.message)) state.errors.push(e.message);
   });
-  const dom = new JSDOM(HTML, {
+  const markup = opts.enabledMenus ? HTML.replace(
+    /(<script\b[^>]*\bid="menu-definition"[^>]*>)([\s\S]*?)(<\/script>)/,
+    (_, start, json, end) => start + JSON.stringify(JSON.parse(json).map(row =>
+      opts.enabledMenus.includes(row.at) ? { ...row, enabled: true } : row)) + end
+  ) : HTML;
+  const dom = new JSDOM(markup, {
     runScripts: 'dangerously',
     resources: { interceptors: [localFiles] },
     url: 'https://localhost/',
@@ -17233,7 +17263,7 @@ test('closest spots: rows carry the distance in miles, closest first', async () 
   assert.match(build, /targets\.sort\(/, 'sorted closest first');
 });
 
-test('F472 Nearby Patches is fixed at an honest 5-mile cap', async () => {
+test('F472/F1137 Nearby keeps the acquired circle closest-first without a five-mile result cutoff', async () => {
   const app = await boot({ fetch: () => null });
   const home = { lat: 47.75, lng: -122.15 };
   // Quality DEcreases with distance here, so a list ordered by score would come
@@ -17241,15 +17271,13 @@ test('F472 Nearby Patches is fixed at an honest 5-mile cap', async () => {
   const far = (mi) => ({ locId: 'L' + mi, locName: mi + ' mi', lat: home.lat + mi / 69, lng: home.lng, numSpeciesAllTime: 200 + mi });
   const rows = app.window.__app.buildQuickOuting(
     [far(12), far(2), far(4), far(1), far(8)], [home]);
-  assert.equal(rows.radiusMi, 5, 'Nearby Patches states one five-mile scope');
   // Array.from: rows are built inside the jsdom realm, so their prototype is
   // not this realm's Array.prototype and deepStrictEqual would reject them on
   // identity alone.
   const dists = Array.from(rows).map((r) => Math.round(r.dist));
-  assert.deepEqual(dists, [1, 2, 4], 'only the near spots, closest first');
-  const sparse = app.window.__app.buildQuickOuting([far(9), far(30)], [home]);
-  assert.equal(sparse.length, 0,
-    'the report never silently widens to show a place outside five miles');
+  assert.deepEqual(dists, [1, 2, 4, 8, 12], 'all acquired places remain closest-first beyond five miles');
+  const sparse = app.window.__app.buildQuickOuting([far(9), far(19)], [home]);
+  assert.equal(sparse.length, 2, 'sparse results retain places already inside the unchanged scan');
   const dense = app.window.__app.buildQuickOuting(
     Array.from({ length: 60 }, (_, i) => far(4.9 - i * 0.08)), [home]);
   assert.equal(dense.length, 60,
@@ -17259,7 +17287,7 @@ test('F472 Nearby Patches is fixed at an honest 5-mile cap', async () => {
   app.window.close();
 });
 
-test('F472 Nearby Patches says when no hotspot exists inside five miles', async () => {
+test('F472/F1137 Nearby names its finite 32-km scan when no hotspot is returned', async () => {
   const home = { lat: 47.75, lng: -122.15 };
   const app = await boot({
     storage: {
@@ -17268,17 +17296,13 @@ test('F472 Nearby Patches says when no hotspot exists inside five miles', async 
     },
     fetch(url) {
       if (!/ref\/hotspot\/geo/.test(String(url))) return [];
-      return [{
-        locId: 'LFAR', locName: 'Far patch',
-        lat: home.lat + 9 / 69, lng: home.lng,
-        numSpeciesAllTime: 200, latestObsDt: todayFixtureDate() + ' 08:00',
-      }];
+      return [];
     },
   });
   await app.window.__app.loadQuickOuting('home');
   assert.equal(app.document.querySelectorAll('#quickResults [data-hsloc]').length, 0);
   assert.match(app.$('quickStatus').textContent,
-    /No recently active eBird hotspots within 5 mi of home\./);
+    /No recently active eBird hotspots in the 32-km scan near home\./);
   app.window.close();
 });
 
@@ -17458,8 +17482,16 @@ test('F1104 Common birds paints before place enrichment, bounds calls and reuses
       'initial alternative-site work is seven discovered species, not every regional taxon');
     assert.equal(checklistCalls,0,'optional checklist notes cannot consume the discovery queue by default');
     assert.equal(app.$('easyResults').querySelectorAll('.twitchcard').length,15);
-    assert.match(app.$('easyStatus').textContent,/source response limit reached/,
-      'a capped representative response is not exhaustive site coverage');
+    const section = app.$('easyBtn').closest('section');
+    assert.match(section.querySelector('.sectiondoc').getAttribute('data-note'),
+      /source response limit reached/,
+      'F1145 preserves acquisition limits in the tool information');
+    assert.doesNotMatch(app.$('easyStatus').textContent,
+      /bird\/place targets|discovery feeds|representative reports/);
+    await A.toggleSectionDoc(section);
+    await waitFor(() => !app.$('appSheet').hidden, 'Birds I Need information dialog');
+    assert.match(app.$('appSheet').textContent, /source response limit reached/);
+    assert.match(app.$('appSheet').textContent, /Birds I Need/);
     assert.equal(app.$('easyPlaces').hidden,false,'the eighth discovered species has an explicit continuation');
     assert.ok(!calls.some(u=>/historic|notable/.test(u)),'ordinary discovery has no history or rare-only prerequisite');
     const before=calls.length,warmStart=Date.now();
@@ -17961,11 +17993,11 @@ function shortcutMenu(app, button, keyboard = false) {
   assert.equal(app.$('menuShortcutPopup').hidden, false);
 }
 
-test('F1044/F1132 defaults duplicate three destinations without moving originals or losing menu icons', async () => {
+test('F1044/F1132/F1144 defaults duplicate four destinations without moving originals or losing menu icons', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, list = app.$('menuList');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
     assert.match(app.$('menuShortcutsHint').textContent, /Long press a menu item to edit shortcuts/);
     assert.equal(list.querySelector('.menuPin, #menuEditFavorites'), null);
     const originals = [...list.querySelectorAll(':scope > li:not(.menuShortcut) > .toclink')];
@@ -17992,7 +18024,7 @@ test('F1044/F1132 defaults duplicate three destinations without moving originals
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'surgeBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn', 'surgeBtn']);
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
@@ -18001,14 +18033,14 @@ test('F1044/F1132 defaults duplicate three destinations without moving originals
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
     assert.equal(bird.querySelector('.tileicon'), icons[originals.indexOf(bird)]);
     for (let i = 0; i < 3; i++) A.showMenu();
     assert.equal(app.document.querySelectorAll('#menuShortcutPopup').length, 1);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody'], 'repaints must not duplicate shortcuts');
-    for (const at of ['destBtn', 'myYearBody']) {
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'], 'repaints must not duplicate shortcuts');
+    for (const at of ['destBtn', 'myYearBody', 'spLookupBtn']) {
       for (const selector of ['#menuList .menuShortcut .toclink[data-at="' + at + '"]',
         ORIGINAL_MENU + '[data-at="' + at + '"]']) {
         app.document.querySelector(selector).click();
@@ -18047,7 +18079,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
   }
   const app = await boot({ storage: { [SHORTCUT_KEY]: '{invalid' } });
   try {
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
     assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'), /saved preferences unavailable/);
   } finally { app.window.close(); }
 });
@@ -20482,8 +20514,8 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
     assert.ok(labels.some((l) => l.includes(name)),
       at + ' has a tile of its own, named "' + name + '"');
   }
-  assert.equal(want.allUnseenBtn, 'Nemesis birds');
-  assert.equal(want.easyBtn, 'Common birds');
+  assert.equal(want.allUnseenBtn, undefined, 'F1143 keeps Nemesis out of the shipping menu');
+  assert.equal(want.easyBtn, 'Birds I Need');
   assert.equal(CONTRACT.menu.some((m) => m.at === 'targetsBtn'), false,
     'the retired closest-target menu id remains in the report contract');
   assert.equal(labels.some((l) => /Open targets|Closest unseen birds|Closest patches/i.test(l)), false,
@@ -20502,10 +20534,10 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
     && row.classList.contains('tocgroup'));
   const alertsText = menuRows.slice(alertsAt + 1, nextGroup < 0 ? menuRows.length : nextGroup)
     .map((row) => row.textContent).join(' ');
-  assert.ok(alertsAt >= 0 && /Nemesis birds/.test(alertsText),
-    'the current-sighting Nemesis report is not in the Bird alerts menu block');
-  assert.ok(/Common birds/.test(alertsText),
-    'Common birds belongs in the owner-approved Bird alerts menu block');
+  assert.ok(alertsAt >= 0 && !/Nemesis birds/.test(alertsText),
+    'the temporarily disabled Nemesis report must not appear in Bird alerts');
+  assert.ok(/Birds I Need/.test(alertsText),
+    'Birds I Need belongs in the owner-approved Bird alerts menu block');
   app.window.close();
 });
 
@@ -21329,6 +21361,7 @@ test('F506 Nemesis always renders the shared medium card', async () => {
 
 test('F519 Nemesis shares the right-edge pending Notes action in both views', async () => {
   const app = await boot({
+    enabledMenus: ['allUnseenBtn'],
     fetch(url) {
       if (/product\/checklist\/view\//.test(url)) return new Promise(() => {});
       return null;
@@ -21863,12 +21896,13 @@ test('every section in the contract is documented', () => {
   });
 });
 
-test('the Nearby Patches doc names both ranking modes and their gates', () => {
+test('the Nearby Patches doc names the shared scan, deliberate batches and confirmed-target filter', () => {
   const d = DOCS.quickBtn;
   const all = [d.summary].concat(d.inputs, d.how, d.limits).join(' ');
-  assert.match(all, /initially show 10 places/, 'the progressive initial batch');
-  assert.match(all, /Unseen switches to the closest-patches target pipeline/,
-    'Unseen names the closest-target mode');
+  assert.match(all, /initially shows 10 places/, 'the progressive initial batch');
+  assert.match(all, /Unseen filters the loaded patches/,
+    'Unseen filters the same acquired place evidence');
+  assert.match(all, /Scrolling does not load another batch/);
   assert.match(all, /private/i, 'why a residential address can legitimately appear');
   assert.match(all, /map contains exactly the places currently visible/,
     'the map follows the progressive list');
@@ -21882,7 +21916,7 @@ test('every section carries an info button that opens its calculation notes', as
   secs.forEach((s) => {
     const b = s.querySelector('.docbtn');
     assert.ok(b, s.id + ' has an info button');
-    if (['sec-surgeBtn','sec-massBtn','sec-ppteBtn'].includes(s.id)) {
+    if (['sec-surgeBtn','sec-massBtn','sec-ppteBtn','sec-easyBtn'].includes(s.id)) {
       assert.equal(b.getAttribute('aria-haspopup'), 'dialog');
     }
     else assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
@@ -21897,7 +21931,7 @@ test('every section carries an info button that opens its calculation notes', as
   assert.equal(box.hidden, false, 'tapping opens them');
   assert.equal(sec.querySelector('.docbtn').getAttribute('aria-expanded'), 'true');
   await new Promise((r) => setTimeout(r, 30));
-  assert.match(box.textContent, /closest-patches target pipeline/i,
+  assert.match(box.textContent, /Unseen filters the loaded patches/i,
     'and they are the real notes, read from the bundle');
   // Bundled, not fetched over the network — the app has no runtime GitHub
   // dependency and help has to work on a phone with no signal.
@@ -23284,15 +23318,33 @@ test('F1112 actual Bird Gen source retry can recover the independently failed Me
   } finally { app.window.close(); }
 });
 
+function f1142Clock(app, at = '2026-10-04T17:00:00Z') {
+  const clock = {now:Date.parse(at)}, RealDate = app.window.Date;
+  app.window.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [clock.now])); }
+    static now() { return clock.now; }
+  };
+  return clock;
+}
+
+function f1142Source(app, at, codes = []) {
+  const A = app.window.__app;
+  const parts = A.birdcastLocalParts(new app.window.Date(at),A.getReport());
+  const names = {grgowl:'Great Gray Owl',loeowl:'Long-eared Owl'};
+  return {source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+    sourceRegion:A.activeScope().effectiveRegion,acquiredAt:at,
+    sourceMonth:parts.year + '-' + String(parts.month).padStart(2,'0'),
+    state:'ok',acquired:true,inventoryComplete:true,
+    sensitiveRows:codes.map(code => ({code,name:names[code],region:A.activeScope().effectiveRegion}))};
+}
+
 test('F1113 Sensitive availability explains shared Mass coverage without changing selection or retry', async () => {
   const app = await boot();
   try {
-    const A = app.window.__app, now = new Date();
-    const parts = A.birdcastLocalParts(now,A.getReport());
-    const source = {source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
-      sourceRegion:A.activeScope().effectiveRegion,acquiredAt:now.getTime(),
-      sourceMonth:parts.year + '-' + String(parts.month).padStart(2,'0'),
-      sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:A.activeScope().effectiveRegion}]};
+    const A = app.window.__app, clock = f1142Clock(app);
+    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1),clock.now - 1);
+    const source = f1142Source(app,clock.now,['grgowl']);
+    A.birdGenSensitiveJournal(source,clock.now);
     for (const state of ['partial','failed','loading','ok']) {
       A.renderSurge([],[],[],[],[],{
         mass:state,massSource:{...source,state},suppressNotifications:true
@@ -23317,6 +23369,164 @@ test('F1113 Sensitive availability explains shared Mass coverage without changin
       }
     }
   } finally { app.window.close(); }
+});
+
+test('F1142 actual monthly acquisitions distinguish complete Sensitive inventory from unrelated Mass limits', async () => {
+  let page;
+  const app = await boot({sample:false,fetch:url => /bird-list/.test(url) ? page : []});
+  try {
+    const A = app.window.__app, clock = f1142Clock(app);
+    const markup = codes => '<div class="StatsIcon"><span class="StatsIcon-label">This Month</span>'
+      + '<span class="StatsIcon-secondary">Oct 2026</span></div>'
+      + '<div class="BirdList"><section class="BirdList-list"><h3>Native and Naturalized ('
+      + codes.length + ')</h3><ol>' + codes.map(code =>
+        '<li class="BirdList-list-list-item countable"><div class="Obs-species">'
+        + '<a href="https://ebird.org/species/' + code + '/US-WA"><span class="Species-common">'
+        + (code === 'grgowl' ? 'Great Gray Owl' : 'Long-eared Owl') + '</span></a></div>'
+        + '<div class="Obs-count">Count: 1</div><button class="Sensitive-badge">Sensitive</button></li>'
+      ).join('') + '</ol></section></div>';
+    async function acquire(html) {
+      page = html;
+      clock.now += 10000;
+      A.fgWindowReset(); A.fgSchedReset(clock.now);
+      return A.loadMassFlockAlertSource(true,A.activeScope());
+    }
+    const initial = await acquire(markup(['grgowl']));
+    assert.equal(initial.state,'partial','October 4 lacks previous-month Mass coverage');
+    assert.equal(A.birdGenSensitiveRows().length,0,'existing presence must be a silent baseline');
+    const baseline = app.window.localStorage.getItem(A.sensitiveJournalKey());
+    await acquire(markup(['grgowl','loeowl']).replace('Count: 1','Count: invalid'));
+    assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()),baseline,
+      'one rejected inventory row must prevent a new Sensitive detection');
+    const fresh = await acquire(markup(['grgowl','loeowl']));
+    assert.equal(fresh.state,'partial','unrelated Mass limitations remain honest');
+    A.renderSurge([],[],[],[],[],{mass:fresh.state,massSource:fresh,suppressNotifications:true});
+    assert.ok(app.$('surgeFeed'),'a genuine newly acquired detection must reach the actual feed');
+    assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="sensitive"]').length,1);
+    assert.match(app.$('surgeFeed').textContent,/Long-eared Owl/);
+    assert.doesNotMatch(app.$('surgeFeed').textContent,/Great Gray Owl/);
+    const entry = JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey()))
+      .entries.find(row => row.code === 'loeowl');
+    assert.equal(entry.firstDetectedAt,fresh.acquiredAt);
+    await acquire('<html>Access denied</html>');
+    A.renderSurge([],[],[],[],[],{mass:'failed',suppressNotifications:true});
+    assert.ok(app.$('surgeFeed').querySelector('[data-sensitive-species="loeowl"]'),
+      'a persisted active alert must survive failure of its shared source');
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey()))
+      .entries.find(row => row.code === 'loeowl').firstDetectedAt,entry.firstDetectedAt);
+    assert.deepEqual(app.state.errors,[]);
+  } finally { app.window.close(); }
+});
+
+test('F1142 rendered timeago advances in place, survives restart and expires at exactly 24 hours without fetching', async () => {
+  const app = await boot();
+  let restarted;
+  try {
+    const A = app.window.__app, clock = f1142Clock(app), first = clock.now;
+    A.birdGenSensitiveJournal(f1142Source(app,first - 1,['grgowl']),first - 1);
+    A.birdGenSensitiveJournal(f1142Source(app,first,['grgowl','loeowl']),first);
+    let timer;
+    const setTimer = app.window.setTimeout.bind(app.window);
+    app.window.setTimeout = (fn,delay,...args) => {
+      if (fn === A.sensitiveClockTick) timer = {fn,delay};
+      return setTimer(fn,delay,...args);
+    };
+    const paint = () => A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
+    paint();
+    const card = app.$('surgeFeed').querySelector('[data-sensitive-species="loeowl"]');
+    assert.equal(card.querySelector('.surgeage').textContent,'Now');
+    assert.equal(Number(card.dataset.surgeLatest),first,'the real feed must carry the detection time');
+    assert.match(surgeEvidence(card).textContent,/First detected by the app/);
+    assert.match(surgeEvidence(card).textContent,/observation date and location withheld/);
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="sensitive"]')
+      .querySelector('.recent-birdgen-time').textContent,'Now');
+    const events = A.birdGenNotificationEvents(A.birdGenSensitiveRows());
+    assert.equal(events.length,1);
+    assert.equal(events[0].observedAt,first);
+    assert.match(decodeURIComponent(events[0].id),/sensitive:US-WA:2026-10:loeowl/);
+    assert.equal(timer.delay,60000,'the actual age callback must be armed');
+    const fetches = app.state.fetches.length;
+    clock.now += 60000; timer.fn();
+    assert.equal(app.$('surgeFeed').querySelector('[data-sensitive-species="loeowl"]'),card,
+      'a minute age repaint must not rebuild the feed');
+    assert.equal(card.querySelector('.surgeage').textContent,'1min ago');
+    assert.match(app.$('recentBirdGenRows').textContent,/1min ago/);
+    assert.equal(app.state.fetches.length,fetches,'the age clock must not refresh any network source');
+    const saved = app.window.localStorage.getItem(A.sensitiveJournalKey());
+    restarted = await boot({storage:{[A.bcReal(A.sensitiveJournalKey())]:saved}});
+    const B = restarted.window.__app, otherClock = f1142Clock(restarted);
+    otherClock.now = first + 3600000;
+    B.renderSurge([],[],[],[],[],{mass:'failed',suppressNotifications:true});
+    assert.equal(restarted.$('surgeFeed').querySelector('.surgeage').textContent,'1hr ago');
+    assert.equal(restarted.window.localStorage.getItem(B.sensitiveJournalKey()),saved);
+    clock.now = first + 86399999; timer.fn();
+    assert.ok(app.$('surgeFeed').querySelector('[data-sensitive-species="loeowl"]'));
+    assert.equal(timer.delay,1,'expiry must not wait for the next minute');
+    clock.now++; timer.fn();
+    assert.equal(app.$('surgeResults').querySelector('[data-sensitive-species="loeowl"]'),null);
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="sensitive"]'),null);
+    assert.equal(A.birdGenNotificationEvents(A.birdGenSensitiveRows()).length,0);
+    assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()),saved,
+      'expiry must retain the whole original monthly record');
+    clock.now += 10000;
+    A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now);
+    paint();
+    assert.equal(app.$('surgeResults').querySelector('[data-sensitive-species="loeowl"]'),null);
+    assert.equal(app.state.fetches.length,fetches);
+    assert.deepEqual(app.state.errors,[]);
+  } finally { app.window.close(); if (restarted) restarted.window.close(); }
+});
+
+test('F1142 the real age clock expires at source-local month rollover and requires a new monthly acquisition', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, clock = f1142Clock(app,'2026-11-01T06:59:30Z');
+    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1),clock.now - 1);
+    const october = f1142Source(app,clock.now,['loeowl']);
+    A.birdGenSensitiveJournal(october,clock.now);
+    let timer;
+    const setTimer = app.window.setTimeout.bind(app.window);
+    app.window.setTimeout = (fn,delay,...args) => {
+      if (fn === A.sensitiveClockTick) timer = {fn,delay};
+      return setTimer(fn,delay,...args);
+    };
+    A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
+    assert.equal(timer.delay,30000);
+    clock.now += 30000; timer.fn();
+    assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="sensitive"]'),null);
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey())).month,'2026-11');
+    assert.equal(A.birdGenSensitiveJournal(october,clock.now).length,0);
+    clock.now += 1000;
+    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,1);
+    A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
+    assert.equal(app.$('surgeFeed').querySelector('.surgeage').textContent,'Now');
+    assert.match(A.birdGenSensitiveRows()[0].notificationKey,/2026-11/);
+  } finally { app.window.close(); }
+});
+
+test('F1142 unverified persistence withholds new alerts and corrupt stored history cannot restart the month', async () => {
+  const app = await boot();
+  const prototype = app.window.Storage.prototype, original = prototype.setItem;
+  try {
+    const A = app.window.__app, clock = f1142Clock(app);
+    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1,['grgowl']),clock.now - 1);
+    const saved = app.window.localStorage.getItem(A.sensitiveJournalKey());
+    prototype.setItem = function (key,value) {
+      if (key.includes('bc_sensitive_v1:')) throw new app.window.DOMException('Synthetic denial','SecurityError');
+      return original.call(this,key,value);
+    };
+    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,0);
+    assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()),saved);
+    A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
+    assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="sensitive"]'),null);
+    assert.match(app.$('surgeResults')._surgeDiagnostics,/history was not saved.*withheld/);
+    prototype.setItem = original;
+    app.window.localStorage.setItem(A.sensitiveJournalKey(),'broken JSON');
+    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,0);
+    clock.now += 1000;
+    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['grgowl']),clock.now).length,0);
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey())).blocked,true);
+  } finally { prototype.setItem = original; app.window.close(); }
 });
 
 test('F1114 malformed or challenged RBA pages cannot replace acquired evidence with verified-empty success', async () => {
@@ -27424,7 +27634,7 @@ test('F754 Mega progress hold settles after failure and scope cancellation', asy
 });
 
 test('phase-two completion repaints the visible chase-derived section', async () => {
-  const app = await boot();
+  const app = await boot({ enabledMenus: ['allUnseenBtn'] });
   const A = app.window.__app;
   app.open(/Nemesis birds/);
   const sec = A.loadedSectionFor('allUnseenBtn');
@@ -36802,11 +37012,11 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     'Bird Gen migration icon does not use the High migration cutout flock');
   assert.match(rows[0].icon, /birdcast-flight-label">HIGH</,
     'Bird Gen migration artwork does not print its level directly');
-  assert.match(rows[0].name, />High migration tonight · 9\/28-29</);
+  assert.match(rows[0].name, />High migration forecast for King County</);
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
-  assert.match(rows[0].name, /King County · 9\/27-28/);
-  assert.equal(rows[0].ageLabel, 'Tonight');
+  assert.match(rows[0].name, /1\.8 million birds last night/);
+  assert.equal(rows[0].ageLabel, 'Current');
   assert.match(rows[0].extra, /migration expected between dusk and dawn/);
   assert.doesNotMatch(rows[0].where + rows[0].noteHeader + rows[0].extra,
     /9 pm|app-selected reference time/);
@@ -36841,7 +37051,7 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   low.forecast.level = 'Low';
   const lowRows = A.birdcastSurgeRows(daytime, low);
   assert.equal(lowRows.length, 2);
-  assert.match(lowRows[0].name, />Low migration tonight · 9\/28-29</);
+  assert.match(lowRows[0].name, />Low migration forecast for King County</);
   assert.equal(lowRows[1].name, rows[1].name);
   low.count.high = false;
   assert.equal(A.birdcastSurgeRows(daytime, low).length, 1,
@@ -41129,6 +41339,197 @@ function syntheticEditionRows(edition) {
   return rows;
 }
 
+const TAXONOMY_2026 = require('./fixtures/taxonomy-2026.json');
+function taxonomy2026Rows(edition) {
+  const rows = edition === '2025.0' ? TAXONOMY_2026.previous : TAXONOMY_2026.current;
+  return syntheticEditionRows('2025.0').concat(rows.map((row) => ({ ...row })));
+}
+
+test('F1139 all 63 official new species identities reach the dictionary without inheriting split ticks', async () => {
+  let latest = '2025.0', batches = 0, lists = 0;
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(), fetch(url) {
+    if (/ref\/taxonomy\/versions/.test(url)) return [
+      { authorityVer: 2025, latest: latest === '2025.0' },
+      { authorityVer: 2026, latest: latest === '2026.0' },
+    ];
+    if (/product\/spplist/.test(url)) { lists++; return TAXONOMY_2026.newSpeciesCodes; }
+    if (/ref\/taxonomy\/ebird/.test(url)) {
+      const query = new URL(url).searchParams;
+      const rows = taxonomy2026Rows(query.get('version'));
+      if (!query.has('species')) return rows;
+      batches++;
+      const wanted = new Set(query.get('species').split(','));
+      return rows.filter((row) => wanted.has(row.speciesCode));
+    }
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    await seedCurrentSeen(app, ['marwre', 'willet1', 'houswi1', 'talowl1']);
+    assert.equal(A.isSpeciesSeen('marwre'), true);
+    const retained = app.window.localStorage.getItem('ebird_seen');
+    latest = '2026.0';
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    for (const code of ['marwre1', 'eamwre1', 'willet2', 'willet3', 'y00960', 'eabowl1']) {
+      assert.equal(A.isSpeciesSeen(code), null, 'old split/lump evidence must not award or deny ' + code);
+    }
+    assert.equal(app.window.localStorage.getItem('ebird_seen'), retained);
+    const canonical = await A.taxonomyStore('get', 'identity:2026.0');
+    assert.equal(canonical.byCode.marwre.category, 'slash');
+    assert.equal(canonical.byCode.willet1.category, 'slash');
+    assert.equal(canonical.parents.houswi1, 'y00960');
+    assert.equal(A.canonicalParents({ marwre1: 'marwre', willet3: 'willet1' }).marwre1, undefined);
+    await seedCurrentSeen(app, ['marwre1', 'willet3', 'houswi1']);
+    assert.equal(A.isSpeciesSeen('marwre1'), true);
+    assert.equal(A.isSpeciesSeen('willet3'), true);
+    assert.equal(A.isSpeciesSeen('eamwre1'), false);
+    assert.equal(A.isSpeciesSeen('willet2'), false);
+    assert.equal(A.isSpeciesSeen('y00960'), true, 'fresh exact lump evidence uses its current parent');
+    A.setWatchlist([{ code: 'marwre1', name: 'Western Marsh Wren' }]);
+    assert.equal(A.isSpeciesSeen('marwre1'), false, 'explicit exact WATCH retains priority');
+    const rows = await A.loadSpeciesIndex('US-WA');
+    assert.equal(rows.length, 63);
+    for (const official of TAXONOMY_2026.current.filter((row) =>
+      TAXONOMY_2026.newSpeciesCodes.includes(row.speciesCode))) {
+      const row = rows.find((item) => item.code === official.speciesCode);
+      assert.equal(row.name, official.comName);
+      assert.equal(row.sci, official.sciName);
+      assert.equal(A.searchSpecies(rows, official.speciesCode)[0].code, official.speciesCode);
+      for (const alias of [...(official.bandingCodes || []), ...(official.comNameCodes || [])]) {
+        assert.ok(A.searchSpecies(rows, alias).some((hit) => hit.code === official.speciesCode),
+          official.speciesCode + ' must remain searchable by ' + alias);
+      }
+    }
+    app.click(app.$('spCodesBtn'));
+    await waitFor(() => app.document.querySelectorAll('#spCodesList > li').length === 63,
+      'all official new identities in the actual dictionary');
+    for (const [code, alpha] of [['marwre1', 'WEMW'], ['eamwre1', 'EAMW'],
+      ['willet2', 'SAWI'], ['willet3', 'PRWI']]) {
+      const item = app.document.querySelector('#spCodesList > li[data-code="' + code + '"]');
+      assert.equal(item.querySelector('code').textContent, code);
+      assert.equal(item.querySelector('strong').textContent, alpha);
+    }
+    const before = [lists, batches];
+    await A.loadSpeciesIndex('US-WA');
+    assert.deepEqual([lists, batches], before, 'ordinary repeat reuses the fresh regional index');
+  } finally { app.window.close(); }
+});
+
+test('F1139 deliberate same-edition refresh bypasses both identity caches and only invalidates dependent references', async () => {
+  const indexedDB = new IDBFactory();
+  let revision = 0, fail = false, canonicalCalls = 0, lists = 0, batches = 0;
+  function fetch(url) {
+    if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2026, latest: true }];
+    if (/ref\/taxa-locales/.test(url)) return [
+      { code: 'en', name: 'English' }, { code: 'fr', name: 'French' },
+    ];
+    if (/product\/spplist/.test(url)) { lists++; return TAXONOMY_2026.newSpeciesCodes; }
+    if (/ref\/taxonomy\/ebird/.test(url)) {
+      const query = new URL(url).searchParams, rows = taxonomy2026Rows('2026.0').concat(
+        Array.from({ length: 600 }, (_, i) => ({
+          speciesCode: 'refreshspuh' + i, comName: 'Synthetic refresh spuh ' + i,
+          sciName: 'Synthetic sp.', category: 'spuh',
+        })));
+      rows.find((row) => row.speciesCode === 'marwre1').comName = 'Synthetic revision ' + revision;
+      if (query.has('species')) {
+        batches++;
+        const wanted = new Set(query.get('species').split(','));
+        return rows.filter((row) => wanted.has(row.speciesCode));
+      }
+      if (query.get('locale') === 'fr') return rows.map((row) => ({
+        ...row, comName: 'Nom français ' + row.speciesCode,
+      }));
+      canonicalCalls++;
+      return fail ? [] : rows;
+    }
+    return [];
+  }
+  const app = await boot({ sample: false, indexedDB, fetch });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    await seedCurrentSeen(app, ['marwre1']);
+    A.setWatchlist([{ code: 'willet3', name: 'Prairie Willet' }]);
+    await A.loadNamingLocales();
+    assert.equal(await A.selectNamingLocale('fr'), true);
+    assert.equal((await A.loadSpeciesIndex('US-WA')).find((row) => row.code === 'marwre1').name,
+      'Synthetic revision 0');
+    assert.equal((await A.loadSpuhModel()).species.find((row) => row.code === 'marwre1').name,
+      'Synthetic revision 0');
+    const key = A.speciesCacheKey('US-WA'), before = [canonicalCalls, lists, batches];
+    const retained = store.getItem('ebird_seen'), watch = JSON.stringify(A.getWatchlist());
+    const hotspot = 'ref/hotspot/US-WA?fmt=json';
+    const historic = 'ref/taxonomy/ebird?fmt=json&locale=en&version=2025.0';
+    A.ebRefPut(hotspot, [{ locId: 'L-RETAINED' }]);
+    A.ebRefPut(historic, [{ speciesCode: 'old-reference' }]);
+    await A.ebird(hotspot);
+    assert.equal(await A.checkTaxonomyEdition(false), true);
+    assert.deepEqual([canonicalCalls, lists, batches], before, 'ordinary check retains normal caching');
+    revision = 1;
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    assert.equal(canonicalCalls, before[0] + 1, 'same-edition memory cannot intercept a deliberate refresh');
+    assert.equal(store.getItem(key), null, 'the 24-hour regional index must be invalidated');
+    assert.equal(A.ebRefGet('product/spplist/US-WA'), null, 'the seven-day regional reference must be invalidated');
+    const refreshed = await A.loadSpeciesIndex('US-WA');
+    assert.equal(refreshed.find((row) => row.code === 'marwre1').name, 'Synthetic revision 1');
+    assert.deepEqual([lists, batches], [before[1] + 1, before[2] + 1],
+      'the same regional and taxonomy URLs must bypass stale memory and seven-day references');
+    assert.equal((await A.loadSpuhModel()).species.find((row) => row.code === 'marwre1').name,
+      'Synthetic revision 1', 'Stakeout must not reuse either its memory or persisted previous model');
+    assert.ok(A.ebRefGet(hotspot), 'unrelated hotspot directory survives');
+    assert.ok(A.ebRefGet(historic), 'the prior edition reference survives');
+    const network = app.state.fetches.length;
+    await A.ebird(hotspot);
+    assert.equal(app.state.fetches.length, network, 'unrelated memory cache survives');
+    assert.equal(store.getItem('ebird_seen'), retained);
+    assert.equal(JSON.stringify(A.getWatchlist()), watch);
+    assert.equal(app.$('namingLocale').value, 'fr');
+    assert.equal(store.getItem('bc_name_locale'), 'fr');
+    assert.match(A.renderSpeciesNameHtml('Western Marsh Wren', 'marwre1'), /Nom français marwre1/);
+    assert.equal((await A.taxonomyStore('get', 'identity:2026.0')).byCode.marwre1.name,
+      'Synthetic revision 1');
+    const metadata = store.getItem('bc_taxonomy_v1'), regional = store.getItem(key);
+    fail = true;
+    assert.equal(await A.checkTaxonomyEdition(true), false);
+    assert.equal(store.getItem('bc_taxonomy_v1'), metadata, 'failed refresh cannot advance the dated model');
+    assert.equal(store.getItem(key), regional, 'failed refresh preserves usable regional evidence');
+    assert.equal(app.$('namingLocale').value, 'fr');
+    fail = false;
+    revision = 2;
+    const cold = await boot({ sample: false, indexedDB, fetch });
+    try {
+      const previousCalls = canonicalCalls;
+      assert.equal(await cold.window.__app.checkTaxonomyEdition(true), true);
+      assert.equal(canonicalCalls, previousCalls + 1, 'a persisted same-edition identity cannot intercept force');
+      assert.equal((await cold.window.__app.taxonomyStore('get', 'identity:2026.0')).byCode.marwre1.name,
+        'Synthetic revision 2');
+    } finally { cold.window.close(); }
+  } finally { app.window.close(); }
+});
+
+test('F1139 a superseded regional batch cannot repopulate same-edition caches after refresh', async () => {
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(), fetch(url) {
+    if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2026, latest: true }];
+    if (/product\/spplist/.test(url)) return ['marwre1'];
+    if (/ref\/taxonomy\/ebird/.test(url)) return taxonomy2026Rows('2026.0');
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    let release;
+    A.seedEbirdCache('ref/taxonomy/ebird?fmt=json&locale=en&species=marwre1&version=2026.0',
+      new Promise((resolve) => { release = resolve; }));
+    const old = A.loadSpeciesIndex('US-WA');
+    await waitFor(() => A.ebRefGet('product/spplist/US-WA'), 'regional list acquired before the held batch');
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    release(TAXONOMY_2026.current.filter((row) => row.speciesCode === 'marwre1'));
+    await assert.rejects(old, /Taxonomy reference changed/);
+    assert.equal(app.window.localStorage.getItem(A.speciesCacheKey('US-WA')), null);
+  } finally { app.window.close(); }
+});
+
 test('F739 name-backed imports never replace owned evidence across canonical edition changes', async () => {
   let latest = '2024.0';
   const year = new Date().getFullYear();
@@ -41498,15 +41899,17 @@ test('F1122 forecast selection finds the current night without accepting a wrong
   } finally { app.window.close(); }
 });
 
-test('F1121 full and Recent Bird Gen keep a plain, nonduplicated migration estimate', async () => {
+test('F1121/F1135 full and Recent Bird Gen keep brief truthful forecast and measured-count copy', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, now = new Date();
     const local = A.birdcastLocalParts(now, A.getReport());
     const date = [local.year, String(local.month).padStart(2, '0'),
       String(local.day).padStart(2, '0')].join('-');
+    const previous = new Date(Date.UTC(local.year, local.month - 1, local.day - 1))
+      .toISOString().slice(0, 10);
     A.setBirdcastSnapshot({ forecast: { level: 'Low', date }, fetchedAt: now.getTime(),
-      count: { birds: 109900, night: date, countyLabel: 'King County' } });
+      count: { birds: 109900, night: previous, countyLabel: 'King County' } });
     A.renderSurge([], [], [], [], []);
     const full = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
     assert.ok(full);
@@ -41520,10 +41923,50 @@ test('F1121 full and Recent Bird Gen keep a plain, nonduplicated migration estim
       assert.equal((title.textContent.match(/109,900/g) || []).length, 1);
       assert.equal((title.textContent.match(/King County/g) || []).length, 1);
       assert.doesNotMatch(title.textContent, /Birdcast Alert|Latest measured night/);
-      assert.match(title.textContent, /est\./);
+      assert.equal(title.querySelector('.seclink').textContent, 'Low migration forecast for King County');
+      assert.equal(title.querySelector('span').textContent, '109,900 birds last night');
+      assert.doesNotMatch(title.textContent, /est\.|Saved|Tonight|\d{4}|\d+\/\d+/);
+      assert.equal(card.querySelector('.surgeage').textContent, 'Current');
+      assert.equal(card.querySelector('.surge-essential'), null,
+        'the explicit forecast headline must not gain a redundant third warning line');
     }
     assert.equal(surgeEvidence(full).querySelectorAll('b,strong').length, 0);
-    assert.doesNotMatch(surgeEvidence(full).textContent, /Location unavailable|109,900/);
+    assert.doesNotMatch(surgeEvidence(full).textContent, /Location unavailable/);
+    assert.match(surgeEvidence(full).textContent, new RegExp('Forecast source night ' + date));
+    assert.match(surgeEvidence(full).textContent, new RegExp('Measured source night ' + previous));
+    assert.match(surgeEvidence(full).textContent, /109,900 birds.*estimate|estimate.*109,900 birds/i);
+  } finally { app.window.close(); }
+});
+
+test('F1135 saved migration counts do not become last-night totals and missing counts stay unavailable', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = new Date();
+    const local = A.birdcastLocalParts(now, A.getReport());
+    const date = new Date(Date.UTC(local.year, local.month - 1, local.day))
+      .toISOString().slice(0, 10);
+    const older = new Date(Date.UTC(local.year, local.month - 1, local.day - 4))
+      .toISOString().slice(0, 10);
+    for (const [level, count] of [['Medium', {birds:38500,night:older,countyLabel:'King County'}],
+      ['High', null]]) {
+      A.setBirdcastSnapshot({forecast:{level,date},forecastError:'Refresh unavailable',
+        fetchedAt:now.getTime(),count});
+      A.renderSurge([], [], [], [], []);
+      A.updateRecentBirdGen();
+      const full = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
+      const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="migration"]');
+      assert.ok(full && recent);
+      for (const card of [full, recent]) {
+        const title = card.querySelector('.surgealerttitle');
+        assert.match(title.textContent, new RegExp(level + ' migration forecast for King'));
+        assert.doesNotMatch(title.textContent, /last night|est\.|Saved/);
+        assert.equal(card.querySelector('.surgeage').textContent, 'Saved');
+        if (count) assert.match(title.textContent, /38,500 birds on /);
+        else assert.match(title.textContent, /Measured-night count unavailable/);
+      }
+      assert.match(surgeEvidence(full).textContent, /saved evidence, refresh failed/);
+      if (count) assert.match(surgeEvidence(full).textContent, new RegExp('Measured source night ' + older));
+    }
   } finally { app.window.close(); }
 });
 
@@ -41537,7 +41980,7 @@ test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but ne
       forecast: { level, date: '2026-09-28' },
     });
     assert.equal(rows.length, 1);
-    assert.match(rows[0].name, new RegExp('>' + level + ' migration tonight · 9/28-29<'));
+    assert.match(rows[0].name, new RegExp('>' + level + ' migration forecast for King'));
     assert.match(rows[0].noteHeader, /Forecast source night 2026-09-28/);
     assert.match(rows[0].name, /data-sec="sec-bcBody"/);
   }
@@ -41548,7 +41991,7 @@ test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but ne
   app.window.close();
 });
 
-test('F817/F1070 forecast cards distinguish Tonight from failed saved forecasts and retain dusk-to-dawn provenance', async () => {
+test('F817/F1070/F1135 forecast cards distinguish Current from Saved and retain dusk-to-dawn provenance', async () => {
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
   const now = new Date('2026-10-05T18:00:00Z');
@@ -41558,9 +42001,9 @@ test('F817/F1070 forecast cards distinguish Tonight from failed saved forecasts 
       const row = A.birdcastSurgeRows(now, snapshot)[0];
       const host = app.document.createElement('div');
       host.innerHTML = A.surgeAlertCard(row, 1);
-      assert.equal(host.querySelector('.surgeage').textContent, forecastError ? 'Saved forecast' : 'Tonight');
+      assert.equal(host.querySelector('.surgeage').textContent, forecastError ? 'Saved' : 'Current');
       assert.match(surgeEvidence(host).textContent, /migration expected between dusk and dawn/);
-      assert.match(host.textContent, /Forecast - not a sighting/);
+      assert.match(surgeEvidence(host).textContent, /Forecast - not a sighting/);
       assert.doesNotMatch(host.textContent, /9\s*pm|reference time|app-selected/i);
       assert.match(host.querySelector('[data-birdcast-level]').getAttribute('data-birdcast-level'),
         new RegExp('^' + level.toUpperCase() + '$'));
@@ -41596,10 +42039,10 @@ test('F806/F817/F1070 forecast keeps its validated source-night midnight across 
   app.window.Date=RealDate;
   const forecastCard = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
   assert.ok(forecastCard, 'the forecast reference never reached the rendered Bird Gen feed');
-  assert.equal(forecastCard.querySelector('.surgeage').textContent, 'Tonight');
+  assert.equal(forecastCard.querySelector('.surgeage').textContent, 'Current');
   assert.doesNotMatch(forecastCard.textContent, /Time unknown/);
   assert.match(surgeEvidence(forecastCard).textContent, /migration expected between dusk and dawn/);
-  assert.match(forecastCard.textContent, /Forecast - not a sighting/);
+  assert.match(surgeEvidence(forecastCard).textContent, /Forecast - not a sighting/);
   assert.doesNotMatch(forecastCard.textContent, /9\s*pm|reference time|app-selected/i);
   const afterMidnight = new Date('2026-10-05T08:00:00Z');
   const stillOld = A.birdcastSurgeRows(afterMidnight, oldForecast)[0];
@@ -41668,7 +42111,8 @@ test('F850 patch headers match Nearby patches without injected personal-list man
   const A = app.window.__app;
   await seedSeen(app, ['amerob']);
   const sections = [...app.document.querySelectorAll('section')]
-    .filter(section => section._loader && section._loader.personalTargets);
+    .filter(section => section._enabled !== false
+      && section._loader && section._loader.personalTargets);
   assert.ok(sections.some(section => section.contains(app.$('destBtn'))));
   assert.ok(sections.some(section => section.contains(app.$('excBtn'))));
   for (const section of sections) {
@@ -44190,7 +44634,7 @@ test('the early rarity view never leaks into the shared chase cache', () => {
 });
 
 test('F381 Nemesis birds bounds first paint and appends into the same live list', async () => {
-  const app = await boot();
+  const app = await boot({ enabledMenus: ['allUnseenBtn'] });
   const A = app.window.__app;
   app.open(/Nemesis birds/);
   const rows = Array.from({ length: 30 }, (_, i) => {
@@ -44708,7 +45152,7 @@ test('quick outing keeps broader local unseen evidence', async () => {
   app.window.close();
 });
 
-test('F474 Nearby Patches stays place-only and has no unseen-report switch', async () => {
+test('F474/F1137 Nearby retains its place scan and exposes All/Unseen without a second target pipeline', async () => {
   const calls = [];
   const app = await boot({
     storage: {
@@ -44738,9 +45182,11 @@ test('F474 Nearby Patches stays place-only and has no unseen-report switch', asy
 
   const cards = [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
   assert.equal(cards.length, 2, 'Nearby Patches still shows the nearby places');
-  assert.equal(app.document.querySelector('#quickSpeciesScope'), null,
-    'Nearby Patches still exposes the unseen-bird report as a filter');
-  assert.match(app.$('quickStatus').textContent, /2 hotspots within 5 mi.*closest first/i);
+  assert.deepEqual([...app.document.querySelectorAll('#quickSpeciesScope button')]
+    .map(button => button.textContent.trim()), ['All','Unseen']);
+  assert.equal(app.document.querySelector('#quickSpeciesScope [data-quickscope="all"]')
+    .getAttribute('aria-pressed'), 'true');
+  assert.match(app.$('quickStatus').textContent, /2 hotspots.*32-km scan.*closest first/i);
   assert.equal(calls.filter((u) => /ref\/hotspot\/geo/.test(u)).length, 1,
     'the place-only report started a second target pipeline');
   app.window.close();
@@ -44771,6 +45217,91 @@ test('Nearby Patches progressively shows 10 cards and keeps the map in sync', as
   assert.equal(cards().length, 12, 'the progressive loader appends the remaining cards');
   assert.equal(pins(), 12, 'the map follows the expanded visible list');
   app.window.close();
+});
+
+test('F1137 Nearby is click-only and filters loaded patches using confirmed unseen/WATCH evidence', async () => {
+  const geoCalls = [];
+  const taxa = [
+    {code:'f1137need',name:'F1137 Needed Bird'},
+    {code:'f1137seen',name:'F1137 Seen Bird'},
+    {code:'f1137watch',name:'F1137 Watch Bird'},
+    {code:'f1137other',name:'F1137 Other Bird'}
+  ];
+  const app = await boot({storage:{ebird_home_lat:'46.60',ebird_home_lng:'-120.45'},
+    fetch(url) {
+      const u = String(url);
+      if (/ref\/hotspot\/geo/.test(u)) {
+        geoCalls.push(new URL(u));
+        return Array.from({length:27}, (_,i) => ({locId:'L1137-' + i,locName:'Patch ' + i,
+          lat:46.60 + i * .007,lng:-120.45,numSpeciesAllTime:100 - i,
+          latestObsDt:todayFixtureDate() + ' 08:27'}));
+      }
+      const match = /data\/obs\/L1137-(\d+)\/recent/.exec(u);
+      if (match) {
+        const bird = taxa[Number(match[1]) % taxa.length];
+        return [{speciesCode:bird.code,comName:bird.name,locId:'L1137-' + match[1],
+          obsDt:todayFixtureDate() + ' 08:27',howMany:1}];
+      }
+      return [];
+    }});
+  try {
+    const A = app.window.__app, observed = [];
+    await seedSeen(app, ['f1137seen','f1137watch'], null, taxa);
+    A.setWatchlist([{code:'f1137watch',name:'F1137 Watch Bird'}]);
+    for (let i = 0; i < 27; i++) {
+      const bird = taxa[i % taxa.length];
+      app.window.localStorage.setItem(A.bcReal('ebird_locsp_v2:L1137-' + i + ':30'),
+        JSON.stringify({d:A.todayStr(),v:[{code:bird.code,name:bird.name,
+          dateStr:todayFixtureDate() + ' 08:27',count:1}]}));
+    }
+    app.window.IntersectionObserver = class {
+      constructor(callback) { this.callback = callback; }
+      observe(element) {
+        if (element.getAttribute('aria-controls') === 'nearbyPatches') {
+          observed.push(element);
+          this.callback([{isIntersecting:true,target:element}]);
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+    const cards = () => [...app.document.querySelectorAll('#quickResults [data-hsloc]')];
+    const visible = () => cards().filter(card => !card.hidden);
+    const pins = () => app.document.querySelectorAll('#quickMap .pinbubble:not(.home)').length;
+    await A.loadQuickOuting('home');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(cards().length, 10, 'scroll visibility must not append another batch');
+    assert.equal(observed.length, 0, 'Nearby must not register the automatic load-more observer');
+    app.click(app.document.querySelector('#quickSpeciesScope [data-quickscope="unseen"]'));
+    assert.deepEqual(visible().map(card => card.dataset.hsloc),
+      ['L1137-0','L1137-2','L1137-3','L1137-4','L1137-6','L1137-7','L1137-8'],
+      'confirmed unseen and explicit WATCH qualify, while already-seen species do not');
+    assert.equal(pins(), visible().length);
+    app.click(app.document.querySelector('#quickResults .progressive-more'));
+    await waitFor(() => cards().length === 20 && visible().length === 15,
+      'second filtered batch to hydrate', 30000);
+    assert.equal(pins(), visible().length);
+    app.click(app.document.querySelector('#quickSpeciesScope [data-quickscope="all"]'));
+    assert.equal(visible().length, 20, 'filter changes retain all deliberately expanded cards');
+    assert.equal(pins(), 20);
+    app.click(app.document.querySelector('#quickResults .progressive-more'));
+    assert.equal(cards().length, 27, 'the final deliberate batch is no larger than ten');
+    assert.equal(geoCalls.length, 1, 'filters and expansion must not widen or repeat acquisition');
+    assert.equal(geoCalls[0].searchParams.get('dist'), '32');
+    assert.equal(geoCalls[0].searchParams.get('back'), '30');
+    await waitFor(() => cards().every(card => card.hasAttribute('data-unseen-n')),
+      'last deliberate batch to hydrate', 30000);
+    app.window.localStorage.removeItem(A.bcReal(A.personalListKey(A.personalListOwner())));
+    A.getReportSeen();
+    assert.equal(A.personalListEvidence().complete, false,
+      'the uncertainty control must actually remove exact absence evidence');
+    app.click(app.document.querySelector('#quickSpeciesScope [data-quickscope="unseen"]'));
+    await A.loadQuickOuting('home');
+    assert.deepEqual(visible().map(card => card.dataset.hsloc), ['L1137-2','L1137-6'],
+      'unverified personal/taxonomy membership is not unseen; explicit WATCH remains positive');
+    assert.equal(pins(), visible().length);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
 });
 
 test('quick outing can reuse the matching Today patch species', async () => {

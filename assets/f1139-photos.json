@@ -1,0 +1,486 @@
+{
+  "feature": "F1139",
+  "taxonomyEdition": "2026.0",
+  "assets": [
+    {
+      "code": "ausmao7",
+      "name": "Australasian Masked-Owl",
+      "scientificName": "Tyto novaehollandiae",
+      "author": "JJ Harrison",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Australian_Masked-Owl_0A2A8179.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/9/99/Australian_Masked-Owl_0A2A8179.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "11bd17e78dfc9628070d10a31238b24980995c4449252518ecfc49eb57fd7efa",
+      "sourceSize": [
+        4138,
+        2759
+      ],
+      "cropPixels": [
+        689,
+        0,
+        3448,
+        2759
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Australian Masked-Owl, Barrington Tops, NSW",
+      "outputSha256": "eb65f15d44804ac41e1dda17ed21f430272b208cbedd663b6f9baa807f5643ab"
+    },
+    {
+      "code": "banmyz4",
+      "name": "Babar Myzomela",
+      "scientificName": "Myzomela babarensis",
+      "author": "James Eaton",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Myzomela_babarensis,_Babar_Island,_Maluku,_Indonesia_433880425.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/a/a4/Myzomela_babarensis%2C_Babar_Island%2C_Maluku%2C_Indonesia_433880425.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "1112a647f94ad2467d2ebbe3c6ab33ea11dc49c94bf9bf9f22a4c8af4e3b2171",
+      "sourceSize": [
+        2048,
+        1365
+      ],
+      "cropPixels": [
+        400,
+        120,
+        1200,
+        920
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Babar Myzomela (Myzomela babarensis), Babar Island, Maluku Barat Daya Regency, Maluku,  Indonesia",
+      "outputSha256": "5e8341103e5e8a4136bd0e63ea519ec0407e4861f2bebbd6768b2de49c72dff7"
+    },
+    {
+      "code": "blujeb5",
+      "name": "Southern Blue Jewel-babbler",
+      "scientificName": "Ptilorrhoa nigricrissus",
+      "author": "Iain Woxvold",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Ptilorrhoa_caerulescens_nigricrissus_male.png",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/3/3f/Ptilorrhoa_caerulescens_nigricrissus_male.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "362ef332c038e4639a7956e5ff0e9d839f04aad37d75a9c46f60c83730b33723",
+      "sourceSize": [
+        635,
+        426
+      ],
+      "cropPixels": [
+        209,
+        0,
+        635,
+        426
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "The male of Ptilorrhoa caerulescens nigricrissus.",
+      "outputSha256": "f8d516de8c3c4eaf2a38c1066c56c56fc2236616a7929887097b84c9d0244ec1"
+    },
+    {
+      "code": "bluwht1",
+      "name": "Chinese Whistling-Thrush",
+      "scientificName": "Myophonus caeruleus",
+      "author": "\u5b6b\u92d2 \u6797 from Taipei, Taiwan",
+      "license": "CC BY-SA 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Myophonus_caeruleus_caeruleus,_Kinmen,_Taiwan_3.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/1/18/Myophonus_caeruleus_caeruleus%2C_Kinmen%2C_Taiwan_3.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+      "sourceSha256": "66bd3771f58c49b1bc930ecd37da9d1d0f8beb0e817d92b055c859e22599feff",
+      "sourceSize": [
+        1200,
+        866
+      ],
+      "cropPixels": [
+        200,
+        40,
+        1010,
+        850
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Explicit historical Myophonus caeruleus caeruleus identification at Kinmen; the nominate black-billed form is Chinese Whistling-Thrush.",
+      "outputSha256": "e9ae9dc5c15b4270734b862dbcf374f3fe79beb2fa4a970ff45930c9c233e351"
+    },
+    {
+      "code": "bluwht2",
+      "name": "Yellow-billed Whistling-Thrush",
+      "scientificName": "Myophonus flavirostris",
+      "author": "Waskito kw",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Ciung_Batu-siul.jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d6/Ciung_Batu-siul.jpg/1280px-Ciung_Batu-siul.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "05401034de61f943378dac25272f89a9ed2409ed3e28abe31743d44d4f8d3fbe",
+      "sourceSize": [
+        1280,
+        1024
+      ],
+      "cropPixels": [
+        20,
+        50,
+        960,
+        990
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Source category explicitly identifies historical Myophonus caeruleus flavirostris; Java caption describes the yellow bill. Not assigned from geography alone.",
+      "outputSha256": "c757820bb77cf473ce309af0d9a34179517080911a29ba39ca26c1860155f3db"
+    },
+    {
+      "code": "cairob1",
+      "name": "Canary Islands Robin",
+      "scientificName": "Erithacus superbus",
+      "author": "codrin_bucur",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Erithacus_rubecula_superbus,_Erjos,_Tenerife_1.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/7/7a/Erithacus_rubecula_superbus%2C_Erjos%2C_Tenerife_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "a928c97ccb557e19361d484e5a2564e55a10b1479ec6654bb7a43eded4dafc15",
+      "sourceSize": [
+        2048,
+        1365
+      ],
+      "cropPixels": [
+        500,
+        200,
+        1500,
+        1200
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Tenerife Robin Erithacus rubecula superbus, Erjos, Tenerife, Canary Islands",
+      "outputSha256": "4c6c8c25540e4ff3148a08f07decef07edd7f003348ac81341fa35c1b3ecdd56"
+    },
+    {
+      "code": "chefan1",
+      "name": "Cheerful Fantail",
+      "scientificName": "Rhipidura laguceria",
+      "author": "James Eaton",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Rhipidura_fuscorufa_-_James_Eaton_-_337787657.jpeg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/e/e7/Rhipidura_fuscorufa_-_James_Eaton_-_337787657.jpeg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "47bfe072df74984cf671098493e44d158a65bd6d21cb813f1a2a010d8e558646",
+      "sourceSize": [
+        2048,
+        1536
+      ],
+      "cropPixels": [
+        256,
+        0,
+        1792,
+        1536
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Rhipidura laguceria, Maluku Tenggara Barat, ID-MA, ID, 2022-10-22 (iNaturalist). Original iNaturalist observation 192423884 independently confirms Rhipidura laguceria and photo 337787657 CC0; historical filename is not the identity authority.",
+      "outputSha256": "89e9cad92519773fb38ef58ad7101b81391c6b9f05c8ea3426489762c59bbf61"
+    },
+    {
+      "code": "eamwre1",
+      "name": "Eastern Marsh Wren",
+      "scientificName": "Cistothorus palustris",
+      "author": "Cephas",
+      "license": "CC BY-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Cistothorus_palustris_CT.jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/22/Cistothorus_palustris_CT.jpg/1280px-Cistothorus_palustris_CT.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "a123ddc35b8c34077a6e1c66c487b69af0ff96d828a16b41c0b288e50a4b04b6",
+      "sourceSize": [
+        1280,
+        1280
+      ],
+      "cropPixels": [
+        160,
+        160,
+        1120,
+        1120
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding; no generated or repainted content.",
+      "identityEvidence": "Commons caption locates the Marsh Wren at Cap Tourmente, Quebec. eBird assigns eastern-third records to Eastern Marsh Wren.",
+      "outputSha256": "a9c2656c1e09cee8da11fe5243eb83350aae63fc0217e81aaf9249134c5272c5"
+    },
+    {
+      "code": "hoojeb1",
+      "name": "Hooded Jewel-babbler",
+      "scientificName": "Ptilorrhoa urrissia",
+      "author": "I. A. Woxvold, B. G. Gamui, L. Legra, S. Yama, B. Koane & S. Tulai",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Ptilorrhoa_urrissia_(holotype_and_paratypes).jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/a/a7/Ptilorrhoa_urrissia_%28holotype_and_paratypes%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "be9f82055dbb75745e3d129a8e9c9ea479fb1926972a05fec5c2b8a47c628520",
+      "sourceSize": [
+        2128,
+        2812
+      ],
+      "cropPixels": [
+        1240,
+        2160,
+        1890,
+        2810
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Panel (e) is explicitly identified by the scientific-description authors as the putative adult male paratype of Ptilorrhoa urrissia. Genuine camera-trap photograph; no generated reconstruction.",
+      "outputSha256": "ba1d2990e661f3fbbaf536ecb072de0f272926191e0d73a78d8d4fced561c9bc"
+    },
+    {
+      "code": "marwre1",
+      "name": "Western Marsh Wren",
+      "scientificName": "Cistothorus paludicola",
+      "author": "Greg7 on Flickr",
+      "license": "CC BY 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Cistothorus_palustris_Iona.jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/40/Cistothorus_palustris_Iona.jpg/1280px-Cistothorus_palustris_Iona.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "258f99e0d3363ccfe5acfe3feab5dd0512ab4b224fe6a9638a4124c24dd3aaa3",
+      "sourceSize": [
+        1280,
+        1618
+      ],
+      "cropPixels": [
+        360,
+        360,
+        1180,
+        1180
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding; no generated or repainted content.",
+      "identityEvidence": "Commons caption locates the Marsh Wren at Iona, British Columbia. eBird assigns western-third records to Western Marsh Wren.",
+      "outputSha256": "3905e4ab167cebb3467f847cc6d395c1dd73511a722cc0820f91fee53aa26318"
+    },
+    {
+      "code": "mouwhe14",
+      "name": "Mourning Wheatear",
+      "scientificName": "Oenanthe lugens",
+      "author": "Artemy Voikhansky",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Mourning_Wheatear,_Negev_Desert,_Israel.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/c/c2/Mourning_Wheatear%2C_Negev_Desert%2C_Israel.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "59cfc1b5b50ac23ff5f29240dcb0ba048a5de37a1f78c883aa51a0932183e778",
+      "sourceSize": [
+        2970,
+        1980
+      ],
+      "cropPixels": [
+        495,
+        0,
+        2475,
+        1980
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Mourning wheatear at Negev desert in Israel",
+      "outputSha256": "ef936e290abf898ddc4a7940ec965de8eda7e00b25ead369cce5678e1073b586"
+    },
+    {
+      "code": "polswi2",
+      "name": "Polynesian Swiftlet",
+      "scientificName": "Aerodramus leucophaeus",
+      "author": "Cricket Raspet",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Aerodramus_leucophaeus_-_Cricket_Raspet_-_488421557.jpeg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/6/69/Aerodramus_leucophaeus_-_Cricket_Raspet_-_488421557.jpeg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "8442c54569c7a1875de828dbd0da3dc911327c5bc1414e0f39a6c5f89c39e6fd",
+      "sourceSize": [
+        554,
+        764
+      ],
+      "cropPixels": [
+        0,
+        105,
+        554,
+        659
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Aerodramus leucophaeus, \u00celes du Vent, PF, 2025-04-17 (iNaturalist).",
+      "outputSha256": "a18990c6031bb5d69d25eb0420db6dfce6607fced52a00ab2be769b50ce3ed97"
+    },
+    {
+      "code": "sddtin1",
+      "name": "Slaty-masked Tinamou",
+      "scientificName": "Crypturellus resonans",
+      "author": "Luis Moraes",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Tinamus_resonans_Slaty-masked_Tinamou_2.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/7/76/Tinamus_resonans_Slaty-masked_Tinamou_2.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+      "sourceSha256": "9b5008c56e98e00976e89e41c031f33634e198998702153dcd377f4750773ab4",
+      "sourceSize": [
+        1024,
+        834
+      ],
+      "cropPixels": [
+        220,
+        20,
+        1020,
+        820
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Photographer explicitly identifies Slaty-masked Tinamou at Serra do Divisor, Acre. Commons uses original Tinamus resonans; the current eBird reference uses Crypturellus resonans. Wikispecies independently links the same species and photographs: https://species.wikimedia.org/wiki/Crypturellus_resonans",
+      "outputSha256": "87aca61575a25d8540a53830d3b5331a534cba1625c6fba0ae946f88e6041183"
+    },
+    {
+      "code": "soubet1",
+      "name": "Panama Beardless-Tyrannulet",
+      "scientificName": "Camptostoma flaviventre",
+      "author": "TonyCastro",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Southern_Beardless-Tyrannulet.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Southern_Beardless-Tyrannulet.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "611f7543b2f4918ce9c33c116723191a6a867271ebad587652ef2131b7bb91e9",
+      "sourceSize": [
+        1648,
+        1170
+      ],
+      "cropPixels": [
+        239,
+        0,
+        1409,
+        1170
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Commons caption explicitly Country Inn, Panama City, Panama; published C. o. flaviventre range includes both slopes of mainland Panama. This is the hyphenated filename, not the different Argentine photograph. Independent range source: https://en.wikipedia.org/wiki/Southern_beardless_tyrannulet#Distribution_and_habitat",
+      "outputSha256": "6d8deea18b50885d1241d65add5fc36825d8c0e602dc235f4b567688ada9c0be"
+    },
+    {
+      "code": "spofly2",
+      "name": "Spotted Flycatcher",
+      "scientificName": "Muscicapa striata",
+      "author": "Alexis LOURS",
+      "license": "CC BY 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Spotted_Flycatcher_on_a_branch.jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/69/Spotted_Flycatcher_on_a_branch.jpg/1280px-Spotted_Flycatcher_on_a_branch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "03f1bdaa2e5cb8148054baf479b3f9d4fa1372759c6734cf693f7a320361157b",
+      "sourceSize": [
+        1280,
+        853
+      ],
+      "cropPixels": [
+        400,
+        220,
+        1000,
+        820
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Explicit Muscicapa striata identification; photographed at Lac des Chanteraines near Paris, outside the Mediterranean breeding islands.",
+      "outputSha256": "f59034c3f07ee608734c095330b9795273c4f238a238fbc528c925793dbe9572"
+    },
+    {
+      "code": "spofly3",
+      "name": "Mediterranean Flycatcher",
+      "scientificName": "Muscicapa tyrrhenica",
+      "author": "Jerry Gunner from Lincoln, UK",
+      "license": "CC BY 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Mediterranean_Flycatcher_Muscicapa_tyrrhenica,_Sardinia_(5811996325).jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d3/Mediterranean_Flycatcher_Muscicapa_tyrrhenica%2C_Sardinia_%285811996325%29.jpg/1280px-Mediterranean_Flycatcher_Muscicapa_tyrrhenica%2C_Sardinia_%285811996325%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "716ecc239f639a1fa8d78fdddbfdea5fd0205e41d520038f1a3c198e291f9b17",
+      "sourceSize": [
+        1280,
+        852
+      ],
+      "cropPixels": [
+        360,
+        0,
+        1210,
+        850
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding. No generated or repainted content.",
+      "identityEvidence": "Photographer explicitly identifies Muscicapa tyrrhenica in Sardinia.",
+      "outputSha256": "d734e91818719223f55931b66380c7841a3a5c56c86e6ad3f95942a38d73d530"
+    },
+    {
+      "code": "sulcud3",
+      "name": "Sulawesi Cuckoo-Dove",
+      "scientificName": "Macropygia albicapilla",
+      "author": "Christoph Moning",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Macropygia_albicapilla_-_Christoph_Moning_-_107803786.jpeg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/5/51/Macropygia_albicapilla_-_Christoph_Moning_-_107803786.jpeg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "1c1337bf4c8df64a80fee4573be823f77e9043a83059d0d6f9b15152414828fc",
+      "sourceSize": [
+        2003,
+        1337
+      ],
+      "cropPixels": [
+        333,
+        0,
+        1670,
+        1337
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "Macropygia albicapilla, Poso, Zentral-Sulawesi, Indonesien, 2015-09-07 (iNaturalist).",
+      "outputSha256": "e50278b231fc0cbe3c252b5b302303e207b10376be63e6d4451c9b2786e44b77"
+    },
+    {
+      "code": "willet2",
+      "name": "Saltmarsh Willet",
+      "scientificName": "Tringa semipalmata",
+      "author": "Jarek Tuszy\u0144ski",
+      "license": "CC BY-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Core_Banks_-_Eastern_Willet_-_01.JPG",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/a/af/Core_Banks_-_Eastern_Willet_-_01.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "0b5580139eb03e455f26cc5d7cd38835b3db1fd8b6525680a2c143987aca9310",
+      "sourceSize": [
+        3872,
+        2592
+      ],
+      "cropPixels": [
+        1500,
+        1030,
+        2050,
+        1580
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding; no generated or repainted content.",
+      "identityEvidence": "Commons author explicitly identifies Eastern Willet; not assigned merely from its North Carolina location. Eastern Willet is Saltmarsh Willet in the 2026 update.",
+      "outputSha256": "c4900dd833a1d74d3724db745da680199eb41b1c6caa3d5795898ec1a72319a7"
+    },
+    {
+      "code": "willet3",
+      "name": "Prairie Willet",
+      "scientificName": "Tringa inornata",
+      "author": "Diferoch",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Tringa_semipalmata_inornata_-_Nuqu%C3%AD,_Choc%C3%B3,_Colombia_-_23_Oct_2025_-_Diferoch.jpg",
+      "sourceImage": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/30/Tringa_semipalmata_inornata_-_Nuqu%C3%AD%2C_Choc%C3%B3%2C_Colombia_-_23_Oct_2025_-_Diferoch.jpg/1280px-Tringa_semipalmata_inornata_-_Nuqu%C3%AD%2C_Choc%C3%B3%2C_Colombia_-_23_Oct_2025_-_Diferoch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "sourceSha256": "ebfd8b31259be6b1b6ad86587ed0a897c341c375b5ecf885b42ecdada584f0a5",
+      "sourceSize": [
+        1280,
+        853
+      ],
+      "cropPixels": [
+        320,
+        180,
+        960,
+        820
+      ],
+      "changes": "Square crop, downsample to 240 px, JPEG encoding; no generated or repainted content.",
+      "identityEvidence": "Commons author explicitly identifies Tringa semipalmata inornata; not assigned merely from its Colombian location. This historical subspecies is Prairie Willet in the 2026 update.",
+      "outputSha256": "6c58a6b8ef3e3d12117bb152784f412acd51e41cec50c8448d01558bfdecd9c6"
+    },
+    {
+      "code": "y00960",
+      "name": "Little Swift",
+      "scientificName": "Apus affinis",
+      "author": "Derek Keats",
+      "license": "CC BY 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Little_swift,_Apus_affinis,_at_Kruger_National_Park,_South_Africa,_crop.jpg",
+      "sourceImage": "https://upload.wikimedia.org/wikipedia/commons/f/f7/Little_swift%2C_Apus_affinis%2C_at_Kruger_National_Park%2C_South_Africa%2C_crop.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "sourceSha256": "8a51157fae9ba4892756ca086f08d3b4c02a8f89bdd6907f044b95ce8b16355f",
+      "sourceSize": [
+        1570,
+        1555
+      ],
+      "cropPixels": [
+        7,
+        0,
+        1562,
+        1555
+      ],
+      "changes": "Square crop, resized to 240 pixels and JPEG encoded.",
+      "identityEvidence": "The little swift is a small species of swift found primarily in Africa and southwestern Asia. They are difficult to photograph as they are always on the move, and they move quite quickly. They actually in my yard every day, but I have not managed to get a good photo of them here. In January, I spent some hours trying to get one photo at Satara Campsite in Kruger National Park. I managed three decent photos. Swifts comprise the family Apodidae and are highly aerial birds. They are superficially similar to swallows, but are not related to them or any other passerine (perching) birds, instead belonging to the order Apodiformes along with hummingbirds. Resemblance between swifts and swallows is a result of convergent evolution, reflecting a similar niche that involves catching insects in flight.",
+      "outputSha256": "143f995cc7691109797567433a11c75659b8b293eb246ca8843e460f0232e949"
+    }
+  ]
+}

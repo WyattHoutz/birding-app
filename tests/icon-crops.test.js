@@ -56,6 +56,39 @@ function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+test('F1139 newly bundled taxonomy identities retain reviewed licensed source-pinned derivatives', () => {
+  const www = process.env.BIRDCHASER_WWW || path.join(ROOT, 'www');
+  const directory = path.join(www, 'assets', 'birds');
+  const fixture = require('./fixtures/taxonomy-2026.json');
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'f1139-photos.json'), 'utf8'));
+  const credits = fs.readFileSync(path.join(directory, 'CREDITS.md'), 'utf8');
+  const expected = fixture.newSpeciesCodes.filter((code) =>
+    ['.jpg', '.png'].some((extension) => fs.existsSync(path.join(directory, code + extension)))).sort();
+  assert.deepEqual(manifest.assets.map((row) => row.code).sort(), expected,
+    'every new exact-code asset needs reviewed provenance; no parent-name substitutions');
+  for (const row of manifest.assets) {
+    const official = fixture.current.find((entry) => entry.speciesCode === row.code);
+    assert.equal(row.name, official.comName);
+    assert.equal(row.scientificName, official.sciName);
+    const file = path.join(directory, row.code + '.jpg');
+    assert.ok(fs.existsSync(file), row.code + ' reviewed derivative is missing');
+    const image = fs.readFileSync(file);
+    assert.deepEqual(jpegSize(image), { w: 240, h: 240 });
+    assert.equal(sha256Hex(image), row.outputSha256, row.code + ' reviewed crop changed');
+    assert.match(row.sourceSha256, /^[a-f0-9]{64}$/);
+    assert.match(row.sourcePage, /^https:\/\/commons\.wikimedia\.org\/wiki\//,
+      row.code + ' new bundled taxonomy images must use the approved Wikimedia source policy');
+    assert.match(row.licenseUrl, /^https:\/\/creativecommons\.org\/(?:licenses\/(?:by|by-sa)\/[1-4]\.0|publicdomain\/zero\/1\.0)\/?$/);
+    assert.ok(row.identityEvidence && row.changes && row.author);
+    const credit = credits.split('\n').find((line) => line.includes('| `' + row.code + '` |'));
+    assert.ok(credit && credit.includes(row.author) && credit.includes(row.license)
+      && credit.includes(row.sourcePage), row.code + ' attribution lost its reviewed author/license/source');
+    const [left, top, right, bottom] = row.cropPixels;
+    assert.ok(left >= 0 && top >= 0 && right <= row.sourceSize[0] && bottom <= row.sourceSize[1]
+      && right - left === bottom - top && right - left >= 240, row.code + ' source crop is invalid');
+  }
+});
+
 test('F1042 Bohemian Waxwing retains the source-pinned owner crop with its head and bill visible', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'f479-crops.json'), 'utf8')).cases;
   assert.equal(cases.bohwax.slide, 0.572);

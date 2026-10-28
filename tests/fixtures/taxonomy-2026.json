@@ -1,0 +1,2081 @@
+{
+  "source": "https://api.ebird.org/v2/ref/taxonomy/ebird",
+  "acquiredDate": "2026-10-27",
+  "versions": [
+    "2025.0",
+    "2026.0"
+  ],
+  "newSpeciesCodes": [
+    "sddtin1",
+    "sulcud3",
+    "sulcud4",
+    "penhac1",
+    "polswi2",
+    "y00960",
+    "giahum2",
+    "giahum3",
+    "willet2",
+    "willet3",
+    "ausmao7",
+    "grhowl13",
+    "grhowl19",
+    "blafio2",
+    "blafio4",
+    "rucmot6",
+    "yebkin5",
+    "compak17",
+    "compak18",
+    "compak7",
+    "compak19",
+    "compak16",
+    "compak15",
+    "barbro2",
+    "barbro3",
+    "soubet1",
+    "soubet6",
+    "soubet7",
+    "soubet16",
+    "soubet17",
+    "soubet2",
+    "tuffly1",
+    "yebtuf1",
+    "banmyz2",
+    "banmyz3",
+    "banmyz4",
+    "blujeb5",
+    "hoojeb1",
+    "gyegre2",
+    "chefan1",
+    "sqtsaw2",
+    "sqtsaw3",
+    "sergob1",
+    "sergob2",
+    "olwbul9",
+    "olwbul3",
+    "pistib2",
+    "marwre1",
+    "eamwre1",
+    "whnthr1",
+    "whnthr2",
+    "spofly2",
+    "spofly3",
+    "cairob1",
+    "bluwht1",
+    "bluwht2",
+    "whcfor4",
+    "whcfor10",
+    "whcfor5",
+    "mouwhe6",
+    "mouwhe14",
+    "masflo7",
+    "masflo6"
+  ],
+  "formerSpeciesCodes": [
+    "sulcud1",
+    "polswi1",
+    "marswi2",
+    "litswi1",
+    "houswi1",
+    "giahum1",
+    "willet1",
+    "aumowl1",
+    "sermao1",
+    "lemowl1",
+    "manowl2",
+    "talowl1",
+    "sulowl1",
+    "blfowl1",
+    "copkin1",
+    "barbro1",
+    "sobtyr1",
+    "tuffly",
+    "banmyz1",
+    "sqtsaw1",
+    "golbul3",
+    "olwbul1",
+    "marwre",
+    "whnrob1",
+    "spofly1",
+    "blwthr1",
+    "whcfor1",
+    "mouwhe2",
+    "masflo1"
+  ],
+  "previous": [
+    {
+      "speciesCode": "sddtin1",
+      "comName": "Slaty-masked Tinamou",
+      "sciName": "Crypturellus [undescribed form]",
+      "category": "form",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SMTI",
+        "SDDT"
+      ]
+    },
+    {
+      "speciesCode": "sulcud1",
+      "comName": "Sultan's Cuckoo-Dove-",
+      "sciName": "Macropygia doreya",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "sulcud3",
+      "comName": "Sulawesi Cuckoo-Dove",
+      "sciName": "Macropygia doreya [albicapilla Group]",
+      "category": "issf",
+      "reportAs": "sulcud1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SUCD",
+        "SCDO",
+        "SBCD"
+      ]
+    },
+    {
+      "speciesCode": "sulcud4",
+      "comName": "Sultan's Cuckoo-Dove",
+      "sciName": "Macropygia doreya [doreya Group]",
+      "category": "issf",
+      "reportAs": "sulcud1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SUCD",
+        "SCDO",
+        "SBCD"
+      ]
+    },
+    {
+      "speciesCode": "polswi1",
+      "comName": "Polynesian Swiftlet (Tahiti)",
+      "sciName": "Aerodramus leucophaeus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "POSW",
+        "TASW"
+      ]
+    },
+    {
+      "speciesCode": "marswi2",
+      "comName": "Polynesian Swiftlet (Marquesan)",
+      "sciName": "Aerodramus ocistus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "POSW",
+        "MASW"
+      ]
+    },
+    {
+      "speciesCode": "litswi1",
+      "comName": "Little Swift-",
+      "sciName": "Apus affinis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "houswi1",
+      "comName": "Little Swift (House)",
+      "sciName": "Apus nipalensis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "LITT",
+        "LISW",
+        "HOSW"
+      ]
+    },
+    {
+      "speciesCode": "y00960",
+      "comName": "Little Swift",
+      "sciName": "Apus affinis/nipalensis",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "LISW",
+        "LITT"
+      ]
+    },
+    {
+      "speciesCode": "giahum1",
+      "comName": "Northern/Southern Giant-Hummingbird",
+      "sciName": "Patagona gigas",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "NGHU",
+        "SOGH",
+        "NOGH",
+        "GIHU",
+        "SGHU"
+      ]
+    },
+    {
+      "speciesCode": "giahum2",
+      "comName": "Northern Giant-Hummingbird",
+      "sciName": "Patagona gigas peruviana",
+      "category": "issf",
+      "reportAs": "giahum1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "NGHU",
+        "GIHU",
+        "NOGH"
+      ]
+    },
+    {
+      "speciesCode": "giahum3",
+      "comName": "Southern Giant-Hummingbird",
+      "sciName": "Patagona gigas gigas",
+      "category": "issf",
+      "reportAs": "giahum1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GIHU",
+        "SOGH",
+        "SGHU"
+      ]
+    },
+    {
+      "speciesCode": "willet1",
+      "comName": "Saltmarsh/Prairie Willet",
+      "sciName": "Tringa semipalmata",
+      "category": "species",
+      "bandingCodes": [
+        "WILL"
+      ],
+      "comNameCodes": [
+        "PRWI",
+        "SAWI"
+      ]
+    },
+    {
+      "speciesCode": "willet2",
+      "comName": "Saltmarsh Willet",
+      "sciName": "Tringa semipalmata semipalmata",
+      "category": "issf",
+      "reportAs": "willet1",
+      "bandingCodes": [
+        "SAWI"
+      ],
+      "comNameCodes": [
+        "WILL"
+      ]
+    },
+    {
+      "speciesCode": "willet3",
+      "comName": "Prairie Willet",
+      "sciName": "Tringa semipalmata inornata",
+      "category": "issf",
+      "reportAs": "willet1",
+      "bandingCodes": [
+        "PRWI"
+      ],
+      "comNameCodes": [
+        "WILL"
+      ]
+    },
+    {
+      "speciesCode": "aumowl1",
+      "comName": "Australasian Masked-Owl (Australasian)",
+      "sciName": "Tyto novaehollandiae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "sermao1",
+      "comName": "Australasian Masked-Owl (Seram)",
+      "sciName": "Tyto almae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MMOW",
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "lemowl1",
+      "comName": "Australasian Masked-Owl (Lesser)",
+      "sciName": "Tyto sororcula",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MMOW",
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "manowl2",
+      "comName": "Australasian Masked-Owl (Manus)",
+      "sciName": "Tyto manusi",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MMOW",
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "talowl1",
+      "comName": "Eastern Barn Owl (Taliabu)",
+      "sciName": "Tyto nigrobrunnea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "EBOW",
+        "TMOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "sulowl1",
+      "comName": "Eastern Barn Owl (Sulawesi)",
+      "sciName": "Tyto rosenbergii",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "SMOW",
+        "EBOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "eabowl1",
+      "comName": "Eastern Barn Owl",
+      "sciName": "Tyto javanica",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "EBOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "grhowl",
+      "comName": "Great Horned Owl",
+      "sciName": "Bubo virginianus",
+      "category": "species",
+      "bandingCodes": [
+        "GHOW"
+      ],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "grhowl13",
+      "comName": "Paramo Horned Owl",
+      "sciName": "Bubo virginianus nigrescens",
+      "category": "issf",
+      "reportAs": "grhowl",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GHOW",
+        "PHOW"
+      ]
+    },
+    {
+      "speciesCode": "grhowl19",
+      "comName": "Tropical Horned Owl",
+      "sciName": "Bubo virginianus nacurutu/deserti",
+      "category": "issf",
+      "reportAs": "grhowl",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GHOW",
+        "THOW"
+      ]
+    },
+    {
+      "speciesCode": "blfowl1",
+      "comName": "Blakiston's Fish-Owl-",
+      "sciName": "Ketupa blakistoni",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "blafio2",
+      "comName": "Northern Fish-Owl",
+      "sciName": "Ketupa blakistoni doerriesi",
+      "category": "issf",
+      "reportAs": "blfowl1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BFOW",
+        "BEOW",
+        "NFOW",
+        "NOFO"
+      ]
+    },
+    {
+      "speciesCode": "blafio4",
+      "comName": "Blakiston's Fish-Owl",
+      "sciName": "Ketupa blakistoni blakistoni",
+      "category": "issf",
+      "reportAs": "blfowl1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BEOW",
+        "BLFO",
+        "BFOW"
+      ]
+    },
+    {
+      "speciesCode": "copkin1",
+      "comName": "Common Paradise-Kingfisher-",
+      "sciName": "Tanysiptera galatea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "compak17",
+      "comName": "Morotai Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea doris/emiliae",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "MPKI",
+        "MOPK"
+      ]
+    },
+    {
+      "speciesCode": "compak18",
+      "comName": "Halmahera Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea [margarethae Group]",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "HAPK",
+        "HPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak7",
+      "comName": "Obi Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea obiensis",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "OBPK",
+        "OPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak19",
+      "comName": "Amboyna Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea [nais Group]",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "AMPK",
+        "APKI"
+      ]
+    },
+    {
+      "speciesCode": "compak16",
+      "comName": "Papuan Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea [galatea Group]",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "PAPK",
+        "PPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak15",
+      "comName": "Rossel Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea rosseliana",
+      "category": "issf",
+      "reportAs": "copkin1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "ROPK",
+        "RPKI"
+      ]
+    },
+    {
+      "speciesCode": "barbro1",
+      "comName": "Ayeyarwady/Black-and-red Broadbill",
+      "sciName": "Cymbirhynchus macrorhynchos",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB",
+        "AYBR",
+        "IRBR"
+      ]
+    },
+    {
+      "speciesCode": "barbro2",
+      "comName": "Ayeyarwady Broadbill",
+      "sciName": "Cymbirhynchus macrorhynchos affinis",
+      "category": "issf",
+      "reportAs": "barbro1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB",
+        "AYBR",
+        "IRBR"
+      ]
+    },
+    {
+      "speciesCode": "barbro3",
+      "comName": "Black-and-red Broadbill",
+      "sciName": "Cymbirhynchus macrorhynchos [macrorhynchos Group]",
+      "category": "issf",
+      "reportAs": "barbro1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB"
+      ]
+    },
+    {
+      "speciesCode": "sobtyr1",
+      "comName": "Southern Beardless-Tyrannulet-",
+      "sciName": "Camptostoma obsoletum",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "soubet1",
+      "comName": "Panama Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum [flaviventre Group]",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [
+        "PABT"
+      ],
+      "comNameCodes": [
+        "SBTY",
+        "PBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet6",
+      "comName": "Cauca Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum caucae",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SBTY",
+        "CABT",
+        "CBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet7",
+      "comName": "Venezuelan Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum pusillum",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "VEBT",
+        "VBTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet16",
+      "comName": "Amazonian Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum napaeum/olivaceum",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AMBT",
+        "ABTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet17",
+      "comName": "Pacific Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum [sclateri Group]",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SBTY",
+        "PBTY",
+        "PABT"
+      ]
+    },
+    {
+      "speciesCode": "soubet2",
+      "comName": "Southeastern Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum [obsoletum Group]",
+      "category": "issf",
+      "reportAs": "sobtyr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SOBT",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "tuffly",
+      "comName": "Tufted Flycatcher-",
+      "sciName": "Mitrephanes phaeocercus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "tuffly1",
+      "comName": "Tawny Tufted-Flycatcher",
+      "sciName": "Mitrephanes phaeocercus phaeocercus/tenuirostris",
+      "category": "issf",
+      "reportAs": "tuffly",
+      "bandingCodes": [
+        "TATF"
+      ],
+      "comNameCodes": [
+        "NTFL",
+        "TUFL",
+        "TTFL"
+      ]
+    },
+    {
+      "speciesCode": "banmyz1",
+      "comName": "Banda Myzomela-",
+      "sciName": "Myzomela boiei",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "banmyz2",
+      "comName": "Banda Islands Myzomela",
+      "sciName": "Myzomela boiei boiei",
+      "category": "issf",
+      "reportAs": "banmyz1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BIMY",
+        "BAMY"
+      ]
+    },
+    {
+      "speciesCode": "banmyz3",
+      "comName": "Tanimbar Myzomela",
+      "sciName": "Myzomela boiei annabellae",
+      "category": "issf",
+      "reportAs": "banmyz1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BAMY",
+        "TAMY"
+      ]
+    },
+    {
+      "speciesCode": "banmyz4",
+      "comName": "Babar Myzomela",
+      "sciName": "Myzomela boiei [undescribed form]",
+      "category": "form",
+      "reportAs": "banmyz1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BAMY"
+      ]
+    },
+    {
+      "speciesCode": "gyegre1",
+      "comName": "Gray-eyed Greenlet",
+      "sciName": "Hylophilus amaurocephalus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GEGR"
+      ]
+    },
+    {
+      "speciesCode": "gyegre2",
+      "comName": "Beni Greenlet",
+      "sciName": "Hylophilus amaurocephalus [undescribed Beni form]",
+      "category": "form",
+      "reportAs": "gyegre1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GEGR",
+        "BEGR"
+      ]
+    },
+    {
+      "speciesCode": "sqtsaw1",
+      "comName": "Square-tailed/Congo Saw-wing",
+      "sciName": "Psalidoprocne nitens",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CSWI",
+        "STSW",
+        "COSW"
+      ]
+    },
+    {
+      "speciesCode": "golbul3",
+      "comName": "Seram Golden-Bulbul-",
+      "sciName": "Hypsipetes affinis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "sergob1",
+      "comName": "Seram Golden-Bulbul",
+      "sciName": "Hypsipetes affinis affinis",
+      "category": "issf",
+      "reportAs": "golbul3",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SGBU",
+        "SEGB"
+      ]
+    },
+    {
+      "speciesCode": "sergob2",
+      "comName": "Ambon Golden-Bulbul",
+      "sciName": "Hypsipetes affinis flavicaudus",
+      "category": "issf",
+      "reportAs": "golbul3",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SGBU",
+        "AMGB",
+        "AGBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul1",
+      "comName": "Olive-winged/Barusan Bulbul",
+      "sciName": "Pycnonotus plumosus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BABU",
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul9",
+      "comName": "Olive-winged Bulbul",
+      "sciName": "Pycnonotus plumosus [plumosus Group]",
+      "category": "issf",
+      "reportAs": "olwbul1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul3",
+      "comName": "Barusan Bulbul",
+      "sciName": "Pycnonotus plumosus porphyreus",
+      "category": "issf",
+      "reportAs": "olwbul1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BABU",
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "sttbab1",
+      "comName": "Pin-striped Tit-Babbler",
+      "sciName": "Mixornis gularis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PSTB"
+      ]
+    },
+    {
+      "speciesCode": "pistib2",
+      "comName": "Palawan Tit-Babbler",
+      "sciName": "Mixornis gularis woodi",
+      "category": "issf",
+      "reportAs": "sttbab1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PSTB",
+        "PTBA",
+        "PATB"
+      ]
+    },
+    {
+      "speciesCode": "marwre",
+      "comName": "Western/Eastern Marsh Wren",
+      "sciName": "Cistothorus palustris",
+      "category": "species",
+      "bandingCodes": [
+        "MAWR"
+      ],
+      "comNameCodes": [
+        "WEMW",
+        "WMWR",
+        "EMWR",
+        "EAMW"
+      ]
+    },
+    {
+      "speciesCode": "marwre1",
+      "comName": "Western Marsh Wren",
+      "sciName": "Cistothorus palustris [paludicola Group]",
+      "category": "issf",
+      "reportAs": "marwre",
+      "bandingCodes": [
+        "WEMW"
+      ],
+      "comNameCodes": [
+        "MAWR",
+        "WMWR"
+      ]
+    },
+    {
+      "speciesCode": "whnrob1",
+      "comName": "Gray-flanked/Rufous-flanked Thrush",
+      "sciName": "Turdus albicollis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "RFTH",
+        "GFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "whnthr1",
+      "comName": "Gray-flanked Thrush",
+      "sciName": "Turdus albicollis [phaeopygus Group]",
+      "category": "issf",
+      "reportAs": "whnrob1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "whnthr2",
+      "comName": "Rufous-flanked Thrush",
+      "sciName": "Turdus albicollis [albicollis Group]",
+      "category": "issf",
+      "reportAs": "whnrob1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "RFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "spofly1",
+      "comName": "Spotted/Mediterranean Flycatcher",
+      "sciName": "Muscicapa striata",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SPFL",
+        "MEFL"
+      ]
+    },
+    {
+      "speciesCode": "spofly2",
+      "comName": "Spotted Flycatcher",
+      "sciName": "Muscicapa striata [striata Group]",
+      "category": "issf",
+      "reportAs": "spofly1",
+      "bandingCodes": [
+        "SPFL"
+      ],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "spofly3",
+      "comName": "Mediterranean Flycatcher",
+      "sciName": "Muscicapa striata tyrrhenica/balearica",
+      "category": "issf",
+      "reportAs": "spofly1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SPFL",
+        "MEFL"
+      ]
+    },
+    {
+      "speciesCode": "blwthr1",
+      "comName": "Chinese/Yellow-billed Whistling-Thrush",
+      "sciName": "Myophonus caeruleus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "YEBI",
+        "CHWT",
+        "BWTH",
+        "YBWT",
+        "CWTH"
+      ]
+    },
+    {
+      "speciesCode": "bluwht1",
+      "comName": "Chinese Whistling-Thrush",
+      "sciName": "Myophonus caeruleus caeruleus",
+      "category": "issf",
+      "reportAs": "blwthr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CHWT",
+        "BWTH",
+        "CWTH"
+      ]
+    },
+    {
+      "speciesCode": "bluwht2",
+      "comName": "Yellow-billed Whistling-Thrush",
+      "sciName": "Myophonus caeruleus [flavirostris Group]",
+      "category": "issf",
+      "reportAs": "blwthr1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BWTH",
+        "YEBI",
+        "YBWT"
+      ]
+    },
+    {
+      "speciesCode": "whcfor1",
+      "comName": "White-crowned Forktail-",
+      "sciName": "Enicurus leschenaulti",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "whcfor4",
+      "comName": "Northern Forktail",
+      "sciName": "Enicurus leschenaulti sinensis/indicus",
+      "category": "issf",
+      "reportAs": "whcfor1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "NOFO"
+      ]
+    },
+    {
+      "speciesCode": "whcfor10",
+      "comName": "Malayan Forktail",
+      "sciName": "Enicurus leschenaulti frontalis/chaseni",
+      "category": "issf",
+      "reportAs": "whcfor1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "MAFO"
+      ]
+    },
+    {
+      "speciesCode": "whcfor5",
+      "comName": "Javan Forktail",
+      "sciName": "Enicurus leschenaulti leschenaulti",
+      "category": "issf",
+      "reportAs": "whcfor1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "JAFO"
+      ]
+    },
+    {
+      "speciesCode": "mouwhe2",
+      "comName": "Maghreb/Mourning Wheatear",
+      "sciName": "Oenanthe lugens",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MAWH",
+        "MOWH"
+      ]
+    },
+    {
+      "speciesCode": "mouwhe6",
+      "comName": "Maghreb Wheatear",
+      "sciName": "Oenanthe lugens halophila",
+      "category": "issf",
+      "reportAs": "mouwhe2",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MAWH",
+        "MOWH"
+      ]
+    },
+    {
+      "speciesCode": "masflo1",
+      "comName": "Masked Flowerpiercer-",
+      "sciName": "Diglossa cyanea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "masflo7",
+      "comName": "Warbling Masked Flowerpiercer",
+      "sciName": "Diglossa cyanea [cyanea Group]",
+      "category": "issf",
+      "reportAs": "masflo1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WMFL",
+        "MAFL"
+      ]
+    },
+    {
+      "speciesCode": "masflo6",
+      "comName": "Whistling Masked Flowerpiercer",
+      "sciName": "Diglossa cyanea melanopis",
+      "category": "issf",
+      "reportAs": "masflo1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WMFL",
+        "MAFL"
+      ]
+    }
+  ],
+  "current": [
+    {
+      "speciesCode": "sddtin1",
+      "comName": "Slaty-masked Tinamou",
+      "sciName": "Crypturellus resonans",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SMTI",
+        "SDDT"
+      ]
+    },
+    {
+      "speciesCode": "sulcud3",
+      "comName": "Sulawesi Cuckoo-Dove",
+      "sciName": "Macropygia albicapilla",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SUCD",
+        "SCDO",
+        "SBCD"
+      ]
+    },
+    {
+      "speciesCode": "sulcud4",
+      "comName": "Sultan's Cuckoo-Dove",
+      "sciName": "Macropygia doreya",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SUCD",
+        "SCDO",
+        "SBCD"
+      ]
+    },
+    {
+      "speciesCode": "penhac1",
+      "comName": "Penan Hawk-Cuckoo",
+      "sciName": "Hierococcyx tiganada",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PEHC",
+        "DHCU",
+        "PHCU"
+      ]
+    },
+    {
+      "speciesCode": "polswi2",
+      "comName": "Polynesian Swiftlet",
+      "sciName": "Aerodramus leucophaeus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "POSW"
+      ]
+    },
+    {
+      "speciesCode": "polswi1",
+      "comName": "Polynesian Swiftlet (Tahiti)",
+      "sciName": "Aerodramus leucophaeus leucophaeus",
+      "category": "issf",
+      "reportAs": "polswi2",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "POSW",
+        "TASW"
+      ]
+    },
+    {
+      "speciesCode": "marswi2",
+      "comName": "Polynesian Swiftlet (Marquesan)",
+      "sciName": "Aerodramus leucophaeus ocistus/gilliardi",
+      "category": "issf",
+      "reportAs": "polswi2",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "POSW",
+        "MASW"
+      ]
+    },
+    {
+      "speciesCode": "y00960",
+      "comName": "Little Swift",
+      "sciName": "Apus affinis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "LISW",
+        "LITT"
+      ]
+    },
+    {
+      "speciesCode": "houswi1",
+      "comName": "Little Swift (House)",
+      "sciName": "Apus affinis [nipalensis Group]",
+      "category": "issf",
+      "reportAs": "y00960",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "HOSW",
+        "LISW",
+        "LITT"
+      ]
+    },
+    {
+      "speciesCode": "giahum2",
+      "comName": "Northern Giant-Hummingbird",
+      "sciName": "Patagona peruviana",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "NOGH",
+        "NGHU",
+        "GIHU"
+      ]
+    },
+    {
+      "speciesCode": "giahum3",
+      "comName": "Southern Giant-Hummingbird",
+      "sciName": "Patagona gigas",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GIHU",
+        "SGHU",
+        "SOGH"
+      ]
+    },
+    {
+      "speciesCode": "giahum1",
+      "comName": "Northern/Southern Giant-Hummingbird",
+      "sciName": "Patagona peruviana/gigas",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "NGHU",
+        "SOGH",
+        "NOGH",
+        "GIHU",
+        "SGHU"
+      ]
+    },
+    {
+      "speciesCode": "willet2",
+      "comName": "Saltmarsh Willet",
+      "sciName": "Tringa semipalmata",
+      "category": "species",
+      "bandingCodes": [
+        "SAWI"
+      ],
+      "comNameCodes": [
+        "WILL"
+      ]
+    },
+    {
+      "speciesCode": "willet3",
+      "comName": "Prairie Willet",
+      "sciName": "Tringa inornata",
+      "category": "species",
+      "bandingCodes": [
+        "PRWI"
+      ],
+      "comNameCodes": [
+        "WILL"
+      ]
+    },
+    {
+      "speciesCode": "willet1",
+      "comName": "Saltmarsh/Prairie Willet",
+      "sciName": "Tringa semipalmata/inornata",
+      "category": "slash",
+      "bandingCodes": [
+        "WILL"
+      ],
+      "comNameCodes": [
+        "PRWI",
+        "SAWI"
+      ]
+    },
+    {
+      "speciesCode": "ausmao7",
+      "comName": "Australasian Masked-Owl",
+      "sciName": "Tyto novaehollandiae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "sermao1",
+      "comName": "Australasian Masked-Owl (Seram)",
+      "sciName": "Tyto novaehollandiae almae",
+      "category": "issf",
+      "reportAs": "ausmao7",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MMOW",
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "lemowl1",
+      "comName": "Australasian Masked-Owl (Lesser)",
+      "sciName": "Tyto novaehollandiae sororcula/cayelii",
+      "category": "issf",
+      "reportAs": "ausmao7",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AUMO",
+        "MMOW",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "aumowl1",
+      "comName": "Australasian Masked-Owl (Australasian)",
+      "sciName": "Tyto novaehollandiae [novaehollandiae Group]",
+      "category": "issf",
+      "reportAs": "ausmao7",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "manowl2",
+      "comName": "Australasian Masked-Owl (Manus)",
+      "sciName": "Tyto novaehollandiae manusi",
+      "category": "issf",
+      "reportAs": "ausmao7",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MMOW",
+        "AUMO",
+        "AMOW"
+      ]
+    },
+    {
+      "speciesCode": "eabowl1",
+      "comName": "Eastern Barn Owl",
+      "sciName": "Tyto javanica",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "EBOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "sulowl1",
+      "comName": "Eastern Barn Owl (Sulawesi)",
+      "sciName": "Tyto javanica rosenbergii/pelengensis",
+      "category": "issf",
+      "reportAs": "eabowl1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "SMOW",
+        "EBOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "talowl1",
+      "comName": "Eastern Barn Owl (Taliabu)",
+      "sciName": "Tyto javanica nigrobrunnea",
+      "category": "issf",
+      "reportAs": "eabowl1",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CBOW",
+        "EBOW",
+        "TMOW",
+        "ABOW"
+      ]
+    },
+    {
+      "speciesCode": "grhowl",
+      "comName": "Great Horned Owl",
+      "sciName": "Bubo virginianus",
+      "category": "species",
+      "bandingCodes": [
+        "GHOW"
+      ],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "grhowl13",
+      "comName": "Paramo Horned Owl",
+      "sciName": "Bubo nigrescens",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GHOW",
+        "PHOW"
+      ]
+    },
+    {
+      "speciesCode": "grhowl19",
+      "comName": "Tropical Horned Owl",
+      "sciName": "Bubo nacurutu",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GHOW",
+        "THOW"
+      ]
+    },
+    {
+      "speciesCode": "blafio2",
+      "comName": "Northern Fish-Owl",
+      "sciName": "Ketupa doerriesi",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BFOW",
+        "BEOW",
+        "NFOW",
+        "NOFO"
+      ]
+    },
+    {
+      "speciesCode": "blafio4",
+      "comName": "Blakiston's Fish-Owl",
+      "sciName": "Ketupa blakistoni",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BLFO",
+        "BEOW",
+        "BFOW"
+      ]
+    },
+    {
+      "speciesCode": "rucmot6",
+      "comName": "Guatemalan Motmot",
+      "sciName": "Momotus castaneiceps",
+      "category": "species",
+      "bandingCodes": [
+        "GUMO"
+      ],
+      "comNameCodes": [
+        "RCMO"
+      ]
+    },
+    {
+      "speciesCode": "yebkin5",
+      "comName": "Ochre-bellied Kingfisher",
+      "sciName": "Syma ochracea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "OBKI",
+        "YBKI"
+      ]
+    },
+    {
+      "speciesCode": "compak17",
+      "comName": "Morotai Paradise-Kingfisher",
+      "sciName": "Tanysiptera doris",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "MPKI",
+        "MOPK"
+      ]
+    },
+    {
+      "speciesCode": "compak18",
+      "comName": "Halmahera Paradise-Kingfisher",
+      "sciName": "Tanysiptera margarethae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "HAPK",
+        "HPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak7",
+      "comName": "Obi Paradise-Kingfisher",
+      "sciName": "Tanysiptera obiensis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "OBPK",
+        "OPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak19",
+      "comName": "Amboyna Paradise-Kingfisher",
+      "sciName": "Tanysiptera nais",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "AMPK",
+        "APKI"
+      ]
+    },
+    {
+      "speciesCode": "compak16",
+      "comName": "Papuan Paradise-Kingfisher",
+      "sciName": "Tanysiptera galatea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "PAPK",
+        "PPKI"
+      ]
+    },
+    {
+      "speciesCode": "compak15",
+      "comName": "Rossel Paradise-Kingfisher",
+      "sciName": "Tanysiptera rosseliana",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CPKI",
+        "RPKI",
+        "ROPK"
+      ]
+    },
+    {
+      "speciesCode": "barbro2",
+      "comName": "Ayeyarwady Broadbill",
+      "sciName": "Cymbirhynchus affinis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB",
+        "AYBR",
+        "IRBR"
+      ]
+    },
+    {
+      "speciesCode": "barbro3",
+      "comName": "Black-and-red Broadbill",
+      "sciName": "Cymbirhynchus macrorhynchos",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB"
+      ]
+    },
+    {
+      "speciesCode": "barbro1",
+      "comName": "Ayeyarwady/Black-and-red Broadbill",
+      "sciName": "Cymbirhynchus affinis/macrorhynchos",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BARB",
+        "AYBR",
+        "IRBR"
+      ]
+    },
+    {
+      "speciesCode": "soubet1",
+      "comName": "Panama Beardless-Tyrannulet",
+      "sciName": "Camptostoma flaviventre",
+      "category": "species",
+      "bandingCodes": [
+        "PABT"
+      ],
+      "comNameCodes": [
+        "PBTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet6",
+      "comName": "Cauca Beardless-Tyrannulet",
+      "sciName": "Camptostoma caucae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SBTY",
+        "CABT",
+        "CBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet7",
+      "comName": "Venezuelan Beardless-Tyrannulet",
+      "sciName": "Camptostoma pusillum",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "VEBT",
+        "VBTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet16",
+      "comName": "Amazonian Beardless-Tyrannulet",
+      "sciName": "Camptostoma napaeum",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AMBT",
+        "ABTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet17",
+      "comName": "Pacific Beardless-Tyrannulet",
+      "sciName": "Camptostoma sclateri",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PABT",
+        "PBTY",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "soubet2",
+      "comName": "Southeastern Beardless-Tyrannulet",
+      "sciName": "Camptostoma obsoletum",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SOBT",
+        "SBTY"
+      ]
+    },
+    {
+      "speciesCode": "tuffly1",
+      "comName": "Tawny Tufted-Flycatcher",
+      "sciName": "Mitrephanes phaeocercus",
+      "category": "species",
+      "bandingCodes": [
+        "TATF"
+      ],
+      "comNameCodes": [
+        "TUFL",
+        "NTFL",
+        "TTFL"
+      ]
+    },
+    {
+      "speciesCode": "yebtuf1",
+      "comName": "Lemon-bellied Tufted-Flycatcher",
+      "sciName": "Mitrephanes aurantiiventris",
+      "category": "species",
+      "bandingCodes": [
+        "LBTF"
+      ],
+      "comNameCodes": [
+        "TUFL"
+      ]
+    },
+    {
+      "speciesCode": "banmyz2",
+      "comName": "Banda Islands Myzomela",
+      "sciName": "Myzomela boiei",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BIMY",
+        "BAMY"
+      ]
+    },
+    {
+      "speciesCode": "banmyz3",
+      "comName": "Tanimbar Myzomela",
+      "sciName": "Myzomela annabellae",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BAMY",
+        "TAMY"
+      ]
+    },
+    {
+      "speciesCode": "banmyz4",
+      "comName": "Babar Myzomela",
+      "sciName": "Myzomela babarensis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BAMY"
+      ]
+    },
+    {
+      "speciesCode": "blujeb5",
+      "comName": "Southern Blue Jewel-babbler",
+      "sciName": "Ptilorrhoa nigricrissus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BJBA",
+        "SBJB"
+      ]
+    },
+    {
+      "speciesCode": "hoojeb1",
+      "comName": "Hooded Jewel-babbler",
+      "sciName": "Ptilorrhoa urrissia",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "HJBA",
+        "HOJB"
+      ]
+    },
+    {
+      "speciesCode": "gyegre1",
+      "comName": "Gray-eyed Greenlet",
+      "sciName": "Hylophilus amaurocephalus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GEGR"
+      ]
+    },
+    {
+      "speciesCode": "gyegre2",
+      "comName": "Beni Greenlet",
+      "sciName": "Hylophilus moxensis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GEGR",
+        "BEGR"
+      ]
+    },
+    {
+      "speciesCode": "chefan1",
+      "comName": "Cheerful Fantail",
+      "sciName": "Rhipidura laguceria",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CHFA",
+        "CTFA"
+      ]
+    },
+    {
+      "speciesCode": "sqtsaw2",
+      "comName": "Square-tailed Saw-wing",
+      "sciName": "Psalidoprocne nitens",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "STSW"
+      ]
+    },
+    {
+      "speciesCode": "sqtsaw3",
+      "comName": "Congo Saw-wing",
+      "sciName": "Psalidoprocne centralis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CSWI",
+        "STSW",
+        "COSW"
+      ]
+    },
+    {
+      "speciesCode": "sqtsaw1",
+      "comName": "Square-tailed/Congo Saw-wing",
+      "sciName": "Psalidoprocne nitens/centralis",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CSWI",
+        "STSW",
+        "COSW"
+      ]
+    },
+    {
+      "speciesCode": "sergob1",
+      "comName": "Seram Golden-Bulbul",
+      "sciName": "Hypsipetes affinis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SGBU",
+        "SEGB"
+      ]
+    },
+    {
+      "speciesCode": "sergob2",
+      "comName": "Ambon Golden-Bulbul",
+      "sciName": "Hypsipetes flavicaudus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "AMGB",
+        "SGBU",
+        "AGBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul9",
+      "comName": "Olive-winged Bulbul",
+      "sciName": "Pycnonotus plumosus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul3",
+      "comName": "Barusan Bulbul",
+      "sciName": "Pycnonotus porphyreus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BABU",
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "olwbul1",
+      "comName": "Olive-winged/Barusan Bulbul",
+      "sciName": "Pycnonotus plumosus/porphyreus",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "BABU",
+        "OWBU"
+      ]
+    },
+    {
+      "speciesCode": "sttbab1",
+      "comName": "Pin-striped Tit-Babbler",
+      "sciName": "Mixornis gularis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PSTB"
+      ]
+    },
+    {
+      "speciesCode": "pistib2",
+      "comName": "Palawan Tit-Babbler",
+      "sciName": "Mixornis woodi",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "PSTB",
+        "PTBA",
+        "PATB"
+      ]
+    },
+    {
+      "speciesCode": "marwre1",
+      "comName": "Western Marsh Wren",
+      "sciName": "Cistothorus paludicola",
+      "category": "species",
+      "bandingCodes": [
+        "WEMW"
+      ],
+      "comNameCodes": [
+        "MAWR",
+        "WMWR"
+      ]
+    },
+    {
+      "speciesCode": "eamwre1",
+      "comName": "Eastern Marsh Wren",
+      "sciName": "Cistothorus palustris",
+      "category": "species",
+      "bandingCodes": [
+        "EAMW"
+      ],
+      "comNameCodes": [
+        "MAWR",
+        "EMWR"
+      ]
+    },
+    {
+      "speciesCode": "marwre",
+      "comName": "Western/Eastern Marsh Wren",
+      "sciName": "Cistothorus paludicola/palustris",
+      "category": "slash",
+      "bandingCodes": [
+        "MAWR"
+      ],
+      "comNameCodes": [
+        "WEMW",
+        "WMWR",
+        "EMWR",
+        "EAMW"
+      ]
+    },
+    {
+      "speciesCode": "whnthr1",
+      "comName": "Gray-flanked Thrush",
+      "sciName": "Turdus phaeopygus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "GFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "whnthr2",
+      "comName": "Rufous-flanked Thrush",
+      "sciName": "Turdus albicollis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "RFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "whnrob1",
+      "comName": "Gray-flanked/Rufous-flanked Thrush",
+      "sciName": "Turdus phaeopygus/albicollis",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "RFTH",
+        "GFTH",
+        "WNTH"
+      ]
+    },
+    {
+      "speciesCode": "spofly2",
+      "comName": "Spotted Flycatcher",
+      "sciName": "Muscicapa striata",
+      "category": "species",
+      "bandingCodes": [
+        "SPFL"
+      ],
+      "comNameCodes": []
+    },
+    {
+      "speciesCode": "spofly3",
+      "comName": "Mediterranean Flycatcher",
+      "sciName": "Muscicapa tyrrhenica",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SPFL",
+        "MEFL"
+      ]
+    },
+    {
+      "speciesCode": "spofly1",
+      "comName": "Spotted/Mediterranean Flycatcher",
+      "sciName": "Muscicapa striata/tyrrhenica",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "SPFL",
+        "MEFL"
+      ]
+    },
+    {
+      "speciesCode": "cairob1",
+      "comName": "Canary Islands Robin",
+      "sciName": "Erithacus superbus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CIRO",
+        "EURO"
+      ]
+    },
+    {
+      "speciesCode": "bluwht1",
+      "comName": "Chinese Whistling-Thrush",
+      "sciName": "Myophonus caeruleus",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "CHWT",
+        "BWTH",
+        "CWTH"
+      ]
+    },
+    {
+      "speciesCode": "bluwht2",
+      "comName": "Yellow-billed Whistling-Thrush",
+      "sciName": "Myophonus flavirostris",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "YEBI",
+        "BWTH",
+        "YBWT"
+      ]
+    },
+    {
+      "speciesCode": "blwthr1",
+      "comName": "Chinese/Yellow-billed Whistling-Thrush",
+      "sciName": "Myophonus caeruleus/flavirostris",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "YEBI",
+        "CHWT",
+        "BWTH",
+        "CWTH",
+        "YBWT"
+      ]
+    },
+    {
+      "speciesCode": "whcfor4",
+      "comName": "Northern Forktail",
+      "sciName": "Enicurus sinensis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "NOFO"
+      ]
+    },
+    {
+      "speciesCode": "whcfor10",
+      "comName": "Malayan Forktail",
+      "sciName": "Enicurus frontalis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "MAFO"
+      ]
+    },
+    {
+      "speciesCode": "whcfor5",
+      "comName": "Javan Forktail",
+      "sciName": "Enicurus leschenaulti",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WCFO",
+        "JAFO"
+      ]
+    },
+    {
+      "speciesCode": "mouwhe6",
+      "comName": "Maghreb Wheatear",
+      "sciName": "Oenanthe halophila",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MAWH",
+        "MOWH"
+      ]
+    },
+    {
+      "speciesCode": "mouwhe14",
+      "comName": "Mourning Wheatear",
+      "sciName": "Oenanthe lugens",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MOWH"
+      ]
+    },
+    {
+      "speciesCode": "mouwhe2",
+      "comName": "Maghreb/Mourning Wheatear",
+      "sciName": "Oenanthe halophila/lugens",
+      "category": "slash",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "MAWH",
+        "MOWH"
+      ]
+    },
+    {
+      "speciesCode": "masflo7",
+      "comName": "Warbling Masked Flowerpiercer",
+      "sciName": "Diglossa cyanea",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WMFL",
+        "MAFL"
+      ]
+    },
+    {
+      "speciesCode": "masflo6",
+      "comName": "Whistling Masked Flowerpiercer",
+      "sciName": "Diglossa melanopis",
+      "category": "species",
+      "bandingCodes": [],
+      "comNameCodes": [
+        "WMFL",
+        "MAFL"
+      ]
+    }
+  ]
+}

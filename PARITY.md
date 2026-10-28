@@ -15,6 +15,23 @@ have a **row in the matrix below**, enforced from both repos
 
 ## Current candidate — F805/F812 personal ownership and F811 dual boards
 
+F1145/F1146 rename and re-icon the app's Common birds opportunity surface as
+Birds I Need; the archived prevalence report and stable destination remain
+unchanged. F1143 temporarily disables Nemesis in the app without deleting
+its implementation or saved evidence.
+
+F1137 keeps Nearby's existing 32-km/30-day device acquisition and distance
+ordering, but removes its additional five-mile display cutoff. Its All/Unseen
+control filters already loaded shared hotspot cards using confirmed personal
+or WATCH evidence; unknown taxonomy is not a target. Expansion is ten at a
+time by deliberate click, with the map following visible cards. The archived
+report retains its static five-mile/closest-ten snapshot; no shared distance,
+crossing/access rule, global chase setting or report pipeline is changed.
+
+| Report section | App treatment | Reason |
+|---|---|---|
+| ## 🦅 Nemesis birds — Closest unseen birds reported now | ➖ Temporarily disabled | F1143 owner decision; reversible feature flag, with no change to the archived report. |
+
 F1104 replaces the app's Common birds prevalence presentation with an app-only
 seven-day public-hotspot opportunity feed. Each personally eligible bird/place
 pair remains separate and uses production Twitch cards. Geographic discovery,

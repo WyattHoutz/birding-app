@@ -245,7 +245,6 @@ const STUB_SPEC = {
       '#favResults .favoritecard > .name > .ntext',
       '#favResults .favoritecard > .name > .favctl > .favdel',
       '#favResults .favoritecard > .name > .favctl + .hsdist'] },
-  allUnseenBtn:   { kind: 'bird',          host: 'allUnseenResults' },
   easyBtn:        { kind: 'bird',          host: 'easyResults' },
   nvResults:      { kind: 'species-search', host: 'nvResults',
     allowDisabled: [] },
@@ -1221,8 +1220,11 @@ const REVIEW_SHOTS = [
            var source={source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
              sourceRegion:A.activeScope().effectiveRegion,
              sourceMonth:parts.year+'-'+String(parts.month).padStart(2,'0'),
-             acquiredAt:now.getTime(),state:'ok',
+             acquiredAt:now.getTime(),state:'ok',acquired:true,inventoryComplete:true,
              sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:'US-WA'}]};
+           A.birdGenSensitiveJournal(Object.assign({},source,{
+             acquiredAt:now.getTime()-1,sensitiveRows:[]}),now);
+           A.birdGenSensitiveJournal(source,now);
            A.renderSurge([],[],[],[],[],{massSource:source,mass:'ok',
              mega:'notApplicable',observations:'notApplicable',leaderboard:'notApplicable',
              hotspots:'notApplicable',favorites:'notApplicable',ppte:'notApplicable',
@@ -1232,7 +1234,7 @@ const REVIEW_SHOTS = [
                || / at eBird|this month/.test(title.textContent)) {
              throw new Error('F1110 representative headline is not the production correction: '
                +JSON.stringify({region:source.sourceRegion,month:source.sourceMonth,
-                 title:title&&title.textContent,rows:A.birdGenSensitiveRows(source,now).length}));
+                 title:title&&title.textContent,rows:A.birdGenSensitiveRows(now).length}));
            }
            sec.dataset.mockAt='surgeBtn';sec.dataset.mockReady='true';
            document.getElementById('surgeResults').dataset.mockData='true';
@@ -2532,8 +2534,8 @@ const BOOTSTRAP = `
       + '<div class="helpdoc"><p><b>Reads:</b> recent alerts, leaderboard and hotspot activity.</p>'
       + '<p><b>Limit:</b> incomplete sources are labelled rather than treated as empty.</p>'
       + '</div></details><details class="helpitem"><summary>'
-      + '<span class="helpglyph">🐦</span><span class="helpname">Common birds</span>'
-      + '<span class="helpone">Common birds you still need</span>'
+      + '<span class="helpglyph">🦅</span><span class="helpname">Birds I Need</span>'
+      + '<span class="helpone">Birds you still need</span>'
       + '</summary></details></div>';
     markHost(host, label);
   }
