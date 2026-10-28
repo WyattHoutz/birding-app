@@ -202,6 +202,8 @@
       "at": "easyBtn",
       "label": "🦅 Birds I Need",
       "report": "## 🐦 Common birds — Common birds you still need",
+      "reportLabel": "🐦 Common birds",
+      "reportSub": "Common birds you still need",
       "map": null,
       "why": "F1145/F1146 rename and re-icon the app-only opportunity presentation as Birds I Need. The archived report keeps its Common birds historical-prevalence heading and policy; stable app destination and personal eligibility are unchanged.",
       "sub": "Birds you still need"

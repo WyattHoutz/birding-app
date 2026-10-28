@@ -5,6 +5,18 @@ module.exports = function registerMigrationSetupControls({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
   formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml
 }) {
+  function baselineSensitive(app) {
+    const A = app.window.__app, now = new app.window.Date();
+    const parts = A.birdcastLocalParts(now, A.getReport());
+    A.birdGenSensitiveJournal({
+      source: 'highCountPage', sourceOwner: A.surgeRetainedContext(),
+      sourceRegion: A.activeScope().effectiveRegion,
+      sourceMonth: parts.year + '-' + String(parts.month).padStart(2, '0'),
+      acquiredAt: now.getTime() - 1, state: 'ok', acquired: true,
+      inventoryComplete: true, sensitiveRows: []
+    }, now);
+  }
+
   test('F1085 both real Twitch renderers show the same two- and six-hour source ages', async () => {
     const app = await boot();
     try {
@@ -219,10 +231,11 @@ module.exports = function registerMigrationSetupControls({
       try {
         const A = app.window.__app;
         if (county) A.setCountyView('US-WA-033');
+        baselineSensitive(app);
         const source = await A.loadMassFlockAlertSource(false, A.activeScope());
         const requests = app.state.fetches.length;
         const area = county ? 'King County' : 'Washington';
-        const rows = A.birdGenSensitiveRows(source, new Date());
+        const rows = A.birdGenSensitiveRows(new app.window.Date());
         const headline = app.document.createElement('span');
         headline.innerHTML = rows[0].name;
         assert.match(headline.textContent, new RegExp('reported in ' + area + (county ? '' : ' region') + ' in '));
@@ -246,7 +259,11 @@ module.exports = function registerMigrationSetupControls({
         assert.match(app.$('appSheet').textContent, /exact observation date and location withheld/);
         assert.equal(app.$('appSheet').querySelector('[data-loc],[data-subid],[data-q]'), null);
         assert.equal(app.state.fetches.length, requests, 'coarse display/action makes no new source request');
-        assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);
+        const history = app.window.localStorage.getItem(A.sensitiveJournalKey());
+        A.birdGenSensitiveJournal({ ...source, sourceRegion: 'US-OR',
+          acquired: true, inventoryComplete: true, state: 'ok' }, new app.window.Date());
+        assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()), history,
+          'foreign-region evidence cannot alter the acquired-area journal');
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
     }
@@ -269,6 +286,7 @@ module.exports = function registerMigrationSetupControls({
         A.fgWindowReset();
         A.fgSchedReset(now);
         if (region !== 'US-WA') A.setCountyView(region);
+        baselineSensitive(app);
         const source = await A.loadMassFlockAlertSource(false, A.activeScope());
         assert.notEqual(source.state, 'failed');
         A.renderSurge([], [], [], [], [], { massSource: source, mass: source.state });
@@ -301,8 +319,9 @@ module.exports = function registerMigrationSetupControls({
         app.click(links[1]);
         assert.deepEqual(external, [url, areaUrl], 'area opens the acquired current-month species list');
         assert.match(card.querySelector('template').content.textContent, /exact observation date and location withheld/);
-        assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="sensitive"]'), null,
-          'monthly presence must not acquire a false recent observation timestamp');
+        assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="sensitive"]'),
+          'a new app detection appears in Recent without claiming an observation timestamp');
+        assert.equal(Number(card.dataset.firstDetectedAt), now);
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
     }
@@ -421,8 +440,8 @@ module.exports = function registerMigrationSetupControls({
       };
       const row = A.birdcastSurgeRows(now, snapshot)[0];
       assert.ok(row);
-      assert.match(row.name, /Low migration tonight/);
-      assert.match(row.name, /109,900 birds \(est\.\) crossed King County · 3\/7-8/);
+      assert.match(row.name, /Low migration forecast for King County/);
+      assert.match(row.name, /109,900 birds last night/);
       assert.match(row.extra, /source night 2026-03-07.*separate from the forecast/);
       assert.equal(row.when, '2026-03-08T08:00:00.000Z', 'spring midnight precedes the DST transition');
       const refreshed = A.birdcastSurgeRows(new Date('2026-03-08T21:00:00Z'), {
@@ -432,13 +451,15 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(refreshed.notificationKey, row.notificationKey);
       const retained = A.birdcastSurgeRows(new Date('2026-03-09T20:00:00Z'), snapshot)[0];
       assert.equal(retained.time, row.time);
-      assert.match(retained.name, /Saved Low forecast/);
+      assert.match(retained.name, /Low migration forecast for King County/);
+      assert.equal(retained.ageLabel, 'Saved');
       assert.doesNotMatch(retained.name, /Low migration tonight/);
       for (const extra of [{ forecast: null }, { sourceScope: 'mo' }, {
         forecast: { date: '2026-03-08', level: 'Loading' }
       }]) assert.equal(A.birdcastSurgeRows(now, { ...snapshot, ...extra }).length, 0);
       const failed = A.birdcastSurgeRows(now, { ...snapshot, forecastError: 'Unavailable' })[0];
-      assert.match(failed.name, /Saved Low forecast/);
+      assert.match(failed.name, /Low migration forecast for King County/);
+      assert.equal(failed.ageLabel, 'Saved');
       assert.doesNotMatch(failed.name, /Low migration tonight/);
       assert.match(A.birdcastSurgeRows(now, { ...snapshot, count: null })[0].name, /count unavailable/);
       assert.doesNotMatch(A.birdcastSurgeRows(now, { ...snapshot, count: null })[0].name, /0 birds/);
@@ -448,7 +469,8 @@ module.exports = function registerMigrationSetupControls({
           fetchedAt: fall.getTime(), forecast: { date: '2026-11-01', level }
         })[0];
         assert.equal(next.when, '2026-11-01T07:00:00.000Z', 'fall midnight precedes the DST transition');
-        assert.match(next.name, new RegExp(level + ' migration tonight'));
+        assert.match(next.name, new RegExp(level + ' migration forecast for '));
+        assert.equal(next.ageLabel, 'Current');
       }
     } finally { app.window.close(); }
   });
@@ -606,7 +628,9 @@ module.exports = function registerMigrationSetupControls({
     const app = await boot({ sample: false, fetch: url =>
       /bird-list\?.*rank=hc/.test(url) ? preparedSensitivePage() : [] });
     try {
-      const A = app.window.__app, source = await A.loadMassFlockAlertSource(false, A.activeScope());
+      const A = app.window.__app;
+      baselineSensitive(app);
+      const source = await A.loadMassFlockAlertSource(false, A.activeScope());
       assert.notEqual(source.state, 'failed');
       assert.equal(source.evidenceRows.length, 0);
       assert.equal(source.rows.length, 0);
@@ -615,15 +639,15 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(source.rowCoverage.total, 1);
       assert.equal(source.sensitiveRows.length, 1);
       assert.deepEqual(Object.keys(source.sensitiveRows[0]).sort(), ['code', 'count', 'name', 'region']);
-      const first = A.birdGenSensitiveRows(source, new Date());
-      assert.equal(first.length, 1, 'monthly information must appear on first success');
+      const first = A.birdGenSensitiveRows(new app.window.Date());
+      assert.equal(first.length, 1, 'new monthly presence after a known baseline creates an alert');
       assert.match(first[0].name, /https:\/\/ebird.org\/species\/grgowl\/US-WA/);
       assert.doesNotMatch(first[0].name, /splink|data-sp|stakeout|checklist/i);
-      assert.equal(first[0].time, 0, 'source membership is not an observation timestamp');
+      assert.equal(first[0].time, source.acquiredAt, 'age is cached app detection, not a withheld observation timestamp');
       await A.saveSurgeRetainedPart('mass', source);
       const warm = await A.loadMassFlockAlertSource(false, A.activeScope());
       assert.equal(app.state.fetches.filter(url => /bird-list\?.*rank=hc/.test(url)).length, 1);
-      const replay = A.birdGenSensitiveRows(warm, new Date())[0];
+      const replay = A.birdGenSensitiveRows(new app.window.Date())[0];
       assert.equal(replay.notificationKey, first[0].notificationKey);
       assert.equal(replay.data['source-acquired-at'], first[0].data['source-acquired-at']);
       A.renderSurge([], [], [], [], [], { massSource: warm });
@@ -631,17 +655,25 @@ module.exports = function registerMigrationSetupControls({
       assert.ok(card, 'actual feed must render the new category, not only a helper result');
       assert.match(card.textContent, /SENSITIVE/);
       assert.match(card.textContent, /reported in Washington region in /);
-      assert.equal(card.getAttribute('data-surge-latest'), '0');
-      assert.equal(A.birdGenSensitiveRows({ ...source, sourceOwner: 'wrong-owner' }, new Date()).length, 0);
-      assert.equal(A.birdGenSensitiveRows({ ...source, sourceRegion: 'US-OR' }, new Date()).length, 0);
+      assert.equal(card.getAttribute('data-surge-latest'), String(first[0].time));
+      const history = app.window.localStorage.getItem(A.sensitiveJournalKey());
+      for (const change of [{ sourceOwner: 'wrong-owner' }, { sourceRegion: 'US-OR' }]) {
+        A.birdGenSensitiveJournal({ ...source, acquired: true, inventoryComplete: true,
+          state: 'ok', ...change }, new app.window.Date());
+        assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()), history);
+      }
       const nextMonth = new Date();
       nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1, 15);
-      assert.equal(A.birdGenSensitiveRows(source, nextMonth).length, 0);
+      A.birdGenSensitiveJournal(source, nextMonth);
+      assert.equal(A.birdGenSensitiveRows(nextMonth).length, 0);
       const newMonth = nextMonth.getUTCFullYear() + '-' + String(nextMonth.getUTCMonth() + 1).padStart(2, '0');
-      assert.equal(A.birdGenSensitiveRows({ ...source, sourceMonth: newMonth }, nextMonth).length, 0);
-      assert.equal(A.birdGenSensitiveRows({
-        ...source, sourceMonth: newMonth, acquiredAt: nextMonth.getTime()
-      }, nextMonth).length, 1);
+      A.birdGenSensitiveJournal({ ...source, sourceMonth: newMonth }, nextMonth);
+      assert.equal(A.birdGenSensitiveRows(nextMonth).length, 0);
+      A.birdGenSensitiveJournal({
+        ...source, sourceMonth: newMonth, acquiredAt: nextMonth.getTime(),
+        acquired: true, inventoryComplete: true, state: 'ok'
+      }, nextMonth);
+      assert.equal(A.birdGenSensitiveRows(nextMonth).length, 1);
       const unknown = preparedSensitivePage().replace('<button class="Sensitive-badge">Sensitive</button>', '');
       assert.throws(() => A.parseMassHighCountPage(unknown, 'US-WA', true), /no usable observations/);
       assert.throws(() => A.parseMassHighCountPage(preparedSensitivePage(), 'US-OR', true), /Malformed/);
@@ -655,8 +687,9 @@ module.exports = function registerMigrationSetupControls({
       const A = app.window.__app;
       A.setCountyView('US-WA-033');
       assert.equal(A.activeScope().effectiveRegion, 'US-WA-033');
+      baselineSensitive(app);
       const source = await A.loadMassFlockAlertSource(false, A.activeScope());
-      const cards = A.birdGenSensitiveRows(source, new Date());
+      const cards = A.birdGenSensitiveRows(new app.window.Date());
       assert.equal(cards.length, 1);
       assert.match(cards[0].name, /https:\/\/ebird.org\/species\/grgowl\/US-WA-033/);
       assert.doesNotMatch(cards[0].name, /splink|data-sp|stakeout|checklist/i);

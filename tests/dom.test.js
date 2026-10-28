@@ -7798,13 +7798,16 @@ test('Contents menu matches the report section contract (labels + order)', async
 
 test('F460/F645 Twitches and Nemesis keep distinct selected icons and subtitles', () => {
   const twitches = CONTRACT.menu.find((item) => item.at === 'refreshBtn');
-  const nemesis = CONTRACT.menu.find((item) => item.at === 'allUnseenBtn');
+  const nemesis = JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'))
+    .find((item) => item.at === 'allUnseenBtn');
+  assert.equal(nemesis.enabled, false, 'the retained definition does not reenable Nemesis');
+  assert.equal(CONTRACT.menu.some((item) => item.at === 'allUnseenBtn'), false);
   assert.deepEqual({
     twitches: { label: twitches.label, sub: twitches.sub },
-    nemesis: { label: nemesis.label, sub: nemesis.sub },
+    nemesis: { label: nemesis.icon + ' ' + nemesis.title, sub: nemesis.subtitle },
   }, {
     twitches: { label: '🚨 Twitches', sub: 'Rare Bird Alerts (RBA)' },
-    nemesis: { label: '🦅 Nemesis birds', sub: 'Closest unseen birds reported now' },
+    nemesis: { label: '🐦 Nemesis birds', sub: 'Closest unseen birds reported now' },
   });
 });
 
@@ -10982,7 +10985,7 @@ test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
   }
   const wa = await boot({ report: 'wa' });
   const standard = ids(wa);
-  assert.ok(standard.includes('allUnseenBtn') && standard.includes('bcBody')
+  assert.ok(standard.includes('easyBtn') && standard.includes('bcBody')
     && standard.includes('recentBtn'),
   'the jurisdiction baseline contains county-backed cards');
   wa.window.close();
@@ -10991,7 +10994,7 @@ test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
     const aggregate = await boot({ report: slug });
     const shown = ids(aggregate);
     assert.ok(shown.length < standard.length, slug + ' remains an intentional reduced menu');
-    assert.equal(shown.includes('allUnseenBtn'), false);
+    assert.equal(shown.includes('easyBtn'), false);
     aggregate.window.close();
   }
 
@@ -11009,7 +11012,7 @@ test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
   assert.equal(JSON.stringify(ids(unknown)), JSON.stringify(standard),
     'an unknown jurisdiction and empty county array retain the full menu');
   const countyCard = unknown.document.querySelector(
-    '#menuList .toclink[data-at="allUnseenBtn"] .tilesub');
+    '#menuList .toclink[data-at="easyBtn"] .tilesub');
   assert.match(countyCard.textContent, /County scope loads when needed/i,
     'the visible card explains its pending scope instead of disappearing');
   unknown.window.close();
@@ -18168,7 +18171,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
     query('');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual([...app.document.querySelectorAll('.menuShortcut:not([hidden]) .toclink')]
-      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'myYearBody']);
+      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null, 'filtering must not rewrite saved preferences');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -18203,7 +18206,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
       && row.msg === 'Menu shortcuts: preferences could not be saved'));
@@ -18242,7 +18245,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
     assert.equal(app.$('menuShortcutAction').dataset.action, 'remove');
     button.click();
     assert.equal(app.$('menuPanel').hidden, false, 'the hold-release click must not navigate');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody'], 'holding never silently changes pins');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'], 'holding never silently changes pins');
     app.$('menuShortcutAction').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.$('menuShortcutPopup').hidden, true);
     assert.equal(app.document.activeElement, button);
@@ -18279,7 +18282,7 @@ test('F987/F992/F1133 Recent Bird Gen preserves destinations and jargon follows 
       { name: 'Patches - Go birding', ids: authored.filter((m) =>
         m.group === 'Patches - Go birding' && A.menuApplies(m)).map((m) => m.at) },
       { name: 'Bird alerts', ids: [
-        'surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'allUnseenBtn', 'ppteBtn', 'massBtn', 'foyBtn',
+        'surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'ppteBtn', 'massBtn', 'foyBtn',
       ] },
     ]);
     assert.deepEqual(groups.slice(2).flatMap((g) => g.ids),
@@ -37454,12 +37457,12 @@ test('the log names what moved the reader between sections', async () => {
   app.window.__dbg = { push: (lvl, a) => lines.push(String(a && a[0])) };
 
   A.showSection('sec-refreshBtn');
-  A.showSection('sec-activeBtn');
+  A.showSection('settingsPanel');
 
   const nav = lines.filter((l) => /^nav /.test(l));
   assert.ok(nav.length, `no navigation was logged: ${lines.slice(0, 8).join(' | ')}`);
   const last = nav[nav.length - 1];
-  assert.match(last, /sec-refreshBtn \u2192 sec-activeBtn/,
+  assert.match(last, /sec-refreshBtn \u2192 settingsPanel/,
     'the line states BOTH ends of the move, or "it jumped" is all you learn: ' + last);
   // The caller is the whole point. Without it the log says a section changed
   // and leaves you guessing which of ~30 callers did it.
@@ -37471,7 +37474,7 @@ test('the log names what moved the reader between sections', async () => {
   // line becomes noise and stops being read — the failure mode the F216
   // warning list records.
   const before = lines.filter((l) => /^nav /.test(l)).length;
-  A.showSection('sec-activeBtn');
+  A.showSection('settingsPanel');
   assert.equal(lines.filter((l) => /^nav /.test(l)).length, before,
     'staying put is not a navigation');
   app.window.close();
