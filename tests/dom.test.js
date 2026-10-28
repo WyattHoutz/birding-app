@@ -41502,7 +41502,9 @@ test('F1121 full and Recent Bird Gen keep a plain, nonduplicated migration estim
   const app = await boot();
   try {
     const A = app.window.__app, now = new Date();
-    const date = A.todayStr();
+    const local = A.birdcastLocalParts(now, A.getReport());
+    const date = [local.year, String(local.month).padStart(2, '0'),
+      String(local.day).padStart(2, '0')].join('-');
     A.setBirdcastSnapshot({ forecast: { level: 'Low', date }, fetchedAt: now.getTime(),
       count: { birds: 109900, night: date, countyLabel: 'King County' } });
     A.renderSurge([], [], [], [], []);
