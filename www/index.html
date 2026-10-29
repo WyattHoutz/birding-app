@@ -3700,7 +3700,10 @@
     .setupactions { display: grid; gap: 10px; margin: 20px 0; }
     #appSheet[data-info-id="setup-account-connected"] .sheetbody,
     #appSheet[data-info-id="setup-key-verified"] .sheetbody,
-    #appSheet[data-info-id="setup-home-confirmed"] .sheetbody {
+    #appSheet[data-info-id="setup-home-confirmed"] .sheetbody,
+    #appSheet[data-info-id="setup-home-replace"] .sheetbody,
+    #appSheet[data-info-id="setup-seen-ready"] .sheetbody,
+    #appSheet[data-info-id="setup-seen-skip"] .sheetbody {
       font-size: calc(18px * var(--s)); line-height: 1.55; }
     #appSheet .setupconfirmation { position: sticky; bottom: 0;
       margin-bottom: 0; padding: 12px 0; background: var(--card); }
@@ -3727,9 +3730,11 @@
     .setuphelpicon > span { display: grid; place-items: center; box-sizing: border-box;
       width: 28px; height: 28px; border: 2px solid currentColor; border-radius: 50%;
       background: var(--card); font-size: calc(18px * min(var(--s), 1.25)); line-height: 1; }
-    #setupSheetBody #setupHomeHere:not(.setupprimary), #setupSheetBody #setupBack,
-    #appSheet [data-setup-confirm-back] { width: auto; justify-self: start; }
-    #setupSheetBody #setupBack, #appSheet [data-setup-confirm-back] { background: transparent; }
+    #setupSheetBody #setupHomeHere:not(.setupprimary) { width: auto; justify-self: start; }
+    #setupHomeMap { height: 180px; min-height: 180px; font-size: calc(10px * var(--s)); line-height: 1.2; }
+    #setupHomePreview { display: inline-flex; align-items: center; min-height: 44px; }
+    #setupActionStatus[role="alert"] { border-left: 4px solid var(--safe-blue); padding: 12px;
+      background: var(--card); color: var(--ink); font-weight: 600; }
     .setuphomeoption { display: grid; grid-template-columns: 24px minmax(0, 1fr);
       gap: 8px; align-items: start; min-height: 44px; }
     #setupSheetBody .setuphomeoption input { min-width: 20px; min-height: 20px;
@@ -5207,7 +5212,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.176.0';
+      var APP_VERSION = '1.177.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -27198,7 +27203,8 @@
           + '<div class="sheetbody"></div></div>';
         document.body.appendChild(el);
         el.addEventListener('keydown', function (event) {
-          if (['setup-help', 'setup-account-connected', 'setup-key-verified', 'setup-home-confirmed']
+          if (['setup-help', 'setup-account-connected', 'setup-key-verified', 'setup-home-confirmed',
+            'setup-home-replace', 'setup-seen-ready', 'setup-seen-skip']
               .indexOf(el.dataset.infoId) < 0 || event.key !== 'Tab') return;
           var controls = [].slice.call(el.querySelectorAll('button, a[href], summary'))
             .filter(function (control) {
@@ -28918,7 +28924,7 @@
           + 'var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.messageHandler;'
           + 'if(h&&typeof h.postMessage==="function")h.postMessage(m);}'
           + ebirdKeyResultUrl.toString() + ';' + keyLooksWrong.toString() + ';'
-          + parseEbirdKeyResult.toString() + ';'
+          + parseEbirdKeyResult.toString() + ';' + parseEbirdAccountIdentity.toString() + ';'
           + 'try{var r=parseEbirdKeyResult(document,location.href);'
           + 'if(r.status==="access-request"&&!document.querySelector("[data-birdchaser-api-help]")){'
           + 'var help=document.createElement("aside");help.setAttribute("aria-label","Bird Chaser guidance, separate from the eBird form");'
@@ -28927,7 +28933,8 @@
           + 'send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId) + ','
           + 'ok:r.status==="ok",needsLogin:r.status==="login",terminal:'
           + (Number(attempt) >= 19) + ',parseStatus:r.status,'
-          + 'data:r.status==="ok"?{key:r.key,sourceUrl:location.origin+location.pathname}:null});'
+          + 'data:r.status==="ok"?{key:r.key,sourceUrl:location.origin+location.pathname,'
+          + 'account:parseEbirdAccountIdentity(document)}:null});'
           + '}catch(e){send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId)
           + ',ok:false,terminal:true,parseStatus:"unreadable"});}})();';
       }
@@ -29001,6 +29008,13 @@
           });
         }).then(function (data) {
           if (!current()) return;
+          var account = data.account;
+          var namedAccount = account && account.status === 'ok'
+            && account.evidence === 'account-menu-aria-label';
+          if (namedAccount && setupWebsiteConnected() && account.displayName !== getDisplayName()) {
+            message('The eBird account changed. Go Back and connect the intended account, or enter a key manually. Your saved key is unchanged.');
+            return;
+          }
           message('Key captured. Checking it with eBird before saving...');
           return testApiKey(data.key).then(function (result) {
             if (!current()) return;
@@ -29010,7 +29024,9 @@
               discardBundledSeedForAccount();
             } else input.value = data.key;
             acceptWorkingKey(data.key);
-            if (setup) confirmSetupKeyValidation();
+            if (setup) confirmSetupKeyValidation({
+              fetched: true, name: namedAccount && setupWebsiteConnected() ? account.displayName : ''
+            });
           });
         }).catch(function (error) {
           message((error.message || 'Automatic key capture did not finish.')
@@ -29263,6 +29279,43 @@
         localStorage.setItem(SETUP_HOME_DRAFT_KEY,
           JSON.stringify(Object.assign({}, draft, { profile: bcProfile() })));
       }
+      function savedSetupHomeDraft() {
+        var saved = getHome();
+        if (!saved) return null;
+        try {
+          var point = homeLocationCandidate(saved,
+            localStorage.getItem(homeKey('place')) || 'Saved Home');
+          return { point: point, query: point.label, source: 'saved',
+            savedScope: getReportSlug(), savedRegion: getRegion(), approved: false };
+        } catch (error) { return null; }
+      }
+      function setupHomeCandidateHtml(draft) {
+        if (!draft || !draft.point) return '';
+        var point = draft.point;
+        return '<h4 id="setupHomeCandidateTitle">' + (draft.source === 'saved' ? 'Saved Home' : 'Home candidate') + '</h4>'
+          + '<p>' + esc(point.label) + ' (' + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5) + ')</p>'
+          + '<p class="hint">' + (draft.source === 'gps' ? 'Current location (GPS). ' : '')
+          + (draft.source === 'saved' ? 'Your saved Home.' : 'Not yet saved as Home.') + '</p>';
+      }
+      function setupHomeReplacement(draft) {
+        var destination = setupHomeDestination(draft), saved = destination && getHome(destination);
+        var replacing = !!(saved && draft.point
+          && (saved.lat.toFixed(5) !== draft.point.lat.toFixed(5)
+            || saved.lng.toFixed(5) !== draft.point.lng.toFixed(5)));
+        return { needed: replacing, saved: saved,
+          label: destination && localStorage.getItem(homeKey('place', destination)) || 'Saved Home',
+          token: replacing ? JSON.stringify([bcProfile(), destination, draft.region.code,
+            saved.lat, saved.lng, draft.point.lat, draft.point.lng]) : '' };
+      }
+      function setupActionFeedback(message) {
+        var status = $('setupActionStatus');
+        if (!status) return;
+        status.setAttribute('role', 'alert');
+        status.setAttribute('tabindex', '-1');
+        status.textContent = message;
+        status.focus({ preventScroll: true });
+        if (status.scrollIntoView) status.scrollIntoView({ block: 'nearest' });
+      }
       function setupHomeOperation(button) {
         var generation = ++_setupHomeGeneration, profile = bcProfile();
         var scope = activeScope(), identity = _identityGeneration;
@@ -29292,6 +29345,7 @@
           return;
         }
         $('setupHomeHere').disabled = true; $('setupHomeFind').disabled = true;
+        if ($('setupHomeApprove')) $('setupHomeApprove').hidden = true;
         $('setupHomeCancel').hidden = false;
         status.textContent = device
           ? 'Asking for your location. Permission does not accept it as Home.'
@@ -29335,10 +29389,22 @@
       }
       function approveSetupHome(button) {
         var draft = setupHomeDraft();
-        if (!draft || !draft.point) return;
+        if (!draft || !draft.point) {
+          setupActionFeedback('Validate Home before confirming it.');
+          return;
+        }
         var current = setupHomeOperation(button), status = placeSetupActionStatus(button);
+        var knownRegion = draft.approved && draft.region;
+        var saved = draft.source === 'saved' && getHome(draft.savedScope);
+        if (!knownRegion && saved && draft.savedScope === getReportSlug()
+            && saved.lat === draft.point.lat && saved.lng === draft.point.lng
+            && draft.savedRegion === getRegion()
+            && EBIRD_REGION_RE.test(draft.savedRegion) && draft.savedRegion.split('-').length === 2) {
+          knownRegion = { status: 'ok', code: draft.savedRegion,
+            label: regionNameFromCode(draft.savedRegion), lat: draft.point.lat, lng: draft.point.lng };
+        }
         try {
-          draft.approved = true; draft.region = null; draft.options = [];
+          draft.approved = true; draft.region = knownRegion || null; draft.options = [];
           storeSetupHomeDraft(draft);
         } catch (error) {
           status.textContent = 'The approved Home draft could not be saved. Free device storage and retry.';
@@ -29346,18 +29412,25 @@
         }
         button.disabled = true;
         status.textContent = 'Home approved as a draft. Finding its state or province...';
-        return deriveRegionCode(draft.point.lat, draft.point.lng).then(function (region) {
+        return (knownRegion ? Promise.resolve(knownRegion)
+          : deriveRegionCode(draft.point.lat, draft.point.lng)).then(function (region) {
           if (!current()) return;
           draft.region = region;
           storeSetupHomeDraft(draft);
+          var replacement = setupHomeReplacement(draft);
+          if (replacement.needed && draft.replacementConsent !== replacement.token) {
+            goSetupStep('home');
+            confirmSetupHomeReplacement();
+            return;
+          }
           goSetupStep('region');
           $('setupActionStatus').textContent = '';
         }).catch(function (error) {
           if (!current()) return;
           renderSetupSheet();
           placeSetupActionStatus($('setupHomeApprove'));
-          $('setupActionStatus').textContent = error.message
-            + ' Your approved Home remains a draft. Retry the region lookup or choose a different Home; no default was selected.';
+          setupActionFeedback(error.message
+            + ' Your approved Home remains a draft. Retry the region lookup or choose a different Home; no default was selected.');
         });
       }
       function setupHomeDestination(draft) {
@@ -29372,14 +29445,13 @@
         var draft = setupHomeDraft(), status = $('setupActionStatus');
         if (!draft || !draft.approved || !draft.point || !draft.region) {
           goSetupStep('home');
-          $('setupActionStatus').textContent = 'Choose and approve Home before confirming its region.';
+          setupActionFeedback('Choose and approve Home before confirming its region.');
           return;
         }
-        var destination = setupHomeDestination(draft), saved = destination && getHome(destination);
-        var replacing = saved && (saved.lat.toFixed(5) !== draft.point.lat.toFixed(5)
-          || saved.lng.toFixed(5) !== draft.point.lng.toFixed(5));
-        if (replacing && (!$('setupHomeReplace') || !$('setupHomeReplace').checked)) {
-          status.textContent = 'This region already has a saved Home. Confirm replacement or change Home.';
+        var replacement = setupHomeReplacement(draft);
+        if (replacement.needed && draft.replacementConsent !== replacement.token) {
+          goSetupStep('home');
+          confirmSetupHomeReplacement();
           return;
         }
         var profile = bcProfile(), identity = identityRevision();
@@ -29392,6 +29464,12 @@
           if (String(getRegion()).toUpperCase() !== draft.region.code.toUpperCase()) {
             throw new Error('Home and region do not match. Change Home or retry the region lookup.');
           }
+          var currentReplacement = setupHomeReplacement(draft);
+          if (currentReplacement.needed && draft.replacementConsent !== currentReplacement.token) {
+            goSetupStep('home');
+            confirmSetupHomeReplacement();
+            return;
+          }
           if (!saveOwnedHome(draft.point, draft.point.label)) {
             throw new Error('Home could not be saved for its region. Keep the draft and retry.');
           }
@@ -29400,8 +29478,8 @@
         }).catch(function (error) {
           if (profile === bcProfile() && !$('setupSheet').hidden) {
             renderSetupSheet();
-            $('setupActionStatus').textContent = (error.message || 'Home could not be saved.')
-              + ' The draft was retained. Check device storage and retry.';
+            setupActionFeedback((error.message || 'Home could not be saved.')
+              + ' The draft was retained. Review Home and retry.');
           }
         });
       }
@@ -29516,6 +29594,7 @@
           attempted: !!_personalAutoAttempts[personalPreparationKey(scope, generation)],
           acknowledged: !!getSeenMeta()
             || localStorage.getItem(SEEN_SETUP_SKIP_KEY) === seenSetupSkipToken(),
+          skipped: localStorage.getItem(SEEN_SETUP_SKIP_KEY) === seenSetupSkipToken(),
           canFetch: !!getReportSlug() && setupWebsiteConnected(),
           context: scope.label + ' · ' + personalBasisLabel()
         };
@@ -29551,8 +29630,9 @@
             + ' to distinguish seen and unseen birds. Signing in and verifying an API key are separate.'
         };
       }
-      function shouldPrepareSetupSeen(state) {
-        return state.canFetch && !state.acknowledged && !state.pending && !state.attempted
+      function shouldPrepareSetupSeen(state, inWizard) {
+        return state.canFetch && !(inWizard ? state.skipped : state.acknowledged)
+          && !state.pending && !state.attempted
           && (!state.evidence.complete || state.evidence.stale);
       }
       function startSetupSeen(force) {
@@ -29603,11 +29683,17 @@
         if (id === 'setup-account-connected') showInfoSheet('setup-account-connected', context, closed);
         else if (id === 'setup-key-verified') showInfoSheet('setup-key-verified', context, closed);
         else if (id === 'setup-home-confirmed') showInfoSheet('setup-home-confirmed', context, closed);
+        else if (id === 'setup-home-replace') showInfoSheet('setup-home-replace', context, closed);
+        else if (id === 'setup-seen-ready') showInfoSheet('setup-seen-ready', context, closed);
+        else if (id === 'setup-seen-skip') showInfoSheet('setup-seen-skip', context, closed);
         else throw new Error('Unknown setup confirmation: ' + id);
         setup.inert = true;
         setup.setAttribute('aria-hidden', 'true');
         setup.removeAttribute('aria-modal');
         var forward = sheetEl().querySelector('[data-setup-confirm-continue]');
+        forward.addEventListener('keydown', function (event) {
+          if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+        });
         forward.addEventListener('click', function () {
           proceed = current();
           hideSheet();
@@ -29622,7 +29708,9 @@
           event.preventDefault();
           if (current()) openMapPoint(context.point.lat + ', ' + context.point.lng);
         });
-        forward.focus({ preventScroll: true });
+        var focus = context.focusHeading ? sheetEl().querySelector('.sheettitle') : forward;
+        if (context.focusHeading) focus.setAttribute('tabindex', '-1');
+        focus.focus({ preventScroll: true });
       }
       function confirmSetupAccountConnection() {
         var profile = bcProfile(), revision = identityRevision(), name = getDisplayName();
@@ -29639,32 +29727,91 @@
           $('setupConnectEbird').focus({ preventScroll: true });
         });
       }
-      function confirmSetupKeyValidation() {
+      function confirmSetupKeyValidation(acquisition) {
         var profile = bcProfile(), revision = identityRevision(), key = getKey();
+        if ($('setupApiKey')) $('setupApiKey').value = key;
+        _setupKeyDraft = key;
         renderSetupSheet();
-        showSetupConfirmation('setup-key-verified', {}, function () {
+        showSetupConfirmation('setup-key-verified', acquisition || {}, function () {
           return profile === bcProfile() && revision === identityRevision() && key === getKey()
             && apiKeyVerified() && setupStep() === 'key' && !$('setupSheet').hidden;
         }, function () { goSetupStep('home'); }, function () {
-          if ($('setupApiKey')) $('setupApiKey').value = '';
-          _setupKeyDraft = '';
           renderSetupSheet();
-          $('setupKeyAlternatives').open = true;
           $('setupApiKey').focus({ preventScroll: true });
         });
       }
       function confirmSetupHomeSelection() {
         var profile = bcProfile(), revision = identityRevision(), draft = setupHomeDraft();
+        if (!draft) {
+          draft = savedSetupHomeDraft();
+          if (draft) {
+            try { storeSetupHomeDraft(draft); }
+            catch (error) {
+              setupActionFeedback('The saved Home could not be prepared. Free device storage and retry.');
+              return;
+            }
+            renderSetupSheet();
+          }
+        }
         var token = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
-        if (!draft || !draft.point) return;
+        if (!draft || !draft.point) {
+          setupActionFeedback('Validate the entered Home before confirming it.');
+          return;
+        }
         showSetupConfirmation('setup-home-confirmed', {
           point: draft.point, mapUrl: mapPointUrl(draft.point.lat + ', ' + draft.point.lng)
         }, function () {
           return profile === bcProfile() && revision === identityRevision()
             && token === localStorage.getItem(SETUP_HOME_DRAFT_KEY)
+            && (draft.source !== 'saved' || draft.savedScope === getReportSlug()
+              && JSON.stringify(getHome(draft.savedScope)) === JSON.stringify({ lat: draft.point.lat, lng: draft.point.lng }))
             && setupStep() === 'home' && !$('setupSheet').hidden;
         }, function () { approveSetupHome($('setupHomeApprove')); }, function () {
           $('setupHomePlace').focus({ preventScroll: true });
+        });
+      }
+      function confirmSetupHomeReplacement() {
+        var draft = setupHomeDraft(), replacement = setupHomeReplacement(draft);
+        if (!replacement.needed) return;
+        var profile = bcProfile(), revision = identityRevision();
+        var token = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
+        showSetupConfirmation('setup-home-replace', {
+          point: draft.point, savedLabel: replacement.label + ' ('
+            + replacement.saved.lat.toFixed(5) + ', ' + replacement.saved.lng.toFixed(5) + ')',
+          mapUrl: mapPointUrl(draft.point.lat + ', ' + draft.point.lng)
+        }, function () {
+          return profile === bcProfile() && revision === identityRevision()
+            && token === localStorage.getItem(SETUP_HOME_DRAFT_KEY)
+            && replacement.token === setupHomeReplacement(draft).token
+            && setupStep() === 'home' && !$('setupSheet').hidden;
+        }, function () {
+          draft.replacementConsent = replacement.token;
+          try { storeSetupHomeDraft(draft); goSetupStep('region'); }
+          catch (error) { setupActionFeedback('Replacement approval could not be saved. Free device storage and retry.'); }
+        }, function () { $('setupHomePlace').focus({ preventScroll: true }); });
+      }
+      function confirmSetupSeen(skip) {
+        var state = seenSetupState(), profile = bcProfile(), revision = identityRevision();
+        if (!skip && (state.pending || !state.evidence.complete)) {
+          renderSetupSheet();
+          setupActionFeedback('Wait for your matching seen list, retry, or choose Skip.');
+          return;
+        }
+        var owner = seenSetupSkipToken();
+        var snapshot = localStorage.getItem(owner);
+        showSetupConfirmation(skip ? 'setup-seen-skip' : 'setup-seen-ready', {
+          name: getDisplayName(), context: state.context, count: state.evidence.count,
+          saved: !!(state.evidence.stale || state.evidence.failure), focusHeading: true
+        }, function () {
+          return profile === bcProfile() && revision === identityRevision() && scopeCurrent(state.scope)
+            && owner === seenSetupSkipToken() && (skip || snapshot === localStorage.getItem(owner))
+            && setupStep() === 'seen' && !$('setupSheet').hidden;
+        }, function () {
+          if (skip) localStorage.setItem(SEEN_SETUP_SKIP_KEY, owner);
+          goSetupStep('summary');
+        }, function () {
+          renderSetupSheet();
+          $('setupStepTitle').focus({ preventScroll: true });
         });
       }
       function renderSetupRegionOutline(draft) {
@@ -29721,7 +29868,7 @@
         _setupRenderedProfile = bcProfile();
         var step = setupStep(), website = setupWebsiteConnected();
         var state = seenSetupState();
-        if (step === 'seen' && !$('setupSheet').hidden && shouldPrepareSetupSeen(state)) {
+        if (step === 'seen' && !$('setupSheet').hidden && shouldPrepareSetupSeen(state, true)) {
           startSetupSeen(false);
           state = seenSetupState();
         }
@@ -29741,7 +29888,7 @@
         if (step === 'account') {
           recommended = 'setupConnectEbird';
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Connect your eBird Account</h3>'
-            + '<p>Connect for read-only access to your seen-bird list. Bird Chaser does not change your eBird records.</p>'
+            + '<p>Read-only access to eBird. Connection details are kept on your device.</p>'
             + (website ? '<p class="setupnote">Connected as ' + esc(getDisplayName()) + '.</p>' : '');
           actions = '<button id="setupConnectEbird" type="button">'
             + (website ? 'Continue' : 'Connect eBird') + '</button>'
@@ -29751,34 +29898,38 @@
             + '</div></details>';
         } else if (step === 'key') {
           recommended = _setupKeyDraft.trim() ? 'setupVerifyKey' : 'setupGetKey';
-          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Fetch your eBird API key</h3>'
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">'
+            + (_setupKeyDraft ? 'Your eBird API key' : 'Fetch your eBird API key') + '</h3>'
             + '<p>An API key enables live sightings and hotspot data.</p>';
-          actions = '<button id="setupGetKey" class="setupkeyget" type="button"'
-            + (_setupKeyDraft.trim() ? ' hidden' : '') + '>'
-            + (apiKeyVerified() ? 'Fetch again' : 'Fetch API key') + '</button>'
-            + '<details id="setupKeyAlternatives"' + (_setupKeyDraft.trim() && !apiKeyVerified() ? ' open' : '') + '>'
-            + '<summary>Other options</summary><div class="setupactions">'
-            + '<button id="setupKeyExternal" class="secondary" type="button">Copy in browser</button>'
-            + '<label for="setupApiKey">Or paste your API key</label>'
+          html += '<label for="setupApiKey">eBird API key</label>'
             + '<input id="setupApiKey" type="password" autocomplete="off" placeholder="Paste key from eBird" '
             + 'autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="setupKeyHelp">'
+            + '<div class="setupactions"><button id="setupShowKey" class="secondary" type="button" '
+            + 'aria-controls="setupApiKey" aria-pressed="false">Show key</button></div>'
+            + '<p id="setupKeyHelp" class="hint" role="status"></p>';
+          actions = '<button id="setupVerifyKey" type="button">Verify API key</button>'
+            + '<button id="setupGetKey" class="setupkeyget secondary" type="button">'
+            + (apiKeyVerified() ? 'Fetch again' : 'Fetch API key') + '</button>'
+            + '<details id="setupKeyAlternatives"><summary>Other options</summary><div class="setupactions">'
+            + '<button id="setupKeyExternal" class="secondary" type="button">Copy in browser</button>'
             + '<button id="setupSkip" class="secondary" type="button"' + (apiKeyVerified() ? ' hidden' : '') + '>'
             + 'Skip for now</button>'
-            + '</div></details>'
-            + '<p id="setupKeyHelp" class="hint">'
-            + (apiKeyVerified() ? 'Your saved API key is verified.' : 'The key is saved only after eBird accepts it.')
-            + '</p>'
-            + '<button id="setupVerifyKey" type="button">Verify API key</button>';
+            + '</div></details>';
         } else if (step === 'home') {
-          var homeDraft = setupHomeDraft(), homePoint = homeDraft && homeDraft.point;
+          var homeDraft = setupHomeDraft() || savedSetupHomeDraft(), homePoint = homeDraft && homeDraft.point;
+          var mapDraft = homePoint ? homeDraft : savedSetupHomeDraft(), mapPoint = mapDraft && mapDraft.point;
           var homeValue = homeDraft && homeDraft.query
             || homePoint && homePoint.lat.toFixed(5) + ', ' + homePoint.lng.toFixed(5) || '';
-          var approvedHome = !!(homeDraft && homeDraft.approved && homePoint);
           var savedHome = getHome();
           recommended = homeDraft && homeDraft.options && homeDraft.options.length ? ''
-            : homePoint ? (approvedHome && homeDraft.region ? 'setupHomeReview' : 'setupHomeApprove')
+            : homePoint ? 'setupHomeApprove'
               : homeDraft && homeDraft.query ? 'setupHomeFind' : 'setupHomeHere';
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Set your Home</h3>'
+            + '<div id="setupHomeMapPreview"' + (mapPoint ? '' : ' hidden') + '>'
+            + '<div id="setupHomeMap" class="map" role="region" aria-label="'
+            + (mapDraft && mapDraft.source === 'saved' ? 'Saved Home map' : 'Home candidate map') + '"></div>'
+            + '<a id="setupHomePreview" href="' + esc(mapPoint ? mapPointUrl(mapPoint.lat + ', ' + mapPoint.lng) : '#')
+            + '" target="_blank" rel="noopener noreferrer">Open Maps</a></div>'
             + '<label for="setupHomePlace">Home location</label>'
             + '<input id="setupHomePlace" type="text" autocapitalize="words" autocorrect="off" '
             + 'spellcheck="false" placeholder="Waypoint, address or city" value="' + esc(homeValue) + '">'
@@ -29791,52 +29942,44 @@
                 + index + '"><span>' + esc(point.label) + ' (' + point.lat.toFixed(5) + ', '
                 + point.lng.toFixed(5) + ')</span></label>';
             }).join('') + '</div>'
-            + '<div id="setupHomeCandidate" role="region" aria-labelledby="setupHomeCandidateTitle"' + (homePoint ? '' : ' hidden') + '>'
-            + (homePoint ? '<h4 id="setupHomeCandidateTitle">Home candidate</h4>'
-              + '<p>' + esc(homePoint.label) + ' (' + homePoint.lat.toFixed(5) + ', '
-              + homePoint.lng.toFixed(5) + ')</p>'
-              + '<p class="hint">' + (homeDraft.source === 'gps' ? 'Current location (GPS). ' : '')
-              + 'Not yet saved as Home.</p>'
-              + '<details id="setupHomeMapPreview"><summary>Map preview (OpenStreetMap)</summary>'
-              + '<div id="setupHomeMap" class="map" role="region" aria-label="Home candidate map"></div></details>' : '')
+            + '<div id="setupHomeCandidate" role="region" aria-labelledby="setupHomeCandidateTitle"' + (mapPoint ? '' : ' hidden') + '>'
+            + setupHomeCandidateHtml(mapDraft)
             + '</div>'
-            + (homePoint && (!approvedHome || !homeDraft.region)
-              ? '<button id="setupHomeApprove" type="button">'
-                + (approvedHome ? 'Try again' : 'Validate Home') + '</button>' : '')
-            + (approvedHome && homeDraft.region ? '<button id="setupHomeReview" type="button">Review region</button>' : '')
+            + (homePoint ? '<div class="setupactions"><button id="setupHomeApprove" type="button">Confirm Home</button>'
+              + '<button id="setupHomeEdit" class="secondary" type="button">Edit Home</button></div>' : '')
             + (savedHome || homePoint ? '<details><summary>Other options</summary><div class="setupactions">'
               + (savedHome ? '<button id="setupUseSavedHome" class="secondary" type="button" aria-label="Use saved Home in '
                 + esc(activeScope().label) + '">Use saved Home</button>' : '')
-              + (homePoint ? '<button id="setupHomePreview" class="secondary" type="button">Open map app</button>' : '')
               + '</div></details>' : '')
             + '<p class="hint">Nothing is saved until you confirm Home and region.</p>'
             + (_setupHomeDraftUnreadable ? '<p class="hint">The saved Home draft could not be read. '
               + 'It was retained unchanged; enter Home again to replace the draft.</p>' : '');
         } else if (step === 'region') {
           recommended = 'setupNext';
-          var regionDraft = setupHomeDraft(), destination = setupHomeDestination(regionDraft);
-          var destinationHome = destination && getHome(destination);
-          var replaceHome = destinationHome
-            && (destinationHome.lat.toFixed(5) !== regionDraft.point.lat.toFixed(5)
-              || destinationHome.lng.toFixed(5) !== regionDraft.point.lng.toFixed(5));
+          var regionDraft = setupHomeDraft();
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Confirm region</h3>'
             + '<div class="setuppanel" id="setupHomeSuggested">'
             + '<p><strong>' + esc(regionDraft.region.label) + ' (' + esc(regionDraft.region.code) + ')</strong></p>'
             + '<div id="setupRegionOutline" hidden></div>'
             + '<p class="hint">Home: ' + esc(regionDraft.point.label) + '</p>'
-            + (replaceHome ? '<label><input id="setupHomeReplace" type="checkbox"> Replace the existing Home in '
-              + esc(regionDraft.region.label) + ' with this approved Home.</label>' : '')
             + '</div>'
             + '<p>To pick a different region, go back and select a different Home.</p>'
             + '<p class="hint">More regions are available after setup.</p>';
           actions = '<button id="setupNext" type="button">Confirm region</button>';
         } else if (step === 'seen') {
           var message = seenSetupMessage(state);
-          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">' + esc(message.title) + '</h3>'
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">'
+            + esc(state.pending ? 'Fetching your seen list...' : state.evidence.complete
+              && !state.evidence.stale && !state.evidence.failure ? '✅ Your seen list is ready!' : message.title) + '</h3>'
             + '<div class="setuppanel"><h4>' + esc(state.context) + '</h4>'
-            + '<p id="seenSetupStatus" role="status">' + esc(message.detail) + '</p></div>';
+            + (getDisplayName() ? '<p>' + esc(getDisplayName()) + '</p>' : '')
+            + '<p id="seenSetupStatus" role="status">' + esc(state.pending
+              ? state.evidence.complete ? state.evidence.count + ' saved species remain available while eBird loads.'
+                : 'Fetching your matching list from eBird. You can choose Skip without waiting.'
+              : message.detail) + '</p></div>';
           if (state.pending) {
-            actions = '<button type="button" disabled>Fetching...</button>';
+            actions = '<button id="setupSkipSeen" class="secondary" type="button">Skip</button>';
+            recommended = '';
           } else if (!state.evidence.complete) {
             actions = !getReportSlug()
               ? '<button id="setupSeenRegion" type="button">Set region</button>'
@@ -29848,19 +29991,22 @@
                 + 'an imported annual file cannot certify this exact regional list.</p>';
               actions += '<button id="setupSeenCsv" class="secondary" type="button">Import CSV</button>';
             }
+            actions += '<button id="setupSkipSeen" class="secondary" type="button">Skip</button>';
+            recommended = !getReportSlug() ? 'setupSeenRegion' : !website ? 'setupSeenConnect' : 'setupFetchSeen';
           } else if (state.evidence.failure || state.evidence.stale) {
-            actions = '<button id="setupFetchSeen" class="secondary" type="button">Retry update</button>';
+            actions = '<button id="' + (state.canFetch ? 'setupFetchSeen' : 'setupSeenConnect')
+              + '" type="button">' + (state.canFetch ? 'Retry update' : 'Connect eBird') + '</button>'
+              + '<button id="setupContinue" class="secondary" type="button">Review saved list</button>'
+              + '<button id="setupSkipSeen" class="secondary" type="button">Skip</button>';
+            recommended = state.canFetch ? 'setupFetchSeen' : 'setupSeenConnect';
+          } else {
+            actions = '<button id="setupContinue" type="button">Continue</button>';
+            recommended = 'setupContinue';
           }
-          actions += '<button id="setupContinue"'
-            + (state.evidence.complete ? '' : ' class="secondary"') + ' type="button">'
-            + (state.evidence.complete ? 'Start birding' : state.pending ? 'Continue' : 'Finish later')
-            + '</button>';
-          recommended = state.pending ? 'setupContinue' : !state.evidence.complete
-            ? !getReportSlug() ? 'setupSeenRegion' : !website ? 'setupSeenConnect' : 'setupFetchSeen'
-              : state.evidence.failure || state.evidence.stale ? 'setupFetchSeen' : 'setupContinue';
         } else {
           recommended = 'setupContinue';
-          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Start now. Finish later.</h3>'
+          html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">'
+            + (state.skipped ? 'Start now. Fetch later.' : 'Your setup') + '</h3>'
             + '<div class="setuppanel">'
             + setupStateHtml('eBird website', website, 'connected', 'not connected')
             + setupStateHtml('birding region', !!getReportSlug(), 'confirmed · ' + activeScope().label, 'not chosen')
@@ -29877,7 +30023,7 @@
         body.dataset.setupStep = step;
         body.innerHTML = html + '<p id="setupActionStatus" class="hint" role="status"></p>'
           + '<div class="setupactions">' + actions
-          + (step !== 'account' && step !== 'summary'
+          + (step !== 'account'
             ? '<button id="setupBack" class="secondary" type="button">Back</button>' : '') + '</div>'
           + '<button id="setupHelp" class="setuphelpicon" type="button" aria-label="Help with this step"><span aria-hidden="true">?</span></button>';
         var heading = document.createElement('div'), title = $('setupStepTitle');
@@ -29903,12 +30049,13 @@
           if (button && !button.hidden) {
             button.classList.add('setupprimary');
           }
-          help.dataset.action = id || 'setupHomeOptions';
-          help.setAttribute('aria-label', 'Help: ' + (button ? button.textContent.trim() : 'Choose a Home candidate'));
+          var helpAction = button || step === 'seen' && $('setupSkipSeen');
+          help.dataset.action = id || (step === 'seen' ? 'setupSkipSeen' : 'setupHomeOptions');
+          help.setAttribute('aria-label', 'Help: ' + (helpAction ? helpAction.textContent.trim() : 'Choose a Home candidate'));
         }
         if (step === 'home' || step === 'key') {
           placeSetupActionStatus($(step === 'home' ? 'setupHomeHere' : 'setupGetKey'));
-          ['setupHomeHere', 'setupHomeFind', 'setupHomeApprove', 'setupHomeReview',
+          ['setupHomeHere', 'setupHomeFind', 'setupHomeApprove',
             'setupGetKey', 'setupKeyExternal', 'setupVerifyKey'].forEach(function (id) {
             var control = $(id);
             if (control) control.setAttribute('aria-describedby', 'setupActionStatus');
@@ -29921,13 +30068,22 @@
             var verify = $('setupVerifyKey'), key = input.value.trim();
             verify.disabled = !key;
             verify.hidden = !key;
-            $('setupGetKey').hidden = !!key;
-            verify.textContent = apiKeyVerified() && key === getKey() ? 'Continue' : 'Verify API key';
+            var verified = apiKeyVerified() && input.value === getKey();
+            verify.textContent = verified ? 'Continue' : 'Verify API key';
+            $('setupKeyHelp').textContent = verified ? '✓ Validated'
+              : input.value ? '! Not validated' : 'Enter a key or fetch it from eBird.';
             recommendSetupAction(key ? 'setupVerifyKey' : 'setupGetKey');
           };
           input.addEventListener('input', function () {
-            $('setupKeyAlternatives').open = true;
+            ++_keyCaptureGeneration;
+            $('setupActionStatus').textContent = '';
             updateVerify();
+          });
+          $('setupShowKey').addEventListener('click', function () {
+            var reveal = input.type === 'password';
+            input.type = reveal ? 'text' : 'password';
+            $('setupShowKey').textContent = reveal ? 'Hide key' : 'Show key';
+            $('setupShowKey').setAttribute('aria-pressed', String(reveal));
           });
           updateVerify();
         }
@@ -29941,7 +30097,7 @@
           showInfoSheet('setup-help', { step: step, action: action,
             label: button ? button.textContent.trim() : 'Choose a Home candidate',
             connected: website,
-            verified: !!(input && apiKeyVerified() && input.value.trim() === getKey()),
+            verified: !!(input && apiKeyVerified() && input.value === getKey()),
             ready: state.evidence.complete }, function () {
             sheet.inert = false;
             sheet.removeAttribute('aria-hidden');
@@ -29963,14 +30119,23 @@
               return;
             }
             clearMap($('setupHomeMap'));
-            $('setupHomeCandidate').hidden = true;
-            ['setupHomeApprove', 'setupHomeReview'].forEach(function (id) {
+            mapDraft = savedSetupHomeDraft();
+            mapPoint = mapDraft && mapDraft.point;
+            displayedHomeToken = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
+            $('setupHomeMapPreview').hidden = !mapPoint;
+            $('setupHomeCandidate').hidden = !mapPoint;
+            $('setupHomeCandidate').innerHTML = setupHomeCandidateHtml(mapDraft);
+            $('setupHomeMap').setAttribute('aria-label', 'Saved Home map');
+            if (mapPoint) renderMap($('setupHomeMap'), [{
+              lat: mapPoint.lat, lng: mapPoint.lng, locName: 'Saved Home'
+            }], null, false, '#0072B2');
+            ['setupHomeApprove', 'setupHomeEdit'].forEach(function (id) {
               if ($(id)) $(id).hidden = true;
             });
             var preview = $('setupHomePreview');
             if (preview) {
-              preview.hidden = true;
-              if (!$('setupUseSavedHome')) preview.closest('details').hidden = true;
+              preview.hidden = !mapPoint;
+              preview.href = mapPoint ? mapPointUrl(mapPoint.lat + ', ' + mapPoint.lng) : '#';
             }
             $('setupHomeOptions').innerHTML = '';
             $('setupHomeHere').disabled = false; $('setupHomeFind').disabled = false;
@@ -29997,31 +30162,39 @@
         }
         bind('setupHomeHere', function () { lookupSetupHome(true); });
         bind('setupHomeFind', function () { lookupSetupHome(false, true); });
-        var homeMapPreview = $('setupHomeMapPreview');
-        if (homeMapPreview) homeMapPreview.addEventListener('toggle', function () {
-          var map = $('setupHomeMap'), draft = setupHomeDraft();
-          if (homeMapPreview.open && map && !map.childNodes.length && draft && draft.point) {
-            renderMap(map, [{ lat: draft.point.lat, lng: draft.point.lng,
-              locName: 'Home candidate' }], null, false, '#0072B2');
-          }
+        var displayedHomeToken = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
+        var displayedHomeOwner = bcProfile(), displayedHomeScope = activeScope();
+        function displayedHomeCurrent() {
+          return displayedHomeOwner === bcProfile() && scopeCurrent(displayedHomeScope)
+            && setupStep() === 'home' && !$('setupSheet').hidden
+            && (mapDraft.source === 'saved' ? JSON.stringify(getHome()) === JSON.stringify({
+              lat: mapPoint.lat, lng: mapPoint.lng })
+              : displayedHomeToken === localStorage.getItem(SETUP_HOME_DRAFT_KEY));
+        }
+        if (step === 'home' && mapPoint && !$('setupSheet').hidden) {
+          renderMap($('setupHomeMap'), [{ lat: mapPoint.lat, lng: mapPoint.lng,
+            locName: mapDraft.source === 'saved' ? 'Saved Home' : 'Home candidate' }], null, false, '#0072B2');
+        }
+        bind('setupHomePreview', function (event) {
+          event.preventDefault();
+          if (mapPoint && displayedHomeCurrent()) openMapPoint(mapPoint.lat + ', ' + mapPoint.lng);
         });
-        bind('setupHomePreview', function () {
-          var draft = setupHomeDraft();
-          if (draft && draft.point) openMapPoint(draft.point.lat + ', ' + draft.point.lng);
+        bind('setupHomeEdit', function () {
+          homeInput.focus({ preventScroll: true });
+          homeInput.select();
+          if (homeInput.scrollIntoView) homeInput.scrollIntoView({ block: 'center' });
         });
         bind('setupUseSavedHome', function () {
           var saved = getHome();
           if (!saved) return;
           try {
-            storeSetupHomeDraft({ point: homeLocationCandidate(saved,
-              localStorage.getItem(homeKey('place')) || 'Saved Home'), approved: false });
+            storeSetupHomeDraft(savedSetupHomeDraft());
             renderSetupSheet();
             confirmSetupHomeSelection();
           } catch (error) {
             $('setupActionStatus').textContent = 'The saved Home could not be prepared. ' + error.message;
           }
         });
-        bind('setupHomeReview', function () { goSetupStep('region'); });
         if (step === 'region') renderSetupRegionOutline(regionDraft);
         bind('setupHomeApprove', confirmSetupHomeSelection);
         bind('setupHomeCancel', function () {
@@ -30069,14 +30242,15 @@
         bind('setupKeyExternal', openKeygenExternal);
         bind('setupVerifyKey', function (event) {
           var key = input.value.trim(), verify = event.currentTarget;
-          if (apiKeyVerified() && key === getKey()) { confirmSetupKeyValidation(); return; }
+          if (apiKeyVerified() && input.value === getKey()) { confirmSetupKeyValidation(); return; }
           var profile = bcProfile(), generation = _identityGeneration;
           var revision = identityRevision(), previousKey = getKey();
+          var checkedDraft = input.value;
           var status = $('setupActionStatus');
           function current() {
             return profile === bcProfile() && generation === _identityGeneration
               && revision === identityRevision() && previousKey === getKey()
-              && input.isConnected && setupStep() === 'key'
+              && input.isConnected && input.value === checkedDraft && setupStep() === 'key'
               && !$('setupSheet').hidden;
           }
           verify.disabled = true;
@@ -30110,27 +30284,43 @@
         bind('setupSkip', function () {
           goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) + 1]);
         });
-        bind('setupBack', function () { goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) - 1]); });
+        bind('setupBack', function () {
+          if (step === 'summary') { goSetupStep('seen'); return; }
+          if (step === 'seen' && !setupHomeDraft()) {
+            var saved = savedSetupHomeDraft();
+            if (saved && EBIRD_REGION_RE.test(saved.savedRegion) && saved.savedRegion.split('-').length === 2) {
+              saved.approved = true;
+              saved.region = { status: 'ok', code: saved.savedRegion, label: regionNameFromCode(saved.savedRegion),
+                lat: saved.point.lat, lng: saved.point.lng };
+              storeSetupHomeDraft(saved);
+            }
+          }
+          goSetupStep(SETUP_STEPS[SETUP_STEPS.indexOf(step) - 1]);
+        });
         bind('setupSeenConnect', function () { goSetupStep('account'); });
         bind('setupSeenRegion', function () { goSetupStep('region'); });
         bind('setupFetchSeen', function () {
           localStorage.removeItem(SEEN_SETUP_SKIP_KEY);
           startSetupSeen(true);
         });
+        bind('setupSkipSeen', function (event) {
+          if (event.currentTarget.isConnected && _setupRenderedProfile === bcProfile()
+              && setupStep() === 'seen' && !$('setupSheet').hidden) confirmSetupSeen(true);
+        });
         bind('setupSeenCsv', function () { closeSetupSheet(true); openCsvSettings(); });
         bind('setupReview', function () { goSetupStep('account'); });
         bind('setupContinue', function (event) {
           if (!event.currentTarget.isConnected || _setupRenderedProfile !== bcProfile()
               || $('setupSheet').hidden) return;
-          if (step === 'summary' || state.evidence.complete) finishSetup();
-          else {
-            if (!state.pending && !state.attempted) {
-              localStorage.setItem(SEEN_SETUP_SKIP_KEY, seenSetupSkipToken());
-            }
-            goSetupStep('summary');
-          }
+          if (step === 'summary') finishSetup();
+          else confirmSetupSeen(false);
         });
         recommendSetupAction(recommended);
+        body.querySelectorAll('button').forEach(function (button) {
+          button.addEventListener('keydown', function (event) {
+            if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+          });
+        });
         if (restoreFocus) {
           var target = $(restoreFocus) || $('setupStepTitle');
           if (target) target.focus({ preventScroll: true });

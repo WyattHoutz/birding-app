@@ -117,7 +117,8 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       app.click(app.$('setupConnectEbird'));
       await waitFor(() => !app.$('appSheet')?.hidden
         && app.$('appSheet')?.dataset.infoId === 'setup-account-connected', 'account confirmation');
-      assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, 'Connected as Synthetic Connected Birder!');
+      assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, '✅ Connected as Synthetic Connected Birder!');
+      assert.doesNotMatch(app.$('appSheet').textContent, /Wrong account/);
       assert.equal(app.$('setupSheet').inert, true);
       assert.deepEqual(bridge.opened.map(open => open.url), ['https://ebird.org/profile'],
         'F1170 do not start key capture before the user confirms the account');
@@ -190,7 +191,7 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
           await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-account-connected'
             && !app.$('appSheet').hidden, 'different account review');
           assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent,
-            'Connected as <img src=x> Another Synthetic Birder!');
+            '✅ Connected as <img src=x> Another Synthetic Birder!');
           assert.equal(app.$('appSheet').querySelector('img'), null, 'display names are text, not markup');
           assert.deepEqual(bridge.opened.map(open => open.url),
             ['https://ebird.org/profile', 'https://ebird.org/profile']);
@@ -216,7 +217,7 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         app.click(app.$('setupVerifyKey'));
         await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
           && !app.$('appSheet').hidden, 'manual key success review');
-        assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, 'API key verified!');
+        assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, '✅ API key validated!');
         assert.ok(!app.$('appSheet').textContent.includes(key));
         assert.equal(app.$('setupSheet').inert, true);
         const back = app.$('appSheet').querySelector('[data-setup-confirm-back]');
@@ -232,8 +233,9 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         assert.equal(app.$('setupSheet').inert, false);
         assert.equal(app.$('setupGetKey').textContent, 'Fetch again');
         assert.equal(app.$('setupGetKey').hidden, false);
-        assert.equal(app.$('setupKeyAlternatives').open, true);
-        assert.equal(app.$('setupApiKey').value, '');
+        assert.equal(app.$('setupApiKey').closest('details'), null);
+        assert.equal(app.$('setupApiKey').type, 'password');
+        assert.equal(app.$('setupApiKey').value, key);
         assert.equal(app.window.localStorage.getItem('ebird_api_key'), key,
           'going back must not delete an already verified working key');
         app.$('setupApiKey').value = key;
@@ -252,6 +254,124 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
     }
+  });
+
+  test('F1175 automatic key success uses matching captured account evidence, never an inferred owner', async () => {
+    for (const kind of ['matching', 'unknown', 'different', 'hostile']) {
+      const key = 'SYNTHETIC_F1175_NEW_KEY', previous = 'SYNTHETIC_F1175_WORKING_KEY';
+      const name = kind === 'hostile' ? '<img src=x onerror=alert(1)> Sample Birder' : 'Synthetic Connected Birder';
+      let validations = 0;
+      const app = await boot({ sample: false, key: previous,
+        storage: { bc_setup_step_v1: 'key', ebird_seen_setup_skipped: '1' },
+        fetch: url => {
+          if (/ref\/region\/info\/US-WA/.test(url)) { validations++; return { code: 'US-WA' }; }
+          return null;
+        } });
+      const account = app.document.createElement('button');
+      account.setAttribute('aria-label', 'Birder ' + (kind === 'different' ? 'Other Synthetic Birder' : name) + ' (synthetic_username)');
+      const bridge = preparedKeyNative(app, (kind === 'unknown' ? '' : '<header>' + account.outerHTML + '</header>')
+        + '<p>Your API key is: <strong>' + key + '</strong></p>');
+      try {
+        const A = app.window.__app;
+        A.applyCapturedIdentity({ status: 'ok', displayName: name });
+        A.openSetupSheet();
+        app.click(app.$('setupGetKey'));
+        if (kind === 'different') {
+          await waitFor(() => /account changed/.test(app.$('setupActionStatus').textContent)
+            || app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
+              && !app.$('appSheet').hidden, 'key-page account outcome');
+          assert.match(app.$('setupActionStatus').textContent, /account changed/);
+          assert.equal(validations, 0);
+          assert.equal(app.window.localStorage.getItem('ebird_api_key'), previous);
+          assert.equal(app.$('appSheet')?.dataset.infoId === 'setup-key-verified' && !app.$('appSheet').hidden, false);
+        } else {
+          await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
+            && !app.$('appSheet').hidden, kind + ' automatic success');
+          assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent,
+            '✅ Successfully fetched API key' + (kind === 'unknown' ? '' : ' for ' + name) + '!');
+          assert.equal(app.$('appSheet').querySelector('img, script'), null);
+          assert.ok(!app.$('appSheet').textContent.includes(key));
+          assert.equal(validations, 1);
+        }
+        assert.ok(!JSON.stringify(app.window.__dbg.buf).includes(key));
+        const stored = JSON.stringify(Object.keys(app.window.localStorage)
+          .map(k => [k, app.window.localStorage.getItem(k)]));
+        assert.ok(!stored.includes('synthetic_username'), 'account-menu username must not be persisted');
+        assert.deepEqual(app.state.errors, []);
+      } finally { bridge.destroy(); app.window.close(); }
+    }
+  });
+
+  test('F1182 saved keys stay visibly editable and masked; exact drafts require validation without losing working keys', async () => {
+    const previous = 'SYNTHETIC_F1182_WORKING', replacement = 'SYNTHETIC_F1182_REPLACEMENT';
+    const app = await boot({ sample: false, key: previous,
+      storage: { bc_setup_step_v1: 'key', 'bc_api_verified_v1:': previous } });
+    try {
+      const A = app.window.__app, originalFetch = app.window.fetch;
+      let response = 403, release, checks = 0;
+      app.window.fetch = (url, options) => {
+        if (!/ref\/region\/info\/US-WA/.test(url)) return originalFetch(url, options);
+        checks++;
+        if (response === 'hold') return new Promise(resolve => { release = resolve; });
+        return Promise.resolve({ ok: response === 200, status: response });
+      };
+      A.openSetupSheet();
+      const enter = value => {
+        app.$('setupApiKey').value = value;
+        app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+      };
+      assert.equal(app.$('setupApiKey').closest('details'), null);
+      assert.equal(app.$('setupApiKey').value, previous);
+      assert.equal(app.$('setupApiKey').type, 'password');
+      assert.equal(app.$('setupKeyHelp').textContent, '✓ Validated');
+      app.click(app.$('setupShowKey'));
+      assert.equal(app.$('setupApiKey').type, 'text');
+      assert.equal(app.$('setupShowKey').getAttribute('aria-pressed'), 'true');
+      assert.equal(app.$('setupApiKey').value, previous);
+      app.click(app.$('setupShowKey'));
+      assert.equal(app.$('setupApiKey').type, 'password');
+      enter(previous + ' ');
+      assert.equal(app.$('setupKeyHelp').textContent, '! Not validated', 'validation belongs to the exact field');
+      assert.equal(app.$('setupVerifyKey').textContent, 'Verify API key');
+      enter(replacement);
+      app.click(app.$('setupVerifyKey'));
+      await waitFor(() => /rejected/.test(app.$('setupActionStatus').textContent), 'rejected draft');
+      assert.equal(app.window.localStorage.getItem('ebird_api_key'), previous);
+      assert.equal(app.$('setupApiKey').value, replacement);
+      assert.equal(app.$('setupKeyHelp').textContent, '! Not validated');
+      response = 'hold';
+      app.click(app.$('setupVerifyKey'));
+      await waitFor(() => release, 'held exact draft validation');
+      enter('DIFFERENT_SYNTHETIC_DRAFT');
+      release({ ok: true, status: 200 });
+      await waitFor(() => !app.$('setupApiKey').disabled, 'obsolete validation finishes');
+      assert.equal(app.window.localStorage.getItem('ebird_api_key'), previous);
+      response = 200;
+      enter(replacement);
+      app.click(app.$('setupVerifyKey'));
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
+        && !app.$('appSheet').hidden, 'valid replacement');
+      assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, '✅ API key validated!');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      assert.equal(app.$('setupApiKey').value, replacement);
+      assert.equal(app.$('setupApiKey').type, 'password');
+      assert.equal(app.$('setupKeyHelp').textContent, '✓ Validated');
+      app.click(app.$('setupShowKey'));
+      app.click(app.$('setupSheetClose'));
+      A.openSetupSheet();
+      assert.equal(app.$('setupApiKey').type, 'password');
+      assert.equal(app.$('setupApiKey').value, replacement);
+      app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'synthetic-f1182-other');
+      app.window.localStorage.setItem(A.bcReal('ebird_api_key'), 'SYNTHETIC_OTHER_PROFILE_KEY');
+      app.window.localStorage.setItem(A.bcReal('bc_setup_step_v1'), 'key');
+      A.renderSetupSheet();
+      assert.equal(app.$('setupApiKey').value, 'SYNTHETIC_OTHER_PROFILE_KEY');
+      assert.equal(app.$('setupApiKey').type, 'password');
+      assert.equal(app.$('setupShowKey').getAttribute('aria-pressed'), 'false');
+      assert.equal(checks, 3);
+      assert.ok(!JSON.stringify(app.window.__dbg.buf).includes(replacement));
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
   });
 
   test('F1078 prepared owned injection reads labelled values without a vendor-specific selector', async () => {

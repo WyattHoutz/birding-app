@@ -442,7 +442,7 @@
   var SETUP_HELP = {
     account: {
       title: 'Connect eBird',
-      body: '<p class="docintro">Connect for read-only access to your seen-bird list. Bird Chaser does not change your eBird records.</p>'
+      body: '<p class="docintro">Read-only access to eBird. Connection details are kept on your device.</p>'
         + '<p>Sign in directly on eBird\'s website. Bird Chaser does not need your password.</p>'
         + '<p>Connect identifies your account from its profile. Your exact seen list is fetched after you '
         + 'confirm Home and region. Your sign-in is reused when retrieving your API key. Live reports, Home and your seen list '
@@ -453,7 +453,7 @@
       body: '<p class="docintro">A personal API key enables live eBird sightings and hotspot data.</p>'
         + '<p>This key is separate from signing in. In the installed app, your website login is reused; '
         + 'a displayed key is read and checked automatically. In a browser, copy the key and paste it '
-        + 'under Other options. Both actions open the same eBird key page; only the installed flow '
+        + 'into the visible key field. Both actions open the same eBird key page; only the installed flow '
         + 'captures the key automatically. Finish any application on eBird yourself.</p><p>Key verification is sent directly to eBird. '
         + 'Your key is saved only after eBird accepts it. You review and submit any application yourself.</p>'
         + apiApplicationHelpHtml(false)
@@ -490,7 +490,8 @@
       body: '<p class="docintro">Your seen list distinguishes birds you have recorded from birds you still need.</p>'
         + '<p>This reads your eBird list for the selected region and period. Signing in and verifying '
         + 'an API key are separate. A matching saved list remains usable while an update runs.</p>'
-        + '<p>You can continue while fetching. If it fails, retry eBird first; CSV is an optional fallback, '
+        + '<p>Fetching starts automatically when needed. Skip continues without waiting; it does not mark a missing list ready. '
+        + 'Review the matching result before continuing. If it fails, retry eBird first; CSV is an optional fallback, '
         + 'but an annual import cannot certify the exact regional list. Missing evidence is not proof '
         + 'that a bird is unseen.</p>'
     },
@@ -506,17 +507,17 @@
 
   var SETUP_ACTION_HELP = {
     setupConnectEbird: 'Opens eBird so you can sign in. Bird Chaser reads your profile to identify the account, then fetches the matching seen-bird list after Home and region are confirmed. It does not change your eBird records.',
-    setupGetKey: 'Opens the eBird API-key page. In the installed app, your website sign-in is reused and a displayed key is captured and checked directly with eBird before saving. In a browser, copy the key, return and paste it under Other options. The optional browser button opens the same page for manual copying, not a second kind of key. Complete any application yourself; this button does not fill fields, accept terms or submit a request.',
+    setupGetKey: 'Opens the eBird API-key page. In the installed app, your website sign-in is reused and a displayed key is captured and checked directly with eBird before saving. In a browser, copy the key, return and paste it into the visible key field. The optional browser button opens the same page for manual copying, not a second kind of key. Complete any application yourself; this button does not fill fields, accept terms or submit a request.',
     setupVerifyKey: 'Checks the key you entered directly with eBird. Only a successful check saves it. Review the confirmation before continuing to Home. A rejected key stays editable; this does not connect or change your eBird account.',
     setupHomeHere: 'Requests this device location only after your tap, fills the Home field and shows the selected location on a map for confirmation. Continue finds its matching region; Back lets you enter a waypoint, address or city instead. Nothing is saved until Home and region are confirmed together.',
     setupHomeFind: 'Validates the waypoint coordinates, address or city in the Home field without requesting GPS. Review the matching location on its map, then Continue to find its state or province. If several places match, choose the intended candidate first. Nothing is saved until Home and region are confirmed together.',
     setupHomeApprove: 'Shows the displayed candidate on a map for confirmation. Continue looks up its containing state or province; Back lets you correct the Home field. This button alone does not save or replace Home.',
-    setupHomeReview: 'Returns to the confirmation screen for the approved Home draft and its matching region. Review the pair before saving it; changing Home is still available.',
-    setupNext: 'Confirms the displayed region and saves it together with your validated Home, then continues to your seen birds. To pick a different region, use Back and select a different Home. If this region has a different saved Home, the replacement checkbox must be confirmed first. More regions are available after setup.',
+    setupNext: 'Confirms the displayed region and saves it together with your validated Home, then continues to your seen birds. To pick a different region, use Back and select a different Home. A different saved Home requires explicit replacement approval on the Home confirmation. More regions are available after setup.',
     setupFetchSeen: 'Reads your exact seen-bird list for the selected account, region and period. The result helps distinguish seen and unseen birds. A failed refresh does not invalidate a matching saved list or prove that missing birds are unseen.',
+    setupSkipSeen: 'Reviews your choice to continue without waiting. Skip does not mark a missing list complete. A late result cannot reopen setup or move you away from the summary.',
     setupSeenConnect: 'Returns to account connection so Bird Chaser can read your seen-bird list. Connecting is read-only and does not change your eBird records.',
     setupSeenRegion: 'Returns to Home and region setup so your seen list can be matched to the right area. It does not select a region or request location automatically.',
-    setupContinue: 'Opens the setup summary without requiring you to wait for the seen-list fetch. Unfinished capabilities remain marked as unfinished; skipping does not certify a list as complete.',
+    setupContinue: 'Reviews your matching seen list before opening the setup summary. Start birding is a separate final action. Unfinished capabilities remain marked as unfinished; skipping does not certify a list as complete.',
     setupHomeOptions: 'Choose the place that matches your intended Home. No result is selected for you. The chosen coordinates remain a draft until Home and its matching region are explicitly confirmed.'
   };
 
@@ -527,7 +528,7 @@
     if (context.action === 'setupVerifyKey' && context.verified) {
       return 'Keeps your already verified key and shows its confirmation before continuing to Home. No new key request or eBird application is submitted.';
     }
-    if (context.action === 'setupContinue' && (context.ready || context.step === 'summary')) {
+    if (context.action === 'setupContinue' && context.step === 'summary') {
       return 'Finishes setup and opens Bird Chaser. Any unfinished capability remains marked as unfinished. You can return to setup in Settings; this action does not erase your saved data.';
     }
     return SETUP_ACTION_HELP[context.action] || '';
@@ -558,19 +559,33 @@
   function renderSetupConfirmation(context, deps) {
     var kind = context.kind, esc = deps.escapeHtml || defaultEscape;
     var point = context.point || { lat: 47.6, lng: -122.3, label: 'Example Seattle location' };
-    var title = kind === 'key' ? 'API key verified!'
-      : kind === 'home' ? 'Confirm Home' : 'Connected as ' + String(context.name || 'Sample Birder') + '!';
-    var body = kind === 'key' ? '<p class="docintro">Your key works with eBird. Live reports are ready.</p>'
-      : kind === 'home' ? '<p class="docintro"><strong>Home:</strong> ' + esc(point.label) + '</p>'
-        + '<div id="setupConfirmationMap" class="map" role="region" aria-label="Selected Home map"></div>'
+    var title = kind === 'key' ? '✅ ' + (context.fetched
+        ? 'Successfully fetched API key' + (context.name ? ' for ' + String(context.name) : '') + '!'
+        : 'API key validated!')
+      : kind === 'home' ? 'Confirm Home' : kind === 'replace' ? 'Use this new Home?'
+        : kind === 'seen' ? '✅ Your seen list is ready!' : kind === 'skip' ? 'Continue without waiting?'
+          : '✅ Connected as ' + String(context.name || 'Sample Birder') + '!';
+    var body = kind === 'home' || kind === 'replace'
+      ? '<div id="setupConfirmationMap" class="map" role="region" aria-label="Selected Home map"></div>'
         + '<p class="hint">' + Number(point.lat).toFixed(5) + ', ' + Number(point.lng).toFixed(5)
         + ' · <a data-setup-confirm-map href="' + esc(context.mapUrl || '#')
         + '" target="_blank" rel="noopener noreferrer">Open Maps</a></p>'
-        + '<p class="hint">Continue to confirm its region before saving.</p>'
-      : '<p class="docintro">Wrong account? Choose Back, then Switch account.</p>';
-    return { title: title, subtitle: 'Step ' + (kind === 'key' ? '2' : kind === 'home' ? '3' : '1') + ' of 5', bodyHtml: body
+        + (kind === 'replace' ? '<p><strong>Saved Home:</strong> ' + esc(context.savedLabel || 'Saved Home') + '</p>'
+          + '<p><strong>New Home:</strong> ' + esc(point.label) + '</p>'
+          + '<p>Use the new Home after region confirmation?</p>'
+          : '<p><strong>Home:</strong> ' + esc(point.label) + '</p>'
+            + '<p class="hint">Continue to confirm its region before saving.</p>')
+      : kind === 'seen' ? '<p class="docintro"><strong>' + esc(context.name || 'Sample Birder') + '</strong></p>'
+        + '<p>' + esc(context.context || 'Washington · Year List') + '</p>'
+        + '<p>' + esc(context.count == null ? 0 : context.count) + ' species</p>'
+        + '<p>' + esc(context.saved ? 'Matching saved list. No new list was verified.'
+          : 'Account, region and period match.') + '</p>'
+      : kind === 'skip' ? '<p class="docintro">You can fetch your seen list later. An unavailable list is not marked complete.</p>' : '';
+    return { title: title, subtitle: 'Step ' + (kind === 'key' ? '2'
+      : kind === 'home' || kind === 'replace' ? '3' : kind === 'seen' || kind === 'skip' ? '5' : '1') + ' of 5', bodyHtml: body
       + '<div class="setupactions setupconfirmation">'
-      + '<button data-setup-confirm-continue class="setupprimary" type="button">Continue</button>'
+      + '<button data-setup-confirm-continue class="setupprimary" type="button">'
+      + (kind === 'replace' ? 'Use new Home' : 'Continue') + '</button>'
       + '<button data-setup-confirm-back class="secondary" type="button">Back</button></div>' };
   }
 
@@ -592,6 +607,24 @@
       group: 'Setup guidance',
       contextLabel: 'Sample selected Home with a visible map; external Maps opens only on tap.',
       render: function (context, deps) { return renderSetupConfirmation(Object.assign({}, context, {kind:'home'}), deps); }
+    },
+    'setup-home-replace': {
+      name: 'Approve a different saved Home',
+      group: 'Setup guidance',
+      contextLabel: 'Explicit replacement approval; final region confirmation still saves the pair.',
+      render: function (context, deps) { return renderSetupConfirmation(Object.assign({}, context, {kind:'replace'}), deps); }
+    },
+    'setup-seen-ready': {
+      name: 'Review the matching seen list',
+      group: 'Setup guidance',
+      contextLabel: 'Matching account, region, period and species count; no live account data.',
+      render: function (context, deps) { return renderSetupConfirmation(Object.assign({}, context, {kind:'seen'}), deps); }
+    },
+    'setup-seen-skip': {
+      name: 'Continue without waiting for seen birds',
+      group: 'Setup guidance',
+      contextLabel: 'Explicitly skipping does not mark a missing list complete.',
+      render: function (context, deps) { return renderSetupConfirmation(Object.assign({}, context, {kind:'skip'}), deps); }
     },
     'setup-help': {
       name: 'First-time setup help',
@@ -720,6 +753,13 @@
     if (id === 'setup-help') return render(id, { step: 'all' }, deps);
     if (['setup-account-connected', 'setup-key-verified', 'setup-home-confirmed'].indexOf(id) >= 0)
       return render(id, {}, deps);
+    if (id === 'setup-home-replace') return render(id, {
+      savedLabel: 'Example Bellevue Home (47.61010, -122.20150)'
+    }, deps);
+    if (id === 'setup-seen-ready') return render(id, {
+      name: 'Sample Birder', context: 'Washington · 2026 Year List', count: 222
+    }, deps);
+    if (id === 'setup-seen-skip') return render(id, {}, deps);
     if (id === 'event-feed') {
       var doc = deps && deps.sectionDocs && deps.sectionDocs.massBtn;
       if (!doc) throw new Error('Mass Flocks section docs are required for the catalog sample');

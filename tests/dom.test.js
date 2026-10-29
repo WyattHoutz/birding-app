@@ -9729,7 +9729,7 @@ test('F726 accepting a county recommendation persists its parent and leaves Home
   restarted.window.close();
 });
 
-test('F727 setup distinguishes website, API key, Home and seen-list capabilities', async () => {
+test('F727 F1181 setup distinguishes capabilities and describes read-only device-local connection details', async () => {
   const app = await boot({ report: null, key: null, home: false, sample: false });
   const A = app.window.__app;
   A.openSetupSheet();
@@ -9738,7 +9738,7 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.match(sheet.textContent, /Setup Bird Chaser/);
   assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
   assert.match(sheet.textContent, /Step 1 of 5/);
-  assert.match(sheet.textContent, /read-only access.*does not change your eBird records/i);
+  assert.match(sheet.textContent, /Read-only access to eBird\. Connection details are kept on your device\./);
   app.click(app.$('setupHelp'));
   assert.match(app.$('appSheet').textContent,
     /Sign in directly.*eBird.*does not need your password/i);
@@ -9993,6 +9993,155 @@ async function setupOwnedSeenApp(codes = []) {
   return app;
 }
 
+test('F1180 automatic pending seen fetch has Skip only, then an exact result review and deliberate final completion', async () => {
+  for (const count of [0, 1]) {
+    const app = await setupOwnedSeenApp();
+    try {
+      const A = app.window.__app, originalFetch = app.window.fetch;
+      let release, reads = 0;
+      app.window.localStorage.removeItem(A.personalListKey(A.personalListOwner()));
+      app.window.localStorage.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', count: 99 }));
+      app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+      app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+        ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+      app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+      A.openSetupSheet();
+      assert.match(app.$('setupStepTitle').textContent, /Fetching your seen list/);
+      await waitFor(() => release, 'automatic exact-list fetch despite unrelated CSV metadata');
+      assert.equal(reads, 1);
+      assert.match(app.$('setupStepTitle').textContent, /Fetching your seen list/);
+      assert.equal(app.$('setupContinue'), null, 'pending work must not compete with completion');
+      assert.equal(app.$('setupSkipSeen').textContent, 'Skip');
+      app.$('setupSkipSeen').focus();
+      release({ ok: true, status: 200, text: async () => ownedPersonalListFixture({
+        count, codes: count ? ['stable'] : []
+      }) });
+      await waitFor(() => app.$('setupContinue'), 'matching result is ready');
+      assert.equal(app.document.activeElement, app.$('setupStepTitle'), 'completion cannot inherit loading focus');
+      assert.equal(app.$('setupSheet').hidden, false);
+      assert.notEqual(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
+      app.click(app.$('setupContinue'));
+      assert.equal(app.$('appSheet').dataset.infoId, 'setup-seen-ready');
+      assert.match(app.$('appSheet').textContent, /Sample Observer/);
+      assert.match(app.$('appSheet').textContent, /Washington.*Year List/);
+      assert.ok(app.$('appSheet').textContent.includes(count + ' species'));
+      assert.equal(app.document.activeElement, app.$('appSheet').querySelector('.sheettitle'));
+      const forward = app.$('appSheet').querySelector('[data-setup-confirm-continue]');
+      const back = app.$('appSheet').querySelector('[data-setup-confirm-back]');
+      back.focus();
+      back.dispatchEvent(new app.window.KeyboardEvent('keydown', {
+        key: 'Tab', bubbles: true, cancelable: true
+      }));
+      assert.equal(app.document.activeElement, app.$('appSheet').querySelector('.sheetclose'));
+      const held = new app.window.KeyboardEvent('keydown', {
+        key: 'Enter', repeat: true, cancelable: true, bubbles: true
+      });
+      forward.dispatchEvent(held);
+      assert.equal(held.defaultPrevented, true);
+      app.click(forward);
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+      assert.equal(app.$('setupSheet').hidden, false, 'result review is not final completion');
+      assert.equal(app.$('setupContinue').textContent, 'Start birding');
+      app.click(app.$('setupContinue'));
+      assert.equal(app.$('setupSheet').hidden, true);
+      assert.equal(A.personalListEvidence().count, count);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1180 matching cached results avoid artificial fetches; stale refresh failure preserves truthful saved-list review', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let release, reads = 0;
+    const key = A.personalListKey(A.personalListOwner());
+    app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+      ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+    A.openSetupSheet();
+    assert.equal(reads, 0);
+    assert.ok(app.$('setupContinue'));
+    assert.equal(app.$('setupSkipSeen'), null);
+    const saved = JSON.parse(app.window.localStorage.getItem(key));
+    saved.readDate = '2000-01-01';
+    app.window.localStorage.setItem(key, JSON.stringify(saved));
+    A.renderSetupSheet();
+    await waitFor(() => release, 'stale exact cache automatically refreshes');
+    assert.equal(app.$('setupContinue'), null, 'usable cache cannot bypass the pending waiting state');
+    assert.match(app.$('seenSetupStatus').textContent, /1 saved species remain available/);
+    release({ ok: false, status: 503 });
+    await waitFor(() => app.$('setupFetchSeen'), 'failed cached refresh offers retry');
+    assert.equal(A.personalListEvidence().complete, true);
+    assert.equal(app.$('setupContinue').textContent, 'Review saved list');
+    assert.equal(app.$('setupSkipSeen').textContent, 'Skip');
+    app.click(app.$('setupContinue'));
+    assert.match(app.$('appSheet').textContent, /Matching saved list\. No new list was verified/);
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+    app.click(app.$('setupFetchSeen'));
+    await waitFor(() => reads === 2, 'explicit retry starts one owned request');
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await waitFor(() => !A.personalListEvidence().stale, 'retry replaces stale evidence with fresh exact evidence');
+    app.click(app.$('setupContinue'));
+    assert.doesNotMatch(app.$('appSheet').textContent, /No new list was verified/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1180 deliberate Skip does not certify missing evidence and late work cannot reopen or navigate setup', async () => {
+  const app = await setupOwnedSeenApp();
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let release;
+    app.window.localStorage.removeItem(A.personalListKey(A.personalListOwner()));
+    app.window.localStorage.removeItem('ebird_seen_setup_skipped');
+    app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+      ? new Promise(resolve => { release = resolve; }) : originalFetch(url, options);
+    app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+    A.openSetupSheet();
+    await waitFor(() => release, 'held automatic list');
+    app.click(app.$('setupSkipSeen'));
+    assert.equal(app.$('appSheet').dataset.infoId, 'setup-seen-skip');
+    assert.equal(A.personalListEvidence().complete, false);
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.equal(A.personalListEvidence().complete, false);
+    assert.equal(app.window.localStorage.getItem('ebird_seen_setup_skipped'), A.personalListKey(A.personalListOwner()));
+    assert.match(app.$('setupSheetBody').textContent, /seen list fetching/);
+    app.click(app.$('setupContinue'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    await waitFor(() => A.personalListEvidence().complete, 'late owned result is stored');
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.window.localStorage.getItem('bc_setup_step_v1'), 'summary');
+    assert.equal(app.$('appSheet').hidden, true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1180 an open seen-result review cannot approve a different profile, account, region or period', async () => {
+  for (const change of ['profile', 'identity', 'region', 'period']) {
+    const app = await setupOwnedSeenApp(['stable']);
+    try {
+      const A = app.window.__app;
+      app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+      A.openSetupSheet();
+      app.click(app.$('setupContinue'));
+      const forward = app.$('appSheet').querySelector('[data-setup-confirm-continue]');
+      if (change === 'profile') app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'synthetic-seen-other');
+      else if (change === 'identity') A.applyCapturedIdentity({ status: 'ok', displayName: 'Other synthetic account' });
+      else if (change === 'region') A.setCountyView('US-WA-033');
+      else A.setPersonalPeriod('all');
+      app.click(forward);
+      assert.equal(app.$('setupSheet').hidden, false);
+      assert.notEqual(app.$('setupSheetBody').dataset.setupStep, 'summary');
+      assert.notEqual(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
 test('F1119 automatic seen refresh rearms daily after success and failure without repaint loops', async () => {
   const app = await setupOwnedSeenApp();
   try {
@@ -10091,11 +10240,13 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
       A.openSetupSheet();
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
-      assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
+      assert.match(app.$('setupSheet').textContent, /Fetching your seen list/);
       assert.equal(app.$('setupSeenCsv'), null);
       assert.equal(app.$('setupSheetBody').querySelector('.setupprogress').children[4]
         .querySelector('.setupdone'), null, 'pending seen-list evidence is not complete');
-      app.click(app.$('setupContinue'));
+      assert.equal(app.$('setupContinue'), null);
+      app.click(app.$('setupSkipSeen'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       assert.match(app.$('setupSheet').textContent, /seen list fetching/);
       releaseList(ownedPersonalListFixture({ count, codes: count ? ['stable'] : [] }));
       await waitFor(() => /seen list ready/.test(app.$('setupSheet').textContent), 'live setup summary ready');
@@ -10232,7 +10383,7 @@ test('F1068 an existing direct read repaints setup and main without starting ano
     A.openSetupSheet();
     const request = A.ensurePersonalList(A.activeScope(), true);
     await waitFor(() => release, 'held direct acquisition');
-    assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
+    assert.match(app.$('setupSheet').textContent, /Fetching your seen list/);
     assert.equal(app.$('setupSeenCsv'), null);
     release({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
     await request;

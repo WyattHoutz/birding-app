@@ -264,8 +264,12 @@ const AUDIT = `<script>
       var options = document.getElementById('setupHomeOptions');
       var choosing = document.getElementById('setupSheetBody').dataset.setupStep === 'home'
         && options && options.children.length > 1;
-      if (primary.length !== (choosing ? 0 : 1))
-        throw new Error('F1158 setup must have one recommended action, except an unresolved place choice');
+      var waiting = document.getElementById('setupSheetBody').dataset.setupStep === 'seen'
+        && document.getElementById('setupStepTitle').textContent === 'Fetching your seen list...';
+      if (waiting && (!document.getElementById('setupSkipSeen') || document.getElementById('setupContinue')))
+        throw new Error('F1180 pending seen work needs Skip without a competing completion action');
+      if (primary.length !== (choosing || waiting ? 0 : 1))
+        throw new Error('F1158 setup needs one recommended action, except a place choice or F1180 waiting');
       var reference = primary.length ? getComputedStyle(primary[0]) : null;
       var close = document.getElementById('setupSheetClose'), closeRect = close.getBoundingClientRect();
       if (closeRect.width >= setup.clientWidth / 2 || closeRect.width < 43.5 || closeRect.height < 43.5
@@ -1187,7 +1191,9 @@ const AUDIT = `<script>
       throw new Error('F1084 fixture pair confirmation did not advance');
     }
     out.push(scan('(F1067 setup seen birds)'));
-    document.getElementById('setupContinue').click();
+    (document.getElementById('setupContinue') || document.getElementById('setupSkipSeen')).click();
+    out.push(scan('(F1180 setup seen result review)'));
+    document.getElementById('appSheet').querySelector('[data-setup-confirm-continue]').click();
     out.push(scan('(F1067 setup summary)'));
     document.getElementById('setupSheetClose').click();
     A.openRegionChooser();
@@ -3344,8 +3350,10 @@ const AUDIT = `<script>
       require(predicate(),message);
     }
     function record(state) {
-      var root = document.getElementById(state === 'Settings Home candidate'
-        ? 'settingsPanel' : 'setupSheetBody');
+      var dialog = document.getElementById('appSheet');
+      var root = dialog && !dialog.hidden && /^setup-/.test(dialog.dataset.infoId || '')
+        ? dialog.querySelector('.sheetbody') : document.getElementById(state === 'Settings Home candidate'
+          ? 'settingsPanel' : 'setupSheetBody');
       require(root.getBoundingClientRect().width > 0,state + ' is hidden');
       var controls = Array.from(root.querySelectorAll('button')).filter(function (button) {
         return button.getBoundingClientRect().width > 0;
@@ -3366,6 +3374,15 @@ const AUDIT = `<script>
         }),state + ': clipped control text ' + button.id);
         return {id:button.id,width:rect.width,height:rect.height};
       });
+      var back = root.querySelector('#setupBack, [data-setup-confirm-back]');
+      var primary = root.querySelector('button.setupprimary');
+      if (back && primary) {
+        var backRect = back.getBoundingClientRect(), primaryRect = primary.getBoundingClientRect();
+        require(Math.abs(backRect.width-primaryRect.width)<=1
+          && Math.abs(backRect.left-primaryRect.left)<=1,'F1176 Back does not match primary edges');
+        require(getComputedStyle(back).backgroundColor !== 'rgba(0, 0, 0, 0)',
+          'F1176 Back lost its pale secondary fill');
+      }
       var result = scan('(F1079/F1080 ' + state + ')');
       result.homeApprovalGeometry = {state:state,locationRequests:requests,controls:geometry};
       out.push(result);
@@ -3399,7 +3416,10 @@ const AUDIT = `<script>
       require(requests === 0,'opening setup requested device permission');
       record('Home choices');
       document.getElementById('setupHomeHere').click();
-      await until(function () { return document.getElementById('setupHomeApprove'); },'missing candidate');
+      await until(function () {
+        var result=document.getElementById('appSheet');
+        return result && !result.hidden && result.dataset.infoId==='setup-home-confirmed';
+      },'missing selected Home confirmation');
       var confirmation=document.getElementById('appSheet');
       require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
         'F1172 automatic Home did not present its selected-result confirmation');
@@ -3427,19 +3447,32 @@ const AUDIT = `<script>
         'F1152 candidate is not labeled separately from saved Home');
       var candidateFrame=document.getElementById('setupHomeCandidate').getBoundingClientRect();
       require(candidateFrame.top<innerHeight && candidateFrame.bottom>0,'F1152 candidate remains offscreen');
-      require(document.getElementById('setupHomePreview').tagName==='BUTTON','F1152 explicit map preview missing');
+      require(document.getElementById('setupHomePreview').tagName==='A','F1177 explicit Open Maps link missing');
       require(document.getElementById('setupHomePlace').value==='47.60000, -122.30000',
         'F1165 GPS did not fill the Home field');
       require(!document.getElementById('setupHomeDiscard'),'F1165 redundant change button remains');
-      require(!document.getElementById('setupHomeMap').children.length,'F1165 map loaded without opening preview');
-      document.getElementById('setupHomeMapPreview').open=true;
-      await until(function () { return document.getElementById('setupHomeMap').children.length; },'missing opt-in map');
+      require(document.getElementById('setupHomeMap').children.length
+        && !document.getElementById('setupHomeMap').closest('details'),'F1177 map is not immediately visible');
+      require(document.getElementById('setupStepTitle').parentElement.nextElementSibling
+        ===document.getElementById('setupHomeMapPreview'),'F1177 map is not first below the heading');
+      var homeMapRect=document.getElementById('setupHomeMap').getBoundingClientRect();
+      require(homeMapRect.width>100 && homeMapRect.height>=179,'F1177 Home map has no painted area');
+      document.getElementById('setupHomeEdit').click();
+      require(document.activeElement===document.getElementById('setupHomePlace'),
+        'F1177 Edit Home did not focus the actual field');
       record('Home candidate');
       document.getElementById('setupHomeApprove').click();
       require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
         'F1172 manual Home review bypassed its confirmation');
       confirmation.querySelector('[data-setup-confirm-continue]').click();
+      await until(function () { return document.getElementById('setupNext')
+        || !confirmation.hidden && confirmation.dataset.infoId==='setup-home-replace'; },'missing Home consent or region');
+      if (!confirmation.hidden && confirmation.dataset.infoId==='setup-home-replace') {
+        record('Home replacement confirmation');
+        confirmation.querySelector('[data-setup-confirm-continue]').click();
+      }
       await until(function () { return document.getElementById('setupNext'); },'missing matching pair confirmation');
+      require(!document.getElementById('setupHomeReplace'),'F1178 region still has a replacement checkbox');
       require(JSON.stringify(A.getHome()) === savedHome,'suggestion saved Home before confirmation');
       require(!document.getElementById('setupHomeOutside'),'region mismatch override remains');
       require(/Washington/.test(document.getElementById('setupHomeSuggested').textContent),

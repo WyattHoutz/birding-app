@@ -728,6 +728,10 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), completed);
         app.window.localStorage.setItem(A.BC_PROFILE_PTR, profile);
         app.click(proceed);
+        assert.equal(app.$('appSheet').dataset.infoId, 'setup-seen-ready');
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+        app.click(app.$('setupContinue'));
         assert.equal(app.$('setupSheet').hidden, true);
         assert.equal(app.window.localStorage.getItem(key), saved);
         assert.equal(A.personalListEvidence().complete, true);
@@ -917,15 +921,14 @@ module.exports = function registerMigrationSetupControls({
       assert.match(app.$('setupActionStatus').textContent, /Current location found.*Nothing has been saved/);
       assert.equal(app.$('setupActionStatus').getAttribute('role'), 'status');
       assert.equal(app.$('setupHomeFind').hidden, true, 'only one validation action is visible');
-      assert.equal(app.$('setupHomeApprove').textContent, 'Validate Home');
+      assert.equal(app.$('setupHomeApprove').textContent, 'Confirm Home');
       assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000', 'GPS fills the same Home field');
-      assert.equal(app.$('setupHomeMap').childNodes.length, 0, 'map must not load automatically');
-      app.$('setupHomeMapPreview').open = true;
-      await waitFor(() => app.$('setupHomeMap').childNodes.length, 'opt-in candidate map');
+      assert.ok(app.$('setupHomeMap').childNodes.length, 'F1177 candidate map is immediately visible');
+      assert.equal(app.$('setupHomeMap').closest('details'), null);
       assert.equal(app.$('setupHomeMap').getAttribute('aria-label'), 'Home candidate map');
       assert.equal(app.$('setupHomeMap').querySelector('svg') !== null, true,
         'the existing renderer provides its offline fallback when Leaflet is unavailable');
-      assert.equal(app.$('setupHomePreview').tagName, 'BUTTON');
+      assert.equal(app.$('setupHomePreview').tagName, 'A');
       assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeApprove',
         'F1158 reviewing the acquired candidate replaces the location action');
       assert.equal(previews.length, 1, 'F1152 returning to the field does not launch external Maps');
@@ -970,7 +973,7 @@ module.exports = function registerMigrationSetupControls({
     } finally { app.window.close(); }
   });
 
-  test('F1079 F1084 manual Home disambiguation confirms only its containing region and protects each saved Home', async () => {
+  test('F1079 F1084 F1178 manual Home disambiguation requires Home replacement consent before simple region review', async () => {
     const app = await boot({ report: 'wa', home: false, sample: false,
       storage: { bc_setup_step_v1: 'region', 'ebird_home_lat:wa': '47.7',
         'ebird_home_lng:wa': '-122.2', 'ebird_home_place:wa': 'Existing Home',
@@ -1007,15 +1010,22 @@ module.exports = function registerMigrationSetupControls({
       assert.match(app.$('setupHomeCandidate').textContent, /Springfield/);
       assert.equal(app.$('setupHomePlace').value, 'Springfield', 'F1152 search is retained for correction');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-      await waitFor(() => app.$('setupNext'), 'Oregon pair confirmation');
+      await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-replace'
+        && !app.$('appSheet').hidden, 'Oregon Home replacement confirmation');
       assert.equal(A.getReportSlug(), 'wa', 'derived region switched before confirmation');
-      assert.match(app.$('setupHomeReplace').parentElement.textContent, /Oregon/);
+      assert.match(app.$('appSheet').textContent, /Saved Home:.*Existing Oregon Home/);
+      assert.equal(app.$('setupNext'), null);
       assert.equal(app.$('setupHomeOutside'), null, 'outside-region consent must not bypass pair matching');
-      app.click(app.$('setupNext'));
-      await new Promise(resolve => setTimeout(resolve, 30));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
       assert.equal(A.getHome().lat, 47.7, 'unaccepted replacement overwrote saved Home');
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+      app.click(app.$('setupHomeApprove'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-replace'
+        && !app.$('appSheet').hidden, 'replacement remains explicit after Back');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
-      app.$('setupHomeReplace').checked = true;
+      assert.equal(app.$('setupHomeReplace'), null, 'F1178 no replacement checkbox on region');
       app.click(app.$('setupNext'));
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'seen', 'confirmed Oregon pair');
       assert.equal(A.getHome().lat, 44);
@@ -1059,7 +1069,7 @@ module.exports = function registerMigrationSetupControls({
     } finally { app.window.close(); }
   });
 
-  test('F1084 failed Home region lookup stays actionable without a guessed region or GPS request', async () => {
+  test('F1084 F1179 failed Home region lookup announces focused actionable recovery without a guessed region', async () => {
     let failed = true;
     const app = await boot({ report: null, home: false, sample: false,
       storage: { bc_setup_step_v1: 'home' },
@@ -1075,6 +1085,8 @@ module.exports = function registerMigrationSetupControls({
         && !app.$('appSheet').hidden, 'coordinate review');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent), 'lookup failure');
+      assert.equal(app.$('setupActionStatus').getAttribute('role'), 'alert');
+      assert.equal(app.document.activeElement, app.$('setupActionStatus'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
       assert.equal(app.$('setupNext'), null);
       assert.equal(A.getReportSlug(), '');
@@ -1176,9 +1188,8 @@ module.exports = function registerMigrationSetupControls({
       try {
         const A = app.window.__app;
         A.openSetupSheet();
-        const oldAction = app.$(approved ? 'setupHomeReview' : 'setupHomeApprove');
+        const oldAction = app.$('setupHomeApprove');
         assert.equal(oldAction.hidden, false);
-        app.$('setupHomeMapPreview').open = true;
         await waitFor(() => app.$('setupHomeMap').childNodes.length, 'field map preview');
         app.$('setupHomePlace').value = 'New synthetic city';
         app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
@@ -1186,7 +1197,7 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('setupHomeCandidate').hidden, true);
         assert.equal(app.$('setupHomeMap').childNodes.length, 0);
         assert.equal(app.$('setupHomePreview').hidden, true);
-        assert.equal(app.$('setupHomePreview').closest('details').hidden, true);
+        assert.equal(app.$('setupHomeMapPreview').hidden, true);
         assert.equal(app.$('setupHomeFind').hidden, false);
         assert.equal(app.$('setupSheetBody').querySelectorAll('.setupprimary').length, 1);
         assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeFind');
@@ -1204,8 +1215,8 @@ module.exports = function registerMigrationSetupControls({
     try {
       const A = app.window.__app, before = JSON.stringify(A.getHome());
       A.openSetupSheet();
-      app.$('setupUseSavedHome').closest('details').open = true;
-      app.click(app.$('setupUseSavedHome'));
+      assert.ok(app.$('setupHomeMap').querySelector('svg'), 'saved Home map is visible on entry');
+      app.click(app.$('setupHomeApprove'));
       assert.ok(app.$('appSheet') && !app.$('appSheet').hidden, 'saved Home needs the same result review');
       assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-confirmed');
       assert.match(app.$('appSheet').textContent, /Saved synthetic Home/);
@@ -1217,6 +1228,120 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
       assert.equal(JSON.stringify(A.getHome()), before);
       assert.equal(app.state.locations.length, 0);
+      assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 0,
+        'unchanged saved Home reuses its known region without refetch');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1177 saved Home is map-first, explicitly editable and confirmable without GPS, lookup or precision loss', async () => {
+    const lat = 47.600000123, lng = -122.300000456;
+    const app = await boot({ sample: false, home: false, storage: {
+      bc_setup_step_v1: 'home', 'ebird_home_lat:wa': String(lat),
+      'ebird_home_lng:wa': String(lng), 'ebird_home_place:wa': 'Synthetic saved Home'
+    } });
+    try {
+      const A = app.window.__app, opened = [];
+      app.window.open = url => { opened.push(url); };
+      A.openSetupSheet();
+      assert.equal(app.window.localStorage.getItem('bc_setup_home_draft_v1'), null, 'visibility cannot adopt Home');
+      assert.equal(app.$('setupStepTitle').parentElement.nextElementSibling, app.$('setupHomeMapPreview'));
+      assert.equal(app.$('setupHomeMapPreview').tagName, 'DIV');
+      assert.equal(app.$('setupHomeMapPreview').hidden, false);
+      assert.ok(app.$('setupHomeMap').querySelector('svg'));
+      assert.match(app.$('setupHomeCandidate').textContent, /Saved Home/);
+      assert.equal(opened.length, 0);
+      for (const provider of Object.keys(A.MAP_PROVIDERS)) {
+        app.window.localStorage.setItem(A.MAP_PROVIDER_KEY, provider);
+        A.renderSetupSheet();
+        const expected = A.MAP_PROVIDERS[provider].point(lat + ', ' + lng);
+        assert.equal(app.$('setupHomePreview').href, expected);
+        app.click(app.$('setupHomePreview'));
+        assert.equal(opened.at(-1), expected);
+      }
+      app.click(app.$('setupHomeEdit'));
+      assert.equal(app.document.activeElement, app.$('setupHomePlace'));
+      app.$('setupHomePlace').value = 'Unvalidated synthetic replacement';
+      app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
+      assert.equal(app.$('setupHomeApprove').hidden, true);
+      assert.equal(app.$('setupHomeMapPreview').hidden, false, 'saved Home stays visible while an edit is unvalidated');
+      assert.ok(app.$('setupHomeMap').childNodes.length);
+      assert.equal(app.$('setupHomeCandidateTitle').textContent, 'Saved Home');
+      assert.equal(A.getHome().lat, lat);
+      app.click(app.$('setupUseSavedHome'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      assert.equal(app.state.fetches.filter(url => /photon/.test(url)).length, 0,
+        'confirming an unchanged saved point must not start another region lookup');
+      await waitFor(() => app.$('setupNext') || app.$('setupActionStatus').getAttribute('role') === 'alert',
+        'unchanged saved Home region outcome');
+      assert.ok(app.$('setupNext'), 'unchanged saved Home must reuse its known region');
+      assert.equal(app.$('setupHomeReplace'), null);
+      assert.equal(app.state.locations.length, 0);
+      assert.equal(app.state.fetches.filter(url => /photon/.test(url)).length, 0);
+      app.click(app.$('setupNext'));
+      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'seen', 'saved pair confirmation');
+      assert.equal(A.getHome().lat, lat);
+      assert.equal(A.getHome().lng, lng);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1178 F1179 replacement approval is bound to the exact saved and proposed Home and current owner', async () => {
+    for (const change of ['saved', 'draft', 'identity', 'profile']) {
+      const draft = { profile: '', approved: true,
+        point: { lat: 47.6, lng: -122.3, label: 'Proposed synthetic Home' },
+        region: { status: 'ok', code: 'US-WA', label: 'Washington', lat: 47.6, lng: -122.3 } };
+      const app = await boot({ sample: false, home: false, storage: {
+        bc_setup_step_v1: 'region', bc_setup_home_draft_v1: JSON.stringify(draft),
+        'ebird_home_lat:wa': '47.7', 'ebird_home_lng:wa': '-122.2'
+      } });
+      try {
+        const A = app.window.__app, profile = A.bcProfile();
+        A.openSetupSheet();
+        assert.equal(app.$('setupHomeReplace'), null);
+        app.click(app.$('setupNext'));
+        assert.ok(app.$('appSheet') && !app.$('appSheet').hidden,
+          'replacement approval must open before asynchronous region selection');
+        assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-replace');
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+        assert.equal(A.getHome().lat, 47.7, 'enabled confirmation cannot silently overwrite Home');
+        if (change === 'saved') app.window.localStorage.setItem('ebird_home_lat:wa', '47.8');
+        else if (change === 'draft') {
+          draft.point.lat = draft.region.lat = 47.9;
+          app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
+        } else if (change === 'identity') {
+          A.applyCapturedIdentity({ status: 'ok', displayName: 'Other synthetic owner' });
+        } else app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'synthetic-replacement-other');
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        app.window.localStorage.setItem(A.BC_PROFILE_PTR, profile);
+        assert.equal(A.getHome().lat, change === 'saved' ? 47.8 : 47.7);
+        assert.equal(JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1')).replacementConsent, undefined);
+        assert.notEqual(app.$('setupSheetBody').dataset.setupStep, 'seen');
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  });
+
+  test('F1178 a saved Home appearing during region selection still requires explicit replacement consent', async () => {
+    const app = await boot({ report: null, sample: false, home: false, storage: {
+      bc_setup_step_v1: 'region', bc_setup_home_draft_v1: JSON.stringify({
+        profile: '', approved: true, point: { lat: 47.6, lng: -122.3, label: 'Proposed Home' },
+        region: { status: 'ok', code: 'US-WA', label: 'Washington', lat: 47.6, lng: -122.3 }
+      })
+    } });
+    try {
+      const A = app.window.__app;
+      A.openSetupSheet();
+      app.click(app.$('setupNext'));
+      app.window.localStorage.setItem('ebird_home_lat:wa', '47.8');
+      app.window.localStorage.setItem('ebird_home_lng:wa', '-122.1');
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-replace'
+        && !app.$('appSheet').hidden || app.$('setupSheetBody').dataset.setupStep === 'seen',
+        'region selection outcome after concurrent Home change');
+      assert.ok(app.$('appSheet') && !app.$('appSheet').hidden,
+        'a concurrent saved Home must require fresh approval before saving');
+      assert.equal(A.getHome().lat, 47.8);
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
   });
@@ -1276,6 +1401,58 @@ module.exports = function registerMigrationSetupControls({
     } finally { app.window.close(); }
   });
 
+  test('F1176 every wizard Back shares the full-width pale secondary treatment, including result and recovery sheets', async () => {
+    const key = 'SYNTHETIC_F1176_KEY';
+    const app = await boot({ sample: false, key,
+      storage: { 'bc_api_verified_v1:': key, ebird_seen_setup_skipped: '1',
+        ebird_seen_meta: JSON.stringify({ source: 'csv', count: 0, year: new Date().getFullYear() }) } });
+    try {
+      const A = app.window.__app;
+      A.applyCapturedIdentity({ status: 'ok', displayName: 'Synthetic style observer' });
+      await seedSeen(app, [], null, [{ code: 'stable', name: 'Stable bird' }]);
+      const draft = { profile: A.bcProfile(), approved: true,
+        point: { ...A.getHome(), label: 'Synthetic Home' },
+        region: { status: 'ok', code: 'US-WA', label: 'Washington', ...A.getHome() } };
+      function check(root, back) {
+        const primary = root.querySelector('.setupprimary');
+        assert.ok(primary && back, root.dataset.setupStep + ': meaningful forward and Back controls must exist');
+        const style = app.window.getComputedStyle(back), reference = app.window.getComputedStyle(primary);
+        assert.equal(style.width, reference.width, 'Back and primary must have matching edges');
+        assert.equal(style.width, '100%');
+        assert.equal(style.minHeight, '44px');
+      }
+      for (const step of ['key', 'home', 'region', 'seen', 'summary']) {
+        app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
+        app.window.localStorage.setItem('bc_setup_step_v1', step);
+        A.openSetupSheet();
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
+        check(app.$('setupSheetBody'), app.$('setupBack'));
+      }
+      app.window.localStorage.setItem('bc_setup_step_v1', 'account');
+      A.openSetupSheet();
+      app.click(app.$('setupConnectEbird'));
+      for (const id of ['setup-account-connected', 'setup-key-verified']) {
+        assert.equal(app.$('appSheet').dataset.infoId, id);
+        check(app.$('appSheet'), app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      }
+      app.click(app.$('setupHomeApprove'));
+      check(app.$('appSheet'), app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+      A.openSetupSheet();
+      app.click(app.$('setupContinue'));
+      check(app.$('appSheet'), app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      app.window.localStorage.removeItem(A.personalListKey(A.personalListOwner()));
+      app.window.localStorage.setItem('ebird_seen_setup_skipped', A.personalListKey(A.personalListOwner()));
+      A.renderSetupSheet();
+      app.click(app.$('setupSkipSeen'));
+      check(app.$('appSheet'), app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
   test('F1084 F1155 F1156 setup actions share styling and open step-specific help without losing state', async () => {
     const app = await boot({ sample: false });
     try {
@@ -1315,8 +1492,7 @@ module.exports = function registerMigrationSetupControls({
         for (const control of controls) assert.equal(app.window.getComputedStyle(control).whiteSpace, 'nowrap');
         assert.equal(app.$('setupHelp').getAttribute('aria-label'), 'Help: ' + primary[0].textContent.trim());
         if (step === 'account') {
-          assert.match(app.$('setupSheetBody').textContent, /read-only access to your seen-bird list/);
-          assert.match(app.$('setupSheetBody').textContent, /does not change your eBird records/);
+          assert.match(app.$('setupSheetBody').textContent, /Read-only access to eBird\. Connection details are kept on your device\./);
         }
         if (step === 'account' || step === 'key') {
           const introduction = app.$('setupSheetBody').querySelector('.setupintro');
@@ -1326,7 +1502,7 @@ module.exports = function registerMigrationSetupControls({
           assert.equal(introduction.contains(app.$('setupHelp')), false);
           assert.equal(introduction.contains(primary[0]), false, 'the main button follows, outside the card');
           assert.match(introduction.textContent, step === 'account'
-            ? /read-only access to your seen-bird list/ : /API key enables live sightings/);
+            ? /Read-only access to eBird/ : /API key enables live sightings/);
           if (step === 'account') assert.equal(app.$('setupStepTitle').textContent, 'Connect your eBird Account');
         }
         const field = app.$(step === 'key' ? 'setupApiKey' : 'setupHomePlace');
@@ -1336,7 +1512,7 @@ module.exports = function registerMigrationSetupControls({
           assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id,
             step === 'key' ? 'setupVerifyKey' : 'setupHomeFind', 'F1158 entered input becomes the next action');
           if (step === 'key') {
-            assert.equal(app.$('setupKeyAlternatives').open, true);
+            assert.equal(field.closest('details'), null);
             assert.match(app.$('setupKeyExternal').textContent, /Copy.*browser/);
             assert.equal(app.$('setupKeyAlternatives').querySelector('summary').textContent, 'Other options');
           } else assert.equal(field.closest('details'), null);

@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const vm = require('node:vm');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(ROOT, 'assets', 'mockups.js'), 'utf8');
@@ -32,6 +32,230 @@ const pkg = require(path.join(ROOT, 'package.json'));
 const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
+
+test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or held key across seen-list completion',
+  { timeout: 120000 }, async () => {
+    assert.ok(mockups.CHROME, 'real Chrome is required');
+    const seen = { yearList: waSeen.birds.filter(row => row.seen) };
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-'));
+    await new Promise(resolve => mockups.server.listen(0, '127.0.0.1', resolve));
+    const chrome = spawn(mockups.CHROME, [
+      '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+      '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0',
+      '--user-data-dir=' + profile, 'about:blank'
+    ], { stdio: 'ignore' });
+    const exited = new Promise(resolve => chrome.once('exit', resolve));
+    let c;
+    try {
+      const endpoint = path.join(profile, 'DevToolsActivePort');
+      await mockups.withTimeout((async () => {
+        while (!fs.existsSync(endpoint)) await new Promise(resolve => setTimeout(resolve, 50));
+      })(), 15000, 'wizard Chrome startup');
+      const [port, route] = fs.readFileSync(endpoint, 'utf8').trim().split(/\r?\n/);
+      c = mockups.cdp('ws://127.0.0.1:' + port + route);
+      await c.ready;
+      const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
+      const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });
+      const send = (method, params = {}) => c.send(method, params, sessionId);
+      await send('Page.enable');
+      await send('Runtime.enable');
+      const evaluate = async (fn, arg) => {
+        const result = await send('Runtime.evaluate', {
+          expression: '(' + fn.toString() + ')(' + JSON.stringify(arg) + ')',
+          awaitPromise: true, returnByValue: true
+        });
+        if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+        return result.result.value;
+      };
+      const until = async fn => mockups.withTimeout((async () => {
+        while (!await evaluate(fn)) await new Promise(resolve => setTimeout(resolve, 25));
+      })(), 10000, 'wizard input state: ' + fn.toString());
+      const point = selector => evaluate(selector => {
+        const el = document.querySelector(selector);
+        if (!el) throw new Error('Missing control: ' + selector);
+        el.scrollIntoView({ block: 'center' });
+        const box = el.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }, selector);
+      const click = async selector => {
+        const p = await point(selector);
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...p, button: 'left', clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...p, button: 'left', clickCount: 1 });
+      };
+      const backStyle = async (root, selector) => {
+        const style = await evaluate(({ root, selector }) => {
+          const container = document.querySelector(root), back = container.querySelector(selector);
+          const primary = container.querySelector('.setupprimary');
+          const b = back.getBoundingClientRect(), p = primary.getBoundingClientRect();
+          return {
+            width: b.width, primaryWidth: p.width, left: b.left, primaryLeft: p.left,
+            fill: getComputedStyle(back).backgroundColor, primaryFill: getComputedStyle(primary).backgroundColor
+          };
+        }, { root, selector });
+        assert.ok(style.width > 100 && Math.abs(style.width - style.primaryWidth) < 1);
+        assert.ok(Math.abs(style.left - style.primaryLeft) < 1);
+        assert.notEqual(style.fill, 'rgba(0, 0, 0, 0)');
+        assert.notEqual(style.fill, style.primaryFill);
+      };
+      for (const [width, display] of [[320, 'high-visibility'], [375, 'high-visibility'],
+        [402, 'high-visibility'], [320, 'large'], [393, 'standard'], [430, 'standard'], [402, 'standard']]) {
+        await send('Emulation.setDeviceMetricsOverride', {
+          width, height: 844, deviceScaleFactor: 1, mobile: false
+        });
+        for (const input of ['pointer', 'Enter', 'Space']) {
+          await send('Page.navigate', { url: 'http://127.0.0.1:' + mockups.server.address().port + '/index.html' });
+          await until(() => !!window.__app && !!window.BirdTaxonomy);
+          await evaluate(async ({ prepare, seen, display }) => {
+            const A = window.__app;
+            localStorage.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', count: 0, year: 2026 }));
+            A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
+            await (0, eval)('(' + prepare + ')')(A, window, seen);
+            A.setDisplayProfile(display);
+          }, { prepare: mockups.preparePersonalFixture.toString(), seen, display });
+          assert.equal(await evaluate(() => document.documentElement.clientWidth), width);
+          if (input === 'pointer') {
+            for (const step of ['key', 'home', 'region', 'seen', 'summary']) {
+              await evaluate(step => {
+                const A = window.__app, point = A.getHome();
+                localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify({
+                  profile: A.bcProfile(), approved: true, point,
+                  region: { status: 'ok', code: 'US-WA', label: 'Washington', ...point }
+                }));
+                localStorage.setItem('bc_setup_step_v1', step);
+                A.openSetupSheet();
+              }, step);
+              assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), step);
+              await backStyle('#setupSheetBody', '#setupBack');
+            }
+            await evaluate(() => {
+              const A = window.__app;
+              localStorage.setItem('bc_api_verified_v1:', localStorage.getItem('ebird_api_key'));
+              localStorage.setItem('bc_setup_step_v1', 'account');
+              A.openSetupSheet();
+            });
+            await click('#setupConnectEbird');
+            for (const id of ['setup-account-connected', 'setup-key-verified']) {
+              assert.equal(await evaluate(() => document.getElementById('appSheet').dataset.infoId), id);
+              await backStyle('#appSheet', '[data-setup-confirm-back]');
+              await click('[data-setup-confirm-continue]');
+            }
+            await evaluate(() => {
+              localStorage.removeItem('bc_setup_home_draft_v1');
+              localStorage.setItem('bc_setup_step_v1', 'home');
+              window.__app.openSetupSheet();
+            });
+            await click('#setupHomeEdit');
+            assert.equal(await evaluate(() => document.activeElement.id), 'setupHomePlace');
+            await send('Input.insertText', { text: '47.6062, -122.3321' });
+            assert.deepEqual(await evaluate(() => ({
+              focus: document.activeElement.id, value: document.getElementById('setupHomePlace').value
+            })), { focus: 'setupHomePlace', value: '47.6062, -122.3321' });
+            await click('#setupHomeFind');
+            await until(() => document.getElementById('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+              && !document.getElementById('appSheet').hidden);
+            await backStyle('#appSheet', '[data-setup-confirm-back]');
+            await click('[data-setup-confirm-back]');
+            assert.ok(await evaluate(() => {
+              const map = document.getElementById('setupHomeMap'), box = map.getBoundingClientRect();
+              return map.children.length && box.width > 100 && box.height >= 179;
+            }));
+            await evaluate(() => {
+              const draft = JSON.parse(localStorage.getItem('bc_setup_home_draft_v1'));
+              draft.approved = true;
+              draft.region = { status: 'ok', code: 'US-WA', label: 'Washington', ...draft.point };
+              localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
+              localStorage.setItem('bc_setup_step_v1', 'region');
+              window.__app.renderSetupSheet();
+            });
+            await click('#setupNext');
+            assert.equal(await evaluate(() => document.getElementById('appSheet').dataset.infoId), 'setup-home-replace');
+            await backStyle('#appSheet', '[data-setup-confirm-back]');
+            await click('[data-setup-confirm-back]');
+          }
+          await evaluate(seen => {
+            const A = window.__app, key = A.personalListKey(A.personalListOwner());
+            const original = window.fetch;
+            const html = '<title>Personal Life List - eBird</title>'
+              + '<link rel="canonical" href="https://ebird.org/lifelist/US-WA">'
+              + '<header><button aria-label="Birder Sample Birder (fixture_login)">Account</button></header>'
+              + '<select name="time"><option value="year" selected>year</option></select>'
+              + '<main><h1>Life List</h1><p>Species Total: ' + seen.yearList.length + '</p>'
+              + seen.yearList.map(row => '<li><a href="/species/' + row.code + '">' + row.name + '</a></li>').join('')
+              + '</main>';
+            window.fetch = (url, options) => /\/lifelist\//.test(url)
+              ? new Promise(resolve => { window.__wizardRelease = () => resolve({
+                ok: true, status: 200, text: async () => html
+              }); }) : original(url, options);
+            localStorage.removeItem(key);
+            localStorage.removeItem('ebird_seen_setup_skipped');
+            localStorage.removeItem('bc_setup_dismissed_v1');
+            localStorage.setItem('bc_setup_step_v1', 'seen');
+            A.openSetupSheet();
+          }, seen);
+          if (await evaluate(() => !!document.getElementById('setupFetchSeen'))) await click('#setupFetchSeen');
+          try {
+            await until(() => typeof window.__wizardRelease === 'function');
+          } catch (error) {
+            throw new Error(width + '/' + input + ': ' + JSON.stringify(await evaluate(() => ({
+              title: document.getElementById('setupStepTitle')?.textContent,
+              evidence: window.__app.personalListEvidence(),
+              diagnostics: window.__dbg?.buf?.slice(-5)
+            }))), { cause: error });
+          }
+          const p = await point('#setupSkipSeen');
+          const key = input === 'Enter' ? { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }
+            : { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' };
+          if (input === 'pointer') {
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...p, button: 'left', clickCount: 1 });
+          } else {
+            await evaluate(() => document.getElementById('setupSkipSeen').focus());
+            await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key });
+          }
+          await evaluate(() => window.__wizardRelease());
+          await until(() => !!document.getElementById('setupContinue'));
+          if (input === 'pointer') {
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...p, button: 'left', clickCount: 1 });
+          } else {
+            await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, autoRepeat: true });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', ...key, text: undefined });
+          }
+          const state = await evaluate(() => ({
+            step: document.getElementById('setupSheetBody').dataset.setupStep,
+            dismissed: localStorage.getItem('bc_setup_dismissed_v1'),
+            dialog: document.getElementById('appSheet')?.hidden ? '' : document.getElementById('appSheet')?.dataset.infoId,
+            focus: document.activeElement?.hasAttribute('data-setup-confirm-continue')
+          }));
+          assert.equal(state.step, 'seen', width + '/' + input);
+          assert.notEqual(state.dismissed, '1', width + '/' + input);
+          assert.equal(state.focus, false, width + '/' + input + ' cannot focus a newly appearing primary');
+          if (state.dialog) {
+            assert.equal(state.dialog, 'setup-seen-skip', 'only the originally intended Skip may open');
+            await backStyle('#appSheet', '[data-setup-confirm-back]');
+            await click('[data-setup-confirm-back]');
+          }
+          await click('#setupContinue');
+          await until(() => document.getElementById('appSheet')?.dataset.infoId === 'setup-seen-ready'
+            && !document.getElementById('appSheet').hidden);
+          await backStyle('#appSheet', '[data-setup-confirm-back]');
+          await click('[data-setup-confirm-continue]');
+          assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), 'summary');
+          await click('#setupContinue');
+          assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden), true);
+        }
+      }
+    } finally {
+      if (c) {
+        await c.send('Browser.close').catch(() => {});
+        await mockups.withTimeout(exited, 10000, 'wizard Chrome shutdown');
+        c.close();
+      } else {
+        spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Stop-Process -Id ' + chrome.pid]);
+        await exited;
+      }
+      await new Promise(resolve => mockups.server.close(resolve));
+      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  });
 
 test('F1049 offline mockups read bundled section notes while unseeded remote sources remain pending', () => {
   const start = source.indexOf('var HANG = function (url, init)');
@@ -158,8 +382,9 @@ test('release mockups include exactly one section shot per visible menu entry', 
     ['f1083-setup-account', 'f1083-setup-connected', 'f1083-setup-account-change',
       'f1083-setup-key', 'f1083-setup-verified', 'f1083-setup-key-retry',
       'f1083-setup-application', 'f1083-setup-home', 'f1083-setup-candidate',
-      'f1083-setup-home-change', 'f1083-setup-region',
-      'f1083-setup-seen', 'f1083-setup-summary',
+      'f1083-setup-home-change', 'f1083-setup-region', 'f1083-setup-replacement',
+      'f1083-setup-seen-waiting', 'f1083-setup-seen', 'f1083-setup-seen-ready',
+      'f1083-setup-seen-skip', 'f1083-setup-summary',
       'f928-watch-patches', 'nearby-competitors-f857', 'nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
     'stakeoutchecklists-progressive', 'stakeoutmixed-f634', 'stakeoutpins-f837',
     'stakeoutspts-notes-off', 'stakeoutspts-notes-on', 'stakeoutnotes-popup',

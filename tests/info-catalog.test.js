@@ -51,7 +51,13 @@ test('F1151 every enabled menu and shared help leads with plain language before 
   for (const id of Object.keys(INFO.catalog)) {
     const sample = INFO.renderSample(id, { BirdLogic: BL, sectionDocs: SECTION_DOCS });
     const dom = new JSDOM(sample.bodyHtml);
-    assert.equal(dom.window.document.body.firstElementChild.className, 'docintro', id);
+    const first = dom.window.document.body.firstElementChild;
+    if (['setup-account-connected', 'setup-key-verified'].includes(id)) {
+      assert.equal(first.className, 'setupactions setupconfirmation', id + ' action-only success');
+      assert.ok(sample.title, id + ' success is conveyed in the title');
+    } else if (['setup-home-confirmed', 'setup-home-replace'].includes(id)) {
+      assert.equal(first.id, 'setupConfirmationMap', id + ' map first');
+    } else assert.equal(first.className, 'docintro', id);
     dom.window.close();
   }
   const live = INFO.render('bird-gen-feed', {

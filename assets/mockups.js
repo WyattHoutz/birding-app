@@ -652,8 +652,9 @@ const EXTRA_SHOTS = [
 async function prepareSetupReview(A, document, state, personalFixture) {
   const w = document.defaultView, storage = w.localStorage;
   if (w.L && w.L.Map) w.L.Map.mergeOptions({ fadeAnimation: false });
-  const later = ['seen', 'summary'].includes(state);
+  const later = ['seen', 'seen-waiting', 'seen-ready', 'seen-skip', 'summary'].includes(state);
   A.showMenu();
+  storage.setItem('ebird_seen_meta', JSON.stringify({source:'csv',count:0,year:2026}));
   A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
   storage.removeItem(A.homeKey('lat'));
   storage.removeItem(A.homeKey('lng'));
@@ -665,13 +666,16 @@ async function prepareSetupReview(A, document, state, personalFixture) {
   } else if (['connected', 'account-change', 'key', 'application'].includes(state)) storage.removeItem('ebird_api_key');
   else A.acceptWorkingKey('SYNTHETIC_PREVIEW_ONLY');
   if (['home', 'candidate', 'home-change'].includes(state)) storage.removeItem('ebird_report');
-  if (state === 'region') {
+  if (['region', 'replacement'].includes(state)) {
+    if (state === 'replacement') {
+      storage.setItem(A.homeKey('lat'), '47.75');
+      storage.setItem(A.homeKey('lng'), '-122.16');
+    }
     storage.setItem('bc_setup_home_draft_v1', JSON.stringify({
       profile: A.bcProfile(),
       point: { lat: 47.6, lng: -122.3, label: 'Example Seattle location' },
-      approved: state === 'region',
-      region: state === 'region'
-        ? { status: 'ok', code: 'US-WA', label: 'Washington', lat: 47.6, lng: -122.3 } : null
+      approved: true,
+      region: { status: 'ok', code: 'US-WA', label: 'Washington', lat: 47.6, lng: -122.3 }
     }));
   }
   if (later) {
@@ -680,12 +684,20 @@ async function prepareSetupReview(A, document, state, personalFixture) {
     await personalFixture(A, w, { yearList: [
       { code: 'amerob', name: 'American Robin' }, { code: 'grycat', name: 'Gray Catbird' }
     ] });
+    if (['seen-waiting', 'seen-skip'].includes(state)) {
+      storage.removeItem(A.personalListKey(A.personalListOwner()));
+      A.preparePersonalList(A.activeScope(), true).catch(() => {});
+    }
   }
   const step = ['account', 'connected', 'account-change'].includes(state) ? 'account'
     : ['key', 'verified', 'key-retry', 'application'].includes(state) ? 'key'
-      : later ? state : state === 'region' ? 'region' : 'home';
+      : later ? state === 'summary' ? 'summary' : 'seen'
+        : ['region', 'replacement'].includes(state) ? 'region' : 'home';
   storage.setItem('bc_setup_step_v1', step);
   A.openSetupSheet();
+  if (state === 'replacement') document.getElementById('setupNext').click();
+  if (state === 'seen-ready') document.getElementById('setupContinue').click();
+  if (state === 'seen-skip') document.getElementById('setupSkipSeen').click();
   if (['connected', 'account-change'].includes(state)) {
     document.getElementById('setupConnectEbird').click();
   }
@@ -716,7 +728,8 @@ async function prepareSetupReview(A, document, state, personalFixture) {
       sheet.querySelector('[data-setup-confirm-back]').click();
   }
   const body = document.getElementById('setupSheetBody');
-  if (body.dataset.setupStep !== step || document.getElementById('setupSheet').hidden) {
+  if (body.dataset.setupStep !== (state === 'replacement' ? 'home' : step)
+      || document.getElementById('setupSheet').hidden) {
     throw new Error('Setup review did not reach its real production step');
   }
   if (state === 'application') {
@@ -725,7 +738,7 @@ async function prepareSetupReview(A, document, state, personalFixture) {
     if (!help) throw new Error('First-time application guidance is missing');
     help.open = true;
   }
-  if (state === 'verified' && !/saved API key is verified/.test(body.textContent)) {
+  if (state === 'verified' && document.getElementById('setupKeyHelp').textContent !== '✓ Validated') {
     throw new Error('Existing-key preview did not reach verified state');
   }
   if (state === 'candidate') {
@@ -745,14 +758,15 @@ async function prepareSetupReview(A, document, state, personalFixture) {
           opacity: w.getComputedStyle(tile).opacity
         }))));
   }
-  if (later && !A.personalListEvidence().complete) throw new Error('Seen preview is not ready');
+  if (['seen', 'seen-ready', 'summary'].includes(state) && !A.personalListEvidence().complete)
+    throw new Error('Seen preview is not ready');
   const notice = document.createElement('p');
   notice.className = 'hint';
   notice.textContent = 'PREVIEW - sample account and location.';
   if (state === 'application') {
     const help = document.getElementById('appSheet').querySelector('[data-birdchaser-api-help]');
     help.insertBefore(notice, help.querySelector('p'));
-  } else if (['connected', 'verified', 'candidate'].includes(state)) {
+  } else if (['connected', 'verified', 'candidate', 'replacement', 'seen-ready', 'seen-skip'].includes(state)) {
     document.getElementById('appSheet').querySelector('.sheetbody').prepend(notice);
   } else body.prepend(notice);
   body.dataset.mockData = 'true';
@@ -777,11 +791,15 @@ const SETUP_REVIEW_SHOTS = [
   ['candidate', '3A. Confirm the selected Home'],
   ['home-change', '3B. Back to change Home'],
   ['region', '4. Confirm the derived region'],
+  ['replacement', '3C. Explicitly approve a different saved Home'],
+  ['seen-waiting', '5. Fetching automatically with Skip'],
   ['seen', '5. Exact seen list ready'],
+  ['seen-ready', '5A. Review the matching seen list'],
+  ['seen-skip', '5B. Deliberately continue without waiting'],
   ['summary', 'Setup summary']
 ].map(([state, title]) => ({
   id: 'f1083-setup-' + state, title, freshApp: true,
-  viewportHeight: ['connected', 'verified', 'candidate'].includes(state) ? 844 : undefined,
+  viewportHeight: ['connected', 'verified', 'candidate', 'replacement', 'seen-ready', 'seen-skip'].includes(state) ? 844 : undefined,
   prep: `await (${prepareSetupReview.toString()})(A, document, ${JSON.stringify(state)},
     ${preparePersonalFixture.toString()});`
 }));
@@ -4876,7 +4894,7 @@ module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
   fixtureIconPath, fixtureImageNeedsRefresh, decodeFixtureImage, preparePersonalFixture,
   shotReadinessProblems, shotLooksBlank,
-  mockupRunPassed, withTimeout
+  mockupRunPassed, withTimeout, cdp, server, CHROME
 };
 
 if (require.main === module) {
