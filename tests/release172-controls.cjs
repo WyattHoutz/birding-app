@@ -73,7 +73,7 @@ module.exports = ({
       assert.equal(app.$('setupHomeCandidate').hidden, false);
       assert.equal(app.$('setupHomeHere').nextElementSibling, app.$('setupActionStatus'));
       assert.equal(app.window.__app.getHome(), null);
-      app.click(app.$('setupHomeApprove'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent),
         'failed region lookup retains the approved draft');
       assert.equal(app.$('setupHomeApprove').nextElementSibling, app.$('setupActionStatus'));

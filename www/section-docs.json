@@ -21,6 +21,7 @@
   ],
   "docs": {
     "massBtn": {
+      "introduction": "A mass flock is an unusually large gathering of one kind of bird. This menu shows reported flocks that meet the app's size and evidence rules, including flocks that do not appear in Bird Gen.",
       "summary": "All qualifying high-count flocks in the active region, including those without a Bird Gen news qualifier.",
       "inputs": ["the same current-month regional High Count page, verified public-hotspot directory and retained Mass evidence used by Bird Gen"],
       "how": [
@@ -35,6 +36,7 @@
       ]
     },
     "ppteBtn": {
+      "introduction": "When birders visit for one rare bird, they sometimes discover other unusual birds nearby. This is called the Patagonia Picnic Table Effect. This menu shows reported gatherings that match that pattern; the reports do not prove why the other birds were found.",
       "summary": "A dedicated feed of all qualified Patagonia Picnic Table Effect rarity gatherings.",
       "inputs": ["the existing active-region/county RBA sources, matched public-hotspot identities and retained PPTE evidence"],
       "how": [
@@ -50,6 +52,7 @@
       ]
     },
     "surgeBtn": {
+      "introduction": "Bird Gen brings together birding news from several kinds of reports. Use it to spot noteworthy birds, busy patches, migration news and discoveries relevant to your selected area.",
       "report": "## 🔔 Bird Gen — Talk and news",
       "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Chronology-first ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
       "summary": "Talk and news from current bird reports, migration evidence, personal discoveries and public patches. Category explanations below describe why each alert qualifies.",
@@ -74,6 +77,7 @@
       ]
     },
     "wxBtn": {
+      "introduction": "A twitch is a trip to look for a particular reported bird. This menu shows weather, daylight and available tide information to help you decide when to go.",
       "report": "## 🌤 Twitch weather — Is today worth chasing",
       "summary": "Whether today's weather and tide favour going out, for the region's home coordinate.",
       "inputs": [
@@ -143,6 +147,7 @@
       ]
     },
     "rankBtn": {
+      "introduction": "eBird's Top 100 lists the leading birders in an area by species or checklists. This menu shows those rankings and your position when your profile is available.",
       "report": "## 🏆 Top 100 — Leaderboard",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",
       "inputs": [
@@ -166,6 +171,7 @@
       ]
     },
     "patchBtn": {
+      "introduction": "A patch is a place people go birding. This menu highlights places the area's busiest birders choose unusually often, rather than simply the places with the most checklists.",
       "report": "## 💪 Pro patches — Where the top 100 actually bird",
       "summary": "Where the hundred busiest local birders actually go, ranked by how disproportionately they choose a place rather than by how many checklists it holds.",
       "inputs": [
@@ -186,6 +192,7 @@
       ]
     },
     "refreshBtn": {
+      "introduction": "Twitching means going to look for a particular rare bird that someone has reported. This menu shows rare-bird alerts as individual checklist reports or grouped by bird and place.",
       "report": "## 🚨 Twitches today — Rarities today",
       "summary": "One live Rare Bird Alerts surface: checklist-by-checklist List mode or bird/place Grouped mode.",
       "inputs": [
@@ -221,6 +228,7 @@
       ]
     },
     "abaBtn": {
+      "introduction": "A mega rarity is an exceptionally unusual bird for the wider birding area. This menu shows available reports of birds with American Birding Association rarity codes of 3 or higher.",
       "report": "## 🦤 Mega rarities — ABA Code 3+ alert",
       "summary": "ABA Code 3+ birds — continental-scale rarities, normally 0-3 of them.",
       "inputs": [
@@ -246,6 +254,7 @@
       ]
     },
     "foyBtn": {
+      "introduction": "FOY means first of year, and a tick is an addition to a bird list. This menu shows verified first records for the selected area this calendar year, with the newest dated records first.",
       "report": null,
       "summary": "The selected region's verified calendar-year first records, newest dated annual firsts first.",
       "inputs": [
@@ -271,6 +280,7 @@
       ]
     },
     "lastNewBtn": {
+      "introduction": "A leaderboard tick is a bird newly added to a leading birder's list. This menu uses recent list additions to help you investigate birds that local leading birders have been finding.",
       "report": "## ☑️ Leaderboard Ticks — Newest on the board",
       "summary": "Turns the leaderboard into a chase board: what the region's top birders just added.",
       "inputs": [
@@ -305,6 +315,7 @@
       ]
     },
     "destBtn": {
+      "introduction": "These are places with reported birds you still need for your selected personal list. This menu ranks eligible outings by how many needed birds they could add, using your chase settings and the available reports.",
       "report": "## 🏞 Today’s patches — Top hotspots to visit",
       "summary": "The places holding the most unseen birds, ranked by how many you would gain.",
       "inputs": [
@@ -325,6 +336,7 @@
       ]
     },
     "quickBtn": {
+      "introduction": "Nearby patches are active eBird hotspots around the place you choose. This menu lists the closest first; choose Unseen to focus on loaded places with confirmed birds you still need.",
       "report": "## 🚶 Nearby Patches — Local hotspots and unseen targets",
       "summary": "Nearby hotspots, with an Unseen view for the closest places holding birds you still need.",
       "inputs": [
@@ -348,6 +360,7 @@
       ]
     },
     "excBtn": {
+      "introduction": "A day-trip patch is a possible longer outing to look for birds you need. This menu groups target-rich destinations by round-trip travel band so you can compare outings of different lengths.",
       "report": "## 🚗 Day trip patches — Hotspot excursions",
       "reportNote": "The Bird Chaser app lazily derives county scope from the current Home. The archived Markdown report classifies only the county rows already present in its snapshot.",
       "summary": "Target-rich excursions split into distinct round-trip travel bands.",
@@ -376,6 +389,7 @@
       ]
     },
     "hotBtn": {
+      "introduction": "A hot patch is a hotspot attracting unusually high reporting activity. This menu highlights places that have become busier over the last 30 days.",
       "report": "## 🔥 Hot patches — Hotspots with recent surges",
       "summary": "Hotspots getting unusually busy in the last 30 days.",
       "inputs": [
@@ -392,6 +406,7 @@
       ]
     },
     "coldBtn": {
+      "introduction": "A cold patch is a promising hotspot receiving relatively little recent attention. This menu suggests quieter places to explore; few reports do not mean there are no birds.",
       "report": "## 🥶 Cold patches — Overlooked gems nobody watches",
       "summary": "Good hotspots nobody is watching — where a find is yours to make.",
       "inputs": [
@@ -410,6 +425,7 @@
       ]
     },
     "cklBtn": {
+      "introduction": "A big day is an outing aimed at finding many different bird species in a day. This menu highlights strong recent day lists at public hotspots near Home.",
       "report": "## 🦜 Big days — Biggest day lists",
       "summary": "The strongest recent day lists at public hotspots near home.",
       "inputs": [
@@ -425,6 +441,7 @@
       ]
     },
     "recentBtn": {
+      "introduction": "An eBird checklist records the birds someone reported during a visit. This menu shows recent checklists from the selected county feeds, with filters for needed birds and chase distance.",
       "report": "## 📋 Recent checklists — All recent county checklists",
       "summary": "Recent checklists returned by the selected county feeds, with filters for unseen birds and chase distance.",
       "inputs": [
@@ -441,6 +458,7 @@
       ]
     },
     "convoyBtn": {
+      "introduction": "A convoy is a pattern of birders visiting the same sequence of places. This menu suggests routes from reported visits; matching patterns do not prove that the birders travelled together.",
       "report": "## 👥 Convoys — Groups birding together",
       "summary": "Groups of birders who moved between the same places together — a route you can copy.",
       "inputs": [
@@ -458,6 +476,7 @@
       ]
     },
     "favResults": {
+      "introduction": "Favorite patches are hotspots you have saved for the selected area. This menu brings those places together and shows their available bird reports.",
       "report": "## ⭐ Favorite patches — Saved hotspots",
       "summary": "Your saved hotspots for the active region, showing what is worth driving for right now.",
       "inputs": [
@@ -510,6 +529,7 @@
       ]
     },
     "spLookupBtn": {
+      "introduction": "A stakeout starts with a bird you want to find. Search for a bird or broader identification group, then explore its reported places and supporting checklists.",
       "report": null,
       "summary": "Search for any bird or spuh, then continue from a spuh candidate into its recent places and checklists.",
       "inputs": [
@@ -557,6 +577,7 @@
       ]
     },
     "iconicBtn": {
+      "introduction": "An iconic bird is one that a place is unusually good for compared with other places. This menu helps you find nearby hotspots associated with particular birds.",
       "report": null,
       "summary": "Which places near you are unusually good for one particular bird — the signal eBird's own hotspot pages call Iconic Birds.",
       "inputs": [
@@ -579,6 +600,7 @@
       ]
     },
     "easyBtn": {
+      "introduction": "These are birds not yet confirmed on the personal list you have selected. This menu shows nearby reported birds you need, with a separate target for each public hotspot.",
       "report": "## 🐦 Common birds — Common birds you still need",
       "summary": "Nearby birds you still need, with a separate target for each reported public hotspot.",
       "inputs": [
@@ -600,6 +622,7 @@
       ]
     },
     "nvResults": {
+      "introduction": "The Watch List holds tentative bird identifications that you still want to confirm. Use it to review those birds and manage which identifications still need a confirmation sighting.",
       "report": "## ❓ Needs proof — Birds considered unseen",
       "summary": "Tentative IDs you still owe a confirmation sighting - and the one list that changes what counts as \"seen\".",
       "inputs": [
@@ -646,6 +669,7 @@
       ]
     },
     "bcBody": {
+      "introduction": "Migration is the seasonal movement of birds into, through or away from an area. This menu brings together forecasts, reported arrivals and historical arrival or departure patterns, keeping predictions separate from observations.",
       "report": "## 🌙 Nightly Migration — BirdCast reports",
       "summary": "One Migration watch combining tonight's expected migrants, observed arrivals, predicted arrivals and departures.",
       "inputs": [
@@ -680,6 +704,7 @@
       ]
     },
     "todBtn": {
+      "introduction": "Some birds are easier to encounter at particular times of day. This menu highlights birds associated with the hour you plan to go birding.",
       "report": "## 🌄 Dawn and dusk — Time-of-day specialists",
       "summary": "Birds most likely at the hour you are actually going out.",
       "inputs": [
@@ -693,6 +718,7 @@
       ]
     },
     "myYearBody": {
+      "introduction": "A Year List contains birds recorded this year; a Life List covers all years. This menu shows the selected personal list for the active area.",
       "report": "## 📅 Year List — Your seen bird list this year",
       "summary": "Year List or Life List: exact selected personal membership for the active geography.",
       "inputs": [
@@ -723,6 +749,7 @@
       ]
     },
     "settingsPanel": {
+      "introduction": "Settings controls how Bird Chaser is set up for you. Use it to manage your account, eBird access, Home and region, personal lists and display preferences.",
       "report": null,
       "summary": "App-only: account profile, API key, region, anchors, text size and seen list.",
       "inputs": [],
@@ -746,6 +773,7 @@
       ]
     },
     "helpBody": {
+      "introduction": "Different menus answer different birding questions using different evidence. This guide explains what each section shows, where its information comes from and what it cannot establish.",
       "summary": "What every other section reads, how it decides, and what it cannot tell you.",
       "inputs": [
         "section-docs.json, bundled with the app - no network"
@@ -761,6 +789,7 @@
       ]
     },
     "recordBody": {
+      "introduction": "A first record would add a bird not yet reported in the selected area this year. This menu suggests exceptionally rare possibilities based on past patterns; it does not say those birds are currently present or due to appear.",
       "report": null,
       "summary": "The megararities that are DUE here — rare enough to be a record, and not found yet this year. Scope it to your county for targets you might actually break.",
       "inputs": [
@@ -787,6 +816,7 @@
       ]
     },
     "stakeHsBtn": {
+      "introduction": "This view helps you get to know one birding hotspot. Choose a place to explore its map, reported birds, visit patterns, recent checklists and regular birders.",
       "report": null,
       "summary": "Choose one hotspot and see its map, visit pattern, birds, recent checklists, and regular birders.",
       "inputs": [

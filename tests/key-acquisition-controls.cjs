@@ -27,7 +27,10 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       settings.open = true;
       assert.equal(JSON.stringify(Object.keys(storage).sort().map(key => [key, storage.getItem(key)])), before);
       app.window.__app.openSetupSheet();
-      const setup = app.$('setupSheetBody').querySelector('[data-birdchaser-api-help]');
+      assert.equal(app.$('setupSheetBody').querySelector('[data-birdchaser-api-help]'), null,
+        'F1156 explanations are optional rather than cluttering the action screen');
+      app.click(app.$('setupHelp'));
+      const setup = app.$('appSheet').querySelector('[data-birdchaser-api-help]');
       assertApplicationGuidance(setup);
       assert.equal(setup.textContent, settings.textContent);
       assert.equal(clipboard, 0);
@@ -68,13 +71,18 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
           state.signedIn = true;
           state.emit('messageFromWebview', { id: options.id, detail: {
             __ebird: true, kind: 'identity', ok: true,
-            data: { status: 'ok', displayName: 'Synthetic Connected Birder',
+            data: { status: 'ok', displayName: state.displayName || 'Synthetic Connected Birder',
               evidence: 'account-menu-aria-label' }
           } });
         } else if (!state.hold) pages.get(options.id).window.eval(options.code);
         return Promise.resolve();
       },
-      clearAllBrowsingData() { state.clears++; state.signedIn = false; return Promise.resolve(); },
+      clearAllBrowsingData() {
+        state.clears++;
+        if (state.failClear) return Promise.reject(new Error('Synthetic clear failure'));
+        state.signedIn = false;
+        return Promise.resolve();
+      },
       close({ id }) { state.closed.push(id); return Promise.resolve(); },
       hide() {}, show() {}
     };
@@ -107,12 +115,19 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       A.openSetupSheet();
       const clears = bridge.clears;
       app.click(app.$('setupConnectEbird'));
+      await waitFor(() => !app.$('appSheet')?.hidden
+        && app.$('appSheet')?.dataset.infoId === 'setup-account-connected', 'account confirmation');
+      assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, 'Connected as Synthetic Connected Birder!');
+      assert.equal(app.$('setupSheet').inert, true);
+      assert.deepEqual(bridge.opened.map(open => open.url), ['https://ebird.org/profile'],
+        'F1170 do not start key capture before the user confirms the account');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key'
         && A.getDisplayName() === 'Synthetic Connected Birder', 'account connection finishes');
       await new Promise(resolve => setImmediate(resolve));
       assert.deepEqual(bridge.opened.map(open => open.url),
         ['https://ebird.org/profile', 'https://ebird.org/api/keygen'],
-        'one Connect action must start the key capture without a second click');
+        'confirming the connected account starts key capture without another Fetch click');
       await waitFor(() => release, 'one account action automatically captures and validates the key');
       assert.equal(bridge.signedIn, true);
       assert.equal(validations, 1);
@@ -122,14 +137,121 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       assert.ok(bridge.opened.every(open => open.persistWebViewData === true));
       assert.equal(app.window.localStorage.getItem('ebird_api_key'), null, 'candidate saved before verification');
       assert.equal(A.getDisplayName(), 'Synthetic Connected Birder');
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprogress').children[0]
+        .querySelector('.setupdone').getAttribute('aria-label'), 'Completed');
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprogress').children[1]
+        .querySelector('.setupdone'), null, 'a captured but unverified key is not complete');
+      assert.equal(app.$('setupStepTitle').textContent, 'Fetch your eBird API key');
+      assert.equal(app.$('setupGetKey').textContent.trim(), 'Fetch API key');
+      assert.equal(app.$('setupGetKey').tagName, 'BUTTON');
       release({ code: 'US-WA' });
+      await waitFor(() => !app.$('appSheet').hidden
+        && app.$('appSheet').dataset.infoId === 'setup-key-verified', 'verified-key confirmation');
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key', 'verification waits for confirmation before Home');
+      assert.ok(!app.$('appSheet').textContent.includes(key), 'confirmation must not disclose the credential');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'home', 'verified capture advances to required Home');
       assert.equal(app.window.localStorage.getItem('ebird_api_key'), key);
       assert.equal(app.window.localStorage.getItem(A.bcReal('bc_api_verified_v1:')), key);
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprogress').children[1]
+        .querySelector('.setupdone').textContent, '✓', 'verified capture completes Step 2 and skips to Home');
       assert.equal(bridge.closed.length, 2);
       assert.ok(!JSON.stringify(app.window.__dbg.buf).includes(key), 'a captured key reached diagnostics');
       assert.deepEqual(app.state.errors, []);
     } finally { if (release) release({ code: 'US-WA' }); bridge.destroy(); app.window.close(); }
+  });
+
+  test('F1170 Back exposes a real account switch and a failed session clear never reuses the wrong login', async () => {
+    for (const failClear of [false, true]) {
+      const app = await boot({ report: null, home: false, sample: false, key: null });
+      const bridge = preparedKeyNative(app, '', false);
+      try {
+        app.window.__app.openSetupSheet();
+        app.click(app.$('setupConnectEbird'));
+        await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected'
+          && !app.$('appSheet').hidden, 'connected account review');
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
+        assert.equal(app.$('setupReconnectEbird').textContent, 'Switch account');
+        assert.equal(app.$('setupReconnectEbird').closest('details'), null);
+        assert.equal(bridge.opened.length, 1, 'Back cannot start key acquisition');
+        app.click(app.$('setupHelp'));
+        assert.match(app.$('appSheet').querySelector('.docintro').textContent,
+          /Reviews the connected eBird account before automatic key capture/);
+        app.click(app.$('appSheet').querySelector('.sheetclose'));
+        bridge.displayName = '<img src=x> Another Synthetic Birder';
+        bridge.failClear = failClear;
+        app.click(app.$('setupReconnectEbird'));
+        if (failClear) {
+          await waitFor(() => /could not be cleared/.test(app.$('setupActionStatus').textContent), 'clear failure');
+          assert.equal(bridge.opened.length, 1, 'failed clearing must not recapture the old browser account');
+          assert.equal(app.window.__app.getDisplayName(), 'Synthetic Connected Birder');
+        } else {
+          await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-account-connected'
+            && !app.$('appSheet').hidden, 'different account review');
+          assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent,
+            'Connected as <img src=x> Another Synthetic Birder!');
+          assert.equal(app.$('appSheet').querySelector('img'), null, 'display names are text, not markup');
+          assert.deepEqual(bridge.opened.map(open => open.url),
+            ['https://ebird.org/profile', 'https://ebird.org/profile']);
+        }
+        assert.equal(bridge.clears, 1);
+        assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
+        assert.deepEqual(app.state.errors, []);
+      } finally { bridge.destroy(); app.window.close(); }
+    }
+  });
+
+  test('F1171 verified-key Back and close expose manual entry or fetch again without losing the saved key', async () => {
+    for (const close of ['back', 'close', 'escape']) {
+      const key = 'SYNTHETIC_VERIFIED_REVIEW';
+      const app = await boot({ report: null, home: false, sample: false, key: null,
+        storage: { bc_setup_step_v1: 'key' },
+        fetch: url => /ref\/region\/info\/US-WA/.test(url) ? { code: 'US-WA' } : null });
+      try {
+        const A = app.window.__app;
+        A.openSetupSheet();
+        app.$('setupApiKey').value = key;
+        app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+        app.click(app.$('setupVerifyKey'));
+        await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
+          && !app.$('appSheet').hidden, 'manual key success review');
+        assert.equal(app.$('appSheet').querySelector('.sheettitle').textContent, 'API key verified!');
+        assert.ok(!app.$('appSheet').textContent.includes(key));
+        assert.equal(app.$('setupSheet').inert, true);
+        const back = app.$('appSheet').querySelector('[data-setup-confirm-back]');
+        back.focus();
+        const tab = new app.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        back.dispatchEvent(tab);
+        assert.equal(tab.defaultPrevented, true);
+        assert.equal(app.window.document.activeElement, app.$('appSheet').querySelector('.sheetclose'));
+        if (close === 'escape')
+          app.window.document.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        else app.click(close === 'close' ? app.$('appSheet').querySelector('.sheetclose') : back);
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+        assert.equal(app.$('setupSheet').inert, false);
+        assert.equal(app.$('setupGetKey').textContent, 'Fetch again');
+        assert.equal(app.$('setupGetKey').hidden, false);
+        assert.equal(app.$('setupKeyAlternatives').open, true);
+        assert.equal(app.$('setupApiKey').value, '');
+        assert.equal(app.window.localStorage.getItem('ebird_api_key'), key,
+          'going back must not delete an already verified working key');
+        app.$('setupApiKey').value = key;
+        app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+        if (close === 'back') {
+          app.click(app.$('setupHelp'));
+          assert.match(app.$('appSheet').querySelector('.docintro').textContent,
+            /already verified key.*confirmation/);
+          app.click(app.$('appSheet').querySelector('.sheetclose'));
+        }
+        app.click(app.$('setupVerifyKey'));
+        A.applyCapturedIdentity({ status: 'ok', displayName: 'Different Synthetic Owner' });
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key',
+          'a stale identity cannot approve the previous confirmation');
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
   });
 
   test('F1078 prepared owned injection reads labelled values without a vendor-specific selector', async () => {

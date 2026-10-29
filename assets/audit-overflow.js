@@ -73,6 +73,10 @@ const MIME = {
 // and a fetch stub so the sweep is offline and deterministic.
 const BOOTSTRAP = `<script>
 (function () {
+  var nativeConfirm = window.confirm;
+  window.confirm = function (message) {
+    return /^Are you sure you want to close setup\\?/.test(message) || nativeConfirm.call(window,message);
+  };
   try {
     localStorage.setItem('ebird_api_key', 'AUDITKEY');
     localStorage.setItem('ebird_home_lat', '47.75');
@@ -127,7 +131,8 @@ const BOOTSTRAP = `<script>
   }
   window.fetch = function (url) {
     var u = String(url);
-    if (/^https?:\\/\\/(localhost|127\\.)/.test(u) || /^[./]/.test(u)) return realFetch.apply(this, arguments);
+    if (/^https?:\\/\\/(localhost|127\\.)/.test(u) || /^[./]/.test(u)
+      || u==='section-docs.json' || /^region-boundaries-(wa|hi)\\.json$/.test(u)) return realFetch.apply(this, arguments);
     window.__auditExternalCalls = (window.__auditExternalCalls || 0) + 1;
     var body = [];
     if (/ref\\/taxonomy/.test(u)) body = SPP;
@@ -250,6 +255,44 @@ const AUDIT = `<script>
     return result;
   }
   function scan(label) {
+    var setup = document.getElementById('setupSheet');
+    if (setup && !setup.hidden) {
+      var buttons = Array.from(setup.querySelectorAll('#setupSheetBody button')).filter(function (button) {
+        return button.getBoundingClientRect().width > 0;
+      });
+      var primary = buttons.filter(function (button) { return button.classList.contains('setupprimary'); });
+      var options = document.getElementById('setupHomeOptions');
+      var choosing = document.getElementById('setupSheetBody').dataset.setupStep === 'home'
+        && options && options.children.length > 1;
+      if (primary.length !== (choosing ? 0 : 1))
+        throw new Error('F1158 setup must have one recommended action, except an unresolved place choice');
+      var reference = primary.length ? getComputedStyle(primary[0]) : null;
+      var close = document.getElementById('setupSheetClose'), closeRect = close.getBoundingClientRect();
+      if (closeRect.width >= setup.clientWidth / 2 || closeRect.width < 43.5 || closeRect.height < 43.5
+        || (reference && parseFloat(getComputedStyle(close).fontSize) >= parseFloat(reference.fontSize)))
+        throw new Error('F1157 Close must remain compact navigation with a usable touch target');
+      buttons.forEach(function (button) {
+        var style = getComputedStyle(button), rect = button.getBoundingClientRect();
+        if (button.id === 'setupHelp') {
+          var circle=button.firstElementChild.getBoundingClientRect();
+          if (Math.abs(rect.width - 44) > 0.5 || Math.abs(rect.height - 44) > 0.5
+            || button.textContent !== '?' || button.scrollHeight > button.clientHeight + 1
+            || Math.abs(circle.width-28)>0.5 || Math.abs(circle.height-28)>0.5
+            || button.parentElement!==document.getElementById('setupStepTitle').parentElement)
+            throw new Error('F1160 contextual help geometry: '+JSON.stringify({
+              width:rect.width,height:rect.height,scrollHeight:button.scrollHeight,clientHeight:button.clientHeight,
+              circleWidth:circle.width,circleHeight:circle.height,text:button.textContent}));
+          return;
+        }
+        var main = button.classList.contains('setupprimary'), size = parseFloat(style.fontSize);
+        if (style.textDecorationLine !== 'none' || style.whiteSpace!=='nowrap' || rect.height < 43.5
+          || button.scrollWidth > button.clientWidth + 1
+          || (main && size < 20 * Number(AUDIT_SCALE) - 0.5)
+          || (!main && reference && (size >= parseFloat(reference.fontSize)
+            || style.backgroundColor === reference.backgroundColor)))
+          throw new Error('F1155/F1158 competing or clipped setup button: ' + button.id);
+      });
+    }
     var vw = document.documentElement.clientWidth;
     var items = [], all = document.querySelectorAll('body *'), maxRight = 0;
     for (var i = 0; i < all.length; i++) {
@@ -771,7 +814,7 @@ const AUDIT = `<script>
           topAligned: Math.abs(box.top - top) <= 1 && Math.abs(action.top - top) <= 1
             && (textBelow ? text.top >= Math.max(box.bottom, action.bottom)
               : Math.abs(text.top - top) <= 1 && text.right <= action.left),
-          usableRemove: button.textContent === 'Remove' && action.width >= 44 && action.height >= 44};
+          usableRemove: button.textContent === '− Remove' && action.width >= 44 && action.height >= 44};
       });
     }
     var savedSearch = [];
@@ -1447,6 +1490,47 @@ const AUDIT = `<script>
           wordBroken:cardReadability(card).wordBroken};
       });
       out.push(yearScan);
+      var readingRows = Array.from({length:200},function (_,index) {
+        return {code:'reading' + index,name:'Reading position bird ' + String(index).padStart(3,'0'),
+          observedAt:''};
+      });
+      localStorage.setItem(A.personalListKey(yearOwner),JSON.stringify({
+        owner:yearOwner,coverage:'complete',declaredCount:200,unresolved:0,paginated:false,
+        codes:readingRows.map(function(row){return row.code;}),rows:readingRows,
+        readAt:new Date().toISOString(),readDate:A.todayStr()
+      }));
+      A.updateMyYear();
+      await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+      var readingButton=document.querySelectorAll('#myYearList .myYearWatchlist')[115];
+      var readingCode=readingButton.dataset.code;
+      window.scrollBy(0,readingButton.closest('li').getBoundingClientRect().top-180);
+      readingButton.focus({preventScroll:true});
+      await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+      var readingBefore=readingButton.closest('li').getBoundingClientRect().top;
+      if(Math.abs(readingBefore-180)>1) throw new Error('F1148 invalid offscreen baseline '+readingBefore);
+      readingButton.click();
+      await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+      var readingAfter=document.querySelector('#myYearList .myYearWatchlist[data-code="'+readingCode+'"]');
+      var readingMeasurement={before:readingBefore,after:readingAfter.closest('li').getBoundingClientRect().top,
+        focus:document.activeElement===readingAfter,sameNode:readingButton===readingAfter,
+        rows:document.querySelectorAll('#myYearList > li').length};
+      var readingResult=scan('(F1148 Year List reading position)');
+      readingResult.yearReading=readingMeasurement;
+      out.push(readingResult);
+      if(Math.abs(readingMeasurement.after-readingMeasurement.before)>1 || !readingMeasurement.focus)
+        throw new Error('F1148 lost tapped rank-85 bird or keyboard focus: '+JSON.stringify(readingMeasurement));
+      readingAfter.click();
+      if(Math.abs(document.querySelector('#myYearList .myYearWatchlist[data-code="'+readingCode+'"]')
+        .closest('li').getBoundingClientRect().top-readingBefore)>1)
+        throw new Error('F1148 repeated Remove moved the same bird');
+      window.scrollBy(0,100);
+      var userTop=readingButton.closest('li').getBoundingClientRect().top;
+      A.updateMyYear();
+      await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+      if(Math.abs(readingButton.closest('li').getBoundingClientRect().top-userTop)>1
+        || document.querySelector('#myYearList .myYearWatchlist[data-code="'+readingCode+'"]')!==readingButton)
+        throw new Error('F1148 late unchanged source update replaced or moved the reader');
+      window.scrollTo(0,0);
       A.setWatchlist(priorWatch);
       if(savedYear===null)localStorage.removeItem(A.personalListKey(yearOwner));
       else localStorage.setItem(A.personalListKey(yearOwner),savedYear);
@@ -1961,6 +2045,15 @@ const AUDIT = `<script>
         foy:'notApplicable'
       });
       await A.toggleSectionDoc(document.getElementById('sec-surgeBtn'));
+      var infoBody = document.querySelector('#appSheet .sheetbody');
+      var technical = infoBody.querySelector('details.doctechnical');
+      if (!infoBody.firstElementChild.classList.contains('docintro') || !technical || technical.open)
+        throw new Error('F1151 information must introduce the menu before closed technical details');
+      technical.querySelector('summary').click();
+      if (!technical.open) throw new Error('F1151 native technical disclosure did not open');
+      out.push(scan('(F1151 open technical information)'));
+      technical.querySelector('summary').click();
+      if (technical.open) throw new Error('F1151 native technical disclosure did not close');
       var alertKey = document.querySelector('#appSheet [data-alert-type-key]');
       if (!alertKey) throw new Error('F933 Bird Gen information button did not open its key');
       var keyScan = scan('(F933 Bird Gen alert-type key)');
@@ -3282,16 +3375,52 @@ const AUDIT = `<script>
       record('Home choices');
       document.getElementById('setupHomeHere').click();
       await until(function () { return document.getElementById('setupHomeApprove'); },'missing candidate');
+      var confirmation=document.getElementById('appSheet');
+      require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
+        'F1172 automatic Home did not present its selected-result confirmation');
+      require(parseFloat(getComputedStyle(confirmation.querySelector('.sheetbody')).fontSize)
+        >=18*Number(AUDIT_SCALE)-0.5,'F1172 result prose ignores the selected text size');
+      require(document.getElementById('setupConfirmationMap').children.length>0
+        && !document.getElementById('setupConfirmationMap').closest('details'),
+        'F1173 selected Home map is not visible without another click');
+      require(confirmation.querySelector('[data-setup-confirm-map]').href.indexOf('47.6')>=0,
+        'F1173 Open Maps link does not target the selected Home');
+      require(document.getElementById('setupConfirmationMap').querySelector('.leaflet-control-attribution')
+        .getBoundingClientRect().height<=60,'F1173 attribution obscures the selected-point map');
+      confirmation.querySelectorAll('.setupconfirmation button').forEach(function(button) {
+        var rect=button.getBoundingClientRect();
+        require(rect.top>=confirmation.querySelector('.sheethead').getBoundingClientRect().bottom-1
+          && rect.bottom<=innerHeight+1,'F1172 confirmation action is outside the visible dialog');
+      });
+      record('Home selected-result confirmation');
+      confirmation.querySelector('[data-setup-confirm-back]').click();
       require(requests === 1 && JSON.stringify(A.getHome()) === savedHome,'candidate saved itself');
+      require(/Current location found/.test(document.getElementById('setupActionStatus').textContent),
+        'F1152 GPS success is not announced');
+      require(/Home candidate/.test(document.getElementById('setupHomeCandidate').textContent)
+        && /Current location \\(GPS\\)/.test(document.getElementById('setupHomeCandidate').textContent),
+        'F1152 candidate is not labeled separately from saved Home');
+      var candidateFrame=document.getElementById('setupHomeCandidate').getBoundingClientRect();
+      require(candidateFrame.top<innerHeight && candidateFrame.bottom>0,'F1152 candidate remains offscreen');
+      require(document.getElementById('setupHomePreview').tagName==='BUTTON','F1152 explicit map preview missing');
+      require(document.getElementById('setupHomePlace').value==='47.60000, -122.30000',
+        'F1165 GPS did not fill the Home field');
+      require(!document.getElementById('setupHomeDiscard'),'F1165 redundant change button remains');
+      require(!document.getElementById('setupHomeMap').children.length,'F1165 map loaded without opening preview');
+      document.getElementById('setupHomeMapPreview').open=true;
+      await until(function () { return document.getElementById('setupHomeMap').children.length; },'missing opt-in map');
       record('Home candidate');
       document.getElementById('setupHomeApprove').click();
+      require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
+        'F1172 manual Home review bypassed its confirmation');
+      confirmation.querySelector('[data-setup-confirm-continue]').click();
       await until(function () { return document.getElementById('setupNext'); },'missing matching pair confirmation');
       require(JSON.stringify(A.getHome()) === savedHome,'suggestion saved Home before confirmation');
       require(!document.getElementById('setupHomeOutside'),'region mismatch override remains');
       require(/Washington/.test(document.getElementById('setupHomeSuggested').textContent),
         'Home region was not derived');
       record('Home region confirmation');
-      document.getElementById('setupChangeHome').click();
+      document.getElementById('setupBack').click();
       var place = document.getElementById('setupHomePlace');
       place.value = 'Springfield';
       place.dispatchEvent(new Event('input',{bubbles:true}));
@@ -3348,9 +3477,53 @@ const AUDIT = `<script>
       guide.open = false;
     }
     try {
+      ['account','summary'].forEach(function (state) {
+        localStorage.setItem('bc_setup_step_v1',state);
+        A.openSetupSheet();
+        out.push(scan('(F1155/F1156 ' + state + ' setup actions)'));
+      });
       localStorage.setItem('bc_setup_step_v1','key');
       A.openSetupSheet();
-      record(document.getElementById('setupSheetBody'),'setup');
+      var manualKey = document.getElementById('setupApiKey');
+      manualKey.value = '';
+      manualKey.dispatchEvent(new Event('input',{bubbles:true}));
+      var keyButton=document.getElementById('setupGetKey'), keyStyle=getComputedStyle(keyButton);
+      var keyFrame=keyButton.getBoundingClientRect();
+      if(keyButton.tagName!=='BUTTON' || keyButton.tabIndex!==0
+        || keyStyle.textDecorationLine!=='none' || parseFloat(keyStyle.fontSize)<20*Number(AUDIT_SCALE)-0.5
+        || keyFrame.height<48 || keyButton.scrollWidth>keyButton.clientWidth+1)
+        throw new Error('F1153 key acquisition lost its large non-link button treatment');
+      var previousTheme=A.getTheme();
+      ['light','dark'].forEach(function(theme){
+        A.setTheme(theme);
+        var canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+        canvas.width=canvas.height=1;
+        function luminance(rgb) {
+          rgb=Array.from(rgb).slice(0,3).map(function(v){
+            v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);
+          });
+          return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
+        }
+        document.querySelectorAll('#setupSheetBody button').forEach(function(button){
+          if(!button.getBoundingClientRect().height || button.disabled) return;
+          var chain=[],node=button;
+          while(node){chain.unshift(node);node=node.parentElement;}
+          ctx.fillStyle='#fff';ctx.fillRect(0,0,1,1);
+          chain.forEach(function(parent){
+            ctx.fillStyle=getComputedStyle(parent).backgroundColor;ctx.fillRect(0,0,1,1);
+          });
+          var bg=luminance(ctx.getImageData(0,0,1,1).data);
+          ctx.fillStyle=getComputedStyle(button).color;ctx.fillRect(0,0,1,1);
+          var fg=luminance(ctx.getImageData(0,0,1,1).data);
+          var ratio=(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05);
+          if(ratio<4.5) throw new Error('F1159 '+button.id+' text contrast '+ratio.toFixed(2)+' in '+theme);
+        });
+      });
+      A.setTheme(previousTheme);
+      out.push(scan('(F1155/F1156 key setup actions)'));
+      document.getElementById('setupHelp').click();
+      record(document.getElementById('appSheet'),'setup Help');
+      document.getElementById('appSheet').querySelector('.sheetclose').click();
       document.getElementById('setupSheetClose').click();
       A.showSection('settingsPanel');
       record(document.getElementById('settingsPanel'),'Settings');
@@ -3894,8 +4067,9 @@ server.listen(0, '127.0.0.1', () => {
           if(r.watchActions.length!==3 || r.watchActions.some(action=>
             !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
-            || action.textAlign!=='center' || action.color!=='rgb(255, 255, 255)'
-            || action.background!==(action.pressed==='true'?'rgb(161, 38, 34)':'rgb(33, 100, 61)'))){
+            || action.textAlign!=='center'
+            || action.color!==(action.pressed==='true'?'rgb(0, 0, 0)':'rgb(255, 255, 255)')
+            || action.background!==(action.pressed==='true'?'rgb(230, 159, 0)':'rgb(0, 114, 178)'))){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }

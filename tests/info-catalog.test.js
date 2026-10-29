@@ -31,6 +31,37 @@ function sorted(values) {
   return [...values].sort();
 }
 
+test('F1151 every enabled menu and shared help leads with plain language before warnings and details', () => {
+  for (const { at } of CONTRACT.menu) {
+    const doc = SECTION_DOCS[at];
+    assert.ok(doc.introduction && doc.introduction.split(/\s+/).length >= 12, at);
+    const dom = new JSDOM(INFO.renderSectionDocHtml(doc, '<p class="livewarning">Current coverage</p>'));
+    try {
+      const body = dom.window.document.body;
+      assert.equal(body.firstElementChild.className, 'docintro', at);
+      assert.equal(body.firstElementChild.textContent, doc.introduction, at);
+      assert.equal(body.children[1].className, 'livewarning', at + ' warnings must stay visible after the introduction');
+      const details = body.querySelector('details.doctechnical');
+      assert.equal(details.previousElementSibling.className, 'livewarning', at);
+      assert.ok(details.querySelector('summary').textContent.trim(), at + ' native keyboard disclosure');
+      assert.ok(details.querySelector('.doclist'), at + ' retain technical content');
+    } finally { dom.window.close(); }
+  }
+  assert.match(SECTION_DOCS.ppteBtn.introduction, /When birders visit for one rare bird.*discover other unusual birds/);
+  for (const id of Object.keys(INFO.catalog)) {
+    const sample = INFO.renderSample(id, { BirdLogic: BL, sectionDocs: SECTION_DOCS });
+    const dom = new JSDOM(sample.bodyHtml);
+    assert.equal(dom.window.document.body.firstElementChild.className, 'docintro', id);
+    dom.window.close();
+  }
+  const live = INFO.render('bird-gen-feed', {
+    sectionDoc: SECTION_DOCS.surgeBtn, contextHtml: '<p class="livewarning">Partial feed</p>',
+  }, { BirdLogic: BL });
+  const dom = new JSDOM(live.bodyHtml);
+  assert.equal(dom.window.document.body.children[1].className, 'livewarning');
+  dom.window.close();
+});
+
 test('every popup primitive is cataloged or explicitly excluded', () => {
   const infoCalls = literalCalls('showInfoSheet');
   const excludedSheetCalls = literalCalls('showExcludedSheet');
@@ -214,8 +245,8 @@ test('the committed catalog is deterministic and works as a local searchable pag
   const generated = GENERATOR.buildCatalog();
   assert.equal(committed, generated,
     'docs/info-dialogs.html is stale; run npm run info-catalog');
-  assert.doesNotMatch(committed, /(?:src|href)="https?:/i,
-    'the local catalog must not depend on a network resource');
+  assert.doesNotMatch(committed, /@import|url\(\s*['"]?https?:/i,
+    'the local catalog must not load a remote stylesheet or CSS resource');
   assert.match(committed, /#0072B2/);
   assert.match(committed, /#E69F00/);
   assert.match(committed, /aria-live="polite"/);
@@ -223,6 +254,9 @@ test('the committed catalog is deterministic and works as a local searchable pag
 
   const dom = new JSDOM(committed, { runScripts: 'dangerously' });
   const document = dom.window.document;
+  assert.equal(document.querySelector(
+    'script[src],link[href],img[src],iframe[src],object[data],embed[src],video[src],audio[src],source[src]'), null,
+  'the local catalog must not load resources; deliberate reference links are not dependencies');
   const entries = [...document.querySelectorAll('.catalog-entry')];
   assert.equal(entries.length,
     CONTRACT.menu.length + Object.keys(INFO.catalog).length);

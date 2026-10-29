@@ -3907,6 +3907,7 @@ function boot(opts = {}) {
     pretendToBeVisual: true,
     virtualConsole,
     beforeParse(window) {
+      window.confirm = message => /^Are you sure you want to close setup\?/.test(message);
       if (opts.indexedDB) window.indexedDB = opts.indexedDB;
       if (opts.key !== null) window.localStorage.setItem('ebird_api_key', opts.key || 'TESTKEY');
       if (opts.home !== false) {
@@ -9833,6 +9834,9 @@ test('F1067 F1084 key rejection stays actionable and verified success advances t
     status = 200;
     enter('ACCEPTED-1067');
     app.click(app.$('setupVerifyKey'));
+    await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-key-verified'
+      && !app.$('appSheet').hidden, 'verified key confirmation');
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
     await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'home', 'verified key advances');
     assert.equal(checks, 2);
     assert.equal(app.window.localStorage.getItem('ebird_api_key'), 'ACCEPTED-1067');
@@ -9843,7 +9847,7 @@ test('F1067 F1084 key rejection stays actionable and verified success advances t
     assert.equal(app.$('setupHomeHere').disabled, false, 'Home can precede region selection');
     assert.equal(app.$('setupChooseRegion'), null);
     assert.equal(app.$('setupSkip'), null);
-    assert.match(app.$('setupSheetBody').textContent, /Home is required/);
+    assert.equal(app.$('setupContinue'), null, 'Home is required before completing setup');
     assert.equal(A.getHome(), null);
     assert.ok(app.$('setupHomePlace'), 'Home is entered inline rather than through a Settings detour');
     assert.equal(app.$('setupSeenCsv'), null);
@@ -9867,6 +9871,7 @@ test('F1067 account connection starts persistent key acquisition and retains key
         return Promise.resolve({ id: windowId });
       },
       hide() {}, show() {}, close() {},
+      clearAllBrowsingData() { return Promise.resolve(); },
       executeScript() {
         setTimeout(() => handlers.messageFromWebview({ id: windowId, detail: {
           __ebird: true, kind: 'identity', ok: true,
@@ -9880,6 +9885,10 @@ test('F1067 account connection starts persistent key acquisition and retains key
       await waitFor(() => opened.length === expectedOpens && handlers.browserPageLoaded, 'identity browser opens');
       await new Promise(resolve => setTimeout(resolve, 20));
       handlers.browserPageLoaded({ id: windowId });
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected'
+        && !app.$('appSheet').hidden, 'connected account confirmation');
+      assert.equal(opened.length, expectedOpens, 'account confirmation must precede key acquisition');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key'
         && opened.length === expectedOpens + 1, 'connected account starts owned key capture');
     }
@@ -9894,6 +9903,16 @@ test('F1067 account connection starts persistent key acquisition and retains key
     await connect('setupReconnectEbird', 3);
     assert.equal(A.getDisplayName(), 'Connected Birder', 'an unchanged valid identity can still advance');
     app.click(app.$('setupGetKey'));
+    const acquisition = app.$('setupGetKey'), presentation = app.window.getComputedStyle(acquisition);
+    assert.equal(acquisition.tagName, 'BUTTON', 'F1153 acquisition remains semantic');
+    assert.equal(acquisition.tabIndex, 0);
+    assert.equal(presentation.textDecorationLine, 'none', 'F1153 no link-like underline');
+    const keyRule = [...app.document.styleSheets].flatMap(sheet => [...sheet.cssRules])
+      .find(rule => rule.selectorText && rule.selectorText.split(',')
+        .some(selector => selector.trim() === '#setupSheetBody button.setupprimary'));
+    assert.equal(keyRule.style.getPropertyValue('text-decoration'), 'none',
+      'F1153 jsdom does not reliably cascade text-decoration shorthand into the computed longhand');
+    assert.match(keyRule.style.fontSize, /20px/, 'F1153 scaled setup-action text; Chrome measures the computed size');
     assert.equal(opened[1].url, 'https://ebird.org/api/keygen');
     assert.equal(opened[3].url, 'https://ebird.org/api/keygen');
     assert.equal(opened[3].persistWebViewData, true);
@@ -10068,6 +10087,8 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
       assert.match(app.$('setupSheet').textContent, /Getting your seen birds/);
       assert.equal(app.$('setupSeenCsv'), null);
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprogress').children[4]
+        .querySelector('.setupdone'), null, 'pending seen-list evidence is not complete');
       app.click(app.$('setupContinue'));
       assert.match(app.$('setupSheet').textContent, /seen list fetching/);
       releaseList(ownedPersonalListFixture({ count, codes: count ? ['stable'] : [] }));
@@ -10078,6 +10099,11 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       assert.equal(app.$('keyBanner').hidden, true, 'healthy matching readiness retires main onboarding');
       assert.equal(A.personalListEvidence().count, count);
       assert.equal(app.$('seenBannerBtn'), null);
+      app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
+      A.openSetupSheet();
+      const completed = app.$('setupSheetBody').querySelector('.setupprogress').children[4].querySelector('.setupdone');
+      assert.equal(completed.textContent, '✓', 'positive or confirmed-zero exact evidence completes Seen birds');
+      assert.equal(completed.getAttribute('aria-label'), 'Completed');
       assert.equal(listReads, 1);
     } finally { app.window.close(); }
   }
@@ -10109,14 +10135,20 @@ test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra 
     assert.equal(reads, 0);
     app.$('setupHomePlace').value = '47.75, -122.16';
     app.click(app.$('setupHomeFind'));
-    await waitFor(() => app.$('setupHomeApprove'), 'inline Home candidate');
+    await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+      && !app.$('appSheet').hidden, 'validated Home confirmation');
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+    await waitFor(() => app.$('setupNext'), 'validated Home region');
     assert.equal(reads, 0, 'preparing Home is not a transient visit to the main page');
-    app.click(app.$('setupHomeDiscard'));
-    assert.equal(app.$('setupNext'), null, 'discarding Home must not allow a region-only bypass');
+    app.click(app.$('setupBack'));
+    app.$('setupHomePlace').value = '';
+    app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
+    assert.equal(app.$('setupNext'), null, 'editing Home must not allow a region-only bypass');
     app.$('setupHomePlace').value = '47.75, -122.16';
     app.click(app.$('setupHomeFind'));
-    await waitFor(() => app.$('setupHomeApprove'), 'replacement Home candidate');
-    app.click(app.$('setupHomeApprove'));
+    await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+      && !app.$('appSheet').hidden, 'replacement Home confirmation');
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
     await waitFor(() => app.$('setupNext'), 'matching Home region');
     assert.equal(reads, 0, 'reviewing the pair cannot start seen-list acquisition');
     app.click(app.$('setupNext'));
@@ -33722,10 +33754,12 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   const code = button && button.getAttribute('data-code');
   const name = button && button.getAttribute('data-name');
   assert.ok(code && name, 'the My Ticks action does not own its bird identity');
-  assert.equal(button.textContent.trim(), 'Add watch');
+  assert.equal(button.textContent.trim(), '+ Add watch');
   assert.equal(button.parentElement.className, 'spprimary');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   const beforeFetches = app.state.fetches.length;
+  const originalButton = button, originalRows = [...rows];
+  button.focus();
 
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist(), (item) => ({
@@ -33737,15 +33771,21 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   button = app.$('myYearList').querySelector(
     `.myYearWatchlist[data-code="${code}"]`,
   );
-  assert.equal(button.textContent.trim(), 'Remove watch');
+  assert.equal(button.textContent.trim(), '− Remove watch');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
+  assert.equal(button, originalButton, 'F1148 membership must not replace the reading/focus owner');
+  assert.equal(app.document.activeElement, originalButton, 'F1148 keyboard focus remains on the same action');
+  assert.deepEqual(rows, originalRows, 'F1148 unrelated ranked rows remain mounted');
+  A.updateMyYear();
+  assert.equal(app.$('myYearList').querySelector(`.myYearWatchlist[data-code="${code}"]`),
+    originalButton, 'F1148 a late unchanged source update must not rebuild the list');
 
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.$('myYearList').querySelector(
     `.myYearWatchlist[data-code="${code}"]`,
   );
-  assert.equal(button.textContent.trim(), 'Add watch');
+  assert.equal(button.textContent.trim(), '+ Add watch');
   assert.equal(app.state.fetches.length, beforeFetches,
     'changing the watchlist refetched My Ticks instead of repainting in place');
 
@@ -33761,7 +33801,42 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   app.window.close();
 });
 
-test('F993 Year List watch actions are centered with readable explicit red/green states in both themes', async () => {
+test('F1147 Watch search Add, Added and Remove retain labels and membership across repeat actions', async () => {
+  const app = await boot({ sample: false, storage: { ebird_watchlist_v1: '[]' }, fetch(url) {
+    if (/product\/spplist/.test(url)) return ['amerob'];
+    if (/ref\/taxonomy\/ebird/.test(url)) return [{
+      speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius', category: 'species',
+    }];
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    app.$('nvSearch').value = 'Robin';
+    A.runNvSearch();
+    await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'real Watch search action');
+    const add = app.$('nvFound').querySelector('.nvadd');
+    assert.equal(add.textContent, '+ Add');
+    for (let cycle = 0; cycle < 2; cycle++) {
+      app.click(add);
+      assert.equal(add.textContent, 'Added');
+      assert.equal(add.disabled, true);
+      assert.match(add.getAttribute('aria-label'), /Already tracked: American Robin/);
+      assert.equal(A.getWatchlist().length, 1, 'one membership entry');
+      const remove = app.$('nvResults').querySelector('.nvdel');
+      assert.equal(remove.textContent, '− Remove');
+      const style = app.window.getComputedStyle(remove);
+      assert.equal(style.backgroundColor, 'rgb(230, 159, 0)');
+      assert.equal(style.color, 'rgb(0, 0, 0)');
+      assert.equal(style.borderStyle, 'dashed');
+      app.click(remove);
+      assert.equal(A.getWatchlist().length, 0);
+      assert.equal(add.disabled, false);
+      assert.equal(add.textContent, '+ Add', 'a retained search can add again after Remove');
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1147 Year List watch actions have labeled blue/orange states and contrast in both themes', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   const A = app.window.__app;
   const luminance = (color) => {
@@ -33781,11 +33856,12 @@ test('F993 Year List watch actions are centered with readable explicit red/green
         const button = app.$('myYearList').querySelector('.myYearWatchlist[data-code="yrone"]');
         assert.ok(button, 'verify the actual Year List action, not a detached style fixture');
         const style = app.window.getComputedStyle(button);
-        assert.equal(button.textContent, watched ? 'Remove watch' : 'Add watch');
+        assert.equal(button.textContent, watched ? '− Remove watch' : '+ Add watch');
         assert.equal(button.getAttribute('aria-pressed'), String(watched));
         assert.equal(style.textAlign, 'center', theme);
-        assert.equal(style.backgroundColor, watched ? 'rgb(161, 38, 34)' : 'rgb(33, 100, 61)', theme);
-        assert.equal(style.color, 'rgb(255, 255, 255)', theme);
+        assert.equal(style.backgroundColor, watched ? 'rgb(230, 159, 0)' : 'rgb(0, 114, 178)', theme);
+        assert.equal(style.color, watched ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)', theme);
+        assert.equal(style.borderStyle, watched ? 'dashed' : 'solid', theme);
         const background = luminance(style.backgroundColor), foreground = luminance(style.color);
         assert.ok((Math.max(background, foreground) + 0.05)
           / (Math.min(background, foreground) + 0.05) >= 4.5, theme + ' text contrast');

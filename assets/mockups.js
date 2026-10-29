@@ -651,6 +651,7 @@ const EXTRA_SHOTS = [
 // They are available through --only when a change needs a focused image.
 async function prepareSetupReview(A, document, state, personalFixture) {
   const w = document.defaultView, storage = w.localStorage;
+  if (w.L && w.L.Map) w.L.Map.mergeOptions({ fadeAnimation: false });
   const later = ['seen', 'summary'].includes(state);
   A.showMenu();
   A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
@@ -661,10 +662,10 @@ async function prepareSetupReview(A, document, state, personalFixture) {
   if (state === 'account') {
     storage.removeItem('ebird_display_name');
     storage.removeItem('ebird_api_key');
-  } else if (state === 'application') storage.removeItem('ebird_api_key');
+  } else if (['connected', 'account-change', 'key', 'application'].includes(state)) storage.removeItem('ebird_api_key');
   else A.acceptWorkingKey('SYNTHETIC_PREVIEW_ONLY');
-  if (['home', 'candidate'].includes(state)) storage.removeItem('ebird_report');
-  if (['candidate', 'region'].includes(state)) {
+  if (['home', 'candidate', 'home-change'].includes(state)) storage.removeItem('ebird_report');
+  if (state === 'region') {
     storage.setItem('bc_setup_home_draft_v1', JSON.stringify({
       profile: A.bcProfile(),
       point: { lat: 47.6, lng: -122.3, label: 'Example Seattle location' },
@@ -680,35 +681,84 @@ async function prepareSetupReview(A, document, state, personalFixture) {
       { code: 'amerob', name: 'American Robin' }, { code: 'grycat', name: 'Gray Catbird' }
     ] });
   }
-  const step = state === 'account' ? 'account'
-    : ['verified', 'application'].includes(state) ? 'key'
+  const step = ['account', 'connected', 'account-change'].includes(state) ? 'account'
+    : ['key', 'verified', 'key-retry', 'application'].includes(state) ? 'key'
       : later ? state : state === 'region' ? 'region' : 'home';
   storage.setItem('bc_setup_step_v1', step);
   A.openSetupSheet();
+  if (['connected', 'account-change'].includes(state)) {
+    document.getElementById('setupConnectEbird').click();
+  }
+  if (['verified', 'key-retry'].includes(state)) {
+    document.getElementById('setupVerifyKey').click();
+  }
+  if (['candidate', 'home-change'].includes(state)) {
+    Object.defineProperty(w.navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success) { success({ coords: { latitude: 47.6, longitude: -122.3 } }); }
+    } });
+    document.getElementById('setupHomeHere').click();
+    const deadline = Date.now() + 5000;
+    while (!document.getElementById('setupHomeApprove') && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 20));
+    if (!document.getElementById('setupHomeApprove')
+      || !/Current location found/.test(document.getElementById('setupActionStatus').textContent))
+      throw new Error('F1152 GPS preview did not reach actual unconfirmed success');
+  }
+  const confirmations = ['connected', 'account-change', 'verified', 'key-retry', 'candidate', 'home-change'];
+  if (confirmations.includes(state)) {
+    const sheet = document.getElementById('appSheet');
+    const deadline = Date.now() + 5000;
+    while ((sheet.hidden || !sheet.querySelector('[data-setup-confirm-continue]')) && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 20));
+    if (sheet.hidden || !sheet.querySelector('[data-setup-confirm-continue]'))
+      throw new Error('Setup review did not show its result confirmation: ' + state);
+    if (['account-change', 'key-retry', 'home-change'].includes(state))
+      sheet.querySelector('[data-setup-confirm-back]').click();
+  }
   const body = document.getElementById('setupSheetBody');
   if (body.dataset.setupStep !== step || document.getElementById('setupSheet').hidden) {
     throw new Error('Setup review did not reach its real production step');
   }
   if (state === 'application') {
-    const help = body.querySelector('[data-birdchaser-api-help]');
+    document.getElementById('setupHelp').click();
+    const help = document.getElementById('appSheet').querySelector('[data-birdchaser-api-help]');
     if (!help) throw new Error('First-time application guidance is missing');
     help.open = true;
   }
   if (state === 'verified' && !/saved API key is verified/.test(body.textContent)) {
     throw new Error('Existing-key preview did not reach verified state');
   }
+  if (state === 'candidate') {
+    const map = document.getElementById('setupConfirmationMap');
+    const deadline = w.performance.now() + 7000;
+    const tilesReady = () => {
+      const tiles = [...map.querySelectorAll('.leaflet-tile')];
+      return tiles.length > 0 && tiles.every(tile => tile.complete && tile.naturalWidth
+        && w.getComputedStyle(tile).opacity === '1');
+    };
+    while (!tilesReady() && w.performance.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 50));
+    if (!tilesReady())
+      throw new Error('Home preview tiles did not load: ' + JSON.stringify(
+        [...map.querySelectorAll('.leaflet-tile')].map(tile => ({
+          src: tile.src, complete: tile.complete, width: tile.naturalWidth,
+          opacity: w.getComputedStyle(tile).opacity
+        }))));
+  }
   if (later && !A.personalListEvidence().complete) throw new Error('Seen preview is not ready');
   const notice = document.createElement('p');
-  notice.className = 'setupnote';
-  notice.textContent = 'REPRESENTATIVE STUB DATA - proposed flow; example account and location.';
+  notice.className = 'hint';
+  notice.textContent = 'PREVIEW - sample account and location.';
   if (state === 'application') {
-    const help = body.querySelector('[data-birdchaser-api-help]');
+    const help = document.getElementById('appSheet').querySelector('[data-birdchaser-api-help]');
     help.insertBefore(notice, help.querySelector('p'));
+  } else if (['connected', 'verified', 'candidate'].includes(state)) {
+    document.getElementById('appSheet').querySelector('.sheetbody').prepend(notice);
   } else body.prepend(notice);
   body.dataset.mockData = 'true';
   if (state === 'application') {
-    const sheet = document.getElementById('setupSheet');
-    const help = body.querySelector('[data-birdchaser-api-help]');
+    const sheet = document.getElementById('appSheet').querySelector('.sheet');
+    const help = sheet.querySelector('[data-birdchaser-api-help]');
     const header = sheet.querySelector('.sheethead');
     sheet.scrollTop += help.getBoundingClientRect().top
       - header.getBoundingClientRect().bottom - 12;
@@ -717,15 +767,21 @@ async function prepareSetupReview(A, document, state, personalFixture) {
 
 const SETUP_REVIEW_SHOTS = [
   ['account', '1. Connect your eBird account'],
-  ['verified', '2A. Existing API key captured and verified (simulated success)'],
-  ['application', '2B. First-time application - minimal generic examples'],
-  ['home', '3. Choose Home first'],
-  ['candidate', '4. Approve or correct the location candidate'],
-  ['region', '5. Confirm the Home-derived region'],
-  ['seen', '6. Exact seen list ready'],
-  ['summary', '7. Setup summary']
+  ['connected', '1A. Confirm the connected account'],
+  ['account-change', '1B. Back to switch account'],
+  ['key', '2. Fetch API key, if automatic capture has not completed'],
+  ['verified', '2A. Confirm the verified API key (simulated success)'],
+  ['key-retry', '2B. Back to fetch again or enter a key'],
+  ['application', '2C. Optional Help - first-time application examples'],
+  ['home', '3. Use location or enter Home'],
+  ['candidate', '3A. Confirm the selected Home'],
+  ['home-change', '3B. Back to change Home'],
+  ['region', '4. Confirm the derived region'],
+  ['seen', '5. Exact seen list ready'],
+  ['summary', 'Setup summary']
 ].map(([state, title]) => ({
   id: 'f1083-setup-' + state, title, freshApp: true,
+  viewportHeight: ['connected', 'verified', 'candidate'].includes(state) ? 844 : undefined,
   prep: `await (${prepareSetupReview.toString()})(A, document, ${JSON.stringify(state)},
     ${preparePersonalFixture.toString()});`
 }));
@@ -1819,7 +1875,8 @@ const BOOTSTRAP = `
   // Unseeded sources stay pending unless their production owner cancels them.
   var bundledFetch = window.fetch.bind(window);
   var HANG = function (url, init) {
-    if (url === 'section-docs.json') return bundledFetch(url, init);
+    if (url === 'section-docs.json' || /^region-boundaries-(wa|hi)\.json$/.test(String(url)))
+      return bundledFetch(url, init);
     return new Promise(function (resolve, reject) {
       if (!init || !init.signal) return;
       var abort = function () { reject(new DOMException('Fixture request aborted', 'AbortError')); };
@@ -4539,6 +4596,7 @@ async function main() {
     ? SHOTS.concat(REVIEW_SHOTS).filter((s) => ONLY.includes(s.id)) : SHOTS;
   const made = [], blank = [];
   for (const shot of shots) {
+    const shotHeight = shot.viewportHeight || HEIGHT;
     let measuredHostHeight = null;
     // Everything runs INSIDE the iframe, which is the box with the real width.
     // ⚠️ Do NOT declare a local named `document` here: `var` hoists, so the
@@ -4547,6 +4605,7 @@ async function main() {
     const expr = `(async function () {
       var frame = window.document.getElementById('f');
       if (!frame) return 'no iframe';
+      frame.style.height = ${shotHeight} + 'px';
       if (${shot.freshApp ? 'true' : 'false'}) {
         await new Promise(function (resolve, reject) {
           var timer = setTimeout(function () { reject(new Error('fresh iframe reload timed out')); }, 10000);
@@ -4631,7 +4690,7 @@ async function main() {
           var missing = expected.filter(function (selector) {
             return !d.querySelector(selector);
           });
-          var captureHeight = ${shot.fullPage ? 'Math.max(600, d.documentElement.scrollHeight)' : HEIGHT};
+          var captureHeight = ${shot.fullPage ? 'Math.max(600, d.documentElement.scrollHeight)' : shotHeight};
           var captureExpected = ${JSON.stringify(shot.requiredInCapture || [])};
           var captureMissing = captureExpected.filter(function (selector) {
             var el = d.querySelector(selector);
@@ -4709,9 +4768,9 @@ async function main() {
     const hr = await c.send('Runtime.evaluate', {
       expression: `(function () { var d = document.getElementById('f').contentDocument;
         return ${shot.fullPage ? 'Math.max(600, d.documentElement.scrollHeight)'
-          : `Math.min(${HEIGHT}, Math.max(600, d.documentElement.scrollHeight))`}; })()`,
+          : `Math.min(${shotHeight}, Math.max(600, d.documentElement.scrollHeight))`}; })()`,
       returnByValue: true }, sessionId);
-    const h = Number(hr.result.value) || HEIGHT;
+    const h = Number(hr.result.value) || shotHeight;
     if (shot.at === 'myYearBody') {
       const readability = await c.send('Runtime.evaluate', {
         expression: `(function () {

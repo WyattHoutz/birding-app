@@ -869,21 +869,74 @@ module.exports = function registerMigrationSetupControls({
       A.openSetupSheet();
       assert.equal(app.state.locations.length, 0, 'setup requested location before a tap');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
-      assert.match(app.$('setupSheetBody').textContent, /city center.*no exact address/);
-      assert.match(app.$('setupSheetBody').textContent, /more Home\/region pairs later/);
+      assert.doesNotMatch(app.$('setupSheetBody').textContent, /city center.*no exact address/);
+      app.click(app.$('setupHelp'));
+      assert.match(app.$('appSheet').textContent, /city center.*no exact address/);
+      assert.match(app.$('appSheet').textContent, /more Home\/region pairs later/);
+      app.click(app.$('appSheet').querySelector('.sheetclose'));
       assert.equal(app.$('setupSkip'), null);
       assert.equal(app.$('setupChooseRegion'), null);
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeHere',
+        'F1172 automatic location is offered first, without requesting permission on open');
+      assert.equal(app.$('setupHomePlace').closest('details'), null, 'Home entry must not be hidden');
+      assert.equal(app.$('setupHomeDiscard'), null, 'editing the field replaces a competing change button');
       assert.equal(A.getReportSlug(), '');
+      app.$('setupHomePlace').value = 'Previously entered city';
+      app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
       app.click(app.$('setupHomeHere'));
       await waitFor(() => app.$('setupHomeApprove'), 'unaccepted device candidate');
+      assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-confirmed');
+      assert.match(app.$('appSheet').textContent, /47\.60000, -122\.30000/);
+      const confirmationMap = app.$('setupConfirmationMap');
+      assert.equal(confirmationMap.closest('details'), null, 'F1173 map is not behind another click');
+      assert.ok(confirmationMap.querySelector('svg'), 'F1173 selected-point map renders immediately');
+      const previews = [];
+      app.window.open = url => { previews.push(url); };
+      const mapLink = app.$('appSheet').querySelector('[data-setup-confirm-map]');
+      assert.equal(mapLink.tagName, 'A');
+      assert.match(mapLink.href, /47\.6/);
+      assert.equal(previews.length, 0, 'external Maps must not open automatically');
+      app.click(mapLink);
+      assert.equal(previews.length, 1, 'F1173 Open Maps uses the existing external launcher');
+      assert.match(previews[0], /47\.6/);
+      assert.equal(app.$('appSheet').hidden, false, 'opening Maps does not approve the candidate');
+      assert.equal(A.getHome(), null);
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
+      assert.equal(confirmationMap.childNodes.length, 0, 'detached confirmation map is cleaned up');
+      assert.equal(app.$('setupHomeCandidate').getAttribute('role'), 'region', 'F1152 separate review card');
+      assert.equal(app.$('setupHomeCandidateTitle').textContent, 'Home candidate');
+      assert.match(app.$('setupHomeCandidate').textContent, /Current location \(GPS\)/);
+      assert.match(app.$('setupActionStatus').textContent, /Current location found.*Nothing has been saved/);
+      assert.equal(app.$('setupActionStatus').getAttribute('role'), 'status');
+      assert.equal(app.$('setupHomeFind').hidden, true, 'only one validation action is visible');
+      assert.equal(app.$('setupHomeApprove').textContent, 'Validate Home');
+      assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000', 'GPS fills the same Home field');
+      assert.equal(app.$('setupHomeMap').childNodes.length, 0, 'map must not load automatically');
+      app.$('setupHomeMapPreview').open = true;
+      await waitFor(() => app.$('setupHomeMap').childNodes.length, 'opt-in candidate map');
+      assert.equal(app.$('setupHomeMap').getAttribute('aria-label'), 'Home candidate map');
+      assert.equal(app.$('setupHomeMap').querySelector('svg') !== null, true,
+        'the existing renderer provides its offline fallback when Leaflet is unavailable');
+      assert.equal(app.$('setupHomePreview').tagName, 'BUTTON');
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeApprove',
+        'F1158 reviewing the acquired candidate replaces the location action');
+      assert.equal(previews.length, 1, 'F1152 returning to the field does not launch external Maps');
+      app.click(app.$('setupHomePreview'));
+      assert.equal(previews.length, 2, 'F1152 map preview remains a working explicit action');
+      assert.match(previews[1], /47\.6/);
       assert.equal(app.state.locations.length, 1);
       assert.equal(A.getReportSlug(), '');
       assert.equal(A.getHome(), null);
+      for (const index of [2, 3]) assert.equal(app.$('setupSheetBody')
+        .querySelector('.setupprogress').children[index].querySelector('.setupdone'), null,
+        'a GPS candidate must not complete Home or region');
       assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 0,
         'region was inferred before Home approval');
       app.click(app.$('setupHomeApprove'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupNext'), 'Home-derived pair confirmation');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupNext');
       assert.equal(A.getReportSlug(), '', 'suggestion accepted itself');
       assert.equal(A.getHome(), null);
       assert.match(app.$('setupHomeSuggested').textContent, /Seattle|Current location/);
@@ -899,6 +952,11 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.window.localStorage.getItem('ebird_home_place:or'), 'Saved Oregon Home');
       assert.equal(app.window.localStorage.getItem('bc_setup_home_draft_v1'), null);
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
+      for (const index of [2, 3]) {
+        const check = app.$('setupSheetBody').querySelector('.setupprogress').children[index].querySelector('.setupdone');
+        assert.equal(check.textContent, '✓', 'the saved matching pair completes Home and region');
+        assert.equal(check.getAttribute('aria-label'), 'Completed');
+      }
       assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 1);
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -933,8 +991,14 @@ module.exports = function registerMigrationSetupControls({
       const search = app.state.fetches.find(url => /photon.*api/.test(url));
       assert.equal(new URL(search).searchParams.get('q'), 'Springfield');
       assert.equal(new URL(search).searchParams.has('lat'), false, 'old Home biased setup');
-      app.click(app.$('setupHomeOptions').children[1]);
-      app.click(app.$('setupHomeApprove'));
+      const option = app.$('setupHomeOptions').querySelectorAll('[data-setup-home-option]')[1];
+      option.checked = true;
+      option.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+      assert.ok(app.$('appSheet') && !app.$('appSheet').hidden,
+        'radio selection must open its result review');
+      assert.match(app.$('setupHomeCandidate').textContent, /Springfield/);
+      assert.equal(app.$('setupHomePlace').value, 'Springfield', 'F1152 search is retained for correction');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupNext'), 'Oregon pair confirmation');
       assert.equal(A.getReportSlug(), 'wa', 'derived region switched before confirmation');
       assert.match(app.$('setupHomeReplace').parentElement.textContent, /Oregon/);
@@ -997,9 +1061,11 @@ module.exports = function registerMigrationSetupControls({
       const A = app.window.__app;
       A.openSetupSheet();
       app.$('setupHomePlace').value = '47.6, -122.3';
+      app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
       app.click(app.$('setupHomeFind'));
-      await waitFor(() => app.$('setupHomeApprove'), 'manual coordinate candidate');
-      app.click(app.$('setupHomeApprove'));
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+        && !app.$('appSheet').hidden, 'coordinate review');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent), 'lookup failure');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
       assert.equal(app.$('setupNext'), null);
@@ -1007,9 +1073,10 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(A.getHome(), null);
       failed = false;
       app.click(app.$('setupHomeApprove'));
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupNext'), 'retried matching region');
       assert.equal(A.getReportSlug(), '', 'retry selected a region before confirmation');
-      app.click(app.$('setupChangeHome'));
+      app.click(app.$('setupBack'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
       app.$('setupHomePlace').value = 'another city';
       app.$('setupHomePlace').dispatchEvent(new app.window.Event('input', { bubbles: true }));
@@ -1020,6 +1087,163 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.state.locations.length, 0);
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
+  });
+
+  test('F1166 F1167 region confirmation shows its bundled outline and one path back to Home', async () => {
+    const boundary = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'www', 'region-boundaries-wa.json'), 'utf8'));
+    const app = await boot({ report: null, home: false, sample: false,
+      storage: { bc_setup_step_v1: 'region', bc_setup_home_draft_v1: JSON.stringify({
+        profile: '', approved: true, point: { lat: 47.6, lng: -122.3, label: 'Selected Home' },
+        region: { code: 'US-WA', label: 'Washington', status: 'ok', lat: 47.6, lng: -122.3 }
+      }) },
+      fetch: url => url === 'region-boundaries-wa.json' ? boundary : null });
+    try {
+      const A = app.window.__app;
+      A.openSetupSheet();
+      await waitFor(() => app.$('setupRegionOutline').querySelector('svg'), 'bundled region outline');
+      assert.equal(app.$('setupStepTitle').textContent, 'Confirm region');
+      assert.equal(app.$('setupNext').textContent, 'Confirm region');
+      assert.equal(app.$('setupChangeHome'), null, 'Back is the single correction path');
+      const outline = app.$('setupRegionOutline');
+      assert.equal(outline.hidden, false);
+      assert.equal(outline.querySelector('svg').namespaceURI, 'http://www.w3.org/2000/svg',
+        'SVG nodes must paint as graphics, not leak only plain text');
+      assert.equal(outline.querySelector('path').namespaceURI, 'http://www.w3.org/2000/svg');
+      assert.match(outline.querySelector('svg').getAttribute('aria-label'), /Washington.*US-WA.*Home marked/);
+      assert.match(outline.querySelector('path').getAttribute('d'), /^M.*L.*Z$/);
+      assert.equal(outline.querySelector('text').textContent, 'Home');
+      assert.match(app.$('setupSheetBody').textContent, /To pick a different region, go back and select a different Home/);
+      assert.match(app.$('setupSheetBody').textContent, /More regions are available after setup/);
+      assert.equal(app.$('setupChooseRegion'), null);
+      assert.equal(A.getHome(), null);
+      assert.equal(A.getReportSlug(), '');
+      assert.equal(app.state.locations.length, 0);
+      app.click(app.$('setupBack'));
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+      assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000');
+      assert.equal(A.getHome(), null, 'going back must not save the pair');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1165 one Home field validates a waypoint, address or city and continues without saving', async () => {
+    for (const value of ['47.6, -122.3', '123 Example Street, Seattle', 'Seattle']) {
+      const app = await boot({ report: null, home: false, sample: false,
+        storage: { bc_setup_step_v1: 'home' },
+        fetch: url => /photon\.komoot\.io\/(api|reverse)/.test(url) ? preparedHomeRegion() : null });
+      try {
+        const A = app.window.__app;
+        A.openSetupSheet();
+        app.$('setupHomePlace').value = value;
+        app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
+        app.click(app.$('setupHomeFind'));
+        await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+          && !app.$('appSheet').hidden, value + ' review');
+        assert.equal(A.getHome(), null, 'reviewing the automatic result cannot save Home');
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        await waitFor(() => app.$('setupNext'), value + ' continues to pair confirmation');
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+        assert.match(app.$('setupHomeSuggested').textContent, /Washington/);
+        assert.equal(A.getHome(), null, 'validation must not save Home');
+        assert.equal(A.getReportSlug(), '', 'validation must not switch region');
+        assert.equal(app.state.locations.length, 0, 'manual entry must not request device location');
+        const search = app.state.fetches.filter(url => /photon.*\/api\//.test(url));
+        if (value.includes('Example') || value === 'Seattle') {
+          assert.equal(search.length, 1);
+          assert.equal(new URL(search[0]).searchParams.get('q'), value);
+        } else assert.equal(search.length, 0, 'coordinate waypoints need no forward geocoder');
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  });
+
+  test('F1165 editing a reviewed Home removes stale approval actions and clears its old field map', async () => {
+    for (const approved of [false, true]) {
+      const app = await boot({ report: null, home: false, sample: false,
+        storage: { bc_setup_step_v1: 'home', bc_setup_home_draft_v1: JSON.stringify({
+          profile: '', point: { lat: 47.6, lng: -122.3, label: 'Synthetic Home' },
+          approved, region: approved ? { status: 'ok', code: 'US-WA', label: 'Washington',
+            lat: 47.6, lng: -122.3 } : null
+        }) } });
+      try {
+        const A = app.window.__app;
+        A.openSetupSheet();
+        const oldAction = app.$(approved ? 'setupHomeReview' : 'setupHomeApprove');
+        assert.equal(oldAction.hidden, false);
+        app.$('setupHomeMapPreview').open = true;
+        await waitFor(() => app.$('setupHomeMap').childNodes.length, 'field map preview');
+        app.$('setupHomePlace').value = 'New synthetic city';
+        app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
+        assert.equal(oldAction.hidden, true, 'old candidate actions must not compete with field validation');
+        assert.equal(app.$('setupHomeCandidate').hidden, true);
+        assert.equal(app.$('setupHomeMap').childNodes.length, 0);
+        assert.equal(app.$('setupHomePreview').hidden, true);
+        assert.equal(app.$('setupHomePreview').closest('details').hidden, true);
+        assert.equal(app.$('setupHomeFind').hidden, false);
+        assert.equal(app.$('setupSheetBody').querySelectorAll('.setupprimary').length, 1);
+        assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeFind');
+        assert.equal(A.getHome(), null);
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  });
+
+  test('F1172 reusing saved Home reviews its map before deriving the matching region', async () => {
+    const app = await boot({ report: 'wa', home: false, sample: false,
+      storage: { bc_setup_step_v1: 'home', 'ebird_home_lat:wa': '47.6',
+        'ebird_home_lng:wa': '-122.3', 'ebird_home_place:wa': 'Saved synthetic Home' },
+      fetch: url => /photon.*reverse/.test(url) ? preparedHomeRegion('US-WA') : null });
+    try {
+      const A = app.window.__app, before = JSON.stringify(A.getHome());
+      A.openSetupSheet();
+      app.$('setupUseSavedHome').closest('details').open = true;
+      app.click(app.$('setupUseSavedHome'));
+      assert.ok(app.$('appSheet') && !app.$('appSheet').hidden, 'saved Home needs the same result review');
+      assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-confirmed');
+      assert.match(app.$('appSheet').textContent, /Saved synthetic Home/);
+      assert.ok(app.$('setupConfirmationMap').querySelector('svg'));
+      assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 0);
+      assert.equal(JSON.stringify(A.getHome()), before);
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      await waitFor(() => app.$('setupNext'), 'saved Home region review');
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+      assert.equal(JSON.stringify(A.getHome()), before);
+      assert.equal(app.state.locations.length, 0);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+
+  test('F1173 a changed Home draft or identity cannot open stale Maps or approve the old result', async () => {
+    for (const change of ['draft', 'identity']) {
+      const app = await boot({ report: null, home: false, sample: false,
+        storage: { bc_setup_step_v1: 'home' } });
+      try {
+        const A = app.window.__app, opened = [];
+        app.window.open = url => { opened.push(url); };
+        A.openSetupSheet();
+        app.$('setupHomePlace').value = '47.6, -122.3';
+        app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
+        app.click(app.$('setupHomeFind'));
+        await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
+          && !app.$('appSheet').hidden, 'selected Home confirmation');
+        if (change === 'identity')
+          A.applyCapturedIdentity({ status: 'ok', displayName: 'Different Synthetic Owner' });
+        else {
+          const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+          draft.point = { lat: 48, lng: -123, label: 'Changed synthetic Home' };
+          app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
+        }
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-map]'));
+        assert.deepEqual(opened, [], change + ' must invalidate the old external-map action');
+        app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+        assert.equal(app.$('setupSheet').inert, false);
+        assert.equal(A.getHome(), null);
+        assert.equal(A.getReportSlug(), '');
+        assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 0);
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
   });
 
   test('F1084 a destination change during pair confirmation cannot save Home in the wrong region', async () => {
@@ -1044,7 +1268,7 @@ module.exports = function registerMigrationSetupControls({
     } finally { app.window.close(); }
   });
 
-  test('F1084 each actual setup step has brief relevant privacy guidance', async () => {
+  test('F1084 F1155 F1156 setup actions share styling and open step-specific help without losing state', async () => {
     const app = await boot({ sample: false });
     try {
       const A = app.window.__app;
@@ -1052,11 +1276,95 @@ module.exports = function registerMigrationSetupControls({
         ['account', /Sign in directly.*does not need your password/],
         ['key', /Key verification is sent directly to eBird/],
         ['home', /city center is fine; no exact address is needed/],
-        ['seen', /reads your eBird list for the selected region/]
+        ['seen', /reads your eBird list for the selected region/],
+        ['summary', /Reopen setup in Settings/]
       ]) {
         app.window.localStorage.setItem('bc_setup_step_v1', step);
         A.openSetupSheet();
-        assert.match(app.$('setupSheetBody').textContent, copy);
+        assert.doesNotMatch(app.$('setupSheetBody').textContent, copy,
+          step + ' explanations belong in Help, not the action screen');
+        const controls = [...app.$('setupSheetBody').querySelectorAll('button')];
+        const primary = controls.filter(control => control.classList.contains('setupprimary')
+          && !control.closest('[hidden]'));
+        assert.equal(primary.length, 1, step + ' must guide the user with one recommended action');
+        const reference = app.window.getComputedStyle(primary[0]);
+        for (const control of controls) {
+          const style = app.window.getComputedStyle(control);
+          if (control !== primary[0] && control.id !== 'setupHelp') {
+            assert.notEqual(style.fontSize, reference.fontSize, step + ': ' + control.id + ' must be quieter');
+            assert.notEqual(style.fontWeight, reference.fontWeight, step + ': ' + control.id + ' must not compete');
+          }
+          assert.equal(style.textDecoration, 'none', step + ': ' + control.id);
+        }
+        assert.notEqual(app.window.getComputedStyle(app.$('setupSheetClose')).fontSize, reference.fontSize,
+          'F1157 header Close must not inherit the large body-action treatment');
+        assert.equal(app.$('setupHelp').textContent, '?', 'F1160 compact question-mark help, not a competing action');
+        assert.equal(app.$('setupHelp').parentElement, app.$('setupStepTitle').parentElement,
+          'F1168 contextual Help belongs beside the step heading');
+        assert.notEqual(app.$('setupHelp').parentElement, primary[0].parentElement);
+        assert.equal(app.window.getComputedStyle(app.$('setupHelp').firstElementChild).width, '28px',
+          'the visible circle is smaller than its interactive target');
+        for (const control of controls) assert.equal(app.window.getComputedStyle(control).whiteSpace, 'nowrap');
+        assert.equal(app.$('setupHelp').getAttribute('aria-label'), 'Help: ' + primary[0].textContent.trim());
+        if (step === 'account') {
+          assert.match(app.$('setupSheetBody').textContent, /read-only access to your seen-bird list/);
+          assert.match(app.$('setupSheetBody').textContent, /does not change your eBird records/);
+        }
+        if (step === 'account' || step === 'key') {
+          const introduction = app.$('setupSheetBody').querySelector('.setupintro');
+          assert.ok(introduction, 'F1169 short explanation belongs in the white card');
+          assert.equal(app.$('setupStepTitle').parentElement.nextElementSibling, introduction,
+            'the heading and smaller Help precede the explanation card');
+          assert.equal(introduction.contains(app.$('setupHelp')), false);
+          assert.equal(introduction.contains(primary[0]), false, 'the main button follows, outside the card');
+          assert.match(introduction.textContent, step === 'account'
+            ? /read-only access to your seen-bird list/ : /API key enables live sightings/);
+          if (step === 'account') assert.equal(app.$('setupStepTitle').textContent, 'Connect your eBird Account');
+        }
+        const field = app.$(step === 'key' ? 'setupApiKey' : 'setupHomePlace');
+        if (field) {
+          field.value = step === 'key' ? 'SYNTHETIC_HELP_INPUT' : 'Example place';
+          field.dispatchEvent(new app.window.Event('input'));
+          assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id,
+            step === 'key' ? 'setupVerifyKey' : 'setupHomeFind', 'F1158 entered input becomes the next action');
+          if (step === 'key') {
+            assert.equal(app.$('setupKeyAlternatives').open, true);
+            assert.match(app.$('setupKeyExternal').textContent, /Copy.*browser/);
+            assert.equal(app.$('setupKeyAlternatives').querySelector('summary').textContent, 'Other options');
+          } else assert.equal(field.closest('details'), null);
+        }
+        const state = app.window.localStorage.getItem('bc_setup_home_draft_v1');
+        app.$('setupHelp').focus();
+        app.click(app.$('setupHelp'));
+        const sheet = app.$('appSheet');
+        assert.ok(sheet, step + ' Help action must open its information sheet');
+        const close = sheet.querySelector('.sheetclose');
+        assert.equal(sheet.hidden, false);
+        assert.match(sheet.textContent, copy);
+        assert.equal(sheet.querySelector('.sheettitle').textContent,
+          app.$('setupHelp').getAttribute('aria-label'), 'F1160 Help names the actual current action');
+        if (step === 'key') {
+          assert.match(sheet.querySelector('.docintro').textContent, /Checks the key you entered directly with eBird/);
+        } else if (step === 'home') {
+          assert.match(sheet.querySelector('.docintro').textContent, /waypoint coordinates, address or city.*without requesting GPS/);
+        }
+        assert.equal(app.$('setupSheet').inert, true);
+        assert.equal(app.$('setupSheet').getAttribute('aria-hidden'), 'true');
+        assert.equal(app.window.document.activeElement, close);
+        close.dispatchEvent(new app.window.KeyboardEvent('keydown',
+          { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+        const last = step === 'key' ? sheet.querySelector('summary') : close;
+        assert.equal(app.window.document.activeElement, last, 'closed details cannot trap focus in hidden links');
+        last.dispatchEvent(new app.window.KeyboardEvent('keydown',
+          { key: 'Tab', bubbles: true, cancelable: true }));
+        assert.equal(app.window.document.activeElement, close);
+        close.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.equal(sheet.hidden, true);
+        assert.equal(app.$('setupSheet').hidden, false);
+        assert.equal(app.$('setupSheet').inert, false);
+        assert.equal(app.window.document.activeElement, app.$('setupHelp'));
+        assert.equal(app.window.localStorage.getItem('bc_setup_home_draft_v1'), state);
+        if (field) assert.equal(field.value, step === 'key' ? 'SYNTHETIC_HELP_INPUT' : 'Example place');
       }
       app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify({
         profile: A.bcProfile(), point: { lat: 47.6, lng: -122.3, label: 'Example Home' },
@@ -1065,10 +1373,52 @@ module.exports = function registerMigrationSetupControls({
       }));
       app.window.localStorage.setItem('bc_setup_step_v1', 'region');
       A.openSetupSheet();
-      assert.match(app.$('setupSheetBody').textContent, /No additional device-location request is needed/);
+      app.click(app.$('setupHelp'));
+      assert.match(app.$('appSheet').textContent, /No additional device-location request is needed/);
+      app.click(app.$('appSheet').querySelector('.sheetclose'));
+      assert.equal(app.$('appSheet').hidden, true);
       assert.equal(app.state.locations.length, 0);
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
+  });
+
+  test('F1159 setup dismissal asks before discarding input, preserves Home drafts and does not interrupt completion', async () => {
+    const app = await boot({ report: null, home: false, key: null, sample: false,
+      storage: { bc_setup_step_v1: 'key' } });
+    try {
+      const A = app.window.__app, prompts = [];
+      A.openSetupSheet();
+      app.$('setupApiKey').value = 'SYNTHETIC_UNVERIFIED_DISMISS';
+      app.$('setupApiKey').dispatchEvent(new app.window.Event('input'));
+      app.window.confirm = message => { prompts.push(message); return false; };
+      app.click(app.$('setupSheetClose'));
+      assert.equal(app.$('setupSheet').hidden, false);
+      assert.equal(app.$('setupApiKey').value, 'SYNTHETIC_UNVERIFIED_DISMISS');
+      assert.match(prompts[0], /Are you sure.*Unverified key input will be discarded/);
+      app.$('setupSheetClose').dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assert.equal(prompts.length, 2);
+      assert.equal(app.$('setupSheet').hidden, false);
+      app.window.confirm = () => true;
+      app.click(app.$('setupSheetClose'));
+      assert.equal(app.$('setupSheet').hidden, true);
+      assert.equal(app.$('setupApiKey').value, '');
+      assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
+      const draft = JSON.stringify({ profile: A.bcProfile(), query: 'Example city', approved: false });
+      app.window.localStorage.setItem('bc_setup_home_draft_v1', draft);
+      app.window.localStorage.setItem('bc_setup_step_v1', 'home');
+      A.openSetupSheet();
+      app.click(app.$('setupSheetClose'));
+      assert.equal(app.$('setupSheet').hidden, true);
+      assert.equal(app.window.localStorage.getItem('bc_setup_home_draft_v1'), draft);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+    const ready = await boot({ sample: false, storage: { bc_setup_step_v1: 'summary' } });
+    try {
+      ready.window.__app.openSetupSheet();
+      ready.window.confirm = () => { assert.fail('completion must not ask to abandon setup'); };
+      ready.click(ready.$('setupContinue'));
+      assert.equal(ready.$('setupSheet').hidden, true);
+    } finally { ready.window.close(); }
   });
 
   test('F1080 prepared actual Settings location requires approval and preserves manual correction and cancellation', async () => {
