@@ -3723,7 +3723,7 @@
       display: grid; place-items: center; }
     .setuphelpicon > span { display: grid; place-items: center; box-sizing: border-box;
       width: 28px; height: 28px; border: 2px solid currentColor; border-radius: 50%;
-      background: var(--card); font-size: 18px; line-height: 1; }
+      background: var(--card); font-size: calc(18px * min(var(--s), 1.25)); line-height: 1; }
     #setupSheetBody #setupHomeHere:not(.setupprimary), #setupSheetBody #setupBack,
     #appSheet [data-setup-confirm-back] { width: auto; justify-self: start; }
     #setupSheetBody #setupBack, #appSheet [data-setup-confirm-back] { background: transparent; }

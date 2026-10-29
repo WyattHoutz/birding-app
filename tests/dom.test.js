@@ -9738,7 +9738,11 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.match(sheet.textContent, /Setup Bird Chaser/);
   assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
   assert.match(sheet.textContent, /Step 1 of 5/);
-  assert.match(sheet.textContent, /Sign in directly.*eBird.*does not need your password/i);
+  assert.match(sheet.textContent, /read-only access.*does not change your eBird records/i);
+  app.click(app.$('setupHelp'));
+  assert.match(app.$('appSheet').textContent,
+    /Sign in directly.*eBird.*does not need your password/i);
+  app.click(app.$('appSheet').querySelector('.sheetclose'));
   assert.equal(sheet.querySelectorAll('[data-setup-state]').length, 0,
     'first run must lead with an action, not five incomplete warnings');
   for (const step of ['key', 'home']) {
@@ -9755,7 +9759,9 @@ test('F727 setup distinguishes website, API key, Home and seen-list capabilities
   assert.match(sheet.textContent, /personal API key (?:not verified|verified)/i);
   assert.match(sheet.textContent, /Home (?:not set|ready)/i);
   assert.match(sheet.textContent, /seen list (?:not ready|ready)/i);
-  assert.match(sheet.textContent, /Skipping a step does not mark it ready/i);
+  app.click(app.$('setupHelp'));
+  assert.match(app.$('appSheet').textContent, /Skipping a step does not mark it ready/i);
+  app.click(app.$('appSheet').querySelector('.sheetclose'));
   assert.doesNotMatch(sheet.textContent, /public web token/i,
     'an automatic implementation token is presented as a setup credential');
   assert.equal(A.LOADERS.rankBtn.needsKey, undefined,
