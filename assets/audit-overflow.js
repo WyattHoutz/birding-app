@@ -270,7 +270,9 @@ const AUDIT = `<script>
       var close = document.getElementById('setupSheetClose'), closeRect = close.getBoundingClientRect();
       if (closeRect.width >= setup.clientWidth / 2 || closeRect.width < 43.5 || closeRect.height < 43.5
         || (reference && parseFloat(getComputedStyle(close).fontSize) >= parseFloat(reference.fontSize)))
-        throw new Error('F1157 Close must remain compact navigation with a usable touch target');
+        throw new Error('F1157 Close must remain compact navigation with a usable touch target: '
+          + JSON.stringify({width:closeRect.width,height:closeRect.height,
+            closeFont:getComputedStyle(close).fontSize,primaryFont:reference&&reference.fontSize}));
       buttons.forEach(function (button) {
         var style = getComputedStyle(button), rect = button.getBoundingClientRect();
         if (button.id === 'setupHelp') {
