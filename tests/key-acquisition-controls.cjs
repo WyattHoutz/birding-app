@@ -481,6 +481,9 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
             'user-completed first-time access continues automatic verified capture');
           assert.equal(bridge.opened.length, 1, 'completion unnecessarily opened a second key window');
           assert.equal(app.state.fetches.filter(url => /ref\/region\/info\/US-WA/.test(url)).length, 1);
+          assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+          assert.equal(app.$('appSheet').dataset.infoId, 'setup-key-verified');
+          app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
           assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
         } else {
           bridge.inject();

@@ -320,6 +320,8 @@
          while `--link` beside them switched to sky blue. Naming the concept
          once fixes the legibility and makes a theme a swap rather than a hunt. */
       --safe-blue: #0072B2;
+      /* Solid Watch actions keep white labels legible in either theme. */
+      --safe-watch-add: #0072B2;
       --link: var(--safe-blue);
       --accent-ink: #ffffff;
       --line: #e4e8e4;
@@ -1058,7 +1060,7 @@
                        font-size: calc(13px * var(--s)); line-height: 1.2;
                        white-space: normal; text-align: center; }
     button.speciesWatchlistAction[aria-pressed="false"], button.nvadd {
-      background: #0072B2; color: #fff; border: 2px solid #0072B2; }
+      background: var(--safe-watch-add); color: #fff; border: 2px solid var(--safe-watch-add); }
     button.speciesWatchlistAction[aria-pressed="true"], .nvrow button.favbtn.nvdel {
       background: #E69F00; color: #000; border: 2px dashed #000; }
     button.nvadd { width: auto; min-width: 44px; padding: 6px; min-height: 44px; }
@@ -30115,12 +30117,10 @@
           startSetupSeen(true);
         });
         bind('setupSeenCsv', function () { closeSetupSheet(true); openCsvSettings(); });
-        bind('setupSeenDismiss', function (event) {
-          if (event.currentTarget.isConnected && _setupRenderedProfile === bcProfile()
-              && setupStep() === 'seen' && !$('setupSheet').hidden) finishSetup();
-        });
         bind('setupReview', function () { goSetupStep('account'); });
-        bind('setupContinue', function () {
+        bind('setupContinue', function (event) {
+          if (!event.currentTarget.isConnected || _setupRenderedProfile !== bcProfile()
+              || $('setupSheet').hidden) return;
           if (step === 'summary' || state.evidence.complete) finishSetup();
           else {
             if (!state.pending && !state.attempted) {

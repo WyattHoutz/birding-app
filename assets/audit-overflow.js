@@ -1489,6 +1489,29 @@ const AUDIT = `<script>
           title:cardReadability(card),clipped:cardReadability(card).actions.some(function(action){return action.clipped;}),
           wordBroken:cardReadability(card).wordBroken};
       });
+      var watchTheme = A.getTheme();
+      function watchLuminance(color) {
+        var rgb = color.match(/\\d+/g).slice(0,3).map(function(value) {
+          value=Number(value)/255;
+          return value<=0.04045?value/12.92:Math.pow((value+0.055)/1.055,2.4);
+        });
+        return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
+      }
+      try {
+        yearScan.watchThemes=['light','dark'].map(function(theme) {
+          A.setTheme(theme);
+          document.querySelectorAll('#myYearList .myYearWatchlist').forEach(function(button) {
+            var watched=button.getAttribute('aria-pressed')==='true',style=getComputedStyle(button);
+            var bg=watchLuminance(style.backgroundColor),fg=watchLuminance(style.color);
+            if(style.backgroundColor!==(watched?'rgb(230, 159, 0)':'rgb(0, 114, 178)')
+              ||style.color!==(watched?'rgb(0, 0, 0)':'rgb(255, 255, 255)')
+              ||style.borderStyle!==(watched?'dashed':'solid')
+              ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<4.5)
+              throw new Error('F1147 live Watch palette or contrast failed in '+theme);
+          });
+          return theme;
+        });
+      } finally { A.setTheme(watchTheme); }
       out.push(yearScan);
       var readingRows = Array.from({length:200},function (_,index) {
         return {code:'reading' + index,name:'Reading position bird ' + String(index).padStart(3,'0'),
@@ -4064,7 +4087,8 @@ server.listen(0, '127.0.0.1', () => {
       }
         if(r.watchActions){
           console.log('   F874 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
-          if(r.watchActions.length!==3 || r.watchActions.some(action=>
+          if(JSON.stringify(r.watchThemes)!=='["light","dark"]'
+            ||r.watchActions.length!==3 || r.watchActions.some(action=>
             !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'

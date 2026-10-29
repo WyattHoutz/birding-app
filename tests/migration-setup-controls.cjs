@@ -718,8 +718,16 @@ module.exports = function registerMigrationSetupControls({
         app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
         A.openSetupSheet();
         assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
-        assert.ok(app.$('setupSeenDismiss'));
-        app.click(app.$('setupSeenDismiss'));
+        const proceed = app.$('setupContinue'), profile = A.bcProfile();
+        assert.ok(proceed);
+        const completed = app.window.localStorage.getItem('bc_setup_dismissed_v1');
+        app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'Synthetic different seen owner');
+        app.click(proceed);
+        assert.equal(app.$('setupSheet').hidden, false);
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
+        assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), completed);
+        app.window.localStorage.setItem(A.BC_PROFILE_PTR, profile);
+        app.click(proceed);
         assert.equal(app.$('setupSheet').hidden, true);
         assert.equal(app.window.localStorage.getItem(key), saved);
         assert.equal(A.personalListEvidence().complete, true);
