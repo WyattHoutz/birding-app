@@ -4255,7 +4255,7 @@ server.listen(0, '127.0.0.1', () => {
         if (!menu.fullWidth || !menu.regularTiles || !menu.jargonBetween || !menu.shortcuts || !menu.birdGenNormal || !menu.frosted
             || JSON.stringify(menu.groups) !== JSON.stringify(['Patches - Go birding', 'Bird alerts'])
             || JSON.stringify(menu.order) !== JSON.stringify([
-              'destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn', 'surgeBtn', 'refreshBtn'
+              'destBtn', 'excBtn', 'quickBtn', 'coldBtn', 'hotBtn', 'favResults', 'surgeBtn', 'refreshBtn'
             ])) {
           bad++;
           console.log('   F987/F992 MENU LAYOUT FAILED');
