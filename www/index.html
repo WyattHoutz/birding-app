@@ -3707,7 +3707,7 @@
       font-size: calc(18px * var(--s)); line-height: 1.55; }
     #appSheet .setupconfirmation { position: sticky; bottom: 0;
       margin-bottom: 0; padding: 12px 0; background: var(--card); }
-    #setupConfirmationMap { height: 180px; min-height: 180px;
+    #setupConfirmationMap, #setupHomeMap { height: calc(180px * var(--s)); min-height: 180px;
       font-size: calc(10px * var(--s)); line-height: 1.2; }
     #appSheet [data-setup-confirm-map] { display: inline-flex; align-items: center; min-height: 44px; }
     #setupSheetBody button, #appSheet .setupconfirmation button { min-height: 44px; max-width: 100%; min-width: 0;
@@ -3731,7 +3731,6 @@
       width: 28px; height: 28px; border: 2px solid currentColor; border-radius: 50%;
       background: var(--card); font-size: calc(18px * min(var(--s), 1.25)); line-height: 1; }
     #setupSheetBody #setupHomeHere:not(.setupprimary) { width: auto; justify-self: start; }
-    #setupHomeMap { height: 180px; min-height: 180px; font-size: calc(10px * var(--s)); line-height: 1.2; }
     #setupHomePreview { display: inline-flex; align-items: center; min-height: 44px; }
     #setupActionStatus[role="alert"] { border-left: 4px solid var(--safe-blue); padding: 12px;
       background: var(--card); color: var(--ink); font-weight: 600; }
