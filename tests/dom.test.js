@@ -1057,7 +1057,7 @@ test('F1128 Patches uses the selected order while saved Common birds shortcuts k
   const app = await boot({ storage: { [SHORTCUT_KEY]: JSON.stringify(saved) } });
   try {
     assert.deepEqual(menuGroupIds(app, 'Patches - Go birding'),
-      ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn']);
+      ['destBtn', 'excBtn', 'quickBtn', 'coldBtn', 'hotBtn', 'favResults']);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="tripBtn"]'), null);
     assert.deepEqual(shortcutIds(app), saved);
     app.click(app.document.querySelector('.menuShortcut .toclink[data-at="easyBtn"]'));
@@ -7785,7 +7785,7 @@ test('app boots: Leaflet loads and the Contents menu is built', async () => {
   app.window.close();
 });
 
-test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
+test('no two menu tiles wear the same icon, and 🔍 means one thing', async () => {
   // Reported from the device: "species lookup and needs verification both have
   // similar icons". They were 🔎 and 🔍 — one glyph apart by TILT — and it was
   // worse than a near-miss, because 🔍 is ALSO the app-wide unseen marker
@@ -7794,10 +7794,16 @@ test('no two menu tiles wear the same icon, and 🔍 means one thing', () => {
   //
   // A tile's icon is the only part of it visible at a glance, so each tile
   // must use a distinct icon.
-  // Read the same full leading glyph token as splitLabel(). Emoji may contain
-  // multiple code points, so comparing only the first can invent collisions
-  // that do not exist on screen.
-  const icons = CONTRACT.menu.map((m) => m.label.slice(0, m.label.indexOf(' ')));
+  // Compare rendered compound icons, not just their metadata's leading glyph.
+  const app = await boot();
+  let icons;
+  try {
+    icons = CONTRACT.menu.map((m) => {
+      const tile = app.document.querySelector(ORIGINAL_MENU + '[data-at="' + m.at + '"]');
+      const rendered = tile && tile.querySelector('.tileicon');
+      return rendered ? rendered.textContent : m.label.slice(0, m.label.indexOf(' '));
+    });
+  } finally { app.window.close(); }
   const seen = new Map();
   icons.forEach((ic, i) => {
     const prev = seen.get(ic);
@@ -42160,7 +42166,13 @@ test('F758 bundled JSON is the production authority for menu icons, titles and s
   for (const item of menu) {
     const tile = app.document.querySelector('#menuList [data-at="' + item.at + '"]');
     if (!tile) continue;
-    assert.equal(tile.querySelector('.tileicon').textContent, item.icon);
+    const icon = tile.querySelector('.tileicon');
+    const people = icon.querySelectorAll('.busyPatchLogo .surgehotspotpeople > span');
+    if (people.length) {
+      assert.equal(item.at, 'hotBtn', 'only Busy Patches uses the shared people-grid logo');
+      assert.ok([...people].every(person => person.textContent === item.icon),
+        'the shared people-grid must agree with the canonical semantic glyph');
+    } else assert.equal(icon.textContent, item.icon);
     assert.equal(tile.querySelector('.tilelabel').textContent, item.title);
     if (!item.dynamicSubtitle) {
       assert.ok(tile.querySelector('.tilesub').textContent.startsWith(item.subtitle));
