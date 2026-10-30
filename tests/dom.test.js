@@ -75,6 +75,109 @@ function surgeEvidence(root) {
   assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
   return templates[0].content;
 }
+test('F1193 Busy Patches reuses the Bird Gen people-grid identity without a fabricated score', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, doc = app.window.document;
+    A.renderSurge([], [], [{
+      locId: 'L-F1193', loc: 'Fixture attention patch', observers: 12, ratio: 6.9,
+      latest: recentObsStamp(0), eventAt: Date.now()
+    }], [], [], { suppressNotifications: true });
+    const alertPeople = doc.querySelector('#surgeFeed .surgehotspotpeople').innerHTML;
+    const tile = doc.querySelector('#menuList .toclink[data-at="hotBtn"]');
+    assert.match(tile.getAttribute('aria-label'), /Busy Patches/);
+    A.showSection('hotPanel', { load: false });
+    for (const host of [tile, app.$('hotPanel').querySelector('h2'), app.$('navTitle')]) {
+      assert.equal(host.querySelector('.busyPatchLogo .surgehotspotpeople').innerHTML, alertPeople,
+        'Busy Patches must render the same people grid as the actual Bird Gen alert');
+      assert.equal(host.querySelector('.surgehotspotmult'), null,
+        'a section logo cannot invent an activity multiplier');
+      assert.doesNotMatch(host.textContent, /Hot patches|🔥/);
+    }
+    assert.equal(doc.querySelector('#surgeFeed .surgehotspotmult').textContent, '6.9×',
+      'sharing the logo must preserve the actual alert multiplier');
+  } finally { app.window.close(); }
+});
+
+test('F1193 Busy Patches includes qualifying patches beyond the old ceiling while Cold keeps its limit', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    const meta = [
+      { locId: 'L-FOOTHILLS', locName: 'Foothills fixture', lat: 0, lng: 0.6, numSpeciesAllTime: 150 },
+      { locId: 'L-FAR', locName: 'Farther county fixture', lat: 0, lng: 1, numSpeciesAllTime: 150 }
+    ];
+    const recent = meta.flatMap(spot => Array.from({ length: 5 }, (_, i) => ({
+      locId: spot.locId, speciesCode: 'f1193' + i, comName: 'Fixture bird ' + i,
+      obsDt: recentObsStamp(0), subId: spot.locId + i
+    })));
+    const result = A.computeHotspots(recent, meta, { lat: 0, lng: 0 }, []);
+    assert.deepEqual(Array.from(result.hot, row => row.locId), ['L-FOOTHILLS', 'L-FAR'],
+      'an acquired county patch must not be excluded by the old extra 45-mile filter');
+    assert.deepEqual(Array.from(result.cold, row => row.locId), ['L-FOOTHILLS'],
+      'Cold retains its prior ceiling, including the 35-to-45-mile foothills ring');
+    assert.equal(A.computeHotspots(recent.slice(0, 4), meta, { lat: 0, lng: 0 }, []).hot.length, 0,
+      'removing the distance cutoff must not weaken the five-species eligibility floor');
+  } finally { app.window.close(); }
+});
+
+test('F1193 Busy Patches resolves distance-derived counties before scanning and cannot reuse a different scope', async () => {
+  const region = michiganRuntimeRegion();
+  const app = await boot({
+    report: region.slug, home: false, sample: false,
+    storage: {
+      ebird_custom_regions: JSON.stringify([region]),
+      'ebird_home_lat:u-michigan': '42.281',
+      'ebird_home_lng:u-michigan': '-83.743'
+    },
+    fetch(url) {
+      if (/ref\/region\/list\/subnational2\/US-MI/.test(url)) return [
+        { code: 'US-MI-161', name: 'Washtenaw' }, { code: 'US-MI-163', name: 'Wayne' }
+      ];
+      if (/ref\/hotspot\/US-MI(?:\?|$)/.test(url)) return [
+        { locId: 'L-SCOPE-NEAR', locName: 'Near fixture', lat: 42.282, lng: -83.744,
+          subnational2Code: 'US-MI-161' },
+        { locId: 'L-SCOPE-WIDER', locName: 'Wider fixture', lat: 42.48, lng: -83.743,
+          subnational2Code: 'US-MI-163' }
+      ];
+      const county = /US-MI-(161|163)/.exec(url);
+      if (county && /ref\/hotspot\//.test(url)) return [{
+        locId: 'L-SCOPE-' + county[1], locName: 'Scope fixture ' + county[1],
+        lat: 42.3, lng: -83.7, numSpeciesAllTime: 150
+      }];
+      if (county && /\/recent\?back=30/.test(url)) return Array.from({ length: 5 }, (_, i) => ({
+        locId: 'L-SCOPE-' + county[1], speciesCode: 'scope' + i,
+        comName: 'Scope bird ' + i, obsDt: recentObsStamp(0), subId: county[1] + i
+      }));
+      return [];
+    }
+  });
+  try {
+    const A = app.window.__app, W = app.window;
+    let clock = Date.now();
+    W.Date.now = () => (clock += 3000);
+    A.fgWindowReset(); A.fgSchedReset(clock);
+    W.localStorage.setItem(A.chaseMiKey(), '20');
+    assert.equal(A.getCounties().length, 0);
+    await A.runHotspotScan({});
+    assert.deepEqual(Array.from(A.getCounties(), row => row.code), ['US-MI-161', 'US-MI-163']);
+    assert.match(app.$('hotResults').textContent, /Scope fixture 163/,
+      'the first scan never acquired the distance-resolved county list');
+    const originalKey = A.hotCacheKey();
+    W.localStorage.setItem(A.chaseMiKey(), '25');
+    assert.notEqual(A.hotCacheKey(), originalKey,
+      'a radius change with the same current county list must not reuse the previous cache identity');
+    W.localStorage.setItem(A.chaseMiKey(), '5');
+    await A.runHotspotScan({});
+    assert.deepEqual(Array.from(A.getCounties(), row => row.code), ['US-MI-161']);
+    assert.match(app.$('hotResults').textContent, /Scope fixture 161/);
+    assert.doesNotMatch(app.$('hotResults').textContent, /Scope fixture 163/,
+      'an in-memory or durable result from the wider county scope survived narrowing');
+    assert.doesNotMatch(app.$('hotStatus').textContent, /45 mi|within 5 mi/,
+      'county-wide acquisition must not claim a per-patch radius cutoff');
+  } finally { app.window.close(); }
+});
+
 test('F1057 Stakeout Refresh bypasses only selected sightings and retains evidence on failure', async () => {
   const app = await boot({ sample: false });
   try {
@@ -8062,7 +8165,7 @@ test('F278 a failed Nemesis first-open is retryable, while success stays loaded'
 
 test('hot and cold hotspots render from ONE shared scan', async () => {
   const app = await boot();
-  app.open(/Hot patches/);
+  app.open(/Busy Patches/);
   const afterHot = app.state.fetches.length;
   assert.ok(afterHot > 0, 'opening Producing patches starts a scan');
 
@@ -36722,7 +36825,7 @@ test('F374 an all-offline Hot and Cold refresh keeps the last good ranking', asy
   const app = await boot();
   const A = app.window.__app;
   const W = app.window;
-  const key = 'bc_hotspots_v1:' + A.getReportSlug() + ':' + A.countyLabelStr();
+  const key = A.hotCacheKey();
   const cached = {
     t: Date.now() - 3600000,
     hot: [{
@@ -40669,7 +40772,7 @@ test('F1130 the complete menu uses the approved groups, membership and ordering'
   // patches moved IN — which is coherent: the first two start from a thing you
   // have already chosen, the rest answer "where shall I go".
   //
-  const GO = ['destBtn', 'excBtn', 'quickBtn', 'favResults', 'coldBtn', 'hotBtn'];
+  const GO = ['destBtn', 'excBtn', 'quickBtn', 'coldBtn', 'hotBtn', 'favResults'];
 
   // 1. Each is its own section, reachable from the menu on its own.
   const labels = [...doc.querySelectorAll('#menuList .toclink')]
@@ -40677,7 +40780,7 @@ test('F1130 the complete menu uses the approved groups, membership and ordering'
   for (const want of ['Today', 'Nearby Patches', 'Day trip patches',
                       'Stakeout Birds', 'Stakeout Patches',
                       'Iconic Patches',
-                      'Hot patches', 'Cold patches']) {
+                      'Busy Patches', 'Cold patches']) {
     assert.ok(labels.some((l) => l && l.includes(want)),
       want + ' has its own tile in Contents');
   }
@@ -40747,9 +40850,9 @@ test('F1130 the complete menu uses the approved groups, membership and ordering'
     '🏞 Today’s patches',
     '🚗 Day trip patches',
     '🚶 Nearby Patches',
-    '⭐ Favorite patches',
     '🥶 Cold patches',
-    '🔥 Hot patches',
+    '👥 Busy Patches',
+    '⭐ Favorite patches',
   ], 'patch menu icons and owner-selected order must stay exact');
   assert.match(under[0], /Today’s patches/);
   assert.match(under[1], /Day trip patches/,
@@ -43427,8 +43530,7 @@ test('the Go birding sections refresh observations, not the world', async () => 
     HTML.indexOf('function loadExcursions'));
   assert.match(tiers, /getTierChase\(bandId, takeForce\(\) \? 'obs' : false/,
     'Half-day and Full-day');
-  const scan = HTML.slice(HTML.indexOf('function runHotspotScan'),
-    HTML.indexOf('function runHotspotScan') + 2600);
+  const scan = String(app.window.__app.runHotspotScan);
   assert.match(scan, /if \(opts\.force\) ebClearMatching\(FORCE_OBS_RE\)/,
     'Hot and Cold clear the same feeds');
   // ...and their ↻ actually sets force, which it did not before: the registry

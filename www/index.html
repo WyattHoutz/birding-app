@@ -2491,6 +2491,9 @@
                        background: #003B5C; color: #fff; border: 1px solid #fff;
                        border-radius: 4px; padding: 1px 3px;
                        font-size: calc(12px * var(--s)); font-weight: 800; line-height: 1.1; }
+    .busyPatchLogo { display: inline-flex; width: 1em; height: 1em; vertical-align: middle; }
+    .busyPatchLogo > .surgehotspotthumb { width: 100%; height: 100%; margin: 0; border-radius: 4px; font-size: inherit; }
+    .busyPatchLogo .surgehotspotpeople { font-size: .28em; }
     .surgepatchgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                       grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1px;
                       width: 100%; height: 100%; overflow: hidden; }
@@ -4291,7 +4294,7 @@
     </section>
 
     <section class="panel" id="hotPanel">
-      <h2>🔥 Hot patches <span class="dim" id="hotRegionLabel"></span></h2>
+      <h2>👥 Busy Patches <span class="dim" id="hotRegionLabel"></span></h2>
       <div class="row">
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
@@ -4723,14 +4726,6 @@
     "group": "Patches - Go birding"
   },
   {
-    "at": "favResults",
-    "icon": "⭐",
-    "title": "Favorite patches",
-    "subtitle": "Saved hotspots",
-    "needs": "geo",
-    "group": "Patches - Go birding"
-  },
-  {
     "at": "coldBtn",
     "icon": "🥶",
     "title": "Cold patches",
@@ -4740,10 +4735,19 @@
   },
   {
     "at": "hotBtn",
-    "icon": "🔥",
-    "title": "Hot patches",
+    "icon": "👥",
+    "title": "Busy Patches",
+    "sectionTitle": "Busy Patches",
     "subtitle": "Hotspots with recent surges",
     "needs": "county",
+    "group": "Patches - Go birding"
+  },
+  {
+    "at": "favResults",
+    "icon": "⭐",
+    "title": "Favorite patches",
+    "subtitle": "Saved hotspots",
+    "needs": "geo",
     "group": "Patches - Go birding"
   },
   {
@@ -5211,7 +5215,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.177.0';
+      var APP_VERSION = '1.178.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -37567,29 +37571,8 @@
       }
 
       // --- P14: hot & cold hotspots (2 API calls, ranked from home) ---
-      // ⚠️ 45, NOT 35, and the 10 miles are measured rather than felt.
-      //
-      // Owner, 2026-08-29: *"I am relatively close to the cascade mountains to
-      // the east of my home… yet very few hotspots are showing up… I
-      // frequently get hotspots to the north and south and west, but not much
-      // to the east."* Measured over all 1,312 King + Snohomish hotspots
-      // (`scripts/probe_radius.py`), the 35–45 mi ring adds **15 hotspots, 11
-      // of them east of the foothills, 7 genuinely montane — and ZERO to the
-      // west.** That asymmetry is structural, not luck: the counties' western
-      // edge is Puget Sound, so beyond 40 mi within this scope is nearly all
-      // mountains. Active eastern hotspots go 1 → 3.
-      //
-      // ⚠️ It costs NOTHING. This ceiling is applied AFTER the fetch, over
-      // county feeds already paid for, so no extra eBird call is made — which
-      // matters when the rate limiter is the bottleneck (F247).
-      //
-      // ⛔ Do not raise it further. 45–55 mi adds 3 hotspots and 55–65 adds 2,
-      // of which **none are active**. Past 45 a bigger number buys drive time
-      // and nothing else.
-      //
-      // ⚠️ AND THIS IS NOT THE WHOLE FIX. The east is ~9% of observations and
-      // the ranking is global, so 3 eastern spots still compete against 20
-      // western ones on one score — see F252.
+      // Busy Patches uses the shared distance-derived county scope.
+      // The legacy 45-mile eligibility ceiling remains Cold-only.
       var HOT_MIN_FRESH = 5, HOTSPOT_MAX_DIST_MI = 45, COLD_MIN_ALLTIME = 100, COLD_SILENT_CAP_DAYS = 30;
       var COLD_SKIP_RE = /\((?:restricted|no\s+public|private|historical|closed|defunct|retired|do\s+not\s+visit|members[^)]*only|permit[^)]*only)[^)]*\)/i;
       // F266. The reader owns a one-week floor instead of depending on another
@@ -37744,7 +37727,6 @@
           var name = h.locName || lid; if (COLD_SKIP_RE.test(name)) return;
           var lat = parseFloat(h.lat), lng = parseFloat(h.lng); if (!isFinite(lat) || !isFinite(lng)) return;
           var dist = home ? haversineMi(home.lat, home.lng, lat, lng) : null;
-          if (dist != null && dist > HOTSPOT_MAX_DIST_MI) return;
           var alltime = parseInt(h.numSpeciesAllTime || 0, 10) || 0;
           var intensity = alltime ? fresh / Math.max(alltime, fresh) : 1;
           var d = dist == null ? 0 : dist;
@@ -37824,7 +37806,7 @@
       // is being fetched, and showing it costs nothing.
       var HOTCACHE_KEY = 'bc_hotspots_v1';
       function hotCacheKey() {
-        return HOTCACHE_KEY + ':' + getReportSlug() + ':' + countyLabelStr();
+        return HOTCACHE_KEY + ':busy-scope-v2:' + hotspotContextKey();
       }
       // ⚠️ F247. BOTH HALVES OF THIS WERE BROKEN, INDEPENDENTLY, AND THE CACHE
       // HAD NEVER ONCE HIT.
@@ -37867,7 +37849,10 @@
         var d = Math.round(h / 24);
         return d + ' day' + (d === 1 ? '' : 's') + ' ago';
       }
-      function resetHotspotCache() { _hotspotCache = null; _hotspotPromise = null; }
+      var _hotspotCacheContext = '';
+      function resetHotspotCache() {
+        _hotspotCache = null; _hotspotPromise = null; _hotspotCacheContext = '';
+      }
       var _hotspotOwnershipPromise = null, _hotspotOwnershipKey = '';
       var _hotspotOwnershipDoneKey = '';
       var _hotspotOwnership = {
@@ -37880,6 +37865,7 @@
         anchors = anchors || getAnchors();
         return [
           getReportSlug(),
+          chaseMaxMi(),
           codes.join(','),
           home && isFinite(home.lat) && isFinite(home.lng)
             ? (+home.lat).toFixed(5) + ',' + (+home.lng).toFixed(5)
@@ -37902,8 +37888,8 @@
             + sample.attempted + ' feeds unavailable'
           : ' · 7 recent days indexed';
         var hotSt = $('hotStatus'), coldSt = $('coldStatus');
-        if (hotSt) hotSt.textContent = r.hot.length + ' running hot within '
-          + HOTSPOT_MAX_DIST_MI + ' mi' + suffix + ' · ' + nowTime();
+        if (hotSt) hotSt.textContent = r.hot.length + ' busy patches in '
+          + countyLabelStr() + suffix + ' · ' + nowTime();
         if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
           + (r.cold.length === 1 ? '' : 's') + ' within '
           + HOTSPOT_MAX_DIST_MI + ' mi' + suffix + ' · ' + nowTime();
@@ -37988,9 +37974,12 @@
         return _hotspotOwnershipPromise;
       }
       function scanHotspots(force) {
+        var currentContext = hotspotContextKey();
+        if (_hotspotCacheContext !== currentContext) resetHotspotCache();
         if (force) resetHotspotCache();
         if (_hotspotCache) return Promise.resolve(_hotspotCache);
         if (_hotspotPromise) return _hotspotPromise;
+        _hotspotCacheContext = currentContext;
         var home = getHome(), anchors = getAnchors(), codes = countyCodes();
         var context = hotspotContextKey(codes, home, anchors);
         var cacheKey = hotCacheKey();
@@ -38046,7 +38035,7 @@
             });
           });
           html += '</ul>';
-        } else html += '<div class="status">No hotspot is running notably hot within ' + HOTSPOT_MAX_DIST_MI + ' mi right now.</div>';
+        } else html += '<div class="status">No busy patches qualify in ' + esc(countyLabelStr()) + ' right now.</div>';
         el.innerHTML = html;
         hydratePhotos(el);
         hydrateLocSpecies(el).then(function (current) {
@@ -38093,79 +38082,81 @@
           return;
         }
         if (!getKey()) { var m = 'Add your eBird API key in Settings first.'; if (hotSt) hotSt.textContent = m; if (coldSt) coldSt.textContent = m; if (opts.redirect) showSettings(true); return; }
-        if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + countyLabelStr();
-        if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + countyLabelStr();
-        if (!hasCounties()) {
-          var msg = '<div class="status">Hotspot ranking runs within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
-          if ($('hotResults')) $('hotResults').innerHTML = msg;
-          if ($('coldResults')) $('coldResults').innerHTML = msg;
-          if ($('hotMap')) $('hotMap').innerHTML = '';
-          if ($('coldMap')) $('coldMap').innerHTML = '';
-          if (hotSt) hotSt.textContent = ''; if (coldSt) coldSt.textContent = ''; return;
-        }
-        if ($('hotBtn')) $('hotBtn').disabled = true;
-        if ($('coldBtn')) $('coldBtn').disabled = true;
-        // A quick refresh here means "somebody filed a checklist", which is the
-        // per-location `recent` feeds — NOT the hotspot directory behind them.
-        // ref/hotspot/{county} is a list of parks, and parks do not appear
-        // between two taps of a button; it stays in the durable reference
-        // cache, which is what keeps this a few calls instead of hundreds.
-        if (opts.force) ebClearMatching(FORCE_OBS_RE);
-        // Decode the fallback before starting the live scan. It is a tiny local
-        // read, and doing it in this order gives every failure path the same
-        // last-good answer without allowing a late cache paint over live data.
-        var painted = false, context = hotspotContextKey();
-        var cachedResult = _hotspotCache || null;
-        var warm = Promise.resolve(cachedResult);
-        if (!(_hotspotCache && !opts.force)) {
-          var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
-          if (hotSt) hotSt.textContent = scanMsg;
-          if (coldSt) coldSt.textContent = scanMsg;
-          // Paint the last scan as soon as it decodes, then say it is being
-          // refreshed. A ranking of parks does not go stale in an hour, so an
-          // empty card with a spinner is strictly worse than yesterday's
-          // answer plus a note — especially when the scan is pacing against
-          // the eBird rate limit and the wait is measured in tens of seconds.
-          warm = hotCacheWarm().then(function (cached) {
-            if (!cached || painted || hotspotContextKey() !== context) return cachedResult;
-            cachedResult = cached;
-            renderHot(cached); renderCold(cached);
-            var age = 'as of ' + hotCacheAge(cached.t) + ' \u00b7 refreshing\u2026';
-            if (hotSt) hotSt.textContent = age;
-            if (coldSt) coldSt.textContent = age;
-            return cached;
-          });
-        }
-        return warm.then(function () {
-          return scanHotspots(opts.force);
-        }).then(function (r) {
-          painted = true;
-          if (r._feedIssue && cachedResult) {
-            _hotspotCache = cachedResult;
-            renderHot(cachedResult); renderCold(cachedResult);
-            var cachedMsg = 'Cached results shown \u2014 refresh could not reach all eBird feeds'
-              + (cachedResult.t ? ' \u00b7 as of ' + hotCacheAge(cachedResult.t) : '');
-            if (hotSt) hotSt.textContent = cachedMsg;
-            if (coldSt) coldSt.textContent = cachedMsg;
-            return cachedResult;
+        return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi()).then(function () {
+          if ($('hotRegionLabel')) $('hotRegionLabel').textContent = '· ' + countyLabelStr();
+          if ($('coldRegionLabel')) $('coldRegionLabel').textContent = '· ' + countyLabelStr();
+          if (!hasCounties()) {
+            var msg = '<div class="status">Hotspot ranking runs within the report\u2019s counties — not applicable to the <b>' + esc(getReport().label) + '</b> rarity tracker. Pick a region report.</div>';
+            if ($('hotResults')) $('hotResults').innerHTML = msg;
+            if ($('coldResults')) $('coldResults').innerHTML = msg;
+            if ($('hotMap')) $('hotMap').innerHTML = '';
+            if ($('coldMap')) $('coldMap').innerHTML = '';
+            if (hotSt) hotSt.textContent = ''; if (coldSt) coldSt.textContent = ''; return;
           }
-          if (!r._feedIssue) hotCacheSave(r);
-          renderHot(r); renderCold(r);
-          if (hotSt) hotSt.textContent = r.hot.length + ' running hot within '
-            + HOTSPOT_MAX_DIST_MI + ' mi'
-            + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
-                            : ' \u00b7 indexing 7 recent days in background')
-            + ' \u00b7 ' + nowTime();
-          if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
-            + (r.cold.length === 1 ? '' : 's') + ' within '
-            + HOTSPOT_MAX_DIST_MI + ' mi'
-            + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
-                            : ' \u00b7 indexing 7 recent days in background')
-            + ' \u00b7 ' + nowTime();
-          if (!r._feedIssue && r._ownershipInput) {
-            setTimeout(function () { startHotspotOwnership(r._ownershipInput); }, 0);
+          if ($('hotBtn')) $('hotBtn').disabled = true;
+          if ($('coldBtn')) $('coldBtn').disabled = true;
+          // A quick refresh here means "somebody filed a checklist", which is the
+          // per-location `recent` feeds — NOT the hotspot directory behind them.
+          // ref/hotspot/{county} is a list of parks, and parks do not appear
+          // between two taps of a button; it stays in the durable reference
+          // cache, which is what keeps this a few calls instead of hundreds.
+          if (opts.force) ebClearMatching(FORCE_OBS_RE);
+          // Decode the fallback before starting the live scan. It is a tiny local
+          // read, and doing it in this order gives every failure path the same
+          // last-good answer without allowing a late cache paint over live data.
+          var painted = false, context = hotspotContextKey();
+          if (_hotspotCacheContext !== context) resetHotspotCache();
+          var cachedResult = _hotspotCache || null;
+          var warm = Promise.resolve(cachedResult);
+          if (!(_hotspotCache && !opts.force)) {
+            var scanMsg = 'Scanning hotspots in ' + countyLabelStr() + '…';
+            if (hotSt) hotSt.textContent = scanMsg;
+            if (coldSt) coldSt.textContent = scanMsg;
+            // Paint the last scan as soon as it decodes, then say it is being
+            // refreshed. A ranking of parks does not go stale in an hour, so an
+            // empty card with a spinner is strictly worse than yesterday's
+            // answer plus a note — especially when the scan is pacing against
+            // the eBird rate limit and the wait is measured in tens of seconds.
+            warm = hotCacheWarm().then(function (cached) {
+              if (!cached || painted || hotspotContextKey() !== context) return cachedResult;
+              cachedResult = cached;
+              renderHot(cached); renderCold(cached);
+              var age = 'as of ' + hotCacheAge(cached.t) + ' \u00b7 refreshing\u2026';
+              if (hotSt) hotSt.textContent = age;
+              if (coldSt) coldSt.textContent = age;
+              return cached;
+            });
           }
-          return r;
+          return warm.then(function () {
+            return scanHotspots(opts.force);
+          }).then(function (r) {
+            painted = true;
+            if (r._feedIssue && cachedResult) {
+              _hotspotCache = cachedResult;
+              renderHot(cachedResult); renderCold(cachedResult);
+              var cachedMsg = 'Cached results shown \u2014 refresh could not reach all eBird feeds'
+                + (cachedResult.t ? ' \u00b7 as of ' + hotCacheAge(cachedResult.t) : '');
+              if (hotSt) hotSt.textContent = cachedMsg;
+              if (coldSt) coldSt.textContent = cachedMsg;
+              return cachedResult;
+            }
+            if (!r._feedIssue) hotCacheSave(r);
+            renderHot(r); renderCold(r);
+            if (hotSt) hotSt.textContent = r.hot.length + ' busy patches in '
+              + countyLabelStr()
+              + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
+                              : ' \u00b7 indexing 7 recent days in background')
+              + ' \u00b7 ' + nowTime();
+            if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
+              + (r.cold.length === 1 ? '' : 's') + ' within '
+              + HOTSPOT_MAX_DIST_MI + ' mi'
+              + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
+                              : ' \u00b7 indexing 7 recent days in background')
+              + ' \u00b7 ' + nowTime();
+            if (!r._feedIssue && r._ownershipInput) {
+              setTimeout(function () { startHotspotOwnership(r._ownershipInput); }, 0);
+            }
+            return r;
         }).catch(function (e) {
           if (e && e.queueCancelled) return null;
           if (cachedResult && hotspotContextKey() === context) {
@@ -38183,6 +38174,12 @@
           return null;
         })
           .finally(function () { if ($('hotBtn')) $('hotBtn').disabled = false; if ($('coldBtn')) $('coldBtn').disabled = false; });
+        }).catch(function (e) {
+          if (e && e.queueCancelled) return null;
+          if (hotSt) hotSt.textContent = 'County scope could not be loaded. ' + netErr(e);
+          if (coldSt) coldSt.textContent = 'County scope could not be loaded. ' + netErr(e);
+          return null;
+        });
       }
       function loadHotspots() { runHotspotScan({ force: true, redirect: true }); }
       function loadColdspots() { runHotspotScan({ force: true, redirect: true }); }
@@ -42289,13 +42286,20 @@
       }
 
       function surgeHotspotTile(row) {
-        var multiplier = surgeHotspotMultiplier(row);
+        var multiplier = row ? surgeHotspotMultiplier(row) : '';
         return '<span class="thumb surgehotspotthumb" role="img"'
-          + ' aria-label="' + esc(row.observers + ' independent parties; '
-            + multiplier + ' this patch’s usual reporting activity') + '">'
+          + ' aria-label="' + esc(row ? row.observers + ' independent parties; '
+            + multiplier + ' this patch’s usual reporting activity' : 'Busy Patches') + '">'
           + '<span class="surgehotspotpeople" aria-hidden="true">'
           + '<span>👥</span>'.repeat(9) + '</span>'
-          + '<span class="surgehotspotmult" aria-hidden="true">' + esc(multiplier) + '</span></span>';
+          + (multiplier ? '<span class="surgehotspotmult" aria-hidden="true">' + esc(multiplier) + '</span>' : '')
+          + '</span>';
+      }
+
+      function menuGlyph(at, icon) {
+        return at === 'hotBtn'
+          ? '<span class="busyPatchLogo" aria-hidden="true">' + surgeHotspotTile() + '</span>'
+          : esc(icon);
       }
 
       function surgePlaceLink(name, locId) {
@@ -48125,7 +48129,7 @@
               var d = docs[m.at];
               var parts = splitLabel(m.label);
               html += '<details class="helpitem"><summary>'
-                + '<span class="helpglyph">' + esc(parts.icon) + '</span>'
+                + '<span class="helpglyph">' + menuGlyph(m.at, parts.icon) + '</span>'
                 + '<span class="helpname">' + esc(parts.text) + '</span>'
                 + (d && d.summary ? '<span class="helpone">' + esc(d.summary) + '</span>' : '')
                 + '</summary><div class="sectiondoc helpdoc"></div></details>';
@@ -48444,7 +48448,7 @@
 
       function _setH2(sec, label) {
         var h2 = sec.querySelector('h2'); if (!h2) return;
-        var span = h2.querySelector('span');
+        var span = sec._at === 'hotBtn' ? $('hotRegionLabel') : h2.querySelector('span');
         var doc = h2.querySelector('.docbtn');
         // The ⚠ button is added at render time rather than at boot, so it has to
         // be carried across a relabel like the ℹ button — otherwise switching
@@ -48455,6 +48459,7 @@
         // way to reload the section.
         var refresh = h2.querySelector('.refreshbtn');
         h2.textContent = label + ' ';
+        if (sec._at === 'hotBtn') h2.insertAdjacentHTML('afterbegin', menuGlyph(sec._at) + ' ');
         if (span) h2.appendChild(span);
         if (doc) h2.appendChild(doc);
         if (warn) h2.appendChild(warn);
@@ -49274,7 +49279,7 @@
           if (parts.icon) {
             var ic = document.createElement('span');
             ic.className = 'tileicon'; ic.setAttribute('aria-hidden', 'true');
-            ic.textContent = parts.icon; a.appendChild(ic);
+            ic.innerHTML = menuGlyph(sec._at, parts.icon); a.appendChild(ic);
           }
           var tx = document.createElement('span');
           tx.className = 'tilelabel'; tx.textContent = parts.text;
@@ -50071,7 +50076,11 @@
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
         var nav = $('navbar'); if (nav) nav.hidden = false;
         var target = $(id), t = $('navTitle');
-        if (t) t.textContent = target && target._label ? target._label : '';
+        if (t) {
+          if (target && target._at === 'hotBtn') {
+            t.innerHTML = menuGlyph(target._at) + ' ' + esc(splitLabel(target._label).text);
+          } else t.textContent = target && target._label ? target._label : '';
+        }
         syncNavBackLabel();
         syncRegionNav();
         // Arriving from the Contents menu must move the selector too, or it
@@ -52647,7 +52656,7 @@
                                   : ' id="' + m.id + '"'))
               + ' aria-pressed="' + (key === cur ? 'true' : 'false') + '"'
               + ' aria-label="' + esc(m.full) + '">'
-              + '<span class="mbico" aria-hidden="true">' + m.icon + '</span>'
+              + '<span class="mbico" aria-hidden="true">' + menuGlyph(m.at, m.icon) + '</span>'
               + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
           }).join('');
         });
@@ -54173,7 +54182,7 @@
         hotspotFeeds: hotspotFeeds, hotspotCachedDays: hotspotCachedDays,
         runHotspotScan: runHotspotScan,
         startHotspotOwnership: startHotspotOwnership,
-        hotspotContextKey: hotspotContextKey,
+        hotspotContextKey: hotspotContextKey, hotCacheKey: hotCacheKey,
         hotspotOwnershipState: hotspotOwnershipState,
         HOTSPOT_OWN_DAYS: HOTSPOT_OWN_DAYS,
         easyCacheKey: easyCacheKey, easyCompact: easyCompact, zcPut: zcPut, zcGet: zcGet,

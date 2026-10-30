@@ -201,7 +201,7 @@
           + '<p>The compact date is the newest hotspot checklist that triggered '
           + 'the event, not a species observation merged for detail. '
           + 'The headline opens Stakeout hotspot. Bird Gen does not duplicate '
-          + '<b>Hot patches</b> or the Stakeout section’s species/checklist lists.</p>'
+          + '<b>Busy Patches</b> or the Stakeout section’s species/checklist lists.</p>'
       },
       favorite: {
         title: '★ Favorite Patch birds',

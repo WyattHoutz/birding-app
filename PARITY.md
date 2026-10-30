@@ -15,6 +15,16 @@ have a **row in the matrix below**, enforced from both repos
 
 ## Current candidate — F805/F812 personal ownership and F811 dual boards
 
+F1193 renames the app's Hot patches surface to Busy Patches and reuses the
+Bird Gen people-grid logo. Device acquisition follows the existing shared
+distance-to-county resolver without the old additional 45-mile Busy cutoff;
+Cold keeps its prior cutoff. The archived report retains its historical
+heading and radius policy, explicitly aliased by `reportLabel` in the TOC
+contract. The app preserves its existing richness/intensity/distance ranking;
+this is not adoption of Bird Gen's independent-party multiplier or F1192's
+unapproved metrics design. F1194 moves Favorite patches last in the app's
+Patches group without changing report order, saved data or destinations.
+
 F1145/F1146 rename and re-icon the app's Common birds opportunity surface as
 Birds I Need; the archived prevalence report and stable destination remain
 unchanged. F1143 temporarily disables Nemesis in the app without deleting

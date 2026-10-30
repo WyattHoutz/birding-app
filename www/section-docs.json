@@ -389,19 +389,19 @@
       ]
     },
     "hotBtn": {
-      "introduction": "A hot patch is a hotspot attracting unusually high reporting activity. This menu highlights places that have become busier over the last 30 days.",
+      "introduction": "Busy Patches highlights hotspots with concentrated recent sightings in your current search area. It reuses the app's existing distance-to-county search flow rather than a separate 45-mile cutoff.",
       "report": "## 🔥 Hot patches — Hotspots with recent surges",
-      "summary": "Hotspots getting unusually busy in the last 30 days.",
+      "summary": "Hotspots with concentrated recent sightings in your current search area.",
       "inputs": [
         "a bulk 30-day observation feed for the region"
       ],
       "how": [
-        "A hotspot qualifies on at least 5 fresh sightings inside the 30-day window.",
-        "Ranked on the surge relative to that hotspot's own normal activity, so a famously busy site does not permanently occupy the list.",
+        "A hotspot qualifies on at least 5 recently reported species; the reader also indexes seven recent days of daily sightings.",
+        "The existing ranking combines recent species richness, its share of all-time richness and distance. It is not the independent-party multiplier used by Bird Gen's Busy Patch alert.",
         "Each row lists the birds actually being reported there with species counts and recent checklists."
       ],
       "limits": [
-        "Bounded to about 40 mi from home by default.",
+        "Uses the current distance-derived county acquisition scope, honoring existing report and county selections. County-wide feeds can include patches beyond the numeric radius; there is no additional 45-mile cutoff.",
         "If every live source is unavailable, the previous ranking remains visible and durable with an explicit cached-results message; a failed scan is never saved as an empty ranking."
       ]
     },
