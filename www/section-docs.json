@@ -391,6 +391,7 @@
     "hotBtn": {
       "introduction": "Busy Patches highlights hotspots with concentrated recent sightings in your current search area. It reuses the app's existing distance-to-county search flow rather than a separate 45-mile cutoff.",
       "report": "## 🔥 Hot patches — Hotspots with recent surges",
+      "reportNote": "The archived report retains its original Hot patches heading and configured per-hotspot radius limit. The app's Busy Patches uses its current distance-derived county scope without that extra cutoff. Both retain richness-based ranking rather than Bird Gen's independent-party multiplier.",
       "summary": "Hotspots with concentrated recent sightings in your current search area.",
       "inputs": [
         "a bulk 30-day observation feed for the region"
