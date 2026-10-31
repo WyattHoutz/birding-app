@@ -2178,6 +2178,45 @@ const BOOTSTRAP = `
     ];
   }
   function fillHotspotHost(host, window, label, at) {
+    if (at === 'hotBtn') {
+      var now = Date.now(), checklists = [], coverage = {};
+      var places = [
+        { locId: 'L-MOCK-BUSY-1', name: 'Cedar River Mouth', lat: 47.499, lng: -122.219,
+          counts: [8, 2, 3, 1, 2], dist: 17.2 },
+        { locId: 'L-MOCK-BUSY-2', name: 'Marymoor Park — Bird Loop', lat: 47.658, lng: -122.118,
+          counts: [5, 1, 2, 1, 2], dist: 8.4 },
+        { locId: 'L-MOCK-BUSY-3', name: 'Union Bay Natural Area', lat: 47.657, lng: -122.29,
+          counts: [3, 1, 2, 1, 1], dist: 41 }
+      ];
+      places.forEach(function (place) {
+        coverage[place.locId] = { references: true, completeDays: true };
+        function add(days, person, offset) {
+          var date = new Date(now); date.setDate(date.getDate() - days);
+          date.setMinutes(date.getMinutes() - 10 - offset);
+          function pad(value) { return String(value).padStart(2, '0'); }
+          var stamp = date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+            + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+          checklists.push({ locId: place.locId, locName: place.name,
+            userDisplayName: place.locId + '-synthetic-' + person,
+            subId: place.locId + '-' + days + '-' + offset,
+            obsDt: stamp, isoObsDate: stamp, numSpecies: 20 + offset });
+        }
+        place.counts.forEach(function (count, period) {
+          for (var i = 0; i < count; i++) add(period * 7, i, i);
+        });
+        [2, 3, 4, 35].forEach(function (days) { add(days, 'regular', 20); });
+      });
+      var busy = window.BirdLogic.busyPatchActivity(checklists, { now: now, coverage: coverage })
+        .map(function (row) {
+          var place = places.find(function (p) { return p.locId === row.locId; });
+          return Object.assign(row, { lat: place.lat, lng: place.lng, dist: place.dist });
+        });
+      window.__mockBusyRows = busy;
+      window.__app.renderHot({ hot: [], busy: busy, cold: [],
+        busyState: { at: now, pending: false, partial: false } });
+      markHost(host, label);
+      return;
+    }
     var rows = hotspotRows(window, at);
     if (host.tagName === 'UL') {
       host.className = 'obs hscards hscards-medium mockfixture';

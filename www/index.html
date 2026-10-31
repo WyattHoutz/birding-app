@@ -2494,6 +2494,25 @@
     .busyPatchLogo { display: inline-flex; width: 1em; height: 1em; vertical-align: middle; }
     .busyPatchLogo > .surgehotspotthumb { width: 100%; height: 100%; margin: 0; border-radius: 4px; font-size: inherit; }
     .busyPatchLogo .surgehotspotpeople { font-size: .28em; }
+    #hotResults .busypatch { gap: 12px; align-items: center; padding: 14px 0; }
+    #hotResults .busypatch > .name > .ntext { font-size: min(calc(19px * var(--s)), 30px); }
+    #hotResults .busypatch > .name > .hsdist { align-self: center; }
+    #hotResults .busypatch > .meta, #hotResults .busypatch > .hslists { display: none; }
+    .busypatchscore { grid-column: 1; grid-row: 1; align-self: center; }
+    .busypatchscore > .surgehotspotthumb {
+      width: min(calc(80px * var(--s)), 96px); height: min(calc(80px * var(--s)), 96px);
+      border-radius: 8px; margin: 0; }
+    .busypatchscore .surgehotspotpeople {
+      grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr));
+      gap: 0; padding: 3px; font-size: min(calc(14px * var(--s)), 17px); }
+    .busypatchscore .surgehotspotmult {
+      left: 0; right: 0; text-align: center; padding: 2px 4px;
+      font-size: min(calc(24px * var(--s)), 30px); }
+    .busypatchreason { display: block; margin-top: 4px; font-size: calc(13px * var(--s));
+      line-height: 1.75; font-weight: 500; overflow-wrap: anywhere; color: var(--muted); }
+    .busypatchmetric { padding: 1px 0; border-radius: 3px; background: #edf4fa; color: #243746;
+      -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+    .busypatchmetric strong { font-weight: 750; }
     .surgepatchgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                       grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1px;
                       width: 100%; height: 100%; overflow: hidden; }
@@ -4298,7 +4317,7 @@
       <div class="row">
         <button id="hotBtn">Scan hotspots near home</button>
       </div>
-      <div id="hotStatus" class="status">Ranks nearby hotspots running hot — fresh sightings surging right now. Needs your Home location.</div>
+      <div id="hotStatus" class="status">Multiple estimated parties above each patch's usual activity. Needs your Home location.</div>
       <div id="hotMap"></div>
       <div id="hotResults"></div>
     </section>
@@ -5215,7 +5234,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.178.0';
+      var APP_VERSION = '1.179.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -37806,7 +37825,7 @@
       // is being fetched, and showing it costs nothing.
       var HOTCACHE_KEY = 'bc_hotspots_v1';
       function hotCacheKey() {
-        return HOTCACHE_KEY + ':busy-scope-v2:' + hotspotContextKey();
+        return HOTCACHE_KEY + ':busy-parties-v3:' + hotspotContextKey();
       }
       // ⚠️ F247. BOTH HALVES OF THIS WERE BROKEN, INDEPENDENTLY, AND THE CACHE
       // HAD NEVER ONCE HIT.
@@ -37824,8 +37843,9 @@
       // callers. Nothing here awaits its own write, because a cache write is
       // not something the scan should wait on.
       function hotCacheSave(r, key) {
-        if (!r) return;
-        zcPut(key || hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [] });
+        if (!r || !r.busyState || r.busyState.pending || r.busyState.partial) return;
+        zcPut(key || hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [],
+          busy: r.busy || [], busyState: r.busyState || null });
       }
       // Synchronous, because its callers paint with it. `zcPeek` answers from
       // the values this session has already decoded; `hotCacheWarm` below is
@@ -37888,8 +37908,7 @@
             + sample.attempted + ' feeds unavailable'
           : ' · 7 recent days indexed';
         var hotSt = $('hotStatus'), coldSt = $('coldStatus');
-        if (hotSt) hotSt.textContent = r.hot.length + ' busy patches in '
-          + countyLabelStr() + suffix + ' · ' + nowTime();
+        if (hotSt) hotSt.textContent = busyPatchStatus(r);
         if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
           + (r.cold.length === 1 ? '' : 's') + ' within '
           + HOTSPOT_MAX_DIST_MI + ' mi' + suffix + ' · ' + nowTime();
@@ -37926,7 +37945,7 @@
             if (hotspotContextKey() !== input.context) return;
             var text = 'Indexing recent hotspot history in background… '
               + done + '/' + total;
-            if ($('hotStatus')) $('hotStatus').textContent = text;
+            if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache || {});
             if ($('coldStatus')) $('coldStatus').textContent = text;
           },
           work
@@ -37953,6 +37972,10 @@
           });
           var enriched = computeHotspots(
             recent, input.meta, input.home, input.anchors);
+          if (_hotspotCache) {
+            enriched.busy = _hotspotCache.busy;
+            enriched.busyState = _hotspotCache.busyState;
+          }
           hotCacheSave(enriched, input.cacheKey);
           if (hotspotContextKey() !== input.context) return enriched;
           _hotspotCache = enriched;
@@ -38013,37 +38036,226 @@
         _hotspotPromise = promise;
         return promise;
       }
+      var _busyRange = 'all', _busySort = 'busy', _busyGeneration = 0, _busyRendered = null;
+      var _busyPromise = null, _busyContext = '';
+      function busyPatchReason(h) {
+        var phrases = [['busy-reason', h.observers + ' parties, above usual ' + h.baseline]];
+        if (h.currentDays != null && h.previousDays != null && h.currentDays > h.previousDays) {
+          var days = h.currentDays - h.previousDays;
+          phrases.push(['report-day-change', '+' + days + (days === 1 ? ' reported day' : ' reported days') + ' (7 days)']);
+        }
+        if (h.currentWeekChecklists != null && h.previousWeekChecklists != null
+            && h.currentWeekChecklists > h.previousWeekChecklists) {
+          var lists = h.currentWeekChecklists - h.previousWeekChecklists;
+          phrases.push(['checklist-change', '+' + lists + (lists === 1 ? ' checklist' : ' checklists') + ' (7 days)']);
+        }
+        if (h.referenceCounts && h.observers > Math.max.apply(null, h.referenceCounts)) {
+          var extra = h.observers - Math.max.apply(null, h.referenceCounts);
+          phrases.push(['above-history', extra + (extra === 1 ? ' party' : ' parties') + ' above past high']);
+        }
+        return '<span class="busypatchreason">' + phrases.map(function (phrase) {
+          return '<span class="busypatchmetric" data-metric="' + phrase[0]
+            + '"><strong>' + esc(phrase[1]) + '</strong></span>';
+        }).join('; ') + '.</span>';
+      }
+      function busyPatchTile(h) {
+        var count = Math.min(25, Math.max(1, Math.round(6 * h.ratio))), occupied = {};
+        for (var i = 0; i < count; i++) occupied[i * 7 % 25] = true;
+        var people = '';
+        for (var cell = 0; cell < 25; cell++) people += occupied[cell]
+          ? '<span class="busy-person">👥</span>' : '<span></span>';
+        return '<span class="busypatchscore"><span class="thumb surgehotspotthumb" role="img" aria-label="'
+          + esc(h.observers + ' estimated parties; ' + surgeHotspotMultiplier(h)
+            + ' usual activity; background density represents relative activity, not headcount')
+          + '"><span class="surgehotspotpeople" aria-hidden="true">' + people
+          + '</span><span class="surgehotspotmult" aria-hidden="true">'
+          + esc(surgeHotspotMultiplier(h)) + '</span></span></span>';
+      }
+      function busyPatchStatus(r) {
+        var state = r.busyState;
+        if (!state) return 'Checking current parties and matched reference history…';
+        var text = (r.busy || []).length + ' busy patches in ' + countyLabelStr();
+        if (state.pending) text += ' · checking references ' + state.checked + '/' + state.candidates;
+        if (state.partial) text += ' · partial coverage; some current activity or reference windows unmeasured';
+        if (state.cached) text += ' · cached activity shown';
+        if (state.unscored) text += ' · ' + state.unscored + ' candidates unscored (missing, shallow or zero baseline)';
+        return text + ' · ' + hotCacheAge(state.cached ? state.cachedAt : state.at);
+      }
       function renderHot(r) {
         var el = $('hotResults'); if (!el) return;
-        var top = r.hot.slice(0, 10), html = '';
+        _busyRendered = r;
+        var top = BL.busyPatchList(r.busy || [], {
+          maxMi: _busyRange === 'near' ? chaseMaxMi() : null, sort: _busySort
+        }), html = '<div class="raritycontrols">'
+          + ToggleControls.group({ cls: 'raritypick', label: 'Filter Busy Patches by distance',
+            options: [
+              { label: chaseMaxMi() + 'mi', cls: 'sortbtn', data: { 'busy-range': 'near' }, pressed: _busyRange === 'near' },
+              { label: 'All', cls: 'sortbtn', data: { 'busy-range': 'all' }, pressed: _busyRange === 'all' }
+            ] })
+          + ToggleControls.group({ cls: 'sortpick', label: 'Sort Busy Patches',
+            options: [
+              { label: 'Busy', cls: 'sortbtn', data: { 'busy-sort': 'busy' }, pressed: _busySort === 'busy' },
+              { label: 'Distance', cls: 'sortbtn', data: { 'busy-sort': 'distance' }, pressed: _busySort === 'distance' }
+            ] }) + '</div>';
         if (top.length) {
           html += '<ul class="obs dest">';
           top.forEach(function (h, i) {
-            // The sub-header answers "how alive is this place, and when was
-            // anyone last here" — the date leads because a 42-species haul
-            // from nine days ago is a different proposition from one today.
-            var hotFacts = [];
-            if (h.latest) hotFacts.push('latest ' + esc(fmtDate(h.latest)));
-            if (h.checklists) hotFacts.push(h.checklists + ' recent checklist'
-              + (h.checklists === 1 ? '' : 's'));
-            hotFacts.push(h.share.toFixed(0) + '% of region');
-            var bits = hotFacts.join(' · ');
-            html += hotspotRow(h, bits, i + 1, {
-              distanceTop: '🔥 ' + h.fresh + ' species / ' + HOTSPOT_OWN_DAYS + 'd',
-              distanceTopLabel: h.fresh + ' species reported in the last '
-                + HOTSPOT_OWN_DAYS + ' days'
+            html += HotspotCards.medium({
+              cls: 'busypatch', icon: busyPatchTile(h),
+              name: stakeHotspotLink(h.locId, h.name) + busyPatchReason(h),
+              distance: h.dist, distQ: h.lat + ',' + h.lng
             });
           });
           html += '</ul>';
-        } else html += '<div class="status">No busy patches qualify in ' + esc(countyLabelStr()) + ' right now.</div>';
+        } else html += '<div class="status">' + (r.busyState && !r.busyState.pending
+          ? 'No busy patches qualify in the available, scored history.'
+          : 'Checking current parties and each patch’s background…') + '</div>';
         el.innerHTML = html;
-        hydratePhotos(el);
-        hydrateLocSpecies(el).then(function (current) {
-          if (current !== false) return hydrateHotspotChecklists(el);
-        })
-          .catch(function (e) { dbg('warn', 'hotspot checklists: ' + ((e && e.message) || e)); });
+        el.onclick = function (event) {
+          var button = event.target.closest('[data-busy-range], [data-busy-sort]');
+          if (!button) return;
+          if (button.dataset.busyRange) _busyRange = button.dataset.busyRange;
+          if (button.dataset.busySort) _busySort = button.dataset.busySort;
+          renderHot(r);
+        };
+        var docBox = $('hotPanel').querySelector('.sectiondoc');
+        if (docBox && docBox.dataset.filled && !docBox.hidden) {
+          loadSectionDocs().then(function (docs) {
+            if (_busyRendered === r && !docBox.hidden) renderSectionDoc(docBox, docs.hotBtn);
+          });
+        }
         // Numbered pins match the list ranks, mirroring the report's section map.
         renderMap($('hotMap'), top, getHome(), false);
+      }
+      function busyChecklistCoverage(rows, now) {
+        var stamps = (rows || []).map(function (row) {
+          var text = row.isoObsDate || row.obsDt || '';
+          return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)
+            ? BL.recTime({ dateStr: text }) : NaN;
+        });
+        var ordered = stamps.length > 0 && stamps.every(function (stamp, index) {
+          return isFinite(stamp) && (!index || stamp <= stamps[index - 1]);
+        });
+        var tail = ordered ? stamps[stamps.length - 1] : Infinity;
+        var referenceEnd = new Date(now); referenceEnd.setDate(referenceEnd.getDate() - 28);
+        var completeStart = new Date(now); completeStart.setHours(0, 0, 0, 0);
+        completeStart.setDate(completeStart.getDate() - 14);
+        return {
+          ordered: ordered, current: tail <= now - 36 * 3600000,
+          references: tail <= +referenceEnd - 36 * 3600000,
+          completeDays: tail <= +completeStart
+        };
+      }
+      function startBusyPatches(input) {
+        if (_busyPromise && _busyContext === input.context && !input.force) return _busyPromise;
+        var generation = ++_busyGeneration, now = Date.now(), work = cancellableWork('Busy Patch references', 'hotBtn');
+        var cancelGeneration = work.cancelGeneration;
+        var apiKey = getKey();
+        work.cacheReportSlug = input.reportSlug;
+        work.current = function () {
+          return generation === _busyGeneration && cancelGeneration === _workCancelGeneration
+            && hotspotContextKey() === input.context && getKey() === apiKey;
+        };
+        _busyContext = input.context;
+        var previous = (_hotspotCache && _hotspotCache.busy) || [], meta = {};
+        var previousAt = _hotspotCache && _hotspotCache.busyState
+          ? _hotspotCache.busyState.cachedAt || _hotspotCache.busyState.at : now;
+        input.meta.forEach(function (h) {
+          if (h.locId && isFinite(+h.lat) && isFinite(+h.lng)) meta[h.locId] = h;
+        });
+        var state = { at: now, cachedAt: previousAt, checked: 0, candidates: 0, pending: true, partial: false };
+        var coverage = {}, all = [], scored = [];
+        function paint() {
+          if (!workCurrent(work)) return;
+          var r = _hotspotCache || { hot: [], cold: [] };
+          r.busy = state.pending && previous.length ? previous : scored;
+          r.busyState = Object.assign({}, state, { cached: state.pending && previous.length > 0 });
+          _hotspotCache = r;
+          renderHot(r);
+          if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(r);
+        }
+        function lists(path) {
+          return ebird(path + '?maxResults=1200', false, !!input.force, !!input.force, work)
+            .then(function (rows) {
+              if (!Array.isArray(rows) || !rows.length) throw new Error('Checklist coverage is unavailable.');
+              return { ok: true, rows: rows };
+            }).catch(function (e) {
+              if (e && e.queueCancelled) throw e;
+              return { ok: false, rows: [] };
+            });
+        }
+        function refreshScores() {
+          var activity = BL.busyPatchActivity(BL.normalizeChecklistRows(all), { now: now, coverage: coverage });
+          state.unscored = activity.filter(function (h) {
+            return h.observers >= 3 && h.ratio == null && meta[h.locId];
+          }).length;
+          scored = activity.filter(function (h) { return h.eligible && meta[h.locId]; })
+            .map(function (h) {
+              var m = meta[h.locId];
+              h.name = m.locName || h.name; h.lat = +m.lat; h.lng = +m.lng;
+              h.dist = haversineMi(input.home.lat, input.home.lng, h.lat, h.lng);
+              return h;
+            });
+          paint();
+        }
+        paint();
+        _busyPromise = Promise.all(input.codes.map(function (code) {
+          return lists('product/lists/' + encodeURIComponent(code));
+        })).then(function (feeds) {
+          if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
+          feeds.forEach(function (feed) {
+            if (!feed.ok) state.partial = true;
+            all.push.apply(all, feed.rows);
+            var depth = busyChecklistCoverage(feed.rows, now);
+            if (!depth.ordered || (feed.rows.length >= 1200 && !depth.current)) state.partial = true;
+          });
+          var candidates = BL.busyPatchActivity(BL.normalizeChecklistRows(all), { now: now })
+            .filter(function (h) { return h.observers >= 3 && meta[h.locId]; });
+          state.candidates = candidates.length;
+          state.unscored = candidates.length;
+          paint();
+          return candidates.reduce(function (promise, candidate) {
+            return promise.then(function () {
+              if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
+              return lists('product/lists/' + encodeURIComponent(candidate.locId));
+            }).then(function (feed) {
+              if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
+              state.checked++;
+              if (!feed.ok) { state.partial = true; paint(); return; }
+              var owned = feed.rows.filter(function (row) {
+                return (row.locId || (row.loc && row.loc.locId)) === candidate.locId;
+              });
+              if (owned.length !== feed.rows.length) state.partial = true;
+              var depth = busyChecklistCoverage(owned, now);
+              coverage[candidate.locId] = {
+                references: depth.references, completeDays: depth.completeDays
+              };
+              if (!coverage[candidate.locId].references) state.partial = true;
+              all.push.apply(all, owned);
+              refreshScores();
+            });
+          }, Promise.resolve());
+        }).then(function () {
+          if (!workCurrent(work)) return null;
+          state.pending = false;
+          if (state.partial && previous.length) scored = previous;
+          paint();
+          _hotspotCache.busyState.cached = state.partial && previous.length > 0;
+          if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache);
+          if (!state.partial) hotCacheSave(_hotspotCache, input.cacheKey);
+          return _hotspotCache;
+        }).catch(function (error) {
+          if (error && error.queueCancelled) return null;
+          if (workCurrent(work)) {
+            state.pending = false; state.partial = true;
+            if (previous.length) scored = previous;
+            paint();
+          }
+          return null;
+        }).finally(function () {
+          if (generation === _busyGeneration) _busyPromise = null;
+        });
+        return _busyPromise;
       }
       // Which birds are actually there is the reason to go; a bare count is not.
       // The split itself lives in splitHotspotBirds, and the layout in
@@ -38140,13 +38352,13 @@
               if (coldSt) coldSt.textContent = cachedMsg;
               return cachedResult;
             }
+            if (cachedResult && cachedResult.busy) {
+              r.busy = cachedResult.busy;
+              r.busyState = cachedResult.busyState;
+            }
             if (!r._feedIssue) hotCacheSave(r);
             renderHot(r); renderCold(r);
-            if (hotSt) hotSt.textContent = r.hot.length + ' busy patches in '
-              + countyLabelStr()
-              + (r._feedIssue ? ' \u00b7 partial live result \u00b7 some feeds unavailable'
-                              : ' \u00b7 indexing 7 recent days in background')
-              + ' \u00b7 ' + nowTime();
+            if (hotSt) hotSt.textContent = busyPatchStatus(r);
             if (coldSt) coldSt.textContent = r.cold.length + ' overlooked gem'
               + (r.cold.length === 1 ? '' : 's') + ' within '
               + HOTSPOT_MAX_DIST_MI + ' mi'
@@ -38155,6 +38367,7 @@
               + ' \u00b7 ' + nowTime();
             if (!r._feedIssue && r._ownershipInput) {
               setTimeout(function () { startHotspotOwnership(r._ownershipInput); }, 0);
+              return startBusyPatches(r._ownershipInput);
             }
             return r;
         }).catch(function (e) {
@@ -45559,14 +45772,7 @@
               results.forEach(function (r) {
                 if (Array.isArray(r.rows)) lists.push.apply(lists, r.rows);
               });
-              var norm = lists.map(function (c) {
-                return {
-                  locId: c.locId || (c.loc && c.loc.locId),
-                  locName: (c.loc && c.loc.name) || c.locName || '',
-                  userDisplayName: c.userDisplayName, subId: c.subId || c.subID,
-                  obsDt: c.isoObsDate || c.obsDt
-                };
-              });
+              var norm = BL.normalizeChecklistRows(lists);
               // The feed reaches back 2-3 days, so a hotspot's own norm has to
               // be remembered across sessions or almost nothing is measurable.
               // The report keeps the same tally in data/; the app keeps its own
@@ -47796,6 +48002,23 @@
       function renderSectionDoc(box, d) {
         var note = box.getAttribute('data-note') || '';
         box.innerHTML = window.BirdInfoDialogs.renderSectionDocHtml(d, note, esc);
+        if (box.closest('#hotPanel') && _busyRendered) {
+          var details = '<p>' + esc(busyPatchStatus(_busyRendered)) + '</p>';
+          (_busyRendered.busy || []).forEach(function (h) {
+            var age = Math.max(0, Math.round((h.at - BL.recTime({ dateStr: h.latest })) / 3600000));
+            var text = h.name + ': ' + h.observers + ' estimated parties; ' + h.checklists
+              + ' checklists in 36 hours; usual ' + h.baseline + ' parties; matched historical range '
+              + Math.min.apply(null, h.referenceCounts) + '–' + Math.max.apply(null, h.referenceCounts)
+              + ' parties; latest ' + age + 'h ago.';
+            if (h.currentDays != null) text += ' Complete-period report days ' + h.currentDays
+              + ' vs ' + h.previousDays + '; checklists ' + h.currentWeekChecklists + ' vs '
+              + h.previousWeekChecklists + '. Periods: ' + h.currentStart + ' through ' + h.currentEnd
+              + ', versus ' + h.previousStart + ' through ' + h.previousEnd + ' (local time).';
+            else text += ' Complete-day comparisons unavailable.';
+            details += '<p>' + esc(text) + '</p>';
+          });
+          box.insertAdjacentHTML('beforeend', details);
+        }
       }
       // The whole explanation, in one place.
       //
@@ -54182,6 +54405,8 @@
         hotspotFeeds: hotspotFeeds, hotspotCachedDays: hotspotCachedDays,
         runHotspotScan: runHotspotScan,
         startHotspotOwnership: startHotspotOwnership,
+        startBusyPatches: startBusyPatches, busyPatchReason: busyPatchReason,
+        busyChecklistCoverage: busyChecklistCoverage,
         hotspotContextKey: hotspotContextKey, hotCacheKey: hotCacheKey,
         hotspotOwnershipState: hotspotOwnershipState,
         HOTSPOT_OWN_DAYS: HOTSPOT_OWN_DAYS,

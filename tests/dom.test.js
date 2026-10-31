@@ -75,6 +75,207 @@ function surgeEvidence(root) {
   assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
   return templates[0].content;
 }
+test('F1197 production Busy cards give positive reasons, accessible density, sorting and Info', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    const rows = [{
+      locId: 'L-BUSY-FAR', name: 'Far fixture', observers: 11, baseline: 3.25,
+      ratio: 11 / 3.25, dist: 60, lat: 48, lng: -122,
+      checklists: 12, referenceCounts: [6, 3, 1, 3], at: Date.now(),
+      latest: recentObsStamp(0), currentDays: 7, previousDays: 7,
+      currentWeekChecklists: 27, previousWeekChecklists: 16,
+      currentStart: '2026-10-23', currentEnd: '2026-10-29',
+      previousStart: '2026-10-16', previousEnd: '2026-10-22'
+    }, {
+      locId: 'L-BUSY-NEAR', name: 'Near fixture', observers: 4, baseline: 3,
+      ratio: 4 / 3, dist: 8, lat: 47.7, lng: -122.1, checklists: 4,
+      referenceCounts: [6, 2, 2, 2], at: Date.now(), latest: recentObsStamp(0),
+      currentDays: 7, previousDays: 7, currentWeekChecklists: 22, previousWeekChecklists: 31
+    }];
+    A.renderHot({ hot: [], busy: rows, busyState: { at: Date.now(), pending: false }, cold: [] });
+    const host = app.$('hotResults');
+    const cards = [...host.querySelectorAll('.busypatch')];
+    assert.equal(cards.length, 2);
+    assert.match(cards[0].querySelector('.busypatchreason').textContent,
+      /^11 parties, above usual 3\.25; \+11 checklists \(7 days\); 5 parties above past high\.$/);
+    assert.equal(cards[1].querySelectorAll('.busypatchmetric').length, 1,
+      'unchanged days, falling checklists and parties below the past high are not Busy reasons');
+    assert.doesNotMatch(host.textContent, /latest|ago|vs|species|% of region/i);
+    assert.deepEqual(cards.map(card => card.querySelectorAll('.busy-person').length), [20, 8]);
+    assert.deepEqual(cards.map(card => card.querySelector('.surgehotspotmult').textContent), ['3.4×', '1.3×']);
+    assert.match(cards[0].querySelector('[role="img"]').getAttribute('aria-label'), /not headcount/);
+    assert.equal(cards[0].querySelector('.hslink').dataset.loc, 'L-BUSY-FAR');
+    assert.equal(cards[0].querySelector('.maplink').dataset.q, '48,-122');
+    host.querySelector('[data-busy-sort="distance"]').click();
+    assert.equal(host.querySelector('.hslink').dataset.loc, 'L-BUSY-NEAR');
+    assert.equal(host.querySelector('[data-busy-sort="distance"]').getAttribute('aria-pressed'), 'true');
+    host.querySelector('[data-busy-range="near"]').click();
+    assert.equal(host.querySelectorAll('.busypatch').length, 1);
+    host.querySelector('[data-busy-range="all"]').click();
+    assert.equal(host.querySelectorAll('.busypatch').length, 2);
+  } finally { app.window.close(); }
+});
+
+test('F1197 production intake fetches scoped public histories and does not score shallow baselines', async () => {
+  const now = Date.now(), rows = [];
+  const add = (locId, days, person, minutes) => {
+    const date = new Date(now); date.setDate(date.getDate() - days);
+    date.setMinutes(date.getMinutes() - minutes);
+    rows.push({ locId, locName: locId, isoObsDate: formatObsStamp(date),
+      userDisplayName: person, subId: `${locId}-${days}-${minutes}`, numSpecies: 20 });
+  };
+  for (const id of ['L-LIVE-BUSY', 'L-LIVE-SHALLOW', 'L-LIVE-OUTLIER', 'PRIVATE']) {
+    for (let i = 0; i < 3; i++) add(id, 0, `${id}-person-${i}`, 10 + i);
+    for (const day of [7, 14, 21, 28, 35]) add(id, day, `${id}-regular`, 20);
+  }
+  const app = await boot({ sample: false, fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) return rows.filter(row => row.isoObsDate >= recentObsStamp(1))
+      .sort((a, b) => b.isoObsDate.localeCompare(a.isoObsDate));
+    if (/product\/lists\/L-LIVE-BUSY/.test(url)) return rows.filter(row => row.locId === 'L-LIVE-BUSY');
+    if (/product\/lists\/L-LIVE-SHALLOW/.test(url)) return rows.filter(row =>
+      row.locId === 'L-LIVE-SHALLOW' && row.isoObsDate >= recentObsStamp(8));
+    if (/product\/lists\/L-LIVE-OUTLIER/.test(url)) {
+      const source = rows.filter(row => row.locId === 'L-LIVE-OUTLIER');
+      return [source.at(-1), ...source.slice(0, -1)];
+    }
+    return [];
+  } });
+  try {
+    const A = app.window.__app, context = A.hotspotContextKey();
+    const result = await A.startBusyPatches({
+      codes: ['US-WA-033'], context, home: { lat: 47.8, lng: -122.1 },
+      reportSlug: 'u-washington', cacheKey: A.hotCacheKey(),
+      meta: ['L-LIVE-BUSY', 'L-LIVE-SHALLOW', 'L-LIVE-OUTLIER'].map(locId => ({
+        locId, locName: locId, lat: 47.8, lng: -122.1
+      }))
+    });
+    assert.ok(result, 'the production acquisition did not finish');
+    assert.deepEqual(Array.from(result.busy, row => row.locId), ['L-LIVE-BUSY']);
+    assert.equal(result.busyState.partial, true);
+    assert.ok(app.state.fetches.some(url => /product\/lists\/L-LIVE-BUSY\?maxResults=1200/.test(url)));
+    assert.ok(!app.state.fetches.some(url => /product\/lists\/PRIVATE/.test(url)),
+      'custom/private locations are not public-hotspot candidates');
+    app.$('hotPanel').querySelector('.docbtn').click();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const info = app.$('hotPanel').querySelector('.sectiondoc');
+    assert.match(info.textContent, /latest \d+h ago/);
+    assert.match(info.textContent, /weak supporting indicator/i);
+    assert.match(info.textContent, /matched historical range/);
+    assert.doesNotMatch(app.$('hotResults').textContent, /latest|ago/);
+  } finally { app.window.close(); }
+});
+
+test('F1197 incomplete Busy refresh preserves its verified snapshot without persisting identities', async () => {
+  const now = Date.now(), rows = [];
+  for (const days of [0, 7, 14, 21, 28, 35]) {
+    for (let i = 0; i < (days === 0 ? 3 : 1); i++) {
+      const date = new Date(now); date.setDate(date.getDate() - days);
+      date.setMinutes(date.getMinutes() - 10 - i);
+      rows.push({ locId: 'L-CACHE-BUSY', locName: 'Cache fixture',
+        isoObsDate: formatObsStamp(date), subId: `cache-${days}-${i}`,
+        userDisplayName: `cache-person-${i}`, numSpecies: 20 + i });
+    }
+  }
+  const app = await boot({ sample: false, fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) return rows.slice(0, 3);
+    if (/product\/lists\/L-CACHE-BUSY/.test(url)) return rows;
+    return [];
+  } });
+  try {
+    const A = app.window.__app, key = A.hotCacheKey();
+    const input = { codes: ['US-WA-033'], context: A.hotspotContextKey(),
+      home: A.getHome(), reportSlug: A.getReportSlug(), cacheKey: key,
+      meta: [{ locId: 'L-CACHE-BUSY', locName: 'Cache fixture', lat: 47.8, lng: -122.1 }] };
+    const good = await A.startBusyPatches(input);
+    assert.equal(good.busyState.partial, false);
+    assert.equal(good.busy.length, 1, JSON.stringify(good));
+    await waitFor(() => app.window.localStorage.getItem(key), 'the durable measured Busy snapshot cache');
+    const before = JSON.stringify(await A.zcGet(key));
+    const durable = app.window.localStorage.getItem(key);
+    assert.doesNotMatch(before, /userDisplayName|subId|subID|cache-person/);
+    const at = good.busyState.at;
+    app.window.fetch = () => Promise.reject(new Error('offline control'));
+    const retained = await A.startBusyPatches({ ...input, force: true });
+    assert.deepEqual(Array.from(retained.busy, row => row.locId), ['L-CACHE-BUSY']);
+    assert.equal(retained.busyState.cached, true);
+    assert.equal(retained.busyState.cachedAt, at);
+    assert.match(app.$('hotStatus').textContent, /partial coverage.*cached activity/i);
+    assert.equal(JSON.stringify(await A.zcGet(key)), before,
+      'an incomplete activity refresh must not replace a complete durable snapshot');
+    assert.equal(app.window.localStorage.getItem(key), durable);
+  } finally { app.window.close(); }
+});
+
+test('F1197 a newer Busy operation owns publication even without a Home change', async () => {
+  const now = Date.now();
+  function history(locId) {
+    return [0, 7, 14, 21, 28, 35].flatMap(days => Array.from({ length: days === 0 ? 3 : 1 }, (_, i) => {
+      const date = new Date(now); date.setDate(date.getDate() - days);
+      date.setMinutes(date.getMinutes() - 10 - i);
+      return { locId, locName: locId, isoObsDate: formatObsStamp(date),
+        userDisplayName: `${locId}-person-${i}`, subId: `${locId}-${days}-${i}`, numSpecies: 20 + i };
+    }));
+  }
+  const oldRows = history('L-BUSY-OLD'), newRows = history('L-BUSY-NEW');
+  let round = 0, release;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) return (++round === 1 ? oldRows : newRows).slice(0, 3);
+    if (/product\/lists\/L-BUSY-OLD/.test(url)) return new Promise(resolve => { release = resolve; });
+    if (/product\/lists\/L-BUSY-NEW/.test(url)) return newRows;
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const input = { codes: ['US-WA-033'], context: A.hotspotContextKey(), home: A.getHome(),
+      reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(),
+      meta: ['L-BUSY-OLD', 'L-BUSY-NEW'].map(locId => ({ locId, locName: locId, lat: 47.8, lng: -122.1 })) };
+    const old = A.startBusyPatches(input);
+    await waitFor(() => release, 'the old Busy history request');
+    const current = A.startBusyPatches({ ...input, force: true });
+    release(oldRows);
+    assert.equal(await old, null, 'a superseded operation must not publish a score or successful result');
+    const latest = await current;
+    assert.deepEqual(Array.from(latest.busy, row => row.locId), ['L-BUSY-NEW']);
+    assert.doesNotMatch(app.$('hotResults').textContent, /L-BUSY-OLD/);
+  } finally { if (release) release(oldRows); app.window.close(); }
+});
+
+test('F1195 actual Bird Gen intake keeps a shared outing from becoming an independent-party alert', async () => {
+  const when = formatObsStamp(new Date(Date.now() - 600000));
+  const lists = Array.from({ length: 8 }, (_, i) => ({
+    locId: 'L-PRODUCTION-SHARED', locName: 'Synthetic shared outing',
+    userDisplayName: `shared-person-${i}`, subId: `shared-list-${i}`,
+    isoObsDate: when, obsTime: when.slice(11), numSpecies: 25
+  }));
+  for (let days = 2; days < 14; days++) {
+    const date = new Date(); date.setDate(date.getDate() - days);
+    lists.push({ locId: 'L-PRODUCTION-SHARED', locName: 'Synthetic shared outing',
+      userDisplayName: 'historical-regular', subId: `regular-${days}`,
+      isoObsDate: formatObsStamp(date), numSpecies: 10 });
+  }
+  const app = await boot({ sample: false, fetch(url) {
+    return /product\/lists\//.test(url) ? lists : [];
+  } });
+  try {
+    const BL = app.window.BirdLogic, original = BL.hotspotConvergence, readings = [];
+    BL.hotspotConvergence = function (rows, opts) {
+      const party = BL.buildParties(rows), current = rows.filter(row => row.obsDt === when);
+      readings.push({
+        parties: new Set(current.map(row => party(row.userDisplayName))).size,
+        events: original(rows, opts)
+      });
+      return readings.at(-1).events;
+    };
+    await app.window.__app.loadSurge();
+    assert.ok(readings.length > 0, 'the actual Bird Gen checklist adapter was not exercised');
+    assert.ok(readings.every(reading => reading.parties === 1),
+      'forwarded signatures must collapse the actual eight-name stationary outing');
+    assert.ok(readings.every(reading => reading.events.length === 0),
+      'one shared outing cannot pass the unchanged five-party alert gate');
+  } finally { app.window.close(); }
+});
+
 test('F1193 Busy Patches reuses the Bird Gen people-grid identity without a fabricated score', async () => {
   const app = await boot({ sample: false });
   try {
@@ -99,7 +300,7 @@ test('F1193 Busy Patches reuses the Bird Gen people-grid identity without a fabr
   } finally { app.window.close(); }
 });
 
-test('F1193 Busy Patches includes qualifying patches beyond the old ceiling while Cold keeps its limit', async () => {
+test('F1193 shared observation inventory keeps acquired-county rows while Cold retains its limit', async () => {
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app;
@@ -117,7 +318,7 @@ test('F1193 Busy Patches includes qualifying patches beyond the old ceiling whil
     assert.deepEqual(Array.from(result.cold, row => row.locId), ['L-FOOTHILLS'],
       'Cold retains its prior ceiling, including the 35-to-45-mile foothills ring');
     assert.equal(A.computeHotspots(recent.slice(0, 4), meta, { lat: 0, lng: 0 }, []).hot.length, 0,
-      'removing the distance cutoff must not weaken the five-species eligibility floor');
+      'the unchanged legacy observation inventory still requires five reported species');
   } finally { app.window.close(); }
 });
 
@@ -161,7 +362,7 @@ test('F1193 Busy Patches resolves distance-derived counties before scanning and 
     assert.equal(A.getCounties().length, 0);
     await A.runHotspotScan({});
     assert.deepEqual(Array.from(A.getCounties(), row => row.code), ['US-MI-161', 'US-MI-163']);
-    assert.match(app.$('hotResults').textContent, /Scope fixture 163/,
+    assert.match(app.$('coldResults').textContent, /Scope fixture 163/,
       'the first scan never acquired the distance-resolved county list');
     const originalKey = A.hotCacheKey();
     W.localStorage.setItem(A.chaseMiKey(), '25');
@@ -170,8 +371,8 @@ test('F1193 Busy Patches resolves distance-derived counties before scanning and 
     W.localStorage.setItem(A.chaseMiKey(), '5');
     await A.runHotspotScan({});
     assert.deepEqual(Array.from(A.getCounties(), row => row.code), ['US-MI-161']);
-    assert.match(app.$('hotResults').textContent, /Scope fixture 161/);
-    assert.doesNotMatch(app.$('hotResults').textContent, /Scope fixture 163/,
+    assert.match(app.$('coldResults').textContent, /Scope fixture 161/);
+    assert.doesNotMatch(app.$('coldResults').textContent, /Scope fixture 163/,
       'an in-memory or durable result from the wider county scope survived narrowing');
     assert.doesNotMatch(app.$('hotStatus').textContent, /45 mi|within 5 mi/,
       'county-wide acquisition must not claim a per-patch radius cutoff');
@@ -2331,14 +2532,14 @@ test('F1025 old location coverage cannot mask provisional hydration or its retai
         d: A.todayStr(), v: [{ code: 'ruff', name: 'Ruff', dateStr: when, subId: 'S1025101' }]
       }));
       const legacy = ls.getItem(legacyKey);
-      A.renderHot({ hot: [{
+      A.renderCold({ cold: [{
         locId: 'L10251', name: 'Synthetic public patch', lat: 47.7, lng: -122.2,
-        dist: 8, fresh: 1, checklists: 2, share: 5, latest: when,
+        dist: 8, silent: 0, alltime: 100, fresh: 1, checklists: 2, share: 5, latest: when,
         birds: [{ name: 'Ruff', code: 'ruff', unseen: true }],
       }] });
-      await waitFor(() => app.document.querySelector('#hotResults .hslists .spwhen'),
+      await waitFor(() => app.document.querySelector('#coldResults .hslists .spwhen'),
         'the actual location-cache hydration');
-      const list = app.document.querySelector('#hotResults .hslists');
+      const list = app.document.querySelector('#coldResults .hslists');
       const bird = [...list.querySelectorAll('.card-sm > li')].find(node =>
         /Leach's Storm-Petrel/.test(node.textContent));
       assert.ok(bird, 'broader coverage must replace the old confirmed-only subset');
@@ -31188,17 +31389,17 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
   const A = app.window.__app;
   const doc = app.window.document;
 
-  A.renderHot({
-    hot: [{
+  A.renderCold({
+    cold: [{
       locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-      fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
+      silent: 0, alltime: 100, fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
       birds: [{ name: 'Bird 0', code: 'sp0', unseen: true },
               { name: 'Bird 1', code: 'sp1', unseen: false }],
     }],
   });
   await waitFor(() => feeds.length === 1, 'the hotspot-local species read');
 
-  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const card = doc.querySelector('#coldResults [data-hsloc]');
   assert.ok(card, 'the card carries its locId so it can be corrected after paint');
   assert.equal(card.getAttribute('data-hsloc'), 'L1');
 
@@ -31220,26 +31421,21 @@ test('a hotspot card lists the birds seen AT THAT HOTSPOT, not the region feed',
   app.window.close();
 });
 
-test('F550 Hot patches says why each patch is hot above its distance', async () => {
+test('F550 Busy Patches replaces the obsolete species-richness badge with its qualifying activity', async () => {
   const app = await boot();
   const A = app.window.__app, doc = app.window.document;
   A.renderHot({
-    hot: [{
+    busy: [{
       locId: 'L-HOT', name: 'Burst Marsh', lat: 47.7, lng: -122.2, dist: 8,
-      fresh: 12, checklists: 4, share: 18, latest: todayFixtureDate(),
-      birds: [{ name: 'Tufted Puffin', code: 'tufpuf', unseen: true }],
+      observers: 4, baseline: 1, ratio: 4, referenceCounts: [1, 1, 1, 1],
+      checklists: 4, latest: todayFixtureDate(),
     }],
   });
   const card = doc.querySelector('#hotResults .hscard-md');
-  const metric = card.querySelector('.hsdist .hsdisttop');
-  assert.ok(metric, 'the Hot patches header gives no reason for its ranking');
-  assert.equal(metric.textContent.trim(), `🔥 12 species / ${A.HOTSPOT_OWN_DAYS}d`);
-  assert.equal(metric.getAttribute('aria-label'),
-    `12 species reported in the last ${A.HOTSPOT_OWN_DAYS} days`);
-  assert.equal(metric.parentElement.classList.contains('hsdist'), true,
-    'the surge metric is not above the large distance in the header');
-  assert.doesNotMatch(card.querySelector('.meta').textContent, /\b12 species\b/,
-    'the same surge count is repeated in the sub-header');
+  assert.equal(card.querySelector('.surgehotspotmult').textContent, '4×');
+  assert.match(card.querySelector('.busypatchreason').textContent, /^4 parties, above usual 1/);
+  assert.equal(card.querySelector('.hsdisttop'), null);
+  assert.doesNotMatch(card.textContent, /species|latest|ago/);
   app.window.close();
 });
 
@@ -35656,10 +35852,10 @@ test('F553 Today’s patches keeps newest checklist coverage when product lists 
   rep.codes = []; rep.watchHeld = []; rep.names = [];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
 
-  A.renderHot({
-    hot: [{
+  A.renderCold({
+    cold: [{
       locId: 'L-EDMONDS', name: 'Edmonds Waterfront',
-      lat: 47.8, lng: -122.4, dist: 11, fresh: 6,
+      lat: 47.8, lng: -122.4, dist: 11, silent: 0, alltime: 100, fresh: 6,
       checklists: 3, share: 5, latest: '2026-09-24',
       birds: locationRows.map((row) => ({
         name: row.comName, code: row.speciesCode, unseen: true,
@@ -35669,7 +35865,7 @@ test('F553 Today’s patches keeps newest checklist coverage when product lists 
   });
   await new Promise((resolve) => setTimeout(resolve, 900));
 
-  const card = doc.querySelector('#hotResults [data-hsloc="L-EDMONDS"]');
+  const card = doc.querySelector('#coldResults [data-hsloc="L-EDMONDS"]');
   const rows = [...card.querySelectorAll('.hotspotChecklistProgress .cklcard-sm')];
   assert.equal(rows.length, 3,
     'the fresh 8:48 checklist vanished because product/lists had not indexed it; '
@@ -35887,14 +36083,14 @@ test('F223: six checklists are one list, not five plus one', async () => {
   });
   const doc = app.window.document, A = app.window.__app;
   await seedSeen(app, [], null, [{code:'sp0',name:'Needed Bird'}]);
-  A.renderHot({
-    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-            fresh: 2, checklists: n, share: 5, latest: '2026-08-07',
+  A.renderCold({
+    cold: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            silent: 0, alltime: 100, fresh: 2, checklists: n, share: 5, latest: '2026-08-07',
             birds: [{ name: 'Needed Bird', code: 'sp0', unseen: true }] }],
   });
   await new Promise((r) => setTimeout(r, 900));
 
-  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const card = doc.querySelector('#coldResults [data-hsloc]');
   const det = card.querySelector('.hsckl .hotspotChecklistProgress');
   assert.ok(det, 'the checklists render');
   assert.equal(det.querySelectorAll('.cklcard-sm').length, n,
@@ -35984,13 +36180,13 @@ test('a hotspot with nothing you need lists no checklists at all', async () => {
   rep.codes = ['daejun']; rep.watchHeld = []; rep.names = ['Dark-eyed Junco'];
   app.window.localStorage.setItem('ebird_seen_field', 'speciesCode');
 
-  A.renderHot({
-    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-            fresh: 2, checklists: 2, share: 5, latest: '2026-08-07', birds: [] }],
+  A.renderCold({
+    cold: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            silent: 0, alltime: 100, fresh: 2, checklists: 2, share: 5, latest: '2026-08-07', birds: [] }],
   });
   await new Promise((r) => setTimeout(r, 900));
 
-  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const card = doc.querySelector('#coldResults [data-hsloc]');
   assert.equal(card.getAttribute('data-unseen-n'), '0',
     'the species pass ran and found nothing you need');
   assert.ok(!card.querySelector('.hsckl details'),
@@ -36023,14 +36219,14 @@ test('a hotspot card shows its recent checklists, and pays nothing extra', async
   });
   const doc = app.window.document;
   await seedSeen(app, [], null, [{code:'sp0',name:'Bird 0'}]);
-  app.window.__app.renderHot({
-    hot: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-            fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
+  app.window.__app.renderCold({
+    cold: [{ locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
+            silent: 0, alltime: 100, fresh: 2, checklists: 3, share: 5, latest: '2026-07-31',
             birds: [{ name: 'Bird 0', code: 'sp0', unseen: true }] }],
   });
   await new Promise((r) => setTimeout(r, 900));
 
-  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const card = doc.querySelector('#coldResults [data-hsloc]');
   const det = card.querySelector('.hsckl .hotspotChecklistProgress');
   assert.ok(det, 'the card carries its recent checklist list');
   assert.equal(det.hidden, false,
@@ -36759,7 +36955,7 @@ test('the hotspot scan reuses cached day lists and pays nothing (F253)', async (
   app.window.close();
 });
 
-test('F266 Hot patches owns a seven-day day-list floor without opening Common birds', async () => {
+test('F266 shared Cold acquisition keeps its seven-day day-list floor without inventing Busy scores', async () => {
   let historicCalls = 0;
   function rows(locId, locName, prefix) {
     return Array.from({ length: 5 }, (_, i) => ({
@@ -36805,16 +37001,15 @@ test('F266 Hot patches owns a seven-day day-list floor without opening Common bi
   app.window.Date.now = () => (limiterNow += 3000);
   A.fgWindowReset();
   A.fgSchedReset(limiterNow);
-  await A.runHotspotScan({ force: true });
-  assert.match(doc.getElementById('hotResults').textContent, /Collapsed-feed Park/,
-    'the ordinary four-call hotspot answer did not paint before background ownership');
-  assert.doesNotMatch(doc.getElementById('hotResults').textContent, /Day-list-owned Marsh/,
-    'the day-list result painted before its background feeds completed');
+  const initial = await A.runHotspotScan({ force: true });
+  assert.ok(initial.hot.some(row => row.name === 'Collapsed-feed Park'));
+  assert.equal(initial.busy.length, 0,
+    'species-richness rows without party/reference evidence must not become Busy cards');
+  assert.match(doc.getElementById('coldResults').textContent, /Collapsed-feed Park/);
 
   await waitFor(
-    () => historicCalls === 14
-      && /Day-list-owned Marsh/.test(doc.getElementById('hotResults').textContent),
-    'seven owned day lists per Washington county to enrich the visible hotspot scan',
+    () => historicCalls === 14 && A.hotspotOwnershipState().done,
+    'seven owned day lists per Washington county to enrich shared Cold data',
     15000,
   );
   const ownership = A.hotspotOwnershipState();
@@ -36822,6 +37017,10 @@ test('F266 Hot patches owns a seven-day day-list floor without opening Common bi
     'the measured seven-day ownership floor drifted');
   assert.equal(ownership.fetched, 14,
     'the owner did not fetch exactly seven missing days per two-county report');
+  const enriched = await A.runHotspotScan({});
+  assert.ok(enriched.hot.some(row => row.name === 'Day-list-owned Marsh'),
+    'background ownership must still enrich the shared observation data');
+  assert.equal(enriched.busy.length, 0, 'Cold ownership must not overwrite Busy activity with richness');
   assert.doesNotMatch(doc.body.textContent, /open Common birds/i,
     'the cache reader told the user to warm another section instead of owning its input');
   app.window.close();
@@ -36834,6 +37033,11 @@ test('F374 an all-offline Hot and Cold refresh keeps the last good ranking', asy
   const key = A.hotCacheKey();
   const cached = {
     t: Date.now() - 3600000,
+    busyState: { at: Date.now() - 3600000, pending: false, partial: false },
+    busy: [{
+      locId: 'F374-HOT', name: 'Cached Hot Marsh', lat: 47.74, lng: -122.15, dist: 1.2,
+      observers: 5, baseline: 1, ratio: 5, referenceCounts: [1, 1, 1, 1], checklists: 5
+    }],
     hot: [{
       locId: 'F374-HOT', name: 'Cached Hot Marsh',
       lat: 47.74, lng: -122.15, dist: 1.2, fresh: 5, share: 50,
@@ -36867,6 +37071,8 @@ test('F374 an all-offline Hot and Cold refresh keeps the last good ranking', asy
   const stored = await A.zcGet(key);
   assert.equal(stored.hot[0].locId, 'F374-HOT',
     'an all-failed scan poisoned the durable Hot cache with an empty array');
+  assert.equal(stored.busy[0].locId, 'F374-HOT',
+    'an all-failed scan poisoned the new Busy activity cache');
   assert.equal(stored.cold[0].locId, 'F374-COLD',
     'an all-failed scan poisoned the durable Cold cache with an empty array');
   app.window.close();
@@ -43629,13 +43835,13 @@ test('a shorter feed may correct a hotspot card, but never empty it', async () =
     {code:'tufpuf',name:'Tufted Puffin'}, {code:'commur',name:'Common Murre'},
   ]);
 
-  A.renderHot({ hot: [{ locId: 'L1', name: 'Sandel Lookout', lat: 47.7, lng: -122.2,
-    dist: 10, fresh: 2, checklists: 3, share: 5, latest: todayFixtureDate(),
+  A.renderCold({ cold: [{ locId: 'L1', name: 'Sandel Lookout', lat: 47.7, lng: -122.2,
+    dist: 10, silent: 0, alltime: 100, fresh: 2, checklists: 3, share: 5, latest: todayFixtureDate(),
     birds: [{ name: 'Tufted Puffin', code: 'tufpuf', unseen: true },
             { name: 'Common Murre', code: 'commur', unseen: true }] }] });
 
   const card = await waitFor(
-    () => { const c = doc.querySelector('#hotResults [data-hsloc]');
+    () => { const c = doc.querySelector('#coldResults [data-hsloc]');
             return c && c.getAttribute('data-unseen-n') != null ? c : null; },
     'the species pass to finish correcting the card');
 
@@ -52084,10 +52290,10 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     {code:'amecro',name:'American Crow'},
     ...[3,4,5,6,7,8].map(n=>({code:'fixture'+n,name:'Fixture Bird '+n})),
   ]);
-  A.renderHot({
-    hot: [{
+  A.renderCold({
+    cold: [{
       locId: 'L1', name: 'Fixture Hotspot', lat: 47.66, lng: -122.12,
-      dist: 8, fresh: 2, checklists: 31, share: 5, latest: '2026-09-16',
+      dist: 8, silent: 0, alltime: 100, fresh: 2, checklists: 31, share: 5, latest: '2026-09-16',
       birds: [
         { name: 'Sharp-tailed Sandpiper', code: 'shtsan', unseen: true },
         { name: 'Song Sparrow', code: 'sonspa', unseen: true },
@@ -52101,7 +52307,7 @@ test('F403 hotspot checklist rows share formatting, comments, and one progressiv
     }],
   });
   await waitFor(() => {
-    const slot = app.document.querySelector('#hotResults .hsckl');
+    const slot = app.document.querySelector('#coldResults .hsckl');
     return slot && !slot.hasAttribute('data-provisional')
       && slot.querySelector('.hotspotChecklistProgress');
   }, 'Today’s patches final checklist progressive list');
@@ -53658,17 +53864,17 @@ test('correcting a hotspot card must not cost it the date and the count', async 
   const A = app.window.__app;
   const doc = app.window.document;
 
-  A.renderHot({
-    hot: [{
+  A.renderCold({
+    cold: [{
       locId: 'L1', name: 'Big Park', lat: 47.7, lng: -122.2, dist: 8,
-      fresh: 2, checklists: 3, share: 5, latest: ymd,
+      silent: 0, alltime: 100, fresh: 2, checklists: 3, share: 5, latest: ymd,
       birds: [{ name: 'Bird 0', code: 'sp0', unseen: true }],
     }],
   });
-  await waitFor(() => doc.querySelectorAll('#hotResults .hslists .spwhen').length >= 2,
+  await waitFor(() => doc.querySelectorAll('#coldResults .hslists .spwhen').length >= 2,
     'the hotspot correction rows');
 
-  const card = doc.querySelector('#hotResults [data-hsloc]');
+  const card = doc.querySelector('#coldResults [data-hsloc]');
   assert.ok(card, 'the card rendered and carries its locId');
   const lists = card.querySelector('.hslists');
   assert.ok(lists && lists.innerHTML.trim(), 'the correction pass ran and wrote rows');

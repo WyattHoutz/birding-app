@@ -1921,6 +1921,113 @@
     return find;
   }
 
+  function normalizeChecklistRows(rows) {
+    return (rows || []).map(function (c) {
+      return {
+        locId: c.locId || (c.loc && c.loc.locId),
+        locName: (c.loc && c.loc.name) || c.locName || '',
+        userDisplayName: c.userDisplayName, subId: c.subId || c.subID,
+        obsDt: c.isoObsDate || c.obsDt,
+        isoObsDate: c.isoObsDate, obsTime: c.obsTime, numSpecies: c.numSpecies
+      };
+    });
+  }
+
+  function busyPatchActivity(rows, opts) {
+    opts = opts || {};
+    var now = opts.now == null ? Date.now() : opts.now;
+    var coverage = opts.coverage || {}, seen = {}, items = [];
+    (rows || []).forEach(function (r) {
+      if (!r || !r.locId) return;
+      var t = recTime({ dateStr: r.obsDt || r.dateStr });
+      if (!isFinite(t) || t > now) return;
+      var key = r.subId && r.locId + '|' + r.subId + '|'
+        + String(r.userDisplayName || '').trim().toLowerCase();
+      if (key && seen[key]) return;
+      if (key) seen[key] = true;
+      items.push({ row: r, t: t });
+    });
+    function shifted(days) {
+      var date = new Date(now);
+      date.setDate(date.getDate() - days);
+      return date.getTime();
+    }
+    function countWindow(end) {
+      var selected = items.filter(function (x) {
+        return x.t >= end - 36 * 3600000 && x.t <= end;
+      });
+      // A historical travelling group must not merge today's independent visits.
+      var party = buildParties(selected.map(function (x) { return x.row; }));
+      var counts = {};
+      selected.forEach(function (x, index) {
+        var r = x.row, c = counts[r.locId] || (counts[r.locId] = {
+          parties: {}, lists: {}, name: r.locName || r.locId, latest: '', at: -Infinity
+        });
+        var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
+        c.parties[party(who)] = true;
+        c.lists[r.subId || 'row:' + index] = true;
+        if (x.t > c.at) { c.at = x.t; c.latest = r.obsDt || r.dateStr; }
+      });
+      return counts;
+    }
+    var current = countWindow(now);
+    var references = [7, 14, 21, 28].map(function (days) {
+      return countWindow(shifted(days));
+    });
+    var midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+    var weekStart = new Date(midnight); weekStart.setDate(weekStart.getDate() - 7);
+    var priorStart = new Date(midnight); priorStart.setDate(priorStart.getDate() - 14);
+    var weeks = {};
+    items.forEach(function (x, index) {
+      if (x.t < +priorStart || x.t >= +midnight) return;
+      var c = weeks[x.row.locId] || (weeks[x.row.locId] = [
+        { days: {}, lists: {} }, { days: {}, lists: {} }
+      ]);
+      var period = c[x.t >= +weekStart ? 0 : 1];
+      period.days[dayStr(x.row.obsDt || x.row.dateStr)] = true;
+      period.lists[x.row.subId || 'row:' + index] = true;
+    });
+    return Object.keys(current).sort().map(function (locId) {
+      var c = current[locId], evidence = coverage[locId] || {};
+      var refs = evidence.references ? references.map(function (window) {
+        return window[locId] ? Object.keys(window[locId].parties).length : 0;
+      }) : null;
+      var baseline = refs ? refs.reduce(function (a, b) { return a + b; }, 0) / 4 : null;
+      var parties = Object.keys(c.parties).length;
+      var ratio = baseline > 0 ? parties / baseline : null;
+      var periods = weeks[locId] || [{ days: {}, lists: {} }, { days: {}, lists: {} }];
+      return {
+        locId: locId, name: c.name, observers: parties, checklists: Object.keys(c.lists).length,
+        baseline: baseline, ratio: ratio, referenceCounts: refs,
+        eligible: parties >= 3 && ratio != null && parties > baseline,
+        latest: c.latest, at: now,
+        currentDays: evidence.completeDays ? Object.keys(periods[0].days).length : null,
+        previousDays: evidence.completeDays ? Object.keys(periods[1].days).length : null,
+        currentWeekChecklists: evidence.completeDays ? Object.keys(periods[0].lists).length : null,
+        previousWeekChecklists: evidence.completeDays ? Object.keys(periods[1].lists).length : null,
+        currentStart: isoDay(+weekStart), currentEnd: isoDay(+midnight - 1),
+        previousStart: isoDay(+priorStart), previousEnd: isoDay(+weekStart - 1)
+      };
+    });
+  }
+
+  function busyPatchList(rows, opts) {
+    opts = opts || {};
+    function distance(row) { return Number.isFinite(row.dist) ? row.dist : Infinity; }
+    return (rows || []).filter(function (row) {
+      return row.observers >= 3 && Number.isFinite(row.baseline) && row.baseline > 0
+        && row.observers > row.baseline && Number.isFinite(row.ratio)
+        && (opts.maxMi == null || distance(row) <= opts.maxMi);
+    }).sort(function (a, b) {
+      var an = String(a.name).toLowerCase(), bn = String(b.name).toLowerCase();
+      var ai = String(a.locId), bi = String(b.locId);
+      return (opts.sort === 'distance' ? distance(a) - distance(b)
+        : b.ratio - a.ratio || b.observers - a.observers)
+        || distance(a) - distance(b) || (an < bn ? -1 : an > bn ? 1 : 0)
+        || (ai < bi ? -1 : ai > bi ? 1 : 0);
+    });
+  }
+
   function hotspotConvergence(rows, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
@@ -5161,6 +5268,9 @@
     },
     tickCascades: tickCascades,
     hotspotConvergence: hotspotConvergence,
+    normalizeChecklistRows: normalizeChecklistRows,
+    busyPatchActivity: busyPatchActivity,
+    busyPatchList: busyPatchList,
     isHotspotConvergence: isHotspotConvergence,
     // F124: one definition, two readings — each section declares which it
     // takes, so the difference is a stated choice rather than an accident.

@@ -389,21 +389,27 @@
       ]
     },
     "hotBtn": {
-      "introduction": "Busy Patches highlights hotspots with concentrated recent sightings in your current search area. It reuses the app's existing distance-to-county search flow rather than a separate 45-mile cutoff.",
+      "introduction": "Busy Patches explains where multiple estimated parties are reporting more activity than that patch's own usual level. Reporting frequency is weak supporting context, not proof of a rare bird.",
       "report": "## 🔥 Hot patches — Hotspots with recent surges",
-      "reportNote": "The archived report retains its original Hot patches heading and configured per-hotspot radius limit. The app's Busy Patches uses its current distance-derived county scope without that extra cutoff. Both retain richness-based ranking rather than Bird Gen's independent-party multiplier.",
-      "summary": "Hotspots with concentrated recent sightings in your current search area.",
+      "reportNote": "The archived report retains its original richness-based Hot patches output. The app's Busy Patches redesign instead compares estimated parties with matched historical windows; its shared calculation is parity-tested against Python.",
+      "summary": "At least three estimated parties, strictly above their own usable historical average.",
       "inputs": [
-        "a bulk 30-day observation feed for the region"
+        "recent county checklist feeds within the current acquisition scope",
+        "targeted public-hotspot checklist histories for current multi-party candidates"
       ],
       "how": [
-        "A hotspot qualifies on at least 5 recently reported species; the reader also indexes seven recent days of daily sightings.",
-        "The existing ranking combines recent species richness, its share of all-time richness and distance. It is not the independent-party multiplier used by Bird Gen's Busy Patch alert.",
-        "Each row lists the birds actually being reported there with species counts and recent checklists."
+        "Browse eligibility requires at least three estimated parties in the current 36 hours, strictly above a nonzero mean of four separate 36-hour references ending at the same local weekday and time one to four weeks earlier.",
+        "Repeat reporting identities count once per window. Shared-checklist signatures and existing same-day convoy evidence merge travelling parties independently within each window. Display names estimate identities; they do not verify physical visitors.",
+        "Busy sorts by the unrounded multiplier, parties, distance and name. Distance sorts nearest first without changing eligibility. All includes eligible patches within acquired counties, not worldwide data; the distance pill applies an additional Home-radius filter.",
+        "The printed multiplier measures relative reporting activity, not headcount. Crowd density adds a redundant bounded visual cue; the generic heading logo has no invented score.",
+        "Descriptions lead with the actual qualifying reason and add only positive changes in complete seven-day reporting dates, checklist totals or parties above the sampled historical high. Unchanged comparisons, declines, range and latest-checklist age remain in Info.",
+        "Reporting-day frequency is a weak supporting indicator only: it never changes eligibility, ranking, the multiplier or alerts. Bird Gen retains its existing five-party/four-times alert rules."
       ],
       "limits": [
-        "Uses the current distance-derived county acquisition scope, honoring existing report and county selections. County-wide feeds can include patches beyond the numeric radius; there is no additional 45-mile cutoff.",
-        "If every live source is unavailable, the previous ranking remains visible and durable with an explicit cached-results message; a failed scan is never saved as an empty ranking."
+        "County feeds and targeted histories are capped at 1200 rows per request. References require full timestamps, newest-first date ordering and a measured tail before the oldest required window. An isolated old outlier cannot prove coverage; shallow, missing, zero and failed baselines never become infinity or a qualifying claim.",
+        "Complete-day comparisons exclude today's partial day and require history reaching before both seven-day periods. These deltas are descriptive, not statistical significance; the sampled historical range is not a prediction interval.",
+        "Late, private, missing and capped checklists limit public-report coverage. Current candidates are acquired first; scored rows can appear as each targeted history completes. An incomplete refresh preserves the last-good activity snapshot with explicit cached/partial status and is not saved over it.",
+        "Cold keeps its existing calculation and background seven-day observation indexing. No report output, proxy or runtime GitHub request supplies device activity."
       ]
     },
     "coldBtn": {

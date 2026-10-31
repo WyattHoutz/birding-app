@@ -17,9 +17,89 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const BL = require(path.join(__dirname, '..', 'www', 'logic.js'));
+const BL = require(process.env.BIRDCHASER_LOGIC || path.join(__dirname, '..', 'www', 'logic.js'));
 const TRAVEL = JSON.parse(fs.readFileSync(
   path.join(__dirname, '..', 'www', 'travel-zones.json'), 'utf8'));
+
+function busyFixture() {
+  const now = new Date(2026, 9, 30, 18).getTime();
+  const rows = [];
+  function add(locId, days, observer, minute = 0, extra = {}) {
+    const d = new Date(now); d.setDate(d.getDate() - days); d.setHours(9, minute, 0, 0);
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(d.getDate()).padStart(2, '0')} 09:${String(minute).padStart(2, '0')}`;
+    rows.push({ locId, locName: locId, userDisplayName: observer,
+      subId: `${locId}-${rows.length}`, obsDt: stamp, ...extra });
+  }
+  for (const loc of ['busy', 'equal', 'under', 'zero', 'unknown']) {
+    for (let i = 0; i < (loc === 'under' ? 2 : 3); i++) add(loc, 0, `${loc}-today-${i}`, i);
+    for (const day of [7, 14, 21, 28]) {
+      if (loc === 'zero') continue;
+      for (let i = 0; i < (loc === 'equal' ? 3 : 1); i++) add(loc, day, `${loc}-old-${i}`, i);
+    }
+  }
+  add('busy', 0, 'busy-today-0', 20);
+  for (const day of [1, 2, 3, 8]) add('busy', day, 'regular');
+  return { now, rows, add, coverage: Object.fromEntries(
+    ['busy', 'equal', 'under', 'zero'].map(id => [id, { references: true, completeDays: true }])) };
+}
+
+test('F1197 browse uses independent matched windows, strict background and a three-party floor', () => {
+  const f = busyFixture();
+  const result = BL.busyPatchActivity(f.rows.concat(f.rows), f);
+  const busy = result.find(row => row.locId === 'busy');
+  assert.deepEqual(busy.referenceCounts, [2, 1, 1, 1]);
+  assert.equal(busy.observers, 4, 'repeat lists are one identity; yesterday adds one distinct regular');
+  assert.equal(busy.checklists, 5, 'duplicate source rows do not duplicate checklists');
+  assert.equal(busy.ratio, 3.2);
+  assert.equal(busy.currentDays, 4);
+  assert.equal(busy.previousDays, 2);
+  assert.deepEqual(result.filter(row => row.eligible).map(row => row.locId), ['busy']);
+  assert.equal(result.find(row => row.locId === 'zero').ratio, null);
+  assert.equal(result.find(row => row.locId === 'unknown').baseline, null);
+  const weak = BL.busyPatchActivity(f.rows, { now: f.now, coverage: {
+    ...f.coverage, busy: { references: true, completeDays: false }
+  } }).find(row => row.locId === 'busy');
+  assert.equal(weak.currentDays, null);
+  assert.equal(weak.ratio, busy.ratio);
+  assert.equal(weak.eligible, busy.eligible);
+});
+
+test('F1195 checklist normalization retains shared signatures and window-local parties', () => {
+  const f = busyFixture();
+  f.add('shared', 0, 'shared-a', 0, { subId: 'shared-list', isoObsDate: '2026-10-30 09:00', obsTime: '09:00', numSpecies: 20 });
+  f.add('shared', 0, 'shared-b', 0, { subId: 'shared-list', isoObsDate: '2026-10-30 09:00', obsTime: '09:00', numSpecies: 20 });
+  // These observers once shared two stops, but are independent in today's window.
+  for (const loc of ['convoy-a', 'convoy-b']) {
+    f.add(loc, 7, 'busy-today-0');
+    f.add(loc, 7, 'busy-today-1', 1);
+  }
+  const normalized = BL.normalizeChecklistRows(f.rows);
+  const result = BL.busyPatchActivity(normalized, f);
+  assert.equal(result.find(row => row.locId === 'shared').observers, 1);
+  assert.equal(result.find(row => row.locId === 'shared').checklists, 1);
+  assert.equal(result.find(row => row.locId === 'busy').observers, 4,
+    'historical group evidence cannot leak into current party membership');
+  const signature = normalized.find(row => row.locId === 'shared');
+  assert.equal(signature.isoObsDate, '2026-10-30 09:00');
+  assert.equal(signature.obsTime, '09:00');
+  assert.equal(signature.numSpecies, 20);
+});
+
+test('F1197 distance and Busy order preserve eligibility, unrounded scores and input rows', () => {
+  const base = { observers: 3, baseline: 1, ratio: 3 };
+  const rows = [
+    { ...base, locId: 'far', name: 'Far', dist: 60, ratio: 3.04 },
+    { ...base, locId: 'near', name: 'Near', dist: 10, ratio: 3.01 },
+    { ...base, locId: 'under', name: 'Under', dist: 1, observers: 2 },
+    { ...base, locId: 'equal', name: 'Equal', dist: 1, baseline: 3 },
+    { ...base, locId: 'unknown', name: 'Unknown', dist: 1, baseline: null }
+  ];
+  assert.deepEqual(BL.busyPatchList(rows).map(row => row.locId), ['far', 'near']);
+  assert.deepEqual(BL.busyPatchList(rows, { sort: 'distance' }).map(row => row.locId), ['near', 'far']);
+  assert.deepEqual(BL.busyPatchList(rows, { maxMi: 35 }).map(row => row.locId), ['near']);
+  assert.deepEqual(rows.map(row => row.locId), ['far', 'near', 'under', 'equal', 'unknown']);
+});
 
 test('F573 remote notable evidence is separate, bounded, public, and ranked', () => {
   const profile = {
