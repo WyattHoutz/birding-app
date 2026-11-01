@@ -796,31 +796,27 @@ const AUDIT = `<script>
     var menuWarnings = [];
     var watchNames = [];
     var watchPhotos = [];
+    var hotspotReadability = vis ? [].map.call(vis.querySelectorAll(
+      '#hotResults .busypatch, #stakeHsResults .hscard-lg'),
+      ${require('./card-readability').toString()}) : [];
     if (label === 'sec-nvResults') {
-      var measure = document.createElement('canvas').getContext('2d');
-      watchNames = [].map.call(document.querySelectorAll('#nvResults .nvrow .ntext'), function (name) {
-        measure.font = getComputedStyle(name).font;
-        return {
-          width: name.getBoundingClientRect().width,
-          required: Math.max.apply(null, name.textContent.trim().split(/\\s+/).map(function (word) {
-            return measure.measureText(word).width;
-          }))
-        };
+      var watchReadability = ${require('./card-readability').toString()};
+      watchNames = [].map.call(document.querySelectorAll('#nvResults .nvrow'), function (row) {
+        var reading = watchReadability(row);
+        return { width: reading.width, required: reading.required };
       });
       watchPhotos = [].map.call(document.querySelectorAll('#nvResults .nvrow .thumb'), function (photo) {
         var box = photo.getBoundingClientRect();
         var row = photo.closest('.nvrow'), top = row.getBoundingClientRect().top;
         var button = row.querySelector('.nvdel'), action = button.getBoundingClientRect();
-        var main = row.querySelector('.favmain'), text = main.getBoundingClientRect();
+        var main = row.querySelector('.ntext'), text = main.getBoundingClientRect();
         var textBelow = getComputedStyle(row).display === 'grid'
           && getComputedStyle(main).gridRowStart === '2';
         var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
         return {width: box.width, height: box.height,
-          maximum: Math.min(128 * scale, innerWidth * 0.28),
-          topAligned: Math.abs(box.top - top) <= 1 && Math.abs(action.top - top) <= 1
-            && (textBelow ? text.top >= Math.max(box.bottom, action.bottom)
-              : Math.abs(text.top - top) <= 1 && text.right <= action.left),
-          usableRemove: button.textContent === '− Remove' && action.width >= 44 && action.height >= 44};
+          maximum: 80,
+          topAligned: box.right <= text.left + 1 || box.bottom <= text.top + 1,
+          usableRemove: button.textContent === 'Remove Watch' && action.width >= 44 && action.height >= 44};
       });
     }
     var savedSearch = [];
@@ -1142,6 +1138,7 @@ const AUDIT = `<script>
       favoriteHeaders: favoriteHeaders,
       watchNames: watchNames,
       watchPhotos: watchPhotos,
+      hotspotReadability: hotspotReadability,
       savedSearch: savedSearch,
       migrationWords: migrationWords,
       watchRows: label === 'sec-nvResults'
@@ -1237,6 +1234,10 @@ const AUDIT = `<script>
       var title = root.querySelector('.hscardhead').getBoundingClientRect();
       var qrNode = root.querySelector('.hscardhead > .qrbtn');
       var qr = qrNode && qrNode.getBoundingClientRect();
+      var externalNode = root.querySelector('.hscardhead > .stakeEbird');
+      var external = externalNode && externalNode.getBoundingClientRect();
+      var qrIcon = qrNode && qrNode.querySelector('svg').getBoundingClientRect();
+      var externalIcon = externalNode && externalNode.querySelector('svg').getBoundingClientRect();
       var titleText = root.querySelector('.hscardhead > .ntext').getBoundingClientRect();
       var favorite = fav.getBoundingClientRect();
       var identity = root.querySelector('.stakeHsIdentity').getBoundingClientRect();
@@ -1245,9 +1246,15 @@ const AUDIT = `<script>
       var detailScan = scan('(F828 hotspot favorite ' + (saved ? 'Remove' : 'Add') + ')');
       detailScan.hotspotQr = {
         inHeading: !!qrNode,
-        separated: !!qr && qr.left >= titleText.right,
-        rightAligned: !!qr && Math.abs(qr.right - title.right) <= 1,
-        sameHeader: !!qr && qr.top >= title.top - 1 && qr.bottom <= title.bottom + 1
+        separated: !!qr && (qr.left >= titleText.right || qr.top >= titleText.bottom),
+        rightAligned: !!qr && !!external && qrNode.nextElementSibling === externalNode
+          && qr.right <= external.left && Math.abs(external.right - title.right) <= 1,
+        sameHeader: !!qr && qr.top >= title.top - 1 && qr.bottom <= title.bottom + 1,
+        externalGlyph: !!externalIcon && !!qrIcon && externalIcon.width >= qrIcon.width - 1
+          && externalIcon.height >= qrIcon.height - 1
+          && externalIcon.left >= external.left && externalIcon.right <= external.right
+          && externalNode.scrollWidth <= externalNode.clientWidth,
+        readableTitle: !(${require('./card-readability').toString()})(root.querySelector('.hscard-lg')).wordBroken
       };
       detailScan.hotspotFavorite = {
         saved: saved, pressed: fav.getAttribute('aria-pressed'),
@@ -1511,9 +1518,9 @@ const AUDIT = `<script>
           document.querySelectorAll('#myYearList .myYearWatchlist').forEach(function(button) {
             var watched=button.getAttribute('aria-pressed')==='true',style=getComputedStyle(button);
             var bg=watchLuminance(style.backgroundColor),fg=watchLuminance(style.color);
-            if(style.backgroundColor!==(watched?'rgb(230, 159, 0)':'rgb(0, 114, 178)')
-              ||style.color!==(watched?'rgb(0, 0, 0)':'rgb(255, 255, 255)')
-              ||style.borderStyle!==(watched?'dashed':'solid')
+            if(style.backgroundColor!==(watched?'rgb(201, 74, 56)':'rgb(51, 153, 51)')
+              ||style.color!=='rgb(0, 0, 0)'
+              ||style.borderStyle!=='solid'
               ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<4.5)
               throw new Error('F1147 live Watch palette or contrast failed in '+theme);
           });
@@ -2282,7 +2289,8 @@ const AUDIT = `<script>
           A.showSection('sec-nvResults');
           return A.LOADERS.nvResults.fn();
         }).then(function (ready) {
-          if (!ready || !/Marymoor Park/.test(document.getElementById('nvResults').textContent)) {
+          if (!ready || !/Marymoor Park/.test(A.watchEvidence().rows.baisan?.loc || '')
+              || /Marymoor Park/.test(document.getElementById('nvResults').textContent)) {
             throw new Error('Populated Watch fixture did not acquire actual details.');
           }
           var watch = scan('sec-nvResults');
@@ -4127,8 +4135,8 @@ server.listen(0, '127.0.0.1', () => {
             !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'
-            || action.color!==(action.pressed==='true'?'rgb(0, 0, 0)':'rgb(255, 255, 255)')
-            || action.background!==(action.pressed==='true'?'rgb(230, 159, 0)':'rgb(0, 114, 178)'))){
+            || action.color!=='rgb(0, 0, 0)'
+            || action.background!==(action.pressed==='true'?'rgb(201, 74, 56)':'rgb(51, 153, 51)'))){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }
@@ -4387,6 +4395,10 @@ server.listen(0, '127.0.0.1', () => {
         if (Object.values(r.hotspotQr).some(value => !value)) {
           bad++;
           console.log('   F845 hotspot QR must be right-aligned beside the title');
+        }
+        if (r.hotspotReadability && r.hotspotReadability.some(card => card.wordBroken || card.titleClipped)) {
+          bad++;
+          console.log('   HOTSPOT TITLE CRUSHED ' + JSON.stringify(r.hotspotReadability));
         }
       }
       if (r.hotspotFavorite) {

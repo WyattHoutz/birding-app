@@ -441,7 +441,7 @@ module.exports = function registerMigrationSetupControls({
       const row = A.birdcastSurgeRows(now, snapshot)[0];
       assert.ok(row);
       assert.match(row.name, /Low migration forecast for King County/);
-      assert.match(row.name, /109,900 birds last night/);
+      assert.match(row.name, /109,900 birds migrated last night\./);
       assert.match(row.extra, /source night 2026-03-07.*separate from the forecast/);
       assert.equal(row.when, '2026-03-08T08:00:00.000Z', 'spring midnight precedes the DST transition');
       const refreshed = A.birdcastSurgeRows(new Date('2026-03-08T21:00:00Z'), {
@@ -825,7 +825,7 @@ module.exports = function registerMigrationSetupControls({
       app.click(app.$('recentBirdGenOpen'));
       holdHistory = false;
       held.splice(0).forEach(release => release());
-      await waitFor(() => app.$('surgeResults').dataset.sourceMass === 'ok'
+      await waitFor(() => ['ok', 'partial'].includes(app.$('surgeResults').dataset.sourceMass)
         && A.loadSurgeRetained()?.mass?.arrivalPending === false,
       'new Bird Gen owner settles arrival checks');
       metrics.handoffSettleMs = Math.round(performance.now() - start);
@@ -834,6 +834,17 @@ module.exports = function registerMigrationSetupControls({
       t.diagnostic(JSON.stringify(metrics));
       assert.equal(pageCount(), pagesBefore, 'navigation repeated an already acquired high-count page');
       const completed = A.loadSurgeRetained().mass;
+      assert.equal(app.$('surgeResults').dataset.sourceMass, completed.arrivalBaseState);
+      assert.equal(completed.arrivalPending, false);
+      const flock = completed.rows[0], history = completed.arrivalDays[flock.locId];
+      const acquiredDay = new Date(completed.acquiredAt);
+      const acquiredDate = acquiredDay.getFullYear() + '-'
+        + String(acquiredDay.getMonth() + 1).padStart(2, '0') + '-'
+        + String(acquiredDay.getDate()).padStart(2, '0');
+      assert.ok(history && Object.entries(history).some(([day, rows]) =>
+        day < acquiredDate && rows.some(row => row.locId === flock.locId
+          && row.speciesCode === flock.code && row.obsDt.slice(0, 10) === day)),
+      'settlement retains matching owned prior-presence history, not merely unknown coverage');
       assert.equal(completed.acquiredAt, acquired, 'history completion cannot redate the page acquisition');
       assert.equal(A.massNews(completed.rows[0]).length, 0, 'handoff bypassed prior-presence arrival checks');
     } finally {
@@ -1249,7 +1260,9 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupHomeMapPreview').tagName, 'DIV');
       assert.equal(app.$('setupHomeMapPreview').hidden, false);
       assert.ok(app.$('setupHomeMap').querySelector('svg'));
-      assert.match(app.$('setupHomeCandidate').textContent, /Saved Home/);
+      assert.equal(app.$('setupHomeCandidate').hidden, true);
+      assert.equal(app.$('setupHomeCandidate').textContent, '');
+      assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000');
       assert.equal(opened.length, 0);
       for (const provider of Object.keys(A.MAP_PROVIDERS)) {
         app.window.localStorage.setItem(A.MAP_PROVIDER_KEY, provider);
@@ -1266,7 +1279,9 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupHomeApprove').hidden, true);
       assert.equal(app.$('setupHomeMapPreview').hidden, false, 'saved Home stays visible while an edit is unvalidated');
       assert.ok(app.$('setupHomeMap').childNodes.length);
-      assert.equal(app.$('setupHomeCandidateTitle').textContent, 'Saved Home');
+      assert.equal(app.$('setupHomeCandidate').hidden, true);
+      assert.equal(app.$('setupHomeCandidate').textContent, '');
+      assert.equal(app.$('setupHomePlace').value, 'Unvalidated synthetic replacement');
       assert.equal(A.getHome().lat, lat);
       app.click(app.$('setupUseSavedHome'));
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));

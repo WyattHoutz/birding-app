@@ -75,6 +75,260 @@ function surgeEvidence(root) {
   assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
   return templates[0].content;
 }
+test('F1201 F1202 Busy ranks follow sort and rare reports retain exact identity, recency and seen birds', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const rows = [
+      { locId: 'L120201', name: 'Far patch', observers: 8, baseline: 2, ratio: 4, dist: 30, lat: 47.8, lng: -122 },
+      { locId: 'L120202', name: 'Near patch', observers: 4, baseline: 2, ratio: 2, dist: 3, lat: 47.6, lng: -122 }
+    ];
+    const rare = { code: 'amerob', name: 'American Robin', kind: 'Rarity',
+      locId: rows[0].locId, dateStr: recentObsStamp(0), valid: true };
+    const input = { hot: [], cold: [], busy: rows, busyState: { at: Date.now(), pending: false },
+      rarityRows: [rare, { ...rare, subId: 'S120201' },
+        { ...rare, code: 'chispa', name: 'Chipping Sparrow', valid: false },
+        { ...rare, locId: 'L120203', name: 'Wrong patch bird' },
+        { ...rare, code: 'oldbird', name: 'Stale bird', dateStr: '2000-01-01' },
+        { ...rare, code: 'privatebird', name: 'Private bird', location_private: true }] };
+    A.renderHot(input);
+    const cards = () => [...app.$('hotResults').querySelectorAll('.busypatch')];
+    assert.deepEqual(cards().map(card => card.querySelector('.hsnum').textContent), ['1', '2']);
+    assert.equal(cards()[0].querySelectorAll('.busypatchrarities .splink[data-sp="amerob"]').length, 1);
+    assert.match(cards()[0].textContent, /American Robin/,'already-seen birds remain rarity context');
+    assert.match(cards()[0].textContent, /Chipping Sparrow \(unconfirmed\)/);
+    assert.doesNotMatch(app.$('hotResults').textContent, /Wrong patch bird|Stale bird|Private bird/);
+    assert.equal(cards()[1].querySelector('.busypatchrarities'), null, 'activity alone still qualifies');
+    assert.equal(cards()[0].querySelector('.busypatchrarities .splink').closest('.hslink'), null);
+    app.click(app.$('hotResults').querySelector('[data-busy-sort="distance"]'));
+    assert.deepEqual(cards().map(card => card.querySelector('.hslink').dataset.loc), ['L120202', 'L120201']);
+    assert.deepEqual(cards().map(card => card.querySelector('.hsnum').textContent), ['1', '2']);
+    app.click(cards()[1].querySelector('.busypatchrarities .splink[data-sp="chispa"]'));
+    assert.equal(app.document.querySelector('section.panel:not([hidden])').id, 'sec-spLookupBtn');
+    assert.match(app.$('spLookupResults').textContent, /Chipping Sparrow/);
+  } finally { app.window.close(); }
+});
+
+test('F1196 Target Birds naming retains the recent-opportunity surface and stable loader identity', async () => {
+  const app = await boot();
+  try {
+    const menu = app.document.querySelector('#menuList [data-at="easyBtn"]');
+    assert.match(menu.textContent, /Target Birds.*Recent birds you still need/s);
+    const section = app.$('easyBtn').closest('section');
+    assert.match(section.querySelector('h2').textContent, /Target Birds/);
+    assert.ok(section.querySelector('.modeswitch[data-modes="anchor"]'));
+    assert.equal(section._loader, app.window.__app.LOADERS.easyBtn);
+    assert.doesNotMatch(section.textContent, /historical.*frequency|seasonal ranking/i);
+  } finally { app.window.close(); }
+});
+
+test('F1187 actual setup summary names missing values and rejects detached repair actions', async () => {
+  const app = await boot({ sample: false, key: null, storage: { bc_setup_step_v1: 'summary' } });
+  try {
+    const A = app.window.__app;
+    A.openSetupSheet();
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.equal(app.$('setupStepTitle').textContent, 'Setup needs attention');
+    const old = app.$('setupSheetBody').querySelector('[data-setup-repair="key"]');
+    assert.ok(old);
+    assert.equal(old.textContent, 'Verify API key');
+    A.renderSetupSheet();
+    app.click(old);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary', 'detached repair cannot navigate a new sheet');
+    app.click(app.$('setupSheetBody').querySelector('[data-setup-repair="key"]'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+    assert.equal(app.$('setupApiKey').type, 'password');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1187 complete and stale setup summaries use current owned evidence and route each missing value', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.removeItem('ebird_seen_setup_skipped');
+    store.setItem('bc_setup_step_v1', 'summary');
+    A.openSetupSheet();
+    assert.equal(app.$('setupStepTitle').textContent, 'Setup complete');
+    assert.equal(app.$('setupSheetBody').querySelector('[data-setup-repair]'), null);
+    const key = A.personalListKey(A.personalListOwner()), saved = JSON.parse(store.getItem(key));
+    saved.readDate = '2000-01-01';
+    store.setItem(key, JSON.stringify(saved));
+    A.renderSetupSheet();
+    assert.equal(app.$('setupStepTitle').textContent, 'Setup needs attention');
+    assert.ok(app.$('setupSheetBody').querySelector('[data-setup-repair="seen"]'));
+    assert.match(app.$('setupSheetBody').textContent, /saved list.*refresh needed/);
+  } finally { app.window.close(); }
+});
+
+test('F1199 actual Stakeout eBird action stays beside QR and reads selected region at click time', async () => {
+  const app = await boot({ sample: false, fetch: () => [] });
+  try {
+    const A = app.window.__app, opened = [];
+    app.window.open = url => { opened.push(url); };
+    await seedSeen(app, [], null, [{ code: 'easkin', name: 'Eastern Kingbird' }]);
+    await A.lookupSpecies('easkin', 'Eastern Kingbird');
+    const action = app.$('spLookupResults').querySelector('.stakeEbird');
+    const qr = app.$('spLookupResults').querySelector('.qrbtn[data-qr-kind="species"]');
+    assert.ok(action && qr && action.querySelector('svg.qricon'));
+    assert.equal(qr.nextElementSibling, action);
+    assert.equal(action.textContent.trim(), 'eBird');
+    assert.match(action.getAttribute('aria-label'), /Eastern Kingbird.*current region.*external website/);
+    assert.equal(action.hasAttribute('data-qr-kind'), false);
+    app.click(action);
+    assert.equal(opened.at(-1), 'https://ebird.org/species/easkin/US-WA', 'do not narrow selected Washington to Home county');
+    app.window.localStorage.setItem('ebird_county_view:wa', 'US-WA-033');
+    app.click(action);
+    assert.equal(opened.at(-1), 'https://ebird.org/species/easkin/US-WA-033');
+    app.window.localStorage.setItem('ebird_report', 'mo');
+    app.click(action);
+    assert.equal(opened.at(-1), 'https://ebird.org/species/easkin/US-MO', 'a mounted action must not retain its old region');
+    app.window.localStorage.removeItem('ebird_report');
+    app.click(action);
+    assert.equal(opened.at(-1), 'https://ebird.org/species/easkin', 'missing supported region uses the unscoped canonical page');
+    const count = opened.length;
+    app.click(qr);
+    assert.equal(opened.length, count, 'QR must remain a separate sharing operation');
+    assert.match(app.$('appSheet').textContent, /Share|Scan this code/);
+    A.renderStakeHs('L120099', 'Exact public patch', [], [], {}, {});
+    const patch = app.$('stakeHsResults').querySelector('.stakeEbird');
+    assert.ok(patch && patch.previousElementSibling.matches('[data-qr-kind="hotspot"]'));
+    app.click(patch);
+    assert.equal(opened.at(-1), 'https://ebird.org/hotspot/L120099');
+    const native = [];
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: { open({ url }) { native.push(url); } } } };
+    app.click(patch);
+    assert.deepEqual(native, ['https://ebird.org/hotspot/L120099']);
+    A.renderStakeHs('personal-location', 'Private location', [], [], {}, {});
+    assert.equal(app.$('stakeHsResults').querySelector('.stakeEbird'), null,
+      'an unresolved or private location cannot manufacture a public hotspot action');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1210 F1211 F1212 Watch matches Year furniture and Year refresh delegates once without redundant controls', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    A.setWatchlist([{ code: 'amerob', name: 'American Robin' }]);
+    A.updateMyYear();
+    app.open(/Watch List/);
+    app.click(app.document.querySelector('#nvScope .nvscopebtn'));
+    const year = app.$('myYearList').querySelector('li'), watch = app.$('nvResults').querySelector('.nvrow');
+    assert.ok(year && watch);
+    for (const selector of ['.thumb', '.ntext']) {
+      const reference = app.window.getComputedStyle(year.querySelector(selector));
+      const current = app.window.getComputedStyle(watch.querySelector(selector));
+      for (const property of ['width', 'height', 'fontSize', 'lineHeight']) {
+        assert.equal(current[property], reference[property], selector + ' ' + property);
+      }
+    }
+    for (const row of [year, watch]) {
+      const line = row.querySelector('.ntext > .spidline');
+      assert.ok(line, 'identifiers stay under the name, not under the photo');
+      assert.equal(line.querySelector('.spcode').textContent.toLowerCase(), 'amerob');
+      assert.equal(row.querySelector('.meta .spcode'), null);
+    }
+    assert.equal(watch.querySelector('.spidline [data-href]'), null, 'Watch gets no sighting date');
+    assert.equal(watch.querySelector('.spidline').textContent.trim().toLowerCase(),
+      [watch.querySelector('.spcode'), watch.querySelector('.spalpha')].filter(Boolean)
+        .map(node => node.textContent.toLowerCase()).join(' '),
+      'Watch identifiers contain no report details');
+    assert.equal(watch.querySelector('.meta').textContent.trim(), '');
+    const section = app.$('myYearBody').closest('section');
+    assert.equal(section.querySelector('[data-personal-refresh], [data-personal-settings]'), null);
+    assert.ok(section.querySelector('.refreshbtn'));
+    let forwarded = 0;
+    app.$('myYearBtn').addEventListener('click', event => {
+      event.stopImmediatePropagation(); forwarded++;
+    }, true);
+    app.click(section.querySelector('.refreshbtn'));
+    assert.equal(forwarded, 1);
+    assert.equal(A.takeForce(), true, 'the existing icon still requests a fresh owned personal-list acquisition');
+    assert.equal(A.takeForce(), false);
+    const card = app.document.createElement('ul');
+    card.innerHTML = app.window.SpeciesCards.medium({ name: 'Test bird', sci: 'Testus birdus',
+      code: 'amerob', alpha: 'AMRO', identifierLine: true, sub: '<a data-href="https://ebird.org/checklist/S1">Today</a>' });
+    const latin = card.querySelector('.spsci'), line = card.querySelector('.spidline');
+    assert.equal(latin.nextElementSibling, line);
+    assert.ok(line.querySelector('.spalpha').compareDocumentPosition(line.querySelector('a')) & 4);
+    assert.equal(card.querySelector('.meta').textContent.trim(), '');
+    app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY, 'all');
+    A.updateMyYear();
+    assert.ok(section.querySelector('[data-personal-refresh]'), 'Life retains its existing repair controls');
+    assert.ok(section.querySelector('[data-personal-settings]'));
+  } finally { app.window.close(); }
+});
+
+test('F1206 F1207 actual owned native readers settle and close explicit empty month and annual sources', async () => {
+  const year = new Date().getFullYear();
+  const blank = '<div class="BirdList"><div class="BlankSlate">No birds reported yet during this time period.'
+    + ' Go birding and be the first to add to this list!</div></div>';
+  const month = '<div class="StatsIcon"><span class="StatsIcon-label">This Month</span>'
+    + '<span class="StatsIcon-secondary">Nov ' + year + '</span></div>' + blank;
+  const annual = '<div class="BirdList-controls">'
+    + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">0 This Year ' + year + '</a>'
+    + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">First Observed</a></div>' + blank;
+  const app = await boot({ sample: false, fetch: url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : [] });
+  const handlers = {}, pages = [];
+  let closed = 0, removed = 0;
+  try {
+    const A = app.window.__app;
+    assert.equal(A.parseMassHighCountPage(month, 'US-WA', true).length, 0);
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(annual), 'US-WA', year), true);
+    app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+      addListener(name, fn) { handlers[name] = fn; return { remove() { removed++; } }; },
+      openWebView(options) {
+        const id = 'empty-reader-' + pages.length;
+        const page = new JSDOM(options.url.includes('yr=curM') ? month : annual,
+          { url: options.url, runScripts: 'outside-only' });
+        pages.push(page);
+        page.window.mobileApp = { postMessage(message) { handlers.messageFromWebview({ id, detail: message.detail }); } };
+        setTimeout(() => handlers.browserPageLoaded({ id }), 0);
+        return Promise.resolve({ id });
+      },
+      hide() {}, show() {}, close() { closed++; return Promise.resolve(); },
+      executeScript({ code }) { pages.at(-1).window.eval(code); return Promise.resolve(); }
+    } } };
+    const result = await A.loadMassFlockAlertSource(false, A.activeScope());
+    assert.notEqual(result.state, 'failed');
+    assert.equal(result.rows.length, 0);
+    assert.equal(closed, 1, 'successful zero closes the owned monthly reader');
+    const monthListeners = removed;
+    assert.ok(monthListeners > 0, 'monthly success cleans up bridge listeners');
+    const source = await A.captureEbird({ kind: 'firstYear',
+      url: 'https://ebird.org/region/US-WA/bird-list?yr=cur&rank=lrec',
+      alive: () => true, buildInject: () => A.buildFirstYearInject('US-WA', 0, year) });
+    assert.equal(source.valid, true);
+    assert.equal(source.rows.length, 0);
+    assert.equal(closed, 2, 'successful zero closes the owned annual reader');
+    assert.ok(removed > monthListeners, 'annual success cleans up its bridge listeners');
+    const nextYear = annual.replaceAll(String(year), String(year + 1));
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(nextYear), 'US-WA', year + 1), true);
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(nextYear), 'US-WA', year), false);
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(nextYear), 'US-MO', year + 1), false);
+    assert.equal(A.firstYearSourceMatches(source, 'US-WA', year), true);
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(annual.replaceAll('lrec', 'lobs')), 'US-WA', year), false);
+    for (const body of [
+      annual.replace('BlankSlate"', 'BlankSlate" hidden'),
+      annual + '<input type="password">',
+      annual + '<div>anubis_challenge</div>',
+      annual.replace('</div></div>', '</div><h3>Native and Naturalized (1)</h3></div>'),
+      annual.replace('</div></div>', '</div><li class="BirdList-list-list-item">Loading bird</li></div>')
+    ]) assert.equal(A.parseFirstYearBirdList(body).valid, false, 'incomplete annual inventory is not verified zero');
+    for (const body of [blank, month.replace('This Month', 'This Year'),
+      month.replace('BlankSlate"', 'BlankSlate" hidden'),
+      month.replace('No birds reported yet during this time period.', 'Loading observations…'),
+      month + '<input type="password">', month + '<div>anubis_challenge</div>']) {
+      assert.throws(() => A.parseMassHighCountPage(body, 'US-WA', true));
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { pages.forEach(page => page.window.close()); app.window.close(); }
+});
+
 test('F1197 production Busy cards give positive reasons, accessible density, sorting and Info', async () => {
   const app = await boot({ sample: false });
   try {
@@ -2972,6 +3226,11 @@ test('F1016 actual Mega acquisition rejects another alert selection and preserve
     fetch: url => /alert\/summary/.test(url) ? body : [] });
   try {
     const A = app.window.__app, store = app.window.localStorage;
+    const originalFetch = app.window.fetch;
+    app.window.fetch = async (url, options) => {
+      const response = await originalFetch(url, options);
+      return /alert\/summary/.test(url) ? Object.assign(response, { url, redirected: false }) : response;
+    };
     await seedSeen(app, [], null, [row, { code: 'mallar3', name: 'Mallard' }]);
     await A.loadAbaAlert();
     const saved = store.getItem(A.MEGA_SNAP_KEY);
@@ -2993,7 +3252,22 @@ test('F1016 actual Mega acquisition rejects another alert selection and preserve
     assert.ok(app.document.querySelector('[data-mega-code="litsti"]'),
       'a source failure must preserve the legitimate cached selection');
     assert.equal(app.document.querySelector('[data-mega-code="mallar3"]'), null);
+    const diagnostic = app.window.__dbg.buf.filter(row => row.msg.startsWith('Mega source selection: ')).at(-1);
+    assert.ok(diagnostic, 'the actual rejection must emit bounded app diagnostics');
+    const flags = JSON.parse(diagnostic.msg.slice('Mega source selection: '.length));
+    assert.equal(flags.mismatchCategory, 'selection-mismatch');
+    assert.equal(flags.route, 'direct');
+    assert.equal(flags.finalSourceAvailable, true);
+    assert.equal(flags.finalSourceProvenance, 'fetch-response');
+    assert.equal(flags.finalSelectionMatches, true);
+    assert.doesNotMatch(diagnostic.msg, /SN35602|https?:\/\/|<html|sid=/);
     checkFeed();
+    body = megaAlertHtml([row], 'sn10489');
+    await A.loadAbaAlert();
+    const caseDiagnostic = app.window.__dbg.buf.filter(row => row.msg.startsWith('Mega source selection: ')).at(-1);
+    assert.equal(JSON.parse(caseDiagnostic.msg.slice('Mega source selection: '.length)).mismatchCategory,
+      'selection-case-mismatch');
+    assert.equal(store.getItem(A.MEGA_SNAP_KEY), saved, 'case-only metadata still fails closed');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
@@ -9157,10 +9431,13 @@ test('F741 search and Stakeout save beyond five, persist honestly and preserve f
     A.runFavSearch();
     await waitFor(() => app.$('favFound').querySelector('.favadd'), 'actual Favorite search result');
     const button = app.$('favFound').querySelector('.favadd');
+    assert.equal(button.textContent, '☆');
+    assert.match(app.$('favStatus').textContent, /tap ☆ to pin/);
     app.click(button);
     assert.equal(A.favoriteEntriesForRegion('US-WA').length, count + 1);
     assert.ok(A.getFavs().some((f) => f.id === target.locId));
     assert.ok(button.disabled);
+    assert.equal(button.textContent, '★');
     assert.match(button.getAttribute('aria-label'), /^Saved:/);
     assert.match(app.$('favResults').textContent, /Synthetic Favorite search patch/);
     assert.match(app.$('favStatus').textContent, /New patch saved/);
@@ -12236,7 +12513,10 @@ test('F841 saved personal dates sort newest-first with undated tails and separat
   assert.match(rows[0].textContent,/Zulu recent bird/);
   assert.match(rows[1].textContent,/Alpha older bird/);
   assert.match(rows[2].textContent,/Beta undated bird/);
-  assert.match(rows[2].textContent,/Date not supplied by eBird/);
+  assert.doesNotMatch(rows[2].textContent,/Date not supplied by eBird/);
+  assert.equal(rows[2].querySelector('.meta').textContent.trim(), '');
+  assert.ok(rows[0].querySelector('.ntext .spidline [data-href*="S300000002"]'),
+    'the linked date follows identifiers under the name, not below the photo');
   assert.equal(rows[0].querySelector('[data-href*="S300000002"]') != null,true);
   assert.match(app.$('myYearExtras').textContent,/Escapee bird/);
   assert.equal(A.personalListEvidence().species.escapee,1,'presentation does not erase targeting membership');
@@ -12414,7 +12694,7 @@ test('F805/F812 selected period owns header metrics, personal screen and navigat
     await waitFor(()=>app.$('myYearList').querySelectorAll('.yrnum').length===2,'owned life screen');
     assert.equal(app.$('sec-myYearBody').hidden,false);
     assert.match(app.$('myYearBody').closest('section').querySelector('h2').textContent,/Life List/);
-    assert.match(app.$('myYearList').textContent,/Date not supplied by eBird/);
+    assert.doesNotMatch(app.$('myYearList').textContent,/Date not supplied by eBird/);
   }
   app.click(app.$('hdrRankJump'));
   await waitFor(()=>!app.$('rankBtn').disabled && app.$('rankResults').querySelector('.rankmetrics'),'life board');
@@ -21611,9 +21891,12 @@ test('F771 Watch menu automatically acquires details and distinguishes pending f
       lat: 47.65, lon: -122.12, dateStr: recentObsStamp(), subId: 'S1' },
   ] } });
   assert.equal(await reading, true);
-  assert.match(app.$('nvResults').textContent, /Marymoor Park/);
-  assert.match(app.$('nvResults').textContent, /6\.6 mi/);
-  assert.match(app.$('nvResults').textContent, /No report in range/);
+  assert.equal(A.watchEvidence().rows.amerob.loc, 'Marymoor Park');
+  assert.equal(A.watchEvidence().rows.amerob.distMi, 6.6);
+  assert.equal(A.watchEvidence().rows.chispa, undefined);
+  assert.equal(A.watchEvidence().state, 'ready');
+  assert.match(app.$('nvStatus').textContent, /1 reported in range/);
+  assert.doesNotMatch(app.$('nvResults').textContent, /Marymoor Park|6\.6 mi|No report in range/);
   assert.equal(app.$('nvResults').hasAttribute('aria-busy'), false);
   assert.equal(app.$('nvBtn').disabled, false);
   assert.equal(A.getWatchlist().length, 2);
@@ -21636,7 +21919,7 @@ test('F771 Watch failure and missing credentials never masquerade as an empty su
   rejectRead(new Error('Synthetic Watch feed unavailable'));
   assert.equal(await reading, false);
   assert.match(app.$('nvStatus').textContent, /could not be checked/);
-  assert.match(app.$('nvResults').textContent, /Recent reports unavailable/);
+  assert.equal(A.watchEvidence().state, 'failed');
   assert.doesNotMatch(app.$('nvResults').textContent, /No report in range/);
   app.window.localStorage.removeItem('ebird_api_key');
   assert.equal(await A.LOADERS.nvResults.fn(), false);
@@ -21678,7 +21961,7 @@ test('F771 Watch ownership rejects old Home evidence without releasing the newer
   assert.equal(app.$('nvBtn').disabled, true);
   latest.release(result(latest, 'Current Home Park'));
   assert.equal(await latestRead, true);
-  assert.match(app.$('nvResults').textContent, /Current Home Park/);
+  assert.equal(A.watchEvidence().rows.amerob.loc, 'Current Home Park');
   assert.equal(app.$('nvResults').hasAttribute('aria-busy'), false);
   assert.equal(app.$('nvBtn').disabled, false);
   app.window.close();
@@ -21708,7 +21991,7 @@ test('F771 leaving Watch cancels its paint and reopening retries automatically',
     { code: 'amerob', loc: 'Reopened Park', distMi: 2, dateStr: recentObsStamp() },
   ] } }), A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
   app.open(/Watch List/);
-  await waitFor(() => /Reopened Park/.test(app.$('nvResults').textContent), 'automatic Watch reopen');
+  await waitFor(() => A.watchEvidence().rows.amerob?.loc === 'Reopened Park', 'automatic Watch reopen');
   app.window.close();
 });
 
@@ -21725,7 +22008,7 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
   app.open(/Watch List/);
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.equal(await A.LOADERS.nvResults.fn(), true);
-  assert.match(app.$('nvResults').textContent, /Warm Park/);
+  assert.equal(A.watchEvidence().rows.amerob.loc, 'Warm Park');
   for (const [selector, place] of [['#nvBtn', 'Manual Fresh Park'],
     ['#sec-nvResults .refreshbtn', 'Header Fresh Park']]) {
     let release;
@@ -21740,7 +22023,7 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
       { code: 'amerob', loc: place, distMi: 2, dateStr: recentObsStamp() },
     ] } });
     assert.equal(await reading, true);
-    assert.match(app.$('nvResults').textContent, new RegExp(place));
+    assert.equal(A.watchEvidence().rows.amerob.loc, place);
   }
   let reject;
   A.setChaseInflight(profile.slug, new Promise((resolve, fail) => { reject = fail; }),
@@ -21749,7 +22032,7 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
   const failed = A.LOADERS.nvResults.fn();
   reject(new Error('Synthetic refresh outage'));
   assert.equal(await failed, false);
-  assert.match(app.$('nvResults').textContent, /Header Fresh Park/);
+  assert.equal(A.watchEvidence().rows.amerob.loc, 'Header Fresh Park');
   assert.match(app.$('nvStatus').textContent, /could not be checked/);
   assert.equal(app.$('nvBtn').disabled, false);
   app.window.close();
@@ -21769,7 +22052,7 @@ test('F771 editing the visible Watch membership automatically reacquires its sco
   app.open(/Watch List/);
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.equal(await A.LOADERS.nvResults.fn(), true);
-  assert.match(app.$('nvResults').textContent, /Robin Park/);
+  assert.equal(A.watchEvidence().rows.amerob.loc, 'Robin Park');
   const profile = A.chaseProfile();
   A.setChaseInflight(profile.slug, Promise.resolve({ profile, rarity: false, cv: { merged: [
     { code: 'amerob', loc: 'Robin Park', distMi: 4, dateStr: recentObsStamp() },
@@ -21777,13 +22060,14 @@ test('F771 editing the visible Watch membership automatically reacquires its sco
   ] } }), A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
   A.addWatch('chispa', 'Chipping Sparrow');
   assert.match(app.$('nvStatus').textContent, /Checking recent reports/);
-  await waitFor(() => /Sparrow Park/.test(app.$('nvResults').textContent), 'automatic added Watch details');
+  await waitFor(() => A.watchEvidence().rows.chispa?.loc === 'Sparrow Park', 'automatic added Watch details');
   assert.equal(A.getWatchlist().length, 2);
   const robin = [...app.$('nvResults').querySelectorAll('.nvrow')]
     .find((row) => /American Robin/.test(row.textContent));
   app.click(robin.querySelector('.nvdel'));
   await waitFor(() => !app.$('nvResults').hasAttribute('aria-busy'), 'automatic remaining Watch details');
-  assert.match(app.$('nvResults').textContent, /Sparrow Park/);
+  assert.equal(A.watchEvidence().rows.chispa.loc, 'Sparrow Park');
+  assert.equal(A.watchEvidence().rows.amerob, undefined);
   assert.doesNotMatch(app.$('nvResults').textContent, /Robin Park|No report in range/);
   assert.equal(A.getWatchlist().length, 1);
   app.window.close();
@@ -21825,7 +22109,7 @@ test('F771 unavailable scope evidence is not a successful empty Watch check', as
   app.open(/Watch List/);
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.equal(await A.LOADERS.nvResults.fn(), false);
-  assert.match(app.$('nvResults').textContent, /Recent reports unavailable/);
+  assert.equal(A.watchEvidence().state, 'failed');
   assert.match(app.$('nvStatus').textContent, /could not be checked/);
   assert.doesNotMatch(app.$('nvResults').textContent, /No report in range/);
   app.window.close();
@@ -22655,7 +22939,9 @@ test('the Needs-verification section renders the tracked list with controls', as
   assert.equal(rows.length, 3, 'every tracked species gets a row, resolved or not');
   // A name that resolves to no eBird code still ships, because silently
   // dropping it hides a typo in the authored file forever.
-  assert.match(rows[2].textContent, /Not resolved to an eBird species code/);
+  assert.equal(rows[2].querySelector('.splink'), null);
+  assert.match(rows[2].querySelector('.ntext').textContent, /Unresolvable Bird/);
+  assert.equal(rows[2].querySelector('.spidline'), null);
   assert.equal(app.$('nvResults').querySelectorAll('.nvup').length, 0);
   assert.equal(app.$('nvResults').querySelectorAll('.nvdown').length, 0);
   assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 3);
@@ -22684,11 +22970,11 @@ test('F765 Watch list sorts alphabetically without rewriting storage or misdirec
   assert.equal(app.window.getComputedStyle(app.$('nvResults').querySelector('.nvrow')).alignItems,
     'start');
   for (const button of buttons()) {
-    assert.equal(button.textContent, '− Remove');
+    assert.equal(button.textContent, 'Remove Watch');
     const style = app.window.getComputedStyle(button);
-    assert.equal(style.backgroundColor, 'rgb(230, 159, 0)');
+    assert.equal(style.backgroundColor, 'rgb(201, 74, 56)');
     assert.equal(style.color, 'rgb(0, 0, 0)');
-    assert.equal(style.padding, '8px');
+    assert.equal(style.padding, '4px 6px');
     assert.equal(style.minHeight, '44px');
   }
   assert.equal(JSON.stringify(A.getWatchlist()), JSON.stringify(saved));
@@ -29789,7 +30075,8 @@ test('F559: exact My List names missing identity and reads without API checklist
   await missingName.window.__app.loadMyYear();
   const section = missingName.$('myYearBody').closest('section');
   assert.match(section.textContent, /Fetch your signed-in eBird identity in Settings first/i);
-  assert.ok(section.querySelector('[data-personal-settings]'));
+  assert.equal(section.querySelector('[data-personal-settings]'), null);
+  assert.ok(section.querySelector('h2 .refreshbtn'));
   assert.match(missingName.$('myYearBody').textContent, /Personal history unavailable/i);
   assert.equal(missingName.state.fetches.length, nameFetches);
   missingName.window.close();
@@ -34137,7 +34424,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
 
   let button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.ok(button, 'the Stakeout species card has no watchlist action');
-  assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i);
   const before = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
@@ -34149,7 +34436,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
     code: 'sem', name: 'Semipalmated Sandpiper',
   }], 'the action bypassed the shared watchlist store');
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
-  assert.equal(button.getAttribute('aria-label'), 'Remove from watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Remove Watch for Semipalmated Sandpiper');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
   assert.match(app.$('spLookupResults').textContent, /on your watchlist for verification/i);
   assert.doesNotMatch(app.$('spLookupResults').textContent, /not on your year list/i);
@@ -34157,7 +34444,7 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
-  assert.equal(button.getAttribute('aria-label'), 'Add to watchlist');
+  assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
   assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i,
     'removing the hold did not reveal the underlying seen tick');
   const after = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
@@ -34191,7 +34478,7 @@ test('F528 Stakeout never offers Add to Watchlist for a genuinely unseen bird', 
   A.renderSpeciesLookup();
   const remove = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.ok(remove, 'an already watched unseen bird cannot be removed');
-  assert.equal(remove.getAttribute('aria-label'), 'Remove from watchlist');
+  assert.equal(remove.getAttribute('aria-label'), 'Remove Watch for Ruff');
   assert.equal(remove.getAttribute('aria-pressed'), 'true');
   app.window.close();
 });
@@ -34216,7 +34503,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   const code = button && button.getAttribute('data-code');
   const name = button && button.getAttribute('data-name');
   assert.ok(code && name, 'the My Ticks action does not own its bird identity');
-  assert.equal(button.textContent.trim(), '+ Add watch');
+  assert.equal(button.textContent.trim(), 'Add Watch');
   assert.equal(button.parentElement.className, 'spprimary');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   const beforeFetches = app.state.fetches.length;
@@ -34233,7 +34520,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   button = app.$('myYearList').querySelector(
     `.myYearWatchlist[data-code="${code}"]`,
   );
-  assert.equal(button.textContent.trim(), '− Remove watch');
+  assert.equal(button.textContent.trim(), 'Remove Watch');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
   assert.equal(button, originalButton, 'F1148 membership must not replace the reading/focus owner');
   assert.equal(app.document.activeElement, originalButton, 'F1148 keyboard focus remains on the same action');
@@ -34247,7 +34534,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   button = app.$('myYearList').querySelector(
     `.myYearWatchlist[data-code="${code}"]`,
   );
-  assert.equal(button.textContent.trim(), '+ Add watch');
+  assert.equal(button.textContent.trim(), 'Add Watch');
   assert.equal(app.state.fetches.length, beforeFetches,
     'changing the watchlist refetched My Ticks instead of repainting in place');
 
@@ -34263,7 +34550,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   app.window.close();
 });
 
-test('F1147 Watch search Add, Added and Remove retain labels and membership across repeat actions', async () => {
+test('F1147 F1203 Watch search Add Watch and Remove Watch retain labels and membership across repeat actions', async () => {
   const app = await boot({ sample: false, storage: { ebird_watchlist_v1: '[]' }, fetch(url) {
     if (/product\/spplist/.test(url)) return ['amerob'];
     if (/ref\/taxonomy\/ebird/.test(url)) return [{
@@ -34277,23 +34564,26 @@ test('F1147 Watch search Add, Added and Remove retain labels and membership acro
     A.runNvSearch();
     await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'real Watch search action');
     const add = app.$('nvFound').querySelector('.nvadd');
-    assert.equal(add.textContent, '+ Add');
+    assert.equal(add.textContent, 'Add Watch');
+    assert.equal(app.window.getComputedStyle(add).backgroundColor, 'rgb(51, 153, 51)');
+    assert.equal(app.window.getComputedStyle(add).color, 'rgb(0, 0, 0)');
+    assert.equal(app.window.getComputedStyle(add).borderStyle, 'solid');
     for (let cycle = 0; cycle < 2; cycle++) {
       app.click(add);
-      assert.equal(add.textContent, 'Added');
+      assert.equal(add.textContent, 'Add Watch');
       assert.equal(add.disabled, true);
-      assert.match(add.getAttribute('aria-label'), /Already tracked: American Robin/);
+      assert.equal(add.getAttribute('aria-label'), 'Add Watch for American Robin (already watched)');
       assert.equal(A.getWatchlist().length, 1, 'one membership entry');
       const remove = app.$('nvResults').querySelector('.nvdel');
-      assert.equal(remove.textContent, '− Remove');
+      assert.equal(remove.textContent, 'Remove Watch');
       const style = app.window.getComputedStyle(remove);
-      assert.equal(style.backgroundColor, 'rgb(230, 159, 0)');
+      assert.equal(style.backgroundColor, 'rgb(201, 74, 56)');
       assert.equal(style.color, 'rgb(0, 0, 0)');
-      assert.equal(style.borderStyle, 'dashed');
+      assert.equal(style.borderStyle, 'solid');
       app.click(remove);
       assert.equal(A.getWatchlist().length, 0);
       assert.equal(add.disabled, false);
-      assert.equal(add.textContent, '+ Add', 'a retained search can add again after Remove');
+      assert.equal(add.textContent, 'Add Watch', 'a retained search can add again after Remove');
     }
   } finally { app.window.close(); }
 });
@@ -34311,7 +34601,7 @@ test('F1147 Year List watch actions retain labeled states in both themes', async
         const button = app.$('myYearList').querySelector('.myYearWatchlist[data-code="yrone"]');
         assert.ok(button, 'verify the actual Year List action, not a detached style fixture');
         const style = app.window.getComputedStyle(button);
-        assert.equal(button.textContent, watched ? '− Remove watch' : '+ Add watch');
+        assert.equal(button.textContent, watched ? 'Remove Watch' : 'Add Watch');
         assert.equal(button.getAttribute('aria-pressed'), String(watched));
         assert.equal(style.textAlign, 'center', theme);
         assert.ok(parseFloat(style.minHeight) >= 44, theme + ' touch target');
@@ -37550,10 +37840,10 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
     'Bird Gen migration icon does not use the High migration cutout flock');
   assert.match(rows[0].icon, /birdcast-flight-label">HIGH</,
     'Bird Gen migration artwork does not print its level directly');
-  assert.match(rows[0].name, />High migration forecast for King County</);
+  assert.match(rows[0].name, />High migration forecast for King County tonight\.</);
   assert.equal(rows[0].alpha, '',
     'the source line still prefixes King County Birdcast Alert with BIRDCAST -');
-  assert.match(rows[0].name, /1\.8 million birds last night/);
+  assert.match(rows[0].name, /1\.8 million birds migrated last night\./);
   assert.equal(rows[0].ageLabel, 'Current');
   assert.match(rows[0].extra, /migration expected between dusk and dawn/);
   assert.doesNotMatch(rows[0].where + rows[0].noteHeader + rows[0].extra,
@@ -37589,7 +37879,7 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   low.forecast.level = 'Low';
   const lowRows = A.birdcastSurgeRows(daytime, low);
   assert.equal(lowRows.length, 2);
-  assert.match(lowRows[0].name, />Low migration forecast for King County</);
+  assert.match(lowRows[0].name, />Low migration forecast for King County tonight\.</);
   assert.equal(lowRows[1].name, rows[1].name);
   low.count.high = false;
   assert.equal(A.birdcastSurgeRows(daytime, low).length, 1,
@@ -42443,7 +42733,7 @@ test('F1122 forecast selection finds the current night without accepting a wrong
   } finally { app.window.close(); }
 });
 
-test('F1121/F1135 full and Recent Bird Gen keep brief truthful forecast and measured-count copy', async () => {
+test('F1121 F1135 F1213 full and Recent Bird Gen keep inline tonight and verified last-night sentences', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, now = new Date();
@@ -42453,7 +42743,7 @@ test('F1121/F1135 full and Recent Bird Gen keep brief truthful forecast and meas
     const previous = new Date(Date.UTC(local.year, local.month - 1, local.day - 1))
       .toISOString().slice(0, 10);
     A.setBirdcastSnapshot({ forecast: { level: 'Low', date }, fetchedAt: now.getTime(),
-      count: { birds: 109900, night: previous, countyLabel: 'King County' } });
+      count: { birds: 8400, night: previous, countyLabel: 'King County' } });
     A.renderSurge([], [], [], [], []);
     const full = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
     assert.ok(full);
@@ -42464,12 +42754,13 @@ test('F1121/F1135 full and Recent Bird Gen keep brief truthful forecast and meas
       const title = card.querySelector('.surgealerttitle');
       assert.equal(title.querySelectorAll('b,strong').length, 0);
       assert.equal(app.window.getComputedStyle(title).fontWeight, '400');
-      assert.equal((title.textContent.match(/109,900/g) || []).length, 1);
+      assert.equal((title.textContent.match(/8,400/g) || []).length, 1);
       assert.equal((title.textContent.match(/King County/g) || []).length, 1);
       assert.doesNotMatch(title.textContent, /Birdcast Alert|Latest measured night/);
-      assert.equal(title.querySelector('.seclink').textContent, 'Low migration forecast for King County');
-      assert.equal(title.querySelector('span').textContent, '109,900 birds last night');
-      assert.doesNotMatch(title.textContent, /est\.|Saved|Tonight|\d{4}|\d+\/\d+/);
+      assert.equal(title.textContent, 'Low migration forecast for King County tonight. 8,400 birds migrated last night.');
+      assert.equal(title.querySelector('br'), null, 'the shared headline must not force a second row');
+      assert.ok(!['block', 'flex', 'grid'].includes(app.window.getComputedStyle(title.querySelector('span')).display));
+      assert.doesNotMatch(title.textContent, /est\.|Saved|\d{4}|\d+\/\d+/);
       assert.equal(card.querySelector('.surgeage').textContent, 'Current');
       assert.equal(card.querySelector('.surge-essential'), null,
         'the explicit forecast headline must not gain a redundant third warning line');
@@ -42478,7 +42769,7 @@ test('F1121/F1135 full and Recent Bird Gen keep brief truthful forecast and meas
     assert.doesNotMatch(surgeEvidence(full).textContent, /Location unavailable/);
     assert.match(surgeEvidence(full).textContent, new RegExp('Forecast source night ' + date));
     assert.match(surgeEvidence(full).textContent, new RegExp('Measured source night ' + previous));
-    assert.match(surgeEvidence(full).textContent, /109,900 birds.*estimate|estimate.*109,900 birds/i);
+    assert.match(surgeEvidence(full).textContent, /8,400 birds.*estimate|estimate.*8,400 birds/i);
   } finally { app.window.close(); }
 });
 
@@ -42503,9 +42794,9 @@ test('F1135 saved migration counts do not become last-night totals and missing c
       for (const card of [full, recent]) {
         const title = card.querySelector('.surgealerttitle');
         assert.match(title.textContent, new RegExp(level + ' migration forecast for King'));
-        assert.doesNotMatch(title.textContent, /last night|est\.|Saved/);
+        assert.doesNotMatch(title.textContent, /tonight|last night|est\.|Saved/);
         assert.equal(card.querySelector('.surgeage').textContent, 'Saved');
-        if (count) assert.match(title.textContent, /38,500 birds on /);
+        if (count) assert.match(title.textContent, /38,500 birds migrated on /);
         else assert.match(title.textContent, /Measured-night count unavailable/);
       }
       assert.match(surgeEvidence(full).textContent, /saved evidence, refresh failed/);
@@ -42684,8 +42975,8 @@ test('F850 patch headers match Nearby patches without injected personal-list man
   }
   A.updateMyYear();
   const personal = app.$('myYearBody').closest('section');
-  assert.ok(personal.querySelector('[data-personal-refresh]'), 'dedicated personal list keeps management');
-  assert.ok(personal.querySelector('[data-personal-settings]'));
+  assert.equal(personal.querySelector('[data-personal-refresh], [data-personal-settings]'), null);
+  assert.ok(personal.querySelector('h2 .refreshbtn'), 'dedicated personal list retains its heading refresh');
   assert.match(personal.textContent, /Open this exact personal list on eBird/);
   app.window.close();
 });

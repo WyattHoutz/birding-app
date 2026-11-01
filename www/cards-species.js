@@ -268,6 +268,9 @@
     '.obs.xl > li > .name > .ntext > .spsci > .spcodes-inline,',
     '.obs.card-md > li > .name > .ntext > .spsci > .spcodes-inline {',
     '  display: block; font-style: normal; font-weight: 600; }',
+    '.obs.xl > li > .name > .ntext > .spidline {',
+    '  display: block; font-size: calc(14px * var(--s)); font-weight: 600;',
+    '  line-height: 1.25; color: var(--muted); overflow-wrap: break-word; }',
     /* Child-scoped, like every other card rule here. A descendant selector
        leaks into the SMALL cards nested inside a large one - which is the
        exact failure the guard on this file exists to catch, and it caught
@@ -665,20 +668,23 @@
     return body + sep;
   }
 
-  function identifierLineHtml(v) {
+  function identifierLineHtml(v, medium) {
     var c = codeText(v.code);
     var a = alphaText(v.alpha);
     var details = subHtml(v, false);
     if (!c && !details) return '';
     var identifier = c
-      ? (a
+      ? (a && medium
+        ? '<span class="spcode">' + c + '</span>'
+          + '<span class="spalphasep"> </span><span class="spalpha">' + a + '</span>'
+        : a
         ? '<span class="spalpha">' + a + '</span>'
           + '<span class="spalphasep">/</span>'
           + '<span class="spcode">' + c + '</span>'
         : '<span class="spcode">' + c + '</span>')
       : '';
     return '<span class="sub spidline">' + identifier
-      + (identifier && details ? ', ' : '') + details + '</span>';
+      + (identifier && details ? (medium ? ' · ' : ', ') : '') + details + '</span>';
   }
 
   /* ---- The SCIENTIFIC name, MEDIUM and LARGE only ----
@@ -795,7 +801,7 @@
   var nameRenderer = function (html) { return html; };
   function build(tpl, v, cls) {
     v = v || {};
-    var identifierLine = tpl === SMALL && !!v.identifierLine;
+    var identifierLine = (tpl === SMALL || tpl === MEDIUM) && !!v.identifierLine;
     var largeMeta = codeHtml(v, tpl) + distHtml(v, tpl)
       + whenHtml(v, tpl) + confHtml(v, tpl);
     var largeSub = subHtml(v, false);
@@ -805,7 +811,7 @@
       name: nameRenderer(v.name || '', codeText(v.code)),
       tags: v.tagsInCodes && v.codeInSci && tpl === MEDIUM && sciText(v.sci)
         && (alphaText(v.alpha) || codeText(v.code)) ? '' : v.tags || '',
-      sub: identifierLine ? identifierLineHtml(v) : subHtml(v, tpl === SMALL),
+      sub: identifierLine ? (tpl === SMALL ? identifierLineHtml(v) : '') : subHtml(v, tpl === SMALL),
       largemeta: largeMeta ? '<div class="bcmeta">' + largeMeta + '</div>' : '',
       largesub: largeSub ? '<div class="bcsub">' + largeSub + '</div>' : '',
       statusline: v.statusLine ? '<div class="bcstatus">' + v.statusLine + '</div>' : '',
@@ -827,7 +833,7 @@
       count: countHtml(v, tpl),
       when: whenHtml(v, tpl),
       code: identifierLine ? '' : codeHtml(v, tpl),
-      sci: sciHtml(v, tpl),
+      sci: sciHtml(v, tpl) + (identifierLine && tpl === MEDIUM ? identifierLineHtml(v, true) : ''),
       conf: confHtml(v, tpl),
       // An optional control at the RIGHT EDGE of a small row. It has to be a
       // sibling of `.ntext` rather than inside it, because `.name` is the flex

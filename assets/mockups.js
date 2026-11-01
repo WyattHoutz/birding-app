@@ -806,6 +806,44 @@ const SETUP_REVIEW_SHOTS = [
 
 const REVIEW_SHOTS = [
   ...SETUP_REVIEW_SHOTS,
+  ...['current', 'older', 'recent'].map(state => ({
+    id: 'f1213-migration-' + state, title: 'Migration sentences - ' + state,
+    at: state === 'recent' ? undefined : 'surgeBtn',
+    kind: 'birdgen', host: state === 'recent' ? 'recentBirdGenRows' : 'surgeResults',
+    freshApp: true, fullPage: true, minControls: 1,
+    prep: `
+      A.cancelStalledWork();
+      var now = new document.defaultView.Date(), local = A.birdcastLocalParts(now, A.getReport());
+      var date = new document.defaultView.Date(Date.UTC(local.year, local.month - 1, local.day))
+        .toISOString().slice(0, 10);
+      var night = new document.defaultView.Date(Date.UTC(local.year, local.month - 1,
+        local.day - ${state === 'older' ? 4 : 1})).toISOString().slice(0, 10);
+      A.setBirdcastSnapshot({ forecast: { level: 'Low', date: date }, fetchedAt: now.getTime(),
+        count: { birds: 8400, night: night, countyLabel: 'King County' } });
+      A.renderSurge([], [], [], [], [], {
+        mega: 'notApplicable', observations: 'ok', leaderboard: 'notApplicable',
+        hotspots: 'notApplicable', favorites: 'notApplicable', mass: 'notApplicable',
+        foy: 'notApplicable'
+      });
+      A.updateRecentBirdGen();
+      var host = document.getElementById(${JSON.stringify(state === 'recent' ? 'recentBirdGenRows' : 'surgeResults')});
+      var sec = host.closest('section');
+      ${state === 'recent' ? 'A.showMenu();' : "A.showSection(sec.id, { load: false });"}
+      var title = host.querySelector('.surgealerttitle');
+      if (!title || title.querySelector('br') || !title.textContent.includes(
+        ${JSON.stringify(state === 'older' ? 'birds migrated on' : 'birds migrated last night.')}))
+        throw new Error('Migration source-night qualification or inline formatting drifted');
+      var note = document.createElement('p');
+      note.textContent = 'REPRESENTATIVE STUB DATA - migration wording and independently dated counts.';
+      host.prepend(note);
+      host.dataset.mockData = 'true';
+      if (sec) {
+        sec.dataset.mockReady = 'true';
+        sec.dataset.mockAt = 'surgeBtn';
+      }
+      return true;
+    `
+  })),
   { id: 'f928-watch-patches', at: 'destBtn',
     title: "Today's patches - screenshot-based WATCH-only examples",
     host: 'destResults', fullPage: true, freshApp: true,
@@ -2213,7 +2251,12 @@ const BOOTSTRAP = `
         });
       window.__mockBusyRows = busy;
       window.__app.renderHot({ hot: [], busy: busy, cold: [],
-        busyState: { at: now, pending: false, partial: false } });
+        rarityState: 'ready', rarityRows: [
+          { locId: places[0].locId, code: 'swaspa', name: 'Swamp Sparrow', kind: 'Rarity',
+            dateStr: new Date(now - 3600000).toISOString(), valid: true },
+          { locId: places[1].locId, code: 'easkin', name: 'Eastern Kingbird', kind: 'Rarity',
+            dateStr: new Date(now - 3600000).toISOString(), valid: false }
+        ], busyState: { at: now, pending: false, partial: false } });
       markHost(host, label);
       return;
     }
@@ -3574,7 +3617,7 @@ const BOOTSTRAP = `
         throw new Error('Nearby personal checklist lost its source place or PRIVATE/RARE labels');
       }
       document.getElementById('stakeHsStatus').textContent =
-        '4 recent checklists · 10:03 PM';
+        'REPRESENTATIVE STUB DATA · 4 recent checklists · 10:03 PM';
       markHost(host, label);
     } else if (at === 'iconicBtn') {
       A.setIconicRows([
@@ -3595,6 +3638,12 @@ const BOOTSTRAP = `
     } else if (spec.kind === 'species-search') {
       if (at === 'nvResults') {
         A.setActiveReport('wa');
+        await preparePersonalFixture(A, document.defaultView, { yearList: [
+          { code: 'baisan', name: "Baird's Sandpiper" }
+        ] }, [
+          { code: 'baisan', name: "Baird's Sandpiper", sci: 'Calidris bairdii', alpha: 'BASA' },
+          { code: 'hawama', name: 'Hawaii Amakihi', sci: 'Chlorodrepanis virens', alpha: 'HAAM' }
+        ]);
         localStorage.setItem('ebird_watchlist_v1', JSON.stringify([
           { code: 'baisan', name: "Baird's Sandpiper" },
           { code: 'hawama', name: 'Hawaii Amakihi' }
@@ -3613,7 +3662,9 @@ const BOOTSTRAP = `
               obsDt: mockObservationDate(2), subId: 'SWATCHMOCK' }
           ]}
         });
-        if (!await A.LOADERS.nvResults.fn() || !/Marymoor Park/.test(host.textContent)) {
+        if (!await A.LOADERS.nvResults.fn()
+            || A.watchEvidence().rows.baisan?.loc !== 'Marymoor Park--Audubon Bird Loop'
+            || /Marymoor Park|SWATCHMOCK/.test(host.textContent)) {
           throw new Error('Watch mockup did not automatically acquire bird details');
         }
         var scopeButtons = document.querySelectorAll('#nvScope .nvscopebtn');
@@ -3626,8 +3677,14 @@ const BOOTSTRAP = `
             || /Hawaii Amakihi/.test(host.textContent)
             || !/1 of 2 species awaiting verification/.test(
               document.getElementById('nvStatus').textContent)) {
-          throw new Error('Needs proof regional scope fixture drifted');
+          throw new Error('Needs proof regional scope fixture drifted: ' + JSON.stringify({
+            label: scopeLabel && scopeLabel.textContent, pressed: scopeButtons[0]?.getAttribute('aria-pressed'),
+            rows: host.textContent, status: document.getElementById('nvStatus').textContent,
+            evidence: A.personalListEvidence().coverage
+          }));
         }
+        document.getElementById('nvStatus').textContent =
+          'REPRESENTATIVE STUB DATA · ' + document.getElementById('nvStatus').textContent;
         markHost(host, label);
       } else {
         fillSpeciesHost(host, document.defaultView, label, at);
@@ -3652,7 +3709,7 @@ const BOOTSTRAP = `
       sec.querySelector('.status').textContent =
         'Exact personal membership prepared · representative Year List';
     }
-    if (spec.kind === 'favorites') {
+    if (spec.kind === 'favorites' || at === 'hotBtn') {
       document.getElementById(spec.map).setAttribute('data-mock-map', 'true');
     } else {
       fillMapHost(spec.map ? document.getElementById(spec.map) : null, label);
@@ -4819,6 +4876,23 @@ async function main() {
         })()`,
         returnByValue: true
       }, sessionId);
+    }
+    if (shot.at === 'hotBtn' || shot.at === 'stakeHsBtn') {
+      const reading = await c.send('Runtime.evaluate', {
+        expression: `(function () {
+          var d = document.getElementById('f').contentDocument;
+          var measure = ${require('./card-readability').toString()};
+          return Array.from(d.querySelectorAll(${JSON.stringify(shot.at === 'hotBtn'
+            ? '#hotResults .busypatch' : '#stakeHsResults .hscard-lg')})).map(measure);
+        })()`, returnByValue: true
+      }, sessionId);
+      const cards = reading.result.value;
+      console.log('  hotspot readability ' + WIDTH + '/' + SCALE + ': ' + JSON.stringify(cards));
+      if (!cards.length || cards.some(card => card.wordBroken || card.titleClipped)) {
+        console.error('Hotspot title crushed inside its card: ' + JSON.stringify(cards));
+        blank.push(shot.id);
+        continue;
+      }
     }
     // Measure the real painted height inside the frame so a short surface is
     // not padded with a screenful of background.

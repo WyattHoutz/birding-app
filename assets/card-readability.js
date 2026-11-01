@@ -3,7 +3,7 @@
 // Runs in the browser: measure text inside the card, not document overflow.
 function cardReadability(card) {
   const view = card.ownerDocument.defaultView;
-  const title = card.querySelector('.name > .ntext');
+  const title = card.querySelector('.name > .ntext, .hscardhead > .ntext');
   const box = title.getBoundingClientRect();
   const canvas = card.ownerDocument.createElement('canvas').getContext('2d');
   const name = title.querySelector('a') || title;
