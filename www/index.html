@@ -2517,8 +2517,8 @@
       left: 0; right: 0; text-align: center; padding: 2px 4px;
       font-size: min(calc(24px * var(--s)), 30px); }
     .busypatchscore .hsnum {
-      position: absolute; top: 0; left: 0; width: 28px; height: 28px;
-      font-size: 16px; line-height: 28px; margin: 0; }
+      position: absolute; top: 0; left: 0; width: calc(28px * var(--s)); height: calc(28px * var(--s));
+      font-size: calc(16px * var(--s)); line-height: calc(28px * var(--s)); margin: 0; }
     .busypatchreason { display: block; margin-top: 4px; font-size: calc(13px * var(--s));
       line-height: 1.75; font-weight: 500; overflow-wrap: anywhere; color: var(--muted); }
     .busypatchmetric { padding: 1px 0; border-radius: 3px; background: #edf4fa; color: #243746;
@@ -29987,7 +29987,8 @@
         } else if (step === 'home') {
           var homeDraft = setupHomeDraft() || savedSetupHomeDraft(), homePoint = homeDraft && homeDraft.point;
           var mapDraft = homePoint ? homeDraft : savedSetupHomeDraft(), mapPoint = mapDraft && mapDraft.point;
-          var homeValue = homePoint ? homePoint.lat.toFixed(5) + ', ' + homePoint.lng.toFixed(5)
+          var homeValue = homeDraft && !homeDraft.approved && homeDraft.source !== 'saved' && homeDraft.query
+            ? homeDraft.query : homePoint ? homePoint.lat.toFixed(5) + ', ' + homePoint.lng.toFixed(5)
             : homeDraft && homeDraft.query || '';
           var savedHome = getHome();
           recommended = homeDraft && homeDraft.options && homeDraft.options.length ? ''

@@ -30,6 +30,12 @@ function formatObsStamp(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
     + `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+// Naive local source stamps cannot distinguish DST's repeated hour.
+function chronologyNow() {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  return d.getTime();
+}
 function recentObsStamp(daysAgo = 1, hour = 8, minute = 0) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
@@ -1482,13 +1488,13 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
   } finally { app.window.close(); }
 });
 
-test('F1143/F1146 disabled Nemesis stays inaccessible while Birds I Need owns the exchanged icon', async () => {
+test('F1143/F1146 disabled Nemesis stays inaccessible while Target Birds owns the exchanged icon', async () => {
   const saved = JSON.stringify(['allUnseenBtn', 'easyBtn']);
   const app = await boot({ storage: { bc_menu_shortcuts_v1: saved } });
   try {
     const A = app.window.__app;
     const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="easyBtn"]');
-    assert.match(bird.textContent, /Birds I Need/);
+    assert.match(bird.textContent, /Target Birds/);
     assert.equal(bird.querySelector('.tileicon').textContent, '🦅');
     assert.equal(app.document.querySelector('#menuList [data-at="allUnseenBtn"]'), null);
     assert.ok(app.$('nemesisMenuBadge').closest('[hidden]'));
@@ -2424,7 +2430,8 @@ test('F999 actual Pro patches detail uppercases its strongest status without cha
 test('F1085/F1086/F1032 the five-row preview uses source order and compact accessible rows', async () => {
   const app = await boot();
   try {
-    const A = app.window.__app, now = Date.now();
+    const A = app.window.__app, now = chronologyNow();
+    app.window.Date.now = () => now;
     const stamp = (time) => {
       const date = new Date(time), p = n => String(n).padStart(2, '0');
       return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} `
@@ -18271,9 +18278,9 @@ test('F1104 Common birds paints before place enrichment, bounds calls and reuses
     assert.doesNotMatch(app.$('easyStatus').textContent,
       /bird\/place targets|discovery feeds|representative reports/);
     await A.toggleSectionDoc(section);
-    await waitFor(() => !app.$('appSheet').hidden, 'Birds I Need information dialog');
+    await waitFor(() => !app.$('appSheet').hidden, 'Target Birds information dialog');
     assert.match(app.$('appSheet').textContent, /source response limit reached/);
-    assert.match(app.$('appSheet').textContent, /Birds I Need/);
+    assert.match(app.$('appSheet').textContent, /Target Birds/);
     assert.equal(app.$('easyPlaces').hidden,false,'the eighth discovered species has an explicit continuation');
     assert.ok(!calls.some(u=>/historic|notable/.test(u)),'ordinary discovery has no history or rare-only prerequisite');
     const before=calls.length,warmStart=Date.now();
@@ -21297,7 +21304,7 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
       at + ' has a tile of its own, named "' + name + '"');
   }
   assert.equal(want.allUnseenBtn, undefined, 'F1143 keeps Nemesis out of the shipping menu');
-  assert.equal(want.easyBtn, 'Birds I Need');
+  assert.equal(want.easyBtn, 'Target Birds');
   assert.equal(CONTRACT.menu.some((m) => m.at === 'targetsBtn'), false,
     'the retired closest-target menu id remains in the report contract');
   assert.equal(labels.some((l) => /Open targets|Closest unseen birds|Closest patches/i.test(l)), false,
@@ -21318,8 +21325,8 @@ test('F496 Nemesis birds replaces Birds/Patches with shared Group controls', asy
     .map((row) => row.textContent).join(' ');
   assert.ok(alertsAt >= 0 && !/Nemesis birds/.test(alertsText),
     'the temporarily disabled Nemesis report must not appear in Bird alerts');
-  assert.ok(/Birds I Need/.test(alertsText),
-    'Birds I Need belongs in the owner-approved Bird alerts menu block');
+  assert.ok(/Target Birds/.test(alertsText),
+    'Target Birds belongs in the owner-approved Bird alerts menu block');
   app.window.close();
 });
 
@@ -24539,7 +24546,8 @@ test('F1006 Recent Bird Gen keeps each matched Favorite Patch name, age and navi
 test('F1015 cached Twitches keep date order and refresh ages without a new-item bucket', async () => {
   const app = await boot();
   try {
-    const A = app.window.__app, now = Date.now() + 74 * 60000;
+    const A = app.window.__app, now = chronologyNow() + 74 * 60000;
+    app.window.Date.now = () => now;
     await seedSeen(app, []);
     A.setRaritySort('date');
     const older = { code: 'lcspet', name: "Leach's Storm-Petrel", kind: 'Rarity',
@@ -24570,7 +24578,8 @@ test('F1015 cached Twitches keep date order and refresh ages without a new-item 
 test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores category and PPTE distance', async () => {
   const app = await boot({ home: false });
   try {
-    const A = app.window.__app, now = Date.now();
+    const A = app.window.__app, now = chronologyNow();
+    app.window.Date.now = () => now;
     const stamp = minutes => formatObsStamp(new Date(now - minutes * 60000));
     const event = A.ppteEvents(ppteFixture())[0];
     assert.ok(event);
@@ -25641,13 +25650,14 @@ test('Bird Gen relative age stays on one line as 24hr ago', async () => {
 });
 
 test('F274 renders one ranked small-card feed with every alert type and count', async () => {
+  const now = chronologyNow();
   const localStamp = (minsAgo) => {
-    const d = new Date(Date.now() - minsAgo * 60000);
+    const d = new Date(now - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const snap = JSON.stringify({
-    at: Date.now() - 15 * 60000,
+    at: now - 15 * 60000,
     region: 'US-WA', sid: 'SN10489',
     membershipVersion: 2,
     rows: [
@@ -25660,10 +25670,11 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const app = await boot({ storage: {
     ebird_mega_snapshot_v1: snap,
     'ebird_species_v2:US-WA': JSON.stringify({
-      at: Date.now(),
+      at: now,
       rows: [{ code: 'nazboo1', alpha: 'NABO', name: 'Nazca Booby' }],
     }),
   } });
+  app.window.Date.now = () => now;
   const A = app.window.__app;
   await seedSeen(app, ['zzseencontrol']);
   const birders = ['Brian','Liam','Bruce','Fourth','Fifth'].map((name,i)=>({name,rank:[3,4,8,9,10][i]}));
@@ -26820,14 +26831,15 @@ test('F302 Bird Gen info lists every category and reopens at the top', async () 
 });
 
 test('F274 deduplicates a species to its strongest category and keeps every reason', async () => {
+  const now = chronologyNow();
   const localStamp = (minsAgo) => {
-    const d = new Date(Date.now() - minsAgo * 60000);
+    const d = new Date(now - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const newest = localStamp(5);
   const snap = JSON.stringify({
-    at: Date.now(), region: 'US-WA', sid: 'SN10489',
+    at: now, region: 'US-WA', sid: 'SN10489',
     membershipVersion: 2,
     rows: [
       { speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(60),
@@ -26837,6 +26849,7 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
     ],
   });
   const app = await boot({ storage: { ebird_mega_snapshot_v1: snap } });
+  app.window.Date.now = () => now;
   const A = app.window.__app;
   await seedSeen(app,[],null,[{code:'nazboo1',name:'Nazca Booby'}]);
   A.renderSurge(
@@ -39921,15 +39934,7 @@ test('docs/CARDS.md matches the code it documents', () => {
   // 2. The "unused" claims are TRUE. This is the half that rots: a template
   //    picked up by a new section stays labelled unused for a year otherwise.
   const src = { SpeciesCards: HTML, HotspotCards: HTML, ChecklistCards: HTML };
-  const documentedUnused = [
-    // HotspotCards.marker briefly left it and came back the same day: the
-    // Stakeout "By odds" rows DO carry a number, but build() computes the badge
-    // from v.num and ignores a `marker` passed in, so calling it was the bug.
-    // HotspotCards.large left this list on 2026-08-22: 🗺 Stake out a hotspot
-    // is the app's only "one place, in depth" view, which is precisely the
-    // shape the large card was defined for.
-    ['HotspotCards', 'marker'],
-  ];
+  const documentedUnused = [];
   for (const [family, size] of documentedUnused) {
     const calls = (src[family].match(
       new RegExp(family + '\\.' + size + '\\(', 'g')) || []).length;
@@ -47717,12 +47722,14 @@ test('the nearby-needs lane spends nothing and drops what it cannot date', () =>
 });
 
 test('F787 supersedes F526 with newest event first and no sort control', async () => {
+  const now = chronologyNow();
   const localStamp = (minsAgo) => {
-    const d = new Date(Date.now() - minsAgo * 60000);
+    const d = new Date(now - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const app = await boot();
+  app.window.Date.now = () => now;
   const A = app.window.__app;
   A.renderSurge(
     [
@@ -47769,14 +47776,15 @@ test('F787 supersedes F526 with newest event first and no sort control', async (
 });
 
 test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen filter', async () => {
+  const now = chronologyNow();
   const localStamp = (minsAgo) => {
-    const d = new Date(Date.now() - minsAgo * 60000);
+    const d = new Date(now - minsAgo * 60000);
     const p = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
-  const dayAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const dayAgo = (n) => new Date(now - n * 86400000).toISOString().slice(0, 10);
   const snap = JSON.stringify({
-    membershipVersion: 2, at: Date.now() - 10 * 60000,
+    membershipVersion: 2, at: now - 10 * 60000,
     region: 'US-WA', sid: 'SN10489',
     rows: [{ speciesCode: 'nazboo1', comName: 'Nazca Booby', obsDt: localStamp(15),
       locName: 'Ocean Shores Jetty', locId: 'LMEGA', subId: 'SM1',
@@ -47796,10 +47804,11 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
     ebird_mega_snapshot_v1: snap,
     ebird_aba_archive_v1: watched,
     'ebird_species_v2:US-WA': JSON.stringify({
-      t: Date.now(),
+      t: now,
       rows: [{ name: 'Nazca Booby', code: 'nazboo1', alpha: 'NABO' }],
     }),
   } });
+  app.window.Date.now = () => now;
   const A = app.window.__app;
   await seedSeen(app, ['nazboo1', 'ruff', 'norwat']);
   A.renderSurge(
@@ -47877,7 +47886,8 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
 test('F274 Newest uses hotspotConvergence checklist time without a merged hotspot row', async () => {
   const app = await boot();
   const A = app.window.__app, BL = app.window.BirdLogic;
-  const now = Date.now();
+  const now = chronologyNow();
+  app.window.Date.now = () => now;
   const stamp = (ms) => {
     const d = new Date(ms);
     const p = (n) => String(n).padStart(2, '0');

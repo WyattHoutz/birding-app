@@ -63,7 +63,7 @@ Sizes are a **rank of attention**, not a rank of importance:
 | `small` | `spLookupIconicHtml` | 🔍 Stakeout bird → *By odds* — the historically-good places for one bird. A hotspot card rather than a species card because these rows have **no checklist behind them**: they are places, and often places with no recent report at all |
 | `medium` | `spLookupPlaceCards` | 🔍 Stakeout bird recent reports — one numbered four-mile locality, with every source checklist retaining its own place and metadata |
 | `large` | `renderStakeHs` | 🗺 Stake out a hotspot — ONE place, in depth: eBird code, address, all-time totals, the birds seen there in the last 30 days, its iconic score, its recent checklists, and who birds it. The one section that is about a single hotspot rather than a list of them, which is exactly what the large card is for |
-| `marker` | — | **unused** — and it is a trap, not an oversight: `build()` derives the badge from `num`/`icon`, so a caller passing a ready-made `marker` has it silently dropped. Stakeout *By odds* numbers its rows by passing `num` |
+| `marker` | `busyPatchTile` | Busy Patches — the displayed list rank over its multiplier tile, matching the map pin. `build()` still derives ordinary badges from `num`/`icon`; Stakeout *By odds* passes `num` rather than an ignored ready-made `marker` property |
 
 ### ChecklistCards — a row is a checklist
 
@@ -92,14 +92,14 @@ Leader Board Ticks uses species rows without nested checklist cards.
 
 The older helpers `speciesPlacesCard` and `unseenPlacesHtml` remain in the
 source. Their legacy names are not additional menus: the current visible
-menus are Nemesis birds and Common birds.
+menus are Nemesis birds and Target Birds.
 
-## The unused ones
+## Template adoption history
 
-`HotspotCards.marker` is defined, styled and tested but called from nowhere in
-`index.html`.
+Every template is now used in `index.html`. F1201 adopted
+`HotspotCards.marker` for the Busy Patches multiplier tile's displayed rank.
 
-> Was "the unused four", then two, and now one. `SpeciesCards.large`
+> Was "the unused four", then two, then one, and now none. `SpeciesCards.large`
 > went to 📅 My year on 2026-08-18 and returned on 2026-08-20, because that
 > section's container carries the MEDIUM class and the reader wanted the
 > Needs-verification shape anyway. It became the Stakeout bird Details card on
@@ -116,7 +116,7 @@ menus are Nemesis birds and Common birds.
 > `build()` computes the badge from `num`/`icon` and **ignores a `marker`
 > passed in**, so calling it produced rows with no number at all. Pass `num`.
 
-It is **kept deliberately**, not left by accident:
+The families remain deliberate:
 
 * They keep the families symmetrical. A family offering only the sizes
   currently in use invites the next section to invent a fourth shape rather
@@ -127,8 +127,8 @@ It is **kept deliberately**, not left by accident:
 * The gallery renders them, so they cannot silently rot: a change that breaks
   an unused template is visible on the page.
 
-If it is still unused a year from now, delete it — but delete its CSS, its
-tests and its gallery entry in the same commit, and say why.
+If a template becomes unused, remove it only together with its CSS, tests
+and gallery entry, and record why.
 
 ## Rules
 

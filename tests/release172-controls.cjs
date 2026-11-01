@@ -119,7 +119,14 @@ module.exports = ({
           assert.equal(typeof detail[field], 'boolean', name + ': ' + field);
         }
         assert.ok(Number.isInteger(detail.selectionParameterCount));
-        assert.ok(Object.values(detail).every(value => typeof value === 'boolean'
+        assert.equal(detail.route, 'direct');
+        assert.equal(detail.mismatchCategory, {
+          missing: 'missing-canonical', duplicate: 'duplicate-canonical',
+          'wrong-selection': 'selection-mismatch', 'duplicate-selection': 'duplicate-selection',
+          'wrong-origin': 'wrong-origin'
+        }[name]);
+        assert.ok(Object.entries(detail).filter(([key]) => !['route', 'mismatchCategory'].includes(key))
+          .every(([, value]) => typeof value === 'boolean'
           || Number.isInteger(value) && value >= 0 && value <= 100000));
         assert.doesNotMatch(diagnostics[0], /PRIVATE_|https?:|SN10489|Little Stint|S1095001/);
       }
