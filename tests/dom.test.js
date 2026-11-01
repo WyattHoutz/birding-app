@@ -30417,6 +30417,69 @@ test('a panel clips sideways overflow WITHOUT becoming a scroll container', () =
 // `taskkill /T` alone was NOT enough (measured: 14 survivors) because Chrome's
 // launcher exits immediately and its children are re-parented, leaving no tree
 // to walk. The durable handle is the run's own `--user-data-dir`.
+function auditLifecycleFixture(cleanup = 'fail', report = 'empty', budget = 100, helpers = 'ok') {
+  const result = childProcess.spawnSync(process.execPath, [
+    '--require', path.join(__dirname, 'fixtures', 'audit-lifecycle.cjs'),
+    path.join(__dirname, '..', 'assets', 'audit-overflow.js'), '393', '1',
+  ], {
+    encoding: 'utf8', timeout: DEFAULT_TEST_TIMEOUT_MS,
+    env: { ...process.env, CHROME_BIN: process.execPath, AUDIT_TIMEOUT_MS: String(budget),
+      AUDIT_ATTEMPTS: '2', AUDIT_LIFECYCLE_CLEANUP: cleanup, AUDIT_LIFECYCLE_REPORT: report,
+      AUDIT_LIFECYCLE_HELPERS: helpers },
+  });
+  assert.equal(result.error, undefined, result.stderr);
+  if (process.env.AUDIT_LIFECYCLE_MUTATION) {
+    assert.ok(result.stdout.includes('APPLIED_AUDIT_MUTATION=' + process.env.AUDIT_LIFECYCLE_MUTATION),
+      'the controlled audit mutation must actually reach the production entry point');
+    console.log('Observed audit mutation: ' + process.env.AUDIT_LIFECYCLE_MUTATION);
+  }
+  return result;
+}
+
+test('F1214 failed browser cleanup aborts before geometry scoring', () => {
+  const result = auditLifecycleFixture();
+  assert.match(result.stdout, /FORCED_PROFILE_CLEANUP_FAILURE/);
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+  assert.match(result.stderr, /AUDIT INFRASTRUCTURE FAILURE/);
+  assert.doesNotMatch(result.stdout, /FIXTURE missing|Layout failures|nothing overflows/);
+});
+
+test('F1214 a startup cannot retry while browser cleanup is unverified', () => {
+  const result = auditLifecycleFixture('fail', 'none');
+  assert.equal(result.status, 3, result.stderr);
+  assert.equal((result.stdout.match(/BROWSER_SPAWN/g) || []).length, 1);
+});
+
+test('F1214 cleanup helpers use the existing bounded browser budget', () => {
+  const result = auditLifecycleFixture();
+  const waits = [...result.stdout.matchAll(/HELPER_TIMEOUT=([^\r\n]+)/g)];
+  assert.ok(waits.length, 'the actual cleanup path must invoke its process helpers');
+  for (const wait of waits) assert.equal(Number(wait[1]), 100);
+});
+
+test('F1214 successful cleanup does not excuse missing geometry fixtures', () => {
+  const result = auditLifecycleFixture('clean');
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /FIXTURE missing/);
+  assert.doesNotMatch(result.stdout, /nothing overflows/);
+});
+
+test('F1214 invalid audit budgets cannot launch a browser or disable bounded cleanup', () => {
+  for (const budget of [0, Infinity, 2147483648]) {
+    const result = auditLifecycleFixture('fail', 'empty', budget);
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /Invalid AUDIT_TIMEOUT_MS/);
+    assert.doesNotMatch(result.stdout, /BROWSER_SPAWN/);
+  }
+});
+
+test('F1214 a failed process helper cannot certify cleanup even after profile removal', () => {
+  const result = auditLifecycleFixture('clean', 'empty', 100, 'fail');
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+  assert.match(result.stderr, /AUDIT INFRASTRUCTURE FAILURE/);
+  assert.doesNotMatch(result.stdout, /FIXTURE missing|nothing overflows/);
+});
+
 test('the layout audit cleans up the browsers it launches', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');

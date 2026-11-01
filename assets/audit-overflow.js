@@ -3886,10 +3886,12 @@ server.listen(0, '127.0.0.1', () => {
   // it can never touch the user's own browser, which is why this does not
   // kill by process NAME.
   const killTree = () => {
+    let verified = true;
     try {
       if (process.platform === 'win32') {
-        spawnSync('taskkill', ['/pid', String(ch.pid), '/T', '/F'],
-                  { stdio: 'ignore' });
+        const result = spawnSync('taskkill', ['/pid', String(ch.pid), '/T', '/F'],
+                  { stdio: 'ignore', timeout: TIMEOUT_MS });
+        if (result.error || result.status === null) verified = false;
       } else {
         process.kill(-ch.pid, 'SIGKILL');
       }
@@ -3898,16 +3900,23 @@ server.listen(0, '127.0.0.1', () => {
     // ...then anything still carrying THIS run's profile.
     try {
       if (process.platform === 'win32') {
-        spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-          "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" -ErrorAction Stop | "
           + "Where-Object { $_.CommandLine -like '*" + path.basename(profile)
           + "*' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force "
-          + "-ErrorAction Stop } catch {} }"], { stdio: 'ignore' });
+          + "-ErrorAction Stop } catch {} }; "
+          + "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+          + "-ErrorAction Stop | Where-Object { $_.CommandLine -like '*"
+          + path.basename(profile) + "*' }); if ($remaining.Count) { exit 1 }"],
+          { stdio: 'ignore', timeout: TIMEOUT_MS });
+        if (result.error || result.status !== 0) verified = false;
       } else {
-        spawnSync('pkill', ['-9', '-f', path.basename(profile)],
-                  { stdio: 'ignore' });
+        const result = spawnSync('pkill', ['-9', '-f', path.basename(profile)],
+                  { stdio: 'ignore', timeout: TIMEOUT_MS });
+        if (result.error || ![0, 1].includes(result.status)) verified = false;
       }
-    } catch (e) { /* no shell for it; the retry loop below still reports */ }
+    } catch (e) { verified = false; }
+    return verified;
   };
 
   // Windows releases the handles a moment AFTER the tree dies, so one attempt
@@ -3928,15 +3937,21 @@ server.listen(0, '127.0.0.1', () => {
 
   const teardown = () => {
     if (!ch) return true;
-    killTree();
+    const verified = killTree();
     const gone = removeProfile();
     if (!gone) {
-      console.error('LEAK: ' + profile + ' survived — a Chrome child is still '
-        + 'holding it. This is what made the six-width chain flaky; it must '
-        + 'not be ignored.');
+      console.error('LEAK: ' + profile + ' survived; browser cleanup was not verified.');
     }
     ch = null;
-    return gone;
+    return verified && gone;
+  };
+
+  const cleanupOrFail = () => {
+    if (!teardown()) {
+      console.error('AUDIT INFRASTRUCTURE FAILURE: browser cleanup could not be verified.');
+      server.close();
+      process.exit(3);
+    }
   };
 
   // ---- A HUNG LAUNCH IS RETRIED, NOT SCORED AS A LAYOUT FAILURE ----------
@@ -3957,6 +3972,11 @@ server.listen(0, '127.0.0.1', () => {
   // called a failure, which it then genuinely is.
   const TIMEOUT_MS = +(process.env.AUDIT_TIMEOUT_MS || 120000);
   const MAX_ATTEMPTS = +(process.env.AUDIT_ATTEMPTS || 3);
+  if (!Number.isSafeInteger(TIMEOUT_MS) || TIMEOUT_MS <= 0 || TIMEOUT_MS > 2147483647) {
+    console.error('Invalid AUDIT_TIMEOUT_MS: expected positive timer-range milliseconds.');
+    server.close();
+    process.exit(2);
+  }
 
   const launch = () => {
     attempt++;
@@ -3976,7 +3996,7 @@ server.listen(0, '127.0.0.1', () => {
       done([{label:'(audit timeout)',fixtureError:'Audit stalled after ' + auditStage}]);
       return;
     }
-    teardown();
+    cleanupOrFail();
     if (attempt < MAX_ATTEMPTS) {
       console.error('audit did not report in ' + Math.round(TIMEOUT_MS / 1000)
         + 's — browser progress unavailable; relaunching (attempt ' + (attempt + 1)
@@ -3992,7 +4012,7 @@ server.listen(0, '127.0.0.1', () => {
 
   const done = (report) => {
     clearTimeout(timer);
-    teardown();
+    cleanupOrFail();
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
