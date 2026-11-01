@@ -4375,7 +4375,7 @@ async function seedSeen(app, codes, names, taxa = []) {
   const model = app.window.BirdTaxonomy.create([...rows.values()],edition);
   await A.taxonomyStore('put','identity:' + edition,model);
   app.window.localStorage.setItem('bc_taxonomy_v1',JSON.stringify({
-    edition,checkedAt:Date.now(),previousEdition:'',
+    edition,checkedAt:app.window.Date.now(),previousEdition:'',
   }));
   assert.equal(await A.restoreTaxonomyNames(),true,'owned fixture taxonomy must restore');
   catalogs.forEach(catalog => {
@@ -17208,7 +17208,7 @@ function ppteNotableFixture() {
   return ppteFixture().map(row=>({speciesCode:row.code,comName:row.name,obsDt:row.dateStr,
     subnational1Code:'US-WA'}));
 }
-function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
+function ppteFixture(day = recentObsStamp(2).slice(0, 10), acquiredAt = Date.now()) {
   const rows = ['verfly', 'swaspa'].flatMap((code, bird) => [0, 1].map(person => ({
     kind: 'Rarity', code, name: bird ? 'Swamp Sparrow' : 'Vermilion Flycatcher',
     obsId: `OBS-PPTE-${bird}-${person}`, subId: `S${12001 + person}`,
@@ -17216,7 +17216,7 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
     loc: person ? '123 Sample St SE, Test County' : 'Sample Street SE, Test County',
     lat: 47 + person * 0.00018, lon: -122, count: 99, __stateRba: true,
     ppteSourceRegion:'US-WA',
-    ppteRarity:{code,region:'US-WA',at:Date.now(),observedAt:day},
+    ppteRarity:{code,region:'US-WA',at:acquiredAt,observedAt:day},
   })));
   const before = new Date(day + 'T12:00:00Z');
   before.setUTCDate(before.getUTCDate() - 1);
@@ -17227,6 +17227,18 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10)) {
       dateStr: `${before.toISOString().slice(0, 10)} 08:00` },
   ]);
 }
+
+test('controlled chronology acquisitions remain usable when host time is later', async () => {
+  const app = await boot();
+  try {
+    const now = Date.now() - 3600000;
+    app.window.Date.now = () => now;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    assert.ok(app.window.__app.getReportSeen().amerob);
+    assert.equal(app.window.__app.ppteEvents(ppteFixture(undefined, now)).length, 1);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
 
 test('F1109 Patagonia requires independently qualified exact taxa, not source labels or review status', async () => {
   const app=await boot({sample:false,fetch:()=>[]});
@@ -24581,7 +24593,7 @@ test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores catego
     const A = app.window.__app, now = chronologyNow();
     app.window.Date.now = () => now;
     const stamp = minutes => formatObsStamp(new Date(now - minutes * 60000));
-    const event = A.ppteEvents(ppteFixture())[0];
+    const event = A.ppteEvents(ppteFixture(undefined, now))[0];
     assert.ok(event);
     const ppte = [
       { ...event, id: 'F1019-NEW', latest: stamp(1), publicHotspot: null,
