@@ -2701,7 +2701,7 @@ const BOOTSTRAP = `
       + '<div class="helpdoc"><p><b>Reads:</b> recent alerts, leaderboard and hotspot activity.</p>'
       + '<p><b>Limit:</b> incomplete sources are labelled rather than treated as empty.</p>'
       + '</div></details><details class="helpitem"><summary>'
-      + '<span class="helpglyph">🦅</span><span class="helpname">Birds I Need</span>'
+      + '<span class="helpglyph">🦅</span><span class="helpname">Target Birds</span>'
       + '<span class="helpone">Birds you still need</span>'
       + '</summary></details></div>';
     markHost(host, label);
