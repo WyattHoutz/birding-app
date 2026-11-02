@@ -899,6 +899,14 @@
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
     #loadBarActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #loadBarActions button { min-height: 40px; }
+    #loadNotice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+                  gap: 6px; align-items: start; margin-top: 6px; padding: 6px 8px;
+                  border: 2px solid var(--safe-blue); border-radius: 8px;
+                  font-size: calc(14px * var(--s)); line-height: 1.35; }
+    #loadNotice[data-cause="limit"] { border-color: #E69F00; border-style: dashed; }
+    #loadNoticeIcon { font-weight: 700; }
+    #loadNoticeHide { min-width: 44px; min-height: 44px; padding: 4px;
+                     margin: 0; font-size: inherit; }
     .surgesourceprogress { margin: 10px 0; }
     .surgesourceprogress .track { height: 6px; border-radius: 999px; overflow: hidden;
                                  background: color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -3812,6 +3820,12 @@
   <div id="loadBar" hidden aria-live="polite">
     <div id="loadBarTrack"><div id="loadBarFill"></div></div>
     <div id="loadBarText" class="hint"></div>
+    <div id="loadNotice" hidden>
+      <span id="loadNoticeIcon" aria-hidden="true"></span>
+      <span id="loadNoticeText"></span>
+      <button type="button" class="secondary" id="loadNoticeHide"
+              aria-label="Hide loading explanation">Hide</button>
+    </div>
     <div id="loadBarActions" hidden>
       <button type="button" id="loadRetry">Retry this section</button>
       <button type="button" id="loadCancel">Cancel queued work</button>
@@ -5245,7 +5259,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.180.0';
+      var APP_VERSION = '1.181.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8817,6 +8831,40 @@
       // one 429 — every pause in it was self-imposed, and the app would have
       // told the owner eBird was rate-limiting them.
       var _fgHoldWhy = 'pace';
+      var _loadLimitSeen = false, _loadLimitUntil = 0;
+      var _loadCacheSeen = {}, _loadCacheNotice = null;
+      function beginCacheNotice(slug, work) {
+        if (_loadCacheSeen[slug]) return function () {};
+        _loadCacheSeen[slug] = true;
+        var notice = { work: work };
+        _loadCacheNotice = notice;
+        fgProgressSync();
+        return function () {
+          if (_loadCacheNotice === notice) _loadCacheNotice = null;
+          fgProgressSync();
+        };
+      }
+      function noteEbirdLimit() {
+        if (!_loadLimitSeen || _loadLimitUntil > Date.now()) _loadLimitUntil = _fgNextAt;
+        _loadLimitSeen = true;
+        fgProgressSync();
+      }
+      function loadingNoticeSync() {
+        var el = (typeof document !== 'undefined') && document.getElementById('loadNotice');
+        if (!el) return false;
+        if (_loadLimitUntil <= Date.now()) _loadLimitUntil = 0;
+        if (_loadCacheNotice && !workCurrent(_loadCacheNotice.work)) _loadCacheNotice = null;
+        var cause = _loadLimitUntil ? 'limit' : _loadCacheNotice ? 'cache' : '';
+        el.hidden = !cause;
+        if (!cause) return false;
+        el.setAttribute('data-cause', cause);
+        $('loadNoticeIcon').textContent = cause === 'limit' ? '!' : 'i';
+        $('loadNoticeText').textContent = cause === 'limit'
+          ? 'eBird is limiting requests. Next retry: ' + Math.ceil((_loadLimitUntil - Date.now()) / 1000)
+            + 's. Keep browsing loaded results.'
+          : 'First load: caching data. Later visits here usually load faster. Fresh updates still need eBird.';
+        return true;
+      }
 
       // Split one call's elapsed time into queue, network and NOT-RUNNING.
       // Without the third the first two absorb it and both become fiction.
@@ -8973,12 +9021,13 @@
           var busy = _fgWaiters.length
             + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
             + Object.keys(_progressHolds).length;
+          var notice = loadingNoticeSync();
           var stall = fgVisibleStall();
           if (stall && !manualRetryControlsEnabled()) {
             fgScheduleStallRecovery(stall);
             stall = null;
           }
-          if (_stage || busy || stall) {
+          if (_stage || busy || stall || notice) {
             if (_fgIdleTimer) { clearTimeout(_fgIdleTimer); _fgIdleTimer = null; }
           } else if (!_fgIdleTimer) {
             _fgIdleTimer = setTimeout(function () {
@@ -9000,7 +9049,7 @@
             return;
           }
           if (actions) actions.hidden = true;
-          if (!_stage && !busy) { el.hidden = true; return; }
+          if (!_stage && !busy && !notice) { el.hidden = true; return; }
           el.hidden = false;
 
           // A HELD LANE IS THE ONE THING THAT LOOKS BROKEN. During a 429 cooldown
@@ -9291,9 +9340,8 @@
         at += fgWindowWait(at, bg);
         _fgStarts.push(at);
         _fgNextAt = at + _fgGap;
-        // Our own pacing put the queue here. Only a refusal may claim
-        // otherwise, and it overwrites this on the way past.
-        _fgHoldWhy = 'pace';
+        // A reservation does not end an existing upstream cooldown.
+        if (!_etaRetryHold || now >= _etaRetryHold.until) _fgHoldWhy = 'pace';
         return at;
       }
       function fgSchedulePreview(now, bg) {
@@ -9438,6 +9486,7 @@
               // eBird really did refuse. This is the ONLY thing entitled to
               // tell the user they are being rate-limited.
               _fgHoldWhy = r.status === 429 ? 'limit' : 'retry';
+              if (r.status === 429) noteEbirdLimit();
               return rlSleep(back).then(function () {
                 if (fgDead()) return new Promise(function () {});
                 return fgAttempt(path, attempt + 1, bg, stat, work);
@@ -16849,7 +16898,9 @@
                 return HotspotCards.small({
                   name: stakeoutSourceName(source)
                     + (source.count > 1 || !source.private && source.count
-                      ? ', <span class="stakeoutSourceCount">' + source.count
+                      ? ', <span class="stakeoutSourceCount" data-source-loc="'
+                        + esc(source.place.locId || '') + '" data-source-point="'
+                        + esc(source.private ? source.point : '') + '">' + source.count
                         + (source.count === 1 ? ' checklist' : ' checklists') + '</span>' : '')
                     + (source.private ? ', ' + stakeoutSourceMap(source).trim() : '')
                 });
@@ -16905,7 +16956,8 @@
               'ev-place': where,
               'ev-when': whenTxt || ''
             },
-            sub: sourceMeta,
+            sub: '<span class="stakeoutPlaceCount" data-locations="' + sources.length
+              + '">' + sourceMeta + '</span>',
             below: details
           }));
         });
@@ -17035,6 +17087,7 @@
             'pin-place': flat && pin ? pin.placeKey : '',
             'ev-sub': row.subId || '',
             'ev-code': (bird && bird.code) || '',
+            'ev-loc': place.locId || '',
             'ev-lat': place.lat,
             'ev-lng': (place.lon != null ? place.lon : place.lng),
             'ev-place': place.loc || place.locId || '',
@@ -17066,13 +17119,42 @@
           && list.parentNode.querySelector(':scope > .stakeoutChecklistMore');
         if (old) old.remove();
         var remaining = rows.length - visible;
+        var card = list.closest('.hscard-md');
+        var count = card && card.querySelector('.stakeoutPlaceCount');
+        if (count) {
+          var locations = Number(count.getAttribute('data-locations'));
+          var unique = {};
+          rows.forEach(function (row) {
+            var sub = row.getAttribute('data-ev-sub');
+            if (sub) unique[sub] = true;
+          });
+          var total = Object.keys(unique).length;
+          count.textContent = (locations > 1 ? locations + ' locations · ' : '')
+            + (total > 1 || locations > 1
+              ? total + (total === 1 ? ' checklist' : ' checklists') : '');
+          [].forEach.call(card.querySelectorAll('.stakeoutSourceCount'), function (sourceCount) {
+            var loc = sourceCount.getAttribute('data-source-loc');
+            var point = sourceCount.getAttribute('data-source-point'), subs = {};
+            if (!loc && !point) return;
+            rows.forEach(function (row) {
+              if (loc && row.getAttribute('data-ev-loc') === loc || point
+                  && distQ(row.getAttribute('data-ev-lat'), row.getAttribute('data-ev-lng')) === point) {
+                var sub = row.getAttribute('data-ev-sub');
+                if (sub) subs[sub] = true;
+              }
+            });
+            var n = Object.keys(subs).length;
+            if (n) sourceCount.textContent = n + (n === 1 ? ' checklist' : ' checklists');
+          });
+        }
         if (!remaining || !list.parentNode) return;
         var next = Math.min(STAKEOUT_CHECKLIST_BATCH, remaining);
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'secondary stakeoutChecklistMore';
-        button.textContent = 'Load ' + next + ' more'
-          + (remaining > next ? ' of ' + remaining : '') + ' checklists';
+        button.textContent = 'Show ' + next + ' more'
+          + (remaining > next ? ' of ' + remaining : '')
+          + (next === 1 && remaining === 1 ? ' checklist' : ' checklists');
         button.addEventListener('click', function () {
           list.setAttribute('data-visible-count', String(visible + next));
           limitStakeoutChecklistRows(list);
@@ -17185,7 +17267,7 @@
               limitStakeoutChecklistRows(list);
             }
             slot.innerHTML = '<div class="stakeoutHistoryStatus" role="status">'
-              + (added || 0) + ' additional matching report' + (added === 1 ? '' : 's')
+              + (added || 0) + ' matching report' + (added === 1 ? '' : 's') + ' added to this list'
               + ' · checked ' + result.checked + ' recent checklist'
               + (result.checked === 1 ? '' : 's') + ' (up to '
               + STAKEOUT_HISTORY_SCAN + ').</div>';
@@ -18424,8 +18506,13 @@
       }
       function computeChaseRows(profile, slug, rowsByFile, codes, fallbackRows) {
         var seed = window.__SEED_BIRDLIST__ || {};
+        var partyFeeds = {};
+        Object.keys(rowsByFile || {}).forEach(function (key) {
+          partyFeeds[key] = Array.isArray(rowsByFile[key])
+            ? checklistPartyRows(rowsByFile[key]) : rowsByFile[key];
+        });
         return BL.computeChaseViews(profile, {
-          rowsToday: rowsByFile, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
+          rowsToday: partyFeeds, priorCodes: priorSnapCodes(slug), speciesCodes: codes,
           seen: chaseSeenCodes(rowsByFile, fallbackRows),
           personalEvidence: personalListEvidence(),
           ownName: getDisplayName(), snapshotDate: todayStr(),
@@ -19241,6 +19328,7 @@
         }
         function runWave() {
           var _t0 = Date.now();
+          var endCacheNotice = !snapshotTime ? beginCacheNotice(slug, waveWork) : function () {};
           var earlyPublished = false;
           feedStates = {};
           liveOkCount = 0;
@@ -19318,6 +19406,7 @@
             }
             return fetchAll(rest, true, false, waveWork, incremental);
           }).then(function (results) {
+            endCacheNotice();
             requireCurrentChase();
             if (!incremental) applyFetchResults(results);
             delete _chaseRarity[slug];
@@ -19516,7 +19605,7 @@
             });
 
             return phaseOneSaved.then(function () { return first; });
-          });
+          }).finally(endCacheNotice);
         }
         // A cold start had nothing in memory and paid the whole wave again.
         // "I often close the app and then open it again" - so a snapshot from
@@ -26447,8 +26536,80 @@
         }
       }
       var _cklView = {};
+      var _checklistParties = {};
+      function rememberChecklistParty(sub, value) {
+        if (value && typeof value.groupId === 'string' && value.groupId.trim()
+            && value.locId && /^\d{4}-\d{2}-\d{2}/.test(value.obsDt || '')) {
+          _checklistParties[sub] = {
+            groupId: value.groupId.trim(), numObservers: value.numObservers,
+            locId: value.locId, day: String(value.obsDt).slice(0, 10)
+          };
+        }
+      }
+      function checklistPartyRows(rows) {
+        return (rows || []).map(function (row) {
+          var evidence = _checklistParties[row.subId || row.subID];
+          var loc = row.locId || (row.loc && row.loc.locId);
+          var day = String(row.isoObsDate || row.obsDt || row.dateStr || '').slice(0, 10);
+          return (typeof row.groupId !== 'string' || !row.groupId.trim())
+            && evidence && evidence.locId === loc && evidence.day === day
+            ? Object.assign({}, row, { groupId: evidence.groupId, numObservers: evidence.numObservers })
+            : row;
+        });
+      }
+      function enrichChecklistParties(rows, work) {
+        var unique = {}, buckets = {}, cached = [], selected = [];
+        (rows || []).forEach(function (row) {
+          var sub = row.subId || row.subID;
+          var loc = row.locId || (row.loc && row.loc.locId);
+          var day = String(row.isoObsDate || row.obsDt || row.dateStr || '').slice(0, 10);
+          if (!sub || !loc || !day || unique[sub]) return;
+          unique[sub] = true;
+          if (cklCached(sub)) cached.push(sub);
+          var key = loc + '|' + day;
+          (buckets[key] = buckets[key] || []).push(row);
+        });
+        return pool(cached, CKL_EVID_CONC, function (sub) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          return checklistView(sub, true, work, false, true);
+        }).then(function () {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          var candidates = Object.keys(buckets).map(function (key) {
+            return buckets[key].length > 1 ? buckets[key].filter(function (row) {
+              return (typeof row.groupId !== 'string' || !row.groupId.trim())
+                && !cklCached(row.subId || row.subID);
+            }) : [];
+          });
+          // Share the detail budget across visits, including poisoned cache misses.
+          for (var index = 0; selected.length < CKL_EVID_MAX; index += 2) {
+            var found = false;
+            candidates.forEach(function (bucket) {
+              bucket.slice(index, index + 2).forEach(function (row) {
+                if (selected.length >= CKL_EVID_MAX) return;
+                selected.push(row.subId || row.subID); found = true;
+              });
+            });
+            if (!found) break;
+          }
+          return pool(selected, CKL_EVID_CONC, function (sub) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            return checklistView(sub, true, work);
+          });
+        }).then(function () {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          return checklistPartyRows(rows);
+        });
+      }
       function seedChecklistView(sub, value) {
-        if (sub) _cklView[sub] = Promise.resolve(value);
+        if (sub) {
+          if (!value) {
+            delete _cklView[sub];
+            delete _checklistParties[sub];
+            return;
+          }
+          rememberChecklistParty(sub, value);
+          _cklView[sub] = Promise.resolve(value);
+        }
       }
       var _cklWrites = 0;
       // ⚠️ F247. THE PAYLOAD IS PACKED; THE ENVELOPE IS NOT — and the write
@@ -26569,6 +26730,7 @@
       function forgetChecklistView(sub) {
         if (!sub) return;
         delete _cklView[sub];
+        delete _checklistParties[sub];
         delete _ebCache['product/checklist/view/' + encodeURIComponent(sub)];
         try { localStorage.removeItem(CKL_NS + sub); } catch (e) {}
       }
@@ -26579,7 +26741,7 @@
         dbg('error', 'Checklist response identity mismatch; existing attribution retained.');
         return false;
       }
-      function checklistView(sub, bg, work, urgent) {
+      function checklistView(sub, bg, work, urgent, cachedOnly) {
         if (!sub) return Promise.resolve(null);
         if (_cklView[sub]) return _cklView[sub];
         var o = cklEntry(CKL_NS + sub);
@@ -26611,16 +26773,28 @@
                 if (v == null) { try { localStorage.removeItem(CKL_NS + sub); } catch (e) {} }
                 if (!checklistIdentityMatches(v, sub)) {
                   forgetChecklistView(sub);
-                  return checklistView(sub, bg, work, urgent);
+                  return checklistView(sub, bg, work, urgent, cachedOnly);
                 }
                 return v;
               })
             : Promise.resolve(o.v);
+          _cklView[sub] = _cklView[sub].then(function (value) {
+            if (!value) {
+              forgetChecklistView(sub);
+              return checklistView(sub, bg, work, urgent, cachedOnly);
+            }
+            rememberChecklistParty(sub, value);
+            return value;
+          });
           return _cklView[sub];
         }
+        if (cachedOnly) return Promise.resolve(null);
         _cklView[sub] = ebird('product/checklist/view/' + encodeURIComponent(sub),
           !!bg, false, false, work)
           .then(function (d) {
+            if (!d || typeof d !== 'object' || Array.isArray(d)) {
+              throw new Error('Checklist details are unavailable.');
+            }
             if (!checklistIdentityMatches(d, sub)) {
               forgetChecklistView(sub);
               throw new Error('The checklist response does not match the requested report.');
@@ -26634,6 +26808,7 @@
               obsDt: (d && (d.obsDt || d.isoObsDate)) || '',
               durationHrs: d && isFinite(+d.durationHrs) ? +d.durationHrs : null,
               groupId: (d && d.groupId) || '',
+              numObservers: d && d.numObservers,
               // F222. THE CHECKLIST'S OWN COMMENT, which this projection used
               // to drop on the floor. `checklistObs` has always read
               // `d.comments` — but `d` here is this projection, not the raw
@@ -26672,6 +26847,7 @@
               dbg('warn', 'checklist not cached: '
                 + (e && e.name) + ' · store holds ' + storeComposition());
             }
+            rememberChecklistParty(sub, v);
             return v;
           })
           .catch(function () { _cklView[sub] = null; return null; });
@@ -37915,7 +38091,7 @@
       // is being fetched, and showing it costs nothing.
       var HOTCACHE_KEY = 'bc_hotspots_v1';
       function hotCacheKey() {
-        return HOTCACHE_KEY + ':busy-parties-v3:' + hotspotContextKey();
+        return HOTCACHE_KEY + ':busy-matched-groups-v4:' + hotspotContextKey();
       }
       // ⚠️ F247. BOTH HALVES OF THIS WERE BROKEN, INDEPENDENTLY, AND THE CACHE
       // HAD NEVER ONCE HIT.
@@ -37934,8 +38110,13 @@
       // not something the scan should wait on.
       function hotCacheSave(r, key) {
         if (!r || !r.busyState || r.busyState.pending || r.busyState.partial) return;
+        var activity = (r.busy || []).map(function (row) {
+          var aggregate = Object.assign({}, row);
+          delete aggregate.subId;
+          return aggregate;
+        });
         zcPut(key || hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [],
-          busy: r.busy || [], busyState: r.busyState || null });
+          busy: activity, busyState: r.busyState || null });
       }
       // Synchronous, because its callers paint with it. `zcPeek` answers from
       // the values this session has already decoded; `hotCacheWarm` below is
@@ -38092,7 +38273,7 @@
         var currentContext = hotspotContextKey();
         if (_hotspotCacheContext !== currentContext) resetHotspotCache();
         if (force) resetHotspotCache();
-        if (_hotspotCache) return Promise.resolve(_hotspotCache);
+        if (_hotspotCache && !_hotspotCache._busyOnly) return Promise.resolve(_hotspotCache);
         if (_hotspotPromise) return _hotspotPromise;
         _hotspotCacheContext = currentContext;
         var home = getHome(), anchors = getAnchors(), codes = countyCodes();
@@ -38130,8 +38311,98 @@
       }
       var _busyRange = 'all', _busySort = 'busy', _busyGeneration = 0, _busyRendered = null;
       var _busyPromise = null, _busyContext = '';
+      var _busyCompleted = null, _busyApiKey = '', _surgeBusySnapshot = null;
+      var _busyRequests = { context: '', paths: Object.create(null) };
+      var BUSY_POLICY = 'matched-groups-5-plus-2-v1';
+      function busyRequestPath(path, context) {
+        if (_busyRequests.context !== context) {
+          _busyRequests = { context: context, paths: Object.create(null) };
+        }
+        _busyRequests.paths[path] = true;
+        return path;
+      }
+      function busySnapshotSource(snapshot) {
+        return {
+          state: snapshot.busyState.failed ? 'failed' : snapshot.busyState.partial ? 'partial' : 'ok',
+          policy: BUSY_POLICY, snapshotAt: snapshot.busyState.cached
+            ? snapshot.busyState.cachedAt : snapshot.busyState.at,
+          rows: (snapshot.busy || []).filter(BL.isHotspotConvergence).map(function (row) {
+            return Object.assign({}, row, { loc: row.name,
+              eventAt: BL.recTime({ dateStr: row.latest }), reason: 'surge',
+              at: snapshot.busyState.cached ? snapshot.busyState.cachedAt : snapshot.busyState.at });
+          })
+        };
+      }
+      function publishBusySnapshot(result, context) {
+        _busyCompleted = { context: context, result: {
+          busy: (result.busy || []).map(function (row) { return Object.assign({}, row); }),
+          busyState: Object.assign({}, result.busyState)
+        } };
+        _busyApiKey = getKey();
+        if (_surgeBusySnapshot) _surgeBusySnapshot(_busyCompleted);
+      }
+      function currentBusySnapshot() {
+        return _busyCompleted && _busyCompleted.context === hotspotContextKey()
+          && _busyApiKey === getKey() ? _busyCompleted.result : null;
+      }
+      function acquireBusyPatches(force, retry) {
+        var context = hotspotContextKey(), apiKey = getKey();
+        if (_busyPromise && _busyContext === context && !force) return _busyPromise;
+        var complete = currentBusySnapshot();
+        if (!force && !retry && complete && !complete.busyState.partial
+            && Date.now() - complete.busyState.at < CHASE_TTL_MS) return Promise.resolve(complete);
+        var codes = countyCodes(), home = getHome(), anchors = getAnchors();
+        var reportSlug = getReportSlug(), cacheKey = hotCacheKey();
+        var work = navWork('Busy Patch public registry', 'surgeBtn');
+        var navigation = work.navGeneration, cancellation = work.cancelGeneration;
+        work.current = function () {
+          return navigation === _navGeneration && cancellation === _workCancelGeneration
+            && context === hotspotContextKey() && apiKey === getKey();
+        };
+        return hotCacheWarm().then(function (cached) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          if (!currentBusySnapshot() && cached && Array.isArray(cached.busy)
+              && cached.busyState && !cached.busyState.pending && !cached.busyState.partial
+              && cached.busyState.at > 0 && cached.busyState.at <= Date.now()) {
+            var now = Date.now();
+            var restored = Object.assign({}, cached, { _busyOnly: true,
+              busy: cached.busy.filter(function (row) {
+                var latest = BL.recTime({ dateStr: row.latest });
+                return BL.isHotspotConvergence(row)
+                  && latest >= now - BL.SURGE.WINDOW_H * 3600000 && latest <= now;
+              }),
+              busyState: Object.assign({}, cached.busyState, {
+                cached: true, cachedAt: cached.busyState.at
+              })
+            });
+            _hotspotCache = restored; _hotspotCacheContext = context;
+            publishBusySnapshot(restored, context);
+            renderHot(restored);
+            $('hotStatus').textContent = busyPatchStatus(restored);
+          }
+          var complete = currentBusySnapshot();
+          if (!force && !retry && complete && !complete.busyState.partial
+              && Date.now() - complete.busyState.at < CHASE_TTL_MS) return complete;
+          return Promise.all(codes.map(function (code) {
+            return ebird(busyRequestPath('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json', context),
+              false, false, false, work).then(function (rows) {
+                if (!Array.isArray(rows) || !rows.length) throw new Error('Public hotspot registry unavailable.');
+                return rows;
+              });
+          })).then(function (registries) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            return startBusyPatches({
+              codes: codes, home: home, anchors: anchors, context: context,
+              reportSlug: reportSlug, cacheKey: cacheKey, force: !!force, retry: !!retry,
+              meta: [].concat.apply([], registries)
+            });
+          });
+        });
+      }
       function busyPatchReason(h) {
-        var phrases = [['busy-reason', h.observers + ' parties, above usual ' + h.baseline]];
+        var phrases = [['busy-reason', h.observers + ' estimated parties · +'
+          + (h.observers - h.baseline) + ' above usual ' + h.baseline],
+          ['busy-ratio', surgeHotspotMultiplier(h) + ' usual (matched 36h)']];
         if (h.currentDays != null && h.previousDays != null && h.currentDays > h.previousDays) {
           var days = h.currentDays - h.previousDays;
           phrases.push(['report-day-change', '+' + days + (days === 1 ? ' reported day' : ' reported days') + ' (7 days)']);
@@ -38161,7 +38432,7 @@
             + ' usual activity; background density represents relative activity, not headcount')
           + '"><span class="surgehotspotpeople" aria-hidden="true">' + people
           + '</span><span class="surgehotspotmult" aria-hidden="true">'
-          + esc(surgeHotspotMultiplier(h)) + '</span>'
+          + esc(h.observers) + '</span>'
           + (rank == null ? '' : HotspotCards.marker(rank)) + '</span></span>';
       }
       function busyPatchRarities(h, rows) {
@@ -38194,6 +38465,8 @@
       }
       function renderHot(r) {
         var el = $('hotResults'); if (!el) return;
+        if (r.busyState) el.dataset.busySnapshot = String(
+          r.busyState.cached ? r.busyState.cachedAt : r.busyState.at);
         _busyRendered = r;
         var top = BL.busyPatchList(r.busy || [], {
           maxMi: _busyRange === 'near' ? chaseMaxMi() : null, sort: _busySort
@@ -38259,6 +38532,15 @@
       }
       function startBusyPatches(input) {
         if (_busyPromise && _busyContext === input.context && !input.force) return _busyPromise;
+        var complete = currentBusySnapshot();
+        if (!input.force && !input.retry && complete && !complete.busyState.partial
+            && Date.now() - complete.busyState.at < CHASE_TTL_MS) {
+          var current = _hotspotCache || { hot: [], cold: [], _busyOnly: true };
+          current.busy = complete.busy; current.busyState = complete.busyState;
+          _hotspotCache = current; renderHot(current);
+          if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(current);
+          return Promise.resolve(current);
+        }
         var generation = ++_busyGeneration, now = Date.now(), work = cancellableWork('Busy Patch references', 'hotBtn');
         var cancelGeneration = work.cancelGeneration;
         var apiKey = getKey();
@@ -38268,6 +38550,14 @@
             && hotspotContextKey() === input.context && getKey() === apiKey;
         };
         _busyContext = input.context;
+        _busyRequests = { context: input.context, paths: Object.create(null) };
+        input.codes.forEach(function (code) {
+          busyRequestPath('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json', input.context);
+        });
+        if (_hotspotCacheContext !== input.context) {
+          resetHotspotCache();
+          _hotspotCacheContext = input.context;
+        }
         var previous = (_hotspotCache && _hotspotCache.busy) || [], meta = {};
         var previousAt = _hotspotCache && _hotspotCache.busyState
           ? _hotspotCache.busyState.cachedAt || _hotspotCache.busyState.at : now;
@@ -38278,17 +38568,18 @@
         var coverage = {}, all = [], scored = [];
         function paint() {
           if (!workCurrent(work)) return;
-          var r = _hotspotCache || { hot: [], cold: [] };
-          r.busy = state.pending && previous.length ? previous : scored;
+          var r = _hotspotCache || { hot: [], cold: [], _busyOnly: true };
+          r.busy = state.pending ? previous : scored;
           r.busyState = Object.assign({}, state, { cached: state.pending && previous.length > 0 });
           _hotspotCache = r;
           renderHot(r);
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(r);
         }
         function lists(path) {
-          return ebird(path + '?maxResults=1200', false, !!input.force, !!input.force, work)
+          return ebird(busyRequestPath(path + '?maxResults=1200', input.context),
+            false, !!input.force, !!input.force, work)
             .then(function (rows) {
-              if (!Array.isArray(rows) || !rows.length) throw new Error('Checklist coverage is unavailable.');
+              if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
               return { ok: true, rows: rows };
             }).catch(function (e) {
               if (e && e.queueCancelled) throw e;
@@ -38296,9 +38587,10 @@
             });
         }
         function refreshScores() {
-          var activity = BL.busyPatchActivity(BL.normalizeChecklistRows(all), { now: now, coverage: coverage });
+          var activity = BL.busyPatchActivity(BL.normalizeChecklistRows(checklistPartyRows(all)),
+            { now: now, coverage: coverage });
           state.unscored = activity.filter(function (h) {
-            return h.observers >= 3 && h.ratio == null && meta[h.locId];
+            return h.observers >= 5 && h.ratio == null && meta[h.locId];
           }).length;
           scored = activity.filter(function (h) { return h.eligible && meta[h.locId]; })
             .map(function (h) {
@@ -38307,6 +38599,19 @@
               h.dist = haversineMi(input.home.lat, input.home.lng, h.lat, h.lng);
               return h;
             });
+          var people = {};
+          BL.normalizeChecklistRows(all).forEach(function (row) {
+            var at = BL.recTime({ dateStr: row.obsDt });
+            if (at > now || at < now - 36 * 3600000 || !isFinite(at)) return;
+            var identities = people[row.locId] || (people[row.locId] = {});
+            identities[BL.INDEPENDENCE.who(row)] = true;
+          });
+          verdict('Busy hotspots', scored.length + ' qualify; matched 36h / four weekly windows; '
+            + activity.slice(0, 5).map(function (row) {
+              return row.locId + ': ' + Object.keys(people[row.locId] || {}).length
+                + ' reporting identities -> ' + row.observers + ' estimated parties / usual '
+                + (row.baseline == null ? 'unmeasured' : row.baseline);
+            }).join('; '));
           paint();
         }
         paint();
@@ -38326,14 +38631,17 @@
           return lists('product/lists/' + encodeURIComponent(code));
         })).then(function (feeds) {
           if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
+          state.failed = feeds.some(function (feed) { return !feed.ok; });
           feeds.forEach(function (feed) {
             if (!feed.ok) state.partial = true;
             all.push.apply(all, feed.rows);
             var depth = busyChecklistCoverage(feed.rows, now);
-            if (!depth.ordered || (feed.rows.length >= 1200 && !depth.current)) state.partial = true;
+            if (feed.rows.length && (!depth.ordered || (feed.rows.length >= 1200 && !depth.current))) {
+              state.partial = true;
+            }
           });
-          var candidates = BL.busyPatchActivity(BL.normalizeChecklistRows(all), { now: now })
-            .filter(function (h) { return h.observers >= 3 && meta[h.locId]; });
+          var candidates = BL.busyPatchActivity(BL.normalizeChecklistRows(checklistPartyRows(all)), { now: now })
+            .filter(function (h) { return h.observers >= 5 && meta[h.locId]; });
           state.candidates = candidates.length;
           state.unscored = candidates.length;
           paint();
@@ -38359,11 +38667,29 @@
             });
           }, Promise.resolve());
         }).then(function () {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          var windows = [0, 7, 14, 21, 28].map(function (days) {
+            var end = new Date(now); end.setDate(end.getDate() - days);
+            return { end: +end, start: +end - 36 * 3600000 };
+          });
+          var relevant = all.filter(function (row) {
+            var loc = row.locId || (row.loc && row.loc.locId);
+            var at = BL.recTime({ dateStr: row.isoObsDate || row.obsDt });
+            return meta[loc] && windows.some(function (window) {
+              return at >= window.start && at <= window.end;
+            });
+          });
+          return enrichChecklistParties(relevant, work).then(function () {
+            all = checklistPartyRows(all);
+            refreshScores();
+          });
+        }).then(function () {
           if (!workCurrent(work)) return null;
           state.pending = false;
           if (state.partial && previous.length) scored = previous;
           paint();
           _hotspotCache.busyState.cached = state.partial && previous.length > 0;
+          publishBusySnapshot(_hotspotCache, input.context);
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache);
           if (!state.partial) hotCacheSave(_hotspotCache, input.cacheKey);
           return _hotspotCache;
@@ -40981,8 +41307,9 @@
 
       // --- Birder convoys (group routes from shared checklists) ---
       // Detection + per-county product/lists feeds come from BirdLogic
-      // (BL.convoyDetect / BL.planConvoyFeeds) — the same parity-tested logic
-      // report.section_birder_convoys uses. CONVOY_LOOKBACK_DAYS mirrors
+      // (BL.convoyDetect / BL.planConvoyFeeds). The report parity-tests shared
+      // multi-stop routes; the app also retains its five-member field trips.
+      // CONVOY_LOOKBACK_DAYS mirrors
       // BirdLogic's CONST only for the "last N days" status label.
       var CONVOY_LOOKBACK_DAYS = (BL && BL.CONST && BL.CONST.CONVOY_LOOKBACK_DAYS) || 7;
       function convoyLocName(s) { return (s.loc && (s.loc.name || s.loc.locName)) || s.locName || s.locId || 'Hidden location'; }
@@ -41273,6 +41600,7 @@
             });
         });
       }
+      var _convoyGeneration = 0;
       function loadConvoys() {
         if (!getKey()) { $('convoyStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         if ($('convoyRegionLabel')) $('convoyRegionLabel').textContent = '· ' + countyLabelStr();
@@ -41283,19 +41611,41 @@
           st.textContent = ''; return;
         }
         // Per-county product/lists feeds (BL.planConvoyFeeds) merged, then the
-        // shared BL.convoyDetect — identical to report.section_birder_convoys.
+        // shared BL.convoyDetect, with bounded detail evidence on a second pass.
         var feeds = BL.planConvoyFeeds(surgeConvoyProfile());
+        var generation = ++_convoyGeneration, context = hotspotContextKey();
+        var apiKey = getKey(), displayName = getDisplayName();
+        var work = navWork('Convoy party evidence', 'convoyBtn');
+        var navGeneration = work.navGeneration, cancelGeneration = work.cancelGeneration;
+        work.current = function () {
+          return generation === _convoyGeneration && navGeneration === _navGeneration
+            && cancelGeneration === _workCancelGeneration && hotspotContextKey() === context
+            && getKey() === apiKey && getDisplayName() === displayName;
+        };
         btn.disabled = true; st.textContent = 'Scanning recent checklists in ' + countyLabelStr() + '…';
-        Promise.all(feeds.map(function (f) { return ebird(BL.requestUrl(f)).catch(function () { return []; }); }))
+        return Promise.all(feeds.map(function (f) {
+          return ebird(BL.requestUrl(f), false, false, false, work).catch(function (error) {
+            if (error && error.queueCancelled) throw error;
+            return [];
+          });
+        }))
           .then(function (results) {
+            if (!workCurrent(work)) throw queueCancelledError(work);
             var lists = [];
             results.forEach(function (r) { if (Array.isArray(r)) lists.push.apply(lists, r); });
-            var routes = BL.convoyDetect(lists, new Date(), getDisplayName());
-            renderConvoys(routes, lists);
-            st.textContent = routes.length ? (routes.length + ' group route' + (routes.length === 1 ? '' : 's') + ' · ' + nowTime()) : ('No convoys detected right now · ' + nowTime());
+            function paint(rows) {
+              if (!workCurrent(work)) throw queueCancelledError(work);
+              var routes = BL.convoyDetect(rows, new Date(), displayName);
+              renderConvoys(routes, rows);
+              st.textContent = routes.length ? (routes.length + ' group route' + (routes.length === 1 ? '' : 's') + ' · ' + nowTime()) : ('No convoys detected right now · ' + nowTime());
+            }
+            paint(checklistPartyRows(lists));
+            return enrichChecklistParties(lists, work).then(paint);
           })
-          .catch(function (e) { st.textContent = netErr(e); })
-          .finally(function () { btn.disabled = false; });
+          .catch(function (e) {
+            if (workCurrent(work) && !(e && e.queueCancelled)) st.textContent = netErr(e);
+          })
+          .finally(function () { if (generation === _convoyGeneration) btn.disabled = false; });
       }
 
       // --- Happening now (mirror report.section_surge) -------------------
@@ -41617,10 +41967,7 @@
               return qualified ? Object.assign({}, row, qualified) : null;
             }).filter(Boolean);
           } else if (key === 'convergence') {
-            next.rows = value.rows.filter(function (row) {
-              return BL.isHotspotConvergence(row)
-                && surgeTimeValue(row.latest) >= now - BL.SURGE.WINDOW_H * 3600000;
-            });
+            return;
           } else return;
           model[key] = next;
         });
@@ -41746,6 +42093,7 @@
         });
       }
       function surgeCachedSource(cache, key) {
+        if (key === 'convergence') return null;
         var part = cache && cache[key];
         if (!part || !Array.isArray(part.rows)) return null;
         var age = Date.now() - Number(part.t || 0);
@@ -42172,7 +42520,9 @@
               'class="surge-leading-tag surgebadge ')) + ' <span class="surgealerttitle">' + headline
             + (place ? (a.placeConnector || ' at ') + place : '') + (a.tags || '') + '</span>',
           tags: '',
-          sub: (warnings.length ? '<span class="surge-essential">'
+          sub: (a.kind === 'hotspot' ? '<span class="surge-essential">'
+              + esc(a.sub || '') + '</span>' : '')
+            + (warnings.length ? '<span class="surge-essential">'
               + esc(warnings.join(' · ')) + '</span>' : ''),
           right: surgeKindRight(a.kind, ageTime, ageLabel),
           below: '<template data-surge-evidence>' + evidence + '</template>',
@@ -42633,11 +42983,11 @@
       function surgeHotspotTile(row) {
         var multiplier = row ? surgeHotspotMultiplier(row) : '';
         return '<span class="thumb surgehotspotthumb" role="img"'
-          + ' aria-label="' + esc(row ? row.observers + ' independent parties; '
+          + ' aria-label="' + esc(row ? row.observers + ' estimated parties; '
             + multiplier + ' this patch’s usual reporting activity' : 'Busy Patches') + '">'
           + '<span class="surgehotspotpeople" aria-hidden="true">'
           + '<span>👥</span>'.repeat(9) + '</span>'
-          + (multiplier ? '<span class="surgehotspotmult" aria-hidden="true">' + esc(multiplier) + '</span>' : '')
+          + (row ? '<span class="surgehotspotmult" aria-hidden="true">' + esc(row.observers) + '</span>' : '')
           + '</span>';
       }
 
@@ -44878,13 +45228,17 @@
             icon: surgeHotspotTile(c),
             name: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || 'Unnamed spot'),
             namePrefix: 'High traffic at ',
-            sub: c.observers + ' birders',
+            sub: c.observers + ' estimated parties · +'
+              + (c.observers - c.baseline) + ' above usual ' + c.baseline,
             distance: surgeDistanceText(mi),
-            noteHeader: SURGE_KINDS.hotspot.word + ': ' + surgeHotspotMultiplier(c)
-              + ' this patch’s own norm',
+            noteHeader: SURGE_KINDS.hotspot.word + ': ' + c.observers
+              + ' parties · +' + (c.observers - c.baseline) + ' above usual ' + c.baseline,
             count: null,
-            why: c.observers + ' independent parties · <b>'
-              + surgeHotspotMultiplier(c) + ' this patch’s own norm</b>',
+            why: '<b>' + c.observers + ' estimated parties · +'
+              + (c.observers - c.baseline) + ' above usual ' + c.baseline
+              + '</b> · ' + surgeHotspotMultiplier(c) + ' usual (matched 36h)',
+            extra: surgeHotspotMultiplier(c)
+              + ' usual (matched 36h). Party estimates use available shared-checklist evidence.',
             where: c.locId ? stakeHotspotLink(c.locId, c.loc) : esc(c.loc || ''),
             when: when,
             time: c.eventAt || surgeTimeValue(when),
@@ -44892,6 +45246,7 @@
             data: {
               hsloc: c.locId,
               hslocname: c.loc || '',
+              busysnapshot: c.at || '',
               hslatest: when
             }
           });
@@ -45021,7 +45376,7 @@
 
       function surgeObservedResult(res, now, recoverNeverAlerted) {
         if (!res || !res.cv) throw new Error('recent/notable feeds returned no chase view');
-        var merged = res.cv.merged || [];
+        var merged = checklistPartyRows(res.cv.merged || []);
         var rareCodes = merged.filter(function (r) {
           return r && r.kind === 'Rarity';
         }).map(function (r) { return r.code; });
@@ -45335,12 +45690,14 @@
           performanceLoadId = performanceStart(section, deepHistory ? 'deep-history' : 'refresh');
         }
         var releasePerformance = performanceHold(section, performanceLoadId);
-        function current() {
-          return !!window.document && !stopped && !_appUnloading && generation === _surgeLoadGeneration
+        function ownsView(ending) {
+          return !!window.document && (terminalOutcome !== 'cancelled' || ending === true)
+            && !_appUnloading && generation === _surgeLoadGeneration
             && scopeCurrent(loadScope) && loadNavigation === _navGeneration
             && loadRetainedContext === surgeRetainedContext()
             && loadCancellation === _workCancelGeneration;
         }
+        function current() { return !stopped && ownsView(); }
         var activeLoad = {
           current: current, deepHistory: deepHistory === true, fullRefresh: fullRefresh,
           primary: null, settled: null,
@@ -45351,7 +45708,7 @@
               if (pendingSources[key]) attemptStates[key] = outcome;
               pendingSources[key] = false;
             });
-            paintSurgeModel();
+            paintSurgeModel(true);
             stopped = true;
             _surgeRetrySources = _surgeHotspotRetry = _surgeRepaint = _surgeEarlyPaint = null;
             if (_surgeActiveLoad === activeLoad) _surgeActiveLoad = null;
@@ -45405,8 +45762,7 @@
                 } else if (sourceModelKeys[key]) {
                   var modelKey = sourceModelKeys[key];
                   var finalResult = key === 'leaderboard'
-                    ? surgeSourceFallback(result, cachedCascades)
-                    : key === 'hotspots' ? surgeSourceFallback(result, cachedConvergence) : result;
+                    ? surgeSourceFallback(result, cachedCascades) : result;
                   publishSource(modelKey, finalResult);
                   attemptStates[key] = finalResult.state;
                 } else attemptStates[key] = result.state;
@@ -45522,11 +45878,11 @@
         var cachedCascades = null, cachedConvergence = null;
         var retained = loadSurgeRetained() || {};
         function publishSource(key, result) {
-          if (!current() || !surgeModel) return result;
+          if (!(key === 'convergence' ? ownsView() : current()) || !surgeModel) return result;
           var previous = surgeModel[key];
           if (key === 'mass' || key === 'ppte') {
             result = mergeEventFeedResult(key, previous, result);
-          } else if (result.state === 'failed' && previous) {
+          } else if (result.state === 'failed' && previous && key !== 'convergence') {
             result = Object.assign({}, previous, { state: 'failed',
               failedLocIds: result.failedLocIds });
           } else if (key !== 'ppte' && (result.state === 'loading' || result.state === 'partial')
@@ -45550,12 +45906,12 @@
           if (sourceKey) attemptStates[sourceKey] = result.state;
           if (key === 'favorite') favoriteSource = result;
           if (key === 'mass') massSource = result;
-          saveSurgeRetainedPart(key, result);
+          if (key !== 'convergence') saveSurgeRetainedPart(key, result);
           paintSurgeModel();
           return result;
         }
-        function paintSurgeModel() {
-          if (!current()
+        function paintSurgeModel(ending) {
+          if (!ownsView(ending)
               || loadContext !== surgeSourceContext() || !surgeModel) return 0;
           var states = Object.assign({
             mega: megaAlertSourceState(megaLane(getAnchors())),
@@ -45689,6 +46045,22 @@
         favoriteSource = surgeModel.favorite;
         massSource = surgeModel.mass;
         _merged = surgeModel.observed.merged || [];
+        _surgeBusySnapshot = function (snapshot) {
+          if (!ownsView() || snapshot.context !== hotspotContextKey()) return;
+          if (surgeModel && surgeModel.observed) {
+            _merged = checklistPartyRows(surgeModel.observed.merged || []);
+            surgeModel.observed = Object.assign({}, surgeModel.observed, {
+              merged: _merged, needs: BL.needNearby(_merged, {
+                now: Date.now(), seen: {}, maxMi: chaseMaxMi()
+              })
+            });
+            saveSurgeRetainedPart('observed', surgeModel.observed);
+          }
+          cachedConvergence = busySnapshotSource(snapshot.result);
+          pendingSources.hotspots = false;
+          publishSource('convergence', cachedConvergence);
+        };
+        if (currentBusySnapshot()) _surgeBusySnapshot(_busyCompleted);
         paintSurgeModel();
         _surgeEarlyPaint = function (res) {
           if (generation !== _surgeLoadGeneration) return;
@@ -45704,7 +46076,8 @@
         }).then(function (cache) {
               if (!current() || !cache) return cache;
               cachedCascades = surgeCachedSource(cache, 'cascades');
-              cachedConvergence = surgeCachedSource(cache, 'convergence');
+              cachedConvergence = currentBusySnapshot()
+                ? busySnapshotSource(currentBusySnapshot()) : null;
               if (!cachedCascades && !cachedConvergence) return cache;
               var observed = surgeModel && surgeModel.observed || {
                 state: 'loading', merged: [], events: [], needs: [], patches: []
@@ -45860,136 +46233,25 @@
               });
             });
         });
-        var retryConvergence = null;
         var pConverge = sourceTask(countySource, 'hotspots', function (retry) {
           if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
-          if (retry && retryConvergence) return retryConvergence();
-          if (!retry && cachedConvergence && cachedConvergence.state === 'ok') {
-            return cachedConvergence;
-          }
           if (countyState !== 'ok') return { state: countyState, rows: [] };
-          var feeds = BL.planConvoyFeeds(surgeConvoyProfile());
-          if (!feeds.length) {
-            dbg('warn', 'Bird gen hotspot source unavailable: county scope resolved no feeds');
-            return { state: 'failed', rows: [] };
-          }
-          var convergenceByPath = {};
-          function fetchConvergenceFeed(f, retry) {
-            if (!current()) return Promise.resolve({ state: 'cancelled', rows: [] });
-            var path = BL.requestUrl(f);
-            var existing = convergenceByPath[path];
-            if (existing && existing.state === 'loading' && existing.promise) {
-              return existing.promise;
-            }
-            if (existing && existing.state === 'ok') return Promise.resolve(existing);
-            var state = { state: 'loading', rows: [], promise: null };
-            convergenceByPath[path] = state;
-            state.promise = ebird(path, false, fullRefresh || retry, fullRefresh || retry)
-                .then(function (rows) {
-                  if (!Array.isArray(rows)) throw new Error('Unreadable hotspot activity feed.');
-                  state.state = 'ok';
-                  state.rows = rows;
-                  state.promise = null;
-                  return state;
-                })
-                .catch(function (e) {
-                  dbg('warn', 'Bird gen hotspot source: ' + ((e && e.message) || e));
-                  state.state = 'failed';
-                  state.rows = [];
-                  state.promise = null;
-                  return state;
-                });
-            return state.promise;
-          }
-          retryConvergence = function () {
-            return Promise.all(feeds.filter(function (feed) {
-              var part = convergenceByPath[BL.requestUrl(feed)];
-              return part && part.state === 'failed';
-            }).map(function (feed) {
-              return fetchConvergenceFeed(feed, true);
-            })).then(convergenceResult);
-          };
-          function convergenceResult() {
-              var results = feeds.map(function (f) {
-                return convergenceByPath[BL.requestUrl(f)]
-                  || { state: 'loading', rows: [] };
-              });
-              var lists = [];
-              results.forEach(function (r) {
-                if (Array.isArray(r.rows)) lists.push.apply(lists, r.rows);
-              });
-              var norm = BL.normalizeChecklistRows(lists);
-              // The feed reaches back 2-3 days, so a hotspot's own norm has to
-              // be remembered across sessions or almost nothing is measurable.
-              // The report keeps the same tally in data/; the app keeps its own
-              // because it must never depend on GitHub at runtime.
-              var hist = BL.mergeHotspotHistory(loadHotspotHistory(), norm, now);
-              saveHotspotHistory(hist);
-              var conv = BL.hotspotConvergence(norm, { now: now, history: hist });
-              // PEOPLE vs PARTIES is the number that decides this lane, and it
-              // was never printed. A 16-observer morning at Cedar River counted
-              // as 16 independent visits until shared checklists were collapsed
-              // — so "how many people" and "how many decisions" have to appear
-              // side by side or the ratio cannot be checked from a log.
-              try {
-                var _party = BL.buildParties(norm);
-                var _ppl = {}, _grp = {};
-                norm.forEach(function (r) {
-                  var w = String(r.userDisplayName || '').trim().toLowerCase();
-                  if (!w) return;
-                  _ppl[w] = 1; _grp[_party(w)] = 1;
-                });
-                verdict('Busy hotspots', norm.length + ' checklists \u00b7 '
-                  + Object.keys(_ppl).length + ' observers \u2192 '
-                  + Object.keys(_grp).length + ' independent parties \u00b7 '
-                  + conv.length + ' hotspots cleared the gate');
-              } catch (e) { /* a log line must never break a lane */ }
-              return {
-                state: results.some(function (r) { return r.state === 'failed'; })
-                  ? 'failed'
-                  : results.some(function (r) { return r.state === 'loading'; })
-                    ? 'loading' : 'ok',
-                rows: conv
-              };
-          }
           _surgeHotspotRetry = function (path) {
             if (!current()) return null;
-            var feed = feeds.filter(function (f) {
-              return BL.requestUrl(f) === path;
-            })[0];
-            if (!feed) return null;
-            var source = convergenceByPath[path];
-            if (source && source.state === 'loading' && source.promise) {
-              dbg('net', 'joining active Bird Gen hotspot source · ' + path);
-              return source.promise.then(function (settled) {
-                return settled.state === 'ok';
-              });
-            }
-            if (!source || source.state !== 'failed') return Promise.resolve(false);
-            if (_ebCache[path]) delete _ebCache[path];
-            st.hidden = false;
-            st.textContent = 'Retrying the failed Bird Gen hotspot source…';
-            attemptStates.hotspots = 'loading';
-            pendingSources.hotspots = true;
-            paintSurgeModel();
-            dbg('net', 'retrying only Bird Gen hotspot source · ' + path);
-            return fetchConvergenceFeed(feed, true).then(function () {
-              if (!current() || !surgeModel) return false;
-              var live = convergenceResult();
-              pendingSources.hotspots = false;
-              publishSource('convergence', surgeSourceFallback(live, cachedConvergence));
-              paintSurgeModel();
-              saveSurgeSourceCache({ convergence: live }).catch(function (error) {
-                dbg('warn', 'Bird Gen source cache save: ' + netErr(error));
-              });
-              return live.state === 'ok';
-            });
+            if (_busyRequests.context !== hotspotContextKey() || !_busyRequests.paths[path]) return null;
+            return sourceTasks.hotspots(true).then(function (result) { return result.state === 'ok'; });
           };
-          return Promise.all(feeds.map(function (feed) {
-            return fetchConvergenceFeed(feed, false);
-          })).then(convergenceResult);
+          return acquireBusyPatches(fullRefresh && !retry, retry).then(function (result) {
+            if (!current()) return { state: 'cancelled', rows: [] };
+            return result ? busySnapshotSource(currentBusySnapshot() || result)
+              : { state: 'failed', rows: [] };
+          }).catch(function (error) {
+            var previous = currentBusySnapshot();
+            if (!previous) throw error;
+            return Object.assign(busySnapshotSource(previous), { state: 'failed' });
+          });
         });
         activeLoad.settled = Promise.allSettled([
           ['observations', pObserved], ['leaderboard', pCascades],
@@ -52890,6 +53152,11 @@
       bindSwipeBack();
       bindZoomReset();
       if ($('loadRetry')) $('loadRetry').addEventListener('click', retryStalledSection);
+      if ($('loadNoticeHide')) $('loadNoticeHide').addEventListener('click', function () {
+        if (_loadLimitUntil) _loadLimitUntil = 0;
+        else _loadCacheNotice = null;
+        fgProgressSync();
+      });
       if ($('loadCancel')) $('loadCancel').addEventListener('click', cancelStalledWork);
       $('manualRetryControls').addEventListener('change', function () {
         localStorage.setItem('bc_manual_retry_controls_v1', this.value);
@@ -54592,6 +54859,7 @@
         renderRecentChecklistBatch: renderRecentChecklistBatch,
         hydrateHotspotChecklists: hydrateHotspotChecklists,
         checklistView: checklistView, seedChecklistView: seedChecklistView,
+        enrichChecklistParties: enrichChecklistParties, checklistPartyRows: checklistPartyRows,
         pruneChecklistCache: pruneChecklistCache,
         sweepRetiredChecklistCaches: sweepRetiredChecklistCaches,
         pruneChaseSnapshots: pruneChaseSnapshots,

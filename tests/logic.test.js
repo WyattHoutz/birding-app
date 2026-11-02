@@ -32,10 +32,10 @@ function busyFixture() {
       subId: `${locId}-${rows.length}`, obsDt: stamp, ...extra });
   }
   for (const loc of ['busy', 'equal', 'under', 'zero', 'unknown']) {
-    for (let i = 0; i < (loc === 'under' ? 2 : 3); i++) add(loc, 0, `${loc}-today-${i}`, i);
+    for (let i = 0; i < (loc === 'under' ? 4 : 5); i++) add(loc, 0, `${loc}-today-${i}`, i);
     for (const day of [7, 14, 21, 28]) {
       if (loc === 'zero') continue;
-      for (let i = 0; i < (loc === 'equal' ? 3 : 1); i++) add(loc, day, `${loc}-old-${i}`, i);
+      for (let i = 0; i < (loc === 'equal' ? 5 : 1); i++) add(loc, day, `${loc}-old-${i}`, i);
     }
   }
   add('busy', 0, 'busy-today-0', 20);
@@ -44,14 +44,107 @@ function busyFixture() {
     ['busy', 'equal', 'under', 'zero'].map(id => [id, { references: true, completeDays: true }])) };
 }
 
-test('F1197 browse uses independent matched windows, strict background and a three-party floor', () => {
+test('F1220 explicit shared visits survive different totals and preserve deliberate people counts', () => {
+  const rows = BL.normalizeChecklistRows([
+    { locId: 'L1', subId: 'S1', userDisplayName: 'Ann', isoObsDate: '2026-10-30 09:50',
+      numSpecies: 22, groupId: 'shared', numObservers: 2 },
+    { locId: 'L1', subId: 'S2', userDisplayName: 'Bo', isoObsDate: '2026-10-30 09:51',
+      numSpecies: 25, groupId: 'shared', numObservers: 2 }
+  ]);
+  assert.equal(rows[1].groupId, 'shared');
+  assert.equal(rows[1].numObservers, 2);
+  assert.equal(BL.INDEPENDENCE.count(rows, BL.INDEPENDENCE.DECISION), 1);
+  assert.equal(BL.INDEPENDENCE.count(rows, BL.INDEPENDENCE.ATTENTION), 2);
+  const without = rows.map(({ groupId, ...row }) => row);
+  assert.equal(BL.INDEPENDENCE.count(without, BL.INDEPENDENCE.DECISION), 2,
+    'edited starts and species totals cannot supply missing explicit evidence');
+  const coincident = rows.map((row, i) => ({ ...row, isoObsDate: rows[0].isoObsDate,
+    numSpecies: 22, groupId: 'separate-' + i }));
+  assert.equal(BL.INDEPENDENCE.count(coincident, BL.INDEPENDENCE.DECISION), 2,
+    'a time match cannot collapse separately identified overlapping groups');
+  const reused = rows.map((row, i) => ({ ...row, locId: 'L' + (i + 1) }));
+  assert.equal(BL.INDEPENDENCE.count(reused, BL.INDEPENDENCE.DECISION), 2,
+    'a group token alone cannot identify a shared visit across places');
+  reused[1] = { ...reused[1], locId: 'L1', obsDt: '2026-10-29 09:51', isoObsDate: '2026-10-29 09:51' };
+  assert.equal(BL.INDEPENDENCE.count(reused, BL.INDEPENDENCE.DECISION), 2,
+    'a reused token on a different day is not this visit');
+  const raw = [...rows, ...[2, 3].map(i => ({
+    locId: 'L1', subId: 'SM' + i, userDisplayName: 'person-' + i,
+    isoObsDate: '2026-10-30 10:0' + i
+  }))].map((row, i) => ({ ...row, speciesCode: 'norwat', comName: 'Northern Waterthrush',
+    lat: 47.7, lng: -122.2, obsDt: row.isoObsDate, subId: 'SM' + i }));
+  const merged = BL.mergeSnapshot([{ src: 'Fixture', kind: 'notable', rows: raw }])
+    .map(row => ({ ...row, distMi: 4 }));
+  assert.equal(merged[1].groupId, 'shared', 'observation projection cannot discard acquired membership');
+  assert.equal(merged[1].numObservers, 2);
+  const opts = { now: new Date(2026, 9, 30, 18).getTime(), seen: {}, maxMi: 40, hours: 48 };
+  assert.equal(BL.needNearby(merged, opts).length, 0,
+    'nearby must not qualify four reports when explicit membership leaves three parties');
+  assert.equal(BL.needNearby(merged.map(({ groupId, ...row }) => row), opts).length, 1);
+});
+
+test('F1220 group corrections apply to current and each matched historical window', () => {
+  const now = new Date(2026, 9, 30, 18).getTime(), rows = [];
+  for (const days of [0, 7, 14, 21, 28]) {
+    const date = new Date(now); date.setDate(date.getDate() - days);
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    for (let i = 0; i < (days ? 3 : 6); i++) rows.push({
+      locId: 'L1', subId: days + '-' + i, userDisplayName: days + '-person-' + i,
+      isoObsDate: day + ' 09:' + String(i).padStart(2, '0'),
+      numSpecies: 22 + i, ...(i < 2 ? { groupId: 'shared-' + days, numObservers: 2 } : {})
+    });
+  }
+  const opts = { now, coverage: { L1: { references: true } } };
+  const corrected = BL.busyPatchActivity(BL.normalizeChecklistRows(rows), opts)[0];
+  assert.equal(corrected.observers, 5);
+  assert.deepEqual(corrected.referenceCounts, [2, 2, 2, 2]);
+  assert.equal(corrected.baseline, 2);
+  assert.equal(corrected.ratio, 2.5);
+  const without = rows.map(({ groupId, ...row }) => row);
+  const original = BL.busyPatchActivity(BL.normalizeChecklistRows(without), opts)[0];
+  assert.equal(original.observers, 6);
+  assert.equal(original.baseline, 3);
+  assert.equal(original.ratio, 2);
+});
+
+test('F1221 explicit edited starts retain convoy links and unchanged two-stop or five-member eligibility', () => {
+  const day = '2026-10-30', now = new Date(day + 'T18:00:00');
+  const row = (loc, i, group = 'shared') => ({
+    locId: loc, subId: loc + '-' + group + '-' + i, userDisplayName: group + '-person-' + i,
+    isoObsDate: day + ' 09:' + String(i).padStart(2, '0'), numSpecies: 22 + i,
+    groupId: group, numObservers: 50
+  });
+  const routeRows = ['L1', 'L2'].flatMap(loc => [row(loc, 0), row(loc, 1)]);
+  const routes = BL.convoyDetect(routeRows, now);
+  assert.equal(routes.length, 1);
+  assert.equal(routes[0].stops.length, 2);
+  assert.deepEqual(routes[0].stops[0]._subs, ['L1-shared-0', 'L1-shared-1']);
+  assert.deepEqual(BL.convoyDetect(routeRows.slice(0, 2), now), [],
+    'two people at one shared visit still do not qualify');
+  assert.deepEqual(BL.convoyDetect(routeRows.map(({ groupId, ...r }) => r), now), [],
+    'different start times alone do not prove a group');
+  const implicit = routeRows.map((r, i) => ({ ...r, isoObsDate: day + ' 09:00',
+    groupId: i % 2 ? '' : r.groupId }));
+  assert.equal(BL.convoyDetect(implicit, now).length, 1, 'partial metadata retains justified inferred routes');
+  const trip = Array.from({ length: 5 }, (_, i) => row('L1', i));
+  assert.equal(BL.convoyDetect(trip, now).length, 1);
+  assert.equal(BL.convoyDetect(trip, now)[0].members.length, 5,
+    'numObservers is not an invented roster');
+  assert.deepEqual(BL.convoyDetect(trip.slice(0, 4), now), []);
+  const overlaps = ['one', 'two'].flatMap(group => Array.from({ length: 5 }, (_, i) =>
+    ({ ...row('L1', i, group), isoObsDate: day + ' 09:00' })));
+  assert.deepEqual(BL.convoyDetect(overlaps, now).map(route => route.members.length), [5, 5],
+    'overlapping explicitly identified groups must not become one ten-person trip');
+});
+
+test('F1219 browse preserves independent matched windows and applies both approved gates', () => {
   const f = busyFixture();
   const result = BL.busyPatchActivity(f.rows.concat(f.rows), f);
   const busy = result.find(row => row.locId === 'busy');
   assert.deepEqual(busy.referenceCounts, [2, 1, 1, 1]);
-  assert.equal(busy.observers, 4, 'repeat lists are one identity; yesterday adds one distinct regular');
-  assert.equal(busy.checklists, 5, 'duplicate source rows do not duplicate checklists');
-  assert.equal(busy.ratio, 3.2);
+  assert.equal(busy.observers, 6, 'repeat lists are one identity; yesterday adds one distinct regular');
+  assert.equal(busy.checklists, 7, 'duplicate source rows do not duplicate checklists');
+  assert.equal(busy.ratio, 4.8);
   assert.equal(busy.currentDays, 4);
   assert.equal(busy.previousDays, 2);
   assert.deepEqual(result.filter(row => row.eligible).map(row => row.locId), ['busy']);
@@ -78,7 +171,7 @@ test('F1195 checklist normalization retains shared signatures and window-local p
   const result = BL.busyPatchActivity(normalized, f);
   assert.equal(result.find(row => row.locId === 'shared').observers, 1);
   assert.equal(result.find(row => row.locId === 'shared').checklists, 1);
-  assert.equal(result.find(row => row.locId === 'busy').observers, 4,
+  assert.equal(result.find(row => row.locId === 'busy').observers, 6,
     'historical group evidence cannot leak into current party membership');
   const signature = normalized.find(row => row.locId === 'shared');
   assert.equal(signature.isoObsDate, '2026-10-30 09:00');
@@ -87,12 +180,12 @@ test('F1195 checklist normalization retains shared signatures and window-local p
 });
 
 test('F1197 distance and Busy order preserve eligibility, unrounded scores and input rows', () => {
-  const base = { observers: 3, baseline: 1, ratio: 3 };
+  const base = { observers: 5, baseline: 1, ratio: 5 };
   const rows = [
-    { ...base, locId: 'far', name: 'Far', dist: 60, ratio: 3.04 },
-    { ...base, locId: 'near', name: 'Near', dist: 10, ratio: 3.01 },
-    { ...base, locId: 'under', name: 'Under', dist: 1, observers: 2 },
-    { ...base, locId: 'equal', name: 'Equal', dist: 1, baseline: 3 },
+    { ...base, locId: 'far', name: 'Far', dist: 60, ratio: 3.04, baseline: 5 / 3.04 },
+    { ...base, locId: 'near', name: 'Near', dist: 10, ratio: 3.01, baseline: 5 / 3.01 },
+    { ...base, locId: 'under', name: 'Under', dist: 1, observers: 4 },
+    { ...base, locId: 'equal', name: 'Equal', dist: 1, baseline: 5 },
     { ...base, locId: 'unknown', name: 'Unknown', dist: 1, baseline: null }
   ];
   assert.deepEqual(BL.busyPatchList(rows).map(row => row.locId), ['far', 'near']);
@@ -1505,16 +1598,17 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
   }
   // Its own norm: one regular, once a day. Starts at d=2 because the hot
   // window is 36 h and would otherwise reach back into yesterday's visit.
-  for (let d = 2; d < 14; d++) {
+  for (const d of [7, 14, 21, 28]) {
     rows.push({ locId: 'L1', locName: 'Edmonds Waterfront', userDisplayName: 'local patcher', subId: 'P' + d, obsDt: DAY(d) });
   }
   // A busy park that is always busy must NOT fire.
-  for (let d = 0; d < 14; d++) {
+  for (const d of [0, 7, 14, 21, 28]) {
     for (let i = 0; i < 8; i++) {
       rows.push({ locId: 'L2', locName: 'Discovery Park', userDisplayName: 'p' + d + '-' + i, subId: 'D' + d + i, obsDt: DAY(d, 8) });
     }
   }
-  const out = BL.hotspotConvergence(rows, { now: NOW });
+  const out = BL.hotspotConvergence(rows, { now: NOW,
+    coverage: { L1: { references: true }, L2: { references: true } } });
   assert.equal(out.length, 1, 'only the spot that broke its own norm fires');
   assert.equal(out[0].locId, 'L1');
   assert.equal(out[0].observers, 8);
@@ -1527,36 +1621,76 @@ test('hotspotConvergence: a crowd at one spot flags the twitch before you know t
     'the sortable event time is not the same checklist timestamp shown to the reader');
 });
 
-test('F960 hotspotConvergence requires four-times activity, including the exact unrounded boundary', () => {
-  const now=new Date('2026-10-16T12:00:00').getTime();
-  function rows(coldTime,parties=8,coldCount=24) {
-    return Array.from({length:coldCount},(_,i)=>({
-      locId:'L960',locName:'Boundary patch',userDisplayName:'regular '+i,subId:'R'+i,
-      obsDt:coldTime
-    })).concat(Array.from({length:parties},(_,i)=>({
-      locId:'L960',locName:'Boundary patch',userDisplayName:'visitor '+i,subId:'V'+i,
-      obsDt:'2026-10-16 '+String(2+i).padStart(2,'0')+':00'
-    })));
+test('F1217 matched windows preserve local weekly time and elapsed 36 hours across daylight saving', () => {
+  const rows = ['2026-10-25', '2026-10-18', '2026-10-11', '2026-10-04']
+    .flatMap(day => [day + ' 23:00', day + ' 23:01']);
+  rows.push(...Array.from({ length: 5 }, (_, i) => `2026-11-01 10:0${i}`),
+    '2026-10-26 01:00', '2026-10-31 13:00');
+  const input = rows.map((obsDt, i) => ({
+    locId: 'L-DST', obsDt, subId: 'dst-' + i, userDisplayName: 'person-' + i
+  }));
+  const script = `
+    const BL = require(process.argv[1]);
+    const rows = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+    const now = Date.parse('2026-11-02T00:30:00-08:00');
+    process.stdout.write(JSON.stringify({
+      offsets: [new Date(now).getTimezoneOffset(),
+        new Date('2026-10-26T00:30:00-07:00').getTimezoneOffset()],
+      activity: BL.busyPatchActivity(rows, {now, coverage:{'L-DST':{references:true}}})
+    }));`;
+  const result = require('node:child_process').spawnSync(process.execPath, [
+    '-e', script, process.env.BIRDCHASER_LOGIC || path.join(__dirname, '..', 'www', 'logic.js')
+  ], { input: JSON.stringify(input), encoding: 'utf8',
+    env: { ...process.env, TZ: 'America/Los_Angeles' } });
+  assert.equal(result.status, 0, result.stderr);
+  const { offsets, activity } = JSON.parse(result.stdout);
+  assert.deepEqual(offsets, [480, 420], 'the control must really cross the Pacific DST boundary');
+  assert.equal(activity[0].observers, 5, '36 elapsed hours must exclude the older current-window decoy');
+  assert.deepEqual(activity[0].referenceCounts, [2, 2, 2, 2],
+    'local weekly endpoints must exclude the later reference-window decoy');
+  assert.equal(activity[0].baseline, 2);
+  assert.equal(activity[0].ratio, 2.5);
+});
+
+test('F1219 both surfaces use inclusive five-party and unrounded two-party-excess gates, without 4x', () => {
+  const now = new Date(2026, 9, 30, 18).getTime();
+  function measure(parties, references, covered = true) {
+    const rows = [parties, ...references].flatMap((count, week) =>
+      Array.from({ length: count }, (_, i) => {
+        const date = new Date(now); date.setDate(date.getDate() - week * 7);
+        date.setHours(9, i, 0, 0);
+        const stamp = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
+          + '-' + String(date.getDate()).padStart(2, '0') + ' 09:' + String(i).padStart(2, '0');
+        return { locId: 'L-BOUNDARY', subId: week + '-' + i, obsDt: stamp,
+          userDisplayName: week + '-person-' + i };
+      }));
+    const opts = { now, coverage: covered ? { 'L-BOUNDARY': { references: true } } : {} };
+    const activity = BL.busyPatchActivity(rows, opts);
+    return { browse: BL.busyPatchList(activity), alert: BL.hotspotConvergence(rows, opts) };
   }
-  assert.equal(BL.CONVERGE.MIN_RATIO,4);
-  assert.equal(BL.isHotspotConvergence({observers:5,ratio:4}),true);
-  for (const ratio of [3.99999,null,NaN,Infinity,'4']) {
-    assert.equal(BL.isHotspotConvergence({observers:5,ratio}),false);
+  for (const [parties, references, covered, expected] of [
+    [5, [3, 3, 3, 3], true, true],
+    [5, [3, 3, 3, 4], true, false],
+    [4, [1, 1, 1, 1], true, false],
+    [13, [10, 10, 11, 11], true, true],
+    [5, [4, 5, 4, 5], true, false],
+    [5, [0, 0, 0, 0], true, false],
+    [8, [1, 1, 1, 1], false, false]
+  ]) {
+    const result = measure(parties, references, covered);
+    assert.equal(result.browse.length, Number(expected));
+    assert.equal(result.alert.length, Number(expected));
+    if (expected) {
+      assert.equal(result.alert[0].baseline, result.browse[0].baseline);
+      assert.equal(result.alert[0].ratio, result.browse[0].ratio);
+    }
   }
-  assert.equal(BL.isHotspotConvergence({observers:4,ratio:10}),false);
-  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:01'),{now}),[],
-    'a value just below four must not pass because it rounds to four');
-  const exact=BL.hotspotConvergence(rows('2026-10-03 00:00'),{now});
-  assert.equal(exact.length,1);
-  assert.equal(exact[0].ratio,4,'the control must actually land on the boundary');
-  assert.equal(exact[0].reason,'surge');
-  assert.ok(BL.hotspotConvergence(rows('2026-10-02 23:59'),{now})[0].ratio>4);
-  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',6),{now}),[],
-    'the former three-times crowd exception is removed');
-  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',4,12),{now}),[],
-    'four-times activity still requires five independent parties');
-  assert.deepEqual(BL.hotspotConvergence(rows('2026-10-03 00:00',8,0),{now}),[],
-    'a missing historical baseline is not an infinite multiplier');
+  for (const [baseline, expected] of [[3, true], [3.00001, false], [2.99999, true]]) {
+    assert.equal(BL.isHotspotConvergence({ observers: 5, baseline, ratio: 5 / baseline }), expected);
+  }
+  for (const ratio of [null, NaN, Infinity, '4']) {
+    assert.equal(BL.isHotspotConvergence({ observers: 5, baseline: 3, ratio }), false);
+  }
 });
 
 test('hotspotConvergence: no trailing history means no claim, not an infinite one', () => {
@@ -1576,10 +1710,10 @@ test('hotspotConvergence: no trailing history means no claim, not an infinite on
 
   // Give the same spot a real norm and it becomes measurable again — and
   // then 9 observers against ~1/day is a genuine convergence.
-  for (let d = 2; d < 14; d++) {
+  for (const d of [7, 14, 21, 28]) {
     rows.push({ locId: 'L9', locName: 'Marymoor Park', userDisplayName: 'regular', subId: 'R' + d, obsDt: DAY(d) });
   }
-  const out = BL.hotspotConvergence(rows, { now: NOW });
+  const out = BL.hotspotConvergence(rows, { now: NOW, coverage: { L9: { references: true } } });
   assert.equal(out.length, 1, 'with a baseline it can fire');
   assert.ok(out[0].ratio > 0 && isFinite(out[0].ratio),
     'and the ratio it reports is a real number, never null or Infinity');
@@ -1620,7 +1754,7 @@ test('a section never claims a window its feed cannot cover', () => {
     'an empty feed is not reported as a truncated one');
 });
 
-test('a hotspot norm is remembered across sessions, not re-derived each run', () => {
+test('legacy hotspot memory remains idempotent but cannot stand in for matched coverage', () => {
   // The feed cannot supply this baseline: product/lists is capped at 200
   // checklists per county, so it reaches back 2-3 days and the 36 h hot window
   // eats most of that. Only 32 of 229 live locations had ANY trailing data.
@@ -1637,20 +1771,13 @@ test('a hotspot norm is remembered across sessions, not re-derived each run', ()
   hist.L9 = {};
   for (let d = 2; d < 14; d++) hist.L9[DAY(d).slice(0, 10)] = ['regular' + d];
   const out = BL.hotspotConvergence(rows, { now: NOW, history: hist });
-  assert.equal(out.length, 1, 'a remembered norm makes the spot measurable');
-
-  // 12 observer-days over 12 days is a norm of ~1/day. Divided by the feed's
-  // own 1-day span it would read as 12/day and the ratio would collapse from
-  // 9x to 0.75x — so a remembered baseline would fire LESS than none at all.
-  assert.ok(Math.abs(out[0].baseline - 1) < 0.35,
-    'and the divisor grows with the memory (got ' + out[0].baseline + ')');
+  assert.deepEqual(out, [], 'observer-days cannot establish four matched 36-hour references');
 
   // Settled days arrive as a plain count; both storage forms must agree.
   const counts = { L9: {} };
   Object.keys(hist.L9).forEach((d) => { counts.L9[d] = hist.L9[d].length; });
   const out2 = BL.hotspotConvergence(rows, { now: NOW, history: counts });
-  assert.ok(Math.abs(out2[0].baseline - out[0].baseline) < 1e-9,
-    'named days and settled counts give the same answer');
+  assert.deepEqual(out2, [], 'settled counts likewise cannot establish matched coverage');
 
   // The hourly job re-reads an overlapping feed, so merging must be
   // idempotent: a birder seen in three runs counts once, not three times.
@@ -2676,10 +2803,11 @@ const MIN = BL.CONVERGE.MIN_OBSERVERS;
 const WHO = (n) => Array.from({ length: n }, (_, i) => 'birder' + i);
 
 test('hotspotConvergence: independent birders fire, one carload does not', () => {
+  const coverage = Object.fromEntries(['L1', 'L1b', 'L2'].map(loc => [loc, { references: true }]));
   // A quiet spot with a real norm, so the ratio is measurable in both cases.
   const norm = (loc) => {
     const r = [];
-    for (let d = 2; d < 14; d++) {
+    for (const d of [7, 14, 21, 28]) {
       r.push({ locId: loc, locName: loc, userDisplayName: 'patcher', subId: loc + 'P' + d, obsDt: DAY(d) });
     }
     return r;
@@ -2689,7 +2817,7 @@ test('hotspotConvergence: independent birders fire, one carload does not', () =>
   const solo = norm('L1').concat(WHO(MIN).map((who, i) => (
     { locId: 'L1', locName: 'Cedar River Mouth', userDisplayName: who, subId: 'A' + i, obsDt: DAY(0, 7 + i) }
   )));
-  const outSolo = BL.hotspotConvergence(solo, { now: NOW });
+  const outSolo = BL.hotspotConvergence(solo, { now: NOW, coverage });
   assert.equal(outSolo.length, 1,
     MIN + ' independent birders should fire — this is the whole point of the change');
   assert.equal(outSolo[0].observers, MIN, MIN + ' separate parties');
@@ -2698,7 +2826,7 @@ test('hotspotConvergence: independent birders fire, one carload does not', () =>
   const under = norm('L1b').concat(WHO(MIN - 1).map((who, i) => (
     { locId: 'L1b', locName: 'Cedar River Mouth', userDisplayName: who, subId: 'U' + i, obsDt: DAY(0, 7 + i) }
   )));
-  assert.deepEqual(BL.hotspotConvergence(under, { now: NOW }), [],
+  assert.deepEqual(BL.hotspotConvergence(under, { now: NOW, coverage }), [],
     (MIN - 1) + ' parties is below the bar and must not fire');
 
   // CASE 2 — the SAME names, but they toured together: two shared stops on the
@@ -2711,14 +2839,15 @@ test('hotspotConvergence: independent birders fire, one carload does not', () =>
     .concat(WHO(MIN).map((who, i) => (
       { locId: 'LX', locName: 'Stop two', userDisplayName: who, subId: 'C' + i, obsDt: DAY(0, 9) }
     )));
-  assert.deepEqual(BL.hotspotConvergence(convoy, { now: NOW }), [],
+  assert.deepEqual(BL.hotspotConvergence(convoy, { now: NOW, coverage }), [],
     'a carload that birded two stops together is ONE decision, not ' + MIN);
 });
 
 test('hotspotConvergence: party membership is transitive, and one shared stop is a coincidence', () => {
+  const coverage = { L3: { references: true }, L4: { references: true } };
   const norm = (loc) => {
     const r = [];
-    for (let d = 2; d < 14; d++) {
+    for (const d of [7, 14, 21, 28]) {
       r.push({ locId: loc, locName: loc, userDisplayName: 'patcher', subId: loc + 'P' + d, obsDt: DAY(d) });
     }
     return r;
@@ -2730,7 +2859,7 @@ test('hotspotConvergence: party membership is transitive, and one shared stop is
   const bumped = norm('L3').concat(WHO(MIN).map((who, i) => (
     { locId: 'L3', locName: 'Spot', userDisplayName: who, subId: 'A' + i, obsDt: DAY(0, 7) }
   )));
-  assert.equal(BL.hotspotConvergence(bumped, { now: NOW }).length, 1,
+  assert.equal(BL.hotspotConvergence(bumped, { now: NOW, coverage }).length, 1,
     'meeting once at one place is a coincidence, not a convoy');
 
   // TRANSITIVE: each birder rode with the next, so the whole chain is one car
@@ -2742,7 +2871,7 @@ test('hotspotConvergence: party membership is transitive, and one shared stop is
     chain.push({ locId: 'LNK' + i, locName: 'link stop ' + i, userDisplayName: 'birder' + i, subId: 'L' + i + 'a', obsDt: DAY(0, 9 + i) });
     chain.push({ locId: 'LNK' + i, locName: 'link stop ' + i, userDisplayName: 'birder' + (i + 1), subId: 'L' + i + 'b', obsDt: DAY(0, 9 + i) });
   }
-  assert.deepEqual(BL.hotspotConvergence(chain, { now: NOW }), [],
+  assert.deepEqual(BL.hotspotConvergence(chain, { now: NOW, coverage }), [],
     'if A rode with B and B rode with C, all of them are one car');
 });
 
@@ -2770,8 +2899,8 @@ test('the busy-hotspot lane matches the numbers its documentation publishes', ()
   };
   assert.equal(num('CONVERGE_MIN_OBSERVERS'), BL.CONVERGE.MIN_OBSERVERS,
     'the documented birder minimum and the shipped one disagree');
-  assert.equal(num('CONVERGE_MIN_RATIO'), BL.CONVERGE.MIN_RATIO,
-    'the documented ratio and the shipped one disagree');
+  assert.equal(num('CONVERGE_MIN_EXCESS'), BL.CONVERGE.MIN_EXCESS,
+    'the documented unrounded excess and the shipped one disagree');
 });
 
 // ── F169: a checklist's obsDt is its START, so freshness is understated ────

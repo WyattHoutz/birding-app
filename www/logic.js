@@ -583,6 +583,8 @@
           if (r.locationPrivate === true) ex.row.locationPrivate = true;
           if (r.hasComments === true) ex.row.hasComments = true;
           if (!ex.row.locId && r.locId) ex.row.locId = r.locId;
+          if (!ex.row.groupId && r.groupId) ex.row.groupId = r.groupId;
+          if (ex.row.numObservers == null && r.numObservers != null) ex.row.numObservers = r.numObservers;
         }
       });
     });
@@ -656,6 +658,8 @@
         countyName: r.subnational2Name || '',
         sources: e.sources.slice()
       });
+      if (r.groupId) out[out.length - 1].groupId = r.groupId;
+      if (r.numObservers != null) out[out.length - 1].numObservers = r.numObservers;
     });
     return out;
   }
@@ -1809,42 +1813,9 @@
   //
   // rows = recent checklist rows [{locId, locName, userDisplayName, obsDt}]
   // (eBird product/lists shape).
-  // THREE INDEPENDENT PARTIES, not five raw observers.
-  //
-  // "since Im only getting one hotspot in happening now, improve the dials so
-  // more show up. There has to be more than one hot hotspot." Then the fix
-  // itself: "maybe reduce the number of required uniq observers. Maybe 3 uniq
-  // observations at the same hotspot, so long as it is not a convoy."
-  //
-  // That second sentence is what makes the first one safe, and the two must
-  // ship together. Five was chosen because "four people is a coincidence
-  // rather than a crowd" — but that ruling was about RAW observers, and a
-  // carload of four birders working the same five stops is one decision wearing
-  // four names. Dropping to 3 without removing that loophole would fill the
-  // lane with group outings, which is the opposite of what was asked for.
-  //
-  // So `n` now counts PARTIES: observers seen together at CONVOY_MIN_STOPS or
-  // more locations on the same day collapse into one. Three people who each
-  // chose the place independently is a stronger claim than five who may not
-  // have, so the bar goes DOWN and the evidence goes UP at the same time.
-  // FIVE PARTIES, and the documentation has said so for a while — the code
-  // simply never caught up. `docs/HAPPENING-NOW.md` publishes
-  // CONVERGE_MIN_OBSERVERS = 5 and CONVERGE_MIN_RATIO = 3x; this file shipped
-  // 3 and 3. Two copies of one rule, and the drift ran in the direction that
-  // makes the lane noisier than its own spec.
-  //
-  // Confirmed as the intent 2026-08-22: *"it needs a minimim birder like 5
-  // birders and minimum multiplier of like 3x"* — the same 5 the owner had
-  // already ruled for SURGE.MIN_OBSERVERS ("four people is a coincidence
-  // rather than a crowd").
-  //
-  // It is safe to raise now, and it was not before, because `buildParties`
-  // finally counts PARTIES: a shared checklist collapses to one decision, so
-  // five here means five independent choices to visit rather than five names
-  // that might be one car. Raising the bar without that fix would have swapped
-  // one wrong answer for another.
-  // F960 replaces the old lower-ratio crowd exception with one four-times gate.
-  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_RATIO = 4;
+  // F1217/F1219 share matched-window scoring and count/excess gates across
+  // both Busy views. The retired observer-day/four-times rule is not a gate.
+  var CONVERGE_MIN_OBSERVERS = 5, CONVERGE_MIN_EXCESS = 2;
 
   // ---- parties: people who travelled TOGETHER are ONE decision -------------
   // The convoy test the Convoys section already uses (CONVOY_MIN_STOPS): a set
@@ -1857,10 +1828,45 @@
   // rode with C, all three are one car even on a day when A and C never shared
   // a stop.
   //
-  // An observer with no name gets a per-checklist key (see observerKey), so
-  // anonymous rows can never be collapsed into a party. That is deliberately
-  // conservative: it can only ever count MORE parties, so the lane fails
-  // towards showing a hotspot rather than hiding one.
+  function checklistVisits(rows, speciesSignature) {
+    var items = (rows || []).filter(function (r) {
+      return r && r.locId && dayStr(r.obsDt || r.isoObsDate || r.dateStr);
+    }), parent = items.map(function (_, i) { return i; }), groups = {}, signatures = {};
+    function find(i) {
+      while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+      return i;
+    }
+    function join(indices) {
+      indices.slice(1).forEach(function (i) {
+        var a = find(i), b = find(indices[0]);
+        parent[Math.max(a, b)] = Math.min(a, b);
+      });
+    }
+    function groupId(row) {
+      return typeof row.groupId === 'string' ? row.groupId.trim() : '';
+    }
+    items.forEach(function (r, i) {
+      var scope = r.locId + '|' + dayStr(r.obsDt || r.isoObsDate || r.dateStr);
+      var group = groupId(r);
+      if (group) (groups[scope + '|' + group] = groups[scope + '|' + group] || []).push(i);
+      var stamp = speciesSignature ? r.obsTime || r.isoObsDate || r.dateStr : r.isoObsDate;
+      if (!stamp) return;
+      var key = scope + '|' + stamp
+        + (speciesSignature ? '|' + (r.numSpecies == null ? '' : r.numSpecies) : '');
+      (signatures[key] = signatures[key] || []).push(i);
+    });
+    Object.keys(groups).forEach(function (key) { join(groups[key]); });
+    Object.keys(signatures).forEach(function (key) {
+      var indices = signatures[key], ids = {};
+      indices.forEach(function (i) { if (groupId(items[i])) ids[groupId(items[i])] = true; });
+      // Coincidence cannot choose between separately identified groups.
+      join(Object.keys(ids).length > 1 ? indices.filter(function (i) { return !groupId(items[i]); }) : indices);
+    });
+    var visits = {};
+    items.forEach(function (r, i) { (visits[find(i)] = visits[find(i)] || []).push(r); });
+    return Object.keys(visits).map(function (key) { return visits[key]; });
+  }
+
   function buildParties(rows) {
     var atLocDay = {};
     // A SHARED CHECKLIST IS ONE PARTY, FULL STOP. The pair-counting below
@@ -1869,20 +1875,11 @@
     // outing: six people, one site, zero second stops. Without this, that
     // morning counted as SIX independent decisions to visit — inflating the
     // very "unusually busy" claim this lane exists to make.
-    var sharedList = {};
-    (rows || []).forEach(function (r) {
-      if (!r || !r.locId) return;
-      var t = r.obsTime || r.isoObsDate || r.dateStr;
-      if (!t) return;
-      var k = r.locId + '|' + dayStr(r.obsDt || r.dateStr) + '|' + t
-        + '|' + (r.numSpecies == null ? '' : r.numSpecies);
-      var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
-      (sharedList[k] = sharedList[k] || {})[who] = 1;
-    });
+    var sharedLists = checklistVisits(rows, true);
     (rows || []).forEach(function (r) {
       if (!r || !r.locId) return;
       var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
-      var day = dayStr(r.obsDt || r.dateStr);
+      var day = dayStr(r.obsDt || r.isoObsDate || r.dateStr);
       if (!who || !day) return;
       var k = r.locId + '|' + day;
       (atLocDay[k] = atLocDay[k] || {})[who] = 1;
@@ -1910,8 +1907,10 @@
       if (a !== b) parent[b] = a;
     });
     // ...and everyone on one shared list is one party, needing no second stop.
-    Object.keys(sharedList).forEach(function (k) {
-      var obs = Object.keys(sharedList[k]);
+    sharedLists.forEach(function (visit) {
+      var obs = visit.map(function (r) {
+        return observerKey({ observer: r.userDisplayName, subId: r.subId });
+      });
       if (obs.length < 2) return;
       for (var i = 1; i < obs.length; i++) {
         var a = find(obs[0]), b = find(obs[i]);
@@ -1923,13 +1922,16 @@
 
   function normalizeChecklistRows(rows) {
     return (rows || []).map(function (c) {
-      return {
+      var row = {
         locId: c.locId || (c.loc && c.loc.locId),
         locName: (c.loc && c.loc.name) || c.locName || '',
         userDisplayName: c.userDisplayName, subId: c.subId || c.subID,
         obsDt: c.isoObsDate || c.obsDt,
         isoObsDate: c.isoObsDate, obsTime: c.obsTime, numSpecies: c.numSpecies
       };
+      if (typeof c.groupId === 'string' && c.groupId.trim()) row.groupId = c.groupId.trim();
+      if (c.numObservers != null) row.numObservers = c.numObservers;
+      return row;
     });
   }
 
@@ -1966,7 +1968,9 @@
         var who = observerKey({ observer: r.userDisplayName, subId: r.subId });
         c.parties[party(who)] = true;
         c.lists[r.subId || 'row:' + index] = true;
-        if (x.t > c.at) { c.at = x.t; c.latest = r.obsDt || r.dateStr; }
+        if (x.t > c.at) {
+          c.at = x.t; c.latest = r.obsDt || r.dateStr; c.subId = r.subId || '';
+        }
       });
       return counts;
     }
@@ -1999,8 +2003,9 @@
       return {
         locId: locId, name: c.name, observers: parties, checklists: Object.keys(c.lists).length,
         baseline: baseline, ratio: ratio, referenceCounts: refs,
-        eligible: parties >= 3 && ratio != null && parties > baseline,
-        latest: c.latest, at: now,
+        excess: baseline == null ? null : parties - baseline,
+        eligible: isHotspotConvergence({ observers: parties, baseline: baseline, ratio: ratio }),
+        latest: c.latest, subId: c.subId, at: now,
         currentDays: evidence.completeDays ? Object.keys(periods[0].days).length : null,
         previousDays: evidence.completeDays ? Object.keys(periods[1].days).length : null,
         currentWeekChecklists: evidence.completeDays ? Object.keys(periods[0].lists).length : null,
@@ -2015,8 +2020,7 @@
     opts = opts || {};
     function distance(row) { return Number.isFinite(row.dist) ? row.dist : Infinity; }
     return (rows || []).filter(function (row) {
-      return row.observers >= 3 && Number.isFinite(row.baseline) && row.baseline > 0
-        && row.observers > row.baseline && Number.isFinite(row.ratio)
+      return isHotspotConvergence(row)
         && (opts.maxMi == null || distance(row) <= opts.maxMi);
     }).sort(function (a, b) {
       var an = String(a.name).toLowerCase(), bn = String(b.name).toLowerCase();
@@ -2030,108 +2034,16 @@
 
   function hotspotConvergence(rows, opts) {
     opts = opts || {};
-    var now = opts.now == null ? Date.now() : opts.now;
-    var cfg = opts.cfg || SURGE;
-    var minObs = opts.minObservers || CONVERGE_MIN_OBSERVERS;
-    var minRatio = opts.minRatio || CONVERGE_MIN_RATIO;
-    var hotFrom = now - cfg.WINDOW_H * 3600 * 1000;
-    var baseFrom = now - cfg.BASELINE_DAYS * 86400 * 1000;
-    var byLoc = {}, order = [], earliest = Infinity;
-    (rows || []).forEach(function (r) {
-      if (!r || !r.locId) return;
-      var t = recTime({ dateStr: r.obsDt || r.dateStr });
-      if (!isFinite(t) || t < baseFrom || t > now + 86400000) return;
-      if (t < earliest) earliest = t;
-      if (!byLoc[r.locId]) { byLoc[r.locId] = []; order.push(r.locId); }
-      byLoc[r.locId].push({ row: r, t: t });
-    });
-    var coldDays = baselineDays(earliest, now, cfg);
-    // Remembered observer-days, accumulated across sessions (mirror of
-    // report.update_hotspot_history). The feed alone cannot supply a baseline:
-    // capped at 200 checklists per county it reaches back 2-3 days, and the
-    // 36 h hot window eats most of that, so only 32 of 229 locations had any
-    // trailing data at all.
-    var hist = opts.history || {};
-    var loDay = isoDay(baseFrom), hiDay = isoDay(hotFrom);
-    var histEarliest = Infinity;
-    Object.keys(hist).forEach(function (locId) {
-      Object.keys(hist[locId] || {}).forEach(function (ds) {
-        if (ds < loDay || ds >= hiDay) return;
-        var t = new Date(ds + 'T00:00:00').getTime();
-        if (isFinite(t) && t < histEarliest) histEarliest = t;
+    var out = busyPatchActivity(rows, opts).filter(function (row) { return row.eligible; })
+      .map(function (row) {
+        return {
+          locId: row.locId, loc: row.name, observers: row.observers,
+          baseline: row.baseline, ratio: row.ratio, excess: row.excess,
+          referenceCounts: row.referenceCounts, at: row.at,
+          eventAt: recTime({ dateStr: row.latest }), latest: row.latest,
+          subId: row.subId, reason: 'surge'
+        };
       });
-    });
-    // The divisor must grow with the evidence, or a remembered baseline still
-    // divided by the feed's shallow span inflates every ratio by exactly the
-    // factor the memory was added to fix.
-    if (histEarliest < earliest) coldDays = baselineDays(histEarliest, now, cfg);
-    var out = [];
-    var party = buildParties(rows);
-    order.forEach(function (locId) {
-      var all = byLoc[locId];
-      var hotObs = {}, coldObs = {}, name = '', eventAt = 0, latest = '', subId = '';
-      all.forEach(function (x) {
-        var who = observerKey({ observer: x.row.userDisplayName, subId: x.row.subId });
-        if (!name) name = x.row.locName || x.row.loc || '';
-        // PARTY, not person, in the hot window — three names from one car is
-        // one decision to come here, and this lane's whole claim is that
-        // several people independently chose the place.
-        if (x.t >= hotFrom) {
-          hotObs[party(who)] = 1;
-          if (x.t > eventAt) {
-            eventAt = x.t;
-            latest = x.row.obsDt || x.row.dateStr || '';
-            subId = x.row.subId || '';
-          }
-        } else {
-          coldObs[who + '|' + dayStr(x.row.obsDt || x.row.dateStr)] = 1;
-        }
-      });
-      var n = Object.keys(hotObs).length;
-      if (n < minObs) return;
-
-      // Named days merge exactly; settled days arrive pre-counted, so drop any
-      // feed rows for the same date rather than counting that day twice.
-      var settled = 0, days = hist[locId] || {};
-      Object.keys(days).forEach(function (ds) {
-        if (ds < loDay || ds >= hiDay) return;
-        var v = days[ds];
-        if (Object.prototype.toString.call(v) === '[object Array]') {
-          v.forEach(function (w) {
-            coldObs[String(w).trim().toLowerCase() + '|' + ds] = 1;
-          });
-        } else {
-          var c = parseInt(v, 10);
-          if (!(c > 0)) return;
-          Object.keys(coldObs).forEach(function (k) {
-            if (k.slice(-ds.length) === ds) delete coldObs[k];
-          });
-          settled += c;
-        }
-      });
-      var baseline = (Object.keys(coldObs).length + settled) / coldDays;
-      // No norm, no claim. This lane's assertion is COMPARATIVE — "busier
-      // than its own normal" — so a location with no trailing history has
-      // escaped measurement rather than cleared the bar. Treating a zero
-      // baseline as Infinity meant `Infinity < minRatio` was false and every
-      // such row passed: product/lists returns the most recent 200 checklists
-      // per county (~1.3 days in King), so the 36 h window swallows the feed
-      // and almost nothing has cold data. The lane fired for any hotspot with
-      // 5+ observers in a day and called it "new", listing Seattle's busiest
-      // parks as unprecedented under a heading that promises the opposite.
-      if (baseline <= 0) return;
-      var ratio = n / baseline;
-      if (ratio < minRatio) return;
-      out.push({
-        locId: locId, loc: name, observers: n,
-        // The event's own newest HOT checklist. Bird gen sorts and dates the
-        // hotspot from this, never from an unrelated species row later joined
-        // only to explain what people may be looking at.
-        baseline: baseline, ratio: ratio, eventAt: eventAt, latest: latest,
-        subId: subId,
-        reason: 'surge'
-      });
-    });
     out.sort(function (a, b) {
       if (b.observers !== a.observers) return b.observers - a.observers;
       return b.ratio - a.ratio;
@@ -2142,7 +2054,9 @@
   function isHotspotConvergence(row) {
     return !!row && Number.isFinite(row.observers)
       && row.observers >= CONVERGE_MIN_OBSERVERS
-      && Number.isFinite(row.ratio) && row.ratio >= CONVERGE_MIN_RATIO;
+      && Number.isFinite(row.baseline) && row.baseline > 0
+      && row.observers - row.baseline >= CONVERGE_MIN_EXCESS
+      && Number.isFinite(row.ratio);
   }
 
   // ---- time of day (mirror time_of_day.py) ---------------------------------
@@ -2672,24 +2586,22 @@
       var sub = chk.subId || chk.subID;
       if (sub && !bySub[sub]) bySub[sub] = chk;
     });
-    var shared = {};
+    var visits = [];
     Object.keys(bySub).forEach(function (sub) {
       var chk = bySub[sub], loc = chk.locId || (chk.loc && chk.loc.locId), iso = chk.isoObsDate;
       if (!loc || !iso) return;
       var d = parseObsDt(dayStr(iso));
       if (!d || d < cutoff) return;
-      var key = loc + '|' + iso;
-      (shared[key] = shared[key] || []).push(chk);
+      visits.push(Object.assign({}, chk, { locId: loc, obsDt: iso }));
     });
     var convoys = {};
-    Object.keys(shared).forEach(function (key) {
-      var chks = shared[key];
+    checklistVisits(visits, false).forEach(function (chks) {
       if (chks.length < 2) return;
       var uniq = {};
       chks.forEach(function (c) { var m = (c.userDisplayName || '?').trim(); if (m) uniq[m] = 1; });
       var members = Object.keys(uniq).sort();
       if (members.length < 2) return;
-      var iso = key.split('|')[1], day = dayStr(iso);
+      var iso = chks[0].isoObsDate, day = dayStr(iso);
       var mkey = members.join(' + ') + '|' + day;
       var g = convoys[mkey] = convoys[mkey] || { members: members, day: day, stops: [] };
       // Copy the representative checklist and hang every member's subId off
@@ -5294,7 +5206,7 @@
     // against it — the doc and the code disagreed for a whole release because
     // nothing compared them.
     CONVERGE: {
-      MIN_OBSERVERS: CONVERGE_MIN_OBSERVERS, MIN_RATIO: CONVERGE_MIN_RATIO
+      MIN_OBSERVERS: CONVERGE_MIN_OBSERVERS, MIN_EXCESS: CONVERGE_MIN_EXCESS
     },
     // Exported so the party rule can be tested directly. It gates the
     // busy-hotspot lane, and "six people on one checklist is one party" is a

@@ -65,6 +65,7 @@
       "how": [
         "Personal status uses the exact selected Current year or All time list after duplicate species and reasons are merged. Only complete history or an explicit complete zero proves absence. Incomplete positives remain known; unknown history is neutral, not unseen. Species-blind HOTSPOT alerts have no personal status.",
         "Custom reports resolve the existing county acquisition scope before planning hotspot checklist feeds and cache keys. Independent observation results can paint while scope loads. Failed scope resolution is explicit, not not-applicable or known-empty, and county hydration does not cancel independent Mass/Favorite work.",
+        "Busy Patch alerts and the Busy Patches menu share one completed, group-aware current/reference snapshot. Both require at least five current parties and at least two above the unrounded mean of four weekday/time-matched 36-hour windows. Completed enrichment updates both views; no additional four-times gate applies. Counts and excess lead; the multiplier is secondary.",
         "Bird Gen renders its shell or retained results before starting acquisition. After priority observation requests are queued, the other sources run independently; one slow Favorite no longer hides completed leaderboard or hotspot results. Mega and BirdCast are owned background sources, not prerequisites for rendering.",
         "Favorite patches publish eligible birds one patch at a time. Mass Flock publishes checked species while later corroboration requests run; private-location rows stay withheld until the existing public-location checks finish. Existing evidence thresholds, candidate caps and final ordering are unchanged.",
         "Still-relevant last-good results survive reopen and refresh-age expiry, with an explicit retained timestamp and source state. Observation dates, current seen status, Home, radius and scope still govern eligibility. A failed refresh does not clear successful cached evidence; a successful response replaces its matching source rather than accumulating obsolete alerts forever. Complete retained chase evidence can supply TOP PATCH alerts; partial and failed destination views cannot.",
@@ -73,7 +74,7 @@
       ],
       "limits": [
         "A report whose date cannot be read is dropped from a freshness-gated source rather than assumed fresh.",
-        "The baseline is measured from the data actually fetched (7 days), capped at the configured window, so a short feed cannot inflate every ratio."
+        "Crowd baselines use their own measured feed window. Busy Patches instead require coverage of four matched historical windows; shallow, missing or zero history remains unscored."
       ]
     },
     "wxBtn": {
@@ -392,23 +393,23 @@
       "introduction": "Busy Patches explains where multiple estimated parties are reporting more activity than that patch's own usual level. Reporting frequency is weak supporting context, not proof of a rare bird.",
       "report": "## 🔥 Hot patches — Hotspots with recent surges",
       "reportNote": "The archived report retains its original richness-based Hot patches output. The app's Busy Patches redesign instead compares estimated parties with matched historical windows; its shared calculation is parity-tested against Python.",
-      "summary": "At least three estimated parties, strictly above their own usable historical average.",
+      "summary": "At least five estimated parties and at least two above the unrounded matched historical average.",
       "inputs": [
         "recent county checklist feeds within the current acquisition scope",
         "targeted public-hotspot checklist histories for current multi-party candidates"
       ],
       "how": [
-        "Browse eligibility requires at least three estimated parties in the current 36 hours, strictly above a nonzero mean of four separate 36-hour references ending at the same local weekday and time one to four weeks earlier.",
-        "Repeat reporting identities count once per window. Shared-checklist signatures and existing same-day convoy evidence merge travelling parties independently within each window. Display names estimate identities; they do not verify physical visitors.",
+        "Both Busy views require at least five estimated parties in the current 36 hours and at least two above a nonzero, unrounded mean of four separate 36-hour references ending at the same local weekday and time one to four calendar weeks earlier. Both boundaries are inclusive.",
+        "Repeat reporting identities count once per window. Explicit shared group IDs, shared-checklist signatures and existing same-day convoy evidence merge parties independently within each window. A group ID is scoped to its place/day; observer count is size evidence, not a member roster. Display names estimate identities; they do not verify physical visitors.",
         "Busy sorts by the unrounded multiplier, parties, distance and name. Distance sorts nearest first without changing eligibility. All includes eligible patches within acquired counties, not worldwide data; the distance pill applies an additional Home-radius filter.",
-        "The printed multiplier measures relative reporting activity, not headcount. Crowd density adds a redundant bounded visual cue; the generic heading logo has no invented score.",
+        "The printed party count and absolute excess lead; the multiplier is secondary and measures relative reporting activity, not headcount. Crowd density adds a redundant bounded visual cue; the generic heading logo has no invented score.",
         "Descriptions lead with the actual qualifying reason and add only positive changes in complete seven-day reporting dates, checklist totals or parties above the sampled historical high. Unchanged comparisons, declines, range and latest-checklist age remain in Info.",
-        "Reporting-day frequency is a weak supporting indicator only: it never changes eligibility, ranking, the multiplier or alerts. Bird Gen retains its existing five-party/four-times alert rules."
+        "Reporting-day frequency is a weak supporting indicator only: it never changes eligibility, ranking, the multiplier or alerts. Bird Gen uses this same completed snapshot and both count/excess gates, without the retired extra four-times gate."
       ],
       "limits": [
         "County feeds and targeted histories are capped at 1200 rows per request. References require full timestamps, newest-first date ordering and a measured tail before the oldest required window. An isolated old outlier cannot prove coverage; shallow, missing, zero and failed baselines never become infinity or a qualifying claim.",
         "Complete-day comparisons exclude today's partial day and require history reaching before both seven-day periods. These deltas are descriptive, not statistical significance; the sampled historical range is not a prediction interval.",
-        "Late, private, missing and capped checklists limit public-report coverage. Current candidates are acquired first; scored rows can appear as each targeted history completes. An incomplete refresh preserves the last-good activity snapshot with explicit cached/partial status and is not saved over it.",
+        "Late, private, missing and capped checklists limit public-report coverage. Existing cached details and at most eight new detail lookups enrich candidate group evidence; missing metadata is not verified independence. Pending scans retain the last completed snapshot until history/group completion publishes to both views. An incomplete refresh has explicit cached/partial status and cannot replace a complete durable activity snapshot.",
         "Cold keeps its existing calculation and background seven-day observation indexing. No report output, proxy or runtime GitHub request supplies device activity."
       ]
     },
@@ -472,14 +473,15 @@
         "checklists from the region's feeds, plus the taxonomy for species resolution"
       ],
       "how": [
-        "Birders filing checklists at the same places within a short window on the same day are detected as a convoy.",
+        "Matching explicit group IDs identify a shared visit at the same place/day even when starts or species totals differ. Existing exact-start inference still supports missing metadata; no time tolerance is invented. Routes still need two shared stops, or at least five known members for a single-stop field trip.",
         "Every member's checklist at every stop is pooled. Two birders standing together file different lists, so reading only one drops birds the other wrote down.",
         "Each convoy is titled with its date, party size, stop count, species count and unseen count — two convoys on the same day are otherwise indistinguishable.",
         "Unseen birds are listed before seen ones, and 'nothing unseen here' is stated plainly: that is a direct answer to 'should I drive this route?'",
         "Each public stop name opens Stakeout hotspot. Checklist ids and the labelled map action remain separate external evidence and navigation controls."
       ],
       "limits": [
-        "Names are never printed — open a checklist to see who. The species count is omitted rather than shown as 0 when detail has not loaded."
+        "Names are never printed — open a checklist to see who. The species count is omitted rather than shown as 0 when detail has not loaded.",
+        "Group enrichment reuses existing cached checklist details and at most eight new lookups. Missing metadata is unknown; numObservers is a party size, not an invented roster. Obsolete report/navigation/identity work cannot repaint the current route list."
       ]
     },
     "favResults": {

@@ -33,6 +33,47 @@ const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
 
+function cleanupWizardProfile(profile, run = spawnSync) {
+  const escaped = profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = '(?:^|\\s)"?--user-data-dir="?' + escaped + '"?(?=\\s|$)';
+  let failure;
+  try {
+    if (process.platform === 'win32') {
+      const script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $pattern='"
+        + pattern.replace(/'/g, "''") + "'; "
+        + "for ($i=0; $i -lt 10; $i++) { "
+        + "$owned = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        + "Where-Object { $_.CommandLine -match $pattern }); "
+        + "if (-not $owned.Count) { exit 0 }; "
+        + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; try { Stop-Process -Id $ownedPid -Force "
+        + "-ErrorAction Stop } catch { if (Get-Process -Id $ownedPid -ErrorAction SilentlyContinue) { throw } } }; "
+        + "Start-Sleep -Milliseconds 100 }; exit 1";
+      const result = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64')],
+      { stdio: 'pipe', timeout: 10000 });
+      if (result.error || result.status !== 0) throw new Error('wizard exact-profile process cleanup unverified: '
+        + (result.error?.message || String(result.stderr || result.status)));
+    } else {
+      const owned = () => {
+        const result = run('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', timeout: 10000 });
+        if (result.error || result.status !== 0) throw new Error('wizard process inventory unverified');
+        return result.stdout.split('\n').filter(line => new RegExp(pattern).test(line))
+          .map(line => Number(line.trim().split(/\s+/)[0]));
+      };
+      owned().forEach(pid => {
+        try { process.kill(pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      });
+      if (owned().length) throw new Error('wizard exact-profile processes survived');
+    }
+  } catch (error) { failure = error; }
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) { failure = failure || error; }
+  if (failure || fs.existsSync(profile)) {
+    throw new Error('F1218 wizard cleanup could not be verified: ' + profile, { cause: failure });
+  }
+}
+
 test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or held key across seen-list completion',
   { timeout: 120000 }, async () => {
     assert.ok(mockups.CHROME, 'real Chrome is required');
@@ -245,18 +286,62 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
         }
       }
     } finally {
-      if (c) {
-        await c.send('Browser.close').catch(() => {});
+      try {
+        if (c) {
+          await mockups.withTimeout(c.send('Browser.close'), 5000, 'wizard Browser.close').catch(() => {});
+          c.close();
+        }
+        cleanupWizardProfile(profile);
+        assert.equal(fs.existsSync(profile), false, 'wizard profile survived cleanup');
         await mockups.withTimeout(exited, 10000, 'wizard Chrome shutdown');
-        c.close();
-      } else {
-        spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Stop-Process -Id ' + chrome.pid]);
-        await exited;
+      } finally {
+        await new Promise(resolve => mockups.server.close(resolve));
       }
-      await new Promise(resolve => mockups.server.close(resolve));
-      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
+
+test('F1218 exact-profile cleanup stops a surviving browser without stopping another browser',
+  { timeout: 60000 }, async () => {
+    const profiles = ['wizard-input-', 'wizard-input-ordinary-'].map(prefix =>
+      fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+    profiles.forEach(profile => spawn(mockups.CHROME, [
+      '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
+      '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'
+    ], { stdio: 'ignore' }));
+    let c;
+    try {
+      await mockups.withTimeout((async () => {
+        while (!profiles.every(profile => fs.existsSync(path.join(profile, 'DevToolsActivePort')))) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      })(), 15000, 'owned and ordinary Chrome startup');
+      const [port, route] = fs.readFileSync(path.join(profiles[1], 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+      c = mockups.cdp('ws://127.0.0.1:' + port + route);
+      await c.ready;
+      cleanupWizardProfile(profiles[0]);
+      assert.equal(fs.existsSync(profiles[0]), false);
+      const version = await mockups.withTimeout(c.send('Browser.getVersion'), 5000, 'ordinary browser preservation');
+      assert.ok(version.product, 'the unrelated browser no longer answers CDP');
+    } finally {
+      if (c) c.close();
+      const results = profiles.map(profile => {
+        try { cleanupWizardProfile(profile); return null; } catch (error) { return error; }
+      });
+      if (results.some(Boolean)) throw new AggregateError(results.filter(Boolean),
+        results.filter(Boolean).map(error => error.message).join('\n'));
+    }
+  });
+
+test('F1218 helper failure, timeout and surviving children fail even if the directory was removed', () => {
+  for (const result of [{ status: 1 }, { status: null, error: new Error('ETIMEDOUT') }]) {
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-fault-'));
+    assert.throws(() => cleanupWizardProfile(profile, (command, args, options) => {
+      assert.equal(options.timeout, 10000, 'native cleanup must be bounded');
+      return result;
+    }), /cleanup could not be verified/);
+    assert.equal(fs.existsSync(profile), false, 'directory cleanup must still be attempted');
+  }
+});
 
 test('F1049 offline mockups read bundled section notes while unseeded remote sources remain pending', () => {
   const start = source.indexOf('var HANG = function (url, init)');
