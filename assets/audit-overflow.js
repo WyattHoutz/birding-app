@@ -1641,7 +1641,7 @@ const AUDIT = `<script>
       }
       A.renderSurge([], [], Array.from({length:7}, function (_, i) {
         return {loc:'Representative public patch '+i,locId:'LPREVIEW'+i,observers:9,
-          ratio:4,reason:'surge',latest:previewStamp(i+1)};
+          baseline:2.25,ratio:4,reason:'surge',latest:previewStamp(i+1)};
       }), [], [], {
         mega:'notApplicable',observations:'ok',hotspots:'ok',
         twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-50*60000,
