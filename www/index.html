@@ -21018,6 +21018,7 @@
         twitchReadingUpdate(el, function () { el.style.aspectRatio = String(ar); })();
       }
       function putImg(el, src, name, onErr, extraClass) {
+        if (_appUnloading || !window.document) return;
         var img = document.createElement('img');
         img.className = 'birdpic' + (extraClass ? ' ' + extraClass : '');
         img.alt = name || ''; img.src = src;
@@ -21038,6 +21039,7 @@
       // empty gap makes a list of birds look broken, and collapsing only some
       // rows leaves the column ragged.
       function showFallback(el) {
+        if (_appUnloading || !window.document) return;
         if (el.querySelector('img.birdpic')) return;
         var img = document.createElement('img');
         img.className = 'birdpic isfallback'; img.alt = ''; img.src = ICON_DIR + ICON_FALLBACK;

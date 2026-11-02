@@ -9981,6 +9981,37 @@ test('the bundled icon seed is present, well-named, and attributed', () => {
     'CREDITS.md is a licence requirement, not documentation');
 });
 
+test('F1215 Stakeout photo results and fallback cannot paint after document teardown', { timeout: 10000 }, async () => {
+  for (const response of [{}, { thumbnail: { source: 'https://example.test/late-bird.jpg' } }]) {
+    let releasePhoto, photoStarted;
+    const pending = new Promise(resolve => { releasePhoto = resolve; });
+    const requested = new Promise(resolve => { photoStarted = resolve; });
+    const app = await boot({ sample: false, fetch: url => {
+      if (/en\.wikipedia\.org\/api\/rest_v1\/page\/summary\//.test(url)) {
+        photoStarted();
+        return pending;
+      }
+      return [];
+    } });
+    let slot;
+    const icons = app.window.BirdIcons;
+    try {
+      await seedSeen(app, [], null, [{ code: 'easkin', name: 'Eastern Kingbird' }]);
+      await app.window.__app.lookupSpecies('easkin', 'Eastern Kingbird');
+      await requested;
+      slot = app.$('spLookupResults').querySelector('[data-hero]');
+      assert.ok(slot, 'exercise the actual Stakeout hero with a pending photo');
+    } finally {
+      app.window.close();
+      releasePhoto(response);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(slot.querySelector('img'), null, 'late completion must not paint the destroyed view');
+    assert.doesNotThrow(() => icons.showFallback(slot), 'a late fallback must also ignore teardown');
+    assert.deepEqual(app.state.errors, []);
+  }
+});
+
 test('bird icons: a seeded species renders from the bundle with no network', async () => {
   const app = await boot();
   const w = app.window;
