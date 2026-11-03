@@ -843,11 +843,30 @@ const AUDIT = `<script>
       var bar = document.getElementById('loadBar'), track = document.getElementById('loadBarTrack');
       var fill = document.getElementById('loadBarFill'), trackBox = track.getBoundingClientRect();
       var fillBox = fill.getBoundingClientRect(), reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var motion = reduced ? getComputedStyle(fill).animationName === 'none'
+        : getComputedStyle(fill).animationName === 'loadBarSweep';
+      var originalFillStyle = fill.style.cssText;
+      // Exercise the real keyframes even on hosts that request reduced motion.
+      fill.style.setProperty('animation', 'loadBarSweep 1s linear 1 both paused', 'important');
+      var sweepSamples = [];
+      [0, .25, .5, .75, 1].forEach(function (fraction) {
+        fill.style.setProperty('animation-delay', -fraction + 's', 'important');
+        var bounds = fill.getBoundingClientRect();
+        sweepSamples.push({fraction: fraction, left: bounds.left,
+          right: bounds.right, width: bounds.width});
+      });
+      fill.style.cssText = originalFillStyle;
       progress = {visible: !bar.hidden, mode: bar.dataset.progressMode,
         trackWidth: trackBox.width, fillWidth: fillBox.width,
+        reduced: reduced, samples: sweepSamples,
+        cycleContained: sweepSamples.length === 5 && sweepSamples.every(function (sample) {
+          return sample.left >= trackBox.left - .5 && sample.right <= trackBox.right + .5;
+        }),
+        cycleMoves: sweepSamples.length === 5
+          && Math.max.apply(null, sweepSamples.map(function (sample) { return sample.left; }))
+            - Math.min.apply(null, sweepSamples.map(function (sample) { return sample.left; })) > 1,
         noPercentage: !track.hasAttribute('aria-valuenow'),
-        motion: reduced ? getComputedStyle(fill).animationName === 'none'
-          : getComputedStyle(fill).animationName === 'loadBarSweep'};
+        motion: motion};
     }
     if (label === 'sec-nvResults') {
       var watchReadability = ${require('./card-readability').toString()};
@@ -4520,10 +4539,11 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (r.progress && (!r.progress.visible || r.progress.mode !== 'indeterminate'
           || !r.progress.noPercentage || !r.progress.motion
+          || !r.progress.cycleContained || !r.progress.cycleMoves
           || r.progress.fillWidth <= 0 || r.progress.fillWidth >= r.progress.trackWidth)) {
         bad++;
         console.log('   F1230 FALSE COMPLETION GEOMETRY ' + JSON.stringify(r.progress));
-      }
+      } else if (r.progress) console.log('   F1230 SWEEP CONTAINMENT ' + JSON.stringify(r.progress));
       if (r.hotspotQr) {
         console.log('   F845 HOTSPOT QR GEOMETRY ' + JSON.stringify(r.hotspotQr));
         if (Object.values(r.hotspotQr).some(value => !value)) {

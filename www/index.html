@@ -900,7 +900,7 @@
       width: 33.333%; transition: none; animation-name: loadBarSweep;
       animation-duration: 1.3s; animation-timing-function: linear; animation-iteration-count: infinite; }
     @keyframes loadBarSweep {
-      from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+      from { transform: translateX(0); } to { transform: translateX(200%); } }
     @media (prefers-reduced-motion: reduce) {
       #loadBar[data-progress-mode="indeterminate"] #loadBarFill { animation: none; } }
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
