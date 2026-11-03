@@ -2814,7 +2814,12 @@ test('F1085/F1086/F1032 the five-row preview uses source order and compact acces
       const head = row.querySelector(':scope > .name'), age = head.lastElementChild;
       assert.equal(head.children.length, 3);
       assert.ok(head.firstElementChild.classList.contains('thumb'));
-      assert.equal(app.window.getComputedStyle(head.firstElementChild).width, '42px');
+      const iconStyle = app.window.getComputedStyle(head.firstElementChild);
+      assert.equal(iconStyle.width, 'max-content',
+        'Busy scores use intrinsic width rather than the ordinary bird thumbnail width');
+      assert.ok(iconStyle.minWidth);
+      assert.equal(iconStyle.minWidth, iconStyle.height,
+        'the intrinsic Busy icon retains a square minimum');
       assert.equal(app.window.getComputedStyle(age).fontWeight, '800');
       assert.equal(age.querySelector('small').textContent, 'ago');
       assert.equal(row.querySelector('.surgekindwrap,template,.surgeexplain'), null);
@@ -10490,7 +10495,7 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
 
   const converge = between('function acquireBusyPatches(', 'function busyPatchReason(');
   assert.match(converge,
-    /_busyPromise && _busyContext === context && !force\) return _busyPromise/,
+    /_busyPromise && _busyContext === context && workCurrent\(_busyWork\) && !force\) return _busyPromise/,
     'F695 duplicate Bird Gen callers no longer join the active source promise');
   const tasks = between('function sourceTask(', '_surgeRetrySources = function');
   assert.match(tasks,
@@ -43537,6 +43542,11 @@ test('F758 bundled JSON is the production authority for menu icons, titles and s
       assert.equal(item.at, 'hotBtn', 'only Busy Patches uses the shared people-grid logo');
       assert.ok([...people].every(person => person.textContent === item.icon),
         'the shared people-grid must agree with the canonical semantic glyph');
+    } else if (item.at === 'massBtn') {
+      const flock = icon.querySelector('svg.flockLogo');
+      assert.ok(flock, 'Mass Flocks uses its declared shared graphic rather than a single-bird emoji');
+      assert.ok(flock.querySelectorAll('path').length >= 3);
+      assert.equal(flock.getAttribute('aria-hidden'), 'true');
     } else assert.equal(icon.textContent, item.icon);
     assert.equal(tile.querySelector('.tilelabel').textContent, item.title);
     if (!item.dynamicSubtitle) {
