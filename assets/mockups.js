@@ -1506,9 +1506,9 @@ const REVIEW_SHOTS = [
                  + JSON.stringify({frame:patchFrame,tiles:patchRects}));
            if (busy.querySelector('.surgebadge').textContent !== 'BUSY PATCH'
                || busy.querySelectorAll('.surgehotspotpeople > span').length !== 9
-               || busy.querySelector('.surgehotspotmult').textContent !== '9'
+               || busy.querySelector('.surgehotspotmult').textContent !== '4×'
                || !/9 estimated parties.*6\.75 above usual 2\.25/.test(busy.textContent)) {
-             throw new Error('F1219 BUSY PATCH must show the party count and measured excess');
+             throw new Error('F1219/F1232 BUSY PATCH must show its multiplier, party count and measured excess');
            }
            var foyTitle = host.querySelector('[data-alert-kind="foy"] .surgealerttitle');
            if (foyTitle.textContent !== 'First of the year American Pipit at Example annual-first public field'
