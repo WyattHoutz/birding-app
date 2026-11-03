@@ -55,7 +55,7 @@
       "if (quickOrigin === 'find' && quickFound) return autoScoutForAnchor(quickFound);",
       "button.speciesWatchlistAction[aria-pressed=\"false\"], button.nvadd",
       "background: #339933; color: #000; border: 2px solid #000;",
-      "background: #C94A38; color: #000; border: 2px solid #fff;",
+      "background: #F3B1A6; color: #000; border: 2px solid #000;",
       "var markupOwner = personalListKey(personalListOwner(scope)) + '|' + rowIdentity;",
       "Home candidate",
       "Current location found. ",

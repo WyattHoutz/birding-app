@@ -335,7 +335,7 @@ test('F1206 F1207 actual owned native readers settle and close explicit empty mo
   } finally { pages.forEach(page => page.window.close()); app.window.close(); }
 });
 
-test('F1197 production Busy cards give positive reasons, accessible density, sorting and Info', async () => {
+test('F1232 F1234 production Busy cards show multiplier scores and inline map ranks with working sorting', async () => {
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app;
@@ -367,7 +367,15 @@ test('F1197 production Busy cards give positive reasons, accessible density, sor
       'unchanged days, falling checklists and parties below the past high are not Busy reasons');
     assert.doesNotMatch(host.textContent, /latest|ago|vs|species|% of region/i);
     assert.deepEqual(cards.map(card => card.querySelectorAll('.busy-person').length), [20, 9]);
-    assert.deepEqual(cards.map(card => card.querySelector('.surgehotspotmult').textContent), ['11', '6']);
+    assert.deepEqual(cards.map(card => card.querySelector('.surgehotspotmult').textContent), ['3.4×', '1.5×']);
+    for (const [index, card] of cards.entries()) {
+      assert.equal(card.querySelector('.surgehotspotthumb .hsnum'), null, 'the activity icon has no map-rank overlay');
+      const name = card.querySelector('.ntext'), rank = name.querySelector('.hsnum');
+      assert.equal(rank.textContent, String(index + 1));
+      assert.equal(rank.parentElement, name, 'rank belongs in the hotspot-name text flow');
+      assert.equal(rank.nextElementSibling, name.querySelector('.hslink'));
+      assert.equal(app.window.getComputedStyle(rank).position, 'static');
+    }
     assert.match(cards[0].querySelector('[role="img"]').getAttribute('aria-label'), /not headcount/);
     assert.equal(cards[0].querySelector('.hslink').dataset.loc, 'L-BUSY-FAR');
     assert.equal(cards[0].querySelector('.maplink').dataset.q, '48,-122');
@@ -381,13 +389,86 @@ test('F1197 production Busy cards give positive reasons, accessible density, sor
   } finally { app.window.close(); }
 });
 
+test('F1235 Busy rare-species links retain ordinary bird-link emphasis and Stakeout navigation', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    A.renderHot({ hot: [], cold: [], busy: [{
+      locId: 'LF1235', name: 'Rare report fixture', observers: 6, baseline: 2, ratio: 3,
+      lat: 47.7, lng: -122.2, dist: 5, latest: recentObsStamp(0)
+    }], busyState: { at: Date.now(), pending: false }, rarityRows: [{
+      locId: 'LF1235', name: 'Tropical Kingbird', code: 'trokin', kind: 'Rarity',
+      dateStr: formatObsStamp(new Date(Date.now() - 60000)), valid: true
+    }] });
+    const link = app.$('hotResults').querySelector('.busypatchrarities a');
+    assert.ok(link, 'the real eligible rare-species context must render');
+    const style = app.window.getComputedStyle(link);
+    assert.equal(style.fontWeight, '700');
+    assert.equal(style.textDecoration, 'none');
+    assert.notEqual(style.fontSize, app.window.getComputedStyle(link.closest('.busypatchreason')).fontSize,
+      'the species name must not inherit the smaller reason text');
+    link.click();
+    assert.equal(app.$('spLookupBtn').closest('section').hidden, false);
+  } finally { app.window.close(); }
+});
+
+test('F1236 full and Recent Bird Gen require actual inclusive three-times activity, without filtering the Busy menu', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, latest = formatObsStamp(new Date(Date.now() - 60000));
+    const base = { lat: 47.7, lng: -122.2, dist: 5, latest };
+    const rows = [
+      { ...base, locId: 'LF1236ROUND', loc: 'Rounded only', observers: 6, baseline: 2.00001, ratio: 3 },
+      { ...base, locId: 'LF1236EXACT', loc: 'Exactly three', observers: 6, baseline: 2, ratio: 3 },
+      { ...base, locId: 'LF1236ABOVE', loc: 'Above three', observers: 8, baseline: 2.5, ratio: 3.2 },
+      { ...base, locId: 'LF1236FEW', loc: 'Too few parties', observers: 4, baseline: 1, ratio: 4 },
+      { ...base, locId: 'LF1236UNKNOWN', loc: 'Unmeasured usual', observers: 8, baseline: 0, ratio: 8 }
+    ];
+    const revised = rows.map(row => row.locId === 'LF1236ROUND'
+      ? { ...row, baseline: 1.9, ratio: 6 / 1.9 } : row);
+    for (const [current, extra] of [[rows, []], [revised, ['LF1236ROUND']], [rows, []]]) {
+      A.renderHot({ hot: [], cold: [], busy: current.map(row => ({ ...row, name: row.loc })),
+        busyState: { at: Date.now(), pending: false } });
+      A.renderSurge([], [], current, [], [], { suppressNotifications: true, deferPhotos: true });
+      A.updateRecentBirdGen();
+      const expected = ['LF1236EXACT', 'LF1236ABOVE', ...extra].sort();
+      assert.deepEqual([...app.$('surgeResults').querySelectorAll('[data-alert-kind="hotspot"]')]
+        .map(row => row.dataset.hsloc).sort(), expected);
+      assert.deepEqual([...app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="hotspot"] .hslink')]
+        .map(link => link.dataset.loc).sort(), expected);
+      assert.deepEqual([...app.$('hotResults').querySelectorAll('.busypatch .hslink')]
+        .map(link => link.dataset.loc).sort(), ['LF1236ABOVE', 'LF1236EXACT', 'LF1236ROUND']);
+    }
+    const approved = [
+      ['Alki', 12, 1], ['Lake Sammamish SP', 5, 1.75], ['Juanita Bay Park', 14, 5.75],
+      ['Carkeek Park', 12, 5.25], ['Washington Park Arboretum', 5, 3]
+    ].map(([name, observers, baseline], index) => ({
+      ...base, locId: 'LF1236APPROVED' + index, name, loc: name, observers, baseline,
+      ratio: observers / baseline
+    }));
+    A.renderHot({ hot: [], cold: [], busy: approved, busyState: { at: Date.now(), pending: false } });
+    A.renderSurge([], [], approved, [], [], { suppressNotifications: true, deferPhotos: true });
+    A.updateRecentBirdGen();
+    assert.deepEqual([...app.$('hotResults').querySelectorAll('.busypatch .hslink')]
+      .map(link => link.textContent), approved.map(row => row.name));
+    assert.deepEqual([...app.$('hotResults').querySelectorAll('.surgehotspotmult')]
+      .map(score => score.textContent), ['12×', '2.9×', '2.4×', '2.3×', '1.7×']);
+    for (const host of ['surgeResults', 'recentBirdGenRows']) {
+      assert.deepEqual([...app.$(host).querySelectorAll('.surgehotspotthumb .surgehotspotmult')]
+        .map(score => score.textContent), ['12×']);
+      assert.equal(app.$(host).querySelector('.hslink').textContent, 'Alki');
+    }
+  } finally { app.window.close(); }
+});
+
 test('F1217 a reopened offline view restores one canonical Busy snapshot, not an independent alert cache', async () => {
   const first = await boot({ sample: false });
   const A1 = first.window.__app, at = Date.now() - 60000;
   const row = { locId: 'L-CANONICAL', name: 'Canonical cached patch',
-    observers: 7, baseline: 3, ratio: 7 / 3,
+    observers: 7, baseline: 2, ratio: 7 / 2,
     latest: formatObsStamp(new Date(at)), lat: 47.7, lng: -122.2, dist: 5 };
-  await A1.zcPut(A1.hotCacheKey(), { t: at, hot: [], cold: [], busy: [row],
+  const below = { ...row, locId: 'L-MENU-ONLY', name: 'Below alert threshold', baseline: 3, ratio: 7 / 3 };
+  await A1.zcPut(A1.hotCacheKey(), { t: at, hot: [], cold: [], busy: [row, below],
     busyState: { at, pending: false, partial: false } });
   await A1.saveSurgeRetainedPart('convergence', {
     state: 'ok', policy: 'matched-groups-5-plus-2-v1', rows: [{
@@ -407,9 +488,12 @@ test('F1217 a reopened offline view restores one canonical Busy snapshot, not an
     const assertSame = () => {
       const menu = app.$('hotResults'), alert = app.$('surgeResults')
         .querySelector('[data-hsloc="L-CANONICAL"]');
-      assert.match(menu.textContent, /7 estimated parties · \+4 above usual 3/);
+      assert.match(menu.textContent, /7 estimated parties · \+5 above usual 2/);
+      assert.match(menu.textContent, /Below alert threshold/);
       assert.ok(alert, 'the persisted common snapshot must restore on Bird Gen first-open');
-      assert.match(alert.textContent, /7 estimated parties · \+4 above usual 3/);
+      assert.match(alert.textContent, /7 estimated parties · \+5 above usual 2/);
+      assert.equal(app.$('surgeResults').querySelector('[data-hsloc="L-MENU-ONLY"]'), null,
+        'restoration must apply the alert-only threshold without dropping the menu entry');
       assert.equal(alert.dataset.busysnapshot, menu.dataset.busySnapshot);
       assert.doesNotMatch(app.$('surgeResults').textContent, /Contradictory independent alert/);
     };
@@ -426,7 +510,7 @@ test('F1217 a reopened offline view restores one canonical Busy snapshot, not an
   } finally { app.window.close(); }
 });
 
-test('F1217 completed group-aware Busy snapshot updates both actual surfaces after Bird Gen settles', async () => {
+test('F1233 F1236 shared provisional Busy revisions converge without leaking below-threshold Bird Gen alerts', async () => {
   const now = Date.now(), at = (days, minute) => {
     const date = new Date(now); date.setDate(date.getDate() - days);
     date.setMinutes(date.getMinutes() - 10 - minute);
@@ -485,20 +569,33 @@ test('F1217 completed group-aware Busy snapshot updates both actual surfaces aft
     seedEvidence();
     const load = A.loadSurge();
     await waitFor(() => releaseDetail, 'the bounded group-detail completion pass');
-    assert.doesNotMatch(app.$('hotResults').textContent, /Shared POSITIVE/,
-      'an incomplete first snapshot must not be presented as complete in the menu');
-    assert.equal(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]'), null);
+    assert.match(app.$('hotResults').textContent, /7 estimated parties · \+5 above usual 2/,
+      'usable history-complete values must paint before the held group-detail completion');
+    assert.match(app.$('hotStatus').textContent, /updating.*provisional activity.*checking shared parties/);
+    A.fgProgressSync();
+    assert.equal(app.$('loadBar').hidden, false, 'owned Busy completion stays visibly in progress through group enrichment');
+    assert.ok(['indeterminate', 'determinate'].includes(app.$('loadBar').dataset.progressMode));
+    assert.notEqual(app.$('loadBarFill').style.width, '100%');
+    assert.match(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]').textContent,
+      /7 estimated parties · \+5 above usual 2/);
+    const pendingCache = await A.zcGet(A.hotCacheKey());
+    assert.ok(!pendingCache || !(pendingCache.busy || []).some(row => row.locId === 'L-SHARED-POSITIVE'),
+      'provisional activity must not become the durable completed snapshot');
     holdDetails = false; releaseDetail();
     await load;
     function assertShared(count, baseline) {
       const menu = app.$('hotResults'), alert = app.$('surgeResults')
         .querySelector('[data-hsloc="L-SHARED-POSITIVE"]');
-      assert.ok(alert, app.$('surgeResults').textContent);
       const expected = `${count} estimated parties · +${count - baseline} above usual ${baseline}`;
       assert.ok(menu.textContent.includes(expected), menu.textContent);
-      assert.ok(alert.textContent.includes(expected), alert.textContent);
-      assert.equal(alert.dataset.busysnapshot, menu.dataset.busySnapshot,
-        'both rendered surfaces must identify the same completed acquisition clock');
+      if (count / baseline >= 3) {
+        assert.ok(alert, app.$('surgeResults').textContent);
+        assert.ok(alert.textContent.includes(expected), alert.textContent);
+        assert.equal(alert.dataset.busysnapshot, menu.dataset.busySnapshot,
+          'both rendered surfaces must identify the same completed acquisition clock');
+      } else {
+        assert.equal(alert, null, 'the alert-only threshold does not remove a count/excess-qualified menu patch');
+      }
       for (const label of ['NOISE', 'WALK']) {
         assert.doesNotMatch(menu.textContent, new RegExp('Shared ' + label));
         assert.equal(app.$('surgeResults').querySelector(`[data-hsloc="L-SHARED-${label}"]`), null);
@@ -518,9 +615,8 @@ test('F1217 completed group-aware Busy snapshot updates both actual surfaces aft
     assert.equal(await obsolete, null);
     await replacement;
     assertShared(6, 4);
-    assert.match(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]')
-      .querySelector('[data-surge-evidence]').content.textContent, /1\.5× usual/,
-      'the obsolete four-times gate must not reject an exact two-party excess');
+    assert.match(app.$('hotResults').textContent, /1\.5× usual/,
+      'the menu must still accept an exact two-party excess below the new alert minimum');
     usual = 5; seedEvidence();
     await A.startBusyPatches(input);
     assert.doesNotMatch(app.$('hotResults').textContent, /Shared POSITIVE/);
@@ -530,6 +626,75 @@ test('F1217 completed group-aware Busy snapshot updates both actual surfaces aft
     holdDetails = false;
     if (releaseDetail) releaseDetail();
     if (releaseHistory) releaseHistory();
+    app.window.close();
+  }
+});
+
+test('F1233 cold Busy intake shows current estimates before history and owns progress through cancelled group work', async () => {
+  const now = new Date(), rows = [];
+  for (const days of [0, 7, 14, 21, 28, 35]) {
+    const date = new Date(now); date.setDate(date.getDate() - days);
+    date.setMinutes(date.getMinutes() - 10);
+    for (let i = 0; i < (days ? 1 : 6); i++) {
+      rows.push({ locId: 'LF1233COLD', locName: 'Cold progress fixture',
+        subId: `F1233-${days}-${i}`, userDisplayName: `synthetic-${days}-${i}`,
+        isoObsDate: formatObsStamp(date), numSpecies: i + 10 });
+    }
+  }
+  let releaseHistory, releaseDetail, holdHistory = true, holdDetail = true, currentReads = 0;
+  const app = await boot({ sample: false, fetch(url) {
+    if (/product\/lists\/US-/.test(url)) {
+      currentReads++;
+      return rows.filter(row => row.subId.startsWith('F1233-0-'));
+    }
+    if (/product\/lists\/LF1233COLD/.test(url)) {
+      if (holdHistory) return new Promise(resolve => { releaseHistory = () => resolve(rows); });
+      return rows;
+    }
+    if (/product\/checklist\/view\//.test(url)) {
+      if (holdDetail) return new Promise(resolve => { releaseDetail = () => resolve({ groupId: 'synthetic-group' }); });
+      return { groupId: 'synthetic-group' };
+    }
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const input = { codes: ['US-WA-033'], context: A.hotspotContextKey(), home: A.getHome(),
+      reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(),
+      meta: [{ locId: 'LF1233COLD', locName: 'Cold progress fixture', lat: 47.7, lng: -122.2 }] };
+    const pending = A.startBusyPatches(input);
+    await waitFor(() => releaseHistory, 'held first reference history');
+    assert.match(app.$('hotStatus').textContent, /current estimates.*Cold progress fixture: 6 estimated parties/);
+    assert.equal(app.$('hotResults').querySelector('.surgehotspotmult'), null,
+      'current counts cannot fabricate a multiplier before measured history');
+    holdHistory = false; releaseHistory();
+    await waitFor(() => releaseDetail, 'held group detail after history');
+    assert.match(app.$('hotResults').textContent, /6 estimated parties/);
+    A.fgProgressSync();
+    assert.equal(A.progressState(), null, 'there is no unrelated stage keeping this bar visible');
+    assert.equal(app.$('loadBar').hidden, false, 'the Busy operation must own the native/background completion hold');
+    assert.equal(app.$('loadBar').dataset.progressMode, 'indeterminate');
+    A.fgCancelAll('Busy progress fixture cancelled');
+    holdDetail = false; releaseDetail();
+    assert.equal(await pending, null);
+    A.fgProgressSync();
+    assert.equal(app.$('loadBar').hidden, true, 'cancelled owned progress cannot linger');
+    assert.match(app.$('hotStatus').textContent, /update cancelled/);
+    assert.equal(app.$('hotResults').querySelector('.busypatch'), null,
+      'an unfinished first scan cannot become the last-good completed cache');
+    rows.filter(row => row.subId.startsWith('F1233-0-')).forEach(row =>
+      A.seedChecklistView(row.subId, { subId: row.subId, locId: row.locId, obsDt: row.isoObsDate,
+        groupId: 'F1233-completed-group', numObservers: 6, obs: [] }));
+    const next = await A.startBusyPatches(input);
+    assert.equal(currentReads, 1, 'a new scan may still reuse a healthy provider request cache');
+    assert.equal(next.busyState.pending, false);
+    assert.equal(next.busy.length, 0,
+      'new verified grouping must replace the cancelled provisional result instead of reusing it as complete');
+    assert.equal(app.$('hotResults').querySelector('.busypatch'), null);
+  } finally {
+    holdDetail = false; holdHistory = false;
+    if (releaseHistory) releaseHistory();
+    if (releaseDetail) releaseDetail();
     app.window.close();
   }
 });
@@ -696,6 +861,24 @@ test('F1195 actual Bird Gen intake keeps a shared outing from becoming an indepe
   } finally { app.window.close(); }
 });
 
+test('F1227 Mass Flocks uses one original multi-bird graphic in the menu and both headers', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, button = app.$('massBtn');
+    const tile = app.document.querySelector('#menuList .toclink[data-at="massBtn"]');
+    A.showSection(button.closest('section').id, { load: false });
+    const graphic = tile.querySelector('svg.flockLogo');
+    assert.ok(graphic, 'the real menu tile must not fall back to a single-duck emoji');
+    assert.ok(graphic.querySelectorAll('path').length >= 3, 'a flock needs multiple visible bird silhouettes');
+    for (const host of [tile, button.closest('section').querySelector('h2'), app.$('navTitle')]) {
+      assert.equal(host.querySelector('svg.flockLogo').outerHTML, graphic.outerHTML);
+      assert.equal(host.querySelector('svg').getAttribute('aria-hidden'), 'true');
+      assert.doesNotMatch(host.textContent, /🦆/);
+    }
+    assert.match(tile.getAttribute('aria-label'), /Mass Flocks/);
+  } finally { app.window.close(); }
+});
+
 test('F1193 Busy Patches reuses the Bird Gen people-grid identity without a fabricated score', async () => {
   const app = await boot({ sample: false });
   try {
@@ -716,8 +899,8 @@ test('F1193 Busy Patches reuses the Bird Gen people-grid identity without a fabr
         'a section logo cannot invent an activity multiplier');
       assert.doesNotMatch(host.textContent, /Hot patches|🔥/);
     }
-    assert.equal(doc.querySelector('#surgeFeed .surgehotspotmult').textContent, '12',
-      'sharing the logo must preserve the actual alert party count');
+    assert.equal(doc.querySelector('#surgeFeed .surgehotspotmult').textContent, '6.9×',
+      'sharing the logo must preserve the actual alert multiplier, not its party count');
   } finally { app.window.close(); }
 });
 
@@ -1645,7 +1828,7 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
       ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
     assert.equal(app.document.querySelectorAll(ORIGINAL_MENU + '[data-at="easyBtn"]').length, 1);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="activeBtn"]'), null);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
   } finally { app.window.close(); }
 });
 
@@ -6714,6 +6897,35 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
   app.window.close();
 });
 
+test('F1226 verified empty Mega cache keeps its view and original age under owned top refresh progress', async () => {
+  const app = await boot({ sample: false });
+  let rejectFetch;
+  try {
+    const A = app.window.__app, at = Date.now() - 20 * 60000;
+    app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify({
+      at, region: 'US-WA', sid: 'SN10489', membershipVersion: 2,
+      scoped: true, sourceCount: 1, rows: []
+    }));
+    app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+    const load = A.loadAbaAlert();
+    await waitFor(() => rejectFetch, 'held Mega refresh');
+    const view = app.$('abaControls').querySelector('#abaViewPick');
+    assert.ok(view, 'a successful empty cache must retain ordinary view controls');
+    assert.match(app.$('abaStatus').textContent, /Cached ABA rarities shown.*20 min old.*refreshing/s);
+    assert.doesNotMatch(app.$('abaStatus').textContent, /Loading the ABA rarities alert/);
+    assert.equal(app.$('loadBar').hidden, false);
+    assert.equal(app.$('loadBar').dataset.progressMode, 'indeterminate');
+    rejectFetch(new Error('held Mega offline'));
+    await load;
+    assert.equal(app.$('abaControls').querySelector('#abaViewPick'), view,
+      'a failed refresh must not replace the usable empty cached view');
+    assert.match(app.$('abaStatus').textContent, /Cached alert remains visible.*live refresh failed/s);
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).at, at,
+      'retaining the cache cannot claim a fresh acquisition timestamp');
+    assert.equal(app.$('loadBar').hidden, true, 'the owned top hold must settle after failure');
+  } finally { if (rejectFetch) rejectFetch(new Error('fixture cleanup')); app.window.close(); }
+});
+
 test('F798 cached Mega controls repaint while live refresh is pending or failed', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -6863,9 +7075,11 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
     requests[0].reject(new Error('old request cancelled'));
     await original;
     assert.doesNotMatch(app.$('abaStatus').textContent, /old request cancelled/);
+    assert.equal(app.$('loadBar').hidden, false, 'retiring the old Mega owner cannot release the restarted request');
     requests[1].reject(new Error('new request failed'));
     await waitFor(() => /new request failed/.test(app.$('abaStatus').textContent),
       'current Mega refresh failure');
+    assert.equal(app.$('loadBar').hidden, true, 'the current Mega owner must release its own progress');
     assert.equal(app.$('abaBtn').disabled, false);
     section.querySelector('.refreshbtn').click();
     assert.equal(requests.length, 3, 'refresh must remain usable after failure');
@@ -18996,11 +19210,11 @@ function shortcutMenu(app, button, keyboard = false) {
   assert.equal(app.$('menuShortcutPopup').hidden, false);
 }
 
-test('F1044/F1132/F1144 defaults duplicate four destinations without moving originals or losing menu icons', async () => {
+test('F1228 F1229 defaults omit My Year List and put Twitches last without changing custom shortcuts', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, list = app.$('menuList');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
     assert.match(app.$('menuShortcutsHint').textContent, /Long press a menu item to edit shortcuts/);
     assert.equal(list.querySelector('.menuPin, #menuEditFavorites'), null);
     const originals = [...list.querySelectorAll(':scope > li:not(.menuShortcut) > .toclink')];
@@ -19027,7 +19241,7 @@ test('F1044/F1132/F1144 defaults duplicate four destinations without moving orig
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn', 'surgeBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn', 'surgeBtn']);
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
@@ -19036,20 +19250,22 @@ test('F1044/F1132/F1144 defaults duplicate four destinations without moving orig
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
     assert.equal(bird.querySelector('.tileicon'), icons[originals.indexOf(bird)]);
     for (let i = 0; i < 3; i++) A.showMenu();
     assert.equal(app.document.querySelectorAll('#menuShortcutPopup').length, 1);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'], 'repaints must not duplicate shortcuts');
-    for (const at of ['destBtn', 'myYearBody', 'spLookupBtn']) {
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn'], 'repaints must not duplicate shortcuts');
+    for (const at of ['destBtn', 'spLookupBtn']) {
       for (const selector of ['#menuList .menuShortcut .toclink[data-at="' + at + '"]',
         ORIGINAL_MENU + '[data-at="' + at + '"]']) {
         app.document.querySelector(selector).click();
         assert.equal(app.$(at).closest('section').hidden, false, 'both entry points open the same section');
         A.showMenu();
       }
+      app.document.querySelector(ORIGINAL_MENU + '[data-at="myYearBody"]').click();
+      assert.equal(app.$('myYearBody').closest('section').hidden, false, 'My Year List remains a normal destination');
     }
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -19057,6 +19273,7 @@ test('F1044/F1132/F1144 defaults duplicate four destinations without moving orig
 
 test('F1031 saved shortcuts survive boots, preserve empty selections and sanitize invalid destinations', async () => {
   for (const [saved, expected] of [
+    [['myYearBody', 'refreshBtn', 'destBtn'], ['myYearBody', 'refreshBtn', 'destBtn']],
     [['destBtn', 'refreshBtn', 'spLookupBtn'], ['destBtn', 'refreshBtn', 'spLookupBtn']],
     [['surgeBtn', 'destBtn'], ['surgeBtn', 'destBtn']],
     [[], []],
@@ -19082,7 +19299,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
   }
   const app = await boot({ storage: { [SHORTCUT_KEY]: '{invalid' } });
   try {
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
     assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'), /saved preferences unavailable/);
   } finally { app.window.close(); }
 });
@@ -19171,7 +19388,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
     query('');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual([...app.document.querySelectorAll('.menuShortcut:not([hidden]) .toclink')]
-      .map(button => button.dataset.at), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+      .map(button => button.dataset.at), ['destBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null, 'filtering must not rewrite saved preferences');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -19206,7 +19423,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
       && row.msg === 'Menu shortcuts: preferences could not be saved'));
@@ -19245,7 +19462,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
     assert.equal(app.$('menuShortcutAction').dataset.action, 'remove');
     button.click();
     assert.equal(app.$('menuPanel').hidden, false, 'the hold-release click must not navigate');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'], 'holding never silently changes pins');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn'], 'holding never silently changes pins');
     app.$('menuShortcutAction').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.$('menuShortcutPopup').hidden, true);
     assert.equal(app.document.activeElement, button);
@@ -20528,6 +20745,37 @@ test('the rate limiter is sized from what the log actually measured', async () =
   // happened.
   assert.ok(A.FG_REFILL_PER_S > 0 && A.FG_REFILL_PER_S <= 0.37,
     'the sustained rate is under the measured 0.37/s ceiling');
+});
+
+test('F1230 held unmeasured work is visibly indeterminate, never a full completed bar', async () => {
+  let release;
+  const app = await boot({ sample: false, fetch(url) {
+    if (url.includes('F1230-held')) return new Promise(resolve => { release = () => resolve([]); });
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const pending = A.ebird('data/obs/F1230-held/recent');
+    await waitFor(() => release, 'held foreground request');
+    const assertUpdating = () => {
+      A.fgProgressSync();
+      assert.equal(app.$('loadBar').hidden, false);
+      assert.equal(app.$('loadBar').dataset.progressMode, 'indeterminate');
+      assert.notEqual(app.$('loadBarFill').style.width, '100%', 'unknown work cannot paint a complete fill');
+      assert.equal(app.$('loadBarTrack').hasAttribute('aria-valuenow'), false);
+      assert.equal(app.window.getComputedStyle(app.$('loadBarFill')).animationName, 'loadBarSweep');
+    };
+    assertUpdating();
+    A.progressStage('Preparing results', 1);
+    A.progressStep();
+    assertUpdating();
+    A.progressEnd();
+    assertUpdating();
+    release();
+    await pending;
+    A.fgProgressSync();
+    assert.equal(app.$('loadBar').hidden, true);
+  } finally { if (release) release(); app.window.close(); }
 });
 
 test('a long wave reports staged progress instead of a moving total', async () => {
@@ -23335,7 +23583,7 @@ test('F765 Watch list sorts alphabetically without rewriting storage or misdirec
   for (const button of buttons()) {
     assert.equal(button.textContent, 'Remove Watch');
     const style = app.window.getComputedStyle(button);
-    assert.equal(style.backgroundColor, 'rgb(201, 74, 56)');
+    assert.equal(style.backgroundColor, 'rgb(243, 177, 166)');
     assert.equal(style.color, 'rgb(0, 0, 0)');
     assert.equal(style.padding, '4px 6px');
     assert.equal(style.minHeight, '44px');
@@ -26901,8 +27149,8 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
     assert.ok([...image.querySelectorAll('.surgehotspotpeople > span')]
       .every(node=>node.textContent==='👥'));
     assert.equal(image.querySelector('.surgehotspotpeople').getAttribute('aria-hidden'),'true');
-    assert.equal(image.querySelector('.surgehotspotmult').textContent,'9');
-    assert.equal(app.window.getComputedStyle(image.querySelector('.surgehotspotmult')).position,'absolute');
+    assert.equal(image.querySelector('.surgehotspotmult').textContent,'4.5×');
+    assert.equal(app.window.getComputedStyle(image.querySelector('.surgehotspotmult')).position,'relative');
     assert.equal(image.getAttribute('role'),'img');
     assert.match(image.getAttribute('aria-label'),/9 estimated parties; 4\.5×/);
     assert.match(hotspot.querySelector('.surge-essential').textContent,/9 estimated parties.*7 above usual 2/);
@@ -26926,7 +27174,8 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
     A.renderSurge([],[],[{...row,observers:4,ratio:10}],[],[],{});
     assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null);
     A.renderSurge([],[],[row],[],[],{});
-    assert.equal(app.document.querySelector('.surgehotspotmult').textContent,'5');
+    assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null,
+      'the new alert-only three-times rule is additional to the unchanged count/excess rule');
     await A.saveSurgeRetainedPart('convergence',{state:'ok',rows:[
       {...row,locId:'LOLD',baseline:undefined}
     ]});
@@ -30798,6 +31047,19 @@ test('F1214 failed browser cleanup aborts before geometry scoring', () => {
   assert.doesNotMatch(result.stdout, /FIXTURE missing|Layout failures|nothing overflows/);
 });
 
+test('F1238 audit cleanup preserves native-helper and profile-removal causes without scoring', () => {
+  for (const [cleanup, helpers, cause] of [
+    ['clean', 'fail', 'controlled helper timeout'],
+    ['fail', 'ok', 'controlled profile lock'],
+  ]) {
+    const result = auditLifecycleFixture(cleanup, 'empty', 100, helpers);
+    assert.equal(result.status, 3, result.stdout + result.stderr);
+    assert.ok(result.stderr.includes(cause), result.stderr);
+    assert.match(result.stderr, /"profile":/);
+    assert.doesNotMatch(result.stdout, /FIXTURE missing|Layout failures|nothing overflows/);
+  }
+});
+
 test('F1214 a startup cannot retry while browser cleanup is unverified', () => {
   const result = auditLifecycleFixture('fail', 'none');
   assert.equal(result.status, 3, result.stderr);
@@ -32161,7 +32423,7 @@ test('F550 Busy Patches replaces the obsolete species-richness badge with its qu
     }],
   });
   const card = doc.querySelector('#hotResults .hscard-md');
-  assert.equal(card.querySelector('.surgehotspotmult').textContent, '5');
+  assert.equal(card.querySelector('.surgehotspotmult').textContent, '5×');
   assert.match(card.querySelector('.busypatchreason').textContent, /^5 estimated parties · \+4 above usual 1/);
   assert.equal(card.querySelector('.hsdisttop'), null);
   assert.doesNotMatch(card.textContent, /species|latest|ago/);
@@ -35053,7 +35315,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   app.window.close();
 });
 
-test('F1147 F1203 Watch search Add Watch and Remove Watch retain labels and membership across repeat actions', async () => {
+test('F1224 Watch search retains membership with high-contrast lighter Remove Watch and black border', async () => {
   const app = await boot({ sample: false, storage: { ebird_watchlist_v1: '[]' }, fetch(url) {
     if (/product\/spplist/.test(url)) return ['amerob'];
     if (/ref\/taxonomy\/ebird/.test(url)) return [{
@@ -35080,9 +35342,14 @@ test('F1147 F1203 Watch search Add Watch and Remove Watch retain labels and memb
       const remove = app.$('nvResults').querySelector('.nvdel');
       assert.equal(remove.textContent, 'Remove Watch');
       const style = app.window.getComputedStyle(remove);
-      assert.equal(style.backgroundColor, 'rgb(201, 74, 56)');
+      const rgb = style.backgroundColor.match(/\d+/g).slice(0, 3).map(Number);
+      const luminance = rgb.map(value => value / 255)
+        .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+        .reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
+      assert.ok((luminance + .05) / .05 >= 7, 'black text must retain at least 7:1 contrast on the lighter fill');
       assert.equal(style.color, 'rgb(0, 0, 0)');
       assert.equal(style.borderStyle, 'solid');
+      assert.equal(style.borderColor, 'rgb(0, 0, 0)');
       app.click(remove);
       assert.equal(A.getWatchlist().length, 0);
       assert.equal(add.disabled, false);

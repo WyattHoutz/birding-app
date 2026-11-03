@@ -896,6 +896,13 @@
                     background: color-mix(in srgb, var(--accent) 18%, transparent); }
     #loadBarFill { height: 100%; width: 0%; background: var(--accent);
                    border-radius: 999px; transition: width .35s ease; }
+    #loadBar[data-progress-mode="indeterminate"] #loadBarFill {
+      width: 33.333%; transition: none; animation-name: loadBarSweep;
+      animation-duration: 1.3s; animation-timing-function: linear; animation-iteration-count: infinite; }
+    @keyframes loadBarSweep {
+      from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+    @media (prefers-reduced-motion: reduce) {
+      #loadBar[data-progress-mode="indeterminate"] #loadBarFill { animation: none; } }
     #loadBarText { margin: 5px 0 0; font-size: calc(12px * var(--s)); }
     #loadBarActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #loadBarActions button { min-height: 40px; }
@@ -1068,7 +1075,7 @@
     button.speciesWatchlistAction[aria-pressed="false"], button.nvadd {
       background: #339933; color: #000; border: 2px solid #000; }
     button.speciesWatchlistAction[aria-pressed="true"]:not(.nvadd) {
-      background: #C94A38; color: #000; border: 2px solid #fff; }
+      background: #F3B1A6; color: #000; border: 2px solid #000; }
     button.nvadd[disabled] { opacity: 1; background: var(--card); color: var(--ink);
       border: 2px solid var(--ink); }
     :is(#myYearList, #nvResults, #nvFound).obs.xl > li {
@@ -1121,6 +1128,7 @@
     .panel { overflow-x: clip; }
     .panel h2 { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px;
                 font-size: calc(15px * var(--s)); margin: 0 0 12px; font-weight: 700; }
+    .panel h2 > .flockheading { min-width: 0; }
     .panel.compacthead > h2 { margin-bottom: 0; }
     #sec-foyBtn > h2 { flex-wrap: wrap; }
     .panel.compacthead > .status { padding-top: 0; }
@@ -2409,6 +2417,9 @@
     html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li > .name > .thumb {
       width: calc(64px * var(--s)); height: calc(64px * var(--s));
     }
+    html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li > .name > .surgehotspotthumb {
+      width: max-content; min-width: calc(64px * var(--s)); align-items: flex-end;
+    }
     .surgefeed > li > .name.surgeheadline { cursor: pointer; border-radius: 8px; }
     .surgefeed > li > .name.surgeheadline:focus-visible {
       outline: 3px solid var(--safe-blue); outline-offset: 3px;
@@ -2445,6 +2456,18 @@
       align-items: start; column-gap: 10px; min-height: 44px; cursor: pointer; }
     .recent-birdgen-list.obs.card-sm > li > .name > .thumb {
       width: 42px; height: 42px; }
+    .recent-birdgen-list.obs.card-sm > li[data-recent-kind="hotspot"] > .name {
+      grid-template-columns: max-content minmax(0, 1fr); }
+    .recent-birdgen-list.obs.card-sm > li > .name > .surgehotspotthumb {
+      width: max-content; min-width: calc(48px * var(--s)); height: calc(48px * var(--s));
+      grid-row: 1 / span 2; align-items: flex-end; }
+    html:not([data-display="high-visibility"]) .surgefeed .surgehotspotthumb > .surgehotspotpeople,
+    .recent-birdgen-list .surgehotspotthumb > .surgehotspotpeople { position: absolute; inset: 0; }
+    html:not([data-display="high-visibility"]) .surgefeed .surgehotspotmult,
+    .recent-birdgen-list .surgehotspotmult {
+      position: relative; left: auto; right: auto; bottom: auto; flex: 0 0 auto; min-width: 100%; }
+    .recent-birdgen-list [data-recent-kind="hotspot"] .recent-birdgen-time {
+      grid-column: 2; justify-self: end; padding-top: 0; text-align: right; }
     .recent-birdgen-list.obs.card-sm > li > .name > .ppte-bird-composite {
       width: 42px; height: 42px; }
     .recent-birdgen-list .surgealerttitle { font-size: calc(16px * var(--s)); line-height: 1.3; }
@@ -2503,10 +2526,10 @@
     .surgehotspotpeople { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
                          align-items: center; justify-items: center; width: 100%; height: 100%;
                          font-size: calc(16px * var(--s)); line-height: 1; }
-    .surgehotspotmult { position: absolute; right: 0; bottom: 0;
+    .surgehotspotmult { position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
                        background: #003B5C; color: #fff; border: 1px solid #fff;
-                       border-radius: 4px; padding: 1px 3px;
-                       font-size: calc(12px * var(--s)); font-weight: 800; line-height: 1.1; }
+                       border-radius: 4px; padding: 1px 3px; white-space: nowrap;
+                       font-size: calc(18px * var(--s)); font-weight: 800; line-height: 1.4; }
     .busyPatchLogo { display: inline-flex; width: 1em; height: 1em; vertical-align: middle; }
     .busyPatchLogo > .surgehotspotthumb { width: 100%; height: 100%; margin: 0; border-radius: 4px; font-size: inherit; }
     .busyPatchLogo .surgehotspotpeople { font-size: .28em; }
@@ -2524,14 +2547,16 @@
     .busypatchscore .surgehotspotmult {
       left: 0; right: 0; text-align: center; padding: 2px 4px;
       font-size: min(calc(24px * var(--s)), 30px); }
-    .busypatchscore .hsnum {
-      position: absolute; top: 0; left: 0; width: calc(28px * var(--s)); height: calc(28px * var(--s));
-      font-size: calc(16px * var(--s)); line-height: calc(28px * var(--s)); margin: 0; }
+    #hotResults .busypatch .ntext > .hsnum {
+      position: static; display: inline-flex; vertical-align: baseline;
+      width: auto; height: auto; padding: 0 .25em; font-size: inherit; line-height: inherit; }
     .busypatchreason { display: block; margin-top: 4px; font-size: calc(13px * var(--s));
       line-height: 1.75; font-weight: 500; overflow-wrap: anywhere; color: var(--muted); }
     .busypatchmetric { padding: 1px 0; border-radius: 3px; background: #edf4fa; color: #243746;
       -webkit-box-decoration-break: clone; box-decoration-break: clone; }
     .busypatchmetric strong { font-weight: 750; }
+    #hotResults .busypatchrarities .splink { font-size: calc(17px * var(--s)); font-weight: 700;
+      text-decoration: none; color: var(--accent); }
     .surgepatchgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                       grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 1px;
                       width: 100%; height: 100%; overflow: hidden; }
@@ -3818,7 +3843,8 @@
   </header>
 
   <div id="loadBar" hidden aria-live="polite">
-    <div id="loadBarTrack"><div id="loadBarFill"></div></div>
+    <div id="loadBarTrack" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100">
+      <div id="loadBarFill"></div></div>
     <div id="loadBarText" class="hint"></div>
     <div id="loadNotice" hidden>
       <span id="loadNoticeIcon" aria-hidden="true"></span>
@@ -5259,7 +5285,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.181.0';
+      var APP_VERSION = '1.182.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8983,9 +9009,9 @@
         fgProgressSync();
       }
       function progressEnd() { _stage = null; fgProgressSync(); }
-      function holdProgress(label) {
+      function holdProgress(label, work) {
         var id = ++_progressHoldId;
-        _progressHolds[id] = label || 'Background work';
+        _progressHolds[id] = { label: label || 'Background work', work: work };
         fgProgressSync();
         var released = false;
         return function () {
@@ -9018,6 +9044,9 @@
         var el = (typeof document !== 'undefined') && document.getElementById('loadBar');
         return twitchReadingUpdate(el, function () {
           if (_stage && _stage.work && !workCurrent(_stage.work)) _stage = null;
+          Object.keys(_progressHolds).forEach(function (id) {
+            if (!workCurrent(_progressHolds[id].work)) delete _progressHolds[id];
+          });
           var busy = _fgWaiters.length
             + ((_fgActiveJob && !_fgActiveJob.bg) ? 1 : 0)
             + Object.keys(_progressHolds).length;
@@ -9038,6 +9067,10 @@
           var fill = document.getElementById('loadBarFill');
           var txt = document.getElementById('loadBarText');
           var actions = document.getElementById('loadBarActions');
+          var track = document.getElementById('loadBarTrack');
+          var determinate = _stage && _stage.total && _stage.done < _stage.total;
+          el.dataset.progressMode = stall ? 'stopped' : determinate ? 'determinate' : 'indeterminate';
+          if (track) track.removeAttribute('aria-valuenow');
           if (stall) {
             el.hidden = false;
             if (fill) fill.style.width = '100%';
@@ -9084,20 +9117,23 @@
           var tail = (_stage && _stage.detail) ? ' · ' + _stage.detail : '';
           if (_stage && _stage.total) {
             var pct = Math.round(_stage.done / _stage.total * 100);
-            if (fill) fill.style.width = pct + '%';
+            if (fill) fill.style.width = determinate ? pct + '%' : '';
+            if (track && determinate) track.setAttribute('aria-valuenow', pct);
             if (txt) txt.textContent = head + _stage.label + ' — ' + _stage.done
-              + ' of ' + _stage.total + tail + slow + (estimate ? ' · ' + estimate : '');
+              + ' of ' + _stage.total + (determinate ? '' : ' · finishing this stage')
+              + tail + slow + (estimate ? ' · ' + estimate : '');
           } else {
             // No fixed total to report against. An indeterminate bar is honest;
             // a made-up denominator is not.
-            if (fill) fill.style.width = '100%';
+            if (fill) fill.style.width = '';
             var heldLabels = Object.keys(_progressHolds).map(function (id) {
-              return _progressHolds[id];
+              return _progressHolds[id].label;
             });
             if (txt) txt.textContent = head + (_stage ? _stage.label
               : (heldLabels[0] || 'Loading from eBird'))
               + '…' + tail + slow;
           }
+          if (track && txt) track.setAttribute('aria-valuetext', txt.textContent);
         })();
       }
       function fgDead() {
@@ -34294,6 +34330,8 @@
       function invalidateMegaViews() {
         if (_abaAbortController) _abaAbortController.abort();
         _abaAbortController = null;
+        if (_abaProgressRelease) _abaProgressRelease();
+        _abaProgressRelease = null;
         _abaLoadGeneration++;
         _megaViews = {};
         _megaViewKey = '';
@@ -34984,7 +35022,7 @@
         megaHydrateWikipedia(entry, generation);
       }
 
-      var _abaAbortController = null;
+      var _abaAbortController = null, _abaProgressRelease = null;
       function loadAbaAlert() {
         // Newest first, the pair the reader quoted. This is the one alert URL the
         // app has a sid for, so it is the one place the exact form applies.
@@ -35019,7 +35057,7 @@
           && cached.rows.length && !megaSnapshotVerified(cached);
         if (megaSnapshotVerified(cached)
             && cached.region === startRegion && cached.sid === startSid
-            && Array.isArray(cached.rows) && cached.rows.length) {
+            && Array.isArray(cached.rows)) {
           var cachedAgeH = Math.max(0, (Date.now() - Number(cached.at || 0)) / 3600000);
           function paintCached() {
             if (!stillCurrent()) return;
@@ -35061,6 +35099,8 @@
         // summary is public. Read it directly (native fetch, no CORS) so the
         // section shows what the report shows without an eBird login; fall back
         // to the in-app login flow only if the direct read fails.
+        var releaseProgress = holdProgress('Refreshing Mega rarities');
+        _abaProgressRelease = releaseProgress;
         return fetchMegaAlertRows(url, startSid, {
           signal: controller && controller.signal, current: stillCurrent, allowBrowser: true,
           onStatus: function (message) { if (stillCurrent()) st.textContent = message; }
@@ -35170,6 +35210,8 @@
               + extA(url, 'View on eBird');
           })
           .finally(function () {
+            releaseProgress();
+            if (_abaProgressRelease === releaseProgress) _abaProgressRelease = null;
             if (loadGeneration === _abaLoadGeneration) {
               btn.disabled = false;
               if (_abaAbortController === controller) _abaAbortController = null;
@@ -38312,8 +38354,8 @@
         return promise;
       }
       var _busyRange = 'all', _busySort = 'busy', _busyGeneration = 0, _busyRendered = null;
-      var _busyPromise = null, _busyContext = '';
-      var _busyCompleted = null, _busyApiKey = '', _surgeBusySnapshot = null;
+      var _busyPromise = null, _busyContext = '', _busyWork = null;
+      var _busyShared = null, _busyCompleted = null, _surgeBusySnapshot = null;
       var _busyRequests = { context: '', paths: Object.create(null) };
       var BUSY_POLICY = 'matched-groups-5-plus-2-v1';
       function busyRequestPath(path, context) {
@@ -38325,7 +38367,8 @@
       }
       function busySnapshotSource(snapshot) {
         return {
-          state: snapshot.busyState.failed ? 'failed' : snapshot.busyState.partial ? 'partial' : 'ok',
+          state: snapshot.busyState.pending ? 'loading'
+            : snapshot.busyState.failed ? 'failed' : snapshot.busyState.partial ? 'partial' : 'ok',
           policy: BUSY_POLICY, snapshotAt: snapshot.busyState.cached
             ? snapshot.busyState.cachedAt : snapshot.busyState.at,
           rows: (snapshot.busy || []).filter(BL.isHotspotConvergence).map(function (row) {
@@ -38335,22 +38378,24 @@
           })
         };
       }
-      function publishBusySnapshot(result, context) {
-        _busyCompleted = { context: context, result: {
+      function publishBusySnapshot(result, context, work) {
+        _busyShared = { context: context, apiKey: getKey(), work: work, result: {
           busy: (result.busy || []).map(function (row) { return Object.assign({}, row); }),
           busyState: Object.assign({}, result.busyState)
         } };
-        _busyApiKey = getKey();
-        if (_surgeBusySnapshot) _surgeBusySnapshot(_busyCompleted);
+        if (!result.busyState.pending) _busyCompleted = _busyShared;
+        if (_surgeBusySnapshot) _surgeBusySnapshot(_busyShared);
       }
-      function currentBusySnapshot() {
-        return _busyCompleted && _busyCompleted.context === hotspotContextKey()
-          && _busyApiKey === getKey() ? _busyCompleted.result : null;
+      function currentBusySnapshot(completedOnly) {
+        var snapshot = completedOnly || (_busyShared && _busyShared.result.busyState.pending
+          && !workCurrent(_busyShared.work)) ? _busyCompleted : _busyShared;
+        return snapshot && snapshot.context === hotspotContextKey()
+          && snapshot.apiKey === getKey() ? snapshot.result : null;
       }
       function acquireBusyPatches(force, retry) {
         var context = hotspotContextKey(), apiKey = getKey();
-        if (_busyPromise && _busyContext === context && !force) return _busyPromise;
-        var complete = currentBusySnapshot();
+        if (_busyPromise && _busyContext === context && workCurrent(_busyWork) && !force) return _busyPromise;
+        var complete = currentBusySnapshot(true);
         if (!force && !retry && complete && !complete.busyState.partial
             && Date.now() - complete.busyState.at < CHASE_TTL_MS) return Promise.resolve(complete);
         var codes = countyCodes(), home = getHome(), anchors = getAnchors();
@@ -38363,7 +38408,7 @@
         };
         return hotCacheWarm().then(function (cached) {
           if (!workCurrent(work)) throw queueCancelledError(work);
-          if (!currentBusySnapshot() && cached && Array.isArray(cached.busy)
+          if (!currentBusySnapshot(true) && cached && Array.isArray(cached.busy)
               && cached.busyState && !cached.busyState.pending && !cached.busyState.partial
               && cached.busyState.at > 0 && cached.busyState.at <= Date.now()) {
             var now = Date.now();
@@ -38382,7 +38427,7 @@
             renderHot(restored);
             $('hotStatus').textContent = busyPatchStatus(restored);
           }
-          var complete = currentBusySnapshot();
+          var complete = currentBusySnapshot(true);
           if (!force && !retry && complete && !complete.busyState.partial
               && Date.now() - complete.busyState.at < CHASE_TTL_MS) return complete;
           return Promise.all(codes.map(function (code) {
@@ -38423,7 +38468,7 @@
             + '"><strong>' + esc(phrase[1]) + '</strong></span>';
         }).join('; ') + '.</span>';
       }
-      function busyPatchTile(h, rank) {
+      function busyPatchTile(h) {
         var count = Math.min(25, Math.max(1, Math.round(6 * h.ratio))), occupied = {};
         for (var i = 0; i < count; i++) occupied[i * 7 % 25] = true;
         var people = '';
@@ -38434,8 +38479,7 @@
             + ' usual activity; background density represents relative activity, not headcount')
           + '"><span class="surgehotspotpeople" aria-hidden="true">' + people
           + '</span><span class="surgehotspotmult" aria-hidden="true">'
-          + esc(h.observers) + '</span>'
-          + (rank == null ? '' : HotspotCards.marker(rank)) + '</span></span>';
+          + esc(surgeHotspotMultiplier(h)) + '</span></span></span>';
       }
       function busyPatchRarities(h, rows) {
         var birds = {};
@@ -38456,8 +38500,17 @@
       function busyPatchStatus(r) {
         var state = r.busyState;
         if (!state) return 'Checking current parties and matched reference history…';
-        var text = (r.busy || []).length + ' busy patches in ' + countyLabelStr();
+        var text = (r.busy || []).length + ' busy patches'
+          + (state.pending ? ' shown · updating' : '') + ' in ' + countyLabelStr();
         if (state.pending) text += ' · checking references ' + state.checked + '/' + state.candidates;
+        if (state.provisional) text += ' · provisional activity; checking shared parties';
+        if (state.pending && state.current && state.current.length) {
+          text += ' · current estimates (usual/group evidence updating): '
+            + state.current.map(function (row) {
+              return row.name + ': ' + row.observers + ' estimated parties';
+            }).join('; ');
+        }
+        if (state.cancelled) text += ' · update cancelled';
         if (state.partial) text += ' · partial coverage; some current activity or reference windows unmeasured';
         if (state.cached) text += ' · cached activity shown';
         if (state.unscored) text += ' · ' + state.unscored + ' candidates unscored (missing, shallow or zero baseline)';
@@ -38480,15 +38533,16 @@
             ] })
           + ToggleControls.group({ cls: 'sortpick', label: 'Sort Busy Patches',
             options: [
-              { label: 'Busy', cls: 'sortbtn', data: { 'busy-sort': 'busy' }, pressed: _busySort === 'busy' },
+              { label: 'Busy (×)', cls: 'sortbtn', data: { 'busy-sort': 'busy' }, pressed: _busySort === 'busy' },
               { label: 'Distance', cls: 'sortbtn', data: { 'busy-sort': 'distance' }, pressed: _busySort === 'distance' }
             ] }) + '</div>';
         if (top.length) {
           html += '<ul class="obs dest">';
           top.forEach(function (h, i) {
             html += HotspotCards.medium({
-              cls: 'busypatch', icon: busyPatchTile(h, i + 1),
-              name: stakeHotspotLink(h.locId, h.name) + busyPatchReason(h) + busyPatchRarities(h, r.rarityRows),
+              cls: 'busypatch', icon: busyPatchTile(h),
+              name: HotspotCards.marker(i + 1) + stakeHotspotLink(h.locId, h.name)
+                + busyPatchReason(h) + busyPatchRarities(h, r.rarityRows),
               distance: h.dist, distQ: h.lat + ',' + h.lng
             });
           });
@@ -38533,8 +38587,8 @@
         };
       }
       function startBusyPatches(input) {
-        if (_busyPromise && _busyContext === input.context && !input.force) return _busyPromise;
-        var complete = currentBusySnapshot();
+        if (_busyPromise && _busyContext === input.context && workCurrent(_busyWork) && !input.force) return _busyPromise;
+        var complete = currentBusySnapshot(true);
         if (!input.force && !input.retry && complete && !complete.busyState.partial
             && Date.now() - complete.busyState.at < CHASE_TTL_MS) {
           var current = _hotspotCache || { hot: [], cold: [], _busyOnly: true };
@@ -38551,6 +38605,8 @@
           return generation === _busyGeneration && cancelGeneration === _workCancelGeneration
             && hotspotContextKey() === input.context && getKey() === apiKey;
         };
+        _busyWork = work;
+        var releaseProgress = holdProgress('Updating Busy Patches', work);
         _busyContext = input.context;
         _busyRequests = { context: input.context, paths: Object.create(null) };
         input.codes.forEach(function (code) {
@@ -38560,9 +38616,9 @@
           resetHotspotCache();
           _hotspotCacheContext = input.context;
         }
-        var previous = (_hotspotCache && _hotspotCache.busy) || [], meta = {};
-        var previousAt = _hotspotCache && _hotspotCache.busyState
-          ? _hotspotCache.busyState.cachedAt || _hotspotCache.busyState.at : now;
+        var previous = complete && complete.busy || [], meta = {};
+        var previousAt = complete
+          ? complete.busyState.cachedAt || complete.busyState.at : now;
         input.meta.forEach(function (h) {
           if (h.locId && isFinite(+h.lat) && isFinite(+h.lng)) meta[h.locId] = h;
         });
@@ -38571,9 +38627,16 @@
         function paint() {
           if (!workCurrent(work)) return;
           var r = _hotspotCache || { hot: [], cold: [], _busyOnly: true };
-          r.busy = state.pending ? previous : scored;
-          r.busyState = Object.assign({}, state, { cached: state.pending && previous.length > 0 });
+          var retained = previous.filter(function (old) {
+            return !scored.some(function (fresh) { return fresh.locId === old.locId; });
+          });
+          r.busy = state.pending ? scored.concat(retained) : scored;
+          r.busyState = Object.assign({}, state, {
+            cached: state.pending ? retained.length > 0 : state.partial && previous.length > 0,
+            provisional: state.pending && scored.length > 0
+          });
           _hotspotCache = r;
+          publishBusySnapshot(r, input.context, work);
           renderHot(r);
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(r);
         }
@@ -38591,6 +38654,8 @@
         function refreshScores() {
           var activity = BL.busyPatchActivity(BL.normalizeChecklistRows(checklistPartyRows(all)),
             { now: now, coverage: coverage });
+          state.current = activity.filter(function (h) { return h.observers >= 5 && meta[h.locId]; })
+            .map(function (h) { return { name: meta[h.locId].locName || h.name, observers: h.observers }; });
           state.unscored = activity.filter(function (h) {
             return h.observers >= 5 && h.ratio == null && meta[h.locId];
           }).length;
@@ -38646,6 +38711,9 @@
             .filter(function (h) { return h.observers >= 5 && meta[h.locId]; });
           state.candidates = candidates.length;
           state.unscored = candidates.length;
+          state.current = candidates.map(function (h) {
+            return { name: meta[h.locId].locName || h.name, observers: h.observers };
+          });
           paint();
           return candidates.reduce(function (promise, candidate) {
             return promise.then(function () {
@@ -38688,10 +38756,9 @@
         }).then(function () {
           if (!workCurrent(work)) return null;
           state.pending = false;
+          delete state.current;
           if (state.partial && previous.length) scored = previous;
           paint();
-          _hotspotCache.busyState.cached = state.partial && previous.length > 0;
-          publishBusySnapshot(_hotspotCache, input.context);
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache);
           if (!state.partial) hotCacheSave(_hotspotCache, input.cacheKey);
           return _hotspotCache;
@@ -38699,12 +38766,26 @@
           if (error && error.queueCancelled) return null;
           if (workCurrent(work)) {
             state.pending = false; state.partial = true;
+            delete state.current;
             if (previous.length) scored = previous;
             paint();
           }
           return null;
         }).finally(function () {
-          if (generation === _busyGeneration) _busyPromise = null;
+          releaseProgress();
+          if (generation === _busyGeneration) {
+            _busyPromise = null;
+            if (!workCurrent(work) && _hotspotCache
+                && input.context === hotspotContextKey() && apiKey === getKey()) {
+              _hotspotCache.busy = previous;
+              _hotspotCache.busyState = Object.assign({}, complete ? complete.busyState : state, {
+                pending: false, partial: true, provisional: false,
+                cached: previous.length > 0, cancelled: true
+              });
+              renderHot(_hotspotCache);
+              if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache);
+            }
+          }
         });
         return _busyPromise;
       }
@@ -42989,11 +43070,19 @@
             + multiplier + ' this patch’s usual reporting activity' : 'Busy Patches') + '">'
           + '<span class="surgehotspotpeople" aria-hidden="true">'
           + '<span>👥</span>'.repeat(9) + '</span>'
-          + (row ? '<span class="surgehotspotmult" aria-hidden="true">' + esc(row.observers) + '</span>' : '')
+          + (row ? '<span class="surgehotspotmult" aria-hidden="true">' + esc(multiplier) + '</span>' : '')
           + '</span>';
       }
 
       function menuGlyph(at, icon) {
+        if (at === 'massBtn') {
+          var flight = 'M-12 -5 L-8 -4 -3 -1 -1 -3 0 -5 1 -3 3 -1 8 -4 12 -5 8 0 3 2 1 3 0 7 -1 3 -3 2 -8 0Z';
+          return '<svg class="flockLogo" viewBox="0 0 64 40" width="1.6em" height="1em"'
+            + ' aria-hidden="true" focusable="false" fill="currentColor">'
+            + '<path d="' + flight + '" transform="translate(16 16) scale(.95)"/>'
+            + '<path d="' + flight + '" transform="translate(44 8) scale(.65)"/>'
+            + '<path d="' + flight + '" transform="translate(43 32) scale(1.05)"/></svg>';
+        }
         return at === 'hotBtn'
           ? '<span class="busyPatchLogo" aria-hidden="true">' + surgeHotspotTile() + '</span>'
           : esc(icon);
@@ -45220,7 +45309,9 @@
 
         var coords = hotspotCoordSet(getObsRegion());
         var home = anchorPoint();
-        convergence.filter(BL.isHotspotConvergence).forEach(function (c) {
+        convergence.filter(function (c) {
+          return BL.isHotspotConvergence(c) && c.observers / c.baseline >= 3;
+        }).forEach(function (c) {
           var xy = coords && coords[c.locId];
           var mi = (xy && home && home.lat != null)
             ? haversineMi(home.lat, home.lng, +xy.lat, +xy.lng) : null;
@@ -46059,10 +46150,12 @@
             saveSurgeRetainedPart('observed', surgeModel.observed);
           }
           cachedConvergence = busySnapshotSource(snapshot.result);
-          pendingSources.hotspots = false;
+          pendingSources.hotspots = !!snapshot.result.busyState.pending;
           publishSource('convergence', cachedConvergence);
         };
-        if (currentBusySnapshot()) _surgeBusySnapshot(_busyCompleted);
+        if (currentBusySnapshot()) _surgeBusySnapshot({
+          context: hotspotContextKey(), result: currentBusySnapshot()
+        });
         paintSurgeModel();
         _surgeEarlyPaint = function (res) {
           if (generation !== _surgeLoadGeneration) return;
@@ -49083,7 +49176,8 @@
 
       function _setH2(sec, label) {
         var h2 = sec.querySelector('h2'); if (!h2) return;
-        var span = sec._at === 'hotBtn' ? $('hotRegionLabel') : h2.querySelector('span');
+        var span = sec._at === 'hotBtn' ? $('hotRegionLabel')
+          : sec._at === 'massBtn' ? h2.querySelector('.dim') : h2.querySelector('span');
         var doc = h2.querySelector('.docbtn');
         // The ⚠ button is added at render time rather than at boot, so it has to
         // be carried across a relabel like the ℹ button — otherwise switching
@@ -49094,7 +49188,11 @@
         // way to reload the section.
         var refresh = h2.querySelector('.refreshbtn');
         h2.textContent = label + ' ';
-        if (sec._at === 'hotBtn') h2.insertAdjacentHTML('afterbegin', menuGlyph(sec._at) + ' ');
+        if (sec._at === 'hotBtn' || sec._at === 'massBtn') {
+          if (sec._at === 'massBtn') {
+            h2.innerHTML = '<span class="flockheading">' + menuGlyph(sec._at) + ' ' + esc(label) + '</span>';
+          } else h2.insertAdjacentHTML('afterbegin', menuGlyph(sec._at) + ' ');
+        }
         if (span) h2.appendChild(span);
         if (doc) h2.appendChild(doc);
         if (warn) h2.appendChild(warn);
@@ -49691,7 +49789,7 @@
       function menuShortcutKeys() {
         try {
           var raw = localStorage.getItem(MENU_SHORTCUTS_KEY);
-          if (raw === null) return ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'];
+          if (raw === null) return ['destBtn', 'spLookupBtn', 'refreshBtn'];
           var keys = JSON.parse(raw);
           if (!Array.isArray(keys)) throw new Error('Invalid shortcuts');
           var valid = keys.filter(function (key, index) {
@@ -49702,7 +49800,7 @@
           return valid;
         } catch (e) {
           dbg('warn', 'Menu shortcuts: saved preferences unavailable; using defaults');
-          return ['destBtn', 'refreshBtn', 'myYearBody', 'spLookupBtn'];
+          return ['destBtn', 'spLookupBtn', 'refreshBtn'];
         }
       }
       function renderMenuShortcuts(list) {
@@ -50712,7 +50810,7 @@
         var nav = $('navbar'); if (nav) nav.hidden = false;
         var target = $(id), t = $('navTitle');
         if (t) {
-          if (target && target._at === 'hotBtn') {
+          if (target && (target._at === 'hotBtn' || target._at === 'massBtn')) {
             t.innerHTML = menuGlyph(target._at) + ' ' + esc(splitLabel(target._label).text);
           } else t.textContent = target && target._label ? target._label : '';
         }

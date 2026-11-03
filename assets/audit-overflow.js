@@ -799,6 +799,56 @@ const AUDIT = `<script>
     var hotspotReadability = vis ? [].map.call(vis.querySelectorAll(
       '#hotResults .busypatch, #stakeHsResults .hscard-lg'),
       ${require('./card-readability').toString()}) : [];
+    var busyScores = [].map.call(document.querySelectorAll('.surgehotspotmult'), function (score) {
+      var box = score.getBoundingClientRect();
+      if (!box.width || !box.height) return null;
+      var card = score.closest('li');
+      var reference = card && (card.querySelector('.surge-essential')
+        || card.querySelector('.busypatchreason') || card.querySelector('.surgeage'));
+      var range = document.createRange(); range.selectNodeContents(score);
+      var text = range.getBoundingClientRect();
+      var icon = score.closest('.surgehotspotthumb').getBoundingClientRect();
+      var title = card && card.querySelector('.surgealerttitle, .ntext > .hslink');
+      var titleBox = title && title.getBoundingClientRect();
+      return {text: score.textContent, width: box.width, textWidth: text.width,
+        height: box.height, textHeight: text.height,
+        iconWidth: icon.width, iconHeight: icon.height,
+        topInset: text.top - box.top, bottomInset: box.bottom - text.bottom,
+        lineHeight: getComputedStyle(score).lineHeight,
+        font: parseFloat(getComputedStyle(score).fontSize),
+        referenceFont: reference ? parseFloat(getComputedStyle(reference).fontSize) : 0,
+        fits: [box, icon].every(function (bounds) {
+          return text.left >= bounds.left - .5 && text.right <= bounds.right + .5
+            && text.top >= bounds.top - .5 && text.bottom <= bounds.bottom + .5;
+        }) && box.left >= icon.left - .5 && box.right <= icon.right + .5
+          && box.top >= icon.top - .5 && box.bottom <= icon.bottom + .5
+          && !(titleBox && text.right > titleBox.left + .5 && text.left < titleBox.right - .5
+          && text.bottom > titleBox.top + .5 && text.top < titleBox.bottom - .5)};
+    }).filter(Boolean);
+    var flockHeading = null;
+    if (label === 'sec-massBtn') {
+      var heading = document.querySelector('#sec-massBtn > h2');
+      var graphic = heading && heading.querySelector('.flockLogo');
+      if (graphic) {
+        var glyph = graphic.getBoundingClientRect(), parent = heading.getBoundingClientRect();
+        var font = parseFloat(getComputedStyle(graphic).fontSize);
+        flockHeading = {width: glyph.width, height: glyph.height, font: font,
+          fits: glyph.width >= font * 1.5 && glyph.height >= font * .9
+            && glyph.left >= parent.left - .5 && glyph.right <= parent.right + .5
+            && glyph.top >= parent.top - .5 && glyph.bottom <= parent.bottom + .5};
+      }
+    }
+    var progress = null;
+    if (label.indexOf('(F1230') === 0) {
+      var bar = document.getElementById('loadBar'), track = document.getElementById('loadBarTrack');
+      var fill = document.getElementById('loadBarFill'), trackBox = track.getBoundingClientRect();
+      var fillBox = fill.getBoundingClientRect(), reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      progress = {visible: !bar.hidden, mode: bar.dataset.progressMode,
+        trackWidth: trackBox.width, fillWidth: fillBox.width,
+        noPercentage: !track.hasAttribute('aria-valuenow'),
+        motion: reduced ? getComputedStyle(fill).animationName === 'none'
+          : getComputedStyle(fill).animationName === 'loadBarSweep'};
+    }
     if (label === 'sec-nvResults') {
       var watchReadability = ${require('./card-readability').toString()};
       watchNames = [].map.call(document.querySelectorAll('#nvResults .nvrow'), function (row) {
@@ -1001,7 +1051,7 @@ const AUDIT = `<script>
         }),
         shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
           return button.dataset.at;
-        }).join(',') === 'destBtn,refreshBtn,myYearBody,spLookupBtn',
+        }).join(',') === 'destBtn,spLookupBtn,refreshBtn',
         frosted: ['light', 'dark'].every(function (theme) {
           var originalTheme = window.__app.getTheme();
           window.__app.setTheme(theme);
@@ -1139,6 +1189,9 @@ const AUDIT = `<script>
       watchNames: watchNames,
       watchPhotos: watchPhotos,
       hotspotReadability: hotspotReadability,
+      busyScores: busyScores,
+      flockHeading: flockHeading,
+      progress: progress,
       savedSearch: savedSearch,
       migrationWords: migrationWords,
       watchRows: label === 'sec-nvResults'
@@ -1518,11 +1571,12 @@ const AUDIT = `<script>
           document.querySelectorAll('#myYearList .myYearWatchlist').forEach(function(button) {
             var watched=button.getAttribute('aria-pressed')==='true',style=getComputedStyle(button);
             var bg=watchLuminance(style.backgroundColor),fg=watchLuminance(style.color);
-            if(style.backgroundColor!==(watched?'rgb(201, 74, 56)':'rgb(51, 153, 51)')
+            if(style.backgroundColor!==(watched?'rgb(243, 177, 166)':'rgb(51, 153, 51)')
               ||style.color!=='rgb(0, 0, 0)'
               ||style.borderStyle!=='solid'
-              ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<4.5)
-              throw new Error('F1147 live Watch palette or contrast failed in '+theme);
+              ||style.borderColor!=='rgb(0, 0, 0)'
+              ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<(watched?7:4.5))
+              throw new Error('F1224 live Watch palette, border or contrast failed in '+theme);
           });
           return theme;
         });
@@ -1639,6 +1693,23 @@ const AUDIT = `<script>
         return date.getFullYear() + '-' + pad(date.getMonth()+1) + '-' + pad(date.getDate())
           + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
       }
+      A.progressStage('Preparing production progress fixture', 0);
+      out.push(scan('(F1230 unmeasured progress)'));
+      A.progressStage('Finishing production progress fixture', 1);
+      A.progressStep();
+      out.push(scan('(F1230 counted stage still finishing)'));
+      A.progressEnd();
+      A.renderSurge([], [], [
+        {loc:'Integer multiplier fixture',locId:'LF1237INT',observers:12,baseline:1,ratio:12},
+        {loc:'Fractional multiplier fixture',locId:'LF1237FRAC',observers:14,baseline:4,ratio:3.5},
+        {loc:'Wide multiplier fixture',locId:'LF1237WIDE',observers:100,baseline:.75,ratio:100/.75}
+      ].map(function (row) { row.latest=previewStamp(1); return row; }), [], [], {
+        hotspots:'ok', suppressNotifications:true, deferPhotos:true
+      });
+      A.showSection(document.getElementById('surgeBtn').closest('section').id,{load:false});
+      out.push(scan('(F1237 full multiplier fit)'));
+      A.showMenu();
+      out.push(scan('(F1237 Recent multiplier fit)'));
       A.renderSurge([], [], Array.from({length:7}, function (_, i) {
         return {loc:'Representative public patch '+i,locId:'LPREVIEW'+i,observers:9,
           baseline:2.25,ratio:4,reason:'surge',latest:previewStamp(i+1)};
@@ -1699,8 +1770,13 @@ const AUDIT = `<script>
           var head=row.querySelector(':scope > .name'), icon=head.firstElementChild;
           var age=head.lastElementChild, tail=age.querySelector('small');
           var rect=head.getBoundingClientRect(), photo=icon.getBoundingClientRect();
-          return head.children.length===3 && Math.abs(photo.width-42)<.5
-            && Math.abs(photo.height-42)<.5 && rect.height>=44 && rect.left>=0
+          var busy=row.getAttribute('data-recent-kind')==='hotspot';
+          var size=busy ? 48*headingScale : 42;
+          var name=head.querySelector('.ntext').getBoundingClientRect();
+          return head.children.length===3 && photo.width>=size-.5
+            && (busy || Math.abs(photo.width-size)<.5)
+            && Math.abs(photo.height-size)<.5 && name.left>=photo.right-.5
+            && rect.height>=44 && rect.left>=0
             && rect.right<=document.documentElement.clientWidth+.5
             && parseFloat(getComputedStyle(row).paddingTop)>=3
             && parseFloat(getComputedStyle(row).paddingBottom)>=3
@@ -3861,6 +3937,7 @@ server.listen(0, '127.0.0.1', () => {
   let ch = null;
   let timer = null;
   let attempt = 0;
+  const cleanupFailures = [];
 
   // ---- KILL THE TREE, NOT THE PARENT ------------------------------------
   //
@@ -3890,8 +3967,12 @@ server.listen(0, '127.0.0.1', () => {
     try {
       if (process.platform === 'win32') {
         const result = spawnSync('taskkill', ['/pid', String(ch.pid), '/T', '/F'],
-                  { stdio: 'ignore', timeout: TIMEOUT_MS });
-        if (result.error || result.status === null) verified = false;
+                  { stdio: 'pipe', timeout: TIMEOUT_MS });
+        if (result.error || result.status === null) {
+          verified = false;
+          cleanupFailures.push({helper:'PID tree',status:result.status,
+            error:result.error && result.error.message,stderr:String(result.stderr || '').slice(0,2000)});
+        }
       } else {
         process.kill(-ch.pid, 'SIGKILL');
       }
@@ -3907,15 +3988,25 @@ server.listen(0, '127.0.0.1', () => {
           + "-ErrorAction Stop } catch {} }; "
           + "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
           + "-ErrorAction Stop | Where-Object { $_.CommandLine -like '*"
-          + path.basename(profile) + "*' }); if ($remaining.Count) { exit 1 }"],
-          { stdio: 'ignore', timeout: TIMEOUT_MS });
-        if (result.error || result.status !== 0) verified = false;
+          + path.basename(profile) + "*' }); if ($remaining.Count) { "
+          + "$remaining | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }"],
+          { stdio: 'pipe', timeout: TIMEOUT_MS });
+        if (result.error || result.status !== 0) {
+          verified = false;
+          cleanupFailures.push({helper:'owned profile',status:result.status,
+            error:result.error && result.error.message,
+            stdout:String(result.stdout || '').slice(0,2000),stderr:String(result.stderr || '').slice(0,2000)});
+        }
       } else {
         const result = spawnSync('pkill', ['-9', '-f', path.basename(profile)],
-                  { stdio: 'ignore', timeout: TIMEOUT_MS });
-        if (result.error || ![0, 1].includes(result.status)) verified = false;
+                  { stdio: 'pipe', timeout: TIMEOUT_MS });
+        if (result.error || ![0, 1].includes(result.status)) {
+          verified = false;
+          cleanupFailures.push({helper:'owned profile',status:result.status,
+            error:result.error && result.error.message,stderr:String(result.stderr || '').slice(0,2000)});
+        }
       }
-    } catch (e) { verified = false; }
+    } catch (e) { verified = false; cleanupFailures.push({helper:'owned profile',error:e.message}); }
     return verified;
   };
 
@@ -3923,16 +4014,19 @@ server.listen(0, '127.0.0.1', () => {
   // is a coin flip. Returns whether the directory is actually gone, because a
   // cleanup that reports nothing is how 492 of them accumulated unnoticed.
   const removeProfile = () => {
+    let failure;
     const wait = (ms) => {
       const until = Date.now() + ms;
       while (Date.now() < until) { /* deliberate: no async left at exit */ }
     };
     for (let i = 0; i < 50; i++) {
-      try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
+      try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { failure = e; }
       if (!fs.existsSync(profile)) return true;
       wait(200);
     }
-    return !fs.existsSync(profile);
+    if (!fs.existsSync(profile)) return true;
+    cleanupFailures.push({helper:'profile removal',error:failure && failure.message});
+    return false;
   };
 
   const teardown = () => {
@@ -3948,7 +4042,8 @@ server.listen(0, '127.0.0.1', () => {
 
   const cleanupOrFail = () => {
     if (!teardown()) {
-      console.error('AUDIT INFRASTRUCTURE FAILURE: browser cleanup could not be verified.');
+      console.error('AUDIT INFRASTRUCTURE FAILURE: browser cleanup could not be verified. '
+        + JSON.stringify({profile:profile,failures:cleanupFailures}));
       server.close();
       process.exit(3);
     }
@@ -4156,7 +4251,7 @@ server.listen(0, '127.0.0.1', () => {
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'
             || action.color!=='rgb(0, 0, 0)'
-            || action.background!==(action.pressed==='true'?'rgb(201, 74, 56)':'rgb(51, 153, 51)'))){
+            || action.background!==(action.pressed==='true'?'rgb(243, 177, 166)':'rgb(51, 153, 51)'))){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }
@@ -4409,6 +4504,25 @@ server.listen(0, '127.0.0.1', () => {
         bad++;
         console.log('   F954/F967 facts must match extra evidence; headlines use selective bird/place emphasis and labeled checklists: '
           + JSON.stringify(r.alertEvidence));
+      }
+      if ((r.label.indexOf('(F1237') === 0 && (r.busyScores || []).length !== 3)
+          || (r.busyScores || []).some(score => !score.fits || score.font < score.referenceFont)) {
+        bad++;
+        console.log('   F1237 BUSY MULTIPLIER CLIPPED OR SMALL ' + JSON.stringify(r.busyScores));
+      } else if (r.label.indexOf('(F1237') === 0) {
+        console.log('   F1237 BUSY MULTIPLIER GEOMETRY ' + JSON.stringify(r.busyScores));
+      }
+      if (r.label === 'sec-massBtn') {
+        if (!r.flockHeading || !r.flockHeading.fits) {
+          bad++;
+          console.log('   F1227 HEADER FLOCK GRAPHIC CLIPPED OR SMALL ' + JSON.stringify(r.flockHeading));
+        } else console.log('   F1227 HEADER FLOCK GEOMETRY ' + JSON.stringify(r.flockHeading));
+      }
+      if (r.progress && (!r.progress.visible || r.progress.mode !== 'indeterminate'
+          || !r.progress.noPercentage || !r.progress.motion
+          || r.progress.fillWidth <= 0 || r.progress.fillWidth >= r.progress.trackWidth)) {
+        bad++;
+        console.log('   F1230 FALSE COMPLETION GEOMETRY ' + JSON.stringify(r.progress));
       }
       if (r.hotspotQr) {
         console.log('   F845 HOTSPOT QR GEOMETRY ' + JSON.stringify(r.hotspotQr));

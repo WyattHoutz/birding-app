@@ -54,23 +54,35 @@ function cleanupWizardProfile(profile, run = spawnSync) {
       if (result.error || result.status !== 0) throw new Error('wizard exact-profile process cleanup unverified: '
         + (result.error?.message || String(result.stderr || result.status)));
     } else {
+      const deadline = Date.now() + 10000;
       const owned = () => {
-        const result = run('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', timeout: 10000 });
-        if (result.error || result.status !== 0) throw new Error('wizard process inventory unverified');
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error('wizard process cleanup deadline exceeded');
+        const result = run('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', timeout: remaining });
+        if (result.error || result.status !== 0) throw new Error('wizard process inventory unverified: '
+          + (result.error?.message || String(result.stderr || result.status)));
         return result.stdout.split('\n').filter(line => new RegExp(pattern).test(line))
           .map(line => Number(line.trim().split(/\s+/)[0]));
       };
-      owned().forEach(pid => {
-        try { process.kill(pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
-      });
-      if (owned().length) throw new Error('wizard exact-profile processes survived');
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const pids = owned();
+        if (!pids.length) break;
+        pids.forEach(pid => {
+          try { process.kill(pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        });
+        Atomics.wait(pause, 0, 0, Math.min(100, Math.max(0, deadline - Date.now())));
+      }
+      const survivors = owned();
+      if (survivors.length) throw new Error('wizard exact-profile processes survived: ' + survivors.join(', '));
     }
   } catch (error) { failure = error; }
   try {
     fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   } catch (error) { failure = failure || error; }
   if (failure || fs.existsSync(profile)) {
-    throw new Error('F1218 wizard cleanup could not be verified: ' + profile, { cause: failure });
+    throw new Error('F1218 wizard cleanup could not be verified: ' + profile
+      + (failure ? ': ' + failure.message : ''), { cause: failure });
   }
 }
 
@@ -336,10 +348,50 @@ test('F1218 helper failure, timeout and surviving children fail even if the dire
   for (const result of [{ status: 1 }, { status: null, error: new Error('ETIMEDOUT') }]) {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-fault-'));
     assert.throws(() => cleanupWizardProfile(profile, (command, args, options) => {
-      assert.equal(options.timeout, 10000, 'native cleanup must be bounded');
+      assert.ok(options.timeout > 0 && options.timeout <= 10000, 'native cleanup must be bounded');
       return result;
     }), /cleanup could not be verified/);
     assert.equal(fs.existsSync(profile), false, 'directory cleanup must still be attempted');
+  }
+});
+
+test('F1231 POSIX cleanup polls delayed exits, excludes other profiles and fails closed within its shared deadline', () => {
+  for (const mode of ['delayed', 'survivor', 'inventory', 'denied', 'deadline']) {
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-posix-'));
+    const killed = [], ownedPid = 90123451, otherPid = 90123452;
+    let inventories = 0, pauses = 0, clock = 0;
+    const cleanup = vm.runInNewContext('(' + cleanupWizardProfile.toString() + ')', {
+      fs, Date: { now: () => clock },
+      process: { platform: 'linux', kill(pid, signal) {
+        killed.push(pid);
+        assert.equal(signal, 'SIGKILL');
+        if (mode === 'denied') throw Object.assign(new Error('EPERM fixture'), { code: 'EPERM' });
+      } },
+      Atomics: { wait(array, index, value, delay) { pauses++; clock += delay; } }
+    });
+    const run = (command, args, options) => {
+      assert.equal(command, 'ps');
+      assert.deepEqual(Array.from(args), ['-axo', 'pid=,args=']);
+      assert.ok(options.timeout > 0 && options.timeout <= 10000 - clock);
+      inventories++;
+      if (mode === 'inventory') return { status: 1, stderr: 'inventory fixture' };
+      if (mode === 'deadline') clock = 9999;
+      const present = mode !== 'delayed' || inventories < 3;
+      return { status: 0, stdout: (present ? `${ownedPid} chrome --user-data-dir="${profile}"\n` : '')
+        + `${otherPid} chrome --user-data-dir="${profile}-ordinary"\n` };
+    };
+    if (mode === 'delayed') {
+      cleanup(profile, run);
+      assert.ok(inventories >= 3 && pauses >= 1, 'a successful signal is not proof of process exit');
+    } else {
+      const reason = { survivor: 'processes survived', inventory: 'inventory fixture',
+        denied: 'EPERM fixture', deadline: 'deadline exceeded' }[mode];
+      assert.throws(() => cleanup(profile, run), error =>
+        error.message.includes(reason) && error.cause.message.includes(reason));
+    }
+    assert.ok(killed.every(pid => pid === ownedPid), 'ordinary or prefix-matching profiles cannot be killed');
+    assert.ok(inventories <= 11 && clock <= 10000, 'verification has a shared bounded budget');
+    assert.equal(fs.existsSync(profile), false, 'directory cleanup is still attempted after process failure');
   }
 });
 

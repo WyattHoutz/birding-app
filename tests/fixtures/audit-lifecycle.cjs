@@ -71,10 +71,21 @@ Module.prototype._compile = function(source, filename) {
         '',
       ],
       helpers: ['return verified;\n  };\n\n  // Windows releases', 'return true;\n  };\n\n  // Windows releases'],
+      details: [
+        'JSON.stringify({profile:profile,failures:cleanupFailures})',
+        'JSON.stringify({profile:profile,failures:[]})',
+      ],
+      profilecause: [
+        "cleanupFailures.push({helper:'profile removal',error:failure && failure.message});",
+        "cleanupFailures.push({helper:'profile removal'});",
+      ],
     };
     if (mutation === 'timeout') {
       assert.equal(source.split(', timeout: TIMEOUT_MS').length, 4);
       source = source.replaceAll(', timeout: TIMEOUT_MS', '');
+    } else if (mutation === 'nativecause') {
+      assert.equal(source.split('result.error && result.error.message').length, 4);
+      source = source.replaceAll('result.error && result.error.message', 'undefined');
     } else {
       const pair = choices[mutation];
       assert.ok(pair, 'unknown audit mutation');
