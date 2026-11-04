@@ -3957,6 +3957,8 @@ server.listen(0, '127.0.0.1', () => {
   let timer = null;
   let attempt = 0;
   const cleanupFailures = [];
+  // Temporary owner-approved exception: keep enabled until F1242 has a verified fix.
+  const F1242_WARN_VERIFIED_TRANSIENT_WINDOWS_CLEANUP = true;
 
   // ---- KILL THE TREE, NOT THE PARENT ------------------------------------
   //
@@ -4048,10 +4050,48 @@ server.listen(0, '127.0.0.1', () => {
     return false;
   };
 
+  const warnVerifiedTransientWindowsCleanup = () => {
+    if (!F1242_WARN_VERIFIED_TRANSIENT_WINDOWS_CLEANUP || process.platform !== 'win32'
+        || cleanupFailures.length !== 1) return false;
+    const failure = cleanupFailures[0];
+    if (failure.helper !== 'owned profile' || failure.status !== 1 || failure.error
+        || String(failure.stderr || '').trim()
+        || !String(failure.stdout || '').trim().split(/\r?\n/)
+          .every(line => /^SURVIVING_OWNED_PID=[1-9]\d*$/.test(line))) return false;
+    try {
+      // Re-observe the same ownership scope without issuing another termination.
+      const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+        "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+        + "-ErrorAction Stop | Where-Object { $_.CommandLine -like '*"
+        + path.basename(profile) + "*' }); if ($remaining.Count) { "
+        + "$remaining | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }; "
+        + "Write-Output 'OWNED_PROFILE_CLEAR'"],
+        { stdio: 'pipe', timeout: TIMEOUT_MS });
+      const profilePresent = fs.existsSync(profile);
+      if (result.error || result.status !== 0 || profilePresent
+          || String(result.stderr || '').trim()
+          || String(result.stdout || '').trim() !== 'OWNED_PROFILE_CLEAR') {
+        cleanupFailures.push({helper:'final owned profile inventory',status:result.status,
+          error:result.error && result.error.message,profilePresent,
+          stdout:String(result.stdout || '').slice(0,2000),stderr:String(result.stderr || '').slice(0,2000)});
+        return false;
+      }
+    } catch (e) {
+      cleanupFailures.push({helper:'final owned profile inventory',error:e.message});
+      return false;
+    }
+    console.warn('AUDIT CLEANUP WARNING [F1242]: initial Windows survivor report; '
+      + 'final owned-process inventory is clear and profile is absent. '
+      + JSON.stringify({profile,initial:failure}));
+    cleanupFailures.length = 0;
+    return true;
+  };
+
   const teardown = () => {
     if (!ch) return true;
-    const verified = killTree();
+    let verified = killTree();
     const gone = removeProfile();
+    if (!verified && gone) verified = warnVerifiedTransientWindowsCleanup();
     if (!gone) {
       console.error('LEAK: ' + profile + ' survived; browser cleanup was not verified.');
     }

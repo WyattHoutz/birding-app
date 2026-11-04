@@ -28,6 +28,10 @@ process.on('exit', () => {
 });
 let clock = Date.now();
 Date.now = () => (clock += 1000);
+const helperMode = process.env.AUDIT_LIFECYCLE_HELPERS || 'ok';
+if (helperMode.startsWith('windows-')) {
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+}
 process.kill = () => true;
 children.spawn = () => {
   console.log('BROWSER_SPAWN');
@@ -35,8 +39,36 @@ children.spawn = () => {
 };
 children.spawnSync = (program, args, options) => {
   console.log('HELPER_TIMEOUT=' + options.timeout);
-  if (process.env.AUDIT_LIFECYCLE_HELPERS === 'fail') {
+  if (helperMode === 'fail' || program === 'taskkill' && helperMode === 'windows-tree-timeout') {
     return { status: null, error: Object.assign(new Error('controlled helper timeout'), { code: 'ETIMEDOUT' }) };
+  }
+  if (helperMode.startsWith('windows-') && program === 'powershell') {
+    const command = args.at(-1);
+    if (command.includes('Stop-Process')) {
+      if (helperMode === 'windows-clean') return { status: 0 };
+      return { status: 1, stdout: helperMode === 'windows-unknown-initial'
+        ? 'UNKNOWN_CLEANUP_STATE\n' : 'SURVIVING_OWNED_PID=1234\n',
+      error: helperMode === 'windows-initial-error' ? new Error('controlled initial error') : undefined,
+      stderr: helperMode === 'windows-initial-stderr' ? 'controlled permission error' : '' };
+    }
+    console.log('FINAL_OWNED_PROFILE_CHECK');
+    assert.ok(command.includes('Get-CimInstance') && command.includes('-ErrorAction Stop'));
+    assert.ok([...profiles].some(profile => command.includes(path.basename(profile))),
+      'the final inventory must use this fixture browser profile');
+    assert.doesNotMatch(command, /Stop-Process|taskkill|Remove-Item/,
+      'the final confirmation must be read-only');
+    if (helperMode === 'windows-persistent') return { status: 1, stdout: 'SURVIVING_OWNED_PID=1234\n' };
+    if (helperMode === 'windows-inventory-error') {
+      return { status: 1, stderr: 'controlled inventory denial' };
+    }
+    if (helperMode === 'windows-inventory-timeout') {
+      return { status: null, error: new Error('controlled inventory timeout') };
+    }
+    if (helperMode === 'windows-inventory-throw') throw new Error('controlled inventory exception');
+    if (helperMode === 'windows-recreated-profile') fs.mkdirSync([...profiles].at(-1));
+    return { status: 0, stdout: helperMode === 'windows-no-proof' ? ''
+      : helperMode === 'windows-extra-output' ? 'UNKNOWN\nOWNED_PROFILE_CLEAR\n' : 'OWNED_PROFILE_CLEAR\n',
+    stderr: helperMode === 'windows-final-stderr' ? 'controlled inventory warning' : '' };
   }
   return { status: 0 };
 };
@@ -50,7 +82,9 @@ http.createServer = (handler) => ({
       request.method = 'POST';
       request.url = '/__audit';
       handler(request, { writeHead() {}, end() {} });
-      request.emit('data', '[]');
+      request.emit('data', process.env.AUDIT_LIFECYCLE_REPORT === 'overflow'
+        ? JSON.stringify([{label:'controlled overflow',vw:393,n:1,text:1,
+          maxRight:413,docScrollW:413,over:20,items:[]}]) : '[]');
       request.emit('end');
     });
   },
@@ -79,12 +113,40 @@ Module.prototype._compile = function(source, filename) {
         "cleanupFailures.push({helper:'profile removal',error:failure && failure.message});",
         "cleanupFailures.push({helper:'profile removal'});",
       ],
+      transientwarning: [
+        'const F1242_WARN_VERIFIED_TRANSIENT_WINDOWS_CLEANUP = true;',
+        'const F1242_WARN_VERIFIED_TRANSIENT_WINDOWS_CLEANUP = false;',
+      ],
+      transientprocess: [
+        "if (result.error || result.status !== 0 || profilePresent\n"
+          + "          || String(result.stderr || '').trim()\n"
+          + "          || String(result.stdout || '').trim() !== 'OWNED_PROFILE_CLEAR')",
+        'if (false)',
+      ],
+      transienteligibility: [
+        "failure.helper !== 'owned profile' || failure.status !== 1 || failure.error",
+        "failure.helper !== 'owned profile' || failure.status !== 1",
+      ],
+      transientprofile: [
+        'result.error || result.status !== 0 || profilePresent',
+        'result.error || result.status !== 0',
+      ],
+      transientdiagnostic: [
+        'JSON.stringify({profile,initial:failure})',
+        'JSON.stringify({profile})',
+      ],
+      transientreset: ['cleanupFailures.length = 0;', ''],
+      transientbudget: [
+        "{ stdio: 'pipe', timeout: TIMEOUT_MS });\n      const profilePresent",
+        "{ stdio: 'pipe' });\n      const profilePresent",
+      ],
+      transientgeometry: ['process.exit(bad ? 1 : 0);', 'process.exit(0);'],
     };
     if (mutation === 'timeout') {
-      assert.equal(source.split(', timeout: TIMEOUT_MS').length, 4);
+      assert.equal(source.split(', timeout: TIMEOUT_MS').length, 5);
       source = source.replaceAll(', timeout: TIMEOUT_MS', '');
     } else if (mutation === 'nativecause') {
-      assert.equal(source.split('result.error && result.error.message').length, 4);
+      assert.equal(source.split('result.error && result.error.message').length, 5);
       source = source.replaceAll('result.error && result.error.message', 'undefined');
     } else {
       const pair = choices[mutation];

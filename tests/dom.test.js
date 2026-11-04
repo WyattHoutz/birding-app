@@ -31101,6 +31101,71 @@ test('F1214 a failed process helper cannot certify cleanup even after profile re
   assert.doesNotMatch(result.stdout, /FIXTURE missing|nothing overflows/);
 });
 
+test('F1244 verified transient Windows cleanup warns and proceeds to geometry validation', () => {
+  const result = auditLifecycleFixture('clean', 'empty', 100, 'windows-transient');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /AUDIT CLEANUP WARNING \[F1242\]/);
+  assert.match(result.stderr, /SURVIVING_OWNED_PID=1234/);
+  assert.match(result.stderr, /final owned-process inventory is clear and profile is absent/);
+  assert.match(result.stdout, /FINAL_OWNED_PROFILE_CHECK/);
+  assert.match(result.stdout, /FIXTURE missing/);
+  assert.doesNotMatch(result.stderr, /AUDIT INFRASTRUCTURE FAILURE/);
+  const waits = [...result.stdout.matchAll(/HELPER_TIMEOUT=([^\r\n]+)/g)];
+  assert.equal(waits.length, 3);
+  for (const wait of waits) assert.equal(Number(wait[1]), 100);
+});
+
+test('F1244 ordinary successful Windows cleanup needs no exception or extra inventory', () => {
+  const result = auditLifecycleFixture('clean', 'empty', 100, 'windows-clean');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /FIXTURE missing/);
+  assert.doesNotMatch(result.stdout + result.stderr, /FINAL_OWNED_PROFILE_CHECK|AUDIT CLEANUP WARNING/);
+});
+
+test('F1244 real survivors and unverified final inventories still block geometry', () => {
+  for (const helpers of ['windows-persistent', 'windows-inventory-error',
+    'windows-inventory-timeout', 'windows-inventory-throw', 'windows-no-proof',
+    'windows-extra-output', 'windows-final-stderr', 'windows-recreated-profile']) {
+    const result = auditLifecycleFixture('clean', 'empty', 100, helpers);
+    assert.equal(result.status, 3, helpers + '\n' + result.stdout + result.stderr);
+    assert.match(result.stdout, /FINAL_OWNED_PROFILE_CHECK/);
+    assert.match(result.stderr, /AUDIT INFRASTRUCTURE FAILURE/);
+    assert.match(result.stderr, /final owned profile inventory/);
+    assert.doesNotMatch(result.stdout + result.stderr, /AUDIT CLEANUP WARNING|FIXTURE missing|nothing overflows/);
+  }
+});
+
+test('F1244 helper errors and retained profiles cannot enter the transient exception', () => {
+  for (const [cleanup, helpers] of [['fail', 'windows-transient'],
+    ['clean', 'windows-tree-timeout'], ['clean', 'windows-initial-error'],
+    ['clean', 'windows-initial-stderr'], ['clean', 'windows-unknown-initial']]) {
+    const result = auditLifecycleFixture(cleanup, 'empty', 100, helpers);
+    assert.equal(result.status, 3, helpers + '\n' + result.stdout + result.stderr);
+    assert.match(result.stderr, /AUDIT INFRASTRUCTURE FAILURE/);
+    assert.doesNotMatch(result.stdout + result.stderr,
+      /FINAL_OWNED_PROFILE_CHECK|AUDIT CLEANUP WARNING|FIXTURE missing|nothing overflows/);
+  }
+});
+
+test('F1244 warning-only cleanup does not excuse a measured overflow', () => {
+  const result = auditLifecycleFixture('clean', 'overflow', 100, 'windows-transient');
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /AUDIT CLEANUP WARNING \[F1242\]/);
+  assert.match(result.stdout, /controlled overflow[\s\S]*20\.0px over/);
+  assert.match(result.stdout, /Layout failures:/);
+  assert.doesNotMatch(result.stdout + result.stderr, /AUDIT INFRASTRUCTURE FAILURE|nothing overflows/);
+});
+
+test('F1244 verified transient cleanup permits bounded startup retries but never a false pass', () => {
+  const result = auditLifecycleFixture('clean', 'none', 100, 'windows-transient');
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+  assert.equal((result.stdout.match(/BROWSER_SPAWN/g) || []).length, 2);
+  assert.equal((result.stdout.match(/FINAL_OWNED_PROFILE_CHECK/g) || []).length, 2);
+  assert.equal((result.stderr.match(/AUDIT CLEANUP WARNING/g) || []).length, 2);
+  assert.match(result.stderr, /audit never reported after 2 attempts/);
+  assert.doesNotMatch(result.stdout + result.stderr, /AUDIT INFRASTRUCTURE FAILURE|nothing overflows/);
+});
+
 test('the layout audit cleans up the browsers it launches', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'assets', 'audit-overflow.js'), 'utf8');
