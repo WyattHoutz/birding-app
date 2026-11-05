@@ -33,6 +33,24 @@ const mockups = require(path.join(ROOT, 'assets', 'mockups.js'));
 const waSeen = require(path.join(
   ROOT, 'tests', 'fixtures', 'wa-seen-2026-stub.json'));
 
+async function wizardEndpoint(profile, read = fs.readFileSync) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    try {
+      const [port, route] = read(path.join(profile, 'DevToolsActivePort'), 'utf8')
+        .trim().split(/\r?\n/);
+      if (/^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535
+        && /^\/devtools\/browser\/[^\s/]+$/.test(route)) {
+        return 'ws://127.0.0.1:' + port + route;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'EBUSY') throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))));
+  }
+  throw new Error('wizard Chrome startup timed out after 15000ms');
+}
+
 function cleanupWizardProfile(profile, run = spawnSync) {
   const escaped = profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = '(?:^|\\s)"?--user-data-dir="?' + escaped + '"?(?=\\s|$)';
@@ -100,13 +118,21 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
     const exited = new Promise(resolve => chrome.once('exit', resolve));
     let c;
     try {
-      const endpoint = path.join(profile, 'DevToolsActivePort');
-      await mockups.withTimeout((async () => {
-        while (!fs.existsSync(endpoint)) await new Promise(resolve => setTimeout(resolve, 50));
-      })(), 15000, 'wizard Chrome startup');
-      const [port, route] = fs.readFileSync(endpoint, 'utf8').trim().split(/\r?\n/);
-      c = mockups.cdp('ws://127.0.0.1:' + port + route);
+      let endpointFaults = 0;
+      const readEndpoint = (...args) => {
+        if (endpointFaults === 0) {
+          endpointFaults++;
+          throw Object.assign(new Error('controlled Chrome endpoint lock'), {code:'EBUSY'});
+        }
+        if (endpointFaults === 1) {
+          endpointFaults++;
+          return '9222\n';
+        }
+        return fs.readFileSync(...args);
+      };
+      c = mockups.cdp(await wizardEndpoint(profile, readEndpoint));
       await c.ready;
+      assert.equal(endpointFaults, 2, 'real Chrome startup must survive a locked and partial endpoint');
       const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
       const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });
       const send = (method, params = {}) => c.send(method, params, sessionId);
@@ -322,13 +348,8 @@ test('F1218 exact-profile cleanup stops a surviving browser without stopping ano
     ], { stdio: 'ignore' }));
     let c;
     try {
-      await mockups.withTimeout((async () => {
-        while (!profiles.every(profile => fs.existsSync(path.join(profile, 'DevToolsActivePort')))) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      })(), 15000, 'owned and ordinary Chrome startup');
-      const [port, route] = fs.readFileSync(path.join(profiles[1], 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
-      c = mockups.cdp('ws://127.0.0.1:' + port + route);
+      const endpoints = await Promise.all(profiles.map(profile => wizardEndpoint(profile)));
+      c = mockups.cdp(endpoints[1]);
       await c.ready;
       cleanupWizardProfile(profiles[0]);
       assert.equal(fs.existsSync(profiles[0]), false);
@@ -343,6 +364,57 @@ test('F1218 exact-profile cleanup stops a surviving browser without stopping ano
         results.filter(Boolean).map(error => error.message).join('\n'));
     }
   });
+
+test('F1245 wizard startup waits for a readable complete endpoint without retrying permission errors',
+  {timeout:1000}, async () => {
+    const values = ['ENOENT', 'EBUSY', '9222\n', '0\n/devtools/browser/fixture',
+      '65536\n/devtools/browser/fixture', '9222\n/devtools/page/fixture',
+      '9222\n/devtools/browser/fixture'];
+    let reads = 0, clock = 0;
+    const endpoint = vm.runInNewContext('(' + wizardEndpoint.toString() + ')', {
+      path, Date:{now:() => clock}, setTimeout(fn, delay) {
+        assert.ok(clock < 15000, 'fixture polling escaped the startup budget');
+        clock += delay; fn();
+      },
+      fs:{readFileSync(file, encoding) {
+        assert.equal(file, path.join('fixture-profile', 'DevToolsActivePort'));
+        assert.equal(encoding, 'utf8');
+        const value = values[reads++];
+        if (value === 'ENOENT' || value === 'EBUSY') throw Object.assign(new Error(value), {code:value});
+        return value;
+      }}
+    });
+    assert.equal(await endpoint('fixture-profile'), 'ws://127.0.0.1:9222/devtools/browser/fixture');
+    assert.equal(reads, values.length);
+    assert.equal(clock, 300);
+    for (const code of ['EACCES', 'EIO']) {
+      const error = Object.assign(new Error(code), {code});
+      const denied = vm.runInNewContext('(' + wizardEndpoint.toString() + ')', {
+        path, Date, fs:{readFileSync() { throw error; }}
+      });
+      await assert.rejects(denied('fixture-profile'), actual => actual === error);
+    }
+  });
+
+test('F1245 wizard startup stops polling at its original shared deadline', {timeout:1000}, async () => {
+  for (const value of ['EBUSY', '9222\n']) {
+    let clock = 0, reads = 0;
+    const endpoint = vm.runInNewContext('(' + wizardEndpoint.toString() + ')', {
+      path, Date:{now:() => clock}, setTimeout(fn, delay) {
+        assert.ok(clock < 15000, 'fixture polling escaped the startup budget');
+        clock += delay; fn();
+      },
+      fs:{readFileSync() {
+        reads++;
+        if (value === 'EBUSY') throw Object.assign(new Error(value), {code:value});
+        return value;
+      }}
+    });
+    await assert.rejects(endpoint('fixture-profile'), /startup timed out after 15000ms/);
+    assert.equal(clock, 15000);
+    assert.equal(reads, 300);
+  }
+});
 
 test('F1218 helper failure, timeout and surviving children fail even if the directory was removed', () => {
   for (const result of [{ status: 1 }, { status: null, error: new Error('ETIMEDOUT') }]) {
