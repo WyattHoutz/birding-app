@@ -2838,7 +2838,11 @@ const BOOTSTRAP = `
           });
         throw new Error('Fixture photo could not decode: ' + img.src
           + ' (complete=' + img.complete + ', width=' + img.naturalWidth
-          + ', connected=' + img.isConnected + ', lifecycle=' + lifecycle.join(',')
+          + ', connected=' + img.isConnected
+          + ', activeDocument=' + !!(img.ownerDocument.defaultView
+            && img.ownerDocument.defaultView.document === img.ownerDocument)
+          + ', ownerUrl=' + img.ownerDocument.URL
+          + ', documentState=' + document.readyState + ', lifecycle=' + lifecycle.join(',')
           + ', resources=' + JSON.stringify(resources)
           + ', decode=' + (error.name || 'Error') + ': ' + error.message
           + ', slot=' + slot.innerHTML + ')',

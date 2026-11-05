@@ -59,18 +59,26 @@ function cleanupWizardProfile(profile, run = spawnSync) {
     if (process.platform === 'win32') {
       const script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $pattern='"
         + pattern.replace(/'/g, "''") + "'; "
+        + "$cleanupWatch=[Diagnostics.Stopwatch]::StartNew(); "
+        + "[Console]::Error.WriteLine('WIZARD_CLEANUP started'); "
+        + "function Test-LivePid([int]$ownedPid) { "
+        + "try { return -not (Get-Process -Id $ownedPid -ErrorAction Stop).HasExited } "
+        + "catch { if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { return $false }; throw } }; "
         + "for ($i=0; $i -lt 10; $i++) { "
+        + "[Console]::Error.WriteLine('WIZARD_CLEANUP inventory_start_ms='+$cleanupWatch.ElapsedMilliseconds); "
         + "$owned = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-        + "Where-Object { $_.CommandLine -match $pattern }); "
+        + "Where-Object { $_.CommandLine -match $pattern } | "
+        + "Where-Object { Test-LivePid $_.ProcessId }); "
+        + "[Console]::Error.WriteLine('WIZARD_CLEANUP inventory_end_ms='+$cleanupWatch.ElapsedMilliseconds+' live='+$owned.Count); "
         + "if (-not $owned.Count) { exit 0 }; "
         + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; try { Stop-Process -Id $ownedPid -Force "
-        + "-ErrorAction Stop } catch { if (Get-Process -Id $ownedPid -ErrorAction SilentlyContinue) { throw } } }; "
+        + "-ErrorAction Stop } catch { if (Test-LivePid $ownedPid) { throw } } }; "
         + "Start-Sleep -Milliseconds 100 }; exit 1";
       const result = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
         Buffer.from(script, 'utf16le').toString('base64')],
       { stdio: 'pipe', timeout: 10000 });
       if (result.error || result.status !== 0) throw new Error('wizard exact-profile process cleanup unverified: '
-        + (result.error?.message || String(result.stderr || result.status)));
+        + (result.error ? result.error.message + '; ' : '') + String(result.stderr || result.status));
     } else {
       const deadline = Date.now() + 10000;
       const owned = () => {
@@ -416,13 +424,73 @@ test('F1245 wizard startup stops polling at its original shared deadline', {time
   }
 });
 
+test('F1245 Windows cleanup distinguishes exited CIM records from live processes and inventory errors',
+  {skip:process.platform !== 'win32', timeout:60000}, () => {
+    for (const mode of ['exited', 'missing', 'alive', 'survivor', 'denied', 'inventory', 'stop-denied', 'exit-race']) {
+      const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-state-'));
+      let native;
+      const run = (command, args, options) => {
+        const fixture = `
+$script:mode='${mode}'; $script:dead=$${mode === 'exited' ? 'true' : 'false'};
+function Get-CimInstance {
+  if ($script:mode -eq 'inventory') { throw 'fixture inventory denied' }
+  [pscustomobject]@{ProcessId=90123451;CommandLine='--user-data-dir="${profile.replace(/'/g, "''")}"'}
+  [pscustomobject]@{ProcessId=90123452;CommandLine='--user-data-dir="${profile.replace(/'/g, "''")}-ordinary"'}
+}
+function Get-Process {
+  [CmdletBinding()]param([int]$Id)
+  if ($Id -ne 90123451) { throw 'ordinary PID was queried' }
+  if ($script:mode -eq 'denied') { throw 'fixture process access denied' }
+  if ($script:mode -eq 'missing') {
+    $record=[System.Management.Automation.ErrorRecord]::new(
+      [ArgumentException]::new('fixture missing'), 'NoProcessFoundForGivenId',
+      [System.Management.Automation.ErrorCategory]::ObjectNotFound, $Id)
+    $PSCmdlet.ThrowTerminatingError($record)
+  }
+  [pscustomobject]@{HasExited=$script:dead}
+}
+function Stop-Process {
+  [CmdletBinding()]param([int]$Id,[switch]$Force)
+  if ($Id -ne 90123451) { throw 'ordinary PID was stopped' }
+  if ($script:mode -eq 'stop-denied') { throw 'fixture stop denied' }
+  if ($script:mode -eq 'exit-race') { $script:dead=$true; throw 'fixture exited during stop' }
+  if ($script:dead) { throw 'fixture attempted stop after exit' }
+  'FIXTURE_KILL_OWNED'
+  if ($script:mode -ne 'survivor') { $script:dead=$true }
+}
+`;
+        const index = args.indexOf('-EncodedCommand') + 1;
+        const actual = Buffer.from(args[index], 'base64').toString('utf16le');
+        const injected = args.slice();
+        injected[index] = Buffer.from(fixture + actual, 'utf16le').toString('base64');
+        native = spawnSync(command, injected, {...options, encoding:'utf8'});
+        return native;
+      };
+      if (['exited', 'missing', 'alive', 'exit-race'].includes(mode)) {
+        cleanupWizardProfile(profile, run);
+      } else {
+        assert.throws(() => cleanupWizardProfile(profile, run), /cleanup could not be verified/);
+      }
+      assert.equal(native.error, undefined, mode + ' must finish within the unchanged helper deadline');
+      const kills = (native.stdout.match(/FIXTURE_KILL_OWNED/g) || []).length;
+      assert.equal(kills, mode === 'alive' ? 1 : mode === 'survivor' ? 10 : 0, mode);
+      if (mode === 'denied') assert.match(native.stderr, /fixture process access denied/);
+      if (mode === 'inventory') assert.match(native.stderr, /fixture inventory denied/);
+      if (mode === 'stop-denied') assert.match(native.stderr, /fixture stop denied/);
+      assert.equal(fs.existsSync(profile), false);
+    }
+  });
+
 test('F1218 helper failure, timeout and surviving children fail even if the directory was removed', () => {
-  for (const result of [{ status: 1 }, { status: null, error: new Error('ETIMEDOUT') }]) {
+  for (const result of [{ status: 1 }, {
+    status: null, error: new Error('ETIMEDOUT'), stderr: 'controlled native cleanup progress'
+  }]) {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-fault-'));
     assert.throws(() => cleanupWizardProfile(profile, (command, args, options) => {
       assert.ok(options.timeout > 0 && options.timeout <= 10000, 'native cleanup must be bounded');
       return result;
-    }), /cleanup could not be verified/);
+    }), error => /cleanup could not be verified/.test(error.message)
+      && (!result.stderr || error.message.includes(result.stderr)));
     assert.equal(fs.existsSync(profile), false, 'directory cleanup must still be attempted');
   }
 });
