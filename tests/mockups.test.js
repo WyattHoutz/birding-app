@@ -1273,8 +1273,10 @@ test('Bird Gen mockups use the measured September 3 alert snapshot', () => {
     'fixed alert dates still age against the wall clock');
   assert.match(source, /Date\.now\(\) !== MOCK_NOW/,
     'the renderer never verifies that its fixed dates use the frozen clock');
-  const timezone = source.indexOf('Emulation.setTimezoneOverride');
-  const navigate = source.indexOf("Page.navigate");
+  const main = source.indexOf('async function main()');
+  assert.ok(main >= 0, 'the renderer entry point is present');
+  const timezone = source.indexOf('Emulation.setTimezoneOverride', main);
+  const navigate = source.indexOf('await navigateMockupFrame(', main);
   assert.ok(timezone >= 0 && navigate > timezone,
     'the browser timezone is not pinned before the mockup page loads');
   assert.match(source, /timezoneId:\s*'America\/Los_Angeles'/,
