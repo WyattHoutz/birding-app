@@ -71,8 +71,11 @@ function cleanupWizardProfile(profile, run = spawnSync) {
         + "Where-Object { Test-LivePid $_.ProcessId }); "
         + "[Console]::Error.WriteLine('WIZARD_CLEANUP inventory_end_ms='+$cleanupWatch.ElapsedMilliseconds+' live='+$owned.Count); "
         + "if (-not $owned.Count) { exit 0 }; "
-        + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; try { Stop-Process -Id $ownedPid -Force "
-        + "-ErrorAction Stop } catch { if (Test-LivePid $ownedPid) { throw } } }; "
+        + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; "
+        + "[Console]::Error.WriteLine('WIZARD_CLEANUP stop_start_ms='+$cleanupWatch.ElapsedMilliseconds+' pid='+$ownedPid); "
+        + "try { Stop-Process -Id $ownedPid -Force "
+        + "-ErrorAction Stop } catch { if (Test-LivePid $ownedPid) { throw } }; "
+        + "[Console]::Error.WriteLine('WIZARD_CLEANUP stop_end_ms='+$cleanupWatch.ElapsedMilliseconds+' pid='+$ownedPid) }; "
         + "Start-Sleep -Milliseconds 100 }; exit 1";
       const result = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
         Buffer.from(script, 'utf16le').toString('base64')],
@@ -752,12 +755,22 @@ test('F1014 actual release Stakeout galleries retain verified current Mega membe
     const output = fs.mkdtempSync(path.join(os.tmpdir(), 'release-stakeout-f1014-'));
     try {
       const result = spawnSync(process.execPath, [
+        '--require', path.join(ROOT, 'tests', 'fixtures', 'mockup-stakeout.cjs'),
         path.join(ROOT, 'assets', 'mockups.js'),
         '--only', 'section-spLookupBtn,stakeoutdetail',
         '--width', '402', '--out', output,
       ], { cwd: ROOT, encoding: 'utf8', timeout: 110000 });
       assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
       assert.match(result.stdout, /2 mockup\(s\)/);
+      assert.match(result.stdout, /CONTROLLED_HERO_IMAGE_DELAY=5000/);
+      const captures = result.stdout.split('\n')
+        .filter(line => line.startsWith('CONTROLLED_HERO_CAPTURE='))
+        .map(line => JSON.parse(line.slice('CONTROLLED_HERO_CAPTURE='.length)));
+      assert.equal(captures.length, 2, 'both actual Stakeout shots must report image readiness');
+      assert.ok(captures.every(capture => capture.decoded && capture.ratio),
+        'capture must wait for decoded, production-fitted hero photos');
+      assert.ok(captures.some(capture => capture.queued > 0),
+        'the controlled production photo queue must still have late work');
       for (const shot of ['section-spLookupBtn', 'stakeoutdetail']) {
         assert.ok(fs.existsSync(path.join(output, shot + '-402px.png')),
           'mandatory current-Mega Stakeout image missing: ' + shot);

@@ -4149,22 +4149,21 @@ const BOOTSTRAP = `
       await waitFor(function () {
         return document.querySelector('#spLookupUnwatched .hscard-md');
       }, 'Stakeout Iconic hotspots', 250);
-      var hero = results.querySelector('.bchero');
-      if (hero) {
-        hero.textContent = '';
-        var heroPhoto = document.createElement('img');
-        heroPhoto.className = 'birdpic';
-        heroPhoto.alt = 'Sharp-tailed Sandpiper';
-        heroPhoto.src = 'assets/birds/shtsan.jpg';
-        hero.appendChild(heroPhoto);
-      }
-      if (!results.querySelector(':scope > li > .bcbody .bcname') || !hero) {
-        throw new Error('Stakeout Details is not the production large species card');
-      }
-    } else if (!results.querySelector(':scope > li > .bcbody .bcname')
-        || !results.querySelector('.bchero')) {
-      throw new Error('Stakeout Notes-off state is not the production large species card');
     }
+    var pendingHero = results.querySelector('.bchero');
+    if (!results.querySelector(':scope > li > .bcbody .bcname') || !pendingHero) {
+      throw new Error('Stakeout is not the production large species card');
+    }
+    // Queued production photos retain the original slot, not the settled fixture.
+    var hero = pendingHero.cloneNode(false);
+    pendingHero.replaceWith(hero);
+    var heroPhoto = document.createElement('img');
+    heroPhoto.className = 'birdpic';
+    heroPhoto.alt = 'Sharp-tailed Sandpiper';
+    heroPhoto.src = 'assets/birds/shtsan.jpg';
+    hero.appendChild(heroPhoto);
+    await decodeFixtureImage(heroPhoto, 'assets/birds/shtsan.jpg');
+    document.defaultView.BirdIcons.fitHeroFrame(hero, heroPhoto);
 
     if (A.fgProgressReset) A.fgProgressReset();
     var loadBar = document.getElementById('loadBar');
