@@ -3960,6 +3960,18 @@ server.listen(0, '127.0.0.1', () => {
   // Temporary owner-approved exception: keep enabled until F1242 has a verified fix.
   const F1242_WARN_VERIFIED_TRANSIENT_WINDOWS_CLEANUP = true;
 
+  const windowsOwnedInventory = () => {
+    const escaped = profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = '(?:^|\\s)"?--user-data-dir="?' + escaped + '"?(?=\\s|$)';
+    return "$ErrorActionPreference='Stop'; $pattern='" + pattern.replace(/'/g, "''") + "'; "
+      + "function Test-LivePid([int]$ownedPid) { "
+      + "try { return -not (Get-Process -Id $ownedPid -ErrorAction Stop).HasExited } "
+      + "catch { if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { return $false }; throw } }; "
+      + "$owned = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+      + "-ErrorAction Stop | Where-Object { $_.CommandLine -match $pattern } | "
+      + "Where-Object { Test-LivePid $_.ProcessId }); ";
+  };
+
   // ---- KILL THE TREE, NOT THE PARENT ------------------------------------
   //
   // MEASURED 2026-08-26: `ch.kill()` kills the parent Chrome and nothing else.
@@ -4003,14 +4015,12 @@ server.listen(0, '127.0.0.1', () => {
     try {
       if (process.platform === 'win32') {
         const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-          "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" -ErrorAction Stop | "
-          + "Where-Object { $_.CommandLine -like '*" + path.basename(profile)
-          + "*' } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force "
-          + "-ErrorAction Stop } catch {} }; "
-          + "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
-          + "-ErrorAction Stop | Where-Object { $_.CommandLine -like '*"
-          + path.basename(profile) + "*' }); if ($remaining.Count) { "
-          + "$remaining | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }"],
+          windowsOwnedInventory()
+          + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; "
+          + "try { Stop-Process -Id $ownedPid -Force -ErrorAction Stop } "
+          + "catch { if (Test-LivePid $ownedPid) { throw } } }; "
+          + windowsOwnedInventory() + "if ($owned.Count) { "
+          + "$owned | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }"],
           { stdio: 'pipe', timeout: TIMEOUT_MS });
         if (result.error || result.status !== 0) {
           verified = false;
@@ -4061,10 +4071,8 @@ server.listen(0, '127.0.0.1', () => {
     try {
       // Re-observe the same ownership scope without issuing another termination.
       const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-        "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
-        + "-ErrorAction Stop | Where-Object { $_.CommandLine -like '*"
-        + path.basename(profile) + "*' }); if ($remaining.Count) { "
-        + "$remaining | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }; "
+        windowsOwnedInventory() + "if ($owned.Count) { "
+        + "$owned | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }; "
         + "Write-Output 'OWNED_PROFILE_CLEAR'"],
         { stdio: 'pipe', timeout: TIMEOUT_MS });
       const profilePresent = fs.existsSync(profile);

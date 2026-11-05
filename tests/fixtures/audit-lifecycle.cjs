@@ -6,6 +6,7 @@ const http = require('node:http');
 const Module = require('node:module');
 const path = require('node:path');
 const children = require('node:child_process');
+const nativeSpawnSync = children.spawnSync;
 // Keep native temp-directory semantics before simulating Windows below.
 require('node:os');
 const profiles = new Set();
@@ -46,6 +47,41 @@ children.spawnSync = (program, args, options) => {
   }
   if (helperMode.startsWith('windows-') && program === 'powershell') {
     const command = args.at(-1);
+    if (helperMode.startsWith('windows-native-')) {
+      const mode = helperMode.slice('windows-native-'.length);
+      const profile = [...profiles].at(-1).replace(/'/g, "''");
+      const fixture = `
+$script:mode='${mode}'; $script:dead=$${mode === 'exited' ? 'true' : 'false'};
+function Get-CimInstance {
+  if ($script:mode -eq 'inventory') { throw 'fixture inventory denied' }
+  [pscustomobject]@{ProcessId=90123451;CommandLine='--user-data-dir="${profile}"'}
+  [pscustomobject]@{ProcessId=90123452;CommandLine='--user-data-dir="${profile}-ordinary"'}
+}
+function Get-Process {
+  [CmdletBinding()]param([int]$Id)
+  if ($Id -ne 90123451) { throw 'ordinary PID was queried' }
+  if ($script:mode -eq 'denied') { throw 'fixture process access denied' }
+  if ($script:mode -eq 'missing') {
+    $record=[System.Management.Automation.ErrorRecord]::new(
+      [ArgumentException]::new('fixture missing'), 'NoProcessFoundForGivenId',
+      [System.Management.Automation.ErrorCategory]::ObjectNotFound, $Id)
+    $PSCmdlet.ThrowTerminatingError($record)
+  }
+  [pscustomobject]@{HasExited=$script:dead}
+}
+function Stop-Process {
+  [CmdletBinding()]param([int]$Id,[switch]$Force)
+  if ($Id -ne 90123451) { throw 'ordinary PID was stopped' }
+  if ($script:mode -eq 'stop-denied') { throw 'fixture stop denied' }
+  if ($script:mode -eq 'exit-race') { $script:dead=$true; throw 'fixture exited during stop' }
+  if ($script:dead) { throw 'fixture attempted stop after exit' }
+  'FIXTURE_KILL_OWNED'
+  if ($script:mode -ne 'survivor') { $script:dead=$true }
+}
+`;
+      return nativeSpawnSync(program, [...args.slice(0, -1), fixture + command],
+        {...options, encoding:'utf8'});
+    }
     if (command.includes('Stop-Process')) {
       if (helperMode === 'windows-clean') return { status: 0 };
       return { status: 1, stdout: helperMode === 'windows-unknown-initial'
@@ -98,6 +134,26 @@ Module.prototype._compile = function(source, filename) {
   if (mutation && filename.endsWith(path.join('assets', 'audit-overflow.js'))) {
     source = source.replace(/\r/g, '');
     const choices = {
+      layoutliveness: [
+        'try { return -not (Get-Process -Id $ownedPid -ErrorAction Stop).HasExited }',
+        'try { return $true }',
+      ],
+      layoutmissing: [
+        "if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { return $false }; throw",
+        "if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { throw }; throw",
+      ],
+      layoutdenied: [
+        "if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { return $false }; throw",
+        "if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*') { return $false }; return $false",
+      ],
+      layoutowner: [
+        'Where-Object { $_.CommandLine -match $pattern }',
+        'Where-Object { $true }',
+      ],
+      layoutrace: [
+        'catch { if (Test-LivePid $ownedPid) { throw } }',
+        'catch { throw }',
+      ],
       report: ['clearTimeout(timer);\n    cleanupOrFail();', 'clearTimeout(timer);\n    teardown();'],
       retry: ['cleanupOrFail();\n    if (attempt < MAX_ATTEMPTS)', 'teardown();\n    if (attempt < MAX_ATTEMPTS)'],
       budget: [

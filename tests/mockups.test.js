@@ -495,6 +495,33 @@ function Stop-Process {
     }
   });
 
+test('F1245 layout cleanup distinguishes exited CIM entries from live owned processes',
+  {skip:process.platform !== 'win32', timeout:120000}, () => {
+    for (const mode of ['exited', 'missing', 'alive', 'survivor', 'denied', 'inventory',
+      'stop-denied', 'exit-race']) {
+      const result = spawnSync(process.execPath, [
+        '--require', path.join(__dirname, 'fixtures', 'audit-lifecycle.cjs'),
+        path.join(ROOT, 'assets', 'audit-overflow.js'), '393', '1'
+      ], {cwd:ROOT, encoding:'utf8', timeout:20000, env:{
+        ...process.env, AUDIT_TIMEOUT_MS:'10000', AUDIT_ATTEMPTS:'1',
+        AUDIT_LIFECYCLE_HELPERS:'windows-native-' + mode,
+        AUDIT_LIFECYCLE_CLEANUP:'clean', AUDIT_LIFECYCLE_REPORT:'empty'
+      }});
+      const output = result.stdout + result.stderr;
+      assert.equal(result.error, undefined, mode + ': ' + output);
+      assert.doesNotMatch(output, /ordinary PID was (queried|stopped)/, mode);
+      if (['exited', 'missing', 'alive', 'exit-race'].includes(mode)) {
+        assert.equal(result.status, 1, mode + ': ' + output);
+        assert.match(output, /FIXTURE missing/, mode);
+        assert.doesNotMatch(output, /AUDIT INFRASTRUCTURE FAILURE/, mode);
+      } else {
+        assert.equal(result.status, 3, mode + ': ' + output);
+        assert.match(output, /AUDIT INFRASTRUCTURE FAILURE/, mode);
+        assert.doesNotMatch(output, /FIXTURE missing|nothing overflows/, mode);
+      }
+    }
+  });
+
 test('F1218 helper failure, timeout and surviving children fail even if the directory was removed', () => {
   for (const platform of ['win32', 'linux']) {
     const cleanup = vm.runInNewContext('(' + cleanupWizardProfile.toString() + ')', {
