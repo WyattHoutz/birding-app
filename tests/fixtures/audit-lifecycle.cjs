@@ -6,6 +6,8 @@ const http = require('node:http');
 const Module = require('node:module');
 const path = require('node:path');
 const children = require('node:child_process');
+// Keep native temp-directory semantics before simulating Windows below.
+require('node:os');
 const profiles = new Set();
 const mkdir = fs.mkdtempSync;
 const remove = fs.rmSync;

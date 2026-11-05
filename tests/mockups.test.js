@@ -89,7 +89,7 @@ function cleanupWizardProfile(profile, run = spawnSync) {
         if (remaining <= 0) throw new Error('wizard process cleanup deadline exceeded');
         const result = run('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', timeout: remaining });
         if (result.error || result.status !== 0) throw new Error('wizard process inventory unverified: '
-          + (result.error?.message || String(result.stderr || result.status)));
+          + (result.error ? result.error.message + '; ' : '') + String(result.stderr || result.status));
         return result.stdout.split('\n').filter(line => new RegExp(pattern).test(line))
           .map(line => Number(line.trim().split(/\s+/)[0]));
       };
@@ -125,7 +125,11 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
       '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
       '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0',
       '--user-data-dir=' + profile, 'about:blank'
-    ], { stdio: 'ignore' });
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let browserStderr = '';
+    chrome.stderr.on('data', chunk => {
+      browserStderr = (browserStderr + chunk.toString()).slice(-4096);
+    });
     const exited = new Promise(resolve => chrome.once('exit', resolve));
     let c;
     try {
@@ -141,7 +145,14 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
         }
         return fs.readFileSync(...args);
       };
-      c = mockups.cdp(await wizardEndpoint(profile, readEndpoint));
+      let endpoint;
+      try {
+        endpoint = await wizardEndpoint(profile, readEndpoint);
+      } catch (error) {
+        throw new Error(error.message + '; Chrome exit=' + chrome.exitCode
+          + ', signal=' + chrome.signalCode + ', stderr=' + browserStderr, { cause: error });
+      }
+      c = mockups.cdp(endpoint);
       await c.ready;
       assert.equal(endpointFaults, 2, 'real Chrome startup must survive a locked and partial endpoint');
       const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
@@ -485,16 +496,21 @@ function Stop-Process {
   });
 
 test('F1218 helper failure, timeout and surviving children fail even if the directory was removed', () => {
-  for (const result of [{ status: 1 }, {
-    status: null, error: new Error('ETIMEDOUT'), stderr: 'controlled native cleanup progress'
-  }]) {
-    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-fault-'));
-    assert.throws(() => cleanupWizardProfile(profile, (command, args, options) => {
-      assert.ok(options.timeout > 0 && options.timeout <= 10000, 'native cleanup must be bounded');
-      return result;
-    }), error => /cleanup could not be verified/.test(error.message)
-      && (!result.stderr || error.message.includes(result.stderr)));
-    assert.equal(fs.existsSync(profile), false, 'directory cleanup must still be attempted');
+  for (const platform of ['win32', 'linux']) {
+    const cleanup = vm.runInNewContext('(' + cleanupWizardProfile.toString() + ')', {
+      fs, Buffer, Date, process: { platform }
+    });
+    for (const result of [{ status: 1 }, {
+      status: null, error: new Error('ETIMEDOUT'), stderr: 'controlled native cleanup progress'
+    }]) {
+      const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-fault-'));
+      assert.throws(() => cleanup(profile, (command, args, options) => {
+        assert.ok(options.timeout > 0 && options.timeout <= 10000, 'native cleanup must be bounded');
+        return result;
+      }), error => /cleanup could not be verified/.test(error.message)
+        && (!result.stderr || error.message.includes(result.stderr)));
+      assert.equal(fs.existsSync(profile), false, 'directory cleanup must still be attempted');
+    }
   }
 });
 
