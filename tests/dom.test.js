@@ -39461,9 +39461,42 @@ test('release mockup comparison shot has its own prep timeout', async () => {
   assert.match(mockups,
     /shot\.prepTimeoutMs \|\| 15000/,
     'ordinary mockups must keep the default 15s preparation timeout');
-  assert.match(mockups,
-    /if \(\$\{shot\.freshApp \? 'true' : 'false'\}\)[\s\S]*frame\.src = '\/index\.html\?shot='/,
-    'fresh mockup shots must reload the app iframe before prep');
+  const loop = mockups.indexOf('  for (const shot of shots) {');
+  const preparation = mockups.indexOf('    const expr =', loop);
+  assert.ok(loop >= 0 && preparation > loop, 'the shot preparation boundary is present');
+  const beforePreparation = mockups.slice(mockups.indexOf('\n', loop) + 1, preparation);
+  let release, navigations = 0, prepared = 0;
+  const client = {};
+  const context = {
+    shot: {freshApp:true, id:'spuhcompare'}, c:client, sessionId:'session',
+    origin:'http://127.0.0.1:1234', appFrameId:'owned-app-frame', HEIGHT:844,
+    navigateMockupFrame(c, session, params, label) {
+      navigations++;
+      assert.equal(c, client);
+      assert.equal(session, 'session');
+      assert.equal(params.frameId, 'owned-app-frame');
+      assert.equal(params.url, 'http://127.0.0.1:1234/index.html?shot=spuhcompare');
+      assert.equal(label, 'spuhcompare');
+      if (navigations > 1) return Promise.resolve();
+      return new Promise(resolve => { release = resolve; });
+    },
+    markPrepared() { prepared++; }
+  };
+  const run = require('node:vm').runInNewContext(
+    '(async () => {' + beforePreparation + '\nmarkPrepared(); })', context);
+  const loading = run();
+  try {
+    assert.equal(navigations, 1, 'a fresh shot must navigate its owned iframe');
+    assert.equal(prepared, 0, 'preparation must wait for the full navigation receipt');
+  } finally {
+    if (release) release();
+    await loading;
+  }
+  assert.equal(prepared, 1);
+  context.shot.freshApp = false;
+  await run();
+  assert.equal(navigations, 1, 'ordinary shots must retain their current iframe');
+  assert.equal(prepared, 2);
 });
 
 test('the log names which section owns a control that was pressed', async () => {
