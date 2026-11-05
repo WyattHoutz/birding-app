@@ -4591,6 +4591,11 @@ function cdp(wsUrl) {
       const handlers = eventHandlers.get(method) || [];
       handlers.push(handler);
       eventHandlers.set(method, handlers);
+      return () => {
+        const index = handlers.indexOf(handler);
+        if (index >= 0) handlers.splice(index, 1);
+        if (!handlers.length) eventHandlers.delete(method);
+      };
     },
     close: () => ws.close(),
   };
@@ -4604,6 +4609,31 @@ function withTimeout(promise, ms, label) {
       timer = setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+async function navigateMockupFrame(c, sessionId, params, label) {
+  const loaded = new Set();
+  let expected, finish;
+  const unsubscribe = c.onEvent('Page.lifecycleEvent', (event, eventSession) => {
+    if (eventSession !== sessionId || event.name !== 'load') return;
+    const key = event.frameId + ':' + event.loaderId;
+    loaded.add(key);
+    if (key === expected && finish) finish();
+  });
+  try {
+    return await withTimeout((async () => {
+      const navigation = await c.send('Page.navigate', params, sessionId);
+      if (navigation.errorText || !navigation.frameId || !navigation.loaderId) {
+        throw new Error(label + ': navigation failed: '
+          + (navigation.errorText || 'missing frame/loader identity'));
+      }
+      expected = navigation.frameId + ':' + navigation.loaderId;
+      if (!loaded.has(expected)) await new Promise(resolve => { finish = resolve; });
+      return navigation.frameId;
+    })(), 10000, label + ' navigation');
+  } finally {
+    unsubscribe();
+  }
 }
 
 async function main() {
@@ -4678,6 +4708,7 @@ async function main() {
   const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });
   await c.send('Page.enable', {}, sessionId);
+  await c.send('Page.setLifecycleEventsEnabled', { enabled: true }, sessionId);
   await c.send('Network.enable', {}, sessionId);
   await c.send('Runtime.enable', {}, sessionId);
   const birdRequests = new Map(), birdNetworkEvents = [];
@@ -4704,8 +4735,13 @@ async function main() {
   await c.send('Emulation.setTimezoneOverride', {
     timezoneId: 'America/Los_Angeles',
   }, sessionId);
-  await c.send('Page.navigate', { url: 'http://127.0.0.1:' + port + '/__harness' }, sessionId);
-  await new Promise((r) => setTimeout(r, 2500));
+  const origin = 'http://127.0.0.1:' + port;
+  await navigateMockupFrame(c, sessionId, { url: origin + '/__harness' }, 'mockup harness');
+  const { frameTree } = await c.send('Page.getFrameTree', {}, sessionId);
+  if (!frameTree.childFrames || frameTree.childFrames.length !== 1) {
+    throw new Error('mockup harness must contain exactly one app iframe');
+  }
+  const appFrameId = frameTree.childFrames[0].frame.id;
 
   const shots = ONLY.length
     ? SHOTS.concat(REVIEW_SHOTS).filter((s) => ONLY.includes(s.id)) : SHOTS;
@@ -4713,6 +4749,12 @@ async function main() {
   for (const shot of shots) {
     const shotHeight = shot.viewportHeight || HEIGHT;
     let measuredHostHeight = null;
+    if (shot.freshApp) {
+      await navigateMockupFrame(c, sessionId, {
+        url: origin + '/index.html?shot=' + encodeURIComponent(shot.id),
+        frameId: appFrameId,
+      }, shot.id);
+    }
     // Everything runs INSIDE the iframe, which is the box with the real width.
     // ⚠️ Do NOT declare a local named `document` here: `var` hoists, so the
     // first line would dereference the local (undefined) rather than the outer
@@ -4721,16 +4763,6 @@ async function main() {
       var frame = window.document.getElementById('f');
       if (!frame) return 'no iframe';
       frame.style.height = ${shotHeight} + 'px';
-      if (${shot.freshApp ? 'true' : 'false'}) {
-        await new Promise(function (resolve, reject) {
-          var timer = setTimeout(function () { reject(new Error('fresh iframe reload timed out')); }, 10000);
-          frame.onload = function () {
-            clearTimeout(timer);
-            setTimeout(resolve, 2500);
-          };
-          frame.src = '/index.html?shot=' + encodeURIComponent(${JSON.stringify(shot.id)});
-        });
-      }
       var w = frame.contentWindow;
       var A = w.__app, doc = w.document;
       if (!A) return 'no __app seam (the app did not boot)';
@@ -5008,7 +5040,7 @@ module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
   fixtureIconPath, fixtureImageNeedsRefresh, decodeFixtureImage, preparePersonalFixture,
   shotReadinessProblems, shotLooksBlank,
-  mockupRunPassed, withTimeout, cdp, server, CHROME
+  mockupRunPassed, withTimeout, navigateMockupFrame, cdp, server, CHROME
 };
 
 if (require.main === module) {

@@ -465,15 +465,78 @@ test('F910 actual Bird Gen release preparation accepts the weekly Ruff discovery
   }
 });
 
+test('F1245 navigation waits for its own session, frame and loader, not a stale load', {timeout:1000}, async () => {
+  let receive, removed = 0, settled = false;
+  const client = {
+    onEvent(name, handler) {
+      assert.equal(name, 'Page.lifecycleEvent');
+      receive = handler;
+      return () => { removed++; };
+    },
+    async send() { return {frameId:'owned',loaderId:'wanted'}; },
+  };
+  const pending = mockups.navigateMockupFrame(client, 'session', {url:'http://fixture.test'}, 'shot')
+    .then(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  for (const [frameId, loaderId, session] of [
+    ['owned','old','session'], ['other','wanted','session'], ['owned','wanted','other'],
+  ]) {
+    receive({name:'load',frameId,loaderId}, session);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'unrelated loads cannot certify the requested document');
+  }
+  receive({name:'DOMContentLoaded',frameId:'owned',loaderId:'wanted'}, 'session');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false, 'DOM readiness alone does not finish subresource loading');
+  receive({name:'load',frameId:'owned',loaderId:'wanted'}, 'session');
+  await pending;
+  assert.equal(removed, 1);
+});
+
+test('F1245 navigation accepts its load before the command reply and rejects protocol failure', {timeout:1000}, async () => {
+  let receive, removed = 0;
+  const client = {
+    onEvent(name, handler) { receive = handler; return () => { removed++; }; },
+    async send() {
+      receive({name:'load',frameId:'owned',loaderId:'wanted'}, 'session');
+      return {frameId:'owned',loaderId:'wanted'};
+    },
+  };
+  assert.equal(await mockups.navigateMockupFrame(client, 'session', {}, 'early load'), 'owned');
+  for (const result of [{errorText:'net::ERR_ABORTED'}, {frameId:'owned'}]) {
+    client.send = async () => result;
+    await assert.rejects(mockups.navigateMockupFrame(client, 'session', {}, 'failed shot'),
+      /failed shot: navigation failed/);
+  }
+  assert.equal(removed, 3, 'success and errors must detach their navigation listeners');
+});
+
+test('F1245 navigation without a matching load stays bounded and removes its listener', {timeout:1000}, async t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  let removed = 0;
+  const client = {
+    onEvent() { return () => { removed++; }; },
+    send() { return new Promise(() => {}); },
+  };
+  const pending = assert.rejects(
+    mockups.navigateMockupFrame(client, 'session', {}, 'hung shot'),
+    /hung shot navigation timed out/);
+  t.mock.timers.tick(10000);
+  await pending;
+  assert.equal(removed, 1);
+});
+
 test('F951/F967/F970/F971 Bird Gen, PPTE and Date/Count Ticks render production styles', {timeout:120000}, () => {
   const output=fs.mkdtempSync(path.join(os.tmpdir(),'birdgen-f951-'));
   try {
     for (const [width,scale] of [[402,1],[320,1.75]]) {
       const result=spawnSync(process.execPath,[
+        '--require',path.join(__dirname,'fixtures','mockup-navigation.cjs'),
         path.join(ROOT,'assets','mockups.js'),'--only','f951-birdgen-all,ppte,section-lastNewBtn,f970-ticks-expanded,section-massBtn,section-ppteBtn',
         '--width',String(width),'--scale',String(scale),'--out',output
       ],{cwd:ROOT,encoding:'utf8',timeout:110000});
       assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+      assert.match(result.stdout,/CONTROLLED_INITIAL_IFRAME_DELAY=5000/);
       assert.match(result.stdout,/6 mockup\(s\)/);
       assert.ok(fs.existsSync(path.join(output,'ppte-'+width+'px.png')),
         'the dedicated PPTE release fixture must pass its real preparation guards');
