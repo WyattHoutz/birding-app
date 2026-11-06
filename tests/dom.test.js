@@ -5584,6 +5584,73 @@ test('F815 FOY overlaps add one visible reason while distinct flock events survi
   } finally { app.window.close(); }
 });
 
+test('F1246 ladder uses regional annual totals, complete ties and independent metric standings', async () => {
+  const app=await boot({sample:false});
+  try{
+    const A=app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'owner'}));
+    const scores=Array.from({length:98},(_,i)=>350-i).concat(Array(3).fill(251),
+      Array.from({length:71},(_,i)=>250-Math.floor(i*19/71)),
+      Array(6).fill(231),230,Array(3).fill(229),Array(4).fill(228),Array(10).fill(227),Array(8).fill(226));
+    while(scores.length<500)scores.push(225-Math.floor((scores.length-204)/4));
+    const rows=scores.map((species,i)=>({rank:scores.indexOf(species)+1,species,checklists:species+100,
+      profileId:i===196?'owner':'other'+i,name:i===196?'Owner':'Birder '+i}));
+    const own=rows[196],period=String(new app.window.Date().getFullYear());
+    const board={region:'US-WA',period,metric:'spp',rows,me:own};
+    const pair={boards:{spp:board,cl:{...board,metric:'cl',me:{...own,rank:31}}},
+      failures:{},stale:{},coverage:'controlled source'};
+    const countKey='ebird_ebirders_count_v1';
+    app.window.localStorage.setItem(countKey,JSON.stringify({
+      'US-WA':{date:A.todayStr(),n:16870},US:{date:A.todayStr(),n:242200},
+      lower48:{date:A.todayStr(),n:239900}
+    }));
+    const paint=region=>{
+      board.region=region;pair.boards.cl.region=region;
+      A.renderRankPair(pair,region,board.period,'Owner');
+    };
+    paint('US-WA');
+    const stops=()=>arr(app.document.querySelectorAll('.rankclimb-stop'),
+      stop=>stop.querySelector('.rankclimb-rank').textContent.trim());
+    assert.deepEqual(stops(),['🏆 #1','#10','#99','#173','#183','#187','#197']);
+    assert.equal(app.document.querySelectorAll('.rankclimb-arrow').length,6);
+    const last=app.document.querySelector('.rankclimb-stop.current');
+    assert.equal(last.querySelector('.rankclimb-cost').textContent,'You are here');
+    assert.equal(last.querySelector('.rankclimb-arrow'),null,'no arrow below the current rank');
+    assert.equal(app.document.querySelector('.rankbig').textContent,'#197/16,870');
+    assert.match(app.document.querySelector('.rankpercentile').textContent,/98\.8% have fewer species/);
+    assert.ok(app.document.querySelector('.rankstanding-history .rankbest'));
+    assert.ok(app.document.querySelector('.rankmetric-actions [data-rank-metric="cl"]'));
+    assert.equal(app.document.querySelector('.rankmetric-actions .ebirdlink').textContent,'Open in eBird');
+    assert.equal(app.document.querySelectorAll('table[aria-label="Leaderboard target answers"]').length,0);
+    assert.equal(app.document.querySelectorAll('table[aria-label="Five birders above and below you"] tbody tr').length,11);
+    for(const [region,total,label] of [['US',242200,'242.2K'],['lower48',239900,'239.9K']]){
+      paint(region);
+      assert.equal(app.document.querySelector('.rankbig').textContent,'#197/'+label);
+      assert.equal(app.document.querySelector('.rankbig').getAttribute('aria-label'),
+        'Rank 197 out of '+total+' birders');
+    }
+    app.click(app.document.querySelector('[data-rank-metric="cl"]'));
+    assert.equal(app.document.querySelector('[data-rank-metric="cl"]').getAttribute('aria-pressed'),'true');
+    assert.equal(app.document.querySelector('.rankbig').textContent,'#31/239.9K');
+    assert.equal(app.document.querySelector('.rankpercentile'),null,'Species percentile is not Checklist standing');
+    assert.equal(app.document.querySelector('.rankclimb-stop.current .rankclimb-rank').textContent,'#197');
+    app.click(app.document.querySelector('[data-rank-metric="spp"]'));
+    pair.stale.spp='controlled failed refresh';paint('lower48');
+    assert.equal(app.document.querySelector('.rankpercentile'),null,'a stale board does not claim a current percentile');
+    delete pair.stale.spp;
+    board.rows=rows.slice(0,204);paint('lower48');
+    assert.ok(app.document.querySelector('.ranktotal'));
+    assert.equal(app.document.querySelector('.rankpercentile'),null,'truncated ties are not a known percentile');
+    board.period=String(Number(period)-1);paint('lower48');
+    assert.equal(app.document.querySelector('.ranktotal'),null,'current-year count cannot label historical standing');
+    board.period=period;board.rows=rows;
+    app.window.localStorage.setItem(countKey,JSON.stringify({lower48:{date:A.todayStr(),n:null}}));
+    paint('lower48');
+    assert.equal(app.document.querySelector('.ranktotal'),null,'unknown denominator is omitted, never sample coverage');
+    assert.equal(app.document.querySelector('.rankpercentile'),null);
+  }finally{app.window.close();}
+});
+
 test('F857 acquisition retains 500 returned Species rows without raising the request budget', async () => {
   const rows=Array.from({length:500},(_,i)=>({rank:i+1,name:i===181?'Owner':'Birder '+i,
     profileId:i===181?'owner':'other'+i,species:1000-i,checklists:1000-i}));
@@ -5621,11 +5688,11 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     paint();
     let panel=app.document.querySelector('.ranknearby');
     assert.equal(panel.querySelectorAll('table[aria-label="Five birders above and below you"] tbody tr').length,11);
-    assert.match(panel.textContent,/213 sp\. · \+4 tie \/ \+5 exceed/);
-    assert.match(panel.textContent,/214 sp\. · exceed 1 higher birders/);
+    assert.match(panel.querySelector('.rankclimb').textContent,/#181\+4 species/);
+    assert.equal(panel.querySelector('.rankclimb-stop.current').textContent,'#182You are here');
     assert.equal(panel.querySelector('[aria-current="true"]').textContent,'#182You209—');
     assert.equal(app.$('rankSummary').firstElementChild,panel);
-    assert.equal(panel.querySelector('h3'),null);
+    assert.equal(panel.querySelector('h3').textContent,'Your ladder');
     pair.boards.cl={...board,metric:'cl',rows:[{...rows[0],name:'Other-board only',profileId:'cl-only'}]};
     paint();
     assert.doesNotMatch(app.document.querySelector('.ranknearby').textContent,/Other-board only/);
@@ -5639,7 +5706,7 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     board.rows=rows.filter(row=>row!==rows[5]);
     paint();
     assert.match(app.document.querySelector('.ranknearby').textContent,/outside the returned competitor table/);
-    assert.match(app.document.querySelector('.ranknearby').textContent,/#182 · 209 species/);
+    assert.equal(app.document.querySelector('.rankclimb-stop.current').textContent,'#182You are here');
     board.rows=rows;pair.stale.spp=board.readAt;
     paint();
     assert.match(app.document.querySelector('.ranknearby').textContent,/STALE/);
@@ -5652,7 +5719,7 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     const topRows=rows.map((row,i)=>({...row,rank:i+1,profileId:i===0?'owner':'top'+i}));
     board.rows=topRows;board.me=topRows[0];paint();
     assert.match(app.document.querySelector('.ranknearby').textContent,/Fewer than five higher/);
-    assert.match(app.document.querySelector('.ranknearby').textContent,/Already in Top 100/);
+    assert.equal(app.document.querySelectorAll('.rankclimb-stop').length,1);
     topRows[1].rank=1;topRows[1].species=topRows[0].species;topRows[2].rank=3;
     paint();
     assert.equal(app.document.querySelectorAll('.ranknearby [aria-current]').length,1);
@@ -5696,8 +5763,8 @@ test('F883 valid leaderboard ties do not masquerade as missing coverage', async 
     board.rows=cutoffRows;board.me=cutoffRows[104];
     A.renderRankPair(pair,'US-WA','2026','Owner');
     panel=app.document.querySelector('.ranknearby');
-    assert.match(panel.textContent,/Top 100 cutoff\s*402 sp\./);
-    assert.doesNotMatch(panel.textContent,/Top 100 cutoff\s*Unavailable/);
+    assert.match(panel.querySelector('.rankclimb').textContent,/#99\+6 species/);
+    assert.equal(panel.querySelector('.rankclimb-stop.current').textContent,'#105You are here');
   }finally{app.window.close();}
 });
 
@@ -13310,9 +13377,9 @@ test('F805/F812 selected period owns header metrics, personal screen and navigat
     assert.doesNotMatch(app.$('myYearList').textContent,/Date not supplied by eBird/);
   }
   app.click(app.$('hdrRankJump'));
-  await waitFor(()=>!app.$('rankBtn').disabled && app.$('rankResults').querySelector('.rankmetrics'),'life board');
+  await waitFor(()=>!app.$('rankBtn').disabled && app.document.querySelector('.rankmetrics'),'life board');
   assert.equal(app.$('sec-rankBtn').hidden,false);
-  assert.equal(app.$('rankResults').querySelector('[data-rank-metric="spp"]').getAttribute('aria-pressed'),'true');
+  assert.equal(app.document.querySelector('[data-rank-metric="spp"]').getAttribute('aria-pressed'),'true');
   assert.equal(app.$('rankResults').querySelector('.rankestimate'),null,'life mode never uses an annual estimate');
 });
 
@@ -15378,13 +15445,13 @@ test('F811 dual boards validate source ownership, stable identities and cache-on
     .replace('selected="selected"','')).period,'AAAA',
     'eBird All time uses the actual first-option HTML default, not an explicit selected attribute');
   app.open(/Top 100/);
-  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').querySelector('.rankmetrics'),
+  await waitFor(() => !app.$('rankBtn').disabled && app.document.querySelector('.rankmetrics'),
     'verified dual board');
   const calls = () => app.state.fetches.filter((url) => /top100/.test(url));
   assert.equal(calls().filter((url) => new URL(url).searchParams.get('rankedBy') === 'cl').length, 1);
   assert.equal(app.$('rankResults').querySelectorAll('.rankrow').length, 3,
     'Species uses only its own returned participants');
-  const clButton = app.$('rankResults').querySelector('[data-rank-metric="cl"]');
+  const clButton = app.document.querySelector('[data-rank-metric="cl"]');
   const before = calls().length;
   app.click(clButton);
   assert.equal(calls().length, before, 'switching metric never reacquires boards');
@@ -15724,9 +15791,9 @@ test('rankings: history is compact above the official Top 100 order', async () =
     'the filter still carries a row-level freshness badge');
   assert.doesNotMatch(HTML, /id:\s*'rankNewOnly',\s*cls:\s*'ranknewbtn'/,
     'the leaderboard filter does not retain its one-off button treatment');
-  const boardLink = app.document.querySelector('.rankebirdaction .ebirdlink');
+  const boardLink = app.document.querySelector('.rankmetric-actions .ebirdlink');
   assert.ok(boardLink, 'the Top 100 page hides its eBird source below the list');
-  assert.match(boardLink.textContent, /Open this leaderboard in eBird/);
+  assert.equal(boardLink.textContent, 'Open in eBird');
   assert.match(boardLink.getAttribute('data-href'), /ebird\.org\/top100/);
   assert.match(HTML,
     /\.rankrow\.hscard-md\s*>\s*\.name\s*>\s*\.rankstack\s*\{[^}]*align-items:\s*flex-start[^}]*width:\s*auto/s,

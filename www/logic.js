@@ -4610,6 +4610,63 @@
   }
 
 
+  function rankClimbGoals(rows, own) {
+    if (!own || !Number.isInteger(own.rank) || own.rank < 1
+        || !Number.isInteger(own.species) || own.species < 0) return null;
+    var prefix = [], groupSize = 0;
+    (rows || []).some(function (row) {
+      if (!row || !Number.isInteger(row.rank) || row.rank < 1
+          || !Number.isInteger(row.species) || row.species < 0) return true;
+      var previous = prefix[prefix.length - 1];
+      if (previous) {
+        if (row.rank === previous.rank) {
+          if (row.species !== previous.species) return true;
+        } else {
+          if (row.rank !== previous.rank + groupSize || row.species >= previous.species) return true;
+          groupSize = 0;
+        }
+      }
+      prefix.push(row); groupSize++;
+      return false;
+    });
+    var ownIndex = prefix.findIndex(function (row) {
+      return row.rank === own.rank && row.species === own.species;
+    });
+    var stops = {};
+    function add(total, win) {
+      if (!prefix.length || total <= own.species
+          || (prefix[0].rank !== 1 && total > prefix[0].species)
+          || (ownIndex < 0 && total < prefix[prefix.length - 1].species)) return;
+      var rank = prefix[0].rank + prefix.filter(function (row) { return row.species > total; }).length;
+      if (rank >= own.rank) return;
+      var goal = {rank: rank, total: total, cost: total - own.species, win: !!win};
+      if (!stops[rank] || win || (!stops[rank].win && goal.cost < stops[rank].cost)) stops[rank] = goal;
+    }
+    if (prefix.length && prefix[0].rank === 1) {
+      add(prefix[0].species + 1, true);
+      [10, 100].forEach(function (cutoff) {
+        if (prefix.length >= cutoff) add(prefix[cutoff - 1].species, false);
+      });
+    }
+    if (ownIndex >= 0) {
+      [1, 2, 5].forEach(function (gain) { add(own.species + gain, false); });
+      var higher = prefix.filter(function (row) { return row.species > own.species; });
+      if (higher.length) add(higher[higher.length - 1].species, false);
+    }
+    var ties = prefix.filter(function (row) {
+      return row.rank === own.rank && row.species === own.species;
+    }).length;
+    var next = prefix.find(function (row) { return row.rank > own.rank; });
+    var result = Object.keys(stops).map(function (rank) { return stops[rank]; })
+      .sort(function (a, b) { return a.rank - b.rank; });
+    result.push({rank: own.rank, total: own.species, cost: 0, current: true});
+    return {stops: result, localAvailable: ownIndex >= 0,
+      missingMilestones: [1,10,100].filter(function (rank) {
+        return own.rank > rank && (!prefix.length || prefix[0].rank !== 1 || prefix.length < rank);
+      }),
+      tieCount: ownIndex >= 0 && next && next.rank === own.rank + ties ? ties : null};
+  }
+
   //
   // "alerts on unseen birds in chase area... for example the spotted sandpiper
   //  showed up at redmond retention ponds and i missed it because it was not
@@ -5108,6 +5165,7 @@
     resolveReportAs: resolveReportAs,
     resolvePersonalList: resolvePersonalList,
     rankSeasonBest: rankSeasonBest,
+    rankClimbGoals: rankClimbGoals,
     RANK_WINDOWS: RANK_WINDOWS,
     JARGON: JARGON,
     CONF_FRESH_H: CONF_FRESH_H,

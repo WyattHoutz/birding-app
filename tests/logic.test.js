@@ -18,6 +18,32 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const BL = require(process.env.BIRDCHASER_LOGIC || path.join(__dirname, '..', 'www', 'logic.js'));
+test('F1246 projected competition ranks group ties and terminate at the current rank',()=>{
+  const rows=[{rank:1,species:10},{rank:2,species:9},{rank:2,species:9},
+    {rank:4,species:8},{rank:5,species:7},{rank:6,species:6}];
+  const result=BL.rankClimbGoals(rows,rows[4]);
+  assert.deepEqual(result.stops.map(stop=>[stop.rank,stop.cost]),[[1,4],[2,2],[4,1],[5,0]]);
+  assert.equal(result.stops.at(-1).current,true);
+  assert.equal(result.stops[0].total,11,'the trophy goal exceeds the leading score');
+  assert.equal(result.tieCount,1);
+});
+test('F1246 missing rank coverage cannot manufacture local climb targets or a percentile',()=>{
+  const rows=[{rank:1,species:10},{rank:2,species:9},{rank:2,species:9},
+    {rank:5,species:7},{rank:6,species:6}];
+  const result=BL.rankClimbGoals(rows,rows[3]);
+  assert.equal(result.localAvailable,false);
+  assert.deepEqual(result.stops.map(stop=>stop.rank),[1,5]);
+  assert.equal(result.tieCount,null);
+  assert.equal(BL.rankClimbGoals(rows.slice(0,3),rows[1]).tieCount,null);
+  assert.equal(BL.rankClimbGoals(rows,null),null);
+});
+test('F1246 a known standing beyond returned rows retains only covered goals',()=>{
+  const rows=[{rank:1,species:10},{rank:2,species:9},{rank:3,species:8}];
+  const result=BL.rankClimbGoals(rows,{rank:6001,species:7});
+  assert.equal(result.localAvailable,false);
+  assert.deepEqual(result.stops.map(stop=>[stop.rank,stop.cost]),[[1,4],[6001,0]]);
+  assert.equal(result.tieCount,null);
+});
 const TRAVEL = JSON.parse(fs.readFileSync(
   path.join(__dirname, '..', 'www', 'travel-zones.json'), 'utf8'));
 

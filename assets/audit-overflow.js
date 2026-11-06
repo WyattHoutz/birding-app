@@ -1515,7 +1515,7 @@ const AUDIT = `<script>
         rows:neighborRows,me:neighborRows[7],readAt:'2026-10-09T12:00:00Z'}},
         failures:{},stale:{},coverage:'REPRESENTATIVE DATA'},
         'US-WA','2026','You');
-      document.querySelector('#rankResults [data-rank-metric="spp"]').click();
+      document.querySelector('.rankcurrent-widget [data-rank-metric="spp"]').click();
       var nearbyScan=scan('(F857 compact neighbor tables)');
       var neighborPanel=document.querySelector('.ranknearby');
       nearbyScan.nearbyRows=neighborPanel.querySelectorAll(

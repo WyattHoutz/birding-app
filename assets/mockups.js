@@ -3245,19 +3245,26 @@ const BOOTSTRAP = `
       checklistBoard.me = checklistBoard.rows.find(function (row) {
         return row.profileId === speciesBoard.me.profileId;
       });
+      var countKey='ebird_ebirders_count_v1',priorCount=localStorage.getItem(countKey);
+      localStorage.setItem(countKey,JSON.stringify({'US-WA':{date:A.todayStr(),n:16870}}));
       A.renderRankPair({boards:{spp:speciesBoard,cl:checklistBoard},
         failures:{},stale:{},coverage:'REPRESENTATIVE STUB DATA · Both metric boards, Washington 2026'},
         'US-WA','2026','Sample Birder');
+      if(priorCount===null)localStorage.removeItem(countKey);
+      else localStorage.setItem(countKey,priorCount);
       if(priorIdentity===null) localStorage.removeItem(A.IDENTITY_META_KEY);
       else localStorage.setItem(A.IDENTITY_META_KEY,priorIdentity);
       sec.setAttribute('data-mock-data','true');
-      var metricButtons = document.querySelectorAll('#rankResults [data-rank-metric]');
+      var metricButtons = document.querySelectorAll('.rankcurrent-widget [data-rank-metric]');
       if (metricButtons.length !== 2
-          || metricButtons[0].textContent !== 'Species'
-          || metricButtons[1].textContent !== 'Checklists') {
+          || metricButtons[0].dataset.label !== 'Species'
+          || metricButtons[1].dataset.label !== 'Checklists') {
         throw new Error('Top 100 gallery lost production dual-board controls');
       }
-      var seasonBest = document.querySelector('#rankSummary .rankbest');
+      var seasonBest = document.querySelector('.rankcurrent-widget .rankbest');
+      var annualTotal = document.querySelector('.rankcurrent-widget .ranktotal');
+      if(!annualTotal || annualTotal.textContent !== '/16,870')
+        throw new Error('Top 100 fixture lost its controlled annual regional total');
       if (!seasonBest
           || seasonBest.textContent.replace(/\\s+/g, ' ').trim()
             !== 'Season best #170 · first reached Aug 20') {

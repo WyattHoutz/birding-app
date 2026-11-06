@@ -3087,6 +3087,42 @@
     .rankhistorycard > .ranktrend { min-width: 0; margin-top: 0; padding-top: 0;
                                     border-top: 0; }
     .rankhistorycard .rankwin { white-space: normal; }
+    .rankhistorycard > .rankbig.rankwide { font-size: calc(22px * var(--s)); }
+    .ranktotal { display:inline-block; font-size:calc(14px * var(--s)); font-weight:600;
+                 line-height:1; letter-spacing:normal; white-space:nowrap; }
+    .rankstanding-history { grid-column:1 / -1; min-width:0; }
+    .rankstanding-history .rankbest { display:block; font-size:calc(11px * var(--s)); }
+    .rankpercentile { font-size:calc(12px * var(--s)); margin:0 0 6px; }
+    .rankmetric-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 12px; }
+    .rankmetric-actions .rankmetrics { margin:0; }
+    .rankmetric-actions > .ebirdlink { margin:0; align-self:stretch; }
+    .rankclimb { color:var(--ink); margin:10px 0 12px; }
+    .rankclimb h3 { margin:0 0 8px; font-size:calc(22px * var(--s)); }
+    .rankclimb-route { margin:0; padding:0; list-style:none; }
+    .rankclimb-stop { margin:0; padding:0; }
+    .rankclimb-head { display:grid; grid-template-columns:calc(80px * var(--s)) minmax(0,1fr);
+                      gap:12px; align-items:center; padding-right:8px; border:1px solid var(--line);
+                      border-radius:12px; background:linear-gradient(90deg,rgba(0,114,178,.14),rgba(0,114,178,.04)); }
+    .rankclimb-rank { display:flex; align-items:center; justify-content:center; gap:4px; padding:3px 0;
+                      border-radius:11px; white-space:nowrap; color:#fff; background:#0072B2;
+                      font-weight:900; font-size:calc(26px * var(--s)); line-height:1.15;
+                      letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+    .rankclimb-stop.win .rankclimb-head { background:linear-gradient(90deg,rgba(230,159,0,.2),rgba(230,159,0,.05)); }
+    .rankclimb-stop.win .rankclimb-rank { color:#222; background:#E69F00; }
+    .rankclimb-stop.current .rankclimb-head { border:2px solid var(--ink); background:color-mix(in srgb,var(--ink) 6%,transparent); }
+    .rankclimb-stop.current .rankclimb-rank { color:#fff; background:#222; }
+    .rankclimb-stop.wide .rankclimb-rank { font-size:calc(16px * var(--s)); }
+    .rankclimb-cost { font-size:calc(18px * var(--s)); font-weight:850; }
+    .rankclimb-trophy { font-size:calc(18px * var(--s)); }
+    .rankclimb-arrow { display:flex; justify-content:center; width:calc(80px * var(--s)); color:#0072B2; }
+    .rankclimb-arrow svg { display:block; width:calc(28px * var(--s)); height:calc(18px * var(--s)); }
+    .ranknearby-title { margin:20px 0 6px; font-size:calc(16px * var(--s)); font-weight:850; }
+    @media(max-width:360px) {
+      .rankcurrent-widget .rankhistorycard { grid-template-columns:minmax(0,1fr); }
+      .rankclimb-head { grid-template-columns:calc(72px * var(--s)) minmax(0,1fr); gap:8px; padding-right:6px; }
+      .rankclimb-rank { font-size:calc(24px * var(--s)); }
+      .rankclimb-arrow { width:calc(72px * var(--s)); }
+    }
     .ranktable { font-variant-numeric: tabular-nums; }
     /* F246, owner 2026-08-29: "in the top 100, increase the font size by 50%
        ... just for the rows, not everythings". ONE multiplier drives the row,
@@ -32719,6 +32755,8 @@
         });
       }
       function renderRankPair(pair, region, period, name) {
+        var previousWidget = document.querySelector('.rankcurrent-widget');
+        if (previousWidget) previousWidget.remove();
         var selected = pair.boards[_rankMetric];
         var data = rankSourceMatches(selected, region, period, _rankMetric)
           && (selected.profile == null || selected.profile === bcProfile())
@@ -32737,7 +32775,7 @@
           nearby.className = 'ranknearby';
           nearby.innerHTML = rankNearbyHTML(pair.boards.spp, region, period, name,
             pair.stale && pair.stale.spp);
-          $('rankSummary').prepend(nearby);
+          $('rankSummary').append(nearby);
           var verify = nearby.querySelector('[data-rank-verify], [data-rank-account]');
           if (verify) verify.addEventListener('click', function () {
             verify.disabled = true;
@@ -32758,21 +32796,32 @@
         coverage.className = 'hint rankcoverage';
         coverage.textContent = pair.coverage;
         $('rankResults').prepend(coverage);
-        var controls = document.createElement('div');
-        controls.className = 'daytripranges rankmetrics';
-        controls.setAttribute('aria-label', 'Top 100 ranking metric');
-        ['spp', 'cl'].forEach(function (metric) {
-          var button = document.createElement('button');
-          button.type = 'button'; button.className = 'secondary';
-          button.dataset.rankMetric = metric;
-          button.textContent = metric === 'cl' ? 'Checklists' : 'Species';
-          button.setAttribute('aria-pressed', String(_rankMetric === metric));
+        var template = document.createElement('template');
+        template.innerHTML = ToggleControls.pill({label:'Top 100 ranking metric',cls:'rankmetrics',
+          options:['spp','cl'].map(function (metric) {
+            return {label:metric === 'cl' ? 'Checklists' : 'Species',pressed:_rankMetric === metric,
+              data:{'rank-metric':metric}};
+          })});
+        var controls = template.content.firstElementChild;
+        controls.querySelectorAll('button').forEach(function (button) {
+          var metric = button.dataset.rankMetric;
           button.addEventListener('click', function () {
             _rankMetric = metric; renderRankPair(pair, region, period, name);
           });
-          controls.appendChild(button);
         });
-        $('rankResults').prepend(controls);
+        var widget = document.createElement('div'), actions = document.createElement('div');
+        widget.className = 'rankcurrent-widget'; actions.className = 'rankmetric-actions';
+        var standing = $('rankSummary').querySelector('.rankcard,.rankidentityprompt');
+        if (standing) widget.append(standing);
+        actions.append(controls);
+        var boardAction = $('rankResults').querySelector('.rankebirdaction');
+        if (boardAction) {
+          var ebird = boardAction.querySelector('button');
+          ebird.setAttribute('aria-label','Open this leaderboard in eBird');
+          ebird.textContent = 'Open in eBird'; actions.append(ebird); boardAction.remove();
+        }
+        widget.append(actions);
+        $('rankStatus').before(widget);
       }
       function loadRankings(explicit, authenticated) {
         var force = takeForce() || explicit === true;
@@ -32890,11 +32939,6 @@
             + '<button type="button" class="secondary" ' + (verified ? 'data-rank-account>Load signed-in leaderboard' : 'data-rank-verify>Verify my eBird profile') + '</button>'
             + '<span role="status"></span>';
         }
-        var answers = [['Your standing', '#' + rankNum(own.rank) + ' · ' + own.species + ' species']];
-        function target(label, total) {
-          answers.push([label, total + ' sp. · +' + (total - own.species)
-            + ' tie / +' + (total - own.species + 1) + ' exceed']);
-        }
         var index = rows.indexOf(me);
         var windowRows = index < 0 ? [] : rows.slice(Math.max(0, index - 5), index + 6);
         var rankCounts = {};
@@ -32910,34 +32954,26 @@
           if (!i) return true;
           return transitionIsComplete(windowRows[i - 1], row);
         });
-        if (index >= 0) {
-          var higher = rows.slice(0, index).filter(function (row) {
-            return Number.isInteger(row.species) && row.species > own.species;
-          });
-          if (!contiguous) answers.push(['Next higher total', 'Unavailable: gaps in returned rows']);
-          else if (higher.length) target('Next higher total', higher[higher.length - 1].species);
-          else answers.push(['Next higher total', 'No higher total in returned coverage']);
-          var cutoffComplete = rows.length >= 100 && rows[0].rank === 1
-            && rows.slice(1, 100).every(function (row, i) {
-              return transitionIsComplete(rows[i], row);
-            });
-          var cutoff = cutoffComplete ? rows[99] : null;
-          if (cutoff && cutoff.species > own.species) target('Top 100 cutoff', cutoff.species);
-          else answers.push(['Top 100 cutoff', own.rank <= 100 ? 'Already in Top 100'
-            : 'Unavailable in returned coverage']);
-          answers.push(['If you add 5', (own.species + 5) + ' sp. · exceed '
-            + higher.filter(function (row) { return row.species < own.species + 5; }).length
-            + ' higher birders in returned coverage']);
-        }
-        var html = coverage + '<table aria-label="Leaderboard target answers"><tbody>'
-          + answers.map(function (answer) {
-            return '<tr><th scope="row">' + esc(answer[0]) + '</th><td>' + esc(answer[1]) + '</td></tr>';
-          }).join('') + '</tbody></table>';
+        var climb = BL.rankClimbGoals(rows, own);
+        var html = coverage + '<section class="rankclimb" aria-label="Species rank-climb goals">'
+          + '<h3>Your ladder</h3><ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
+          + climb.stops.map(function (stop, i) {
+            return '<li class="rankclimb-stop' + (stop.win ? ' win' : '') + (stop.current ? ' current' : '')
+              + (stop.rank >= 1000 ? ' wide' : '') + '"><div class="rankclimb-head">'
+              + '<span class="rankclimb-rank">' + (stop.rank === 1 ? '<span class="rankclimb-trophy" aria-hidden="true">🏆</span> ' : '')
+              + '#' + esc(rankNum(stop.rank)) + '</span><span class="rankclimb-cost">'
+              + (stop.current ? 'You are here' : '+' + esc(rankNum(stop.cost)) + ' species') + '</span></div>'
+              + (i < climb.stops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
+                + '<svg viewBox="0 0 24 28" preserveAspectRatio="none"><path d="M12 1L1 12H8V27H16V12H23Z" fill="currentColor"/></svg></div>' : '')
+              + '</li>';
+          }).join('') + '</ol><p class="hint">Snapshot goals assume unchanged totals; ties can skip rank positions.'
+          + (climb.missingMilestones.length ? ' Some top-board milestones are unavailable in returned coverage.' : '')
+          + (!climb.localAvailable ? ' Local climb targets unavailable in returned coverage.' : '') + '</p></section>';
         if (index < 0) return html + unavailable
           + 'your standing is known, but your row is outside the returned competitor table.</p>';
         if (!contiguous) return html + unavailable
           + 'there are gaps around your row in returned coverage. Open the board in eBird.</p>';
-        html += '<table aria-label="Five birders above and below you"><thead><tr>'
+        html += '<h3 class="ranknearby-title">Birders around you</h3><table aria-label="Five birders above and below you"><thead><tr>'
           + '<th scope="col">Rank</th><th scope="col">Birder</th>'
           + '<th scope="col" class="ranknumber">Species</th><th scope="col" class="ranknumber">Gap</th>'
           + '</tr></thead><tbody>' + windowRows.map(function (row) {
@@ -32972,7 +33008,7 @@
         card.setAttribute('aria-label', metricLabel + ' personal standing for ' + label + ' ' + period);
         if (me) {
           card.className = 'rankcard rankhistorycard';
-          card.innerHTML = '<div class="rankbig">#' + esc(rankNum(me.rank)) + '</div>';
+          card.innerHTML = '<div class="rankbig' + (me.rank >= 100000 ? ' rankwide' : '') + '">#' + esc(rankNum(me.rank)) + '</div>';
         } else if (!name) {
           card.className = 'rankidentityprompt hint';
           card.innerHTML =
@@ -33027,6 +33063,38 @@
           var trend = document.createElement('div');
           trend.innerHTML = rankTrendHTML(rankHistRecord(historyOwner, me));
           card.appendChild(trend.firstChild);
+          var history = document.createElement('div');
+          history.className = 'rankstanding-history';
+          card.querySelectorAll('.rankbest,.spark').forEach(function (node) { history.append(node); });
+          card.append(history);
+          if (String(period) === String(year)) {
+            var countOwner = bcProfile(), countRevision = identityRevision(), countDay = todayStr();
+            var applyCount = function (total) {
+              if (!card.isConnected || countOwner !== bcProfile() || countRevision !== identityRevision()
+                  || countDay !== todayStr() || String(period) !== String(new Date().getFullYear())
+                  || !Number.isInteger(me.rank) || me.rank < 1
+                  || !Number.isInteger(total) || total < me.rank || total < 1) return;
+              var big = card.querySelector('.rankbig');
+              var denominator = big.querySelector('.ranktotal') || document.createElement('span');
+              denominator.className = 'ranktotal';
+              denominator.textContent = '/' + (total >= 100000
+                ? new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(total)
+                : rankNum(total));
+              big.append(denominator);
+              big.setAttribute('aria-label','Rank ' + me.rank + ' out of ' + total + ' birders');
+              var goals = metric === 'spp' ? BL.rankClimbGoals(rows, me) : null;
+              if (goals && goals.tieCount != null && !(pair && pair.stale && pair.stale[metric])
+                  && me.rank - 1 + goals.tieCount <= total) {
+                var percentile = (100 * (total - (me.rank - 1) - goals.tieCount) / total).toFixed(1);
+                var line = history.querySelector('.rankpercentile') || document.createElement('p');
+                line.className = 'rankpercentile';
+                line.innerHTML = '<b>Percentile: ' + percentile + '</b> · ' + percentile + '% have fewer species';
+                history.prepend(line);
+              }
+            };
+            applyCount(cachedEbirderCount(region));
+            ebirderCount(region).then(applyCount).catch(function () {});
+          }
         }
 
         // The full board, in the same section as the standing it explains — the
