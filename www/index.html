@@ -3787,6 +3787,32 @@
     #setupSheetBody input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
     #setupSheet .setuppanel, #setupHomeCandidate { display: grid; gap: 12px; }
     #setupSheetBody details > summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+    .prefetch-count, .prefetch-list, .prefetch-action, .prefetch-hint {
+      width: 100%; max-width: 320px; margin-left: auto; margin-right: auto;
+    }
+    .prefetch-count { font-size: calc(15px * var(--s)); font-weight: 600; }
+    .prefetch-list { list-style: none; padding: 0; display: grid; gap: 4px; }
+    .prefetch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px; align-items: center; font-size: calc(17px * var(--s));
+      font-weight: 600; line-height: 1.2; }
+    .prefetch-name { padding: 4px 8px; border: 2px solid var(--muted);
+      border-radius: var(--btn-radius); background: var(--card); color: var(--ink); }
+    .prefetch-row[data-state="ready"] .prefetch-name {
+      background: var(--band); border-color: var(--accent);
+    }
+    .prefetch-row[data-state="loading"] .prefetch-name {
+      background: color-mix(in srgb, var(--band) 45%, var(--card)); border-style: dashed;
+    }
+    .prefetch-icon { display: grid; place-items: center; width: 32px; height: 32px; }
+    .prefetch-icon svg { width: 100%; height: 100%; }
+    .prefetch-detail { display: block; font-size: calc(12px * var(--s)); font-weight: 400; }
+    .prefetch-hint { font-size: calc(12px * var(--s)); font-style: italic; color: var(--muted); }
+    .prefetch-action { display: block; }
+    #setupSheetBody .prefetch-action:disabled { opacity: 1; color: var(--muted); background: var(--bg); }
+    @media (prefers-reduced-motion: no-preference) {
+      .prefetch-spinner { transform-origin: 16px 16px; animation: prefetch-spin 1.5s linear infinite; }
+    }
+    @keyframes prefetch-spin { to { transform: rotate(360deg); } }
     .setupheading { display: grid; grid-template-columns: minmax(0, 1fr) 44px;
       gap: 8px; align-items: start; }
     #setupSheetBody button.setuphelpicon { width: 44px; height: 44px; min-height: 44px;
@@ -4758,6 +4784,7 @@
   <script src="cards-species.js"></script>
   <script src="spuh.js"></script>
   <script src="taxonomy.js"></script>
+  <script src="setup-prefetch.js"></script>
   <script src="cards-hotspot.js"></script>
   <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
@@ -5285,7 +5312,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.182.1';
+      var APP_VERSION = '1.183.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -8348,7 +8375,7 @@
         ].join('|');
       }
 
-      function ensureCountyAcquisitionScope(anchor, radius, refreshHotspots) {
+      function ensureCountyAcquisitionScope(anchor, radius, refreshHotspots, ownerWork) {
         var report = getReport(), slug = getReportSlug();
         var selected = getCountyView();
         if (selected) return Promise.resolve(getCounties());
@@ -8364,7 +8391,7 @@
           return Promise.resolve(_runtimeCountyScopes[slug].slice());
         }
         if (_countyScopeInflight[key]) return _countyScopeInflight[key];
-        var work = navWork('county acquisition scope');
+        var work = ownerWork || navWork('county acquisition scope');
         var promise = deriveCountyCandidates(anchor, radius, parent, work, refreshHotspots)
           .then(function (rows) {
           if (!workCurrent(work) || slug !== getReportSlug()) {
@@ -9392,6 +9419,7 @@
         return at;
       }
       function fgSlot(bg, work) {
+        if (work && work.initialDataset) bg = !(work.promoted || work.initialDataset.promoted);
         if (fgDead()) return new Promise(function () {});
         if (!work || !work.recentBirdGen) yieldAutomaticRecentBirdGen();
         return new Promise(function (resolve, reject) {
@@ -9415,7 +9443,7 @@
               starts: _fgStarts.slice(),
               holdWhy: _fgHoldWhy
             };
-            var at = fgSchedule(now, bg);
+            var at = fgSchedule(now, job.bg);
             job.scheduledAt = at;
             var wait = at - now;
             function grant() {
@@ -21616,8 +21644,9 @@
         var scored = [];
         for (var code in byCode) {
           if (!Object.prototype.hasOwnProperty.call(byCode, code)) continue;
-          n++;
           var o = byCode[code], lc = String(code).toLowerCase();
+          if (!BL.countableTaxon(o.comName)) continue;
+          n++;
           var isRare = !!(rarityCodes && rarityCodes[lc]);
           var isWatch = !!nv[lc];
           var membership = isSpeciesSeen(code, o.comName);
@@ -22230,12 +22259,13 @@
         });
         _taxonomyReferenceEpoch++;
       }
-      function checkTaxonomyEdition(force) {
+      function checkTaxonomyEdition(force, ownerWork) {
         var scope = activeScope(), generation = ++_taxonomyGeneration, epoch = _taxonomyEpoch;
         var work = cancellableWork('Taxonomy edition reference', 'settingsPanel');
+        work.initialDataset = ownerWork && ownerWork.initialDataset;
         work.current = function () {
           return scopeCurrent(scope) && generation === _taxonomyGeneration && epoch === _taxonomyEpoch
-            && work.cancelGeneration === _workCancelGeneration;
+            && (ownerWork ? workCurrent(ownerWork) : work.cancelGeneration === _workCancelGeneration);
         };
         if (!getKey()) {
           $('taxonomyStatus').textContent = 'Add your eBird API key to check the official taxonomy edition.';
@@ -29855,7 +29885,7 @@
           if (!draft || !draft.approved || !draft.region) return 'home';
         }
         if (step === 'seen' && !getHome()) return 'home';
-        return SETUP_STEPS.indexOf(step) >= 0 || step === 'summary' ? step : 'account';
+        return SETUP_STEPS.indexOf(step) >= 0 || step === 'summary' || step === 'loading' ? step : 'account';
       }
       function setupWebsiteConnected() {
         var meta = getIdentityMeta();
@@ -29937,10 +29967,332 @@
         var heading = $('setupStepTitle');
         if (heading) heading.focus({ preventScroll: true });
       }
-      function finishSetup() {
+      var _setupPrefetch = null;
+      var SETUP_PREFETCH_GROUPS = [
+        ['Taxonomy', ['taxonomy']], ['My Year List', ['personal']],
+        ['Rare Bird Alerts', ['rba']], ['Sightings', ['sightings']],
+        ['Today\u2019s Patches', ['patches']],
+        ['Bird Gen', ['mega', 'birdcast', 'foy', 'favorites', 'mass', 'ppte', 'cascades', 'busy', 'sightings']],
+        ['Busy Patches', ['busy']], ['Rankings', ['rankings']]
+      ];
+      function setupPrefetchContext() {
+        return [bcProfile(), identityRevision(), _identityGeneration, getKey(),
+          activeScope().cacheIdentity, personalPeriod(), JSON.stringify(getHome()),
+          getCountyView(), chaseMaxMi(), JSON.stringify(getAnchors()), getAbaSid(), todayStr()].join('|');
+      }
+      function setupPrefetchEligible() {
+        var evidence = personalListEvidence();
+        return setupWebsiteConnected() && !!getReportSlug() && apiKeyVerified() && !!getHome()
+          && evidence.complete && !evidence.stale && !evidence.failure;
+      }
+      function acquireInitialDatasetTasks(scope, work) {
+        var sourceWorks = {};
+        function sourceWork(key) {
+          if (!sourceWorks[key]) sourceWorks[key] = Object.assign({}, work, {
+            initialDataset: { key: key, promoted: false }
+          });
+          return sourceWorks[key];
+        }
+        function verified(value, condition, message) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          if (!condition) throw new Error(message);
+          return { state: 'ready', value: value };
+        }
+        function retained(key, result) {
+          if (!workCurrent(work)) throw queueCancelledError(work);
+          if (!result || ['ok', 'notApplicable'].indexOf(result.state) < 0) {
+            return { state: result && result.state === 'partial' ? 'partial' : 'failed',
+              detail: result && result.coverage || 'Source is incomplete' };
+          }
+          return saveSurgeRetainedPart(key, result).then(function (stored) {
+            var checked = verified(result, stored, 'The source could not be saved.');
+            if (result.state === 'notApplicable') checked.state = 'notApplicable';
+            else if (Array.isArray(result.rows) && !result.rows.length) checked.state = 'empty';
+            return checked;
+          });
+        }
+        var tasks = {
+          taxonomy: { acquire: function (retry) {
+            return checkTaxonomyEdition(retry, sourceWork('taxonomy')).then(function (ok) {
+              return verified(_taxonomyModel, ok && !!_taxonomyModel, 'Taxonomy could not be verified.');
+            });
+          } },
+          personal: { depends: ['taxonomy'], acquire: function (retry) {
+            return preparePersonalList(scope, retry).then(function (list) {
+              var evidence = personalListEvidence(scope);
+              return verified(list, evidence.complete && !evidence.stale && !evidence.failure,
+                'The exact personal list could not be verified.');
+            });
+          } },
+          rba: { depends: ['taxonomy'], acquire: function (retry) {
+            return Promise.all([
+              getChaseRarity(retry, true, sourceWork('rba')),
+              stateRbaRecords(retry, null, scope.effectiveRegion, false)
+            ]).then(function (results) {
+              return verified(results, results[0] && results[0].feedComplete
+                && !results[0].feedFailed && results[1] && results[1].complete
+                && results[1].retentionSaved !== false, 'Rare Bird Alert coverage is incomplete.');
+            });
+          } },
+          sightings: { depends: ['personal'], acquire: function (retry) {
+            return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi(), false, sourceWork('sightings'))
+              .then(function () { return getChaseAll(retry ? 'failed' : false, null, sourceWork('sightings')); })
+              .then(function (result) { return _chasePhase2[getReportSlug()] || result; })
+              .then(function (result) {
+                if (!result || !result.feedComplete || result.feedFailed) {
+                  throw new Error('Sightings coverage is incomplete.');
+                }
+                return loadChaseSnapshot(getReportSlug()).then(function (snapshot) {
+                  return verified(result, chaseSnapshotCompatible(snapshot, result.profile || chaseProfile())
+                    && Date.now() - snapshot.t < CHASE_TTL_MS,
+                    'The complete sightings snapshot could not be saved.');
+                });
+              });
+          } },
+          patches: { depends: ['sightings'], acquire: function (retry, values) {
+            return loadTravelZones().then(function (cfg) {
+              var result = values.sightings;
+              var projected = projectChaseResult(result,
+                Object.assign({}, result.profile || chaseProfile(), { travelCfg: cfg }), getReportSlug());
+              return verified(projected, projected && projected.cv
+                && Array.isArray(projected.cv.destinations), 'Patch projection is unavailable.');
+            });
+          } },
+          mega: { depends: ['rba'], acquire: function (retry) {
+            return lazyRefreshMegaSnapshot(null, retry, work.current, false).then(function () {
+              var state = megaAlertSourceState(megaLane(getAnchors()));
+              if (state === 'notApplicable') return { state: 'notApplicable' };
+              return verified(megaLane(getAnchors()), state === 'ok', 'Mega snapshot is unavailable.');
+            });
+          } },
+          birdcast: { acquire: function (retry) {
+            return loadBirdcastSnapshot(new Date(), retry, false, sourceWork('birdcast')).then(function (snapshot) {
+              if (!snapshot) return { state: 'notApplicable' };
+              return verified(snapshot, !snapshot.forecastError && !snapshot.countError
+                && !snapshot.migrantsError && snapshot.saved,
+                'BirdCast coverage is incomplete or could not be saved.');
+            });
+          } },
+          foy: { depends: ['personal'], acquire: function (retry) {
+            return ensureFoy(retry, work.current, null, false, sourceWork('foy')).then(function (result) {
+              return verified(result, result && result.saved && !result.error,
+                result && result.error || 'Annual-first history could not be saved.');
+            });
+          } },
+          favorites: { depends: ['personal'], acquire: function (retry) {
+            return loadFavoritePatchAlertSource(retry, scope, null, null, sourceWork('favorites'))
+              .then(function (result) { return retained('favorite', result); });
+          } },
+          mass: { depends: ['sightings'], acquire: function (retry) {
+            return loadMassFlockAlertSource(retry, scope, null, {
+              ownerWork: sourceWork('mass'), current: work.current, allowBrowser: false
+            })
+              .then(function (result) { return retained('mass', result); });
+          } },
+          ppte: { depends: ['rba', 'sightings'], acquire: function (retry) {
+            return loadPpteAlertSource(retry, work.current)
+              .then(function (result) { return retained('ppte', result); });
+          } },
+          busy: { depends: ['sightings'], acquire: function (retry) {
+            return acquireBusyPatches(false, retry, sourceWork('busy')).then(function (result) {
+              if (!result || !result.busyState || result.busyState.pending
+                  || result.busyState.partial || result.busyState.failed) {
+                throw new Error('Busy Patch reference coverage is incomplete.');
+              }
+              var key = hotCacheKey(), raw = null;
+              try { raw = localStorage.getItem(key); } catch (error) {}
+              return (raw ? unpackJson(raw) : Promise.resolve(null)).then(function (saved) {
+                if (saved && saved.busyState && !saved.busyState.partial
+                    && saved.busyState.at === result.busyState.at && Array.isArray(saved.busy)) {
+                  return verified(result, true, '');
+                }
+                return hotCacheSave(result, key).then(function (stored) {
+                  return verified(result, stored, 'The Busy Patch snapshot could not be saved.');
+                });
+              });
+            });
+          } },
+          rankings: { depends: ['personal'], acquire: function (retry) {
+            var request = ownedRankRequest(rankPrimaryRegion());
+            var period = personalBoardPeriod(), name = getDisplayName();
+            return fetchRankPair(request, period, name, retry)
+              .then(function (pair) {
+                if (!pair || Object.keys(pair.failures).length || !pair.boards.spp || !pair.boards.cl) {
+                  throw new Error('Ranking coverage is incomplete.');
+                }
+                var stored = {};
+                try { stored = JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || '{}') || {}; } catch (error) {}
+                var durable = ['spp', 'cl'].every(function (metric) {
+                  var rr = Object.assign({}, request, { metric: metric,
+                    rowLimit: metric === 'spp' ? (request.rowLimit || 500) : undefined });
+                  var key = rankCacheOwnerKey(rr, period, name), data = pair.boards[metric], entry = stored[key];
+                  if (entry && entry.date === todayStr() && entry.data && entry.data.readAt === data.readAt) return true;
+                  var current = rankCacheGet(key);
+                  return current && current.readAt === data.readAt && rankCachePut(key, data);
+                });
+                return verified(pair, durable, 'The ranking snapshots could not be saved.');
+              });
+          } },
+          cascades: { depends: ['rankings', 'sightings'], acquire: function (retry, values) {
+            var rows = values.rankings.boards.spp.rows;
+            var cascades = BL.tickCascades(rows, parseRecentTick);
+            var merged = values.sightings.cv && values.sightings.cv.merged || [];
+            return cascadeSpots(cascades, merged, null, work.current, retry).then(function (result) {
+              if (result.sourceFailed) throw new Error('Rank discovery sightings are incomplete.');
+              return cascadePublicHotspots(result, work, work.current);
+            }).then(function (result) {
+              return retained('cascades', { state: result.hotspotsFailed ? 'partial' : 'ok', rows: result });
+            });
+          } }
+        };
+        Object.keys(tasks).forEach(function (key) {
+          tasks[key].promote = function () { promoteSetupPrefetchWork(sourceWork(key)); };
+        });
+        return tasks;
+      }
+      function promoteSetupPrefetchWork(work) {
+        work.promoted = true;
+        if (work.initialDataset && typeof work.initialDataset === 'object') work.initialDataset.promoted = true;
+        function matches(job) {
+          return job.work === work || (job.work && work.initialDataset
+            && job.work.initialDataset === work.initialDataset);
+        }
+        var selected = [];
+        _fgWaiters = _fgWaiters.filter(function (job) {
+          if (!matches(job)) return true;
+          selected.push(job); return false;
+        });
+        _fgBgWaiters = _fgBgWaiters.filter(function (job) {
+          if (!matches(job)) return true;
+          job.bg = false; selected.push(job); return false;
+        });
+        _fgWaiters = selected.concat(_fgWaiters);
+        fgDrain();
+      }
+      function promoteSetupPrefetchSection(id) {
+        if (!setupPrefetchCurrent()) return;
+        var keys = {
+          'sec-myYearBtn': ['personal'], 'sec-activeBtn': ['rba'],
+          'sec-chaseBtn': ['sightings'], 'sec-destBtn': ['patches'],
+          'sec-hotBtn': ['busy'], 'sec-rankBtn': ['rankings'],
+          'sec-favLoadBtn': ['favorites'], 'sec-bcBtn': ['birdcast'],
+          'sec-surgeBtn': ['mega', 'birdcast', 'foy', 'favorites', 'mass', 'ppte', 'cascades', 'busy', 'sightings']
+        }[id] || [];
+        keys.forEach(function (key) { _setupPrefetch.engine.promote(key); });
+      }
+      function setupPrefetchIcon(state) {
+        var svg = '<svg viewBox="0 0 32 32" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round">';
+        if (state === 'ready') return svg
+          + '<g stroke="var(--accent)" stroke-width="1.5" fill="var(--band)">'
+          + '<path d="m8 16-6-3 3 9 5-2M9 13c-7 4-5 13 4 13 7 0 12-6 9-12"/>'
+          + '<circle cx="19" cy="10" r="5"/><path d="M15 17c0 4-3 6-6 5" fill="none"/>'
+          + '<path d="m23 10 6 2-6 2M12 26v3m6-4v4"/></g>'
+          + '<circle cx="20" cy="9" r="1.2" fill="var(--ink)"/>'
+          + '<circle cx="25" cy="25" r="6.5" fill="var(--card)"/>'
+          + '<path d="m21 25 3 3 6-8" fill="none" stroke="var(--accent)" stroke-width="3"/></svg>';
+        if (state === 'loading') return svg
+          + '<circle class="prefetch-spinner" cx="16" cy="16" r="14" fill="none" stroke="var(--accent)" '
+          + 'stroke-width="2" stroke-dasharray="58 30"/>'
+          + '<path d="M16 6C11 6 8 17 8 20a8 8 0 0 0 16 0c0-3-3-14-8-14Z" '
+          + 'fill="var(--card)" stroke="var(--muted)" stroke-width="1.8"/></svg>';
+        if (state === 'failed' || state === 'partial') return svg
+          + '<path d="M16 3 30 29H2Z" fill="var(--card)" stroke="var(--ink)" stroke-width="2"/>'
+          + '<path d="M16 11v9m0 4v1" stroke="var(--ink)" stroke-width="3"/></svg>';
+        return svg + '<g fill="none" stroke="var(--muted)" stroke-width="2">'
+          + '<path d="M3 16c3 10 23 10 26 0M3 16c8 5 18 5 26 0'
+          + 'M6 20l5-3m-1 6 6-5m1 6 6-6m0 4 5-5M4 13l7 3m-4-7 7 6m14-2-8 3m5-7-8 6"/></g></svg>';
+      }
+      function setupPrefetchCurrent() {
+        return _setupPrefetch && _setupPrefetch.context === setupPrefetchContext();
+      }
+      function renderSetupPrefetchProgress() {
+        var run = setupPrefetchCurrent() && _setupPrefetch.engine;
+        var container = $('setupPrefetchRows');
+        var ready = 0, failed = false;
+        var rows = SETUP_PREFETCH_GROUPS.map(function (group, index) {
+          var state = run ? run.group(group[1]) : 'queued';
+          var complete = state === 'ready' || state === 'notApplicable';
+          if (complete) ready++;
+          if (state === 'failed' || state === 'partial' || state === 'cancelled') failed = true;
+          var visual = complete ? 'ready' : state === 'blocked' ? 'queued' : state;
+          var label = group[0];
+          if (index === 1 && personalPeriod() === 'all') label = 'My Life List';
+          var detail = state === 'notApplicable' ? 'Not Applicable'
+            : state === 'failed' ? 'Failed — Retry'
+              : state === 'partial' ? 'Partial — Retry'
+                : state === 'cancelled' ? 'Cancelled — Retry'
+                  : state === 'blocked' ? 'Waiting For Required Data' : '';
+          return '<li class="prefetch-row" data-state="' + visual + '">'
+            + '<span class="prefetch-icon" role="img" aria-label="' + esc(state) + '">'
+            + setupPrefetchIcon(visual) + '</span><span class="prefetch-name">' + esc(label)
+            + (detail ? '<span class="prefetch-detail">' + esc(detail) + '</span>' : '') + '</span></li>';
+        }).join('');
+        if (container) container.innerHTML = rows;
+        var count = $('setupPrefetchCount');
+        if (count) count.textContent = ready + ' Of ' + SETUP_PREFETCH_GROUPS.length + ' Ready';
+        var start = $('setupStartBirding');
+        if (start) {
+          start.disabled = !run || !run.complete();
+          start.textContent = start.disabled ? 'Loading...' : 'Start Birding!';
+        }
+        var retry = $('setupPrefetchRetry');
+        if (retry) retry.hidden = !failed;
+        var hint = $('setupPrefetchHint');
+        if (hint) hint.hidden = !!(run && run.complete());
+        var background = $('setupPrefetchBackground');
+        if (background) {
+          background.hidden = !run || (!$('setupSheet').hidden) || run.complete();
+          background.textContent = 'Initial Data: ' + ready + ' Of 8 Ready'
+            + (failed ? ' — Needs Retry' : '');
+        }
+      }
+      function startSetupPrefetch(tasks) {
+        if (!setupPrefetchEligible()) return Promise.resolve(false);
+        var context = setupPrefetchContext();
+        if (_setupPrefetch && _setupPrefetch.context === context) {
+          return _setupPrefetch.engine.run(false);
+        }
+        if (_setupPrefetch) _setupPrefetch.engine.cancel();
+        var scope = activeScope();
+        var work = { label: 'Initial datasets', sectionId: 'setupPrefetchBackground',
+          current: function () {
+            return !!window.document && !_appUnloading && context === setupPrefetchContext();
+          } };
+        var engine = SetupPrefetch.create(tasks || acquireInitialDatasetTasks(scope, work),
+          work.current, renderSetupPrefetchProgress);
+        _setupPrefetch = { context: context, engine: engine, work: work };
+        renderSetupPrefetchProgress();
+        return engine.run(false);
+      }
+      function showSetupPrefetch() {
+        $('setupSheetTitle').textContent = 'Getting Ready';
+        $('setupSheetBody').dataset.setupStep = 'loading';
+        $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
+          + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
+          + '<button id="setupStartBirding" class="prefetch-action setupprimary" type="button" disabled>Loading...</button>'
+          + '<p id="setupPrefetchHint" class="prefetch-hint">Click close to continue loading in the background.</p>'
+          + '<button id="setupPrefetchRetry" class="prefetch-action secondary" type="button" hidden>Retry Failed Sources</button>';
+        $('setupStartBirding').addEventListener('click', function () {
+          if (!setupPrefetchCurrent() || !_setupPrefetch.engine.complete()) return;
+          finishSetup(true);
+        });
+        $('setupPrefetchRetry').addEventListener('click', function () {
+          if (setupPrefetchCurrent()) _setupPrefetch.engine.run(true);
+        });
+        renderSetupPrefetchProgress();
+      }
+      function finishSetup(dataReady) {
         if (!getHome()) {
           goSetupStep('home');
           $('setupActionStatus').textContent = 'Set your initial Home and region to complete setup.';
+          return;
+        }
+        var seenState = seenSetupState();
+        if (!dataReady && setupWebsiteConnected() && getReportSlug() && apiKeyVerified()
+            && seenState.evidence.complete && !seenState.evidence.stale && !seenState.evidence.failure) {
+          localStorage.setItem(SETUP_STEP_KEY, 'loading');
+          showSetupPrefetch();
+          startSetupPrefetch();
           return;
         }
         var firstCompletion = localStorage.getItem('bc_setup_dismissed_v1') !== '1';
@@ -30150,6 +30502,16 @@
         else if (oldInput) _setupKeyDraft = oldInput.value;
         _setupRenderedProfile = bcProfile();
         var step = setupStep(), website = setupWebsiteConnected();
+        if (step === 'loading') {
+          if (setupPrefetchEligible()) {
+            _setupRenderedProfile = bcProfile();
+            showSetupPrefetch();
+            startSetupPrefetch();
+            return;
+          }
+          localStorage.setItem(SETUP_STEP_KEY, 'summary');
+          step = 'summary';
+        }
         var state = seenSetupState();
         if (step === 'seen' && !$('setupSheet').hidden && shouldPrepareSetupSeen(state, true)) {
           startSetupSeen(false);
@@ -30646,6 +31008,11 @@
         $('setupSheetClose').focus({ preventScroll: true });
       }
       function requestCloseSetup() {
+        if (setupStep() === 'loading' && setupPrefetchEligible()) {
+          localStorage.setItem('bc_setup_dismissed_v1', '1');
+          closeSetupSheet();
+          return;
+        }
         var input = $('setupApiKey'), unsaved = setupStep() === 'key' && input && input.value.trim()
           && (!apiKeyVerified() || input.value.trim() !== getKey());
         var message = 'Are you sure you want to close setup? You can return in Settings.'
@@ -30668,6 +31035,7 @@
         if (target) target.focus({ preventScroll: true });
         _setupReturnFocus = null;
         if (!deferMain) renderKeyBanner();
+        renderSetupPrefetchProgress();
       }
       function renderSeenBanner(el) {
         var state = seenSetupState();
@@ -30711,6 +31079,15 @@
       // the Contents menu so it is the first thing a first-run user reads
       // instead of discovering it one section at a time.
       function renderKeyBanner() {
+        var background = $('setupPrefetchBackground');
+        if (background && !background._bound) {
+          background._bound = true;
+          background.addEventListener('click', function () {
+            localStorage.setItem(SETUP_STEP_KEY, 'loading');
+            openSetupSheet();
+          });
+        }
+        renderSetupPrefetchProgress();
         if ($('setupSheet') && !$('setupSheet').hidden
             && (_setupRenderedProfile !== bcProfile() || setupStep() === 'seen' || setupStep() === 'summary')) {
           renderSetupSheet();
@@ -32900,7 +33277,7 @@
           });
         });
       }
-      function choicePatchHomeCounty() {
+      function choicePatchHomeCounty(ownerWork) {
         var selected = choicePatchSelectedCounties();
         if (selected.length === 1) {
           return Promise.resolve([countyLookupResult(selected[0], 'selected')]);
@@ -32908,7 +33285,7 @@
         var home = anchorPoint(), report = getReport();
         var parent = countyParentCode(report);
         if (!home || !parent) return Promise.resolve(selected);
-        var work = navWork('home county');
+        var work = ownerWork || navWork('home county');
         return ensureCountyNames(parent, work).then(function (names) {
           return gbifCountyRegion(home.lat, home.lng).then(function (region) {
             if (!workCurrent(work)) throw queueCancelledError(work);
@@ -35702,7 +36079,7 @@
       function setBirdcastSnapshot(snapshot) {
         _birdcastSnapshot = snapshot || null;
       }
-      function loadBirdcastSnapshot(now, force) {
+      function loadBirdcastSnapshot(now, force, skipStored, ownerWork) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var state = birdcastAlertState(now);
         if (!state) return Promise.resolve(null);
@@ -35720,6 +36097,22 @@
         }
         if (!force && _birdcastSnapshotP && _birdcastSnapshotP.key === key) {
           return _birdcastSnapshotP.promise;
+        }
+        if (!force && !skipStored) {
+          var restoring = zcGet('birdcast:' + key).then(function (saved) {
+            if (generation !== _birdcastGeneration || !workCurrent(ownerWork)) return null;
+            if (saved && saved.key === key && saved.saved
+                && !saved.forecastError && !saved.countError && !saved.migrantsError
+                && Date.now() - saved.fetchedAt < BIRDCAST_REFRESH_MS) {
+              _birdcastSnapshot = saved;
+              if (_birdcastSnapshotP && _birdcastSnapshotP.promise === restoring) _birdcastSnapshotP = null;
+              return saved;
+            }
+            if (_birdcastSnapshotP && _birdcastSnapshotP.promise === restoring) _birdcastSnapshotP = null;
+            return loadBirdcastSnapshot(now, force, true, ownerWork);
+          });
+          _birdcastSnapshotP = { key: key, promise: restoring };
+          return restoring;
         }
         var alertUrl = 'https://alert.birdcast.org/?latLng='
           + encodeURIComponent(Number(home.lat) + ',' + Number(home.lng))
@@ -35753,7 +36146,7 @@
           .catch(function (error) {
             return { value: null, error: (error && error.message) || 'Forecast unavailable' };
           });
-        var dashboardP = choicePatchHomeCounty().then(function (counties) {
+        var dashboardP = choicePatchHomeCounty(ownerWork).then(function (counties) {
           var county = (counties || [])[0];
           if (!county || !county.code) throw new Error('Home county is unavailable');
           var url = 'https://dashboard.birdcast.org/region/'
@@ -35811,7 +36204,7 @@
             || 'Expected migrants unavailable' };
         });
         var promise = Promise.all([forecastP, countP, migrantsP]).then(function (parts) {
-          if (generation !== _birdcastGeneration) return null;
+          if (generation !== _birdcastGeneration || !workCurrent(ownerWork)) return null;
           var snapshot = {
             key: key,
             fetchedAt: Date.now(),
@@ -35824,11 +36217,19 @@
             countError: parts[1].error,
             migrantsError: parts[2].error
           };
-          _birdcastSnapshot = snapshot;
-          if (_birdcastSnapshotP && _birdcastSnapshotP.key === key) {
-            _birdcastSnapshotP = null;
-          }
-          return snapshot;
+          var complete = !snapshot.forecastError && !snapshot.countError && !snapshot.migrantsError;
+          snapshot.saved = complete;
+          return (complete ? zcPut('birdcast:' + key, snapshot, null, function () {
+            return generation === _birdcastGeneration && workCurrent(ownerWork);
+          }) : Promise.resolve(false)).then(function (saved) {
+            if (generation !== _birdcastGeneration || !workCurrent(ownerWork)) return null;
+            snapshot.saved = saved;
+            _birdcastSnapshot = snapshot;
+            if (_birdcastSnapshotP && _birdcastSnapshotP.key === key) {
+              _birdcastSnapshotP = null;
+            }
+            return snapshot;
+          });
         });
         _birdcastSnapshotP = { key: key, promise: promise };
         return promise;
@@ -38159,7 +38560,7 @@
           delete aggregate.subId;
           return aggregate;
         });
-        zcPut(key || hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [],
+        return zcPut(key || hotCacheKey(), { t: Date.now(), hot: r.hot || [], cold: r.cold || [],
           busy: activity, busyState: r.busyState || null });
       }
       // Synchronous, because its callers paint with it. `zcPeek` answers from
@@ -38392,7 +38793,7 @@
         return snapshot && snapshot.context === hotspotContextKey()
           && snapshot.apiKey === getKey() ? snapshot.result : null;
       }
-      function acquireBusyPatches(force, retry) {
+      function acquireBusyPatches(force, retry, ownerWork) {
         var context = hotspotContextKey(), apiKey = getKey();
         if (_busyPromise && _busyContext === context && workCurrent(_busyWork) && !force) return _busyPromise;
         var complete = currentBusySnapshot(true);
@@ -38401,9 +38802,11 @@
         var codes = countyCodes(), home = getHome(), anchors = getAnchors();
         var reportSlug = getReportSlug(), cacheKey = hotCacheKey();
         var work = navWork('Busy Patch public registry', 'surgeBtn');
+        work.initialDataset = ownerWork && ownerWork.initialDataset;
         var navigation = work.navGeneration, cancellation = work.cancelGeneration;
         work.current = function () {
-          return navigation === _navGeneration && cancellation === _workCancelGeneration
+          return (ownerWork ? workCurrent(ownerWork)
+            : navigation === _navGeneration && cancellation === _workCancelGeneration)
             && context === hotspotContextKey() && apiKey === getKey();
         };
         return hotCacheWarm().then(function (cached) {
@@ -38441,7 +38844,7 @@
             return startBusyPatches({
               codes: codes, home: home, anchors: anchors, context: context,
               reportSlug: reportSlug, cacheKey: cacheKey, force: !!force, retry: !!retry,
-              meta: [].concat.apply([], registries)
+              meta: [].concat.apply([], registries), ownerWork: ownerWork
             });
           });
         });
@@ -38598,11 +39001,13 @@
           return Promise.resolve(current);
         }
         var generation = ++_busyGeneration, now = Date.now(), work = cancellableWork('Busy Patch references', 'hotBtn');
+        work.initialDataset = input.ownerWork && input.ownerWork.initialDataset;
         var cancelGeneration = work.cancelGeneration;
         var apiKey = getKey();
         work.cacheReportSlug = input.reportSlug;
         work.current = function () {
-          return generation === _busyGeneration && cancelGeneration === _workCancelGeneration
+          return generation === _busyGeneration
+            && (input.ownerWork ? workCurrent(input.ownerWork) : cancelGeneration === _workCancelGeneration)
             && hotspotContextKey() === input.context && getKey() === apiKey;
         };
         _busyWork = work;
@@ -38760,6 +39165,13 @@
           if (state.partial && previous.length) scored = previous;
           paint();
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(_hotspotCache);
+          if (!state.partial && input.ownerWork) {
+            var completed = _hotspotCache;
+            return Promise.resolve(hotCacheSave(completed, input.cacheKey)).then(function (stored) {
+              if (!stored) throw new Error('Busy Patch snapshot could not be saved.');
+              return completed;
+            });
+          }
           if (!state.partial) hotCacheSave(_hotspotCache, input.cacheKey);
           return _hotspotCache;
         }).catch(function (error) {
@@ -40731,15 +41143,17 @@
         var record = foyHistoryRead();
         return record ? record.pendingRows : [];
       }
-      function ensureFoy(force, alive, onStatus, allowBrowser) {
+      function ensureFoy(force, alive, onStatus, allowBrowser, ownerWork) {
         var ctx = foyContext(), scope = activeScope();
         var privacy = _identityGeneration, navigation = _navGeneration;
         var cancellation = _workCancelGeneration;
         var key = ctx.profile + '|' + foyKey(ctx), previous = foyHistoryRead(ctx);
         function current() {
           return !_appUnloading && !_scrubbedPendingReload
-            && privacy === _identityGeneration && navigation === _navGeneration
-            && cancellation === _workCancelGeneration && scopeCurrent(scope)
+            && privacy === _identityGeneration
+            && (ownerWork ? workCurrent(ownerWork)
+              : navigation === _navGeneration && cancellation === _workCancelGeneration)
+            && scopeCurrent(scope)
             && (!alive || alive());
         }
         function cancelled() { return queueCancelledError({ label: 'Annual firsts' }); }
@@ -44371,13 +44785,15 @@
         scope = scope || activeScope();
         options = options && typeof options === 'object' ? options : {};
         var work = cancellableWork('Bird Gen mass flock', options.section || 'sec-surgeBtn');
+        work.initialDataset = options.ownerWork && options.ownerWork.initialDataset;
         var generation = _surgeLoadGeneration, navigation = _navGeneration;
         var context = surgeSourceContext(false);
         work.current = function () {
           return (!options.current || options.current())
-            && scopeCurrent(scope) && generation === _surgeLoadGeneration
-            && navigation === _navGeneration
-            && work.cancelGeneration === _workCancelGeneration
+            && scopeCurrent(scope)
+            && (options.ownerWork ? workCurrent(options.ownerWork)
+              : generation === _surgeLoadGeneration && navigation === _navGeneration
+                && work.cancelGeneration === _workCancelGeneration)
             && context === surgeSourceContext(false);
         };
         var diagnostics = {}, started = Date.now(), pageRows = 0;
@@ -44476,7 +44892,7 @@
         }).catch(function (error) {
           if (!workCurrent(work) || (error && error.queueCancelled)) throw queueCancelledError(work);
           dbg('warn', 'Bird Gen Mass direct reader failed: ' + ((error && error.message) || error));
-          if (!ib()) throw error;
+          if (options.allowBrowser === false || !ib()) throw error;
           return captureEbird({
             kind: 'massHighCount', url: url,
             ownerWork: work, ownerNavigation: navigation, ownerSourceGeneration: generation,
@@ -44585,16 +45001,18 @@
         }
       }
 
-      function loadFavoritePatchAlertSource(force, scope, onProgress, retryLocIds) {
+      function loadFavoritePatchAlertSource(force, scope, onProgress, retryLocIds, ownerWork) {
         scope = scope || activeScope();
         var work = cancellableWork('Bird Gen favorite patches', 'sec-surgeBtn');
+        work.initialDataset = ownerWork && ownerWork.initialDataset;
         var generation = _surgeLoadGeneration, context = surgeSourceContext(false);
         var navigation = _navGeneration;
         work.current = function () {
-          return scopeCurrent(scope) && generation === _surgeLoadGeneration
-            && navigation === _navGeneration
-            && context === surgeSourceContext(false)
-            && work.cancelGeneration === _workCancelGeneration;
+          return scopeCurrent(scope)
+            && (ownerWork ? workCurrent(ownerWork)
+              : generation === _surgeLoadGeneration && navigation === _navGeneration
+                && work.cancelGeneration === _workCancelGeneration)
+            && context === surgeSourceContext(false);
         };
         var favorites = favoriteEntriesForRegion(scope.parentRegion).map(function (entry) {
           return Object.assign({}, entry.favorite);
@@ -49212,6 +49630,7 @@
         menu.innerHTML =
           '<div id="menuIdentity"></div>' +
           '<div id="keyBanner" class="keybanner" hidden></div>' +
+          '<button id="setupPrefetchBackground" class="secondary" type="button" hidden></button>' +
           // ⚠️ F200. THE FILTER BOX IS DISABLED, one release after it shipped.
           //
           // Owner, from the device: *"the filter is confusing. search results
@@ -50678,6 +51097,7 @@
           showMenu();
           return false;
         }
+        promoteSetupPrefetchSection(id);
         if (id !== 'settingsPanel' && !$('settingsPanel').hidden) cancelHomeLookup();
         if (id === 'settingsPanel' && _birdGenNotifyInitialised) updateBirdGenNotifications(false);
         if (id === 'sec-surgeBtn') resetSurgeCategory();
@@ -54760,6 +55180,11 @@
         openRegionChooser: openRegionChooser, renderRegionChooser: renderRegionChooser,
         recoverCachedRecentRegions: recoverCachedRecentRegions, recentRegions: recentRegions,
         openSetupSheet: openSetupSheet, renderSetupSheet: renderSetupSheet,
+        startSetupPrefetch: startSetupPrefetch, setupPrefetchEligible: setupPrefetchEligible,
+        promoteSetupPrefetchWork: promoteSetupPrefetchWork,
+        setupPrefetchContext: setupPrefetchContext,
+        acquireInitialDatasetTasks: acquireInitialDatasetTasks,
+        setupPrefetchEngine: function () { return setupPrefetchCurrent() && _setupPrefetch.engine; },
         favoritePatchAlerts: favoritePatchAlerts,
         reportingDates: reportingDates, validReportingStats: validReportingStats,
         loadReportingActivity: loadReportingActivity,

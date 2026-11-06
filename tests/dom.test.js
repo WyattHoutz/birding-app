@@ -169,6 +169,187 @@ test('F1187 complete and stale setup summaries use current owned evidence and ro
   } finally { app.window.close(); }
 });
 
+test('F1249 setup loading owns shared work after Close and navigation, then enables deliberate completion', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'summary');
+    A.openSetupSheet();
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    let release, calls = 0;
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls++;
+        return key === 'busy' ? new Promise(resolve => { release = resolve; })
+          : Promise.resolve({ state: key === 'favorites' ? 'notApplicable' : 'ready', value: {} });
+      };
+    });
+    const pending = A.startSetupPrefetch(tasks);
+    await waitFor(() => !!release, 'shared Busy acquisition');
+    app.click(app.$('setupContinue'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
+    assert.equal(app.$('setupPrefetchRows').children.length, 8);
+    assert.equal(app.$('setupStartBirding').disabled, true);
+    assert.equal(app.$('setupStartBirding').textContent, 'Loading...');
+    assert.equal(app.$('setupPrefetchHint').textContent,
+      'Click close to continue loading in the background.');
+    app.click(app.$('setupSheetClose'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.$('setupPrefetchBackground').hidden, false);
+    A.showSection('sec-rankBtn', { load: false });
+    release({ state: 'ready', value: { persisted: true } });
+    await pending;
+    assert.equal(A.setupPrefetchEngine().complete(), true);
+    A.openSetupSheet();
+    assert.equal(app.$('setupPrefetchCount').textContent, '8 Of 8 Ready');
+    assert.equal(app.$('setupStartBirding').disabled, false);
+    assert.equal(app.$('setupStartBirding').textContent, 'Start Birding!');
+    const coldCalls = calls;
+    await A.startSetupPrefetch(tasks);
+    assert.equal(calls, coldCalls, 'warm/reopened setup must reuse every success');
+    app.click(app.$('setupStartBirding'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1249 cannot start acquisition before verified setup or accept a result for a changed Home', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.removeItem('bc_api_verified_v1:' + A.bcProfile());
+    let calls = 0, release;
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls++;
+        return key === 'taxonomy' ? new Promise(resolve => { release = resolve; })
+          : Promise.resolve({ state: 'ready', value: {} });
+      };
+    });
+    assert.equal(await A.startSetupPrefetch(tasks), false);
+    assert.equal(calls, 0, 'an unverified key is not consent to acquire initial data');
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    const pending = A.startSetupPrefetch(tasks);
+    await waitFor(() => !!release, 'owned initial acquisition');
+    store.setItem(A.homeKey('lat'), '48.75');
+    release({ state: 'ready', value: 'old Home' });
+    await pending;
+    assert.equal(A.setupPrefetchEngine(), false);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1249 initial work shares the paced queue and promotes the visible source without refetching', async () => {
+  let release;
+  const starts = [];
+  const app = await boot({ sample: false, fetch(url) {
+    const match = String(url).match(/F1249-(held|low|high-next|high)/);
+    if (!match) return [];
+    starts.push(match[1]);
+    return match[1] === 'held' ? new Promise(resolve => { release = () => resolve([]); }) : [];
+  } });
+  try {
+    const A = app.window.__app;
+    const held = A.ebird('data/obs/F1249-held/recent');
+    await waitFor(() => release, 'held paced request');
+    const lowWork = { initialDataset: { key: 'low' }, current: () => true };
+    const highWork = { initialDataset: { key: 'high' }, current: () => true };
+    const highOwner = Object.assign({}, highWork, { current: () => true });
+    const low = A.ebird('data/obs/F1249-low/recent', false, false, false, lowWork);
+    const high = A.ebird('data/obs/F1249-high/recent', false, false, false, highOwner);
+    low.catch(() => {}); high.catch(() => {});
+    await waitFor(() => A.fgState().queuedBg === 2, 'shared background queue');
+    A.promoteSetupPrefetchWork(highWork);
+    assert.equal(A.fgState().queued, 1);
+    assert.equal(A.fgState().queuedBg, 1);
+    const next = A.ebird('data/obs/F1249-high-next/recent', false, false, false, highOwner);
+    next.catch(() => {});
+    await waitFor(() => A.fgState().queued + A.fgState().queuedBg === 3, 'later shared-source work is queued');
+    assert.equal(A.fgState().queued, 2, 'later work inherits its promoted source priority');
+    assert.equal(A.fgState().queuedBg, 1);
+    release();
+    await Promise.all([held, low, high, next]);
+    assert.deepEqual(starts, ['held', 'high', 'high-next', 'low']);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1249 actual taxonomy acquisition retains its source priority through the local cancellation owner', async () => {
+  let release;
+  const app = await boot({ sample: false, fetch(url) {
+    return /F1249-held/.test(url) ? new Promise(resolve => { release = () => resolve([]); }) : [];
+  } });
+  try {
+    const A = app.window.__app, held = A.ebird('data/obs/F1249-held/recent');
+    await waitFor(() => release, 'held taxonomy queue control');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    const taxonomy = assert.rejects(tasks.taxonomy.acquire(false), /Taxonomy could not be verified/);
+    await waitFor(() => A.fgState().queued + A.fgState().queuedBg === 1, 'queued taxonomy reference');
+    assert.equal(A.fgState().queuedBg, 1, 'initial taxonomy must use background pacing');
+    tasks.taxonomy.promote();
+    assert.equal(A.fgState().queued, 1, 'its local owner must retain the shared promotion marker');
+    assert.equal(A.fgState().queuedBg, 0);
+    release();
+    await Promise.all([held, taxonomy]);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1249 memory-only Busy and ranking snapshots cannot certify initial readiness and heal without downloads', async () => {
+  const app = await boot({ sample: false, fetch: () => [] });
+  const A = app.window.__app, storagePrototype = app.window.Storage.prototype;
+  const originalSet = storagePrototype.setItem;
+  let blocked = true;
+  const hotKey = A.hotCacheKey();
+  storagePrototype.setItem = function (key, value) {
+    if (blocked && (String(key).includes(hotKey) || String(key).includes(A.RANK_CACHE_KEY))) {
+      throw new app.window.DOMException('Controlled cache failure', 'QuotaExceededError');
+    }
+    return originalSet.call(this, key, value);
+  };
+  try {
+    const at = Date.now() - 60000;
+    assert.equal(await A.zcPut(hotKey, { t: at, hot: [], cold: [], busy: [],
+      busyState: { at, pending: false, partial: false } }), false);
+    const period = A.personalBoardPeriod(), name = A.getDisplayName();
+    for (const metric of ['spp', 'cl']) {
+      const request = { region: A.getReport().stateCode, max: 500, metric,
+        rowLimit: metric === 'spp' ? 500 : undefined };
+      const data = { region: request.region, period, metric, profile: A.bcProfile(),
+        ownerRevision: A.identityRevision(), readAt: new Date().toISOString(),
+        rows: [{ rank: 1, species: 10, name: 'Sample Leader' }] };
+      assert.equal(A.rankCachePut(A.rankCacheOwnerKey(request, period, name), data), false);
+    }
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    const downloads = app.state.fetches.length;
+    await assert.rejects(tasks.busy.acquire(false), /Busy Patch snapshot could not be saved/);
+    await assert.rejects(tasks.rankings.acquire(false), /ranking snapshots could not be saved/);
+    blocked = false;
+    assert.equal((await tasks.busy.acquire(false)).state, 'ready');
+    assert.equal((await tasks.rankings.acquire(false)).state, 'ready');
+    assert.ok(app.window.localStorage.getItem(hotKey));
+    assert.ok(app.window.localStorage.getItem(A.RANK_CACHE_KEY));
+    assert.equal(app.state.fetches.length, downloads, 'repairing valid memory answers must not redownload them');
+  } finally { storagePrototype.setItem = originalSet; app.window.close(); }
+});
+
+test('F1249 initial Mass acquisition reports a direct failure without opening an eBird browser', async () => {
+  const app = await boot({ sample: false, fetch: () => [] });
+  let opened = 0;
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    addListener() { return Promise.resolve({ remove() {} }); },
+    openWebView() { opened++; return Promise.reject(new Error('Controlled browser opening')); },
+    close() { return Promise.resolve(); }
+  } } };
+  try {
+    const A = app.window.__app;
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    assert.equal((await tasks.mass.acquire(false)).state, 'failed');
+    assert.equal(opened, 0, 'background initial downloads must not reveal an interactive browser');
+  } finally { app.window.close(); }
+});
+
 test('F1199 actual Stakeout eBird action stays beside QR and reads selected region at click time', async () => {
   const app = await boot({ sample: false, fetch: () => [] });
   try {
@@ -4110,10 +4291,14 @@ test('F948 Mega validates source rows and reports actual durable persistence', a
     assert.equal(await A.lazyRefreshMegaSnapshot(), false);
     assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous);
     assert.equal(A.megaAlertSourceState(A.megaLane([])), 'failed');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    await assert.rejects(tasks.mega.acquire(false), /Mega snapshot is unavailable/);
     assert.match(W.__dbg.buf.map(row => row.msg).join('\n'),
       /mega snapshot not stored · parsed 1 source rows · regional 0 rows · persistence failed/);
     proto.setItem = set;
     assert.equal(await A.lazyRefreshMegaSnapshot(), true, 'reload retries failed persistence');
+    assert.equal((await tasks.mega.acquire(false)).state, 'ready',
+      'a verified durable empty snapshot can satisfy initial readiness');
     assert.deepEqual(JSON.parse(W.localStorage.getItem(A.MEGA_SNAP_KEY)).rows, []);
     assert.match(W.__dbg.buf.map(row => row.msg).join('\n'),
       /mega snapshot refreshed · parsed 1 source rows · regional 0 rows · persistence verified/);
@@ -38644,7 +38829,7 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
   app.window.close();
 });
 
-test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen alerts', async () => {
+test('F1249 F607/F629 BirdCast persists a shared warm snapshot and renders separate qualifying Bird Gen alerts', async () => {
   const daytime = new Date('2026-09-28T17:00:00Z');
   const nuxt = '<script>window.__NUXT__=(function(a,b,c){return {state:{env:{'
     + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
@@ -38671,9 +38856,11 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
         taxon: 'Leiothlypis celata' },
     ],
   };
+  let birdcastCalls = 0;
   const app = await boot({
     report: 'wa',
     fetch(url) {
+      if (/https:\/\/(?:alert|dashboard)\.birdcast\.org/.test(String(url))) birdcastCalls++;
       if (String(url).startsWith('https://alert.birdcast.org/?')) return nuxt;
       if (String(url).includes('/api/is-birdcast-alert-api/')) return forecast;
       if (String(url)
@@ -38720,6 +38907,33 @@ test('F607/F629 BirdCast renders shared cards and separate qualifying Bird Gen a
   assert.ok(beforeSunrise.endedAt < new Date('2026-09-29T07:32:00Z').getTime(),
     'the completed-night age did not begin at the ending sunrise');
   const snapshot = await A.renderBirdcast(daytime);
+  assert.equal(snapshot.saved, true, 'setup readiness requires durable BirdCast storage');
+  const cacheKey = 'birdcast:' + snapshot.key;
+  const raw = app.window.localStorage.getItem(cacheKey);
+  assert.ok(raw, 'a memory-only answer is not a persisted cache');
+  const persisted = await A.unpackJson(raw);
+  assert.equal(persisted.key, snapshot.key);
+  assert.equal(persisted.saved, true);
+  const coldCalls = birdcastCalls;
+  A.setBirdcastSnapshot(null);
+  const warm = await A.loadBirdcastSnapshot(daytime);
+  assert.equal(warm.key, snapshot.key);
+  assert.equal(warm.saved, true);
+  assert.equal(birdcastCalls, coldCalls, 'the matching warm scope must not redownload BirdCast');
+  const storagePrototype = app.window.Storage.prototype, originalSet = storagePrototype.setItem;
+  storagePrototype.setItem = function (key, value) {
+    if (String(key).includes('birdcast:')) {
+      throw new app.window.DOMException('Controlled full cache', 'QuotaExceededError');
+    }
+    return originalSet.call(this, key, value);
+  };
+  try {
+    const unsaved = await A.loadBirdcastSnapshot(daytime, true);
+    assert.equal(unsaved.saved, false, 'a failed persistent write cannot certify setup readiness');
+  } finally {
+    storagePrototype.setItem = originalSet;
+    A.setBirdcastSnapshot(snapshot);
+  }
   assert.equal(snapshot.forecast.date, '2026-09-28',
     'the validated forecast lost the date its night refers to');
   const body = app.$('bcBody');
@@ -52966,7 +53180,7 @@ test('F810 Advanced disclosure preserves the exact inventory without network or 
   app.window.close();
 });
 
-test('F854/F855 hydrated patch targets exclude hybrids and render WATCH once', async () => {
+test('F1250 F854/F855 Favorite and hydrated patch targets exclude hybrids and retain WATCH', async () => {
   const stamp = recentObsStamp();
   const birds = [
     {speciesCode:'swaspa',comName:'Swamp Sparrow',obsDt:stamp,subId:'S854',howMany:1},
@@ -52985,6 +53199,16 @@ test('F854/F855 hydrated patch targets exclude hybrids and render WATCH once', a
     await seedSeen(app, ['wesgre'], ['Western Grebe'], birds.map(b => ({
       code:b.speciesCode,name:b.comName
     })));
+    const favorite = A.favInteresting(birds, {});
+    assert.deepEqual(Array.from(favorite.rows, row => row.code).sort(), ['swaspa', 'wesgre']);
+    assert.equal(favorite.species, 2, 'hybrids must not inflate the species total');
+    const favoriteHtml = A.favDetailHtml({}, birds, {});
+    assert.doesNotMatch(favoriteHtml, /hybrid|x00051/);
+    assert.match(favoriteHtml, /Swamp Sparrow/);
+    assert.match(favoriteHtml, /Western Grebe/);
+    assert.equal(favorite.rows.find(row => row.code === 'wesgre').watch, true);
+    assert.equal(A.isSpeciesSeen('x00051', birds[1].comName), false,
+      'excluding a hybrid target must not turn it into a seen species');
     const host = app.$('destResults');
     host.replaceChildren(A.hotspotCard({
       n:1,locId:'L854',locName:'Representative North Creek Park',
