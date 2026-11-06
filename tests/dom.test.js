@@ -5651,6 +5651,71 @@ test('F1246 ladder uses regional annual totals, complete ties and independent me
   }finally{app.window.close();}
 });
 
+test('F1246 pending regional totals coalesce rerenders and isolate region/day completions', async () => {
+  const pending = [];
+  const app = await boot({sample:false,storage:{
+    ebird_identity_v1:JSON.stringify({profileId:'owner'})
+  },fetch:url=>/\/ebirders\/count\?yr=cur/.test(url)
+    ? new Promise(resolve=>pending.push(resolve)) : []});
+  try {
+    const A=app.window.__app, NativeDate=app.window.Date;
+    const day=new NativeDate();
+    app.window.Date=class extends NativeDate {
+      constructor(...args){super(...(args.length ? args : [day.getTime()]));}
+    };
+    const period=String(day.getFullYear());
+    const rows=Array.from({length:11},(_,i)=>({rank:i+1,species:200-i,
+      checklists:400-i,profileId:i===5?'owner':'other'+i,name:i===5?'Owner':'Birder '+i}));
+    const board={region:'US-WA',period,metric:'spp',rows,me:rows[5]};
+    const pair={boards:{spp:board,cl:{...board,metric:'cl'}},failures:{},stale:{}};
+    const paint=region=>{
+      board.region=region;pair.boards.cl.region=region;
+      A.renderRankPair(pair,region,period,'Owner');
+    };
+    const cache=()=>JSON.parse(app.window.localStorage.getItem('ebird_ebirders_count_v1') || '{}');
+    const clear=region=>{
+      const values=cache();delete values[region];
+      app.window.localStorage.setItem('ebird_ebirders_count_v1',JSON.stringify(values));
+    };
+    paint('US-WA');paint('US-WA');
+    app.click(app.document.querySelector('[data-rank-metric="cl"]'));
+    assert.equal(pending.length,1,'pending metadata must not be reacquired by rerenders');
+    paint('US-WA-033');
+    assert.equal(pending.length,2,'different regions need independent acquisitions');
+    pending[0]({value:16870});
+    await waitFor(()=>cache()['US-WA']?.n===16870,'Washington count cached');
+    assert.equal(app.document.querySelector('.ranktotal'),null,
+      'a detached Washington result must not label the county card');
+    pending[1]({value:2400});
+    await waitFor(()=>app.document.querySelector('.rankbig')?.textContent==='#6/2,400',
+      'county denominator rendered');
+    assert.equal(cache()['US-WA']?.n,16870,'parallel region writes must preserve each other');
+    clear('US-WA');paint('US-WA');
+    assert.equal(pending.length,3,'settled requests must not poison later cache misses');
+    pending[2]({value:null});
+    await waitFor(()=>cache()['US-WA']?.n===null,'existing daily unknown-result policy');
+    paint('US-WA');paint('US-WA');
+    assert.equal(pending.length,3,'a settled unknown remains memoized for its day');
+    day.setDate(day.getDate()+1);paint('US-WA');
+    assert.equal(pending.length,4,'a new day must not reuse yesterday');
+    day.setDate(day.getDate()+1);paint('US-WA');
+    assert.equal(pending.length,5,'a pending earlier day must not block the current day');
+    pending[4]({value:17000});
+    await waitFor(()=>app.document.querySelector('.rankbig')?.textContent==='#6/17,000',
+      'current-day denominator rendered');
+    pending[3]({value:15000});
+    await new Promise(resolve=>setTimeout(resolve,0));
+    assert.equal(cache()['US-WA'].n,17000,'late prior-day completion must not replace current data');
+    assert.equal(cache()['US-WA'].date,A.todayStr());
+    assert.equal(app.document.querySelector('.rankbig').textContent,'#6/17,000');
+    clear('US-WA');paint('US-WA');
+    assert.equal(pending.length,6,'current-day completion must also release its pending entry');
+    pending[5]({value:17100});
+    await waitFor(()=>app.document.querySelector('.rankbig')?.textContent==='#6/17,100',
+      'later cache miss completed');
+  }finally{app.window.close();}
+});
+
 test('F857 acquisition retains 500 returned Species rows without raising the request budget', async () => {
   const rows=Array.from({length:500},(_,i)=>({rank:i+1,name:i===181?'Owner':'Birder '+i,
     profileId:i===181?'owner':'other'+i,species:1000-i,checklists:1000-i}));
@@ -13889,7 +13954,10 @@ test('F877 Recent on/off retains panel, both metrics and source coverage through
           const panel = app.document.querySelector('.ranknearby');
           assert.ok(panel,'Recent must retain the answer-panel host');
           if (populated) {
-            assert.equal(panel.querySelectorAll('table').length,2);
+            assert.ok(panel.querySelector('.rankclimb[aria-label="Species rank-climb goals"]'));
+            assert.equal(panel.querySelector('.rankclimb-stop.current .rankclimb-rank').textContent,'#6');
+            assert.equal(panel.querySelectorAll('table').length,1);
+            assert.equal(panel.querySelectorAll('table[aria-label="Five birders above and below you"] tbody tr').length,11);
             assert.equal(panel.querySelectorAll('[aria-current]').length,1);
           } else {
             assert.equal(panel.querySelector('[data-rank-verify]'),null);
@@ -15383,7 +15451,10 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
     assert.ok(opens.every(url=>new URL(url).searchParams.get('maxResults')==='500'));
     const panel = app.document.querySelector('.ranknearby');
     assert.ok(panel,'the accepted name-only session standing must produce a neighbor panel');
-    assert.equal(panel.querySelectorAll('table').length,2);
+    assert.ok(panel.querySelector('.rankclimb[aria-label="Species rank-climb goals"]'));
+    assert.equal(panel.querySelector('.rankclimb-stop.current .rankclimb-cost').textContent,'You are here');
+    assert.equal(panel.querySelectorAll('table').length,1);
+    assert.equal(panel.querySelectorAll('table[aria-label="Five birders above and below you"] tbody tr').length,11);
     assert.equal(panel.querySelector('[aria-current]').textContent,'#6You195—');
     assert.equal(panel.querySelector('button'),null);
     assert.equal(app.$('rankResults').querySelector('.rankrow .wholine a').getAttribute('data-href'),
@@ -25948,6 +26019,7 @@ test('F834 live distant history is progressive, retained and fails closed on cov
 
 test('F906 completed partial Mass acquisition stays warm when production publication retains older rows', async () => {
   let refresh = false;
+  let clock = null, realAcquisitionStart = null;
   const app = await boot({ sample: false, fetch(url) {
     if (/bird-list\?.*rank=hc/.test(url)) return f821Page(refresh ? [
       { code: 'margod', name: 'Marbled Godwit', count: 600 },
@@ -25985,8 +26057,18 @@ test('F906 completed partial Mass acquisition stays warm when production publica
     assert.ok(app.document.querySelector('#surgeFeed [data-species-code="margod"]'));
     const pages = () => app.state.fetches.filter((url) => /bird-list\?.*rank=hc/.test(url)).length;
     assert.equal(pages(), 2);
-    let clock = retained.acquiredAt + 60000;
-    app.window.Date.now = () => clock;
+    // Keep cache boundaries exact; queued reacquisition needs an advancing clock.
+    const push = app.window.__dbg.buf.push;
+    app.window.__dbg.buf.push = function (...rows) {
+      if (clock !== null && realAcquisitionStart === null && rows.some(row =>
+        row.msg.startsWith('Bird Gen Mass retained cache: reacquire'))) {
+        realAcquisitionStart = Date.now();
+      }
+      return push.apply(this, rows);
+    };
+    clock = retained.acquiredAt + 60000;
+    app.window.Date.now = () => clock
+      + (realAcquisitionStart === null ? 0 : Date.now() - realAcquisitionStart);
     const warm = await A.loadMassFlockAlertSource(false, A.activeScope());
     assert.equal(pages(), 2, 'retained old rows made a one-minute-old source reacquire');
     assert.equal(warm.state, 'partial');
@@ -25996,7 +26078,8 @@ test('F906 completed partial Mass acquisition stays warm when production publica
     clock = retained.acquiredAt + A.CHASE_TTL_MS;
     const expired = await A.loadMassFlockAlertSource(false, A.activeScope());
     assert.equal(pages(), 3, 'warm publication slid the acquisition expiry');
-    assert.equal(expired.acquiredAt, clock);
+    assert.ok(expired.acquiredAt >= clock && expired.acquiredAt <= app.window.Date.now(),
+      'fresh acquisition timestamp must fall within the expired-source acquisition');
     await A.saveSurgeRetainedPart('mass', expired);
     A.fgSchedReset(clock);
     await A.loadMassFlockAlertSource(true, A.activeScope());
@@ -26010,6 +26093,9 @@ test('F906 completed partial Mass acquisition stays warm when production publica
     assert.ok(decisions.some(message => /reuse; reason fresh/.test(message)));
     assert.ok(decisions.some(message =>
       /acquisition age 60000ms; retained row age \d+ms/.test(message)));
+    assert.ok(decisions.some(message => message.includes(
+      'reacquire; reason expired; acquisition age ' + A.CHASE_TTL_MS + 'ms')),
+      'the exact acquisition TTL boundary must expire');
     assert.ok(clock - retained.retainedAt > A.CHASE_TTL_MS);
     for (const reason of ['expired', 'forced refresh', 'arrival pending']) {
       assert.ok(decisions.some(message => message.includes('reacquire; reason ' + reason)),

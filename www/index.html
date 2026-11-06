@@ -3104,7 +3104,7 @@
                       gap:12px; align-items:center; padding-right:8px; border:1px solid var(--line);
                       border-radius:12px; background:linear-gradient(90deg,rgba(0,114,178,.14),rgba(0,114,178,.04)); }
     .rankclimb-rank { display:flex; align-items:center; justify-content:center; gap:4px; padding:3px 0;
-                      border-radius:11px; white-space:nowrap; color:#fff; background:#0072B2;
+                      border-radius:11px; white-space:nowrap; color:#fff; background:var(--safe-blue);
                       font-weight:900; font-size:calc(26px * var(--s)); line-height:1.15;
                       letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
     .rankclimb-stop.win .rankclimb-head { background:linear-gradient(90deg,rgba(230,159,0,.2),rgba(230,159,0,.05)); }
@@ -3114,7 +3114,7 @@
     .rankclimb-stop.wide .rankclimb-rank { font-size:calc(16px * var(--s)); }
     .rankclimb-cost { font-size:calc(18px * var(--s)); font-weight:850; }
     .rankclimb-trophy { font-size:calc(18px * var(--s)); }
-    .rankclimb-arrow { display:flex; justify-content:center; width:calc(80px * var(--s)); color:#0072B2; }
+    .rankclimb-arrow { display:flex; justify-content:center; width:calc(80px * var(--s)); color:var(--safe-blue); }
     .rankclimb-arrow svg { display:block; width:calc(28px * var(--s)); height:calc(18px * var(--s)); }
     .ranknearby-title { margin:20px 0 6px; font-size:calc(16px * var(--s)); font-weight:850; }
     @media(max-width:360px) {
@@ -32281,11 +32281,15 @@
           return (hit && hit.date === todayStr() && hit.n != null) ? hit.n : null;
         } catch (e) { return null; }
       }
-      function ebirderCount(regionCode) {        if (!regionCode) return Promise.resolve(null);
+      var _ebirderCountPending = Object.create(null);
+      function ebirderCount(regionCode) {
+        if (!regionCode) return Promise.resolve(null);
+        var countDay = todayStr(), pendingKey = countDay + ':' + regionCode;
         var cache = {};
         try { cache = JSON.parse(localStorage.getItem(EBIRDERS_CACHE_KEY) || '{}'); } catch (e) {}
         var hit = cache[regionCode];
-        if (hit && hit.date === todayStr()) return Promise.resolve(hit.n);
+        if (hit && hit.date === countDay) return Promise.resolve(hit.n);
+        if (_ebirderCountPending[pendingKey]) return _ebirderCountPending[pendingKey];
         var path = 'product/region/' + encodeURIComponent(regionCode) + '/ebirders/count?yr=cur';
         function store(n) {
           // A NULL IS WORTH REMEMBERING TOO. This endpoint 403s for every
@@ -32296,8 +32300,12 @@
           // for a number the card simply omits. Recording the failure for the
           // day makes it cost once.
           try {
-            cache[regionCode] = { date: todayStr(), n: (n == null ? null : Math.round(n)) };
-            localStorage.setItem(EBIRDERS_CACHE_KEY, JSON.stringify(cache));
+            if (countDay === todayStr()) {
+              var current = {};
+              try { current = JSON.parse(localStorage.getItem(EBIRDERS_CACHE_KEY) || '{}'); } catch (e) {}
+              current[regionCode] = { date: countDay, n: (n == null ? null : Math.round(n)) };
+              localStorage.setItem(EBIRDERS_CACHE_KEY, JSON.stringify(current));
+            }
           } catch (e) {}
           return n == null ? null : Math.round(n);
         }
@@ -32315,7 +32323,7 @@
           settled = true;
           return n == null ? store(null) : n;
         }
-        return Promise.race([
+        _ebirderCountPending[pendingKey] = Promise.race([
           read(getKey())
             .catch(function () {
               return ebirdWebKey().then(function (k) { return k ? read(k) : null; });
@@ -32325,7 +32333,8 @@
           // stalled one does not keep the promise — and the negative cache —
           // pending for the whole session.
           new Promise(function (res) { setTimeout(function () { res(null); }, 12000); })
-        ]).then(done);
+        ]).then(done).finally(function () { delete _ebirderCountPending[pendingKey]; });
+        return _ebirderCountPending[pendingKey];
       }
 
       // Thousands separators, matching the report's `#{rank:,}` formatting.
