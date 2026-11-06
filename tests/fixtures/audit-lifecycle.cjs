@@ -52,8 +52,10 @@ children.spawnSync = (program, args, options) => {
       const profile = [...profiles].at(-1).replace(/'/g, "''");
       const fixture = `
 $script:mode='${mode}'; $script:dead=$${mode === 'exited' ? 'true' : 'false'};
+$script:exitWatch=$null; $script:inventoryDelay=50;
 function Get-CimInstance {
   if ($script:mode -eq 'inventory') { throw 'fixture inventory denied' }
+  if ($script:mode -eq 'delayed-exit') { Start-Sleep -Milliseconds $script:inventoryDelay }
   [pscustomobject]@{ProcessId=90123451;CommandLine='--user-data-dir="${profile}"'}
   [pscustomobject]@{ProcessId=90123452;CommandLine='--user-data-dir="${profile}-ordinary"'}
 }
@@ -67,7 +69,20 @@ function Get-Process {
       [System.Management.Automation.ErrorCategory]::ObjectNotFound, $Id)
     $PSCmdlet.ThrowTerminatingError($record)
   }
-  [pscustomobject]@{HasExited=$script:dead}
+  $process=[pscustomobject]@{HasExited=$script:dead;Handle=1}
+  $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
+    param([int]$wait)
+    if ($script:mode -eq 'delayed-exit') {
+      if ($wait -gt ${Number(process.env.AUDIT_TIMEOUT_MS || 120000)} - $script:inventoryDelay) {
+        throw 'fixture cleanup budget reset'
+      }
+      $remaining=[Math]::Max(0,500-$script:exitWatch.ElapsedMilliseconds)
+      Start-Sleep -Milliseconds ([Math]::Min($remaining,$wait))
+      $script:dead=$script:exitWatch.ElapsedMilliseconds -ge 500
+    }
+    return $script:dead
+  }
+  return $process
 }
 function Stop-Process {
   [CmdletBinding()]param([int]$Id,[switch]$Force)
@@ -76,7 +91,8 @@ function Stop-Process {
   if ($script:mode -eq 'exit-race') { $script:dead=$true; throw 'fixture exited during stop' }
   if ($script:dead) { throw 'fixture attempted stop after exit' }
   'FIXTURE_KILL_OWNED'
-  if ($script:mode -ne 'survivor') { $script:dead=$true }
+  if ($script:mode -eq 'delayed-exit') { $script:exitWatch=[Diagnostics.Stopwatch]::StartNew() }
+  elseif ($script:mode -ne 'survivor') { $script:dead=$true }
 }
 `;
       return nativeSpawnSync(program, [...args.slice(0, -1), fixture + command],

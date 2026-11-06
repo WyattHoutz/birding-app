@@ -4015,10 +4015,14 @@ server.listen(0, '127.0.0.1', () => {
     try {
       if (process.platform === 'win32') {
         const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-          windowsOwnedInventory()
-          + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; "
-          + "try { Stop-Process -Id $ownedPid -Force -ErrorAction Stop } "
-          + "catch { if (Test-LivePid $ownedPid) { throw } } }; "
+          "$cleanupWatch=[Diagnostics.Stopwatch]::StartNew(); " + windowsOwnedInventory()
+          + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; $ownedProcess=$null; "
+          + "try { $ownedProcess=Get-Process -Id $ownedPid -ErrorAction Stop; "
+          + "$null=$ownedProcess.Handle; Stop-Process -Id $ownedPid -Force -ErrorAction Stop } "
+          + "catch { if (Test-LivePid $ownedPid) { throw }; $ownedProcess=$null }; "
+          + "if ($null -ne $ownedProcess) { $remaining=" + TIMEOUT_MS + "-$cleanupWatch.ElapsedMilliseconds; "
+          + "if ($remaining -le 0 -or -not $ownedProcess.WaitForExit([int]$remaining)) { "
+          + "throw ('Owned process exit exceeded cleanup budget: '+$ownedPid) } } }; "
           + windowsOwnedInventory() + "if ($owned.Count) { "
           + "$owned | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }"],
           { stdio: 'pipe', timeout: TIMEOUT_MS });
