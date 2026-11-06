@@ -211,6 +211,7 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
             localStorage.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', count: 0, year: 2026 }));
             A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
             await (0, eval)('(' + prepare + ')')(A, window, seen);
+            localStorage.setItem('bc_api_verified_v1:' + A.bcProfile(), localStorage.getItem('ebird_api_key'));
             A.setDisplayProfile(display);
           }, { prepare: mockups.preparePersonalFixture.toString(), seen, display });
           assert.equal(await evaluate(() => document.documentElement.clientWidth), width);
@@ -342,6 +343,13 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
           await click('[data-setup-confirm-continue]');
           assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), 'summary');
           await click('#setupContinue');
+          assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep),
+            'loading', width + '/' + input + ' must enter Getting Ready');
+          assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden),
+            false, width + '/' + input + ' cannot dismiss Getting Ready automatically');
+          assert.notEqual(await evaluate(() => localStorage.getItem('bc_setup_dismissed_v1')),
+            '1', width + '/' + input + ' cannot finish setup before an explicit action');
+          await click('#setupSheetClose');
           assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden), true);
         }
       }
