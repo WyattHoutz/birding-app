@@ -53,15 +53,24 @@ children.spawnSync = (program, args, options) => {
       const fixture = `
 $script:mode='${mode}'; $script:dead=$${mode === 'exited' ? 'true' : 'false'};
 $script:exitWatch=$null; $script:inventoryDelay=50;
+$script:lateDead=$false; $script:inventorySpent=0;
 function Get-CimInstance {
   if ($script:mode -eq 'inventory') { throw 'fixture inventory denied' }
-  if ($script:mode -eq 'delayed-exit') { Start-Sleep -Milliseconds $script:inventoryDelay }
+  if ($script:mode -in @('delayed-exit','late-owned')) {
+    Start-Sleep -Milliseconds $script:inventoryDelay
+    $script:inventorySpent += $script:inventoryDelay
+  }
   [pscustomobject]@{ProcessId=90123451;CommandLine='--user-data-dir="${profile}"'}
+  if ($script:mode -eq 'late-owned' -and $script:dead -and -not $script:lateDead) {
+    [pscustomobject]@{ProcessId=90123453;CommandLine='--user-data-dir="${profile}"'}
+  }
   [pscustomobject]@{ProcessId=90123452;CommandLine='--user-data-dir="${profile}-ordinary"'}
 }
 function Get-Process {
   [CmdletBinding()]param([int]$Id)
-  if ($Id -ne 90123451) { throw 'ordinary PID was queried' }
+  if ($Id -ne 90123451 -and -not ($script:mode -eq 'late-owned' -and $Id -eq 90123453)) {
+    throw 'ordinary PID was queried'
+  }
   if ($script:mode -eq 'denied') { throw 'fixture process access denied' }
   if ($script:mode -eq 'missing') {
     $record=[System.Management.Automation.ErrorRecord]::new(
@@ -69,9 +78,16 @@ function Get-Process {
       [System.Management.Automation.ErrorCategory]::ObjectNotFound, $Id)
     $PSCmdlet.ThrowTerminatingError($record)
   }
-  $process=[pscustomobject]@{HasExited=$script:dead;Handle=1}
+  $dead=if ($Id -eq 90123453) { $script:lateDead } else { $script:dead }
+  $process=[pscustomobject]@{HasExited=$dead;Handle=1;FixtureId=$Id}
   $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
     param([int]$wait)
+    if ($script:mode -eq 'late-owned') {
+      if ($wait -gt ${Number(process.env.AUDIT_TIMEOUT_MS || 120000)} - $script:inventorySpent) {
+        throw 'fixture cleanup budget reset'
+      }
+      if ($this.FixtureId -eq 90123453) { return $script:lateDead }
+    }
     if ($script:mode -eq 'delayed-exit') {
       if ($wait -gt ${Number(process.env.AUDIT_TIMEOUT_MS || 120000)} - $script:inventoryDelay) {
         throw 'fixture cleanup budget reset'
@@ -86,6 +102,11 @@ function Get-Process {
 }
 function Stop-Process {
   [CmdletBinding()]param([int]$Id,[switch]$Force)
+  if ($script:mode -eq 'late-owned' -and $Id -eq 90123453) {
+    'FIXTURE_KILL_OWNED'
+    $script:lateDead=$true
+    return
+  }
   if ($Id -ne 90123451) { throw 'ordinary PID was stopped' }
   if ($script:mode -eq 'stop-denied') { throw 'fixture stop denied' }
   if ($script:mode -eq 'exit-race') { $script:dead=$true; throw 'fixture exited during stop' }

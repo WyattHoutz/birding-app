@@ -4025,6 +4025,8 @@ server.listen(0, '127.0.0.1', () => {
       if (process.platform === 'win32') {
         const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
           "$cleanupWatch=[Diagnostics.Stopwatch]::StartNew(); " + windowsOwnedInventory()
+          // A newly observed owner must be drained without restarting the helper budget.
+          + "while ($owned.Count -and $cleanupWatch.ElapsedMilliseconds -lt " + TIMEOUT_MS + ") { "
           + "$owned | ForEach-Object { $ownedPid=$_.ProcessId; $ownedProcess=$null; "
           + "try { $ownedProcess=Get-Process -Id $ownedPid -ErrorAction Stop; "
           + "$null=$ownedProcess.Handle; Stop-Process -Id $ownedPid -Force -ErrorAction Stop } "
@@ -4032,7 +4034,7 @@ server.listen(0, '127.0.0.1', () => {
           + "if ($null -ne $ownedProcess) { $remaining=" + TIMEOUT_MS + "-$cleanupWatch.ElapsedMilliseconds; "
           + "if ($remaining -le 0 -or -not $ownedProcess.WaitForExit([int]$remaining)) { "
           + "throw ('Owned process exit exceeded cleanup budget: '+$ownedPid) } } }; "
-          + windowsOwnedInventory() + "if ($owned.Count) { "
+          + windowsOwnedInventory() + "}; if ($owned.Count) { "
           + "$owned | ForEach-Object { Write-Output ('SURVIVING_OWNED_PID=' + $_.ProcessId) }; exit 1 }"],
           { stdio: 'pipe', timeout: TIMEOUT_MS });
         if (result.error || result.status !== 0) {

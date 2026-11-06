@@ -600,7 +600,7 @@ function Stop-Process {
 
 test('F1245 layout cleanup distinguishes exited CIM entries from live owned processes',
   {skip:process.platform !== 'win32', timeout:120000}, () => {
-    for (const mode of ['exited', 'missing', 'alive', 'delayed-exit', 'survivor', 'denied', 'inventory',
+    for (const mode of ['exited', 'missing', 'alive', 'delayed-exit', 'late-owned', 'survivor', 'denied', 'inventory',
       'stop-denied', 'exit-race']) {
       const result = spawnSync(process.execPath, [
         '--require', path.join(__dirname, 'fixtures', 'audit-lifecycle.cjs'),
@@ -613,7 +613,7 @@ test('F1245 layout cleanup distinguishes exited CIM entries from live owned proc
       const output = result.stdout + result.stderr;
       assert.equal(result.error, undefined, mode + ': ' + output);
       assert.doesNotMatch(output, /ordinary PID was (queried|stopped)/, mode);
-      if (['exited', 'missing', 'alive', 'delayed-exit', 'exit-race'].includes(mode)) {
+      if (['exited', 'missing', 'alive', 'delayed-exit', 'late-owned', 'exit-race'].includes(mode)) {
         assert.equal(result.status, 1, mode + ': ' + output);
         assert.match(output, /FIXTURE missing/, mode);
         assert.doesNotMatch(output, /AUDIT INFRASTRUCTURE FAILURE/, mode);
