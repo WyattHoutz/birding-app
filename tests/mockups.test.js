@@ -51,7 +51,7 @@ async function wizardEndpoint(profile, read = fs.readFileSync) {
   throw new Error('wizard Chrome startup timed out after 15000ms');
 }
 
-function cleanupWizardProfile(profile, run = spawnSync) {
+function cleanupWizardProfile(profile, run = spawnSync, deadline = Date.now() + 10000) {
   const escaped = profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = '(?:^|\\s)"?--user-data-dir="?' + escaped + '"?(?=\\s|$)';
   let failure;
@@ -83,7 +83,6 @@ function cleanupWizardProfile(profile, run = spawnSync) {
       if (result.error || result.status !== 0) throw new Error('wizard exact-profile process cleanup unverified: '
         + (result.error ? result.error.message + '; ' : '') + String(result.stderr || result.status));
     } else {
-      const deadline = Date.now() + 10000;
       const owned = () => {
         const remaining = deadline - Date.now();
         if (remaining <= 0) throw new Error('wizard process cleanup deadline exceeded');
@@ -112,6 +111,28 @@ function cleanupWizardProfile(profile, run = spawnSync) {
   if (failure || fs.existsSync(profile)) {
     throw new Error('F1218 wizard cleanup could not be verified: ' + profile
       + (failure ? ': ' + failure.message : ''), { cause: failure });
+  }
+}
+
+async function cleanupWizardBrowser(profile, browser, run = spawnSync) {
+  const deadline = Date.now() + 10000;
+  const remaining = () => {
+    const budget = deadline - Date.now();
+    if (budget <= 0) throw new Error('wizard browser cleanup deadline exceeded');
+    return budget;
+  };
+  try {
+    const command = await mockups.withTimeout(browser.send('Browser.getBrowserCommandLine'),
+      remaining(), 'wizard cleanup profile identity');
+    if (!Array.isArray(command.arguments)
+      || !command.arguments.includes('--user-data-dir=' + profile)) {
+      throw new Error('wizard cleanup browser does not own the exact profile');
+    }
+    await mockups.withTimeout(browser.send('Browser.close'),
+      Math.min(5000, remaining()), 'wizard graceful cleanup').catch(() => {});
+  } finally {
+    cleanupWizardProfile(profile, (command, args, options) =>
+      run(command, args, {...options, timeout:Math.min(options.timeout, remaining())}), deadline);
   }
 }
 
@@ -373,27 +394,82 @@ test('F1218 exact-profile cleanup stops a surviving browser without stopping ano
     const profiles = ['wizard-input-', 'wizard-input-ordinary-'].map(prefix =>
       fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
     profiles.forEach(profile => spawn(mockups.CHROME, [
-      '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
+      '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--enable-automation',
       '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'
     ], { stdio: 'ignore' }));
-    let c;
+    let c, owned;
     try {
       const endpoints = await Promise.all(profiles.map(profile => wizardEndpoint(profile)));
+      owned = mockups.cdp(endpoints[0]);
+      await owned.ready;
       c = mockups.cdp(endpoints[1]);
       await c.ready;
-      cleanupWizardProfile(profiles[0]);
+      assert.ok((await mockups.withTimeout(owned.send('Browser.getVersion'),
+        5000, 'owned browser readiness')).product);
+      await cleanupWizardBrowser(profiles[0], owned);
       assert.equal(fs.existsSync(profiles[0]), false);
       const version = await mockups.withTimeout(c.send('Browser.getVersion'), 5000, 'ordinary browser preservation');
       assert.ok(version.product, 'the unrelated browser no longer answers CDP');
     } finally {
-      if (c) c.close();
-      const results = profiles.map(profile => {
-        try { cleanupWizardProfile(profile); return null; } catch (error) { return error; }
-      });
+      if (owned) owned.close();
+      const results = [];
+      try {
+        for (const [index, profile] of profiles.entries()) {
+          try {
+            if (index === 1 && c) await cleanupWizardBrowser(profile, c);
+            else cleanupWizardProfile(profile);
+            results.push(null);
+          } catch (error) { results.push(error); }
+        }
+      } finally { if (c) c.close(); }
       if (results.some(Boolean)) throw new AggregateError(results.filter(Boolean),
         results.filter(Boolean).map(error => error.message).join('\n'));
     }
   });
+
+test('F1245 graceful cleanup verifies exact ownership and preserves native proof within one deadline', async () => {
+  for (const mode of ['owned', 'lookalike', 'identity-error', 'close-error', 'native-error', 'budget']) {
+    const profile = 'fixture-profile', closed = [];
+    let clock = 0, inventories = 0;
+    const browser = { async send(method) {
+      if (method === 'Browser.getBrowserCommandLine') {
+        if (mode === 'identity-error') throw new Error('fixture identity denied');
+        return {arguments:['--user-data-dir=' + profile + (mode === 'lookalike' ? '-ordinary' : '')]};
+      }
+      assert.equal(method, 'Browser.close');
+      closed.push(method);
+      if (mode === 'budget') clock += 6000;
+      if (mode === 'close-error') throw new Error('fixture graceful close unavailable');
+      return {};
+    } };
+    const cleanup = vm.runInNewContext('(' + cleanupWizardBrowser.toString() + ')', {
+      Date:{now:() => clock}, mockups:{withTimeout:async (promise, budget) => {
+        assert.ok(budget > 0 && budget <= 10000 - clock);
+        return promise;
+      }},
+      cleanupWizardProfile(actual, run, deadline) {
+        assert.equal(actual, profile);
+        assert.ok(Number.isFinite(deadline) && deadline - clock <= 10000 - clock,
+          'POSIX polling must inherit the same cleanup deadline');
+        inventories++;
+        const result = run('fixture inventory', [], {timeout:10000});
+        if (result.status !== 0) throw new Error('fixture native inventory denied');
+      }
+    });
+    const run = (command, args, options) => {
+      assert.ok(options.timeout > 0 && options.timeout <= 10000 - clock,
+        'graceful work cannot reset the native cleanup budget');
+      return {status:mode === 'native-error' ? 1 : 0};
+    };
+    if (['lookalike', 'identity-error', 'native-error'].includes(mode)) {
+      await assert.rejects(cleanup(profile, browser, run), /exact profile|identity denied|native inventory denied/);
+    } else {
+      await cleanup(profile, browser, run);
+    }
+    assert.equal(inventories, 1, mode + ' still requires native ownership proof');
+    assert.equal(closed.length, ['lookalike', 'identity-error'].includes(mode) ? 0 : 1, mode);
+  }
+});
 
 test('F1245 wizard startup waits for a readable complete endpoint without retrying permission errors',
   {timeout:1000}, async () => {
