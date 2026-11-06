@@ -35,20 +35,25 @@ const waSeen = require(path.join(
 
 async function wizardEndpoint(profile, read = fs.readFileSync) {
   const deadline = Date.now() + 15000;
+  let polls = 0, lastEndpoint = 'not read';
   while (Date.now() < deadline) {
     try {
+      polls++;
       const [port, route] = read(path.join(profile, 'DevToolsActivePort'), 'utf8')
         .trim().split(/\r?\n/);
+      lastEndpoint = 'incomplete or invalid';
       if (/^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535
         && /^\/devtools\/browser\/[^\s/]+$/.test(route)) {
         return 'ws://127.0.0.1:' + port + route;
       }
     } catch (error) {
       if (error.code !== 'ENOENT' && error.code !== 'EBUSY') throw error;
+      lastEndpoint = error.code;
     }
     await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))));
   }
-  throw new Error('wizard Chrome startup timed out after 15000ms');
+  throw new Error('wizard Chrome startup timed out after 15000ms; polls='
+    + polls + '; last endpoint=' + lastEndpoint);
 }
 
 function cleanupWizardProfile(profile, run = spawnSync, deadline = Date.now() + 10000) {
@@ -170,7 +175,7 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
       try {
         endpoint = await wizardEndpoint(profile, readEndpoint);
       } catch (error) {
-        throw new Error(error.message + '; Chrome exit=' + chrome.exitCode
+        throw new Error(error.message + '; Chrome pid=' + chrome.pid + ', exit=' + chrome.exitCode
           + ', signal=' + chrome.signalCode + ', stderr=' + browserStderr, { cause: error });
       }
       c = mockups.cdp(endpoint);
@@ -393,13 +398,25 @@ test('F1218 exact-profile cleanup stops a surviving browser without stopping ano
   { timeout: 60000 }, async () => {
     const profiles = ['wizard-input-', 'wizard-input-ordinary-'].map(prefix =>
       fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-    profiles.forEach(profile => spawn(mockups.CHROME, [
-      '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--enable-automation',
-      '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'
-    ], { stdio: 'ignore' }));
+    const browsers = profiles.map(profile => {
+      const chrome = spawn(mockups.CHROME, [
+        '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--enable-automation',
+        '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'
+      ], { stdio: ['ignore', 'ignore', 'pipe'] });
+      const browser = { chrome, stderr: '' };
+      chrome.stderr.on('data', chunk => {
+        browser.stderr = (browser.stderr + chunk.toString()).slice(-4096);
+      });
+      return browser;
+    });
     let c, owned;
     try {
-      const endpoints = await Promise.all(profiles.map(profile => wizardEndpoint(profile)));
+      const endpoints = await Promise.all(profiles.map((profile, index) =>
+        wizardEndpoint(profile).catch(error => {
+          const { chrome, stderr } = browsers[index];
+          throw new Error(error.message + '; Chrome pid=' + chrome.pid + ', exit=' + chrome.exitCode
+            + ', signal=' + chrome.signalCode + ', stderr=' + stderr, { cause: error });
+        })));
       owned = mockups.cdp(endpoints[0]);
       await owned.ready;
       c = mockups.cdp(endpoints[1]);
@@ -516,7 +533,9 @@ test('F1245 wizard startup stops polling at its original shared deadline', {time
         return value;
       }}
     });
-    await assert.rejects(endpoint('fixture-profile'), /startup timed out after 15000ms/);
+    await assert.rejects(endpoint('fixture-profile'), error =>
+      error.message.includes('startup timed out after 15000ms; polls=300; last endpoint='
+        + (value === 'EBUSY' ? 'EBUSY' : 'incomplete or invalid')));
     assert.equal(clock, 15000);
     assert.equal(reads, 300);
   }

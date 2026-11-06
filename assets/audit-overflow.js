@@ -1433,10 +1433,19 @@ const AUDIT = `<script>
                   recent:'Black-throated Gray Warbler (Oct. 1, 2026)'}
               ]}
             },failures:{},stale:{},coverage:'Same-scope, same-period verified fixture boards.'};
+            function scanMetricFallback(label) {
+              var actions = document.querySelector('.rankmetric-actions');
+              var font = actions.style.fontFamily;
+              actions.style.fontFamily = 'sans-serif';
+              out.push(scan(label));
+              actions.style.fontFamily = font;
+            }
             A.renderRankPair(rankPair,'US-WA','2026','');
             out.push(scan('(F811 Species board)'));
+            scanMetricFallback('(F1246 Species metric sans-serif fallback)');
             document.querySelector('[data-rank-metric="cl"]').click();
             out.push(scan('(F811 Checklists board)'));
+            scanMetricFallback('(F1246 Checklists metric sans-serif fallback)');
           }
           if (id === 'sec-surgeBtn') {
             var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
