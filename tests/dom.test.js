@@ -36012,7 +36012,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   app.window.close();
 });
 
-test('F1224 Watch search retains membership with high-contrast lighter Remove Watch and black border', async () => {
+test('F1224 F1265 Watch search retains labeled membership with approved colours and AA contrast', async () => {
   const app = await boot({ sample: false, storage: { ebird_watchlist_v1: '[]' }, fetch(url) {
     if (/product\/spplist/.test(url)) return ['amerob'];
     if (/ref\/taxonomy\/ebird/.test(url)) return [{
@@ -36020,6 +36020,19 @@ test('F1224 Watch search retains membership with high-contrast lighter Remove Wa
     }];
     return [];
   } });
+  function appearance(button, expected) {
+    const style = app.window.getComputedStyle(button);
+    assert.equal(style.backgroundColor, expected);
+    assert.equal(style.color, 'rgb(0, 0, 0)');
+    assert.equal(style.borderStyle, 'solid');
+    assert.equal(style.borderColor, 'rgb(0, 0, 0)');
+    const rgb = style.backgroundColor.match(/\d+/g).slice(0, 3).map(Number);
+    const luminance = rgb.map(value => value / 255)
+      .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+      .reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
+    assert.ok((luminance + .05) / .05 >= 4.5,
+      'the approved colour must preserve black-text WCAG AA contrast');
+  }
   try {
     const A = app.window.__app;
     app.$('nvSearch').value = 'Robin';
@@ -36027,9 +36040,7 @@ test('F1224 Watch search retains membership with high-contrast lighter Remove Wa
     await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'real Watch search action');
     const add = app.$('nvFound').querySelector('.nvadd');
     assert.equal(add.textContent, 'Add Watch');
-    assert.equal(app.window.getComputedStyle(add).backgroundColor, 'rgb(51, 153, 51)');
-    assert.equal(app.window.getComputedStyle(add).color, 'rgb(0, 0, 0)');
-    assert.equal(app.window.getComputedStyle(add).borderStyle, 'solid');
+    appearance(add, 'rgb(0, 158, 115)');
     for (let cycle = 0; cycle < 2; cycle++) {
       app.click(add);
       assert.equal(add.textContent, 'Add Watch');
@@ -36038,15 +36049,7 @@ test('F1224 Watch search retains membership with high-contrast lighter Remove Wa
       assert.equal(A.getWatchlist().length, 1, 'one membership entry');
       const remove = app.$('nvResults').querySelector('.nvdel');
       assert.equal(remove.textContent, 'Remove Watch');
-      const style = app.window.getComputedStyle(remove);
-      const rgb = style.backgroundColor.match(/\d+/g).slice(0, 3).map(Number);
-      const luminance = rgb.map(value => value / 255)
-        .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
-        .reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
-      assert.ok((luminance + .05) / .05 >= 7, 'black text must retain at least 7:1 contrast on the lighter fill');
-      assert.equal(style.color, 'rgb(0, 0, 0)');
-      assert.equal(style.borderStyle, 'solid');
-      assert.equal(style.borderColor, 'rgb(0, 0, 0)');
+      appearance(remove, 'rgb(213, 94, 0)');
       app.click(remove);
       assert.equal(A.getWatchlist().length, 0);
       assert.equal(add.disabled, false);
@@ -36055,7 +36058,7 @@ test('F1224 Watch search retains membership with high-contrast lighter Remove Wa
   } finally { app.window.close(); }
 });
 
-test('F1147 Year List watch actions retain labeled states in both themes', async () => {
+test('F1147 F1265 Year List watch actions retain labeled approved colours in both themes', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   const A = app.window.__app;
   try {
@@ -36070,6 +36073,9 @@ test('F1147 Year List watch actions retain labeled states in both themes', async
         const style = app.window.getComputedStyle(button);
         assert.equal(button.textContent, watched ? 'Remove Watch' : 'Add Watch');
         assert.equal(button.getAttribute('aria-pressed'), String(watched));
+        assert.equal(style.backgroundColor, watched ? 'rgb(213, 94, 0)' : 'rgb(0, 158, 115)');
+        assert.equal(style.color, 'rgb(0, 0, 0)');
+        assert.equal(style.borderColor, 'rgb(0, 0, 0)');
         assert.equal(style.textAlign, 'center', theme);
         assert.ok(parseFloat(style.minHeight) >= 44, theme + ' touch target');
       }
