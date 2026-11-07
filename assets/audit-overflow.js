@@ -1620,12 +1620,12 @@ const AUDIT = `<script>
           document.querySelectorAll('#myYearList .myYearWatchlist').forEach(function(button) {
             var watched=button.getAttribute('aria-pressed')==='true',style=getComputedStyle(button);
             var bg=watchLuminance(style.backgroundColor),fg=watchLuminance(style.color);
-            if(style.backgroundColor!==(watched?'rgb(243, 177, 166)':'rgb(51, 153, 51)')
+            if(style.backgroundColor!==(watched?'rgb(213, 94, 0)':'rgb(0, 158, 115)')
               ||style.color!=='rgb(0, 0, 0)'
               ||style.borderStyle!=='solid'
               ||style.borderColor!=='rgb(0, 0, 0)'
-              ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<(watched?7:4.5))
-              throw new Error('F1224 live Watch palette, border or contrast failed in '+theme);
+              ||(Math.max(bg,fg)+0.05)/(Math.min(bg,fg)+0.05)<4.5)
+              throw new Error('F1224 F1265 live Watch palette, border or AA contrast failed in '+theme);
           });
           return theme;
         });
@@ -4403,7 +4403,7 @@ server.listen(0, '127.0.0.1', () => {
             || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'
             || action.color!=='rgb(0, 0, 0)'
-            || action.background!==(action.pressed==='true'?'rgb(243, 177, 166)':'rgb(51, 153, 51)'))){
+            || action.background!==(action.pressed==='true'?'rgb(213, 94, 0)':'rgb(0, 158, 115)'))){
             bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
           }
         }

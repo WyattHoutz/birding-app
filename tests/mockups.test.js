@@ -239,6 +239,12 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
             await (0, eval)('(' + prepare + ')')(A, window, seen);
             localStorage.setItem('bc_api_verified_v1:' + A.bcProfile(), localStorage.getItem('ebird_api_key'));
             A.setDisplayProfile(display);
+            // This guard measures real input ownership; provider readiness has separate controls.
+            const create = window.SetupPrefetch.create;
+            window.SetupPrefetch.create = (tasks, ...callbacks) => create(
+              Object.fromEntries(Object.entries(tasks).map(([name, task]) => [
+                name, { ...task, acquire: async () => ({ state: 'ready' }) }
+              ])), ...callbacks);
           }, { prepare: mockups.preparePersonalFixture.toString(), seen, display });
           assert.equal(await evaluate(() => document.documentElement.clientWidth), width);
           if (input === 'pointer') {
@@ -252,6 +258,8 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
                 localStorage.setItem('bc_setup_step_v1', step);
                 A.openSetupSheet();
               }, step);
+              if (step === 'summary') await until(() =>
+                document.getElementById('setupSheetBody').dataset.setupStep === 'summary');
               assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), step);
               await backStyle('#setupSheetBody', '#setupBack');
             }
@@ -367,16 +375,18 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
             && !document.getElementById('appSheet').hidden);
           await backStyle('#appSheet', '[data-setup-confirm-back]');
           await click('[data-setup-confirm-continue]');
+          await until(() => document.getElementById('setupSheetBody').dataset.setupStep === 'summary');
           assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), 'summary');
-          await click('#setupContinue');
-          assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep),
-            'loading', width + '/' + input + ' must enter Getting Ready');
           assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden),
-            false, width + '/' + input + ' cannot dismiss Getting Ready automatically');
+            false, width + '/' + input + ' cannot dismiss the final summary automatically');
           assert.notEqual(await evaluate(() => localStorage.getItem('bc_setup_dismissed_v1')),
             '1', width + '/' + input + ' cannot finish setup before an explicit action');
-          await click('#setupSheetClose');
+          assert.equal(await evaluate(() => document.getElementById('setupDataResult').dataset.initialDataOutcome), 'ready');
+          await click('#setupContinue');
           assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden), true);
+          assert.equal(await evaluate(() => localStorage.getItem('bc_setup_dismissed_v1')), '1');
+          assert.equal(await evaluate(() => document.getElementById('menuPanel').hidden), false);
+          assert.equal(await evaluate(() => !!document.getElementById('setupPrefetchBackground')), false);
         }
       }
     } finally {

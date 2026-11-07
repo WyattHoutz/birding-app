@@ -1412,7 +1412,7 @@ const REVIEW_SHOTS = [
                recent:[{obsDt:at('15:30'),locName:'Example distant public marsh',
                  locId:'LMOCKCCLO',lat:48.82,lng:-122.14,subId:'SMOCKCCLO',howMany:1}]}],
              [{loc:'Example busy public patch',locId:'LHOT',observers:9,
-               baseline:2.25,ratio:4,reason:'surge',latest:at('17:00')}],
+               baseline:1.8,ratio:5,reason:'surge',latest:at('17:00')}],
              [{code:'amgplo',name:'American Golden-Plover',sightings:4,nPlaces:2,
                distMi:21.9,locName:'Example public mudflats',locId:'LMOCKCELEB',
                latestStr:at('16:00'),latestSubId:'SMOCKCELEB'}],
@@ -1506,8 +1506,8 @@ const REVIEW_SHOTS = [
                  + JSON.stringify({frame:patchFrame,tiles:patchRects}));
            if (busy.querySelector('.surgebadge').textContent !== 'BUSY PATCH'
                || busy.querySelectorAll('.surgehotspotpeople > span').length !== 9
-               || busy.querySelector('.surgehotspotmult').textContent !== '4×'
-               || !/9 estimated parties.*6\.75 above usual 2\.25/.test(busy.textContent)) {
+               || busy.querySelector('.surgehotspotmult').textContent !== '5×'
+               || !/9 estimated parties.*7\.2 above usual 1\.8/.test(busy.textContent)) {
              throw new Error('F1219/F1232 BUSY PATCH must show its multiplier, party count and measured excess');
            }
            var foyTitle = host.querySelector('[data-alert-kind="foy"] .surgealerttitle');
@@ -3061,7 +3061,7 @@ const BOOTSTRAP = `
                 locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'S389100001' }
             ] }
         ], [
-          { loc: 'Cedar River mouth', locId: 'LHOT', observers: 8, baseline: 2, ratio: 4,
+          { loc: 'Cedar River mouth', locId: 'LHOT', observers: 8, baseline: 1.6, ratio: 5,
             reason: 'surge', latest: '2026-09-02 15:40',
             eventAt: Date.parse('2026-09-02T15:40:00-07:00') }
         ], [

@@ -3071,7 +3071,7 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
     }
     app.$('surgeResults').appendChild(feed);
     A.renderSurge([], [], [{ loc: 'Example public patch', locId: 'LSTYLE',
-      observers: 16, baseline: 16 / 4.1, ratio: 4.1, reason: 'surge', latest: when,
+      observers: 16, baseline: 16 / 5.1, ratio: 5.1, reason: 'surge', latest: when,
       eventAt: now - 60000 }], [], [], { observations: 'notLoaded', hotspots: 'ok' });
     const actual = app.$('surgeFeed');
     actual.innerHTML = feed.innerHTML;
@@ -3145,7 +3145,7 @@ test('F1085/F1086/F1032 the five-row preview uses source order and compact acces
     };
     const patches = Array.from({ length: 7 }, (_, i) => ({
       loc: `Actual public patch ${i}`, locId: `LPREVIEW${i}`, observers: 16,
-      baseline: 4, ratio: 4, reason: 'surge', latest: stamp(now - (i + 1) * 60000),
+      baseline: 3.2, ratio: 5, reason: 'surge', latest: stamp(now - (i + 1) * 60000),
       eventAt: now - (i + 1) * 60000,
     }));
     const twitch = { code: 'verfly', name: 'Vermilion Flycatcher', firstAt: now - 60000,
@@ -24200,7 +24200,7 @@ test('F765 Watch list sorts alphabetically without rewriting storage or misdirec
   for (const button of buttons()) {
     assert.equal(button.textContent, 'Remove Watch');
     const style = app.window.getComputedStyle(button);
-    assert.equal(style.backgroundColor, 'rgb(243, 177, 166)');
+    assert.equal(style.backgroundColor, 'rgb(213, 94, 0)');
     assert.equal(style.color, 'rgb(0, 0, 0)');
     assert.equal(style.padding, '4px 6px');
     assert.equal(style.minHeight, '44px');
@@ -25816,7 +25816,7 @@ test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores catego
     A.useFoundAnchor({ lat: 47, lng: -122 }, 'Synthetic origin');
     const patches = Array.from({ length: 7 }, (_, i) => ({
       loc: 'Chronological patch ' + i, locId: 'L1019' + i, observers: 16,
-      baseline: 4, ratio: 4, reason: 'surge', latest: stamp(5 + i), eventAt: now - (5 + i) * 60000,
+      baseline: 3.2, ratio: 5, reason: 'surge', latest: stamp(5 + i), eventAt: now - (5 + i) * 60000,
     }));
     const twitch = { code: 'shtsan', name: 'Sharp-tailed Sandpiper', firstAt: now - 50 * 60000,
       reports: 2, lowerBound: true, latest: { dateStr: stamp(55), locId: 'L1019T',
@@ -26926,7 +26926,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     [{ species: 'Terek Sandpiper', code: 'tersan', birders, latest: localStamp(80),
       recent: [{ obsDt: localStamp(80), locName: 'Stanwood STP',
         lat: 47.77, lng: -122.18, subId: 'SK1' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 4.1, ratio: 4.1, reason: 'surge',
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 5.1, ratio: 5.1, reason: 'surge',
       latest: hotspotLatest, eventAt: Date.parse(hotspotLatest.replace(' ', 'T')) }],
     [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,
       distMi: 6.2, locName: 'Marymoor Park', subId: 'SN1', whenStr: localStamp(180) }],
@@ -27124,7 +27124,7 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
       latest: localStamp(80),
       recent: [{ obsDt: localStamp(80), locName: 'Seattle-Winslow Ferry',
         locId: 'LFERRY', lat: 47.61, lng: -122.43, subId: 'SK1' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 4.1, ratio: 4.1,
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 5.1, ratio: 5.1,
       reason: 'surge', latest: localStamp(20),
       eventAt: Date.parse(localStamp(20).replace(' ', 'T')) }],
     [{ code: 'amgplo', name: 'American Golden-Plover', sightings: 4, nPlaces: 1,
@@ -27767,7 +27767,7 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
   const app=await boot();
   try {
     app.window.__app.renderSurge([],[],[
-      {loc:'Busy public patch',locId:'LHOT',observers:9,baseline:2,ratio:4.5,latest:stamp}
+      {loc:'Busy public patch',locId:'LHOT',observers:9,baseline:1.8,ratio:5,latest:stamp}
     ],[],[],{},[
       {locId:'LTOP',locName:'Example top patch',band:'high yield',species:[
         {code:'snogoo',comName:'Snow Goose',count:1,dateStr:'2026-09-02 11:00'}
@@ -27781,11 +27781,11 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
     assert.ok([...image.querySelectorAll('.surgehotspotpeople > span')]
       .every(node=>node.textContent==='👥'));
     assert.equal(image.querySelector('.surgehotspotpeople').getAttribute('aria-hidden'),'true');
-    assert.equal(image.querySelector('.surgehotspotmult').textContent,'4.5×');
+    assert.equal(image.querySelector('.surgehotspotmult').textContent,'5×');
     assert.equal(app.window.getComputedStyle(image.querySelector('.surgehotspotmult')).position,'relative');
     assert.equal(image.getAttribute('role'),'img');
-    assert.match(image.getAttribute('aria-label'),/9 estimated parties; 4\.5×/);
-    assert.match(hotspot.querySelector('.surge-essential').textContent,/9 estimated parties.*7 above usual 2/);
+    assert.match(image.getAttribute('aria-label'),/9 estimated parties; 5×/);
+    assert.match(hotspot.querySelector('.surge-essential').textContent,/9 estimated parties.*7\.2 above usual 1\.8/);
     assert.equal(hotspot.querySelector('.surgeplacethumb'),null);
     assert.ok(patch.querySelector('[data-patch-birds][data-birdgen-total="1"]'),
       'Top Patch keeps its qualifying full single-bird photo, not a crowd tile');
@@ -27807,7 +27807,7 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
     assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null);
     A.renderSurge([],[],[row],[],[],{});
     assert.equal(app.document.querySelector('[data-alert-kind="hotspot"]'),null,
-      'the new alert-only three-times rule is additional to the unchanged count/excess rule');
+      'the alert-only five-times rule is additional to the unchanged count/excess rule');
     await A.saveSurgeRetainedPart('convergence',{state:'ok',rows:[
       {...row,locId:'LOLD',baseline:undefined}
     ]});
@@ -27840,7 +27840,7 @@ test('F302 Bird Gen bird and hotspot links open their Stakeout sections', async 
 
   const hotspotApp = await boot();
   hotspotApp.window.__app.renderSurge(
-    [], [], [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 4.1, ratio: 4.1,
+    [], [], [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 5.1, ratio: 5.1,
       reason: 'surge', latest: stamp, eventAt: Date.parse(stamp.replace(' ', 'T')) }],
     [], []);
   const hotspot = hotspotApp.$('surgeFeed').querySelector(
@@ -49459,7 +49459,7 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
       latest: localStamp(60),
       recent: [{ obsDt: localStamp(60), locName: 'Union Bay Natural Area',
         lat: 47.76, lng: -122.17, subId: 'SK' }] }],
-    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 4.1, ratio: 4.1,
+    [{ loc: 'Montlake Fill', locId: 'LHOT', observers: 16, baseline: 16 / 5.1, ratio: 5.1,
       reason: 'surge', latest: localStamp(30),
       eventAt: Date.parse(localStamp(30).replace(' ', 'T')) }],
     [{ code: 'sposan', name: 'Spotted Sandpiper', sightings: 4, nPlaces: 1,

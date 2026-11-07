@@ -37,6 +37,23 @@ test('the checked-in public tree satisfies the release bundle contract', () => {
   assert.doesNotThrow(() => verifyBundle(PUBLIC_ROOT, version, contract));
 });
 
+test('F1265 the shipped palette contract rejects either removed WATCH colour', () => {
+  const { verifyBundle } = require(bundleVerifierPath);
+  const colours = ['#009E73', '#D55E00'].map(colour =>
+    `background: ${colour}; color: #000; border: 2px solid #000;`);
+  const production = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  for (const marker of colours) assert.ok(production.requiredText['index.html'].includes(marker));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-palette-contract-'));
+  const contract = { requiredFiles: ['index.html'], requiredText: { 'index.html': colours } };
+  try {
+    for (const missing of colours) {
+      fs.writeFileSync(path.join(root, 'index.html'),
+        colours.filter(marker => marker !== missing).join('\n'));
+      assert.throws(() => verifyBundle(root, '1.184.0', contract), /Missing required text/);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('F735 the packaged taxonomy module and script binding are mandatory', () => {
   const { verifyBundle, withVersion } = require(bundleVerifierPath);
   const contract = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
