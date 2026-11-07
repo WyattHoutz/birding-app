@@ -32254,7 +32254,7 @@
         var hit = rankCacheGet(ck);
         if (!force && rankSourceMatches(hit, rr.region, year, metric)) {
           rankDiagnostic('cache-hit', { requested: rr.max || 500, rowLimit: rr.rowLimit || TOP_BOARD_N,
-            retained: hit.rows.length });
+            retained: Array.isArray(hit.rows) ? hit.rows.length : null });
           return Promise.resolve(hit);
         }
         if (!force && _rankFetchInflight[ck]) {

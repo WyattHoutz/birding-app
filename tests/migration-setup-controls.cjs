@@ -17,6 +17,14 @@ module.exports = function registerMigrationSetupControls({
     }, now);
   }
 
+  function readyInitialData(app) {
+    const create = app.window.SetupPrefetch.create;
+    app.window.SetupPrefetch.create = (tasks, ...callbacks) => create(
+      Object.fromEntries(Object.entries(tasks).map(([name, task]) => [
+        name, { ...task, acquire: async () => ({ state: 'ready' }) }
+      ])), ...callbacks);
+  }
+
   test('F1085 both real Twitch renderers show the same two- and six-hour source ages', async () => {
     const app = await boot();
     try {
@@ -218,7 +226,9 @@ module.exports = function registerMigrationSetupControls({
           assert.equal((pill.textContent.match(/⌛/g) || []).length, 1);
           assert.match(pill.getAttribute('aria-label'), /loading, results not complete/);
         }
-        assert.equal(/1 MASS FLOCK/.test(root.textContent), counted);
+        const massPill = root.querySelector('[data-count-kind="mass"]');
+        assert.equal(Number(massPill.querySelector('.presslabel').textContent.match(/\d+/)[0]), counted ? 1 : 0);
+        assert.match(massPill.getAttribute('aria-label'), /MASS FLOCK/i);
       }
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -1423,6 +1433,7 @@ module.exports = function registerMigrationSetupControls({
         ebird_seen_meta: JSON.stringify({ source: 'csv', count: 0, year: new Date().getFullYear() }) } });
     try {
       const A = app.window.__app;
+      readyInitialData(app);
       A.applyCapturedIdentity({ status: 'ok', displayName: 'Synthetic style observer' });
       await seedSeen(app, [], null, [{ code: 'stable', name: 'Stable bird' }]);
       const draft = { profile: A.bcProfile(), approved: true,
@@ -1440,6 +1451,8 @@ module.exports = function registerMigrationSetupControls({
         app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
         app.window.localStorage.setItem('bc_setup_step_v1', step);
         A.openSetupSheet();
+        if (step === 'summary') await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary',
+          'settled initial setup summary');
         assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
         check(app.$('setupSheetBody'), app.$('setupBack'));
       }
@@ -1472,6 +1485,7 @@ module.exports = function registerMigrationSetupControls({
     const app = await boot({ sample: false });
     try {
       const A = app.window.__app;
+      readyInitialData(app);
       for (const [step, copy] of [
         ['account', /Sign in directly.*does not need your password/],
         ['key', /Key verification is sent directly to eBird/],
@@ -1481,6 +1495,8 @@ module.exports = function registerMigrationSetupControls({
       ]) {
         app.window.localStorage.setItem('bc_setup_step_v1', step);
         A.openSetupSheet();
+        if (step === 'summary') await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary',
+          'settled initial setup summary');
         assert.doesNotMatch(app.$('setupSheetBody').textContent, copy,
           step + ' explanations belong in Help, not the action screen');
         const controls = [...app.$('setupSheetBody').querySelectorAll('button')];
@@ -1504,7 +1520,8 @@ module.exports = function registerMigrationSetupControls({
         assert.notEqual(app.$('setupHelp').parentElement, primary[0].parentElement);
         assert.equal(app.window.getComputedStyle(app.$('setupHelp').firstElementChild).width, '28px',
           'the visible circle is smaller than its interactive target');
-        for (const control of controls) assert.equal(app.window.getComputedStyle(control).whiteSpace, 'nowrap');
+        for (const control of controls) assert.equal(app.window.getComputedStyle(control).whiteSpace,
+          control.id === 'setupSkipSeen' ? 'normal' : 'nowrap');
         assert.equal(app.$('setupHelp').getAttribute('aria-label'), 'Help: ' + primary[0].textContent.trim());
         if (step === 'account') {
           assert.match(app.$('setupSheetBody').textContent, /Read-only access to eBird\. Connection details are kept on your device\./);

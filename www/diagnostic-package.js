@@ -141,10 +141,23 @@
     });
     var packageId = 'd_' + Date.now().toString(36) + '_'
       + Math.floor((options.random || Math.random)() * 0xFFFFFF).toString(36);
+    var environment = privacy.sanitize(options.environment || {});
+    var notifications = options.environment && options.environment.bird_gen_notifications;
+    var trace = notifications && notifications.stage_trace;
+    if (trace && global.BirdGenNotifications && global.BirdGenNotifications.diagnosticTrace) {
+      var safeTrace = global.BirdGenNotifications.diagnosticTrace(trace.entries);
+      safeTrace.available = trace.available === true;
+      if (typeof trace.rejected === 'number' && isFinite(trace.rejected) && trace.rejected >= 0) {
+        safeTrace.rejected += trace.rejected;
+      }
+      safeTrace.truncated = safeTrace.truncated || trace.truncated === true;
+      safeTrace.entries = safeTrace.entries.map(function (entry) { return privacy.sanitize(entry); });
+      environment.bird_gen_notifications.stage_trace = safeTrace;
+    }
     var manifest = Object.assign({}, (auditBundle && auditBundle.manifest) || {}, {
       package_id: packageId,
       build: info,
-      environment: privacy.sanitize(options.environment || {}),
+      environment: environment,
       storage_inventory: privacy.sanitize(options.storageInventory || {}),
       tester_note_included: !!String(options.note || '').trim(),
       screenshot_included: !!options.screenshotBase64

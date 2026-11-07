@@ -24771,7 +24771,9 @@ test('F801 durable retained results survive reopen without an API response', asy
   assert.equal(second.$('surgeResults').dataset.sourceFavorites, 'loading',
     'retained evidence must not disguise the new pending acquisition');
   const loadingFavorite = second.$('surgeResults').querySelector('[data-count-kind="favorite"]');
-  assert.match(loadingFavorite.textContent, /⌛ 1 FAVORITE PATCH/);
+  assert.equal(Number(loadingFavorite.querySelector('.presslabel').textContent.match(/\d+/)[0]), 1);
+  assert.match(loadingFavorite.getAttribute('aria-label'), /FAVORITE PATCH/i);
+  assert.match(loadingFavorite.textContent, /⌛/);
   assert.doesNotMatch(loadingFavorite.textContent, /loading/);
   assert.match(loadingFavorite.getAttribute('aria-label'), /loading, results not complete/);
   second.window.close();
@@ -44498,7 +44500,7 @@ test('F806/F817/F1070 forecast keeps its validated source-night midnight across 
   const app = await boot({ report: 'wa' });
   const A = app.window.__app;
   const beforeMidnight = new Date('2026-10-05T06:50:00Z');
-  const oldForecast = { forecast: { level: 'Medium', date: '2026-10-04' },
+  const oldForecast = { forecast: { level: 'High', date: '2026-10-04' },
     fetchedAt:beforeMidnight.getTime() };
   const oldRow = A.birdcastSurgeRows(beforeMidnight, oldForecast)[0];
   assert.equal(oldRow.time, Date.parse('2026-10-04T07:00:00.000Z'));

@@ -387,7 +387,8 @@ module.exports = ({
         ...complete, pendingSources: {}, foyRows: firsts, deferPhotos: true, suppressNotifications: true
       });
       const root = app.$('surgeResults'), filter = root.querySelector('[data-count-kind="foy"]');
-      assert.match(filter.textContent, /\b26 FOY\b/);
+      assert.equal(parseInt(filter.querySelector('.presslabel').textContent, 10), 26);
+      assert.match(filter.getAttribute('aria-label'), /FOY/i);
       const groups = [...root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]')];
       assert.equal(groups.length, 1);
       assert.equal(groups[0].querySelector('[data-birdgen-total]').dataset.birdgenTotal, '25');
@@ -448,7 +449,9 @@ module.exports = ({
         deferPhotos: true, suppressNotifications: true
       });
       const root = app.$('surgeResults');
-      assert.match(root.querySelector('[data-count-kind="foy"]').textContent, /\b4 FOY\b/);
+      const filter = root.querySelector('[data-count-kind="foy"]');
+      assert.equal(parseInt(filter.querySelector('.presslabel').textContent, 10), 4);
+      assert.match(filter.getAttribute('aria-label'), /FOY/i);
       const groups = [...root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]')];
       assert.deepEqual(groups.map(group => group.dataset.foyDate).sort(), [day, today].sort());
       for (const group of groups) {

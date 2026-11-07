@@ -87,6 +87,35 @@ test('F1259 a missing shared privacy policy prevents creating a diagnostic packa
   } finally { globalThis.BirdAudit = privacy; }
 });
 
+test('F1259 package preserves validated native stages without raw payload or membership entries', () => {
+  const previous = globalThis.BirdGenNotifications;
+  try {
+    globalThis.BirdGenNotifications = require('../www/birdgen-notifications.js');
+    const packed = Diagnostics.packageFiles(Audit.create({ indexedDB: null }).bundle(), {
+      environment: {
+        entries: [{ name: 'Private membership sentinel' }],
+        bird_gen_notifications: {
+          stage_trace: {
+            available: true, rejected: 2, truncated: true, entries: [{
+              at: Date.now(), attempt: '00000000-0000-0000-0000-000000001010',
+              stage: 'publication', outcome: 'accepted', background: true,
+              counts: { accepted: 1, apiKey: 'Private native key sentinel' },
+              raw: 'Private native payload sentinel'
+            }]
+          }
+        }
+      }
+    });
+    const trace = packed.manifest.environment.bird_gen_notifications.stage_trace;
+    assert.equal(trace.entries.length, 1);
+    assert.equal(trace.entries[0].stage, 'publication');
+    assert.equal(trace.entries[0].counts.accepted, 1);
+    assert.equal(trace.rejected, 2);
+    assert.equal(trace.truncated, true);
+    assert.doesNotMatch(JSON.stringify(packed.manifest), /Private membership|Private native|apiKey|raw/);
+  } finally { globalThis.BirdGenNotifications = previous; }
+});
+
 test('F608 screenshot is packaged only after explicit inclusion', () => {
   const audit = Audit.create({ indexedDB: null });
   const without = Diagnostics.packageFiles(audit.bundle(), {});

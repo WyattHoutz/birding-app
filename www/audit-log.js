@@ -35,9 +35,9 @@
   }
 
   function cleanValue(value, depth) {
-    if (depth > 3) return '[depth-limited]';
     if (value == null || typeof value === 'boolean') return value;
     if (typeof value === 'number') return isFinite(value) ? value : null;
+    if (depth > 3) return '[depth-limited]';
     if (typeof value === 'string') return text(value, 240);
     if (Array.isArray(value)) {
       return value.slice(0, 30).map(function (item) {
