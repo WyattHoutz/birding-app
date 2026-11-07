@@ -26,10 +26,12 @@
     start: 1, ok: 1, empty: 1, cancelled: 1, blocked: 1,
     timeout: 1, error: 1
   };
-  var SENSITIVE_KEY = /(api.?key|token|authorization|cookie|password|passcode|username|display.?name|email|address|latitude|longitude|(^|_)lat($|_)|(^|_)lng($|_)|coordinate|aba.?sid|tide.?station|personal|seen.?list|response.?body|request.?body)/i;
+  var SENSITIVE_KEY = /(api.?key|token|authorization|cookie|password|passcode|username|display.?name|account|profile.?label|alias|email|address|home.?place|home.?lat|home.?lng|latitude|longitude|(^|_)lat($|_)|(^|_)lng($|_)|coordinate|aba.?sid|tide.?station|personal|seen.?list|watch|membership|(^|_)codes?($|_)|^exact$|query|search.?text|search.?term|url|uri|html|response.?body|request.?body)/i;
 
   function text(value, max) {
-    return String(value == null ? '' : value).slice(0, max || 160);
+    var string = String(value == null ? '' : value);
+    var scrub = global.__dbg && global.__dbg.scrubText;
+    return (scrub ? scrub(string) : string).slice(0, max || 160);
   }
 
   function cleanValue(value, depth) {
@@ -45,7 +47,10 @@
     if (typeof value === 'object') {
       var out = {};
       Object.keys(value).sort().slice(0, 40).forEach(function (key) {
-        if (SENSITIVE_KEY.test(key) && !/_configured$/i.test(key)) return;
+        if (SENSITIVE_KEY.test(key)
+            && !(/_configured$/i.test(key) && typeof value[key] === 'boolean')) return;
+        if (value[key] && typeof value[key] === 'object'
+            && /^(?:rows|data|entries|observations)$/i.test(key)) return;
         out[text(key, 60)] = cleanValue(value[key], depth + 1);
       });
       return out;
@@ -377,6 +382,8 @@
     SCHEMA: SCHEMA,
     SETTINGS_SCHEMA: SETTINGS_SCHEMA,
     TAGS: Object.keys(TAGS).sort(),
+    sanitize: function (value) { return cleanValue(value, 0); },
+    sanitizeText: text,
     create: create
   };
   global.BirdAudit = API;

@@ -88,6 +88,22 @@ test('F609 redacts sensitive fields before they enter the event buffer', () => {
   assert.equal(row.attrs.nested.rows, 8);
 });
 
+test('F1259 raw data is omitted while numeric coverage and actual configured flags survive', () => {
+  const audit = Audit.create({ indexedDB: null });
+  const row = audit.event('source.outcome', { attrs: {
+    rows: 500, parsed: 500, retained: 100, acquisition_ms: 153,
+    nested: { rows: [{ name: 'PRIVATE_ROSTER_SENTINEL' }], codes: ['privatebird'] },
+    data: [{ name: 'PRIVATE_DATA_SENTINEL' }],
+    api_key_configured: true, account_configured: 'PRIVATE_FLAG_SENTINEL'
+  } });
+  assert.doesNotMatch(JSON.stringify(row),
+    /PRIVATE_ROSTER_SENTINEL|PRIVATE_DATA_SENTINEL|privatebird|PRIVATE_FLAG_SENTINEL/);
+  assert.equal(row.attrs.rows, 500);
+  assert.equal(row.attrs.retained, 100);
+  assert.equal(row.attrs.acquisition_ms, 153);
+  assert.equal(row.attrs.api_key_configured, true);
+});
+
 test('F609 settings changes create a new revision without secret settings', () => {
   const audit = Audit.create({ indexedDB: null, random: () => 0.75 });
   const before = {

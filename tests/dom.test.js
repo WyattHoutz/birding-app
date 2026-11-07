@@ -156,6 +156,9 @@ test('F1187 complete and stale setup summaries use current owned evidence and ro
     store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
     store.removeItem('ebird_seen_setup_skipped');
     store.setItem('bc_setup_step_v1', 'summary');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => { tasks[key].acquire = () => ({ state: 'ready', value: {} }); });
+    await A.startSetupPrefetch(tasks);
     A.openSetupSheet();
     assert.equal(app.$('setupStepTitle').textContent, 'Setup complete');
     assert.equal(app.$('setupSheetBody').querySelector('[data-setup-repair]'), null);
@@ -169,13 +172,12 @@ test('F1187 complete and stale setup summaries use current owned evidence and ro
   } finally { app.window.close(); }
 });
 
-test('F1249 setup loading owns shared work after Close and navigation, then enables deliberate completion', async () => {
+test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at the final data summary', async () => {
   const app = await setupOwnedSeenApp(['stable']);
   try {
     const A = app.window.__app, store = app.window.localStorage;
     store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
     store.setItem('bc_setup_step_v1', 'summary');
-    A.openSetupSheet();
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
     let release, calls = 0;
     Object.keys(tasks).forEach(key => {
@@ -187,31 +189,103 @@ test('F1249 setup loading owns shared work after Close and navigation, then enab
     });
     const pending = A.startSetupPrefetch(tasks);
     await waitFor(() => !!release, 'shared Busy acquisition');
-    app.click(app.$('setupContinue'));
+    A.openSetupSheet();
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
     assert.equal(app.$('setupPrefetchRows').children.length, 8);
-    assert.equal(app.$('setupStartBirding').disabled, true);
-    assert.equal(app.$('setupStartBirding').textContent, 'Loading...');
-    assert.equal(app.$('setupPrefetchHint').textContent,
-      'Click close to continue loading in the background.');
+    assert.match(app.$('setupPrefetchActivity').textContent, /Please wait.*continue automatically/);
+    assert.equal(app.$('setupStartBirding'), null);
+    assert.equal(app.$('setupPrefetchRetry'), null);
     app.click(app.$('setupSheetClose'));
     assert.equal(app.$('setupSheet').hidden, true);
-    assert.equal(app.$('setupPrefetchBackground').hidden, false);
+    assert.equal(app.$('setupPrefetchBackground'), null);
     A.showSection('sec-rankBtn', { load: false });
     release({ state: 'ready', value: { persisted: true } });
     await pending;
     assert.equal(A.setupPrefetchEngine().complete(), true);
+    assert.equal(app.$('setupSheet').hidden, true, 'late settlement must not reopen closed setup');
     A.openSetupSheet();
-    assert.equal(app.$('setupPrefetchCount').textContent, '8 Of 8 Ready');
-    assert.equal(app.$('setupStartBirding').disabled, false);
-    assert.equal(app.$('setupStartBirding').textContent, 'Start Birding!');
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'settled final summary');
+    assert.match(app.$('setupDataResult').textContent, /Initial data fetched/);
+    assert.equal(app.$('setupDataResult').dataset.initialDataOutcome, 'ready');
     const coldCalls = calls;
     await A.startSetupPrefetch(tasks);
     assert.equal(calls, coldCalls, 'warm/reopened setup must reuse every success');
-    app.click(app.$('setupStartBirding'));
+    app.click(app.$('setupContinue'));
     assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.$('menuPanel').hidden, false, 'Start birding opens App Home');
+    A.renderKeyBanner();
+    assert.equal(app.$('setupPrefetchBackground'), null);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F1260 partial initial attempts automatically advance with an honest result and no Retry gate', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let release;
+  try {
+    const A = app.window.__app, store = app.window.localStorage, calls = {};
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls[key] = (calls[key] || 0) + 1;
+        if (key === 'busy') return new Promise(resolve => { release = resolve; });
+        if (key === 'rankings') throw new Error('Synthetic rankings failure');
+        return { state: key === 'mass' ? 'partial' : 'ready', value: {} };
+      };
+    });
+    const pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => release, 'actual held source');
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
+    assert.match(app.$('setupPrefetchActivity').textContent, /Please wait/);
+    assert.equal(app.$('setupContinue'), null);
+    release({ state: 'ready', value: {} });
+    await pending;
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.equal(A.setupPrefetchEngine().complete(), false);
+    assert.equal(A.setupPrefetchEngine().states.rankings.state, 'failed');
+    const diagnostic = JSON.parse(A.dbgContext().match(/Initial data diagnostics: (.+)/)[1]);
+    assert.equal(diagnostic.sourceStates.rankings, 'failed');
+    assert.ok(diagnostic.firstBlocker && diagnostic.latestBlocker,
+      'final export preserves the first blocker and latest source outcome independently of render logs');
+    assert.ok(diagnostic.firstBlocker.source in diagnostic.sourceStates);
+    assert.ok(diagnostic.latestBlocker.source in diagnostic.sourceStates);
+    assert.equal(diagnostic.settled, true);
+    assert.equal(app.$('setupDataResult').dataset.initialDataOutcome, 'partial');
+    assert.match(app.$('setupDataResult').textContent, /some data is unavailable.*normal refresh.*Bird Gen.*Rankings/is);
+    assert.doesNotMatch(app.$('setupDataResult').textContent, /Initial data fetched|Retry/);
+    assert.equal(app.$('setupPrefetchRetry'), null);
+    await A.startSetupPrefetch(tasks);
+    assert.equal(calls.rankings, 2, 'one initial attempt and one recovery pass; reopening cannot restart the budget');
+    assert.equal(calls.mass, 1, 'settled partial coverage is not repeatedly reacquired');
+    app.click(app.$('setupContinue'));
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.$('menuPanel').hidden, false);
+    assert.equal(app.$('setupPrefetchBackground'), null);
+  } finally { if (release) release({ state: 'ready' }); app.window.close(); }
+});
+
+test('F1261 API verification publishes Please wait before the request settles and clears pending status', async () => {
+  const app = await boot({ sample: false, storage: { bc_setup_step_v1: 'key' } });
+  let release;
+  try {
+    const A = app.window.__app;
+    A.openSetupSheet();
+    app.state.runtimeFetch = () => new Promise(resolve => {
+      release = () => resolve({ ok: false, status: 401 });
+    });
+    app.click(app.$('setupVerifyKey'));
+    const status = app.$('setupActionStatus');
+    assert.match(status.textContent, /Please wait.*Checking the API key/);
+    assert.equal(status.dataset.setupPending, 'true');
+    assert.equal(app.$('setupVerifyKey').disabled, true);
+    release();
+    await waitFor(() => status.dataset.setupPending === 'false', 'key verification settlement');
+    assert.match(status.textContent, /not verified/);
+    assert.doesNotMatch(status.textContent, /Please wait/);
+  } finally { if (release) release(); app.window.close(); }
 });
 
 test('F1249 cannot start acquisition before verified setup or accept a result for a changed Home', async () => {
@@ -593,20 +667,20 @@ test('F1235 Busy rare-species links retain ordinary bird-link emphasis and Stake
   } finally { app.window.close(); }
 });
 
-test('F1236 full and Recent Bird Gen require actual inclusive three-times activity, without filtering the Busy menu', async () => {
+test('F1255 full and Recent Bird Gen require actual inclusive five-times activity, without filtering the Busy menu', async () => {
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app, latest = formatObsStamp(new Date(Date.now() - 60000));
     const base = { lat: 47.7, lng: -122.2, dist: 5, latest };
     const rows = [
-      { ...base, locId: 'LF1236ROUND', loc: 'Rounded only', observers: 6, baseline: 2.00001, ratio: 3 },
-      { ...base, locId: 'LF1236EXACT', loc: 'Exactly three', observers: 6, baseline: 2, ratio: 3 },
-      { ...base, locId: 'LF1236ABOVE', loc: 'Above three', observers: 8, baseline: 2.5, ratio: 3.2 },
-      { ...base, locId: 'LF1236FEW', loc: 'Too few parties', observers: 4, baseline: 1, ratio: 4 },
+      { ...base, locId: 'LF1236ROUND', loc: 'Rounded only', observers: 10, baseline: 2.00001, ratio: 5 },
+      { ...base, locId: 'LF1236EXACT', loc: 'Exactly five', observers: 10, baseline: 2, ratio: 5 },
+      { ...base, locId: 'LF1236ABOVE', loc: 'Above five', observers: 13, baseline: 2.5, ratio: 5.2 },
+      { ...base, locId: 'LF1236FEW', loc: 'Too few parties', observers: 4, baseline: 0.5, ratio: 8 },
       { ...base, locId: 'LF1236UNKNOWN', loc: 'Unmeasured usual', observers: 8, baseline: 0, ratio: 8 }
     ];
     const revised = rows.map(row => row.locId === 'LF1236ROUND'
-      ? { ...row, baseline: 1.9, ratio: 6 / 1.9 } : row);
+      ? { ...row, baseline: 1.9, ratio: 10 / 1.9 } : row);
     for (const [current, extra] of [[rows, []], [revised, ['LF1236ROUND']], [rows, []]]) {
       A.renderHot({ hot: [], cold: [], busy: current.map(row => ({ ...row, name: row.loc })),
         busyState: { at: Date.now(), pending: false } });
@@ -642,11 +716,109 @@ test('F1236 full and Recent Bird Gen require actual inclusive three-times activi
   } finally { app.window.close(); }
 });
 
+test('F1256 category filters show icons and counts while retaining accessible names and selection', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app;
+    A.renderSurge([], [], [{
+      locId: 'LF1256', loc: 'Synthetic busy patch', observers: 10, baseline: 2,
+      ratio: 5, latest: recentObsStamp(0), lat: 47.7, lng: -122.2
+    }], [], [], { suppressNotifications: true, deferPhotos: true });
+    const button = app.$('surgeResults').querySelector('[data-count-kind="hotspot"]');
+    assert.ok(button.querySelector('.pressicon'));
+    assert.equal(button.querySelector('.presslabel').textContent.replace(/[⌛⚠\s]/g, ''), '1');
+    assert.match(button.getAttribute('aria-label'), /1 BUSY PATCH.*Filter alerts/);
+    const requests = app.state.fetches.length;
+    button.click();
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+    assert.match(app.$('surgeFilterStatus').textContent, /Showing 1 busy patch alerts/);
+    assert.equal(app.$('surgeResults').querySelector('.surgebadge-hotspot').textContent, 'BUSY PATCH',
+      'the row category badge retains its text');
+    assert.equal(app.state.fetches.length, requests);
+  } finally { app.window.close(); }
+});
+
+test('F1257 full and Recent Bird Gen retain only structured High migration and leave dedicated levels unchanged', async () => {
+  const app = await boot({ sample: false });
+  try {
+    const A = app.window.__app, now = new Date();
+    const local = A.birdcastLocalParts(now, A.getReport());
+    const date = new Date(Date.UTC(local.year, local.month - 1, local.day)).toISOString().slice(0, 10);
+    for (const level of ['Low', 'Medium', 'High', 'None', 'Loading']) {
+      const snapshot = { forecast: { level, date }, fetchedAt: now.getTime(),
+        forecastFetchedAt: now.getTime(), sourceScope: A.getReportSlug() };
+      A.setBirdcastSnapshot(snapshot);
+      A.renderSurge([], [], [], [], [], { suppressNotifications: true, deferPhotos: true });
+      A.updateRecentBirdGen();
+      for (const [host, selector] of [
+        ['surgeResults', '[data-alert-kind="migration"]'],
+        ['recentBirdGenRows', '[data-recent-kind="migration"]']
+      ]) {
+        const rows = [...app.$(host).querySelectorAll(selector)];
+        assert.equal(rows.length, level === 'High' ? 1 : 0, host + ': ' + level);
+        if (rows.length) assert.match(rows[0].textContent, /High migration forecast/);
+      }
+      A.renderBirdcast(now, snapshot, true);
+      assert.match(app.$('bcBody').textContent, new RegExp(level, 'i'),
+        'dedicated Migration retains its actual source classification');
+    }
+    A.setBirdcastSnapshot({ forecast: null, count: {
+      birds: 1800000, high: 'High', night: date, countyLabel: 'Synthetic county'
+    }, fetchedAt: now.getTime() });
+    A.renderSurge([], [], [], [], [], { suppressNotifications: true, deferPhotos: true });
+    assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="migration"]'), null,
+      'a malformed truthy count flag must not manufacture verified High');
+  } finally { app.window.close(); }
+});
+
+test('F1262 both Stakeout views resolve PLVI from checked taxonomy when the regional cache is missing or unreadable', async () => {
+  const observation = { speciesCode: 'plsvir', comName: 'Plumbeous Vireo',
+    locId: 'LF1262', locName: 'Synthetic patch', lat: 47.7, lng: -122.2,
+    obsDt: recentObsStamp(0), subId: 'SF1262', howMany: 1 };
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(), fetch(url) {
+    return /data\/obs\/.*\/recent\/plsvir/.test(url) ? [observation] : [];
+  } });
+  try {
+    const A = app.window.__app;
+    const rows = syntheticEditionRows('2026.0').concat([{
+      speciesCode: 'plsvir', comName: 'Plumbeous Vireo', sciName: 'Vireo plumbeus',
+      category: 'species', bandingCodes: ['PLVI'], comNameCodes: []
+    }]);
+    const model = app.window.BirdTaxonomy.create(rows, '2026.0');
+    await A.taxonomyStore('put', 'identity:2026.0', model);
+    app.window.localStorage.setItem('bc_taxonomy_v1', JSON.stringify({
+      edition: '2026.0', checkedAt: Date.now(), previousEdition: ''
+    }));
+    assert.equal(await A.restoreTaxonomyNames(), true);
+    const key = A.speciesCacheKey(A.getObsRegion());
+    for (const cache of [null, '{unreadable', JSON.stringify({
+      rows: [{ code: 'plsvir', name: observation.comName, alpha: 'plumbeous plvi' }],
+      expected: 1, t: Date.now()
+    })]) {
+      if (cache === null) app.window.localStorage.removeItem(key);
+      else app.window.localStorage.setItem(key, cache);
+      A.renderStakeHs('LF1262', 'Synthetic patch', [], [observation], {}, []);
+      assert.match(app.$('stakeHsResults').textContent, /\bPLVI\b/,
+        'the actual Stakeout Patches bird row must show the verified display code');
+      await A.lookupSpecies('plsvir', observation.comName);
+      assert.match(app.$('spLookupResults').textContent, /\bPLVI\b/,
+        'the actual Stakeout Birds detail card must show the verified display code');
+      assert.ok(app.$('spLookupResults').querySelector('[data-code="plsvir"]'),
+        'actions retain the provider identity, not the display abbreviation');
+    }
+    assert.ok(app.state.fetches.some(url => /recent\/plsvir(?:\?|$)/.test(url)));
+    assert.ok(!app.state.fetches.some(url => /recent\/PLVI(?:\?|$)/.test(url)));
+    const log = app.window.__dbg.buf.map(entry => entry.msg).join('\n');
+    assert.match(log, /Bird code render: view=stakeout-birds code=plsvir .*alpha=PLVI/);
+    assert.match(log, /Bird code render: view=stakeout-patches code=plsvir .*alpha=PLVI/);
+  } finally { app.window.close(); }
+});
+
 test('F1217 a reopened offline view restores one canonical Busy snapshot, not an independent alert cache', async () => {
   const first = await boot({ sample: false });
   const A1 = first.window.__app, at = Date.now() - 60000;
   const row = { locId: 'L-CANONICAL', name: 'Canonical cached patch',
-    observers: 7, baseline: 2, ratio: 7 / 2,
+    observers: 7, baseline: 1, ratio: 7,
     latest: formatObsStamp(new Date(at)), lat: 47.7, lng: -122.2, dist: 5 };
   const below = { ...row, locId: 'L-MENU-ONLY', name: 'Below alert threshold', baseline: 3, ratio: 7 / 3 };
   await A1.zcPut(A1.hotCacheKey(), { t: at, hot: [], cold: [], busy: [row, below],
@@ -669,10 +841,10 @@ test('F1217 a reopened offline view restores one canonical Busy snapshot, not an
     const assertSame = () => {
       const menu = app.$('hotResults'), alert = app.$('surgeResults')
         .querySelector('[data-hsloc="L-CANONICAL"]');
-      assert.match(menu.textContent, /7 estimated parties · \+5 above usual 2/);
+      assert.match(menu.textContent, /7 estimated parties · \+6 above usual 1/);
       assert.match(menu.textContent, /Below alert threshold/);
       assert.ok(alert, 'the persisted common snapshot must restore on Bird Gen first-open');
-      assert.match(alert.textContent, /7 estimated parties · \+5 above usual 2/);
+      assert.match(alert.textContent, /7 estimated parties · \+6 above usual 1/);
       assert.equal(app.$('surgeResults').querySelector('[data-hsloc="L-MENU-ONLY"]'), null,
         'restoration must apply the alert-only threshold without dropping the menu entry');
       assert.equal(alert.dataset.busysnapshot, menu.dataset.busySnapshot);
@@ -691,7 +863,7 @@ test('F1217 a reopened offline view restores one canonical Busy snapshot, not an
   } finally { app.window.close(); }
 });
 
-test('F1233 F1236 shared provisional Busy revisions converge without leaking below-threshold Bird Gen alerts', async () => {
+test('F1233 F1255 shared provisional Busy revisions converge without leaking below-threshold Bird Gen alerts', async () => {
   const now = Date.now(), at = (days, minute) => {
     const date = new Date(now); date.setDate(date.getDate() - days);
     date.setMinutes(date.getMinutes() - 10 - minute);
@@ -705,7 +877,7 @@ test('F1233 F1236 shared provisional Busy revisions converge without leaking bel
     subId: label + '-' + days + '-' + index, userDisplayName: label + '-person-' + index,
     isoObsDate: at(days, index), numSpecies: 20 + index
   });
-  let usual = 2, holdDetails = true, releaseDetail, holdHistory = false, releaseHistory;
+  let usual = 1, holdDetails = true, releaseDetail, holdHistory = false, releaseHistory;
   const current = [...Array.from({ length: 7 }, (_, i) => row('POSITIVE', 0, i)),
     ...Array.from({ length: 5 }, (_, i) => row('NOISE', 0, i)),
     ...Array.from({ length: 8 }, (_, i) => row('WALK', 0, i))];
@@ -750,7 +922,7 @@ test('F1233 F1236 shared provisional Busy revisions converge without leaking bel
     seedEvidence();
     const load = A.loadSurge();
     await waitFor(() => releaseDetail, 'the bounded group-detail completion pass');
-    assert.match(app.$('hotResults').textContent, /7 estimated parties · \+5 above usual 2/,
+    assert.match(app.$('hotResults').textContent, /7 estimated parties · \+6 above usual 1/,
       'usable history-complete values must paint before the held group-detail completion');
     assert.match(app.$('hotStatus').textContent, /updating.*provisional activity.*checking shared parties/);
     A.fgProgressSync();
@@ -758,7 +930,7 @@ test('F1233 F1236 shared provisional Busy revisions converge without leaking bel
     assert.ok(['indeterminate', 'determinate'].includes(app.$('loadBar').dataset.progressMode));
     assert.notEqual(app.$('loadBarFill').style.width, '100%');
     assert.match(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]').textContent,
-      /7 estimated parties · \+5 above usual 2/);
+      /7 estimated parties · \+6 above usual 1/);
     const pendingCache = await A.zcGet(A.hotCacheKey());
     assert.ok(!pendingCache || !(pendingCache.busy || []).some(row => row.locId === 'L-SHARED-POSITIVE'),
       'provisional activity must not become the durable completed snapshot');
@@ -769,7 +941,7 @@ test('F1233 F1236 shared provisional Busy revisions converge without leaking bel
         .querySelector('[data-hsloc="L-SHARED-POSITIVE"]');
       const expected = `${count} estimated parties · +${count - baseline} above usual ${baseline}`;
       assert.ok(menu.textContent.includes(expected), menu.textContent);
-      if (count / baseline >= 3) {
+      if (count / baseline >= 5) {
         assert.ok(alert, app.$('surgeResults').textContent);
         assert.ok(alert.textContent.includes(expected), alert.textContent);
         assert.equal(alert.dataset.busysnapshot, menu.dataset.busySnapshot,
@@ -782,7 +954,7 @@ test('F1233 F1236 shared provisional Busy revisions converge without leaking bel
         assert.equal(app.$('surgeResults').querySelector(`[data-hsloc="L-SHARED-${label}"]`), null);
       }
     }
-    assertShared(6, 2);
+    assertShared(6, 1);
     const input = {
       codes: ['US-WA-033'], context: A.hotspotContextKey(), home: A.getHome(),
       reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(), meta, force: true
@@ -2119,7 +2291,8 @@ test('F1046/F1050 source states keep unknown and failed category tags truthful a
     assert.equal(cascade.querySelector('button'), null, 'filter and retry must not be nested');
     const ppte = box.querySelector('[data-count-kind="ppte"]');
     assert.equal(ppte.querySelectorAll('svg').length, 1);
-    assert.match(ppte.textContent, /PATAGONIA/);
+    assert.doesNotMatch(ppte.querySelector('.presslabel').textContent, /[a-z]/i);
+    assert.match(ppte.getAttribute('aria-label'), /0 PATAGONIA/);
     assert.doesNotMatch(ppte.textContent, /<svg/);
     app.click(cascade);
     assert.equal(cascade.getAttribute('aria-pressed'), 'true', 'filter activation does not retry');
@@ -11196,7 +11369,7 @@ test('F1067 F1084 key rejection stays actionable and verified success advances t
   } finally { app.window.close(); }
 });
 
-test('F1067 account connection starts persistent key acquisition and retains keyboard access', async () => {
+test('F1067 F1251 account connection immediately shows pending activity and starts persistent key acquisition', async () => {
   const app = await boot({ report: null, key: null, home: false, sample: false });
   try {
     const A = app.window.__app, handlers = {}, opened = [];
@@ -11220,11 +11393,16 @@ test('F1067 account connection starts persistent key acquisition and retains key
     } } };
     async function connect(id, expectedOpens) {
       app.click(app.$(id));
+      assert.match(app.$('setupActionStatus').textContent, /Please wait/);
+      assert.equal(app.$('setupActionStatus').dataset.setupPending, 'true');
+      assert.equal(app.$(id).disabled, true);
       await waitFor(() => opened.length === expectedOpens && handlers.browserPageLoaded, 'identity browser opens');
       await new Promise(resolve => setTimeout(resolve, 20));
       handlers.browserPageLoaded({ id: windowId });
       await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected'
         && !app.$('appSheet').hidden, 'connected account confirmation');
+      assert.notEqual(app.$('setupActionStatus').dataset.setupPending, 'true',
+        'verified account confirmation cannot retain an acquisition spinner');
       assert.equal(opened.length, expectedOpens, 'account confirmation must precede key acquisition');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'key'
@@ -11325,7 +11503,7 @@ async function setupOwnedSeenApp(codes = []) {
   return app;
 }
 
-test('F1180 automatic pending seen fetch has Skip only, then an exact result review and deliberate final completion', async () => {
+test('F1180 F1261 automatic pending seen fetch has explicit Please wait and Skip, then an exact result review', async () => {
   for (const count of [0, 1]) {
     const app = await setupOwnedSeenApp();
     try {
@@ -11339,11 +11517,13 @@ test('F1180 automatic pending seen fetch has Skip only, then an exact result rev
       app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
       A.openSetupSheet();
       assert.match(app.$('setupStepTitle').textContent, /Fetching your seen list/);
+      assert.match(app.$('seenSetupStatus').textContent, /Please wait/);
+      assert.equal(app.$('seenSetupStatus').dataset.setupPending, 'true');
       await waitFor(() => release, 'automatic exact-list fetch despite unrelated CSV metadata');
       assert.equal(reads, 1);
       assert.match(app.$('setupStepTitle').textContent, /Fetching your seen list/);
       assert.equal(app.$('setupContinue'), null, 'pending work must not compete with completion');
-      assert.equal(app.$('setupSkipSeen').textContent, 'Skip');
+      assert.equal(app.$('setupSkipSeen').textContent, 'Skip seen-list check');
       app.$('setupSkipSeen').focus();
       release({ ok: true, status: 200, text: async () => ownedPersonalListFixture({
         count, codes: count ? ['stable'] : []
@@ -11407,7 +11587,7 @@ test('F1180 matching cached results avoid artificial fetches; stale refresh fail
     await waitFor(() => app.$('setupFetchSeen'), 'failed cached refresh offers retry');
     assert.equal(A.personalListEvidence().complete, true);
     assert.equal(app.$('setupContinue').textContent, 'Review saved list');
-    assert.equal(app.$('setupSkipSeen').textContent, 'Skip');
+    assert.equal(app.$('setupSkipSeen').textContent, 'Skip seen-list check');
     app.click(app.$('setupContinue'));
     assert.match(app.$('appSheet').textContent, /Matching saved list\. No new list was verified/);
     app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
@@ -12804,7 +12984,7 @@ function ownedPersonalListFixture({ region = 'US-WA', period = 'year', count = 1
     + '</main></body></html>';
 }
 
-test('F886 copied diagnostic context includes scoped exact seen/WATCH codes and chase settings only', async () => {
+test('F886 F1259 diagnostic context retains scoped coverage/counts without exporting personal membership or Home', async () => {
   const apiKey = 'LOCAL-API-KEY-TEST-886';
   const app = await boot({sample:false,storage:{
     ebird_api_key:apiKey,
@@ -12823,24 +13003,20 @@ test('F886 copied diagnostic context includes scoped exact seen/WATCH codes and 
     const before = app.state.fetches.length;
     const context = () => A.dbgContext();
     let text = context();
-    assert.match(text,/home: 47\.75, -122\.16/);
+    assert.match(text,/home configured: yes \(coordinates omitted\)/);
     assert.match(text,/chase radius: 35 mi/);
-    assert.match(text,/seen species codes \(2026 Year List · Washington; complete\): 2 \[amecro, snogoo\]/,
-      'official exact membership is sorted and includes the WATCH-held code');
-    assert.match(text,/WATCH species codes: 2 \[amecro, shbdow\]/,
-      'WATCH membership is separately sorted and counted');
+    assert.match(text,/seen membership \(2026 Year List · Washington; complete\): 2 species \(codes omitted\)/);
+    assert.match(text,/WATCH membership: 2 species \(codes omitted\)/);
     assert.match(text,new RegExp('apiKey: set, len ' + apiKey.length));
-    assert.doesNotMatch(text,/LOCAL-API-KEY-TEST-886|ebird\.org\/lifelist/);
+    assert.doesNotMatch(text,/LOCAL-API-KEY-TEST-886|ebird\.org\/lifelist|Sample Observer|47\.75|-122\.16|amecro|snogoo|shbdow/);
 
     await seedSeen(app,['norcar'],['Northern Cardinal']);
-    assert.match(context(),/seen species codes \(2026 Year List · Washington; complete\): 1 \[norcar\]/,
-      'changing the official personal list changes the copied code line');
+    assert.match(context(),/seen membership \(2026 Year List · Washington; complete\): 1 species \(codes omitted\)/);
     A.setWatchlist([{code:'baleag',name:'Bald Eagle'}]);
-    assert.match(context(),/WATCH species codes: 1 \[baleag\]/,
-      'changing WATCH membership changes only its code line');
+    assert.match(context(),/WATCH membership: 1 species \(codes omitted\)/);
     app.window.localStorage.setItem(A.homeKey('lat'),'47.80');
-    assert.match(context(),/home: 47\.8, -122\.16/,
-      'the configured Home change appears in context');
+    assert.match(context(),/home configured: yes \(coordinates omitted\)/);
+    assert.doesNotMatch(context(),/47\.8|-122\.16|norcar|baleag/);
     app.window.localStorage.setItem(A.CHASE_MI_KEY + ':' + A.getReportSlug(),'50');
     assert.match(context(),/chase radius: 50 mi/,
       'the configured radius change appears in context');
@@ -12849,6 +13025,119 @@ test('F886 copied diagnostic context includes scoped exact seen/WATCH codes and 
   } finally {
     app.window.close();
   }
+});
+
+test('F1259 whole diagnostic export scrubs current, previous, verdict, native and copied text while retaining source counts', async () => {
+  const app = await boot({ sample: false, storage: {
+    ebird_display_name: 'Configured Observer Sentinel', ebird_api_key: 'PRIVATEKEY1259',
+    ebird_aba_sid: 'SN1259999'
+  } });
+  try {
+    const A = app.window.__app, debug = app.window.__dbg;
+    const privateFields = {
+      displayName: "Prior O'Field Sentinel", profileLabel: 'Private Alias Sentinel',
+      lat: 47.752341, lng: -122.164352, latitude: 14.987654, longitude: -165.678912,
+      foo: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=47.752341&lng=-122.164352',
+      codes: ['privatebird1259'], rows: [{ name: 'Private Roster Sentinel', seen: true }]
+    };
+    const raw = JSON.stringify(privateFields);
+    const assertPrivateOmitted = text => assert.doesNotMatch(text,
+      /Configured Observer Sentinel|PRIVATEKEY1259|SN1259999|Prior O.Field Sentinel|Private Alias Sentinel|Private Roster Sentinel|privatebird1259|47\.752341|-122\.164352|14\.987654|-165\.678912|data\/obs\/geo|HTML_PERSONAL_SENTINEL/);
+    debug.buf.push({ t: '12:34', level: 'net', msg: raw });
+    debug.previous = { entries: [{ t: '12:33', level: 'warn', msg: raw }] };
+    debug.verdicts['source outcome'] = { t: '12:34', msg: 'profileLabel: Private Alias Sentinel' };
+    debug.buf.push({ t: '12:34', level: 'info',
+      msg: '<html><body>HTML_PERSONAL_SENTINEL</body></html>' });
+    debug.push('info', ['run=17 source=rankings requested=500 received=500 parsed=500 retained=100 enriched=100 rendered=100']);
+    app.click(app.$('openDebugBtn'));
+    assertPrivateOmitted(app.$('dbgLog').textContent);
+    assert.match(app.$('dbgLog').textContent, /run=17 source=rankings requested=500 received=500 parsed=500 retained=100 enriched=100 rendered=100/);
+    assert.match(app.$('dbgLog').textContent, /website challenges are not ruled out/);
+    const audit = app.window.BirdAudit.create({ indexedDB: null });
+    audit.event('network.request_end', { category: 'network', attrs: {
+      ...privateFields, requested_rows: 500, received_rows: 500
+    } });
+    const packed = app.window.BirdDiagnostics.packageFiles(audit.bundle(), {
+      environment: privateFields,
+      storageInventory: { cache_entries: 12, homeLatitude: privateFields.lat },
+      note: 'Home: 47.752341, -122.164352'
+    });
+    assertPrivateOmitted(JSON.stringify(packed));
+    assert.equal(audit.events()[0].attrs.received_rows, 500);
+    let copied;
+    Object.defineProperty(app.window.navigator, 'clipboard', { configurable: true, value: {
+      writeText: text => { copied = text; return Promise.resolve(); }
+    } });
+    app.$('dbgLog').textContent += '\n' + raw;
+    app.click(app.$('dbgCopy'));
+    await waitFor(() => !!copied, 'sanitized Copy all');
+    assertPrivateOmitted(copied);
+    assertPrivateOmitted(app.$('dbgLog').textContent);
+    assert.match(A.dbgContext(), /account connected: true \(name omitted\)/);
+  } finally { app.window.close(); }
+});
+
+test('F1259 debug section Dump omits rendered membership entries before display or copy', async () => {
+  const app = await boot({ sample: false });
+  try {
+    for (const section of app.document.querySelectorAll('section')) {
+      if (section._loader) section._loader.fn = () => Promise.resolve();
+    }
+    app.$('myYearList').innerHTML = '<li><div class="name"><span class="ntext">'
+      + 'Private dump membership sentinel</span></div></li>';
+    const scrub = app.window.__dbg.scrubText;
+    let rawDump;
+    app.window.__dbg.scrubText = value => {
+      if (String(value).includes('"kind": "app"')) rawDump = String(value);
+      return scrub(value);
+    };
+    app.click(app.$('openDebugBtn'));
+    app.click(app.$('dbgDump'));
+    await waitFor(() => /^Dumped/.test(app.$('dbgDump').textContent), 'actual sanitized Dump');
+    assert.doesNotMatch(app.$('dbgLog').textContent, /Private dump membership sentinel/i);
+    assert.match(rawDump || '', /Private dump membership sentinel/i,
+      'the controlled rendered membership must actually enter the production section dump');
+    const dumped = JSON.parse(app.$('dbgLog').textContent);
+    assert.ok(dumped.sections.some(section => section.count > 0),
+      'safe section counts survive omission of the personal entry bodies');
+  } finally { app.window.close(); }
+});
+
+test('F1259 actual HTTP and native parser counts distinguish 500 received ranks from deliberate 100 retention', async () => {
+  const period = String(new Date().getFullYear());
+  const rows = Array.from({ length: 500 }, (_, index) => ({
+    name: 'Synthetic Birder ' + index, profileId: 'F1259P' + index,
+    rank: index + 1, species: 600 - index, checklists: 1000 - index,
+    recent: 'American Robin (Nov. 6, ' + period + ')'
+  }));
+  const html = dualRankFixture('spp', [{ ...rows[210] }, ...rows], 'US-WA', period);
+  const app = await boot({ sample: false, fetch: url => /top100/.test(url) ? html : null });
+  try {
+    const A = app.window.__app;
+    const shallow = A.parseRankingsHTML(html, '', 100);
+    assert.deepEqual(JSON.parse(JSON.stringify(shallow.parseCounts)), {
+      rankMarkers: 501, parsed: 501, sessionPrefixes: 1, retained: 100, filtered: 401, rowLimit: 100
+    });
+    const data = await A.fetchRank({ region: 'US-WA', max: 500, rowLimit: 500 }, period, '', true);
+    assert.equal(data.rows.length, 500);
+    assert.equal(data.parseCounts.retained, 500);
+    const log = app.window.__dbg.buf.map(entry => entry.msg).join('\n');
+    assert.match(log, /Leaderboard counts: .*"stage":"http-start".*"requested":500/);
+    assert.match(log, /Leaderboard counts: .*"stage":"http-parsed".*"rankMarkers":501.*"parsed":501.*"retained":500/);
+    assert.doesNotMatch(log, /Synthetic Birder/);
+    const capture = new JSDOM(html, {
+      url: 'https://ebird.org/top100?maxResults=500', runScripts: 'outside-only'
+    });
+    try {
+      let captured;
+      capture.window.mobileApp = { postMessage: message => { captured = message.detail; } };
+      capture.window.eval(A.buildRankInject('', 'US-WA', period, 'spp', 100));
+      assert.equal(captured.ok, true);
+      assert.equal(captured.pageShape.parseCounts.parsed, 501);
+      assert.equal(captured.pageShape.parseCounts.retained, 100);
+      assert.equal(captured.pageShape.characters, capture.window.document.documentElement.outerHTML.length);
+    } finally { capture.window.close(); }
+  } finally { app.window.close(); }
 });
 
 test('F838 diagnostic buttons isolate direct methods and never save personal evidence', async () => {
@@ -18229,7 +18518,7 @@ test('F944/F959 Patagonia bird-name headlines retain focused Twitches without no
       /Swamp Sparrow and Vermilion Flycatcher at Sample Street SE/);
     assert.equal(card.querySelector('.surgebadge').textContent, 'PATAGONIA');
     assert.equal(app.window.BirdInfoDialogs.alertKinds.ppte.word,'PATAGONIA');
-    assert.match(doc.querySelector('[data-count-kind="ppte"]').textContent,/1 PATAGONIA/);
+    assert.match(doc.querySelector('[data-count-kind="ppte"]').getAttribute('aria-label'),/1 PATAGONIA/);
     assert.equal(surgeEvidence(card).querySelectorAll('[data-ppte-species], button, .surgefacts').length, 0);
     assert.ok(surgeEvidence(card).querySelector('.ppte-evidence'), 'small-print qualifying evidence remains available');
     assert.equal(surgeEvidence(card).querySelector('.ppte-evidence time').getAttribute('datetime'), event.day);
@@ -27419,7 +27708,7 @@ test('F962 FOY headlines preserve the annual-first place and checklist without i
     let card=render(first),headline=card.querySelector('.surgealerttitle');
     assert.equal(card.querySelector('.surgebadge').textContent,'FOY');
     assert.equal(app.window.BirdInfoDialogs.alertKinds.foy.word,'FOY');
-    assert.match(doc.querySelector('[data-count-kind="foy"]').textContent,/1 FOY/);
+    assert.match(doc.querySelector('[data-count-kind="foy"]').getAttribute('aria-label'),/1 FOY/);
     assert.equal(headline.textContent,'First of the year '+source.name+' at '+source.locName);
     assert.equal(headline.querySelector('.hslink').dataset.loc,source.locId);
     assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,new RegExp(source.subId+'$'));
@@ -27504,7 +27793,7 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
     assert.equal(patch.querySelector('.surgealerttitle').textContent,'High-yield patch at Example top patch');
     assert.equal(hotspot.querySelector('.surgekindtile').textContent.trim(),'📍');
     assert.equal(hotspot.querySelector('.surgebadge').textContent.trim(),'BUSY PATCH');
-    assert.match(app.document.querySelector('[data-count-kind="hotspot"]').textContent,/BUSY PATCH/);
+    assert.match(app.document.querySelector('[data-count-kind="hotspot"]').getAttribute('aria-label'),/BUSY PATCH/);
     assert.equal(hotspot.querySelector('.surgealerttitle .hslink').dataset.loc,'LHOT');
     assert.equal(hotspot.querySelector('.surgealerttitle').textContent,'High traffic at Busy public patch');
     const A=app.window.__app;
@@ -44086,7 +44375,7 @@ test('F1121 F1135 F1213 full and Recent Bird Gen keep inline tonight and verifie
       String(local.day).padStart(2, '0')].join('-');
     const previous = new Date(Date.UTC(local.year, local.month - 1, local.day - 1))
       .toISOString().slice(0, 10);
-    A.setBirdcastSnapshot({ forecast: { level: 'Low', date }, fetchedAt: now.getTime(),
+    A.setBirdcastSnapshot({ forecast: { level: 'High', date }, fetchedAt: now.getTime(),
       count: { birds: 8400, night: previous, countyLabel: 'King County' } });
     A.renderSurge([], [], [], [], []);
     const full = app.$('surgeFeed').querySelector('[data-alert-kind="migration"]');
@@ -44101,7 +44390,7 @@ test('F1121 F1135 F1213 full and Recent Bird Gen keep inline tonight and verifie
       assert.equal((title.textContent.match(/8,400/g) || []).length, 1);
       assert.equal((title.textContent.match(/King County/g) || []).length, 1);
       assert.doesNotMatch(title.textContent, /Birdcast Alert|Latest measured night/);
-      assert.equal(title.textContent, 'Low migration forecast for King County tonight. 8,400 birds migrated last night.');
+      assert.equal(title.textContent, 'High migration forecast for King County tonight. 8,400 birds migrated last night.');
       assert.equal(title.querySelector('br'), null, 'the shared headline must not force a second row');
       assert.ok(!['block', 'flex', 'grid'].includes(app.window.getComputedStyle(title.querySelector('span')).display));
       assert.doesNotMatch(title.textContent, /est\.|Saved|\d{4}|\d+\/\d+/);
@@ -44126,7 +44415,7 @@ test('F1135 saved migration counts do not become last-night totals and missing c
       .toISOString().slice(0, 10);
     const older = new Date(Date.UTC(local.year, local.month - 1, local.day - 4))
       .toISOString().slice(0, 10);
-    for (const [level, count] of [['Medium', {birds:38500,night:older,countyLabel:'King County'}],
+    for (const [level, count] of [['High', {birds:38500,night:older,countyLabel:'King County'}],
       ['High', null]]) {
       A.setBirdcastSnapshot({forecast:{level,date},forecastError:'Refresh unavailable',
         fetchedAt:now.getTime(),count});
@@ -44149,7 +44438,7 @@ test('F1135 saved migration counts do not become last-night totals and missing c
   } finally { app.window.close(); }
 });
 
-test('F761/F1070 Bird Gen includes genuine Low, Medium and High forecasts but never invents missing data', async () => {
+test('F761/F1070 source projection preserves genuine migration levels without inventing missing data', async () => {
   const app = await boot();
   const A = app.window.__app;
   const now = new Date('2026-09-28T18:00:00Z');
@@ -58978,19 +59267,21 @@ test('F188: a profile has a NAME, and an unnamed one still reads as something', 
   app.window.close();
 });
 
-test('F188: the debug header names the profile ALWAYS, including Main', () => {
-  // This is the one place the rule is "always say". On screen an ever-present
-  // marker stops being read; a LOG is read once, later, by someone who cannot
-  // ask. Every device log this project has read was assumed to be Main and
-  // nothing in the header would have contradicted it.
-  const at = HTML.indexOf("add('displayName: '");
-  assert.ok(at > 0, 'the debug header still prints the display name');
-  const near = HTML.slice(at, at + 900);
-  assert.match(near, /add\('profile: ' \+ profileLabel\(bcProfile\(\)\)/,
-    'and the profile, right beside it');
-  assert.ok(!/isDefaultProfile\(\)\s*\?|if \(bcProfile\(\)\)/.test(
-    near.slice(0, near.indexOf('abaSid'))),
-    'unconditionally — a diagnostic artifact must not have ambiguous provenance');
+test('F188 F1259 debug scope remains identifiable without exporting a named profile or account', async () => {
+  const app = await boot({ sample: false, storage: {
+    bc_profile: '2',
+    ebird_profile_names: JSON.stringify({ '2': 'PRIVATE_PROFILE_LABEL_1259' }),
+    'bcp:2:ebird_display_name': 'PRIVATE_ACCOUNT_LABEL_1259',
+    'bcp:2:ebird_report': 'wa'
+  } });
+  try {
+    const A = app.window.__app;
+    A.setProfileName('2', 'PRIVATE_PROFILE_LABEL_1259');
+    assert.equal(A.profileLabel(A.bcProfile()), 'PRIVATE_PROFILE_LABEL_1259');
+    const context = A.dbgContext();
+    assert.match(context, /profile scope: active; identity revision .* \(label omitted\)/);
+    assert.doesNotMatch(context, /PRIVATE_PROFILE_LABEL_1259|PRIVATE_ACCOUNT_LABEL_1259/);
+  } finally { app.window.close(); }
 });
 
 test('F188: the profile chip shows on a test profile and never on Main', async () => {

@@ -1838,6 +1838,53 @@ const AUDIT = `<script>
       categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
       A.updateRecentBirdGen();
       out.push(recentScan);
+      var alignmentNow=new Date(), alignmentLocal=A.birdcastLocalParts(alignmentNow,A.getReport());
+      var alignmentDate=new Date(Date.UTC(alignmentLocal.year,alignmentLocal.month-1,alignmentLocal.day))
+        .toISOString().slice(0,10);
+      A.setBirdcastSnapshot({forecast:{level:'High',date:alignmentDate},
+        fetchedAt:alignmentNow.getTime(),forecastFetchedAt:alignmentNow.getTime(),
+        sourceScope:A.getReportSlug()});
+      A.renderSurge([],[],[
+        'Meadowbrook Pond','Carkeek Park',
+        'Washington Park Arboretum and Foster Island Wildlife Viewing Area'
+      ].map(function(name,index){
+        return {loc:name,locId:'LF1258ALIGN'+index,observers:24-index*2,
+          baseline:1,ratio:24-index*2,latest:previewStamp((index+1)*60),
+          lat:47.7,lng:-122.2};
+      }),[],[],{mega:'notApplicable',observations:'ok',hotspots:'ok',
+        twitchRows:[],suppressNotifications:true,deferPhotos:true});
+      A.showMenu();
+      A.updateRecentBirdGen();
+      var alignmentRows=Array.from(document.querySelectorAll('#recentBirdGenRows > li'));
+      if(alignmentRows.length!==4 || !alignmentRows.some(function(row){
+        return row.querySelector('.recent-birdgen-time').textContent==='Current';
+      }))throw new Error('F1258 actual Busy/Current alignment fixture did not render');
+      var alignmentScan=scan('(F1258 first-row timestamps and reserved text column)');
+      alignmentScan.recentAlignment=alignmentRows.map(function(row){
+        var head=row.querySelector(':scope > .name'),text=head.querySelector('.ntext');
+        var age=head.querySelector('.recent-birdgen-time'),photo=head.firstElementChild;
+        var h=head.getBoundingClientRect(),t=text.getBoundingClientRect();
+        var a=age.getBoundingClientRect(),p=photo.getBoundingClientRect();
+        var walker=document.createTreeWalker(text,NodeFilter.SHOW_TEXT),node,glyphRight=t.left;
+        while(node=walker.nextNode()){
+          var range=document.createRange();range.selectNodeContents(node);
+          Array.from(range.getClientRects()).forEach(function(rect){
+            glyphRight=Math.max(glyphRight,rect.right);
+            if(rect.bottom>t.bottom+.5)throw new Error('F1258 text was clipped');
+          });
+        }
+        var measured={title:text.textContent,age:age.textContent,ageTopDelta:a.top-t.top,
+          extraHeight:h.height-Math.max(t.height,p.height,a.height),reservedGap:a.left-glyphRight};
+        if(measured.ageTopDelta<-.5 || measured.ageTopDelta>4.5)
+          throw new Error('F1258 timestamp left the first text row: '+JSON.stringify(measured));
+        if(measured.reservedGap<.5)
+          throw new Error('F1258 text exceeded the reserved timestamp column: '+JSON.stringify(measured));
+        if(measured.extraHeight>1 || h.height<44
+          || (age.tagName==='BUTTON' && (a.width<44 || a.height<44)))
+          throw new Error('F1258 blank spacing or touch target regression: '+JSON.stringify(measured));
+        return measured;
+      });
+      out.push(alignmentScan);
       A.renderSurge([],[],[],[],[],{
         mega:'notApplicable',observations:'ok',suppressNotifications:true,
         twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-60000,

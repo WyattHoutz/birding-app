@@ -130,6 +130,10 @@
 
   function packageFiles(auditBundle, options) {
     options = options || {};
+    var privacy = global.BirdAudit;
+    if (!privacy || !privacy.sanitize || !privacy.sanitizeText) {
+      throw new Error('Diagnostic privacy rules are unavailable; no package was created.');
+    }
     var info = normalizeBuildInfo(options.buildInfo);
     var files = {};
     Object.keys((auditBundle && auditBundle.files) || {}).forEach(function (name) {
@@ -140,8 +144,8 @@
     var manifest = Object.assign({}, (auditBundle && auditBundle.manifest) || {}, {
       package_id: packageId,
       build: info,
-      environment: options.environment || {},
-      storage_inventory: options.storageInventory || {},
+      environment: privacy.sanitize(options.environment || {}),
+      storage_inventory: privacy.sanitize(options.storageInventory || {}),
       tester_note_included: !!String(options.note || '').trim(),
       screenshot_included: !!options.screenshotBase64
     });
@@ -160,7 +164,7 @@
       'third-party HTML, photo caches, and advertising identifiers.'
     ].join('\n') + '\n';
     if (String(options.note || '').trim()) {
-      files['tester-note.txt'] = String(options.note).trim().slice(0, 4000) + '\n';
+      files['tester-note.txt'] = privacy.sanitizeText(String(options.note).trim(), 4000) + '\n';
     }
     if (options.screenshotBase64) {
       files['screenshot.jpg'] = base64Bytes(options.screenshotBase64);

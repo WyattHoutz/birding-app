@@ -56,8 +56,35 @@ test('F608 diagnostic ZIP contains bounded documented files and no secrets', () 
     assert.match(text, new RegExp(name.replace('.', '\\.')));
   }
   assert.doesNotMatch(text,
-    /SECRET-API-KEY|SECRET-TOKEN|Private Birder|47\.75123|-122\.12345/);
+    /SECRET-API-KEY|SECRET-TOKEN|Private Birder|10\.12345|20\.12345/);
   assert.equal(bundle.manifest.screenshot_included, false);
+});
+
+test('F1259 package metadata applies the same privacy policy outside event files', () => {
+  const audit = Audit.create({ indexedDB: null });
+  const packed = Diagnostics.packageFiles(audit.bundle(), {
+    environment: {
+      platform: 'ios', received_rows: 500, queue_delay_ms: 44262,
+      accountName: 'Prior Account Sentinel', profileLabel: 'Private Profile Sentinel',
+      homeLatitude: 47.751234, homeLongitude: -122.164321,
+      requestUrl: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=47.751234&lng=-122.164321',
+      searchText: 'Private Search Sentinel', rows: [{ name: 'Private Roster Sentinel' }]
+    },
+    storageInventory: { cache_entries: 12, latitude: 47.751234 }
+  });
+  const text = Buffer.from(Diagnostics.zip(packed.files)).toString('utf8');
+  assert.doesNotMatch(text, /Prior Account Sentinel|Private Profile Sentinel|Private Search Sentinel|Private Roster Sentinel|47\.751234|-122\.164321|data\/obs\/geo/);
+  assert.equal(packed.manifest.environment.received_rows, 500);
+  assert.equal(packed.manifest.environment.queue_delay_ms, 44262);
+  assert.equal(packed.manifest.storage_inventory.cache_entries, 12);
+});
+
+test('F1259 a missing shared privacy policy prevents creating a diagnostic package', () => {
+  const privacy = globalThis.BirdAudit, audit = Audit.create({ indexedDB: null });
+  try {
+    delete globalThis.BirdAudit;
+    assert.throws(() => Diagnostics.packageFiles(audit.bundle()), /privacy rules are unavailable/);
+  } finally { globalThis.BirdAudit = privacy; }
 });
 
 test('F608 screenshot is packaged only after explicit inclusion', () => {
