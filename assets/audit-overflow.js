@@ -264,12 +264,24 @@ const AUDIT = `<script>
       var options = document.getElementById('setupHomeOptions');
       var choosing = document.getElementById('setupSheetBody').dataset.setupStep === 'home'
         && options && options.children.length > 1;
+      var seenStatus = document.getElementById('seenSetupStatus');
       var waiting = document.getElementById('setupSheetBody').dataset.setupStep === 'seen'
-        && document.getElementById('setupStepTitle').textContent === 'Fetching your seen list...';
+        && seenStatus && seenStatus.dataset.setupPending === 'true';
+      var initial = document.getElementById('setupSheetBody').dataset.setupStep === 'loading';
+      if (initial) {
+        var activity = document.getElementById('setupPrefetchActivity');
+        if (!activity || activity.getAttribute('role') !== 'status'
+            || activity.dataset.setupPending !== 'true'
+            || !/Please wait/.test(activity.textContent)
+            || !/continue automatically/.test(activity.textContent))
+          throw new Error('F1260 initial checks need announced automatic continuation');
+      }
       if (waiting && (!document.getElementById('setupSkipSeen') || document.getElementById('setupContinue')))
         throw new Error('F1180 pending seen work needs Skip without a competing completion action');
-      if (primary.length !== (choosing || waiting ? 0 : 1))
-        throw new Error('F1158 setup needs one recommended action, except a place choice or F1180 waiting');
+      if (waiting && !/Please wait/.test(seenStatus.textContent))
+        throw new Error('F1261 pending seen work needs immediate wait feedback');
+      if (primary.length !== (choosing || waiting || initial ? 0 : 1))
+        throw new Error('F1158 setup needs one recommended action except place choice or automatic acquisition');
       var reference = primary.length ? getComputedStyle(primary[0]) : null;
       var close = document.getElementById('setupSheetClose'), closeRect = close.getBoundingClientRect();
       if (closeRect.width >= setup.clientWidth / 2 || closeRect.width < 43.5 || closeRect.height < 43.5
@@ -291,12 +303,21 @@ const AUDIT = `<script>
           return;
         }
         var main = button.classList.contains('setupprimary'), size = parseFloat(style.fontSize);
-        if (style.textDecorationLine !== 'none' || style.whiteSpace!=='nowrap' || rect.height < 43.5
+        var range = document.createRange(); range.selectNodeContents(button);
+        var clipped = Array.from(range.getClientRects()).some(function (line) {
+          return line.left < rect.left - 1 || line.right > rect.right + 1
+            || line.top < rect.top - 1 || line.bottom > rect.bottom + 1;
+        });
+        if (style.textDecorationLine !== 'none'
+          || (button.id !== 'setupSkipSeen' && style.whiteSpace !== 'nowrap') || rect.height < 43.5
           || button.scrollWidth > button.clientWidth + 1
+          || clipped
           || (main && size < 20 * Number(AUDIT_SCALE) - 0.5)
           || (!main && reference && (size >= parseFloat(reference.fontSize)
             || style.backgroundColor === reference.backgroundColor)))
-          throw new Error('F1155/F1158 competing or clipped setup button: ' + button.id);
+          throw new Error('F1155/F1158 competing or clipped setup button: ' + button.id
+            + ' ' + JSON.stringify({width:rect.width,height:rect.height,font:size,
+              clientWidth:button.clientWidth,scrollWidth:button.scrollWidth,whiteSpace:style.whiteSpace,clipped:clipped}));
       });
     }
     var vw = document.documentElement.clientWidth;
@@ -1452,7 +1473,7 @@ const AUDIT = `<script>
             var stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1)
               + '-' + pad(now.getDate()) + ' 00:01';
             A.setBirdcastSnapshot({
-              forecast: {level: 'Medium', date: stamp.slice(0, 10)}, count: null
+              forecast: {level: 'High', date: stamp.slice(0, 10)}, count: null
             });
             A.renderSurge([], [], [], [], [], {
               observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
@@ -1729,7 +1750,7 @@ const AUDIT = `<script>
       A.progressEnd();
       A.renderSurge([], [], [
         {loc:'Integer multiplier fixture',locId:'LF1237INT',observers:12,baseline:1,ratio:12},
-        {loc:'Fractional multiplier fixture',locId:'LF1237FRAC',observers:14,baseline:4,ratio:3.5},
+        {loc:'Fractional multiplier fixture',locId:'LF1237FRAC',observers:26,baseline:4,ratio:6.5},
         {loc:'Wide multiplier fixture',locId:'LF1237WIDE',observers:100,baseline:.75,ratio:100/.75}
       ].map(function (row) { row.latest=previewStamp(1); return row; }), [], [], {
         hotspots:'ok', suppressNotifications:true, deferPhotos:true
@@ -1739,8 +1760,8 @@ const AUDIT = `<script>
       A.showMenu();
       out.push(scan('(F1237 Recent multiplier fit)'));
       A.renderSurge([], [], Array.from({length:7}, function (_, i) {
-        return {loc:'Representative public patch '+i,locId:'LPREVIEW'+i,observers:9,
-          baseline:2.25,ratio:4,reason:'surge',latest:previewStamp(i+1)};
+        return {loc:'Representative public patch '+i,locId:'LPREVIEW'+i,observers:10,
+          baseline:2,ratio:5,reason:'surge',latest:previewStamp(i+1)};
       }), [], [], {
         mega:'notApplicable',observations:'ok',hotspots:'ok',
         twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-50*60000,
@@ -3767,9 +3788,11 @@ const AUDIT = `<script>
     var root=document.getElementById('surgeResults');
     var groups=root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]');
     var group=groups[0];
+    var count=root.querySelector('[data-count-kind="foy"]');
     if (groups.length!==1 || group.dataset.foyDate!==date
         || group.querySelector('[data-birdgen-total]').dataset.birdgenTotal!=='26'
-        || root.querySelector('[data-count-kind="foy"]').textContent.indexOf('26 FOY')<0
+        || !count || count.textContent.replace(/[^0-9]/g,'')!=='26'
+        || count.getAttribute('aria-label').indexOf('26 FOY')!==0
         || group.querySelector('.surgealerttitle').textContent.indexOf('+24')<0) {
       throw new Error('F1102 compact same-day group lost complete annual-first membership');
     }
@@ -4481,7 +4504,7 @@ server.listen(0, '127.0.0.1', () => {
         console.log('   MIGRATION WORD FIT  ' + JSON.stringify(r.migrationWords));
         if (!r.migrationWords.length || r.migrationWords.some((word) =>
           word.lines !== 1 || word.required > word.width + 0.5)
-            || r.label === 'sec-surgeBtn' && !r.migrationWords.some((word) => word.text === 'MEDIUM')) {
+            || r.label === 'sec-surgeBtn' && !r.migrationWords.some((word) => word.text === 'HIGH')) {
           bad++;
           console.log('   MIGRATION WORD CLIPPED  ' + JSON.stringify(r.migrationWords));
         }
