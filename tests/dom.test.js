@@ -13036,13 +13036,13 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
     const A = app.window.__app, debug = app.window.__dbg;
     const privateFields = {
       displayName: "Prior O'Field Sentinel", profileLabel: 'Private Alias Sentinel',
-      lat: 47.752341, lng: -122.164352, latitude: 14.987654, longitude: -165.678912,
-      foo: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=47.752341&lng=-122.164352',
+      lat: 14.752341, lng: -165.164352, latitude: 14.987654, longitude: -165.678912,
+      foo: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=14.752341&lng=-165.164352',
       codes: ['privatebird1259'], rows: [{ name: 'Private Roster Sentinel', seen: true }]
     };
     const raw = JSON.stringify(privateFields);
     const assertPrivateOmitted = text => assert.doesNotMatch(text,
-      /Configured Observer Sentinel|PRIVATEKEY1259|SN1259999|Prior O.Field Sentinel|Private Alias Sentinel|Private Roster Sentinel|privatebird1259|47\.752341|-122\.164352|14\.987654|-165\.678912|data\/obs\/geo|HTML_PERSONAL_SENTINEL/);
+      /Configured Observer Sentinel|PRIVATEKEY1259|SN1259999|Prior O.Field Sentinel|Private Alias Sentinel|Private Roster Sentinel|privatebird1259|14\.752341|-165\.164352|14\.987654|-165\.678912|data\/obs\/geo|HTML_PERSONAL_SENTINEL/);
     debug.buf.push({ t: '12:34', level: 'net', msg: raw });
     debug.previous = { entries: [{ t: '12:33', level: 'warn', msg: raw }] };
     debug.verdicts['source outcome'] = { t: '12:34', msg: 'profileLabel: Private Alias Sentinel' };
@@ -13060,7 +13060,7 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
     const packed = app.window.BirdDiagnostics.packageFiles(audit.bundle(), {
       environment: privateFields,
       storageInventory: { cache_entries: 12, homeLatitude: privateFields.lat },
-      note: 'Home: 47.752341, -122.164352'
+      note: 'Home: 14.752341, -165.164352'
     });
     assertPrivateOmitted(JSON.stringify(packed));
     assert.equal(audit.events()[0].attrs.received_rows, 500);
