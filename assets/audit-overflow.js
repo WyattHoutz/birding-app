@@ -1592,10 +1592,22 @@ const AUDIT = `<script>
       var priorWatch = A.getWatchlist();
       A.setWatchlist([{code:'amerob',name:'American Robin'}]);
       A.updateMyYear();
-      var yearScan = scan('(F874 rightmost watch column)');
+      var yearScan = scan('(F1264 full-width lower WATCH row)');
       var cardReadability = ${require('./card-readability').toString()};
       yearScan.watchActions=[].map.call(document.querySelectorAll('#myYearList .myYearWatchlist'),function(button){
         var card=button.closest('li'),photo=card.querySelector('.thumb');
+        var name=card.querySelector('.ntext'),footer=button.parentElement;
+        var font=getComputedStyle(name).fontSize;
+        var originalColumns=card.style.gridTemplateColumns;
+        card.style.gridTemplateColumns='80px minmax(0, 1fr) calc(78px * var(--s))';
+        var primary=document.createElement('span');primary.className='spprimary';
+        card.querySelector('.name').appendChild(primary);
+        primary.appendChild(button);footer.remove();
+        var legacyNameWidth=name.getBoundingClientRect().width;
+        card.appendChild(footer);footer.appendChild(button);primary.remove();
+        card.style.gridTemplateColumns=originalColumns;
+        var nameWidth=name.getBoundingClientRect().width;
+        var meta=card.querySelector('.meta').getBoundingClientRect();
         var rect=button.getBoundingClientRect(),image=photo.getBoundingClientRect();
         var style=getComputedStyle(button);
         return {label:button.textContent,width:rect.width,height:rect.height,
@@ -1603,6 +1615,10 @@ const AUDIT = `<script>
           background:style.backgroundColor,color:style.color,
           right:rect.right,left:rect.left,photoRight:image.right,
           primary:button.parentElement.classList.contains('spprimary'),
+          below:rect.top>=meta.bottom-.5,
+          nameWidth:nameWidth,legacyNameWidth:legacyNameWidth,
+          stackedName:getComputedStyle(name).gridColumn==='1 / -1',
+          sameFont:getComputedStyle(name).fontSize===font,
           title:cardReadability(card),clipped:cardReadability(card).actions.some(function(action){return action.clipped;}),
           wordBroken:cardReadability(card).wordBroken};
       });
@@ -3439,6 +3455,103 @@ const AUDIT = `<script>
       convoyPhoto:convoyThumb.width};
     out.push(result);
   }
+  async function personalBackupRegression(out) {
+    var A = window.__app, raw = localStorage.getItem('ebird_favs');
+    var bundle = localStorage.getItem('ebird_personal_choices_v1');
+    try {
+      A.setFavs([{id:'L126601',locId:'L126601',locName:'Representative other-region patch',
+        lat:43.1,lng:-75.2,region:'US-NY'}]);
+      document.getElementById('brandSettings').click();
+      document.getElementById('personalListBackup').open = true;
+      document.getElementById('personalBackupWatch').checked = false;
+      document.getElementById('personalBackupExport').click();
+      document.getElementById('personalBackupReview').click();
+      for (var attempt=0;attempt<200 && document.getElementById('personalBackupSave').disabled;attempt++) {
+        await new Promise(function(resolve){setTimeout(resolve,10);});
+      }
+      if (document.getElementById('personalBackupSave').disabled) {
+        throw new Error('F1266 actual selected-list preview did not complete');
+      }
+      var result = scan('(F1266 expanded Settings backup)');
+      result.personalBackup = Array.from(document.querySelectorAll(
+        '#personalListBackup button, #personalListBackup select, #personalBackupText, '
+        + '#personalListBackup > summary, #personalListBackup label:has(input[type="checkbox"])'))
+        .filter(function(el){return el.getBoundingClientRect().width > 0;})
+        .map(function(el){
+          var box=el.getBoundingClientRect();
+          return {id:el.id || el.textContent.trim(),width:box.width,height:box.height,
+            left:box.left,right:box.right};
+        });
+      out.push(result);
+    } finally {
+      if(raw===null)localStorage.removeItem('ebird_favs');else localStorage.setItem('ebird_favs',raw);
+      if(bundle===null)localStorage.removeItem('ebird_personal_choices_v1');
+      else localStorage.setItem('ebird_personal_choices_v1',bundle);
+      document.getElementById('personalListBackup').open=false;
+    }
+  }
+  async function mixedSetupRegression(out) {
+    var A=window.__app, step=localStorage.getItem('bc_setup_step_v1');
+    var dismissed=localStorage.getItem('bc_setup_dismissed_v1'), release, pending;
+    var verified='bc_api_verified_v1:'+A.bcProfile(), savedVerified=localStorage.getItem(verified);
+    var identity=localStorage.getItem(A.IDENTITY_META_KEY), display=localStorage.getItem('ebird_display_name');
+    var personalKey, personal;
+    try {
+      localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({source:'ebird-bird-list'}));
+      localStorage.setItem('ebird_display_name','Representative observer');
+      var owner=A.personalListOwner();
+      personalKey=A.personalListKey(owner); personal=localStorage.getItem(personalKey);
+      localStorage.setItem(personalKey,JSON.stringify({owner:owner,coverage:'complete',declaredCount:1,
+        unresolved:0,paginated:false,codes:['amerob'],rows:[{code:'amerob',name:'American Robin'}],
+        source:A.personalListUrl(owner),readAt:new Date().toISOString(),readDate:A.todayStr()}));
+      A.getReportSeen();
+      localStorage.setItem(verified,localStorage.getItem('ebird_api_key'));
+      localStorage.setItem('bc_setup_step_v1','loading');
+      var tasks=A.acquireInitialDatasetTasks(A.activeScope(),{current:function(){return true;}});
+      Object.keys(tasks).forEach(function(key){
+        tasks[key].acquire=function(){
+          if(key==='busy')return new Promise(function(resolve){release=resolve;});
+          return {state:key==='rankings'||key==='mass'?'failed':'ready',value:{}};
+        };
+      });
+      pending=A.startSetupPrefetch(tasks);
+      A.openSetupSheet();
+      for(var attempt=0;attempt<200&&!release;attempt++){
+        await new Promise(function(resolve){setTimeout(resolve,10);});
+      }
+      var body=document.getElementById('setupSheetBody');
+      var continuation=document.getElementById('setupContinueAvailable');
+      if(body.dataset.setupStep!=='loading'||!continuation)throw new Error('F1270 actual mixed loading component missing');
+      var result=scan('(F1269/F1270 mixed initial checks)');
+      var box=continuation.getBoundingClientRect();
+      result.mixedSetup={count:document.getElementById('setupPrefetchCount').textContent,
+        activity:document.getElementById('setupActivityStage').textContent,
+        width:box.width,height:box.height,right:box.right};
+      out.push(result);
+    } finally {
+      var continuation=document.getElementById('setupContinueAvailable');
+      if(continuation)continuation.click();
+      if(release)release({state:'ready',value:{}});
+      if(pending)await pending;
+      [[verified,savedVerified],['bc_setup_step_v1',step],['bc_setup_dismissed_v1',dismissed]]
+        .forEach(function(pair){if(pair[1]===null)localStorage.removeItem(pair[0]);else localStorage.setItem(pair[0],pair[1]);});
+      [[A.IDENTITY_META_KEY,identity],['ebird_display_name',display],[personalKey,personal]]
+        .forEach(function(pair){if(!pair[0])return;if(pair[1]===null)localStorage.removeItem(pair[0]);else localStorage.setItem(pair[0],pair[1]);});
+      A.getReportSeen();
+    }
+  }
+  function sourceIconRegression(out) {
+    var A=window.__app;
+    A.showSection('sec-surgeBtn',{load:false});
+    A.renderSurge([],[],[],[],[],{birdcast:'partial',mega:'failed',mass:'partial',ppte:'partial',suppressNotifications:true});
+    var sources=document.querySelector('#surgeResults .surgesources');
+    if(!sources)throw new Error('F1271 actual mixed source list missing');
+    sources.open=true;
+    var result=scan('(F1271 expanded canonical source icons)');
+    result.sourceIcons=sources.querySelectorAll('[data-source-kind]').length;
+    out.push(result);
+    sources.open=false;
+  }
   async function setupAcquisitionRegression(out) {
     var A = window.__app, scope = A.activeScope(), owner = A.personalListOwner(scope);
     var key = A.personalListKey(owner), saved = localStorage.getItem(key);
@@ -3911,6 +4024,10 @@ const AUDIT = `<script>
       catch (error) { out.push({label:'(F908 regression)', fixtureError:String(error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await personalBackupRegression(out); }
+      catch(error) { out.push({label:'F1266 personal backup',fixtureError:String(error)}); }
+      try { await mixedSetupRegression(out); }
+      catch(error) { out.push({label:'F1269/F1270 mixed setup',fixtureError:String(error)}); }
       try { await setupAcquisitionRegression(out); }
       catch (error) { out.push({label:'(F1067/F1068 regression)',fixtureError:String(error)}); }
     }
@@ -3924,7 +4041,9 @@ const AUDIT = `<script>
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { annualFirstGroupRegression(out); }
-      catch (error) { out.push({label:'(F1102 regression)',fixtureError:String(error)}); }
+      catch(error) { out.push({label:'F1102 annual-first groups',fixtureError:String(error)}); }
+      try { sourceIconRegression(out); }
+      catch (error) { out.push({label:'(F1271 source icons)',fixtureError:String(error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await refreshHitRegression(out); }
@@ -4342,6 +4461,14 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F931/F933 FIXTURE missing PPTE or alert-type key coverage');
     }
+    if (report.filter(r => r.personalBackup).length !== 1) {
+      bad++;
+      console.log('   F1266 FIXTURE missing expanded backup controls');
+    }
+    if (report.filter(r => r.mixedSetup).length !== 1 || report.filter(r => r.sourceIcons).length !== 1) {
+      bad++;
+      console.log('   F1269/F1270/F1271 FIXTURE missing mixed setup or expanded source icons');
+    }
     report.forEach((r) => {
       if (r.fixtureError) {
         bad++;
@@ -4352,6 +4479,18 @@ server.listen(0, '127.0.0.1', () => {
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
       if (r.previewHeight) console.log('   F1086 PREVIEW HEIGHT ' + JSON.stringify(r.previewHeight));
+      if (r.mixedSetup && (!/6 Of 8 Checks Finished.*5 Ready/.test(r.mixedSetup.count)
+          || !/Loading|Recovering/.test(r.mixedSetup.activity)
+          || r.mixedSetup.width < 44 || r.mixedSetup.height < 44 || r.mixedSetup.right > r.vw + .5)) {
+        bad++;
+        console.log('   F1269/F1270 mixed progress and continuation geometry failed: ' + JSON.stringify(r.mixedSetup));
+      }
+      if (r.personalBackup && (r.personalBackup.length < 9 || r.personalBackup.some(control =>
+          control.width < 44 || control.height < 44 || control.left < -.5 || control.right > r.vw + .5))) {
+        bad++;
+        console.log('   F1266 backup controls must retain readable in-viewport touch targets: '
+          + JSON.stringify(r.personalBackup));
+      }
       if (r.scopeHeader && (r.scopeHeader.region !== r.scopeHeader.expected
           || !r.scopeHeader.separate || !r.scopeHeader.touch || !r.scopeHeader.within)) {
         bad++;
@@ -4396,15 +4535,18 @@ server.listen(0, '127.0.0.1', () => {
         }
       }
         if(r.watchActions){
-          console.log('   F874 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
+          console.log('   F1264 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
           if(JSON.stringify(r.watchThemes)!=='["light","dark"]'
             ||r.watchActions.length!==3 || r.watchActions.some(action=>
-            !action.primary || action.width<44 || action.height<44 || action.right>r.vw+.5
-            || action.left<action.photoRight || action.wordBroken || action.clipped || action.title.titleClipped
+            action.primary || !action.below || !action.sameFont
+            || action.nameWidth+.5<action.legacyNameWidth
+            || !action.stackedName && action.nameWidth<=action.legacyNameWidth+1
+            || action.width<44 || action.height<44 || action.right>r.vw+.5
+            || action.wordBroken || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'
             || action.color!=='rgb(0, 0, 0)'
             || action.background!==(action.pressed==='true'?'rgb(213, 94, 0)':'rgb(0, 158, 115)'))){
-            bad++;console.log('   F874 watch actions must remain readable in the rightmost column');
+            bad++;console.log('   F1264 WATCH must sit below metadata, restore name width and preserve type/touch targets');
           }
         }
         if(r.tickContributors && (!r.tickContributors.open || r.tickContributors.ranks!=='120,2'

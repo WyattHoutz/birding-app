@@ -51,6 +51,12 @@
         return s;
       }
       function scrubPrivateText(s) {
+        // A fixed ASCII-only bound handles double encodings without malformed UTF-8 throwing.
+        for (var decodePass = 0; decodePass < 3; decodePass++) {
+          s = s.replace(/%([0-7][0-9a-f])/gi, function (_, byte) {
+            return String.fromCharCode(parseInt(byte, 16));
+          });
+        }
         if (/<(?:!doctype|html|head|body|script|table|header)(?:\s|>)/i.test(s)) {
           return '[third-party HTML redacted]';
         }
@@ -59,7 +65,7 @@
             s = JSON.stringify(JSON.parse(s), function (key, value) {
               if (value && typeof value === 'object'
                   && (key === '' && Array.isArray(value)
-                    || /^(?:rows|data|entries|observations|codes|seenCodes|watchCodes|personalList|watchlist|exact|requestBody|responseBody)$/i.test(key))) {
+                    || /^(?:rows|data|entries|observations|codes|seenCodes|watchCodes|personalList|watchlist|watch|favorites|exact|requestBody|responseBody)$/i.test(key))) {
                 return '[data content omitted]';
               }
               return value;
@@ -77,16 +83,19 @@
             if (secret && String(secret).length >= 4) s = s.split(String(secret)).join('[configured value redacted]');
           });
         } catch (error) { /* storage may be unavailable during startup */ }
-        s = s.replace(/\bhttps?:\/\/[^\s<>"']+/gi, function (url) {
+        function redactUrl(url) {
           try {
             var host = new URL(url).hostname;
             return /(?:^|\.)(?:ebird\.org|birdcast\.org|gbif\.org|noaa\.gov|wikipedia\.org|wikimedia\.org)$/.test(host)
               ? '[URL redacted; host=' + host + ']' : '[URL redacted]';
           } catch (error) { return '[URL redacted]'; }
-        });
+        }
+        s = s.replace(/\bhttps?:\/\/[^\s<>"']+/gi, redactUrl);
+        s = s.replace(/(^|[\s"'([{=:])((?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d{1,5})?[/?][^\s<>"']*)/gi,
+          function (_, prefix, url) { return prefix + redactUrl('https://' + url); });
         s = s.replace(/(?:\/?v2\/)?data\/obs\/geo\/[^\s<>"']*/gi, '[location request URL redacted]');
         s = s.replace(
-          /(["'](?:x-ebirdapitoken|displayName|accountName|accountAlias|profileLabel|homePlace|homeAddress|address|query|searchText|searchTerm|context|cacheIdentity|sid|abaSid|lat|lng|lon|latitude|longitude|homeLat|homeLng|homeLatitude|homeLongitude)["']\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/gi,
+          /(["'](?:x-ebirdapitoken|displayName|accountName|accountAlias|profileLabel|homePlace|homeAddress|address|query|searchText|searchTerm|context|cacheIdentity|sid|abaSid|lat|lng|lon|latitude|longitude|latLng|homeLat|homeLng|homeLatitude|homeLongitude)["']\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/gi,
           '$1"[redacted]"');
         s = s.replace(
           /(\b(?:lat|lng|lon|latitude|longitude|homeLat|homeLng|homeLatitude|homeLongitude)["']?\s*[:=]\s*)[-+]?\d+(?:\.\d+)?/gi,
@@ -95,9 +104,11 @@
           /(\b(?:displayName|accountName|accountAlias|profileLabel|username|abaSid|profile|home|homePlace|homeAddress)\b\s*[:=]\s*)[^\n;]+/gi,
           '$1[identity/location redacted]');
         s = s.replace(
-          /(["'](?:rows|data|entries|observations|codes|seenCodes|watchCodes|personalSpeciesCodes|coordinates|personalList|watchlist|exact)["']\s*:\s*)(?:\[[\s\S]*|\{[^{}]*\})/gi,
+          /(["'](?:rows|data|entries|observations|codes|seenCodes|watchCodes|personalSpeciesCodes|coordinates|personalList|watchlist|watch|favorites|exact)["']\s*:\s*)(?:\[[\s\S]*|\{[^{}]*\})/gi,
           '$1"[personal data redacted]"');
-        s = s.replace(/[-+]?\d{1,2}\.\d+\s*[,|]\s*[-+]?\d{1,3}\.\d+/g, '[coordinates redacted]');
+        s = s.replace(/(\blatLng\s*[:=]\s*)[-+]?\d+(?:\.\d+)?\s*[,|:]\s*[-+]?\d+(?:\.\d+)?/gi,
+          '$1[coordinates redacted]');
+        s = s.replace(/[-+]?\d{1,2}\.\d+\s*[,|:_]\s*[-+]?\d{1,3}\.\d+/g, '[coordinates redacted]');
         return s;
       }
       function cleanEntry(entry) {
@@ -1119,6 +1130,8 @@
     .yrnum { display: inline; font-size: inherit; font-weight: inherit;
              color: inherit; line-height: inherit; margin-right: 0.25em;
              font-variant-numeric: tabular-nums; }
+    #myYearList > li > .myYearWatchRow {
+      grid-column: 1 / -1; justify-self: start; margin-top: 6px; max-width: 100%; }
     .speciesWatchlistAction { display: block; width: auto; max-width: 100%;
                        min-width: 44px; min-height: 44px; margin: 0; padding: 4px 6px;
                        font-size: calc(12px * var(--s)); line-height: 1.2;
@@ -1132,6 +1145,7 @@
     :is(#myYearList, #nvResults, #nvFound).obs.xl > li {
       grid-template-columns: 80px minmax(0, 1fr) calc(78px * var(--s)); column-gap: 10px;
     }
+    #myYearList.obs.xl > li { grid-template-columns: 80px minmax(0, 1fr); }
     :is(#myYearList, #nvResults, #nvFound).obs.xl > li > .name > .thumb {
       width: 80px; height: 80px; margin: 0;
     }
@@ -2462,6 +2476,14 @@
       border: 1px solid var(--line); border-radius: var(--btn-radius-pill);
       background: var(--card); color: var(--ink); font: inherit; }
     .surgesources { margin-top: 6px; font-size: calc(12px * var(--s)); }
+    .surgesources ul { list-style: none; padding-left: 0; }
+    .surgesourceicons svg { width: 1.2em; height: 1.2em; vertical-align: middle; }
+    #personalListBackup .row > label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+    #personalListBackup .row > button { flex: 1 1 180px; min-height: 44px; }
+    #personalListBackup select, #personalBackupImport { min-height: 44px; }
+    #personalListBackup > summary { min-height: 44px; box-sizing: border-box; padding: 10px 0; }
+    #personalListBackup input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+    #personalBackupText { width: 100%; box-sizing: border-box; font: inherit; min-height: 12em; }
     .surgefeed { margin-top: 4px; }
     .surgefeed > li { padding: 12px 0 11px; }
     .surgefeed.obs.card-sm > li > .name { align-items: flex-start; gap: 10px; }
@@ -3853,6 +3875,8 @@
     .setuppanel { padding: 16px; margin: 16px 0; border: 1px solid var(--line);
       border-radius: var(--btn-radius); background: var(--card); }
     .setuppanel h4 { margin: 0 0 10px; font-size: calc(18px * var(--s)); }
+    .setupactivityheading { display: flex; align-items: center; gap: 10px; }
+    .setupactivityheading .prefetch-icon { flex: 0 0 auto; }
     #setupSheet p[data-setup-pending="true"] { display: block; }
     #setupSheet [data-setup-pending="true"]::before {
       content: '⌛'; display: inline-block; margin-right: 8px; }
@@ -4598,6 +4622,35 @@
       <p id="birdGenNotifyNotice" class="hint" role="alert"></p>
       <p class="hint">Optional local notifications, with no notification server. All qualified Bird Gen categories can notify when the app refreshes. Native background checks cover <strong>Celebrity and Crowd only</strong>; iOS chooses whether and when to run them, not a guaranteed interval. Crowd is held back when coverage is incomplete or capped. The broader Mass Flocks and Patagonia Picnic Table Effect menus do not bypass Bird Gen rules.</p>
       <p class="hint">Each profile opts in separately. Background checks follow the active profile, saved region, Home and chase distance. First snapshots establish a quiet baseline; reports dated before opt-in do not interrupt you. Permission, Background App Refresh, power and network conditions can prevent delivery. This is not an urgent-alert service.</p>
+      <details id="personalListBackup">
+        <summary>Personal lists: backup and restore</summary>
+        <p>Save an external JSON copy before erasing app data. Text left here or on the clipboard is not an independent backup.
+          Only WATCH and Favorite patches are included, not credentials, caches, history or legacy region definitions.</p>
+        <div class="row">
+          <label><input id="personalBackupWatch" type="checkbox" checked /> WATCH</label>
+          <label><input id="personalBackupFavorites" type="checkbox" checked /> Favorite patches</label>
+        </div>
+        <div class="row">
+          <button id="personalBackupExport" type="button">Export current choices</button>
+          <button id="personalBackupCopy" class="secondary" type="button">Copy JSON</button>
+          <button id="personalBackupFile" class="secondary" type="button">Save JSON file</button>
+        </div>
+        <label for="personalBackupImport">Open a personal-list JSON file</label>
+        <input id="personalBackupImport" type="file" accept=".json,application/json" />
+        <label for="personalBackupText">Editable backup JSON</label>
+        <textarea id="personalBackupText" rows="8" spellcheck="false" autocapitalize="off"
+          aria-describedby="personalBackupHelp"></textarea>
+        <p id="personalBackupHelp" class="hint">Paste or edit a supported backup, then Preview before saving.
+          Stable species IDs avoid four-letter ambiguity. Favorites retain saved IDs, names, region and coordinate-only metadata.
+          Missing categories are unchanged. Merge keeps existing choices and metadata; Replace needs separate confirmation.</p>
+        <label for="personalBackupMode">Restore policy</label>
+        <select id="personalBackupMode"><option value="merge">Merge (keep existing choices)</option>
+          <option value="replace">Replace selected lists</option></select>
+        <div id="personalBackupPreview" class="hint"></div>
+        <div class="row"><button id="personalBackupReview" type="button">Preview import</button>
+          <button id="personalBackupSave" type="button" disabled>Save reviewed lists</button></div>
+        <p id="personalBackupStatus" class="hint" role="status"></p>
+      </details>
       <label for="apiKey">eBird API key</label>
       <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your key" />
       <div class="keyrow">
@@ -4881,6 +4934,7 @@
   <script src="spuh.js"></script>
   <script src="taxonomy.js"></script>
   <script src="setup-prefetch.js"></script>
+  <script src="personal-list-backup.js"></script>
   <script src="cards-hotspot.js"></script>
   <script src="cards-checklist.js"></script>
   <script src="seed-birdlist.js"></script>
@@ -5408,7 +5462,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.184.0';
+      var APP_VERSION = '1.185.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -21657,8 +21711,217 @@
       }
 
       // --- Favorite hotspots (pinned locations) ---
-      function getFavs() { try { return JSON.parse(localStorage.getItem('ebird_favs') || '[]'); } catch (e) { return []; } }
-      function setFavs(a) { localStorage.setItem('ebird_favs', JSON.stringify(a)); }
+      var PERSONAL_CHOICES_KEY = 'ebird_personal_choices_v1';
+      function personalChoicesRecord() {
+        var raw = localStorage.getItem(PERSONAL_CHOICES_KEY);
+        if (raw == null) return null;
+        var record = JSON.parse(raw);
+        if (!record || record.version !== 1 || Array.isArray(record)
+            || Object.keys(record).some(function (key) {
+              return ['version', 'watch', 'favorites'].indexOf(key) < 0;
+            }) || ['watch', 'favorites'].some(function (key) {
+              return Object.hasOwn(record, key) && !Array.isArray(record[key]);
+            })) throw new Error('Saved personal choices are unreadable; their storage was not replaced.');
+        return record;
+      }
+      function personalChoiceList(kind, legacyKey) {
+        var record = personalChoicesRecord();
+        var rows = record && Object.hasOwn(record, kind) ? record[kind]
+          : JSON.parse(localStorage.getItem(legacyKey) || '[]');
+        if (!Array.isArray(rows)) throw new Error('Saved personal list is not an array.');
+        return rows;
+      }
+      function setPersonalChoiceList(kind, legacyKey, rows) {
+        var record = personalChoicesRecord();
+        if (!record) localStorage.setItem(legacyKey, JSON.stringify(rows));
+        else {
+          record[kind] = rows;
+          localStorage.setItem(PERSONAL_CHOICES_KEY, JSON.stringify(record));
+        }
+      }
+      function initPersonalListBackup() {
+        var text = $('personalBackupText'), status = $('personalBackupStatus'), reviewed = null, revision = 0;
+        function selected() {
+          return { watch: $('personalBackupWatch').checked, favorites: $('personalBackupFavorites').checked };
+        }
+        function current(kinds) {
+          var lists = {};
+          Object.keys(kinds).forEach(function (kind) {
+            if (kinds[kind]) lists[kind] = personalChoiceList(kind,
+              kind === 'watch' ? WATCH_KEY : 'ebird_favs');
+          });
+          return lists;
+        }
+        function invalidate() {
+          revision++;
+          reviewed = null;
+          $('personalBackupSave').disabled = true;
+          $('personalBackupPreview').textContent = '';
+        }
+        function fileText() {
+          var parsed = PersonalListBackup.parse(text.value);
+          var lists = {};
+          PersonalListBackup.kinds.forEach(function (kind) {
+            if (Object.hasOwn(parsed, kind)) lists[kind] = PersonalListBackup.normalize(kind, parsed[kind]);
+          });
+          return PersonalListBackup.encode(lists, {
+            watch: Object.hasOwn(lists, 'watch'), favorites: Object.hasOwn(lists, 'favorites')
+          });
+        }
+        [text, $('personalBackupWatch'), $('personalBackupFavorites'), $('personalBackupMode')]
+          .forEach(function (control) { control.addEventListener('input', invalidate); control.addEventListener('change', invalidate); });
+        $('personalBackupExport').addEventListener('click', function () {
+          invalidate();
+          try {
+            var choice = selected();
+            text.value = PersonalListBackup.encode(current(choice), choice);
+            status.textContent = 'Current selected choices are in the JSON field. Save or copy this outside the app.';
+          } catch (error) { status.textContent = error.message; }
+        });
+        $('personalBackupCopy').addEventListener('click', function () {
+          var value;
+          try { value = fileText(); }
+          catch (error) { status.textContent = error.message; return; }
+          var copy;
+          try { copy = navigator.clipboard && navigator.clipboard.writeText(value); }
+          catch (error) { copy = null; }
+          if (!copy) { text.focus(); text.select(); status.textContent = 'Copy the selected JSON manually, then save it outside the app.'; return; }
+          Promise.resolve(copy).then(function () {
+            status.textContent = 'JSON copied. Save it outside the app; the clipboard alone is not a durable backup.';
+          }).catch(function () {
+            text.focus(); text.select(); status.textContent = 'Copy the selected JSON manually, then save it outside the app.';
+          });
+        });
+        $('personalBackupFile').addEventListener('click', function () {
+          var value;
+          try { value = fileText(); }
+          catch (error) { status.textContent = error.message; return; }
+          var plugin = diagnosticPlugin();
+          if (plugin && typeof plugin.sharePersonalLists === 'function') {
+            status.textContent = 'Opening the JSON share sheet. Choose an external save location.';
+            Promise.resolve(plugin.sharePersonalLists({ text: value })).then(function (result) {
+              status.textContent = result && result.completed
+                ? 'Share sheet completed. Verify the JSON exists outside Bird Chaser before erasing app data.'
+                : 'Share sheet canceled; no external backup is confirmed.';
+            }).catch(function () { status.textContent = 'JSON file sharing failed. Use Copy JSON instead.'; });
+          } else if (window.Capacitor && window.Capacitor.isNativePlatform
+              && window.Capacitor.isNativePlatform()) {
+            status.textContent = 'This installed app cannot share JSON files. Use Copy JSON and save it outside the app.';
+          } else {
+            var url = URL.createObjectURL(new Blob([value], { type: 'application/json' }));
+            var link = document.createElement('a');
+            link.href = url; link.download = 'Bird-Chaser-personal-lists.json';
+            link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            status.textContent = 'JSON download requested. Verify the file outside the app before erasing data.';
+          }
+        });
+        $('personalBackupImport').addEventListener('change', function () {
+          var field = this, file = field.files && field.files[0], profile = bcProfile(), reader = new FileReader();
+          if (!file) return;
+          invalidate();
+          var generation = revision;
+          reader.onload = function () {
+            if (generation !== revision) return;
+            field.value = '';
+            if (profile !== bcProfile()) { status.textContent = 'Profile changed. Open the file again.'; return; }
+            invalidate();
+            text.value = String(reader.result || '');
+            status.textContent = 'File loaded for review only. Preview it before saving.';
+          };
+          reader.onerror = function () {
+            if (generation !== revision) return;
+            field.value = '';
+            status.textContent = 'The file could not be read. Nothing was saved.';
+          };
+          reader.readAsText(file);
+        });
+        $('personalBackupReview').addEventListener('click', function () {
+          invalidate();
+          var profile = bcProfile(), source = text.value, choice = selected(), mode = $('personalBackupMode').value;
+          var generation = revision, selection = JSON.stringify(choice);
+          var incoming;
+          try { incoming = PersonalListBackup.parse(source); }
+          catch (error) { status.textContent = error.message; return; }
+          PersonalListBackup.kinds.forEach(function (kind) { choice[kind] = choice[kind] && Object.hasOwn(incoming, kind); });
+          var taxonomy = choice.watch && !_taxonomyModel ? checkTaxonomyEdition(false) : Promise.resolve(true);
+          status.textContent = 'Validating the selected lists; nothing has been saved.';
+          Promise.resolve(taxonomy).then(function () {
+            if (generation !== revision) return;
+            if (profile !== bcProfile() || source !== text.value || selection !== JSON.stringify(selected())
+                || mode !== $('personalBackupMode').value
+                || Object.keys(choice).some(function (kind) {
+                  return choice[kind] && !selected()[kind];
+                })) throw new Error('Profile, input or selection changed. Preview again.');
+            var lists = current(choice);
+            var plan = PersonalListBackup.plan(lists, incoming, choice, mode, function (bird) {
+              if (!bird.code || !_taxonomyModel || !_taxonomyModel.byCode[bird.code]
+                  || _taxonomyUnresolved[bird.code]) {
+                throw new Error('A WATCH identity is unknown to the checked taxonomy. Use its exact current species ID.');
+              }
+              return bird;
+            });
+            reviewed = { profile: profile, source: source, choice: choice, plan: plan,
+              selection: selection, before: JSON.stringify(lists) };
+            $('personalBackupPreview').textContent = Object.keys(plan.stats).map(function (kind) {
+              var count = plan.stats[kind];
+              return (kind === 'watch' ? 'WATCH' : 'Favorite patches') + ': ' + count.before + ' saved, '
+                + count.incoming + ' imported, ' + count.after + ' after ' + mode + '; '
+                + count.added + ' additions, ' + count.removed + ' removals, '
+                + count.duplicates + ' duplicate file entries, ' + count.conflicts
+                + (mode === 'merge' ? ' conflicts kept as existing metadata.' : ' metadata conflicts replaced.');
+            }).join(' ');
+            $('personalBackupSave').disabled = false;
+            status.textContent = 'Preview ready. Only listed selected categories will change.';
+          }).catch(function (error) {
+            if (generation !== revision) return;
+            invalidate(); status.textContent = error.message;
+          });
+        });
+        $('personalBackupSave').addEventListener('click', function () {
+          var review = reviewed;
+          if (!review) return;
+          try {
+            if (review.profile !== bcProfile() || review.source !== text.value
+                || review.selection !== JSON.stringify(selected())
+                || review.plan.mode !== $('personalBackupMode').value
+                || JSON.stringify(current(review.choice)) !== review.before) {
+              throw new Error('Profile, input or saved choices changed. Preview again.');
+            }
+            if (review.plan.mode === 'replace' && !confirmAction('personal-lists-replace',
+              'Replace ' + Object.keys(review.plan.next).map(function (kind) {
+                return (kind === 'watch' ? 'WATCH' : 'Favorite patches') + ' with '
+                  + review.plan.next[kind].length + ' entries';
+              }).join(' and ') + '? Existing selected choices, including intentional empty lists, will be replaced.')) {
+              status.textContent = 'Replacement canceled. Nothing was saved.'; return;
+            }
+            var before = localStorage.getItem(PERSONAL_CHOICES_KEY);
+            var record = Object.assign({}, personalChoicesRecord() || { version: 1 }, review.plan.next);
+            var serialized = JSON.stringify(record);
+            try {
+              localStorage.setItem(PERSONAL_CHOICES_KEY, serialized);
+              if (localStorage.getItem(PERSONAL_CHOICES_KEY) !== serialized) throw new Error('Personal-list write could not be read back.');
+            } catch (error) {
+              var retained = false;
+              try {
+                if (localStorage.getItem(PERSONAL_CHOICES_KEY) !== before) {
+                  if (before == null) localStorage.removeItem(PERSONAL_CHOICES_KEY);
+                  else localStorage.setItem(PERSONAL_CHOICES_KEY, before);
+                }
+                retained = localStorage.getItem(PERSONAL_CHOICES_KEY) === before;
+              } catch (rollbackError) {}
+              throw new Error(retained
+                ? 'Saving failed; existing choices were retained.'
+                : 'Saving failed and saved state could not be verified. Retain your external backup.');
+            }
+            invalidate();
+            clearChaseCache(true); _autoLoaded = {};
+            renderWatch(); updateMyYear(); renderFavs();
+            status.textContent = 'Selected lists saved and read back successfully. Unselected data is unchanged.';
+          } catch (error) { invalidate(); status.textContent = error.message; }
+        });
+      }
+      function getFavs() { try { return personalChoiceList('favorites', 'ebird_favs'); } catch (e) { return []; } }
+      function setFavs(a) { setPersonalChoiceList('favorites', 'ebird_favs', a); }
       function migrateFavoriteRegions(favs, region) {
         var cached = null, changed = false, locIds = {};
         try {
@@ -22140,10 +22403,7 @@
       var WATCH_KEY = 'ebird_watchlist_v1';
       function getWatchlist() {
         try {
-          var raw = localStorage.getItem(WATCH_KEY);
-          if (raw === null) return [];
-          var a = JSON.parse(raw);
-          if (!Array.isArray(a)) throw new Error('Watch list is not an array.');
+          var a = personalChoiceList('watch', WATCH_KEY);
           return a.map(function (e) {
             return { code: String((e && e.code) || '').toLowerCase(), name: String((e && e.name) || '') };
           }).filter(function (e) { return e.code || e.name; });
@@ -22193,7 +22453,7 @@
       // The watchlist decides the seen set, so every chase view computed from
       // the old one is stale the moment it changes.
       function setWatchlist(a) {
-        try { localStorage.setItem(WATCH_KEY, JSON.stringify(a)); } catch (e) {}
+        try { setPersonalChoiceList('watch', WATCH_KEY, a); } catch (e) {}
         clearChaseCache(true);   // F260: the seen axis moved, not the fetch centre
         _autoLoaded = {};
         renderWatch();
@@ -22745,12 +23005,14 @@
                  : '<span class="spcode">' + esc(code || '') + '</span>';
       }
 
-      function loadSpeciesIndex(region) {
+      function loadSpeciesIndex(region, requireGeographicEvidence) {
         var key = speciesCacheKey(region), edition = taxonomyEdition(), referenceEpoch = _taxonomyReferenceEpoch;
+        var profile = bcProfile();
         try {
           var c = JSON.parse(localStorage.getItem(key) || 'null');
           if (c && c.at && (Date.now() - c.at) < SPECIES_TTL_MS
-              && Array.isArray(c.rows) && c.expected === c.rows.length) {
+              && Array.isArray(c.rows) && c.expected === c.rows.length
+              && (!requireGeographicEvidence || checkedRegionalSpecies(c).complete)) {
             return Promise.resolve(c.rows);
           }
         } catch (e) {}
@@ -22778,7 +23040,7 @@
           return pool(chunks, 3, function (ch) {
             return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')), true)
               .then(function (list) {
-                if (edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
+                if (profile !== bcProfile() || edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
                   throw new Error('Taxonomy reference changed; retry the regional index.');
                 }
                 (list || []).forEach(function (t) {
@@ -22793,17 +23055,16 @@
                 });
               }).catch(function () { failed = true; });
           }).then(function () {
-            if (edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
+            if (profile !== bcProfile() || edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
               throw new Error('Taxonomy reference changed; retry the regional index.');
             }
-            if (failed || rows.length !== all.length) {
+            var candidate = { at: Date.now(), expected: all.length, listedCodes: all, rows: rows };
+            if (failed || !checkedRegionalSpecies(candidate).complete) {
               throw new Error('eBird returned an incomplete regional taxonomy.');
             }
             rows.sort(function (a, b) { return a.name.localeCompare(b.name); });
             try {
-              localStorage.setItem(key, JSON.stringify({
-                at: Date.now(), expected: all.length, rows: rows
-              }));
+              localStorage.setItem(key, JSON.stringify(candidate));
             } catch (e) {}
             return rows;
           });
@@ -22954,18 +23215,56 @@
         return key;
       }
       var _watchScope = 'region';
+      var _watchRegionAttempts = Object.create(null);
+      function checkedRegionalSpecies(cached) {
+        var codes = Object.create(null), complete = false;
+        try {
+          var age = cached && Date.now() - cached.at;
+          complete = !!(cached && Number.isFinite(age) && age >= 0 && age < SPECIES_TTL_MS
+            && Number.isSafeInteger(cached.expected) && cached.expected > 0
+            && Array.isArray(cached.rows) && cached.rows.length === cached.expected
+            && Array.isArray(cached.listedCodes) && cached.listedCodes.length === cached.expected
+            && new Set(cached.listedCodes).size === cached.expected);
+          var listed = complete && new Set(cached.listedCodes);
+          if (complete) cached.rows.forEach(function (row) {
+            if (!row || typeof row.code !== 'string' || !/^[a-z0-9]+$/.test(row.code)
+                || typeof row.name !== 'string' || !row.name.trim()
+                || !listed.has(row.code) || codes[row.code]) { complete = false; return; }
+            codes[row.code] = true;
+          });
+        } catch (error) { complete = false; }
+        return { complete: complete, codes: codes };
+      }
+      function watchRegionalEvidence() {
+        try {
+          return checkedRegionalSpecies(JSON.parse(localStorage.getItem(speciesCacheKey(getObsRegion())) || 'null'));
+        } catch (error) { return { complete: false, codes: {} }; }
+      }
+      function requestWatchRegionIndex() {
+        if (_watchScope !== 'region' || !getKey() || watchRegionalEvidence().complete
+            || visibleSectionId() !== 'sec-nvResults') return;
+        var scope = activeScope(), profile = bcProfile(), region = getObsRegion();
+        var key = profile + '|' + scope.cacheIdentity + '|' + taxonomyEdition()
+          + '|' + _taxonomyReferenceEpoch + '|' + todayStr();
+        if (_watchRegionAttempts[key]) return;
+        _watchRegionAttempts[key] = true;
+        loadSpeciesIndex(region, true).then(function () {
+          if (profile === bcProfile() && scopeCurrent(scope)
+              && visibleSectionId() === 'sec-nvResults') renderWatch();
+        }).catch(function () {
+          // Missing coverage is unknown, never proof that a saved target is absent.
+        });
+      }
       function watchScopeControl() {
-        var ready = personalListEvidence(null, true).complete;
         return ToggleControls.pressed({
           id: 'nvScopePick',
           cls: 'nvscopebtn',
           icon: '\u25CE',
-          label: ready ? 'Region' : 'Region unavailable',
-          ariaLabel: ready ? 'Show watched birds on the exact ' + activeScope().label + ' ' + personalBasisLabel()
-            : 'Region filter unavailable: all watched birds remain available',
-          disabled: !ready,
+          label: 'Region',
+          ariaLabel: 'Show region-listed watched birds in ' + activeScope().label
+            + '; unknown geographic evidence remains visible',
           data: { 'nv-scope': _watchScope === 'region' ? 'all' : 'region' },
-          pressed: ready && _watchScope === 'region'
+          pressed: _watchScope === 'region'
         });
       }
       function watchNameKey(value) {
@@ -22973,17 +23272,22 @@
       }
       // DISPLAY FILTER ONLY. Patch/chase computation continues to read
       // getWatchlist() through watchCodes(), including watched species that
-      // are not on the selected personal list.
+      // are absent from the checked regional directory.
       function watchlistForScope() {
         var all = getWatchlist().map(function (entry, index) {
           return { entry: entry, index: index };
         });
         if (_watchScope === 'all') return all;
-        var evidence = personalListEvidence(null, true);
+        var evidence = watchRegionalEvidence();
         if (!evidence.complete) return all;
         return all.filter(function (item) {
           var entry = item.entry || {};
-          return personalMembership(evidence, entry.code, entry.name) === true;
+          var code = String(entry.code || '').toLowerCase();
+          if (evidence.codes[code]) return true;
+          var taxon = _taxonomyModel && _taxonomyModel.byCode[code];
+          if (!taxon || _taxonomyUnresolved[code]) return true;
+          var parent = canonicalParents({})[code];
+          return !!(parent && evidence.codes[parent]);
         });
       }
       function moveWatchScoped(index, delta) {
@@ -22998,7 +23302,10 @@
       function renderWatchScopeControl() {
         var host = $('nvScope');
         if (!host) return;
-        host.innerHTML = watchScopeControl();
+        var markup = watchScopeControl();
+        if (host._watchScopeMarkup === markup && host.querySelector('.nvscopebtn')) return;
+        host._watchScopeMarkup = markup;
+        host.innerHTML = markup;
         [].forEach.call(host.querySelectorAll('.nvscopebtn'), function (button) {
           button.addEventListener('click', function () {
             _watchScope = button.getAttribute('data-nv-scope') === 'all'
@@ -23009,6 +23316,7 @@
       }
       function renderWatch() {
         syncWatchEvidence();
+        if (getWatchlist().length) requestWatchRegionIndex();
         var all = getWatchlist(), scoped = watchlistForScope().slice().sort(function (a, b) {
           return String(speciesDisplayName(a.entry.name, a.entry.code))
             .localeCompare(String(speciesDisplayName(b.entry.name, b.entry.code)))
@@ -23035,8 +23343,8 @@
           return;
         }
         if (!list.length) {
-          st.textContent = 'No watched species are on the exact ' + activeScope().label
-            + ' ' + personalBasisLabel() + '. Turn Region off to see all '
+          st.textContent = 'No watched species are in the checked regional directory for ' + activeScope().label
+            + '. Turn Region off to see all '
             + all.length + ' watched species.';
           syncNvSearchClear();
           return;
@@ -30111,13 +30419,47 @@
           && !state.pending && !state.attempted
           && (!state.evidence.complete || state.evidence.stale);
       }
+      var _setupActivityTimer = null, _setupSeenActivity = null;
+      function stopSetupActivity() {
+        if (_setupActivityTimer != null) clearInterval(_setupActivityTimer);
+        _setupActivityTimer = null;
+      }
+      function setupActivityHtml(label, stage) {
+        return '<div class="setupactivity"><div class="setupactivityheading">'
+          + '<span class="prefetch-icon" aria-hidden="true">' + setupPrefetchIcon('loading') + '</span>'
+          + '<strong>' + esc(label) + '</strong></div>'
+          + '<p id="setupActivityStage" role="status">' + esc(stage) + '</p>'
+          + '<p aria-live="off">Elapsed wall time: <span id="setupActivityElapsed">0s</span>.</p></div>';
+      }
+      function startSetupActivity(started) {
+        stopSetupActivity();
+        var elapsed = $('setupActivityElapsed'), profile = bcProfile();
+        if (!elapsed) return;
+        function tick() {
+          if (!elapsed.isConnected || $('setupSheet').hidden || profile !== bcProfile()) {
+            stopSetupActivity(); return;
+          }
+          elapsed.textContent = Math.max(0, Math.floor((Date.now() - started) / 1000)) + 's';
+        }
+        tick();
+        _setupActivityTimer = setInterval(tick, 1000);
+      }
       function startSetupSeen(force) {
         var scope = activeScope(), generation = _identityGeneration;
+        if (force || !_setupSeenActivity || _setupSeenActivity.context !== scope.cacheIdentity
+            || !seenSetupState().pending) {
+          _setupSeenActivity = { context: scope.cacheIdentity, started: Date.now(),
+            stage: 'Preparing the matching seen-list request.' };
+        }
         return preparePersonalList(scope, force, function (message) {
           if (!scopeCurrent(scope) || generation !== _identityGeneration) return;
+          if (_setupSeenActivity && _setupSeenActivity.context === scope.cacheIdentity) {
+            _setupSeenActivity.stage = message;
+          }
           var status = $('setupActionStatus');
           if (status && !$('setupSheet').hidden && setupStep() === 'seen') {
             setupPendingStatus(status, true, message);
+            if ($('setupActivityStage')) $('setupActivityStage').textContent = message;
           }
         }).catch(function (error) {
           dbg('warn', 'Seen-list setup: ' + (error.message || error));
@@ -30372,19 +30714,25 @@
       function renderSetupPrefetchProgress() {
         var run = setupPrefetchCurrent() && _setupPrefetch.engine;
         var container = $('setupPrefetchRows');
-        var ready = 0;
+        var ready = 0, finished = 0;
         var rows = SETUP_PREFETCH_GROUPS.map(function (group, index) {
           var state = run ? run.group(group[1]) : 'queued';
           var complete = state === 'ready' || state === 'notApplicable';
           if (complete) ready++;
+          if (['loading', 'queued'].indexOf(state) < 0) finished++;
           var visual = complete ? 'ready' : state === 'blocked' ? 'queued' : state;
           var label = group[0];
           if (index === 1 && personalPeriod() === 'all') label = 'My Life List';
           var detail = state === 'notApplicable' ? 'Not Applicable'
-            : state === 'failed' ? 'Unavailable'
+            : state === 'ready' ? 'Ready'
+              : state === 'loading' ? _setupPrefetch && _setupPrefetch.recovering ? 'Recovering' : 'Loading'
+                : state === 'queued' ? 'Waiting'
+            : state === 'failed' ? _setupPrefetch && !_setupPrefetch.settled
+              ? 'Check failed; selective recovery pending' : 'Unavailable'
               : state === 'partial' ? 'Partial Data'
                 : state === 'cancelled' ? 'Cancelled'
-                  : state === 'blocked' ? 'Required Data Unavailable' : '';
+                  : state === 'blocked' ? _setupPrefetch && !_setupPrefetch.settled
+                    ? 'Waiting for recovery of required data' : 'Required Data Unavailable' : '';
           return '<li class="prefetch-row" data-state="' + visual + '">'
             + '<span class="prefetch-icon" role="img" aria-label="' + esc(state) + '">'
             + setupPrefetchIcon(visual) + '</span><span class="prefetch-name">' + esc(label)
@@ -30392,7 +30740,16 @@
         }).join('');
         if (container) container.innerHTML = rows;
         var count = $('setupPrefetchCount');
-        if (count) count.textContent = ready + ' Of ' + SETUP_PREFETCH_GROUPS.length + ' Ready';
+        if (count) count.textContent = finished + ' Of ' + SETUP_PREFETCH_GROUPS.length
+          + ' Checks Finished · ' + ready + ' Ready';
+        if (run && setupStep() === 'loading' && $('setupActivityStage')) {
+          var active = Object.keys(run.states).filter(function (key) {
+            return run.states[key].state === 'loading';
+          });
+          $('setupActivityStage').textContent = active.length
+            ? (_setupPrefetch.recovering ? 'Recovering: ' : 'Loading: ') + active.join(', ') + '.'
+            : 'Waiting for prerequisites or final source results.';
+        }
       }
       function settleSetupPrefetch(entry, results) {
         if (_setupPrefetch !== entry || !setupPrefetchCurrent() || !entry.engine.settled()) return results;
@@ -30419,10 +30776,13 @@
         var id = ++_setupPrefetchRunSequence;
         var work = { label: 'Initial datasets', sectionId: 'setupSheet',
           current: function () {
-            return !!window.document && !_appUnloading && context === setupPrefetchContext();
+            return !work.cancelled && !!window.document && !_appUnloading && context === setupPrefetchContext();
           } };
         var engine = SetupPrefetch.create(tasks || acquireInitialDatasetTasks(scope, work),
           work.current, renderSetupPrefetchProgress, function (event) {
+            if (entry && event.event === 'automatic-retry-selected') {
+              entry.recovering = event.sources.length > 0;
+            }
             if (entry && event.event === 'state'
                 && ['failed', 'partial', 'blocked', 'cancelled'].indexOf(event.state) >= 0) {
               var blocker = { source: event.source, state: event.state, attempt: event.attempt,
@@ -30432,7 +30792,8 @@
             }
             dbg('info', 'Initial data: run=' + id + ' ' + JSON.stringify(event));
           });
-        var entry = _setupPrefetch = { id: id, context: context, engine: engine, work: work, settled: false };
+        var entry = _setupPrefetch = { id: id, context: context, engine: engine, work: work,
+          settled: false, started: Date.now() };
         renderSetupPrefetchProgress();
         return engine.initial().then(function (results) { return settleSetupPrefetch(entry, results); });
       }
@@ -30440,13 +30801,28 @@
         $('setupSheetTitle').textContent = 'Getting Ready';
         $('setupSheetBody').dataset.setupStep = 'loading';
         $('setupSheetBody').innerHTML = '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Checking initial data</h3>'
+          + setupActivityHtml('Checking initial data', 'Waiting for initial prerequisites.')
           + '<p id="setupPrefetchActivity" class="setuppanel" role="status" data-setup-pending="true">'
           + 'Please wait. Making the initial data checks. Setup will continue automatically.</p>'
           + '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
-          + '<p id="setupPrefetchHint" class="prefetch-hint">You can close setup. '
-          + 'Available data is retained; normal refresh can recover missing data afterward.</p>';
+          + '<p id="setupPrefetchHint" class="prefetch-hint">Setup advances automatically after the initial checks '
+          + 'and one selective recovery pass, even if some sources fail. '
+          + 'Continue now to retain available data and cancel only these setup checks. '
+          + 'Normal refresh can recover missing data afterward. Close keeps the checks running.</p>'
+          + '<button id="setupContinueAvailable" type="button">Continue with available data</button>';
+        $('setupContinueAvailable').addEventListener('click', function () {
+          if ($('setupSheet').hidden || setupStep() !== 'loading' || !setupPrefetchCurrent()) return;
+          var entry = _setupPrefetch;
+          entry.work.cancelled = true;
+          entry.engine.cancel();
+          _setupPrefetch = null;
+          localStorage.setItem('bc_setup_dismissed_v1', '1');
+          closeSetupSheet(false, 'continue-available');
+          showMenu();
+        });
         renderSetupPrefetchProgress();
+        startSetupActivity(_setupPrefetch ? _setupPrefetch.started : Date.now());
       }
       function setupInitialResultHtml() {
         var entry = setupPrefetchCurrent() && _setupPrefetch;
@@ -30483,7 +30859,7 @@
         localStorage.setItem(SETUP_STEP_KEY, 'summary');
         localStorage.setItem('bc_setup_dismissed_v1', '1');
         dbg('info', 'Setup lifecycle: event=complete handoff=normal-refresh');
-        closeSetupSheet();
+        closeSetupSheet(false, 'setup-complete');
         showMenu();
         if (firstCompletion) {
           _recentBirdGenSetupContext = recentBirdGenKey();
@@ -30679,6 +31055,7 @@
         }).catch(function () { /* Region name and code remain available without an outline. */ });
       }
       function renderSetupSheet() {
+        stopSetupActivity();
         var body = $('setupSheetBody');
         if (!body) return;
         clearMap($('setupHomeMap'));
@@ -30816,6 +31193,9 @@
                 : 'Please wait. Fetching and verifying your matching list from eBird. You can choose Skip without waiting.'
               : message.detail) + '</p></div>';
           if (state.pending) {
+            html += setupActivityHtml('Loading seen birds', _setupSeenActivity
+              && _setupSeenActivity.context === activeScope().cacheIdentity
+                ? _setupSeenActivity.stage : 'Preparing the matching seen-list request.');
             actions = '<button id="setupSkipSeen" class="secondary" type="button">Skip seen-list check</button>';
             recommended = '';
           } else if (!state.evidence.complete) {
@@ -30880,6 +31260,9 @@
           + (step !== 'account'
             ? '<button id="setupBack" class="secondary" type="button">Back</button>' : '') + '</div>'
           + '<button id="setupHelp" class="setuphelpicon" type="button" aria-label="Help with this step"><span aria-hidden="true">?</span></button>';
+        if (step === 'seen' && state.pending) {
+          startSetupActivity(_setupSeenActivity ? _setupSeenActivity.started : Date.now());
+        }
         var heading = document.createElement('div'), title = $('setupStepTitle');
         heading.className = 'setupheading';
         title.before(heading);
@@ -31170,7 +31553,7 @@
           if (event.currentTarget.isConnected && _setupRenderedProfile === bcProfile()
               && setupStep() === 'seen' && !$('setupSheet').hidden) confirmSetupSeen(true);
         });
-        bind('setupSeenCsv', function () { closeSetupSheet(true); openCsvSettings(); });
+        bind('setupSeenCsv', function () { closeSetupSheet(true, 'open-csv-settings'); openCsvSettings(); });
         bind('setupReview', function () { goSetupStep('account'); });
         body.querySelectorAll('[data-setup-repair]').forEach(function (button) {
           button.addEventListener('click', function () {
@@ -31210,22 +31593,25 @@
       function requestCloseSetup() {
         if (setupStep() === 'loading' && setupPrefetchEligible()) {
           localStorage.setItem('bc_setup_dismissed_v1', '1');
-          closeSetupSheet();
+          closeSetupSheet(false, 'user-close-loading');
           return;
         }
         var input = $('setupApiKey'), unsaved = setupStep() === 'key' && input && input.value.trim()
           && (!apiKeyVerified() || input.value.trim() !== getKey());
         var message = 'Are you sure you want to close setup? You can return in Settings.'
           + (unsaved ? ' Unverified key input will be discarded.' : '');
-        if (confirmAction('close-setup', message)) closeSetupSheet();
+        if (confirmAction('close-setup', message)) closeSetupSheet(false, 'user-confirmed-close');
       }
-      function closeSetupSheet(deferMain) {
+      function closeSetupSheet(deferMain, cause) {
+        stopSetupActivity();
         ++_setupHomeGeneration;
         var sheet = $('setupSheet');
         clearMap($('setupHomeMap'));
         if (sheet && sheet.inert) hideSheet();
         if (sheet) sheet.hidden = true;
-        dbg('info', 'Setup lifecycle: event=close step=' + setupStep() + ' handoff=normal-refresh');
+        dbg('info', 'Setup lifecycle: event=close step=' + setupStep()
+          + ' cause=' + (cause || 'unspecified') + ' run=' + (_setupPrefetch ? _setupPrefetch.id : 0)
+          + ' handoff=normal-refresh');
         _setupKeyDraft = '';
         _setupRenderedProfile = null;
         var input = $('setupApiKey');
@@ -41058,6 +41444,16 @@
         if (!doc) return out;
         out.title = doc.title || '';
         out.identity = parseEbirdAccountIdentity(doc);
+        out.pageShape = {
+          characters: String(html || '').length,
+          birdListRoot: !!doc.querySelector('.BirdList'),
+          birdItems: doc.querySelectorAll('li.BirdList-list-list-item').length,
+          countableItems: doc.querySelectorAll('li.BirdList-list-list-item.countable').length,
+          speciesLinks: doc.querySelectorAll('.Obs-species a[href*="/species/"]').length,
+          activeControls: doc.querySelectorAll('.BirdList-controls a[aria-current="true"][href]').length,
+          passwordField: !!doc.querySelector('input[type="password"]'),
+          challengeMarker: /anubis|cf-chl|captcha/i.test(String(html || ''))
+        };
 
         function clean(el) {
           return el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '';
@@ -41316,7 +41712,8 @@
             countMatches: validation.countMatches === true,
             regionMatches: page.source && page.source.region === region,
             yearMatches: page.source && page.source.year === year,
-            annualFirst: !!(page.source && page.source.kind === 'annual-first')
+            annualFirst: !!(page.source && page.source.kind === 'annual-first'),
+            pageShape: page.pageShape
           };
           if (!page.valid) {
             throw new Error('eBird bird-list markup did not contain its declared Native/Naturalized rows');
@@ -43054,12 +43451,24 @@
                     _birdcastSnapshot.migrantsError].filter(Boolean).join('; ')
                 : key === 'ppte' && states[key] === 'partial'
                   ? 'Some source evidence could not be acquired, qualified or saved.' : '';
-              return '<li>' + esc(SURGE_SOURCE_LABELS[key]) + ': '
+              var kinds = Object.keys(SURGE_CATEGORY_SOURCES).filter(function (kind) {
+                return SURGE_CATEGORY_SOURCES[kind].indexOf(key) >= 0;
+              }).sort(function (a, b) { return SURGE_KINDS[a].priority - SURGE_KINDS[b].priority; });
+              var icons = kinds.map(function (kind) {
+                var alert = SURGE_KINDS[kind];
+                return '<span data-source-kind="' + kind + '" title="' + esc(alert.word) + '">'
+                  + (kind === 'ppte' ? alert.glyph : esc(alert.glyph)) + '</span>';
+              }).join(' ');
+              return '<li data-source-status="' + key + '"><span class="surgesourceicons" aria-hidden="true">'
+                + icons + '</span> ' + esc(SURGE_SOURCE_LABELS[key]) + ': '
                 + { failed: 'Failed',
                   incomplete: states[key] === 'partial' ? 'Partially loaded'
                     : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
                   pending: 'Loading',
                   loaded: 'Loaded', skipped: 'Not applicable' }[group]
+                + (kinds.length > 1 ? ' <small>Supports: ' + kinds.map(function (kind) {
+                  return esc(SURGE_KINDS[kind].word);
+                }).join(', ') + '.</small>' : '')
                 + (detail ? ' — ' + esc(detail) : '')
                 + (group === 'failed' || group === 'incomplete'
                   ? ' <button type="button" class="surgeretry" data-source-retry="' + key
@@ -48010,13 +48419,14 @@
             // The ordinal is title content, so it stays beside the bird name.
             name: '<span class="yrnum">' + (total - i) + '.</span>'
               + speciesLink(e.name, e.code),
-            primary: watchlistActionHtml(e.code, e.name, 'myYearWatchlist'),
+            below: '<div class="myYearWatchRow">'
+              + watchlistActionHtml(e.code, e.name, 'myYearWatchlist') + '</div>',
             code: e.code,
               alpha: alphaFor(e.code),
             identifierLine: true,
             sub: bits.join(' · ')
           };
-          rowIdentity += SpeciesCards.medium(Object.assign({}, card, { primary: '' }));
+          rowIdentity += SpeciesCards.medium(Object.assign({}, card, { below: '' }));
           return SpeciesCards.medium(card);
         }).join('');
         var markupOwner = personalListKey(personalListOwner(scope)) + '|' + rowIdentity;
@@ -54252,6 +54662,7 @@
         if (ev.key === 'Escape') { ev.preventDefault(); clearFavSearch(); }
       });
       $('nvSearchBtn').addEventListener('click', runNvSearch);
+      initPersonalListBackup();
       $('nvSearchClear').addEventListener('click', clearNvSearch);
       $('nvSearch').addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') { ev.preventDefault(); runNvSearch(); }

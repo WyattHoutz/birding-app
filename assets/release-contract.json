@@ -2,6 +2,8 @@
   "requiredFiles": [
     "index.html",
     "logic.js",
+    "setup-prefetch.js",
+    "personal-list-backup.js",
     "birdgen-notifications.js",
     "birdgen-twitches.js",
     "taxonomy.js",
@@ -43,6 +45,10 @@
   "requiredText": {
     "index.html": [
       "APP_VERSION = '${version}'",
+      "<script src=\"personal-list-backup.js\"></script>",
+      "id=\"personalListBackup\"",
+      "confirmAction('personal-lists-replace'",
+      "id=\"setupContinueAvailable\"",
       "<script src=\"birdgen-notifications.js\"></script>",
       "id=\"birdGenNotifyToggle\"",
       "id=\"massResults\"",

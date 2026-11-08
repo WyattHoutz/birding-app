@@ -6,10 +6,9 @@ name: App unit + DOM tests
 # a 2,000-minute monthly allowance.
 #
 # This repository is PUBLIC, so standard-runner minutes are free. The tests are
-# entirely self-contained (node --test tests/*.test.js touches nothing outside
-# this checkout — verified; the only mentions of the birding repo in the test
-# files are comments and error strings), so nothing is lost by running them
-# where they cost nothing.
+# public portion runs from this checkout. Local logic guards additionally read
+# the private HAPPENING-NOW contract when present; that consumer stays private.
+# A public CI result must not be relabelled as complete private local evidence.
 #
 # What deliberately did NOT move, and must not:
 #

@@ -81,6 +81,267 @@ function surgeEvidence(root) {
   assert.equal(templates.length, 1, 'one alert must retain exactly one evidence template');
   return templates[0].content;
 }
+test('F1266 actual Settings exports and restores selected personal choices without leaking other storage', async () => {
+  const favorite = { id: '47.5,-122.2', locId: '', locName: 'Synthetic waypoint',
+    lat: '47.5', lng: '-122.2', region: 'US-WA' };
+  const otherRegion = { id: 'L126601', locId: 'L126601', locName: 'Synthetic other-region patch',
+    lat: 43.1, lng: -75.2, region: 'US-NY' };
+  const app = await boot({ storage: {
+    ebird_watchlist_v1: JSON.stringify([{ code: 'amerob', name: 'American Robin' }]),
+    ebird_favs: JSON.stringify([favorite, otherRegion]), synthetic_history: 'keep',
+  } });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, ['amerob'], ['American Robin'], [{ code: 'chispa', name: 'Chipping Sparrow' }]);
+    app.click(app.$('brandSettings'));
+    app.click(app.$('personalBackupExport'));
+    const exported = JSON.parse(app.$('personalBackupText').value);
+    assert.deepEqual(exported.watch, [{ code: 'amerob', name: 'American Robin' }]);
+    assert.deepEqual(exported.favorites, [favorite, otherRegion]);
+    assert.deepEqual(Object.keys(exported).sort(), ['favorites', 'format', 'version', 'watch']);
+    let shared;
+    app.window.Capacitor = { Plugins: { FullReport: {
+      sharePersonalLists: options => { shared = options.text; return Promise.resolve({ completed: false }); }
+    } } };
+    app.click(app.$('personalBackupFile'));
+    await waitFor(() => /canceled/.test(app.$('personalBackupStatus').textContent), 'canceled share status');
+    assert.deepEqual(JSON.parse(shared), exported);
+    assert.match(app.$('personalBackupStatus').textContent, /no external backup is confirmed/);
+    app.$('personalBackupFavorites').checked = false;
+    app.$('personalBackupText').value = JSON.stringify({ ...exported,
+      watch: [{ code: 'CHISPA', name: 'Chipping Sparrow' }, ...exported.watch] });
+    app.click(app.$('personalBackupReview'));
+    await waitFor(() => !app.$('personalBackupSave').disabled, 'reviewed merge');
+    assert.match(app.$('personalBackupPreview').textContent, /WATCH: 1 saved, 2 imported, 2 after merge/);
+    assert.doesNotMatch(app.$('personalBackupPreview').textContent, /Favorite patches/);
+    A.setFavs([{ ...favorite, locName: 'Changed while preview open' }]);
+    app.click(app.$('personalBackupSave'));
+    assert.match(app.$('personalBackupStatus').textContent, /saved and read back successfully/);
+    assert.deepEqual(arr(A.getWatchlist(), row => ({ code: row.code, name: row.name })),
+      [{ code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' }]);
+    assert.equal(A.getFavs()[0].locName, 'Changed while preview open');
+    assert.equal(store.getItem('synthetic_history'), 'keep');
+    assert.equal(store.getItem('ebird_api_key'), 'TESTKEY');
+    A.setWatchlist([{ code: 'chispa', name: 'Chipping Sparrow' }]);
+    A.setFavs([favorite]);
+    app.$('personalBackupFavorites').checked = true;
+    app.click(app.$('personalBackupExport'));
+    assert.deepEqual(JSON.parse(app.$('personalBackupText').value).watch,
+      [{ code: 'chispa', name: 'Chipping Sparrow' }], 'ordinary edits use the restored store');
+    assert.deepEqual(JSON.parse(app.$('personalBackupText').value).favorites, [favorite]);
+    A.setWatchlist([]); A.setFavs([]);
+    const beforeFile = store.getItem('ebird_personal_choices_v1'), input = app.$('personalBackupImport');
+    Object.defineProperty(input, 'files', { configurable: true,
+      value: [new app.window.File([JSON.stringify(exported)], 'synthetic-personal-lists.json', { type: 'application/json' })] });
+    input.dispatchEvent(new app.window.Event('change'));
+    await waitFor(() => /File loaded for review/.test(app.$('personalBackupStatus').textContent), 'actual JSON file input');
+    assert.equal(store.getItem('ebird_personal_choices_v1'), beforeFile, 'opening a file does not restore anything');
+    app.click(app.$('personalBackupReview'));
+    await waitFor(() => !app.$('personalBackupSave').disabled, 'combined restore preview');
+    let writes = 0;
+    const originalSet = app.window.Storage.prototype.setItem;
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key.endsWith('ebird_personal_choices_v1')) writes++;
+      return originalSet.call(this, key, value);
+    };
+    try { app.click(app.$('personalBackupSave')); }
+    finally { app.window.Storage.prototype.setItem = originalSet; }
+    assert.equal(writes, 1, 'combined selected restoration is one atomic app-owned write');
+    assert.deepEqual(arr(A.getWatchlist(), row => ({ code: row.code, name: row.name })), exported.watch);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), exported.favorites);
+    assert.equal(A.getFavs()[1].region, 'US-NY', 'restoration never assigns the current region to other-region choices');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1266 actual Settings rejects unknown identities and requires consent for an intentional empty replacement', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[{"code":"amerob","name":"American Robin"}]' } });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    app.$('personalBackupFavorites').checked = false;
+    const raw = store.getItem('ebird_watchlist_v1');
+    const input = rows => JSON.stringify({ format: 'birdchaser-personal-lists', version: 1, watch: rows });
+    app.$('personalBackupText').value = input([{ code: 'unknownrestore', name: 'Unresolved test bird' }]);
+    app.click(app.$('personalBackupReview'));
+    await waitFor(() => !app.$('personalBackupSave').disabled
+      || /unknown to the checked taxonomy/.test(app.$('personalBackupStatus').textContent),
+      'completed identity validation');
+    assert.match(app.$('personalBackupStatus').textContent, /unknown to the checked taxonomy/);
+    assert.equal(app.$('personalBackupSave').disabled, true);
+    assert.equal(store.getItem('ebird_watchlist_v1'), raw);
+    assert.equal(store.getItem('ebird_personal_choices_v1'), null);
+    app.$('personalBackupText').value = input([]);
+    app.$('personalBackupMode').value = 'replace';
+    app.click(app.$('personalBackupReview'));
+    await waitFor(() => !app.$('personalBackupSave').disabled, 'empty replacement preview');
+    assert.match(app.$('personalBackupPreview').textContent, /1 removals/);
+    let confirmations = 0;
+    app.window.confirm = message => {
+      confirmations++; assert.match(message, /WATCH with 0 entries/); return false;
+    };
+    app.click(app.$('personalBackupSave'));
+    assert.equal(confirmations, 1);
+    assert.equal(store.getItem('ebird_watchlist_v1'), raw);
+    assert.equal(store.getItem('ebird_personal_choices_v1'), null);
+    app.window.confirm = () => true;
+    app.click(app.$('personalBackupSave'));
+    assert.equal(A.getWatchlist().length, 0);
+    assert.match(app.$('personalBackupStatus').textContent, /saved and read back/);
+    assert.equal(store.getItem('ebird_watchlist_v1'), raw, 'legacy bytes are not destructively cleared');
+  } finally { app.window.close(); }
+});
+
+test('F1266 actual Settings refuses stale previews, failed writes and cross-profile restoration', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[{"code":"amerob","name":"American Robin"}]' } });
+  const originalSet = app.window.Storage.prototype.setItem;
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, ['amerob'], ['American Robin'], [{ code: 'chispa', name: 'Chipping Sparrow' }]);
+    app.$('personalBackupFavorites').checked = false;
+    app.$('personalBackupText').value = JSON.stringify({
+      format: 'birdchaser-personal-lists', version: 1, watch: [{ code: 'chispa', name: 'Chipping Sparrow' }]
+    });
+    async function review() {
+      app.click(app.$('personalBackupReview'));
+      await waitFor(() => !app.$('personalBackupSave').disabled, 'fresh backup preview');
+    }
+    await review();
+    A.setWatchlist([{ code: 'amerob', name: 'Updated saved name' }]);
+    app.click(app.$('personalBackupSave'));
+    assert.match(app.$('personalBackupStatus').textContent, /saved choices changed/);
+    assert.equal(A.getWatchlist().length, 1);
+    await review();
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key.endsWith('ebird_personal_choices_v1')) throw new app.window.DOMException('Synthetic quota', 'QuotaExceededError');
+      return originalSet.call(this, key, value);
+    };
+    app.click(app.$('personalBackupSave'));
+    assert.match(app.$('personalBackupStatus').textContent, /Saving failed; existing choices were retained/);
+    assert.equal(store.getItem('ebird_personal_choices_v1'), null);
+    assert.equal(A.getWatchlist()[0].name, 'Updated saved name');
+    app.window.Storage.prototype.setItem = originalSet;
+    await review();
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key.endsWith('ebird_personal_choices_v1')) return;
+      return originalSet.call(this, key, value);
+    };
+    app.click(app.$('personalBackupSave'));
+    assert.match(app.$('personalBackupStatus').textContent, /Saving failed; existing choices were retained/,
+      'silent storage rejection is not a successful restore');
+    assert.equal(A.getWatchlist().length, 1);
+    app.window.Storage.prototype.setItem = originalSet;
+    await review();
+    A.bcSetProfile('2');
+    await waitFor(() => A.bcProfile() === '2', 'second profile');
+    app.click(app.$('personalBackupSave'));
+    assert.match(app.$('personalBackupStatus').textContent, /Profile.*changed/);
+    assert.equal(A.getWatchlist().length, 0);
+    assert.equal(store.getItem('bcp:2:ebird_personal_choices_v1'), null);
+    assert.equal(store.getItem('ebird_personal_choices_v1'), null);
+  } finally {
+    app.window.Storage.prototype.setItem = originalSet;
+    app.window.close();
+  }
+});
+
+test('F1272 actual Year List and Search additions share unseen geographic targeting without changing saved membership', async () => {
+  const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, ['amerob'], ['American Robin'], [
+      { code: 'chispa', name: 'Chipping Sparrow' },
+      { code: 'amerobform', name: 'Synthetic Robin form', category: 'issf', reportAs: 'amerob' }
+    ]);
+    const key = A.speciesCacheKey(A.getObsRegion());
+    const checked = { at: Date.now(), expected: 1, listedCodes: ['amerob'],
+      rows: [{ code: 'amerob', name: 'American Robin' }] };
+    store.setItem(key, JSON.stringify(checked));
+    A.updateMyYear();
+    app.click(app.$('myYearList').querySelector('.myYearWatchlist[data-code="amerob"]'));
+    const yearBytes = store.getItem('ebird_watchlist_v1');
+    await seedCurrentSeen(app, []);
+    A.renderWatch();
+    assert.equal(A.personalListEvidence().complete, true);
+    assert.equal(A.personalListEvidence().count, 0);
+    assert.ok(app.$('nvResults').querySelector('[data-sp="amerob"]'), 'a geographically listed unseen target remains visible');
+    app.click(app.$('nvResults').querySelector('.nvdel'));
+    app.$('nvSearch').value = 'Robin';
+    A.runNvSearch();
+    await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'same-taxon search Add');
+    app.click(app.$('nvFound').querySelector('.nvadd'));
+    assert.equal(store.getItem('ebird_watchlist_v1'), yearBytes, 'both actual Add paths save the same canonical identity');
+    A.addWatch('chispa', 'Chipping Sparrow');
+    A.addWatch('unknownwatched', 'Synthetic unresolved target');
+    A.addWatch('amerobform', 'Synthetic Robin form');
+    const before = store.getItem('ebird_watchlist_v1'), scopeButton = app.$('nvScopePick');
+    A.renderWatch();
+    assert.equal(app.$('nvResults').querySelector('[data-sp="chispa"]'), null);
+    assert.ok(app.$('nvResults').querySelector('[data-sp="unknownwatched"]'), 'unknown identity is not an absence claim');
+    assert.ok(app.$('nvResults').querySelector('.nvdel[data-code="amerobform"]'),
+      'listed canonical parent supports its watched form while the action retains exact identity');
+    assert.equal(A.watchCodes().chispa, 1, 'out-of-region display exclusion never removes chase inputs');
+    for (const bad of [{ ...checked, at: 0 }, { ...checked, expected: 2 },
+      { ...checked, listedCodes: undefined }, { ...checked, listedCodes: ['chispa'] },
+      { ...checked, rows: [{ code: 'amerob', name: '' }] }]) {
+      store.setItem(key, JSON.stringify(bad));
+      A.renderWatch();
+      assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 4, 'bad or legacy reference stays unknown');
+      assert.equal(store.getItem('ebird_watchlist_v1'), before);
+      assert.equal(app.$('nvScopePick'), scopeButton, 'unchanged scope control remains mounted');
+    }
+    store.setItem(key, JSON.stringify(checked));
+    A.renderWatch();
+    app.click(app.$('nvScopePick'));
+    assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 4, 'All remains an escape');
+    assert.equal(store.getItem('ebird_watchlist_v1'), before);
+  } finally { app.window.close(); }
+});
+
+test('F1272 actual visible Watch upgrades pending legacy geographic evidence and repaints only its current owner', async () => {
+  let release, acquisitions = 0;
+  const app = await boot({ sample: false, storage: { ebird_watchlist_v1: '[]' }, fetch(url) {
+    if (/product\/spplist/.test(url)) return new Promise(resolve => { acquisitions++; release = resolve; });
+    if (/ref\/taxonomy\/ebird/.test(url)) return [{ speciesCode: 'amerob', comName: 'American Robin' }];
+    return [];
+  } });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await seedSeen(app, [], [], [{ code: 'amerob', name: 'American Robin' },
+      { code: 'chispa', name: 'Chipping Sparrow' }]);
+    const key = A.speciesCacheKey(A.getObsRegion());
+    store.setItem(key, JSON.stringify({ at: Date.now(), expected: 1,
+      rows: [{ code: 'amerob', name: 'American Robin' }] }));
+    A.setWatchlist([{ code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' }]);
+    const bytes = store.getItem('ebird_watchlist_v1');
+    app.open(/Watch List/);
+    await waitFor(() => typeof release === 'function', 'actual regional reference request');
+    const button = app.$('nvScopePick');
+    assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 2, 'pending evidence cannot hide a target');
+    A.renderWatch(); A.renderWatch();
+    assert.equal(app.state.fetches.filter(url => /product\/spplist/.test(url)).length, 1, 'one acquisition per current context');
+    release(['amerob']);
+    await waitFor(() => app.$('nvResults').querySelectorAll('.nvdel').length === 1, 'checked source completion repaint');
+    assert.ok(app.$('nvResults').querySelector('[data-sp="amerob"]'));
+    assert.equal(app.$('nvScopePick'), button);
+    assert.deepEqual(JSON.parse(store.getItem(key)).listedCodes, ['amerob']);
+    assert.equal(store.getItem('ebird_watchlist_v1'), bytes);
+    assert.equal(A.watchCodes().chispa, 1);
+    A.setActiveReport('hi'); A.renderWatch();
+    await waitFor(() => acquisitions === 2, 'new region owned acquisition');
+    const oldRegionKey = A.speciesCacheKey(A.getObsRegion());
+    A.bcSetProfile('2');
+    await waitFor(() => A.bcProfile() === '2', 'profile switch while reference pending');
+    release(['amerob']);
+    await new Promise(resolve => setTimeout(resolve, 25));
+    A.renderWatch();
+    assert.equal(A.getWatchlist().length, 0);
+    assert.equal(app.$('nvResults').querySelectorAll('.nvdel').length, 0, 'old completion cannot paint Main targets in another profile');
+    assert.equal(store.getItem('bcp:2:' + oldRegionKey), null, 'old reference cannot write the other namespace');
+    assert.equal(store.getItem('ebird_watchlist_v1'), bytes);
+  } finally { app.window.close(); }
+});
+
 test('F1201 F1202 Busy ranks follow sort and rare reports retain exact identity, recency and seen birds', async () => {
   const app = await boot();
   try {
@@ -232,6 +493,7 @@ test('F1260 partial initial attempts automatically advance with an honest result
         calls[key] = (calls[key] || 0) + 1;
         if (key === 'busy') return new Promise(resolve => { release = resolve; });
         if (key === 'rankings') throw new Error('Synthetic rankings failure');
+        if (key === 'mass' && calls[key] === 1) return { state: 'failed' };
         return { state: key === 'mass' ? 'partial' : 'ready', value: {} };
       };
     });
@@ -240,6 +502,15 @@ test('F1260 partial initial attempts automatically advance with an honest result
     await waitFor(() => release, 'actual held source');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
     assert.match(app.$('setupPrefetchActivity').textContent, /Please wait/);
+    const birdGen = [...app.$('setupPrefetchRows').children]
+      .find(row => /Bird Gen/.test(row.textContent));
+    assert.equal(birdGen.dataset.state, 'loading',
+      'F1269 terminal partial/failure children cannot hide the current Busy acquisition');
+    assert.match(birdGen.textContent, /Loading/);
+    assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
+    assert.equal(parseInt(app.$('setupPrefetchCount').textContent, 10), 6,
+      'F1270 finished checks include the terminal failed Rankings check');
+    assert.match(app.$('setupPrefetchCount').textContent, /· 5 Ready$/);
     assert.equal(app.$('setupContinue'), null);
     release({ state: 'ready', value: {} });
     await pending;
@@ -259,11 +530,56 @@ test('F1260 partial initial attempts automatically advance with an honest result
     assert.equal(app.$('setupPrefetchRetry'), null);
     await A.startSetupPrefetch(tasks);
     assert.equal(calls.rankings, 2, 'one initial attempt and one recovery pass; reopening cannot restart the budget');
-    assert.equal(calls.mass, 1, 'settled partial coverage is not repeatedly reacquired');
+    assert.equal(calls.mass, 2, 'one recovery retains partial coverage without repeated acquisition');
     app.click(app.$('setupContinue'));
     assert.equal(app.$('setupSheet').hidden, true);
     assert.equal(app.$('menuPanel').hidden, false);
     assert.equal(app.$('setupPrefetchBackground'), null);
+  } finally { if (release) release({ state: 'ready' }); app.window.close(); }
+});
+
+test('F1270 explicit available-data continuation cancels only its setup owner and permits later recovery', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let release;
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    let ownedCurrent;
+    const create = app.window.SetupPrefetch.create;
+    app.window.SetupPrefetch.create = (tasks, current, ...rest) => {
+      ownedCurrent = current;
+      return create(tasks, current, ...rest);
+    };
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    let busyCalls = 0;
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        if (key === 'busy' && ++busyCalls === 1) {
+          return new Promise(resolve => { release = resolve; });
+        }
+        return { state: 'ready', value: {} };
+      };
+    });
+    const savedPersonal = store.getItem(A.personalListKey(A.personalListOwner()));
+    const pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => release, 'owned initial work');
+    assert.equal(ownedCurrent(), true);
+    app.click(app.$('setupContinueAvailable'));
+    assert.equal(ownedCurrent(), false, 'the actual task owner must become obsolete, not merely hide');
+    assert.equal(app.$('setupSheet').hidden, true);
+    assert.equal(app.$('menuPanel').hidden, false);
+    assert.equal(!!A.setupPrefetchEngine(), false);
+    assert.equal(store.getItem(A.personalListKey(A.personalListOwner())), savedPersonal);
+    release({ state: 'ready', value: {} });
+    await pending;
+    assert.equal(app.$('setupSheet').hidden, true, 'obsolete completion cannot reopen or summarize');
+    await A.startSetupPrefetch(tasks);
+    assert.equal(A.setupPrefetchEngine().complete(), true, 'a later normal request is not poisoned');
+    assert.equal(busyCalls, 2);
+    assert.ok(app.window.__dbg.buf.some(entry =>
+      /event=close.*cause=continue-available/.test(entry.msg)));
   } finally { if (release) release({ state: 'ready' }); app.window.close(); }
 });
 
@@ -5472,6 +5788,16 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     const page = await app.window.__app.firstYearFetch('US-WA', undefined,
       message => sourceMessages.push(message));
     assert.equal(injections, 6, 'unverified rendered selections must not settle the source');
+    const rejected = app.window.__dbg.buf.find(row => /Annual-first direct source rejected:/.test(row.msg));
+    assert.ok(rejected, 'the controlled HTTP-200 challenge must report why it was rejected');
+    const shape = JSON.parse(rejected.msg.split('Annual-first direct source rejected: ')[1]).pageShape;
+    assert.ok(shape, 'rejected HTTP pages retain measured safe structure');
+    assert.equal(shape.birdListRoot, false);
+    assert.equal(shape.countableItems, 0);
+    assert.equal(shape.passwordField, false);
+    assert.equal(shape.challengeMarker, true);
+    assert.ok(shape.characters > 0);
+    assert.equal(JSON.stringify(shape).includes('anubis'), false, 'shape reports flags/counts, not source HTML');
     const incomplete = receipts.find(message => message.parseStatus === 'incomplete');
     assert.ok(incomplete && incomplete.pageShape,
       'an incomplete first sample reports its sanitized validation shape');
@@ -11525,10 +11851,25 @@ test('F1180 F1261 automatic pending seen fetch has explicit Please wait and Skip
       assert.equal(app.$('setupContinue'), null, 'pending work must not compete with completion');
       assert.equal(app.$('setupSkipSeen').textContent, 'Skip seen-list check');
       app.$('setupSkipSeen').focus();
+      const skip = app.$('setupSkipSeen'), elapsed = app.$('setupActivityElapsed');
+      assert.ok(app.$('setupSheet').querySelector('.prefetch-spinner'),
+        'F1268 actual pending acquisition needs a visible active indicator');
+      assert.match(app.$('setupSheet').textContent, /Loading seen birds/);
+      assert.equal(app.$('setupActivityStage').getAttribute('role'), 'status');
+      assert.equal(elapsed.parentElement.getAttribute('aria-live'), 'off',
+        'elapsed ticks must not make a periodic live-region announcement');
+      const now = app.window.Date.now;
+      app.window.Date.now = () => now() + 2500;
+      await waitFor(() => parseInt(elapsed.textContent, 10) >= 2, 'observable pending wall time')
+        .catch(() => assert.fail('F1268 the real pending elapsed indicator never advanced'));
+      app.window.Date.now = now;
+      assert.equal(app.$('setupSkipSeen'), skip);
+      assert.equal(app.document.activeElement, skip, 'elapsed updates retain the actual input owner');
       release({ ok: true, status: 200, text: async () => ownedPersonalListFixture({
         count, codes: count ? ['stable'] : []
       }) });
       await waitFor(() => app.$('setupContinue'), 'matching result is ready');
+      assert.equal(app.$('setupActivityElapsed'), null, 'settlement clears pending activity');
       assert.equal(app.document.activeElement, app.$('setupStepTitle'), 'completion cannot inherit loading focus');
       assert.equal(app.$('setupSheet').hidden, false);
       assert.notEqual(app.window.localStorage.getItem('bc_setup_dismissed_v1'), '1');
@@ -13038,11 +13379,29 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
       displayName: "Prior O'Field Sentinel", profileLabel: 'Private Alias Sentinel',
       lat: 14.752341, lng: -165.164352, latitude: 14.987654, longitude: -165.678912,
       foo: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=14.752341&lng=-165.164352',
+      cacheKey: 'geo:' + encodeURIComponent(encodeURIComponent('14.752341:-165.164352')),
+      nativeUrl: 'api.birdcast.org/forecast?latLng=14.987654%2C-165.678912&location=PrivateLocation1267',
       codes: ['privatebird1259'], rows: [{ name: 'Private Roster Sentinel', seen: true }]
     };
     const raw = JSON.stringify(privateFields);
     const assertPrivateOmitted = text => assert.doesNotMatch(text,
-      /Configured Observer Sentinel|PRIVATEKEY1259|SN1259999|Prior O.Field Sentinel|Private Alias Sentinel|Private Roster Sentinel|privatebird1259|14\.752341|-165\.164352|14\.987654|-165\.678912|data\/obs\/geo|HTML_PERSONAL_SENTINEL/);
+      /Configured Observer Sentinel|PRIVATEKEY1259|SN1259999|Prior O.Field Sentinel|Private Alias Sentinel|Private Roster Sentinel|privatebird1259|PrivateLocation1267|14\.752341|-165\.164352|14\.987654|-165\.678912|data\/obs\/geo|HTML_PERSONAL_SENTINEL/);
+    for (const text of [
+      'cache=geo:' + encodeURIComponent('14.752341|-165.164352'),
+      'cache=geo:' + encodeURIComponent(encodeURIComponent('14.752341:-165.164352')),
+      'malformed=%ZZ cache=14.752341%3A-165.164352',
+      'api.birdcast.org/forecast?latLng=14.987654%252C-165.678912',
+      'latLng=14,-165'
+    ]) {
+      const clean = debug.scrubText(text);
+      assertPrivateOmitted(clean);
+      assert.doesNotMatch(clean, /latLng=14,-165/);
+    }
+    assert.equal(debug.scrubText('received=224 elapsedMs=1500 counts=500,100'),
+      'received=224 elapsedMs=1500 counts=500,100');
+    assert.equal(debug.scrubText('observer@example.test'), '[email redacted]');
+    assert.equal(debug.scrubText('api.birdcast.org/forecast?location=PrivateLocation1267'),
+      '[URL redacted; host=api.birdcast.org]');
     debug.buf.push({ t: '12:34', level: 'net', msg: raw });
     debug.previous = { entries: [{ t: '12:33', level: 'warn', msg: raw }] };
     debug.verdicts['source outcome'] = { t: '12:34', msg: 'profileLabel: Private Alias Sentinel' };
@@ -13073,6 +13432,9 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
     await waitFor(() => !!copied, 'sanitized Copy all');
     assertPrivateOmitted(copied);
     assertPrivateOmitted(app.$('dbgLog').textContent);
+    await waitFor(() => !!app.window.localStorage.getItem('ebird_debug_previous_v1'),
+      'current diagnostic persistence');
+    assertPrivateOmitted(app.window.localStorage.getItem('ebird_debug_previous_v1'));
     assert.match(A.dbgContext(), /account connected: true \(name omitted\)/);
   } finally { app.window.close(); }
 });
@@ -14153,7 +14515,7 @@ test('F805 rarity controls disable unknown absence, restore exact list filters a
   app.window.close();
 });
 
-test('F805 Watch management stays usable under unknown history and filters by official exact selected membership', async () => {
+test('F805 F1272 Watch geography is independent of personal history and retains unknown coverage', async () => {
   let response = ownedPersonalListFixture({codes:['stable']});
   const app = await boot({sample:false,indexedDB:new IDBFactory(),
     storage:{ebird_display_name:'Sample Observer'},fetch(url) {
@@ -14166,10 +14528,14 @@ test('F805 Watch management stays usable under unknown history and filters by of
   const A = app.window.__app;
   A.setWatchlist([{code:'stable',name:'Stable bird'},{code:'rename',name:'New name'}]);
   A.renderWatch();
-  assert.equal(app.$('nvScopePick').disabled,true);
-  assert.match(app.$('nvScopePick').textContent,/Region unavailable/);
+  assert.equal(app.$('nvScopePick').disabled,false);
+  assert.match(app.$('nvScopePick').getAttribute('aria-label'),/unknown geographic evidence/);
   assert.equal(app.$('nvResults').querySelectorAll('li').length,2,
     'management cannot hide watched birds behind unavailable personal history');
+  assert.equal(await A.checkTaxonomyEdition(true), true);
+  app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
+    at: Date.now(), expected: 1, listedCodes: ['stable'], rows: [{ code: 'stable', name: 'Stable bird' }]
+  }));
   await A.preparePersonalList(A.activeScope(),true);
   A.renderWatch();
   assert.equal(app.$('nvScopePick').disabled,false);
@@ -14181,8 +14547,9 @@ test('F805 Watch management stays usable under unknown history and filters by of
   A.showSection(app.$('nvResults').closest('section').id);
   response = ownedPersonalListFixture({codes:['rename']});
   await A.preparePersonalList(A.activeScope(),true);
-  await waitFor(() => !/Stable bird/.test(app.$('nvResults').textContent)
-    && app.$('nvResults').querySelector('[data-sp="rename"]'), 'same-owner visible Watch repaint');
+  A.renderWatch();
+  assert.ok(app.$('nvResults').querySelector('[data-sp="stable"]'),
+    'a personal-history refresh cannot remove a region-listed unseen target');
   assert.equal(app.$('nvResults').querySelectorAll('li').length,1,
     'a successful refresh repaints the visible derivation, not just next-open caches');
   A.setPersonalPeriod('all');
@@ -14190,9 +14557,9 @@ test('F805 Watch management stays usable under unknown history and filters by of
   await A.preparePersonalList(A.activeScope(),true);
   A.renderWatch();
   assert.equal(app.$('nvResults').querySelectorAll('li').length,1);
-  assert.match(app.$('nvScopePick').getAttribute('aria-label'),/Life List/);
-  assert.doesNotMatch(app.$('nvResults').textContent,/Stable bird/,
-    'the Watch display filter cannot borrow the old annual/bundled membership');
+  assert.doesNotMatch(app.$('nvScopePick').getAttribute('aria-label'),/Life List/);
+  assert.match(app.$('nvResults').textContent,/Stable bird/,
+    'changing personal period does not change geographic presence');
   app.window.close();
 });
 
@@ -24029,7 +24396,7 @@ test('the watchlist tells "never edited" apart from "emptied"', async () => {
   junk.window.close();
 });
 
-test('F385 Needs proof defaults to this report year list and can reveal all watched birds', async () => {
+test('F385 F1272 Needs proof defaults to the checked regional directory and can reveal all watched birds', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   const A = app.window.__app;
   const seed = app.window.__SEED_BIRDLIST__.seenByReport;
@@ -24049,7 +24416,11 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
   ]));
 
   A.setActiveReport('wa');
-  await seedSeen(app,[waOnly]);
+  const taxa = [{code:waOnly,name:'Washington control'},{code:hiOnly,name:'Hawaii control'}];
+  await seedSeen(app,[waOnly],null,taxa);
+  app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
+    at: Date.now(), expected: 1, listedCodes: [taxa[0].code], rows: [taxa[0]]
+  }));
   A.renderWatch();
   let buttons = [...app.document.querySelectorAll('#nvScope .nvscopebtn')];
   assert.deepEqual(buttons.map((button) => button.querySelector('.presslabel').textContent),
@@ -24058,7 +24429,7 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
     ['true'], 'Region is not the default scope');
   assert.ok(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`));
   assert.equal(app.$('nvResults').querySelector(`[data-sp="${hiOnly}"]`),null,
-    'the Washington view includes a bird absent from its year list');
+    'the Washington view includes a known taxon absent from its complete regional directory');
 
   app.click(buttons[0]);
   assert.ok(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`));
@@ -24068,11 +24439,14 @@ test('F385 Needs proof defaults to this report year list and can reveal all watc
   buttons = [...app.document.querySelectorAll('#nvScope .nvscopebtn')];
   app.click(buttons[0]);
   A.setActiveReport('hi');
-  await seedSeen(app,[hiOnly]);
+  await seedSeen(app,[hiOnly],null,taxa);
+  app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
+    at: Date.now(), expected: 1, listedCodes: [taxa[1].code], rows: [taxa[1]]
+  }));
   A.renderWatch();
   assert.ok(app.$('nvResults').querySelector(`[data-sp="${hiOnly}"]`));
   assert.equal(app.$('nvResults').querySelector(`[data-sp="${waOnly}"]`),null,
-    'the Hawaii view includes a bird absent from its year list');
+    'the Hawaii view includes a known taxon absent from its complete regional directory');
   assert.equal(A.getWatchlist().length, 2,
     'region filtering deleted the hidden report entry from shared storage');
   assert.equal(A.watchCodes()[waOnly], 1,
@@ -24158,8 +24532,8 @@ test('the Needs-verification section renders the tracked list with controls', as
   });
   await seedSeen(app,[],null,[{code:'aaa',name:'Alpha Bird'},{code:'bbb',name:'Beta Bird'}]);
   app.open(/Watch List/);
-  assert.equal(app.$('nvResults').querySelectorAll('li:not(.nvdropped)').length, 0,
-    'This region hides tracked species absent from the active year list');
+  assert.equal(app.$('nvResults').querySelectorAll('li:not(.nvdropped)').length, 3,
+    'Unknown geographic coverage cannot hide saved choices, including unresolved identities');
   const regionScope = app.document.querySelector('#nvScope .nvscopebtn');
   assert.ok(regionScope, 'the regional watchlist toggle is missing');
   app.click(regionScope);
@@ -35968,7 +36342,10 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   const name = button && button.getAttribute('data-name');
   assert.ok(code && name, 'the My Ticks action does not own its bird identity');
   assert.equal(button.textContent.trim(), 'Add Watch');
-  assert.equal(button.parentElement.className, 'spprimary');
+  assert.equal(button.closest('.name'), null, 'F1264 WATCH cannot consume the bird-name column');
+  assert.equal(button.parentElement.parentElement, rows[0], 'WATCH owns a separate card row');
+  assert.ok(rows[0].querySelector('.meta').compareDocumentPosition(button)
+    & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'WATCH follows the bird text and metadata');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   const beforeFetches = app.state.fetches.length;
   const originalButton = button, originalRows = [...rows];
@@ -44371,6 +44748,37 @@ test('F1122 forecast selection finds the current night without accepting a wrong
     assert.ok(sources.querySelector('[data-source-retry="birdcast"]'),
       'a genuine forecast failure keeps its actionable retry');
     assert.equal(sources.querySelector('night'), null, 'source errors must be escaped as text');
+    const canonical = app.window.BirdInfoDialogs.alertKinds;
+    for (const [source, kinds] of Object.entries({
+      mega: ['mega'], birdcast: ['migration'],
+      observations: ['twitch', 'need', 'crowd', 'cascade', 'patch'],
+      leaderboard: ['cascade'], hotspots: ['hotspot'], favorites: ['favorite'],
+      mass: ['mass', 'sensitive'], ppte: ['ppte']
+    })) {
+      const row = sources.querySelector(`[data-source-status="${source}"]`);
+      assert.ok(row, 'F1271 the actual source projection includes ' + source);
+      const icons = [...row.querySelectorAll('[data-source-kind]')];
+      assert.deepEqual(icons.map(icon => icon.dataset.sourceKind).sort(), kinds.slice().sort());
+      for (const icon of icons) {
+        const kind = icon.dataset.sourceKind;
+        const expected = app.document.createElement('span');
+        if (kind === 'ppte') expected.innerHTML = canonical[kind].glyph;
+        else expected.textContent = canonical[kind].glyph;
+        assert.equal(icon.innerHTML, expected.innerHTML,
+          'the rendered source glyph must match the canonical category glyph');
+        assert.equal(icon.closest('.surgesourceicons').getAttribute('aria-hidden'), 'true');
+      }
+      if (kinds.length > 1) {
+        assert.match(row.textContent, /Supports:/);
+        for (const kind of kinds) assert.ok(row.textContent.includes(canonical[kind].word));
+      }
+    }
+    const selected = [...app.$('surgeResults').querySelectorAll('.surgecount')]
+      .map(button => button.getAttribute('aria-pressed'));
+    app.click(sources.querySelector('[data-source-kind="mega"]'));
+    assert.deepEqual([...app.$('surgeResults').querySelectorAll('.surgecount')]
+      .map(button => button.getAttribute('aria-pressed')), selected,
+      'decorative source icons cannot invoke the category filter');
   } finally { app.window.close(); }
 });
 
@@ -47200,6 +47608,12 @@ test('F1010 actual diagnostic ZIP exports redacted correlated native stages', as
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app, bridge = notificationBridge(app);
+    app.window.__audit.event('network.request_end', { category: 'network', outcome: 'ok', attrs: {
+      stage: 'F1267 source=BirdCast received=224 elapsedMs=1500'
+        + ' cache=geo:14.752341%253A-165.164352'
+        + ' request=api.birdcast.org/forecast?latLng=14.987654%2C-165.678912',
+      received_rows: 224, duration_ms: 1500
+    } });
     const status = () => Promise.resolve({ ...bridge.state(), traceStorageFailed: false, trace: [{
       at: Date.now(), attempt: '00000000-0000-0000-0000-000000001010',
       stage: 'publication', outcome: 'accepted', background: true,
@@ -47224,12 +47638,15 @@ test('F1010 actual diagnostic ZIP exports redacted correlated native stages', as
     await A.shareDiagnostic('betaDiag');
     assert.ok(zip);
     let manifest;
+    const contents = [];
     for (let at = 0; at + 30 <= zip.length && zip.readUInt32LE(at) === 0x04034b50;) {
       assert.equal(zip.readUInt16LE(at + 8), 0);
       const size = zip.readUInt32LE(at + 18), nameLength = zip.readUInt16LE(at + 26);
       const start = at + 30 + nameLength + zip.readUInt16LE(at + 28);
       const name = zip.subarray(at + 30, at + 30 + nameLength).toString('utf8');
-      if (name === 'manifest.json') manifest = JSON.parse(zip.subarray(start, start + size).toString('utf8'));
+      const content = zip.subarray(start, start + size).toString('utf8');
+      contents.push(content);
+      if (name === 'manifest.json') manifest = JSON.parse(content);
       at = start + size;
     }
     assert.ok(manifest);
@@ -47239,6 +47656,9 @@ test('F1010 actual diagnostic ZIP exports redacted correlated native stages', as
     assert.equal(trace.entries[0].outcome, 'accepted');
     assert.equal(trace.entries[0].counts.accepted, 1);
     assert.doesNotMatch(JSON.stringify(trace), /SECRET1010|PRIVATE1010|apiKey|raw/);
+    assert.match(contents.join('\n'), /F1267 source=BirdCast received=224 elapsedMs=1500/,
+      'the production ZIP includes the controlled diagnostic entry, not an empty proof');
+    assert.doesNotMatch(contents.join('\n'), /14\.752341|-165\.164352|14\.987654|-165\.678912/);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });

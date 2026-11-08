@@ -56,3 +56,18 @@ test('F608 native bridge shares ZIPs and captures screenshots only on request', 
     /stamp-build-info\.js www\/build-info\.js sideload "\$BUILD_ID" 30/);
   assert.match(workflow, /BirdChaser-beta-guide\.txt/);
 });
+
+test('F1266 native personal-list sharing uses a dedicated JSON file and cleans up on completion or missing presenter', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'native', 'ios', 'ViewController.swift'), 'utf8');
+  assert.match(source, /CAPPluginMethod\(name: "sharePersonalLists"/);
+  const method = source.slice(source.indexOf('@objc public func sharePersonalLists'),
+    source.indexOf('@objc public func shareDiagnosticPackage'));
+  assert.match(method, /JSONSerialization\.jsonObject/);
+  assert.match(method, /"birdchaser-personal-lists"/);
+  assert.match(method, /data\.write\(to: url, options: \.atomic\)/);
+  assert.match(method, /\.json"/);
+  assert.match(method, /UIActivityViewController\(activityItems: \[url\]/);
+  assert.match(method, /guard let presenter[\s\S]*?removeItem\(at: url\)[\s\S]*?call\.reject/);
+  assert.match(method, /completionWithItemsHandler[\s\S]*?removeItem\(at: url\)[\s\S]*?"completed": completed/);
+  assert.doesNotMatch(method, /base64Encoded|application\/zip|localStorage|UserDefaults/);
+});

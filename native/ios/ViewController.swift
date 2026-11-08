@@ -19,7 +19,8 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "copyReportImage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "shareReport", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "captureDiagnosticScreenshot", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "shareDiagnosticPackage", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "shareDiagnosticPackage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "sharePersonalLists", returnType: CAPPluginReturnPromise)
     ]
     private let maxClipboardImageHeight: CGFloat = 30_000
 
@@ -216,6 +217,48 @@ public final class FullReportPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                 }
             }
+
+    @objc public func sharePersonalLists(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), let data = text.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              value["format"] as? String == "birdchaser-personal-lists",
+              value["version"] as? Int == 1,
+              value.keys.allSatisfy({ ["format", "version", "watch", "favorites"].contains($0) }),
+              value["watch"] is [[String: Any]] || value["favorites"] is [[String: Any]] else {
+            call.reject("The personal-list JSON format is missing or unsupported.")
+            return
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Bird-Chaser-personal-lists-\(UUID().uuidString).json")
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            call.reject("Unable to create the personal-list JSON file.")
+            return
+        }
+        DispatchQueue.main.async {
+            guard let presenter = self.bridge?.viewController else {
+                try? FileManager.default.removeItem(at: url)
+                call.reject("Unable to open the JSON share sheet.")
+                return
+            }
+            let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            if let popover = sheet.popoverPresentationController {
+                popover.sourceView = presenter.view
+                popover.sourceRect = CGRect(x: presenter.view.bounds.midX,
+                    y: presenter.view.bounds.maxY, width: 1, height: 1)
+            }
+            sheet.completionWithItemsHandler = { _, completed, _, error in
+                try? FileManager.default.removeItem(at: url)
+                if error != nil {
+                    call.reject("Unable to share the personal-list JSON file.")
+                    return
+                }
+                call.resolve(["bytes": data.count, "completed": completed])
+            }
+            presenter.present(sheet, animated: true)
+        }
+    }
 
     @objc public func shareDiagnosticPackage(_ call: CAPPluginCall) {
                 guard let encoded = call.getString("base64"),

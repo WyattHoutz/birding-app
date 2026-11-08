@@ -660,6 +660,11 @@
   };
 
   var EXCLUDED = {
+    'personal-lists-replace': {
+      surface: 'confirmation',
+      name: 'Replace selected personal lists',
+      reason: 'Explicit transactional approval before replacing selected local choices, including intentional empty lists.'
+    },
     'close-setup': {
       surface: 'confirmation',
       name: 'Close setup',

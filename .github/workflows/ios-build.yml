@@ -10,15 +10,16 @@ on:
 
 permissions:
   contents: write   # the release job below creates a tag and a Release
+  actions: read
 
 jobs:
-  # Fast self-contained unit + syntax + DOM suite (BirdLogic, index.html inline
-  # scripts, and a jsdom boot of the real app). Gates the iOS build below so a
-  # logic regression, a stray brace, or a broken/unwired section fails CI before
-  # we spend ~2 min compiling on macOS.
-  test:
-    name: Unit tests (BirdLogic + syntax + DOM)
+  gate:
+    name: Await authoritative exact-source tests
     runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,23 +30,13 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # The DOM suite needs jsdom from devDependencies.
-      - name: Install JS dependencies
-        run: npm ci
-
-      - name: Run unit + syntax + DOM tests
-        run: npm test
-
-      # jsdom has NO layout engine, so the suite above is blind to geometry by
-      # construction — which is exactly how a sideways-drag bug survived three
-      # releases and two blind fixes. This drives real Chrome (preinstalled on
-      # the runner) and fails if any element's right edge passes the viewport,
-      # at the narrowest phone and the largest text setting the app offers.
-      - name: Layout — nothing may overflow the screen
-        run: npm run test:layout
+      - name: Require the successful main-push unit, DOM and six-profile layout run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node assets/ci-test-gate.js
 
   build:
-    needs: test
+    needs: gate
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -98,6 +89,7 @@ jobs:
           grep -q 'UIActivityViewController' ios/App/App/ViewController.swift
           grep -q 'captureDiagnosticScreenshot' ios/App/App/ViewController.swift
           grep -q 'shareDiagnosticPackage' ios/App/App/ViewController.swift
+          grep -q 'sharePersonalLists' ios/App/App/ViewController.swift
           grep -q 'registerPluginInstance(BirdGenNotificationsPlugin())' ios/App/App/ViewController.swift
           grep -q 'notificationRouter.localNotificationHandler = BirdGenNotificationService.shared' ios/App/App/ViewController.swift
           grep -q 'BirdGenNotifications.swift in Sources' ios/App/App.xcodeproj/project.pbxproj

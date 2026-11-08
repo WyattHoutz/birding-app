@@ -141,7 +141,13 @@
           return results.every(function (result) { return result.state === 'notApplicable'; })
             ? 'notApplicable' : 'ready';
         }
-        for (var state of ['failed', 'partial', 'cancelled', 'blocked', 'loading', 'queued']) {
+        for (var state of ['loading', 'queued']) {
+          if (results.some(function (result) { return result.state === state; })) return state;
+        }
+        if (results.some(function (result) {
+          return readyStates.indexOf(result.state) >= 0 || result.state === 'partial';
+        })) return 'partial';
+        for (var state of ['failed', 'cancelled', 'blocked']) {
           if (results.some(function (result) { return result.state === state; })) return state;
         }
         return 'failed';

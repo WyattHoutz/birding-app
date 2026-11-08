@@ -3,6 +3,25 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const prefetch = require('../www/setup-prefetch.js');
 
+test('F1269 a fast failed child cannot hide pending group work or retained partial availability', async () => {
+  let release;
+  const engine = prefetch.create({
+    failed: { acquire: () => ({ state: 'failed' }) },
+    pending: { acquire: () => new Promise(resolve => { release = resolve; }) }
+  }, () => true);
+  assert.equal(engine.group(['failed', 'pending']), 'queued');
+  const attempt = engine.run();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.states.failed.state, 'failed');
+  assert.equal(engine.group(['failed', 'pending']), 'loading');
+  release({ state: 'cached' });
+  await attempt;
+  assert.equal(engine.group(['failed', 'pending']), 'partial');
+  assert.equal(engine.group(['failed']), 'failed');
+  assert.equal(engine.settled(), true);
+  assert.equal(engine.complete(), false);
+});
+
 test('F1249 shares pending prerequisites and waits for verified persisted results', async () => {
   let release, calls = 0, writes = 0;
   const engine = prefetch.create({
