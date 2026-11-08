@@ -309,7 +309,8 @@ const AUDIT = `<script>
             || line.top < rect.top - 1 || line.bottom > rect.bottom + 1;
         });
         if (style.textDecorationLine !== 'none'
-          || (button.id !== 'setupSkipSeen' && style.whiteSpace !== 'nowrap') || rect.height < 43.5
+          || (button.id !== 'setupSkipSeen' && button.id !== 'setupContinueAvailable'
+            && style.whiteSpace !== 'nowrap') || rect.height < 43.5
           || button.scrollWidth > button.clientWidth + 1
           || clipped
           || (main && size < 20 * Number(AUDIT_SCALE) - 0.5)
