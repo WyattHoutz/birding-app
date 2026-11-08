@@ -54,7 +54,7 @@ for key, value in [("application-identifier", "WRONG"), ("com.apple.developer.te
     changed = {**entitlements, key: value}
     rejects(lambda: guard.verify_app(info, profile, changed, "com.example.bird", "1.168.0", "538.1", uuid))
 rejects(lambda: guard.verify_app(info, profile, entitlements, "com.example.bird", "1.168.0", "538.1", "another-uuid"))
-markers = [b"FullReportPlugin", b"BirdGenNotificationsPlugin", b"BirdGenNotificationService",
+markers = [b"FullReportPlugin", b"sharePersonalLists", b"BirdGenNotificationsPlugin", b"BirdGenNotificationService",
            b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1"]
 assert set(guard.NATIVE_MARKERS) == set(markers)
 usage_keys = ["NSLocationWhenInUseUsageDescription", "NSLocationAlwaysAndWhenInUseUsageDescription"]
@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
             if not valid:
                 assert message in result.stderr, result.stderr
     assert guard.verify_native(app) == {
-        "nativeMarkers": 5, "backgroundFetch": True, "locationPurposeStrings": 2}
+        "nativeMarkers": len(markers), "backgroundFetch": True, "locationPurposeStrings": 2}
     check_commands(True)
     for value in [None, True, "false", 0]:
         changed = {k: v for k, v in native_info.items() if k != "ITSAppUsesNonExemptEncryption"}

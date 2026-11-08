@@ -11,6 +11,7 @@ from pathlib import Path
 
 NATIVE_MARKERS = (
     b"FullReportPlugin",
+    b"sharePersonalLists",
     b"BirdGenNotificationsPlugin",
     b"BirdGenNotificationService",
     b"BC_HIDDEN_WINDOW",
