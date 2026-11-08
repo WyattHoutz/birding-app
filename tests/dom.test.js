@@ -53616,10 +53616,9 @@ test('the medium card renders the bird name at the same size as the mileage', ()
     `the bird name is ${name}px and the mileage is ${dist}px — F129 asked for these to match`);
 });
 
-// Owner correction, 2026-09-13: unseen birds can deliberately be on the
-// watchlist. Absence from this report's year list is therefore scope, not proof
-// that a reviewer dropped anything.
-test('a watched bird outside the report is filtered, not accused of being dropped', async () => {
+// F1272: absence from a personal year list proves neither geographic absence
+// nor that a reviewer dropped anything.
+test('a geographically unverified watched bird stays visible, not accused of being dropped', async () => {
   const app = await boot({
     storage: {
       ebird_watchlist_v1: JSON.stringify([
@@ -53633,13 +53632,13 @@ test('a watched bird outside the report is filtered, not accused of being droppe
   await seedSeen(app,[year[0].code],null,[{code:'zzzfake',name:'Ghost Bird'}]);
 
   A.renderWatch();
-  assert.doesNotMatch(app.$('nvResults').textContent, /Ghost Bird/,
-    'This region showed a watched bird absent from its year list');
+  assert.match(app.$('nvResults').textContent, /Ghost Bird/,
+    'This region hid a watched bird without checked geographic absence');
   assert.doesNotMatch(app.$('nvStatus').textContent, /dropped|withdrawn/i,
     'an unseen watched bird was presented as a moderation failure');
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.match(app.$('nvResults').textContent, /Ghost Bird/,
-    'All did not reveal the valid unseen watched bird');
+    'All did not retain the valid unseen watched bird');
   assert.equal(A.watchCodes().zzzfake, 1,
     'filtering the inventory removed the bird from chase inputs');
   app.window.close();
@@ -60160,13 +60159,13 @@ test('F260: a moved home still abandons the running wave', async () => {
   assert.match(gc, /if \(_chaseRefresh\[slug\]\) \{/,
     'and a force joins it instead of racing it');
 
-  // Only the three seen-axis callers may pass the flag. Anything else changes
-  // where we fetch from: the year-list harvester, watchlist edits, and the
-  // owner's newly reconciled leaderboard ticks.
+  // These writers change personal choices, not the home/radius/region/profile
+  // fetch inputs. Restoring WATCH also preserves the running source wave.
   const seenAxisCallers = [
     ['harvestOwnChecklists', 'function baseCounties'],
     ['setWatchlist', 'function addWatch'],
     ['reconcileLastNewOwnerTicks', '// One region-wide feed'],
+    ['initPersonalListBackup', 'function getFavs'],
   ];
   seenAxisCallers.forEach(([name, next]) => {
     const start = HTML.indexOf(`function ${name}(`);
@@ -60176,8 +60175,8 @@ test('F260: a moved home still abandons the running wave', async () => {
       `${name} invalidates only the seen axis`);
   });
   const callers = HTML.match(/clearChaseCache\(true\)/g) || [];
-  assert.equal(callers.length, 3,
-    `only the three seen-axis writers keep a running wave, got ${callers.length}`);
+  assert.equal(callers.length, seenAxisCallers.length,
+    `only the named seen-axis writers keep a running wave, got ${callers.length}`);
   app.window.close();
 });
 
