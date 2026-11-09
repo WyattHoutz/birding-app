@@ -937,7 +937,7 @@ const AUDIT = `<script>
         var ir = input.getBoundingClientRect(), br = search.getBoundingClientRect(), cr = close.getBoundingClientRect();
         savedSearch.push({favorite:prefix==='fav',closeHidden: closed, sameLine: Math.abs(
           (ir.top + ir.bottom) / 2 - (br.top + br.bottom) / 2) <= 1,
-          inputOwnRow:br.top>=ir.bottom,actionsSameRow:Math.abs(br.top-cr.top)<=0.5,
+          inputOwnRow:br.top>=ir.bottom,actionsSameRow:favoriteActionsShareRow(br,cr),
           closeWidth:cr.width,closeHeight:cr.height,closeRight:cr.right,
           afterInput: br.left >= ir.right, inputWidth: ir.width,
           right: br.right, width: br.width, height: br.height});
@@ -4191,6 +4191,9 @@ const AUDIT = `<script>
       await A.restoreTaxonomyNames();
     }
   }
+  function favoriteActionsShareRow(first, second) {
+    return Math.abs((first.top + first.bottom) / 2 - (second.top + second.bottom) / 2) <= 0.5;
+  }
   async function favoriteSearchRegression(out) {
     var A = window.__app, input = document.getElementById('favSearch');
     var search = document.getElementById('favSearchBtn'), close = document.getElementById('favSearchClear');
@@ -4210,9 +4213,18 @@ const AUDIT = `<script>
         await new Promise(function (resolve) { setTimeout(resolve, 10); });
       if (close.hidden || found.children.length !== 1) throw new Error('F1286 actual first search did not return its match');
       var first = search.getBoundingClientRect(), second = close.getBoundingClientRect();
-      if (Math.abs(first.top-second.top) > 0.5)
+      if (!favoriteActionsShareRow(first, second))
         throw new Error('F1286 Search and Close must share an action row: '
-          + JSON.stringify({searchTop:first.top,closeTop:second.top}));
+          + JSON.stringify({searchTop:first.top,closeTop:second.top,
+            searchHeight:first.height,closeHeight:second.height}));
+      var previousHeight = close.style.minHeight;
+      try {
+        close.style.minHeight = (Math.ceil(first.height) + 44) + 'px';
+        var unequalSearch = search.getBoundingClientRect(), unequalClose = close.getBoundingClientRect();
+        if (unequalClose.height <= unequalSearch.height + 1
+            || !favoriteActionsShareRow(unequalSearch, unequalClose))
+          throw new Error('F1286 unequal-height actions must retain their shared row');
+      } finally { close.style.minHeight = previousHeight; }
       [search,close].forEach(function (button) {
         var rect = button.getBoundingClientRect(), range = document.createRange(), style = getComputedStyle(button);
         var measure = document.createElement('canvas').getContext('2d');
