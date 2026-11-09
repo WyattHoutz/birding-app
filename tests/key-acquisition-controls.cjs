@@ -22,10 +22,14 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       const storage = app.window.localStorage;
       const before = JSON.stringify(Object.keys(storage).sort().map(key => [key, storage.getItem(key)]));
       app.open(/Settings/);
-      const settings = app.$('keyApplicationHelp').querySelector('[data-birdchaser-api-help]');
+      app.click(app.$('settingsInfoBtn'));
+      const settingsSheet = app.$('appSheet');
+      assert.ok(settingsSheet && !settingsSheet.hidden, 'Settings Info must open shared application guidance');
+      const settings = settingsSheet.querySelector('[data-birdchaser-api-help]');
       assertApplicationGuidance(settings);
       settings.open = true;
       assert.equal(JSON.stringify(Object.keys(storage).sort().map(key => [key, storage.getItem(key)])), before);
+      app.click(app.$('appSheet').querySelector('.sheetclose'));
       app.window.__app.openSetupSheet();
       assert.equal(app.$('setupSheetBody').querySelector('[data-birdchaser-api-help]'), null,
         'F1156 explanations are optional rather than cluttering the action screen');

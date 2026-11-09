@@ -8,6 +8,17 @@ module.exports = ({
     birdcast: 'ok', favorites: 'ok', mass: 'ok', ppte: 'ok', foy: 'ok'
   };
 
+  function assertFeedbackOwner(app, button) {
+    const status = app.$('setupActionStatus'), origin = button._setupActionOrigin;
+    assert.ok(app.$('setupSheetBody').contains(status), 'live feedback belongs to the scrolling body');
+    assert.ok((button.getAttribute('aria-describedby') || '').split(/\s+/).includes(status.id),
+      'the initiating action retains its accessible feedback association');
+    if (origin && origin.isConnected) assert.equal(origin.nextSibling, status);
+    else if (app.$('setupSheetActions').contains(button)) {
+      assert.equal(status.parentElement, app.$('setupSheetBody'));
+    } else assert.equal(button.nextElementSibling, status);
+  }
+
   test('F1094 compact category warnings retain independent retries and explicit source outcomes', async () => {
     const app = await boot({ sample: false });
     try {
@@ -41,8 +52,8 @@ module.exports = ({
       app.click(button);
       await waitFor(() => rejectPosition, 'native location acquisition started');
       const status = app.$('setupActionStatus');
+      assertFeedbackOwner(app, button);
       assert.equal(status.getAttribute('role'), 'status');
-      assert.equal(button.nextElementSibling, status, 'live feedback must remain beside its initiating control');
       assert.ok((button.getAttribute('aria-describedby') || '').split(/\s+/).includes(status.id));
       assert.ok(status.textContent.trim());
       assert.equal(button.disabled, true);
@@ -71,12 +82,12 @@ module.exports = ({
       app.click(app.$('setupHomeHere'));
       await waitFor(() => app.$('setupHomeApprove'), 'unapproved native candidate');
       assert.equal(app.$('setupHomeCandidate').hidden, false);
-      assert.equal(app.$('setupHomeHere').nextElementSibling, app.$('setupActionStatus'));
+      assertFeedbackOwner(app, app.$('setupHomeHere'));
       assert.equal(app.window.__app.getHome(), null);
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent),
         'failed region lookup retains the approved draft');
-      assert.equal(app.$('setupHomeApprove').nextElementSibling, app.$('setupActionStatus'));
+      assertFeedbackOwner(app, app.$('setupHomeApprove'));
       assert.equal(app.window.__app.getHome(), null);
     } finally { app.window.close(); }
   });
@@ -285,7 +296,7 @@ module.exports = ({
         assert.equal(page.document.querySelector('[name="acceptTermsOfUse"]').checked, false);
         const status = app.$('setupActionStatus');
         assert.match(status.textContent, /complete eBird.*form yourself/);
-        assert.equal(get.nextElementSibling, status);
+        assertFeedbackOwner(app, get);
         assert.ok((get.getAttribute('aria-describedby') || '').split(/\s+/).includes(status.id));
         assert.equal(get.disabled, true);
         assert.equal(app.window.localStorage.getItem('ebird_api_key'), null);
