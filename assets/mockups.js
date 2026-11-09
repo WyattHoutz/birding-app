@@ -67,6 +67,12 @@ function fixtureImageNeedsRefresh(img, src, baseURI) {
   return currentPath !== expectedPath;
 }
 
+function isolateFixturePhotoSlot(slot) {
+  const owned = slot.cloneNode(false);
+  slot.replaceWith(owned);
+  return owned;
+}
+
 async function decodeFixtureImage(img, src) {
   async function decodeOnce() {
     await img.decode();
@@ -1908,6 +1914,7 @@ const BOOTSTRAP = `
   var BIRD_ICON_EXT = ${JSON.stringify(BUNDLED_ICON_EXTENSIONS)};
   var fixtureIconPath = ${fixtureIconPath.toString()};
   var fixtureImageNeedsRefresh = ${fixtureImageNeedsRefresh.toString()};
+  var isolateFixturePhotoSlot = ${isolateFixturePhotoSlot.toString()};
   var decodeFixtureImage = ${decodeFixtureImage.toString()};
   var preparePersonalFixture = ${preparePersonalFixture.toString()};
   var RealDate = Date;
@@ -2870,10 +2877,13 @@ const BOOTSTRAP = `
       var source = fixtureIconPath(code, BIRD_ICON_EXT);
       var img = slot.querySelector('img.birdpic');
       var needsSource = fixtureImageNeedsRefresh(img, source, document.baseURI);
-      if (!img || img.classList.contains('isfallback')) {
+      if (!img || img.classList.contains('isfallback') || needsSource
+          || !img.complete || !img.naturalWidth) {
+        slot = isolateFixturePhotoSlot(slot);
         img = document.createElement('img');
         img.className = 'birdpic';
         slot.replaceChildren(img);
+        needsSource = true;
       }
       img.alt = slot.getAttribute('data-bird') || '';
       var lifecycle = [];
@@ -5126,7 +5136,7 @@ async function main() {
 
 module.exports = {
   CONTRACT, STUB_SPEC, SECTION_SHOTS, EXTRA_SHOTS, REVIEW_SHOTS, SHOTS,
-  fixtureIconPath, fixtureImageNeedsRefresh, decodeFixtureImage, preparePersonalFixture,
+  fixtureIconPath, fixtureImageNeedsRefresh, isolateFixturePhotoSlot, decodeFixtureImage, preparePersonalFixture,
   shotReadinessProblems, shotLooksBlank,
   mockupRunPassed, withTimeout, navigateMockupFrame, cdp, server, CHROME
 };

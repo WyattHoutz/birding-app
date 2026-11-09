@@ -248,7 +248,7 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
           }, { prepare: mockups.preparePersonalFixture.toString(), seen, display });
           assert.equal(await evaluate(() => document.documentElement.clientWidth), width);
           if (input === 'pointer') {
-            for (const step of ['key', 'home', 'region', 'seen', 'summary']) {
+            for (const step of ['key', 'home', 'region', 'seen', 'favorites', 'summary']) {
               await evaluate(step => {
                 const A = window.__app, point = A.getHome();
                 localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify({
@@ -261,7 +261,7 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
               if (step === 'summary') await until(() =>
                 document.getElementById('setupSheetBody').dataset.setupStep === 'summary');
               assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), step);
-              await backStyle('#setupSheetBody', '#setupBack');
+              await backStyle('#setupSheet', '#setupBack');
             }
             await evaluate(() => {
               const A = window.__app;
@@ -375,6 +375,9 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
             && !document.getElementById('appSheet').hidden);
           await backStyle('#appSheet', '[data-setup-confirm-back]');
           await click('[data-setup-confirm-continue]');
+          await until(() => document.getElementById('setupSheetBody').dataset.setupStep === 'favorites');
+          assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden), false);
+          await click('#setupSkipFavorites');
           await until(() => document.getElementById('setupSheetBody').dataset.setupStep === 'summary');
           assert.equal(await evaluate(() => document.getElementById('setupSheetBody').dataset.setupStep), 'summary');
           assert.equal(await evaluate(() => document.getElementById('setupSheet').hidden),
@@ -885,6 +888,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'f1083-setup-home-change', 'f1083-setup-region', 'f1083-setup-replacement',
       'f1083-setup-seen-waiting', 'f1083-setup-seen', 'f1083-setup-seen-ready',
       'f1083-setup-seen-skip', 'f1083-setup-summary',
+      'f1288-setup-loading', 'f1288-setup-loading-more',
       'f1213-migration-current', 'f1213-migration-older', 'f1213-migration-recent',
       'f928-watch-patches', 'nearby-competitors-f857', 'nuthatch-icons-f829', 'stakeoutreachable-f389', 'stakeoutdistance-f389',
     'stakeoutchecklists-progressive', 'stakeoutmixed-f634', 'stakeoutpins-f837',
@@ -1509,6 +1513,7 @@ test('F920 fixture image decode retries once but still requires decoded pixels',
     get: () => source,
     set: (value) => { source = value; },
   });
+
   await mockups.decodeFixtureImage(recovered, 'assets/birds/ruff.jpg');
   assert.equal(attempts, 2);
   assert.equal(source, 'assets/birds/ruff.jpg?fixture-retry=1');
@@ -1525,6 +1530,29 @@ test('F920 fixture image decode retries once but still requires decoded pixels',
     /initial decode failed .* bounded retry failed .* zero natural width/
   );
   assert.equal(emptyAttempts, 2, 'a second zero-width result must remain a fixture failure');
+});
+
+test('F1273 fixture photo ownership survives a late production-slot callback', async () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM('<div id="host"><span class="thumb" data-code="ruff"><img src="assets/birds/ruff.jpg"></span></div>');
+  try {
+    const document = dom.window.document;
+    const original = document.querySelector('.thumb'), pending = original.firstChild;
+    const owned = mockups.isolateFixturePhotoSlot(original);
+    const photo = document.createElement('img');
+    photo.src = 'assets/birds/ruff.jpg';
+    owned.appendChild(photo);
+    await Promise.resolve().then(() => {
+      original.replaceChildren(document.createElement('img'));
+    });
+    assert.equal(document.querySelector('#host img'), photo,
+      'late renderer completion cannot replace the visible fixture photo');
+    assert.equal(pending.getAttribute('src'), 'assets/birds/ruff.jpg');
+    assert.equal(owned.dataset.code, 'ruff');
+    const fill = source.slice(source.indexOf('async function fillFixturePhotos('),
+      source.indexOf('async function prepareTwitches(', source.indexOf('async function fillFixturePhotos(')));
+    assert.match(fill, /slot = isolateFixturePhotoSlot\(slot\)/);
+  } finally { dom.window.close(); }
 });
 
 test('Washington mock data follows the owner-provided September 2 seen snapshot', () => {
