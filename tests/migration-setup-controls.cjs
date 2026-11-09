@@ -1454,7 +1454,7 @@ module.exports = function registerMigrationSetupControls({
         if (step === 'summary') await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary',
           'settled initial setup summary');
         assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
-        check(app.$('setupSheetBody'), app.$('setupBack'));
+        check(app.$('setupSheet'), app.$('setupBack'));
       }
       app.window.localStorage.setItem('bc_setup_step_v1', 'account');
       A.openSetupSheet();

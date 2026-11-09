@@ -259,6 +259,8 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     private var processing = false
     private var registered = false
     private var observers: [NSObjectProtocol] = []
+    private var lifecycleSequence = 0
+    private var lifecycleEvents: [[String: Any]] = []
     private let diagnostics = BirdNotificationTrace()
     weak var plugin: BirdGenNotificationsPlugin?
 
@@ -276,7 +278,10 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
         instance.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { _ in
+            let at = Date().timeIntervalSince1970 * 1000
+            let uptime = ProcessInfo.processInfo.systemUptime * 1000
             Task { @MainActor in
+                instance.noteLifecycle("foreground", at: at, uptime: uptime)
                 if instance.backgroundWork != nil {
                     instance.diagnostics.record(.lifecycle, .cancelled, background: true)
                 }
@@ -286,11 +291,26 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
         instance.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { _ in
+            let at = Date().timeIntervalSince1970 * 1000
+            let uptime = ProcessInfo.processInfo.systemUptime * 1000
             Task { @MainActor in
+                instance.noteLifecycle("background", at: at, uptime: uptime)
                 do { try await instance.schedule() }
                 catch { instance.record(error) }
             }
         })
+    }
+
+    private func noteLifecycle(_ phase: String, at: Double, uptime: Double) {
+        lifecycleSequence += 1
+        lifecycleEvents.append(["sequence": lifecycleSequence, "phase": phase,
+                                "at_ms": at, "uptime_ms": uptime])
+        if lifecycleEvents.count > 12 { lifecycleEvents.removeFirst(lifecycleEvents.count - 12) }
+        plugin?.notifyListeners("lifecycle", data: lifecycleState())
+    }
+
+    func lifecycleState() -> [String: Any] {
+        ["events": lifecycleEvents, "clock": "native-wall-and-system-uptime"]
     }
 
     private func record(_ error: Error) {
@@ -787,12 +807,17 @@ public final class BirdGenNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "disable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "lifecycle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sync", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "takeOpen", returnType: CAPPluginReturnPromise)
     ]
 
     public override func load() {
         Task { @MainActor in BirdGenNotificationService.shared.plugin = self }
+    }
+
+    @objc public func lifecycle(_ call: CAPPluginCall) {
+        Task { @MainActor in call.resolve(BirdGenNotificationService.shared.lifecycleState()) }
     }
 
     @objc public func configure(_ call: CAPPluginCall) {

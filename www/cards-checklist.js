@@ -420,8 +420,8 @@
         if (v.review) summary.push(v.review);
       }
       if (v.who) meta.push('<span class="ckwho">' + v.who + '</span>');
-      if (v.targets) {
-        meta.push('<span class="cktargets">' + esc(v.targets) + '</span>');
+      if (v.targetsHtml || v.targets) {
+        meta.push('<span class="cktargets">' + (v.targetsHtml || esc(v.targets)) + '</span>');
       }
       // How many SPECIES the checklist held. Not the same fact as `count`,
       // which is how many of ONE bird — keeping them separate is what lets a

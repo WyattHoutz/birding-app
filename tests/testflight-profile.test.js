@@ -55,7 +55,7 @@ for key, value in [("application-identifier", "WRONG"), ("com.apple.developer.te
     rejects(lambda: guard.verify_app(info, profile, changed, "com.example.bird", "1.168.0", "538.1", uuid))
 rejects(lambda: guard.verify_app(info, profile, entitlements, "com.example.bird", "1.168.0", "538.1", "another-uuid"))
 markers = [b"FullReportPlugin", b"sharePersonalLists", b"BirdGenNotificationsPlugin", b"BirdGenNotificationService",
-           b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1"]
+           b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1", b"native-wall-and-system-uptime"]
 assert set(guard.NATIVE_MARKERS) == set(markers)
 usage_keys = ["NSLocationWhenInUseUsageDescription", "NSLocationAlwaysAndWhenInUseUsageDescription"]
 assert set(guard.LOCATION_USAGE_KEYS) == set(usage_keys)

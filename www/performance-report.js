@@ -179,6 +179,8 @@
         queued_ms: 0,
         network_ms: 0,
         suspended_ms: 0,
+        scheduling_gap_ms: 0,
+        native_background_ms: 0,
         retries: 0,
         timeouts: 0,
         slowest_request_ms: 0,
@@ -196,6 +198,8 @@
         load.queued_ms += Number(attrs.queued_ms) || 0;
         load.network_ms += Number(attrs.network_ms) || 0;
         load.suspended_ms += Number(attrs.suspended_ms) || 0;
+        load.scheduling_gap_ms += Number(attrs.scheduling_gap_ms) || 0;
+        load.native_background_ms += Number(attrs.native_background_ms) || 0;
         var requestMs = (Number(attrs.queued_ms) || 0)
           + (Number(attrs.network_ms) || 0);
         if (requestMs >= load.slowest_request_ms) {
@@ -211,10 +215,9 @@
     });
     var samples = Object.keys(loads).map(function (key) { return loads[key]; });
     samples.forEach(function (sample) {
-      sample.active_primary_ms = sample.primary_ready_ms == null ? null
-        : Math.max(0, sample.primary_ready_ms - sample.suspended_ms);
-      sample.active_enrichment_ms = sample.enrichment_complete_ms == null ? null
-        : Math.max(0, sample.enrichment_complete_ms - sample.suspended_ms);
+      // Compatibility fields retain wall readiness; request overlaps are not deductions.
+      sample.active_primary_ms = sample.primary_ready_ms;
+      sample.active_enrichment_ms = sample.enrichment_complete_ms;
     });
     if (options.sectionId) samples = samples.filter(function (sample) {
       return sample.section_id === options.sectionId;

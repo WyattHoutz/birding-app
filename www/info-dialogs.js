@@ -495,6 +495,14 @@
         + 'but an annual import cannot certify the exact regional list. Missing evidence is not proof '
         + 'that a bird is unseen.</p>'
     },
+    favorites: {
+      title: 'Favorite Patches',
+      body: '<p class="docintro">Optionally choose hotspots to include in Favorite Patches.</p>'
+        + '<p>Search the current region by name and select one or more checkboxes. The selected count includes saved '
+        + 'Favorites, including coordinate-only and other-region choices. Only explicit deselection removes a saved choice.</p>'
+        + '<p>Continue saves and verifies your choices before initial Favorite reports load. Skip preserves saved choices '
+        + 'without saving the draft. An unavailable hotspot directory does not prevent continuing setup.</p>'
+    },
     summary: {
       title: 'Your setup',
       body: '<p class="docintro">The summary shows which capabilities are ready and which still need setup.</p>'
@@ -517,7 +525,9 @@
     setupSkipSeen: 'Reviews your choice to continue without waiting. Skip does not mark a missing list complete. A late result cannot reopen setup or move you away from the summary.',
     setupSeenConnect: 'Returns to account connection so Bird Chaser can read your seen-bird list. Connecting is read-only and does not change your eBird records.',
     setupSeenRegion: 'Returns to Home and region setup so your seen list can be matched to the right area. It does not select a region or request location automatically.',
-    setupContinue: 'Reviews your matching seen list before opening the setup summary. Start birding is a separate final action. Unfinished capabilities remain marked as unfinished; skipping does not certify a list as complete.',
+    setupFavoriteContinue: 'Saves and verifies selected Favorite Patches before initial data acquisition. Unrelated saved choices are retained. If saving fails, review remains open so you can retry or skip.',
+    setupSkipFavorites: 'Continues without saving draft selections or removals. Existing Favorites are retained.',
+    setupContinue: 'Reviews your matching seen list before optional Favorite Patches selection and the setup summary. Start birding is a separate final action. Unfinished capabilities remain marked as unfinished; skipping does not certify a list as complete.',
     setupHomeOptions: 'Choose the place that matches your intended Home. No result is selected for you. The chosen coordinates remain a draft until Home and its matching region are explicitly confirmed.'
   };
 
@@ -582,14 +592,49 @@
           : 'Account, region and period match.') + '</p>'
       : kind === 'skip' ? '<p class="docintro">You can fetch your seen list later. An unavailable list is not marked complete.</p>' : '';
     return { title: title, subtitle: 'Step ' + (kind === 'key' ? '2'
-      : kind === 'home' || kind === 'replace' ? '3' : kind === 'seen' || kind === 'skip' ? '5' : '1') + ' of 5', bodyHtml: body
+      : kind === 'home' || kind === 'replace' ? '3' : kind === 'seen' || kind === 'skip' ? '5' : '1') + ' of 6', bodyHtml: body
       + '<div class="setupactions setupconfirmation">'
       + '<button data-setup-confirm-continue class="setupprimary" type="button">'
       + (kind === 'replace' ? 'Use new Home' : 'Continue') + '</button>'
       + '<button data-setup-confirm-back class="secondary" type="button">Back</button></div>' };
   }
 
+  var SETTINGS_HELP = [
+    ['display', 'Display', '<p>Scales text, photos, tap targets, spacing and contrast together. High visibility also reflows crowded cards and controls. Changes apply immediately.</p>'],
+    ['badges', 'Report menu badges', '<p>Hides report-menu badges only. Bird Gen alerts, report counts and data loading stay unchanged.</p>'],
+    ['nemesis', 'Nemesis birds menu badge', '<p>When the Nemesis beta setting is available, opt in to its menu count here. The global Hide notification counts setting takes precedence; the tool and its data stay available.</p>'],
+    ['theme', 'Theme', '<p>System follows your phone. Light or Dark wins until you choose System again.</p>'],
+    ['maps', 'Maps app', '<p>Open in Maps links and trip routes use the selected app immediately. OpenStreetMap directions support only a start and end; multi-stop routes disclose that limitation rather than silently dropping intermediate stops.</p>'],
+    ['distance', 'How far will you drive for a bird?', '<p>Adjust the saved chase distance in five-mile steps or reset to 35 miles. Nearby opportunities use the active Home or explicitly selected origin; this is straight-line distance, not a promised driving time.</p>'],
+    ['notifications', 'Bird Gen iPhone notifications', '<p>Optional local notifications require the installed iPhone app; there is no notification server. All qualified Bird Gen categories can notify on foreground refresh. Native background checks cover Celebrity and Crowd only; iOS chooses whether and when to run them, not a guaranteed interval.</p><p>Crowd is held back when coverage is incomplete or capped. Mass Flocks and Patagonia menus do not bypass Bird Gen rules. Each profile opts in separately; background checks use the active profile, region, Home and chase distance. Initial snapshots establish a quiet baseline, and reports dated before opt-in do not interrupt you.</p><p>Permission, Background App Refresh, power and network conditions can prevent delivery. This is not an urgent-alert service.</p>'],
+    ['backup', 'Personal lists: backup and restore', '<p>Backups include only WATCH and Favorite patches, not credentials, caches, history or legacy region definitions. Stable species IDs avoid four-letter ambiguity; Favorites retain saved IDs, names, region and coordinate-only metadata.</p><ol><li>Select the categories and export current choices.</li><li>Save an external JSON file before erasing app data. Text here or on the clipboard is not an independent backup.</li><li>Open a supported JSON file or paste/edit it, choose Merge or Replace, then Preview.</li><li>Save the reviewed lists. Missing categories remain unchanged; Merge preserves existing choices and metadata. Replace requires separate confirmation.</li></ol>'],
+    ['key', 'eBird API key', '<p>Get a key reuses your eBird website sign-in. A labelled displayed key is captured and verified before saving. If it cannot be read, copy it and tap Paste, or open the page externally. The key is kept on this device and sent only to eBird.</p>' + apiApplicationHelpHtml(true)],
+    ['profile', 'Account profile', '<p>Changes save automatically. Switching profiles reloads the app. Main and Test 2–4 are separate local storage slots, not discovered or configured eBird accounts. Each has its own key, alert code, personal list, Favorites, Home and rank history.</p><p>An eBird data import or signed-in identity fetch labels the slot with the account name. Fetch signed-in identity before refreshing exact Year/Life lists: names alone do not prove ownership. Seen totals include species-level Escapees; leaderboard and header totals exclude them. Hotspot, GBIF and taxonomy caches describe places or birds, so they are shared.</p>'],
+    ['setup', 'Bird Chaser setup', '<p>Connect eBird, verify the key, confirm initial Home and region together, prepare the seen list and optionally select Favorite Patches before loading. Reopen setup here; additional Home/region pairs can be added later.</p>'],
+    ['signout', 'Sign out of eBird', '<p>Rankings and the ABA alert need an eBird login. The owned in-app browser retains the device website session until sign-out. Local profile slots and website sessions are different ownership boundaries.</p>'],
+    ['home', 'Home location', '<p>Enter a city, address or latitude/longitude waypoint and choose Find, or explicitly request the device location. Review the candidate before saving. Home is required for distances and nearby rankings and drives US Conditions forecasts. The app never substitutes the bundled report author’s location.</p>'],
+    ['tides', 'NOAA tide station ID (optional)', '<p>Used for coastal tides in Conditions. Find a station at <a href="https://tidesandcurrents.noaa.gov/" target="_blank" rel="noopener">NOAA Tides and Currents</a>; leave blank inland.</p>'],
+    ['seen', 'Seen list — eBird data', '<p>Download and import are separate actions; the selected file is read only on this device.</p><ol id="csvSteps"><li>Confirm the Account profile that should receive the list.</li><li>Tap Download my eBird data and sign in if asked.</li><li>On eBird’s Download my data page, generate and download your personal spreadsheet.</li><li>Return to Settings, tap Import eBird data… and choose the downloaded ZIP or extracted MyEBirdData.csv.</li></ol>'],
+    ['advanced', 'Advanced / Debug', '<h4>Show manual Retry/Cancel controls</h4><p>Automatic recovery is the default. Expose manual controls for debugging stopped requests.</p><h4>Refresh region names</h4><p>All 65 ABA jurisdictions are available offline. Refresh uses your eBird key for US/Canadian reference names, not observations.</p><h4>Taxonomy edition and common names</h4><p>Check the official edition or load naming languages. Existing dated evidence is retained; no automatic split assignments. Common-name language / regional names changes names only, not species identity, membership or ranking.</p><h4>Region code</h4><p>The selected report supplies the region used by Rankings and alerts.</p><h4>ABA rare-bird alert code</h4><p>The fixed eBird alert ID used by ABA Rarities.</p><h4>Debug log</h4><p>Inspect and copy diagnostics or share their sanitized package, including retained setup timings.</p><h4>CCLO diagnosis</h4><p>Arm the next CCLO capture, refresh Bird Gen once, then copy its bounded trace.</p><h4>eBird high-count page diagnosis</h4><p>Captures a small privacy-redacted rendered sample in memory and requests closure of the owned eBird window. Visual disappearance is not confirmed by the request.</p><h4>Diagnostics</h4><p>Test eBird life-list access through the app’s owned request path. Test the Anubis wall opens a real browser window after your tap and checks app access after you finish and close it; browser capability does not guarantee every direct request succeeds.</p>'],
+    ['data', 'Your data', '<p>Erase all my data removes local keys, personal lists, Favorites, Home locations and caches. Save an external personal-list backup first. The destructive action requires its own confirmation.</p>'],
+    ['sources', 'Data sources & terms', '<p>Provider attributions, licenses and terms remain visible in Settings. Calls go directly to their providers; the installed app has no runtime GitHub dependency.</p>']
+  ];
+  function renderSettingsHelp() {
+    return {title:'Settings help',subtitle:'Find guidance by its Settings label',bodyHtml:
+      '<p class="docintro">Settings controls how Bird Chaser looks, connects to eBird and uses your saved choices. Choose a matching setting label below for guidance; current results and essential action warnings remain in Settings.</p>'
+      + '<nav aria-label="Settings help topics"><ul class="doclist settingshelpindex">'
+      + SETTINGS_HELP.map(function(entry){return '<li><a data-settings-jump="' + entry[0]
+        + '" href="#settings-help-' + entry[0] + '">' + defaultEscape(entry[1]) + '</a></li>';}).join('')
+      + '</ul></nav>' + SETTINGS_HELP.map(function(entry){return '<section><h3 id="settings-help-'
+        + entry[0] + '" tabindex="-1">' + defaultEscape(entry[1]) + '</h3>' + entry[2] + '</section>';}).join('')};
+  }
   var CATALOG = {
+    'settings-help': {
+      name: 'Settings help',
+      group: 'Settings guidance',
+      contextLabel: 'Setting-label jump index; live statuses and action-time warnings stay in Settings.',
+      render: renderSettingsHelp
+    },
     'setup-account-connected': {
       name: 'Confirm the connected eBird account',
       group: 'Setup guidance',
@@ -755,6 +800,7 @@
 
   function renderSample(id, deps) {
     var esc = deps && deps.escapeHtml;
+    if (id === 'settings-help') return render(id, {}, deps);
     if (id === 'setup-help') return render(id, { step: 'all' }, deps);
     if (['setup-account-connected', 'setup-key-verified', 'setup-home-confirmed'].indexOf(id) >= 0)
       return render(id, {}, deps);

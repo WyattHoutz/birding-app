@@ -16,6 +16,7 @@ NATIVE_MARKERS = (
     b"BirdGenNotificationService",
     b"BC_HIDDEN_WINDOW",
     b"BC_BIRDGEN_TRACE_V1",
+    b"native-wall-and-system-uptime",
 )
 LOCATION_USAGE_KEYS = (
     "NSLocationWhenInUseUsageDescription",

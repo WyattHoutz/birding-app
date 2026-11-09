@@ -89,6 +89,29 @@ test('F623 concurrent sections attribute request costs by loadId, not visible or
   assert.equal(birdGenSample.network_ms, 70);
 });
 
+test('F1283 parallel request overlaps cannot be subtracted from wall readiness', () => {
+  let now = 0;
+  const rows = [];
+  const tracker = Performance.create({ clock: () => now, emit: eventSink(rows) });
+  const id = tracker.start({ sectionId: 'sec-surgeBtn', reason: 'refresh' });
+  now = 1000;
+  for (let i = 0; i < 2; i++) tracker.network(id, {
+    queued_ms: 250, network_ms: 750, suspended_ms: 750,
+    scheduling_gap_ms: 600, native_background_ms: 500,
+  });
+  tracker.mark(id, 'report_primary_ready');
+  now = 1400;
+  tracker.finish(id);
+  const sample = Performance.analyze(rows).samples[0];
+  assert.equal(sample.primary_ready_ms, 1000);
+  assert.equal(sample.active_primary_ms, 1000,
+    'legacy active-field compatibility must preserve wall readiness, not deduct request sums');
+  assert.equal(sample.active_enrichment_ms, 1400);
+  assert.equal(sample.suspended_ms, 1500, 'legacy data remains an unverified request sum');
+  assert.equal(sample.scheduling_gap_ms, 1200);
+  assert.equal(sample.native_background_ms, 1000);
+});
+
 test('F801 source settlement remains attributable without prematurely completing a load', () => {
   let now = 0;
   const rows = [];

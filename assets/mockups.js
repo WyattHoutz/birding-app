@@ -779,6 +779,59 @@ async function prepareSetupReview(A, document, state, personalFixture) {
   }
 }
 
+async function prepareSetupLoadingReview(A, document, personalFixture, lower) {
+  const w = document.defaultView, storage = w.localStorage;
+  A.showMenu();
+  storage.setItem('ebird_seen_meta', JSON.stringify({ source: 'csv', count: 0, year: 2026 }));
+  A.applyCapturedIdentity({ status: 'ok', displayName: 'Sample Birder' });
+  A.acceptWorkingKey('SYNTHETIC_PREVIEW_ONLY');
+  storage.setItem(A.homeKey('lat'), '47.6');
+  storage.setItem(A.homeKey('lng'), '-122.3');
+  await personalFixture(A, w, { yearList: [
+    { code: 'amerob', name: 'American Robin' }, { code: 'grycat', name: 'Gray Catbird' }
+  ] });
+  storage.setItem('bc_setup_step_v1', 'loading');
+  const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+  if (!tasks.taxonomy.prepared || !tasks.personal.prepared)
+    throw new Error('Loading preview lacks positively verified prior taxonomy/personal data');
+  Object.keys(tasks).filter(key => !['taxonomy', 'personal'].includes(key)).forEach(key => {
+    tasks[key].acquire = () => ['busy', 'cascades'].includes(key)
+      ? new Promise(() => {})
+      : { state: key === 'mass' ? 'partial' : key === 'favorites' ? 'notApplicable' : 'ready', value: {} };
+  });
+  A.startSetupPrefetch(tasks);
+  A.openSetupSheet();
+  const deadline = w.performance.now() + 5000;
+  while (A.setupPrefetchEngine().states.cascades.state !== 'loading' && w.performance.now() < deadline)
+    await new Promise(resolve => w.setTimeout(resolve, 10));
+  if (A.setupPrefetchEngine().states.cascades.state !== 'loading')
+    throw new Error('Representative source checks did not reach the requested loading state');
+  const body = document.getElementById('setupSheetBody');
+  if (body.querySelector('[data-source="taxonomy"], [data-source="personal"]'))
+    throw new Error('Verified prior work still appears in the loading preview');
+  const notice = document.createElement('p');
+  notice.className = 'hint';
+  notice.textContent = 'PREVIEW - sample account and source outcomes.';
+  body.prepend(notice);
+  body.dataset.mockData = 'true';
+  await document.fonts.ready;
+  const button = document.getElementById('setupContinueAvailable');
+  const rect = button.getBoundingClientRect();
+  if (rect.top < 0 || rect.bottom > w.innerHeight + 0.5 || rect.height < 43.5)
+    throw new Error('Loading preview action is clipped: ' + JSON.stringify({
+      top: rect.top, bottom: rect.bottom, height: rect.height, viewport: w.innerHeight
+    }));
+  if (lower) body.scrollTop = body.scrollHeight;
+  const header = document.getElementById('setupSheet').querySelector('.sheethead').getBoundingClientRect();
+  const footer = document.getElementById('setupSheetActions').getBoundingClientRect();
+  if (header.top < 0 || footer.bottom > w.innerHeight + 0.5)
+    throw new Error('Scrolled loading geometry: ' + JSON.stringify({
+      headerTop: header.top, footerBottom: footer.bottom, viewport: w.innerHeight,
+      scroll: body.scrollTop, bodyHeight: body.clientHeight,
+      viewportTop: w.visualViewport && w.visualViewport.offsetTop
+    }));
+}
+
 const SETUP_REVIEW_SHOTS = [
   ['account', '1. Connect your eBird account'],
   ['connected', '1A. Confirm the connected account'],
@@ -803,6 +856,13 @@ const SETUP_REVIEW_SHOTS = [
   prep: `await (${prepareSetupReview.toString()})(A, document, ${JSON.stringify(state)},
     ${preparePersonalFixture.toString()});`
 }));
+SETUP_REVIEW_SHOTS.push(...[false, true].map(lower => ({
+  id: 'f1288-setup-loading' + (lower ? '-more' : ''),
+  title: lower ? 'Initial checks - remaining sources with fixed actions' : 'Initial checks - verified prior work omitted',
+  freshApp: true, viewportHeight: 874,
+  prep: `await (${prepareSetupLoadingReview.toString()})(A, document,
+    ${preparePersonalFixture.toString()}, ${lower});`
+})));
 
 const REVIEW_SHOTS = [
   ...SETUP_REVIEW_SHOTS,
@@ -3656,6 +3716,11 @@ const BOOTSTRAP = `
           { code: 'baisan', name: "Baird's Sandpiper", sci: 'Calidris bairdii', alpha: 'BASA' },
           { code: 'hawama', name: 'Hawaii Amakihi', sci: 'Chlorodrepanis virens', alpha: 'HAAM' }
         ]);
+        localStorage.setItem(A.speciesCacheKey(A.getObsRegion()),JSON.stringify({
+          at:Date.now(),expected:1,listedCodes:['baisan'],rows:[
+            {code:'baisan',name:"Baird's Sandpiper",sci:'Calidris bairdii',alpha:'BASA'}
+          ]
+        }));
         localStorage.setItem('ebird_watchlist_v1', JSON.stringify([
           { code: 'baisan', name: "Baird's Sandpiper" },
           { code: 'hawama', name: 'Hawaii Amakihi' }
@@ -3692,7 +3757,7 @@ const BOOTSTRAP = `
           throw new Error('Needs proof regional scope fixture drifted: ' + JSON.stringify({
             label: scopeLabel && scopeLabel.textContent, pressed: scopeButtons[0]?.getAttribute('aria-pressed'),
             rows: host.textContent, status: document.getElementById('nvStatus').textContent,
-            evidence: A.personalListEvidence().coverage
+            evidence: JSON.parse(localStorage.getItem(A.speciesCacheKey(A.getObsRegion())) || 'null')
           }));
         }
         document.getElementById('nvStatus').textContent =
@@ -4971,6 +5036,19 @@ async function main() {
         console.error('  !! ' + shot.id + ': internal card text breaks or clips');
         blank.push(shot.id);
       }
+    }
+    if (shot.id.startsWith('f1288-setup-loading')) {
+      const geometry = await c.send('Runtime.evaluate', {
+        expression: `(function () {
+          var f = document.getElementById('f'), w = f.contentWindow, d = w.document;
+          return { parentScroll: window.scrollY, frameTop: f.getBoundingClientRect().top,
+            parentHeight: window.innerHeight, frameHeight: w.innerHeight,
+            visualHeight: w.visualViewport.height, visualTop: w.visualViewport.offsetTop,
+            headerTop: d.querySelector('#setupSheet .sheethead').getBoundingClientRect().top,
+            footerBottom: d.getElementById('setupSheetActions').getBoundingClientRect().bottom };
+        })()`, returnByValue: true
+      }, sessionId);
+      console.log('  loading capture geometry ' + JSON.stringify(geometry.result.value));
     }
     const png = await c.send('Page.captureScreenshot', {
       format: 'png',

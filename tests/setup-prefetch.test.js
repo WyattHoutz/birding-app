@@ -195,3 +195,110 @@ test('F1259 cancelled late failures cannot publish or turn an obsolete attempt i
   assert.equal(engine.settled(), false);
   assert.equal(engine.complete(), false);
 });
+
+test('F1285 monotonic task partitions and group settlement exclude unrelated overlapping work', async () => {
+  let now = 0, sharedDone, dependentDone, otherDone;
+  const engine = prefetch.create({
+    shared: { acquire: () => new Promise(resolve => { sharedDone = resolve; }) },
+    dependent: { depends: ['shared'], acquire: () => new Promise(resolve => { dependentDone = resolve; }) },
+    other: { acquire: () => new Promise(resolve => { otherDone = resolve; }) }
+  }, () => true, null, null, {
+    clock: () => now, wallClock: () => 1700000000000 + now,
+    groups: [['Shared view', ['shared', 'dependent']], ['Other view', ['other']]]
+  });
+  const pending = engine.run();
+  await new Promise(resolve => setImmediate(resolve));
+  now = 100; sharedDone({ state: 'ready' });
+  await new Promise(resolve => setImmediate(resolve));
+  now = 140; dependentDone({ state: 'ready' });
+  await new Promise(resolve => setImmediate(resolve));
+  now = 250; otherDone({ state: 'ready' });
+  await pending;
+  const rows = engine.timings(), dependent = rows.find(row => row.type === 'task' && row.source === 'dependent');
+  assert.equal(dependent.queued_at_ms, 0);
+  assert.equal(dependent.acquisition_started_at_ms, 100);
+  assert.equal(dependent.dependency_wait_ms, 100);
+  assert.equal(dependent.acquisition_ms, 40);
+  assert.equal(dependent.elapsed_ms, 140);
+  assert.equal(dependent.wall_ended_at_ms, 1700000000140);
+  const shared = rows.find(row => row.type === 'task' && row.source === 'shared');
+  assert.ok(shared.joins > 0, 'the existing owned source join must be retained');
+  const group = rows.find(row => row.type === 'group' && row.source === 'Shared view');
+  assert.equal(group.ended_at_ms, 140);
+  assert.equal(group.wall_queued_at_ms, 1700000000000);
+  assert.equal(group.wall_ended_at_ms, 1700000000140);
+  assert.equal(group.elapsed_ms, 140, 'group elapsed is neither summed task duration nor the unrelated 250ms');
+  assert.equal(rows.find(row => row.type === 'group' && row.source === 'Other view').elapsed_ms, 250);
+  assert.equal(dependent.clock, 'controlled-monotonic');
+  assert.equal(dependent.sleep_attribution, 'unclassified');
+});
+
+test('F1285 first pass, selective recovery, durable evidence and later in-run reuse remain distinct', async () => {
+  let now = 0, wall = 1700000000000, cachedCalls = 0, failedCalls = 0;
+  const engine = prefetch.create({
+    failed: { acquire: retry => {
+      failedCalls++; now += 10; wall -= 3600000;
+      return { state: retry ? 'ready' : 'failed', detail: 'SECRET-error-body' };
+    } },
+    cached: { acquire: () => { cachedCalls++; return { state: 'cached', value: { token: 'SECRET-value' } }; } },
+    dependent: { depends: ['failed', 'cached'], acquire: () => { now += 5; return { state: 'ready' }; } }
+  }, () => true, null, null, { clock: () => now, wallClock: () => wall,
+    groups: [['Combined', ['failed', 'cached', 'dependent']]] });
+  await engine.initial();
+  const rows = engine.timings(), attempts = rows.filter(row => row.type === 'task' && row.source === 'failed');
+  assert.deepEqual(attempts.map(row => [row.pass, row.attempt, row.state, row.retry]),
+    [[1, 1, 'failed', false], [2, 2, 'ready', true]]);
+  assert.equal(rows.find(row => row.type === 'task' && row.source === 'cached').reuse, 'durable-cache');
+  assert.ok(rows.some(row => row.type === 'reuse' && row.source === 'cached' && row.reuse === 'within-run'));
+  assert.deepEqual(rows.filter(row => row.type === 'group').map(row => [row.phase, row.state]),
+    [['first-pass', 'partial'], ['recovery', 'ready'], ['initial-final', 'ready']]);
+  for (const row of rows.filter(row => row.type === 'task')) {
+    assert.equal(row.elapsed_ms, row.dependency_wait_ms + row.acquisition_ms);
+    assert.ok(row.elapsed_ms >= 0, 'a wall-clock change must not corrupt monotonic durations');
+  }
+  assert.doesNotMatch(JSON.stringify(rows), /SECRET|token|detail/);
+  await engine.run();
+  assert.deepEqual([cachedCalls, failedCalls], [1, 2]);
+  assert.equal(engine.timings().filter(row => row.type === 'pass').at(-1).phase, 'follow-up');
+});
+
+test('F1285 cancellation and obsolete owners retain timing without publishing late ready results', async () => {
+  for (const obsolete of [false, true]) {
+    let now = 0, current = true, release, dependentCalls = 0;
+    const engine = prefetch.create({
+      source: { acquire: () => new Promise(resolve => { release = resolve; }) },
+      dependent: { depends: ['source'], acquire: () => { dependentCalls++; return { state: 'ready' }; } }
+    }, () => current, null, null, { clock: () => now,
+      groups: [['Combined', ['source', 'dependent']]] });
+    const pending = engine.initial();
+    await new Promise(resolve => setImmediate(resolve));
+    now = 25;
+    if (obsolete) current = false;
+    else {
+      engine.cancel();
+      assert.equal(engine.timings().filter(row => row.type === 'task' && row.state === 'cancelled').length, 2,
+        'cancellation must retain both active acquisition and prerequisite waiting immediately');
+    }
+    now = 50; release({ state: 'ready', value: 'SECRET-late-value' });
+    await pending;
+    assert.equal(dependentCalls, 0);
+    assert.notEqual(engine.states.source.state, 'ready');
+    const tasks = engine.timings().filter(row => row.type === 'task');
+    assert.deepEqual(tasks.map(row => row.state), ['cancelled', 'cancelled']);
+    assert.equal(tasks.find(row => row.source === 'dependent').acquisition_ms, 0);
+    assert.equal(engine.timings().filter(row => row.type === 'group').at(-1).state, 'cancelled');
+    assert.doesNotMatch(JSON.stringify(engine.timings()), /SECRET/);
+  }
+});
+
+test('F1285 timing observers cannot change acquisition and retained journals are bounded', async () => {
+  let calls = 0;
+  const engine = prefetch.create({
+    source: { acquire: () => { calls++; return { state: 'ready', value: 'SECRET-value' }; } }
+  }, () => true, null, () => { throw new Error('Synthetic observer failure'); });
+  for (let run = 0; run < 150; run++) await engine.run();
+  assert.equal(calls, 1);
+  assert.equal(engine.complete(), true);
+  assert.ok(engine.timings().length <= 128);
+  assert.doesNotMatch(JSON.stringify(engine.timings()), /SECRET|Synthetic/);
+});

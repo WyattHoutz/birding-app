@@ -4,9 +4,57 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const Diagnostics = require('../www/diagnostic-package.js');
 const Audit = require('../www/audit-log.js');
 const Performance = require('../www/performance-report.js');
+
+function productionScrubber() {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
+  const start = html.indexOf('function scrubText(value)');
+  const end = html.indexOf('function cleanEntry(', start);
+  assert.ok(start >= 0 && end > start, 'the actual shared privacy functions must be loaded');
+  return vm.runInNewContext(html.slice(start, end) + '\nscrubText;', {
+    URL, window: { localStorage: { getItem: () => null } }
+  });
+}
+
+for (const [format, input] of [
+  ['double-pipe cache tuples', 'cache=scope||14.752341||-165.164352'],
+  ['polygon query remnants',
+    'https://api.gbif.org/v1/occurrence/search?geometry=POLYGON((14.752341 -165.164352,14.987654 -165.678912,14.752341 -165.164352))'],
+  ['truncated location fragments', '[URL redacted; host=api.gbif.org] -165.678912']
+]) {
+  test('F1282 actual shared scrubber and package omit ' + format, () => {
+    const scrub = productionScrubber(), before = globalThis.__dbg;
+    try {
+      globalThis.__dbg = { scrubText: scrub };
+      for (const raw of [input, encodeURIComponent(input),
+        encodeURIComponent(encodeURIComponent(input)), '%ZZ ' + input]) {
+        const metrics = ' received=224 elapsedMs=1500.25 queuedMs=12.75';
+        const clean = scrub(scrub(raw + metrics));
+        assert.doesNotMatch(clean, /14\.752341|-165\.164352|14\.987654|-165\.678912/);
+        assert.ok(clean.endsWith(metrics), 'non-location decimal metrics must survive');
+        const audit = Audit.create({ indexedDB: null });
+        audit.event('network.request_end', { category: 'network', attrs: {
+          stage: raw, received_rows: 224, elapsed_ms: 1500.25
+        } });
+        const packed = Diagnostics.packageFiles(audit.bundle(), {
+          environment: { stage: raw, elapsed_ms: 1500.25 }
+        });
+        const zip = Buffer.from(Diagnostics.zip(packed.files)).toString('utf8');
+        assert.match(zip, /network\.request_end/);
+        assert.match(zip, /1500\.25/);
+        assert.doesNotMatch(zip, /14\.752341|-165\.164352|14\.987654|-165\.678912/);
+      }
+      assert.equal(scrub('received=224 elapsedMs=1500.25 queuedMs=12.75'),
+        'received=224 elapsedMs=1500.25 queuedMs=12.75');
+    } finally {
+      if (before === undefined) delete globalThis.__dbg;
+      else globalThis.__dbg = before;
+    }
+  });
+}
 
 test('F608 production builds have no expiry while sideload beta expires exactly', () => {
   const productionSource = fs.readFileSync(

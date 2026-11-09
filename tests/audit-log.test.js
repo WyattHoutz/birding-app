@@ -67,6 +67,65 @@ test('F609 in-memory event ring is bounded', () => {
   assert.equal(audit.events()[0].attrs.completed, 100);
 });
 
+test('F1285 setup timing survives ordinary ring churn in the real bundle and production persistence', () => {
+  const audit = Audit.create({ indexedDB: null, buildChannel: 'production' });
+  audit.event('setup.timing', { category: 'lifecycle', tags: ['performance'], attrs: {
+    run: 1, source: 'birdcast', pass: 1, elapsed_ms: 1500.25,
+    apiKey: 'SECRET-timing', coordinates: [14.752341, -165.164352]
+  } });
+  for (let row = 0; row < 1400; row++) {
+    audit.event('render.progress', { category: 'render', attrs: { completed: row } });
+  }
+  assert.equal(audit.events().length, 1200);
+  assert.equal(audit.events()[0].event, 'setup.timing');
+  assert.equal(audit.events().at(-1).attrs.completed, 1399);
+  assert.equal(audit.persistentEvents()[0].attrs.elapsed_ms, 1500.25);
+  const content = audit.bundle().files['events.jsonl'];
+  assert.match(content, /"source":"birdcast"/);
+  assert.match(content, /1500\.25/);
+  assert.doesNotMatch(content, /SECRET|14\.752341|-165\.164352|coordinates/);
+});
+
+test('F1285 retained timing rows remain bounded and do not displace the latest ordinary events', () => {
+  const audit = Audit.create({ indexedDB: null });
+  for (let run = 0; run < 200; run++) {
+    audit.event('setup.timing', { category: 'lifecycle', attrs: { run: run, source: 'taxonomy' } });
+  }
+  for (let row = 0; row < 1400; row++) {
+    audit.event('render.progress', { category: 'render', attrs: { completed: row } });
+  }
+  const timings = audit.events().filter(row => row.event === 'setup.timing');
+  assert.equal(timings.length, 128);
+  assert.equal(timings[0].attrs.run, 72);
+  assert.equal(timings.at(-1).attrs.run, 199);
+  assert.equal(audit.events().length, 1200);
+  assert.equal(audit.events().at(-1).attrs.completed, 1399);
+});
+
+test('F1283 the latest native snapshot survives churn without accumulating or reducing setup retention', () => {
+  const audit = Audit.create({ indexedDB: null, buildChannel: 'production' });
+  for (let run = 0; run < 128; run++) {
+    audit.event('setup.timing', { category: 'lifecycle', attrs: { run } });
+  }
+  for (let sequence = 1; sequence <= 200; sequence++) {
+    audit.event('native.lifecycle', { category: 'lifecycle', attrs: {
+      native_observed: true, events: [{ sequence, phase: 'foreground', at_ms: 2000 + sequence, uptime_ms: sequence }]
+    } });
+  }
+  for (let row = 0; row < 1400; row++) {
+    audit.event('render.progress', { category: 'render', attrs: { completed: row } });
+  }
+  const rows = audit.bundle().files['events.jsonl'].trim().split('\n').map(JSON.parse);
+  const native = rows.filter(row => row.event === 'native.lifecycle');
+  assert.equal(native.length, 1);
+  assert.equal(native[0].attrs.events[0].sequence, 200);
+  assert.equal(rows.filter(row => row.event === 'setup.timing').length, 128);
+  assert.equal(audit.persistentEvents().filter(row => row.event === 'native.lifecycle').length, 1);
+  assert.equal(rows.length, 1200);
+  assert.equal(rows.at(-1).attrs.completed, 1399);
+  assert.ok(rows.every((row, index) => !index || row.seq > rows[index - 1].seq));
+});
+
 test('F609 redacts sensitive fields before they enter the event buffer', () => {
   const audit = Audit.create({ indexedDB: null, random: () => 0.5 });
   const row = audit.event('network.request_end', {

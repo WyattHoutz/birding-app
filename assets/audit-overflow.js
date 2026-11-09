@@ -257,9 +257,27 @@ const AUDIT = `<script>
   function scan(label) {
     var setup = document.getElementById('setupSheet');
     if (setup && !setup.hidden) {
-      var buttons = Array.from(setup.querySelectorAll('#setupSheetBody button')).filter(function (button) {
+      var buttons = Array.from(setup.querySelectorAll('#setupSheetBody button, #setupSheetActions button')).filter(function (button) {
         return button.getBoundingClientRect().width > 0;
       });
+      var viewport = window.visualViewport;
+      var usableTop = viewport ? viewport.offsetTop : 0;
+      var usableBottom = usableTop + (viewport ? viewport.height : window.innerHeight);
+      buttons.filter(function (button) {
+        return button.classList.contains('setupprimary')
+          || ['setupContinueAvailable', 'setupSkipSeen', 'setupContinue', 'setupBack', 'setupReview'].indexOf(button.id) >= 0;
+      }).forEach(function (button) {
+        var rect = button.getBoundingClientRect();
+        if (rect.top < usableTop - 0.5 || rect.bottom > usableBottom + 0.5)
+          throw new Error('F1278 wizard action is outside the usable viewport: '
+            + JSON.stringify({id:button.id,top:rect.top,bottom:rect.bottom,
+              usableTop:usableTop,usableBottom:usableBottom}));
+      });
+      var footer = document.getElementById('setupSheetActions');
+      if (footer && footer.children.length
+          && document.getElementById('setupSheetBody').getBoundingClientRect().bottom
+            > footer.getBoundingClientRect().top + 0.5)
+        throw new Error('F1278 scrolling content overlaps its action footer');
       var primary = buttons.filter(function (button) { return button.classList.contains('setupprimary'); });
       var options = document.getElementById('setupHomeOptions');
       var choosing = document.getElementById('setupSheetBody').dataset.setupStep === 'home'
@@ -308,9 +326,7 @@ const AUDIT = `<script>
           return line.left < rect.left - 1 || line.right > rect.right + 1
             || line.top < rect.top - 1 || line.bottom > rect.bottom + 1;
         });
-        if (style.textDecorationLine !== 'none'
-          || (button.id !== 'setupSkipSeen' && button.id !== 'setupContinueAvailable'
-            && style.whiteSpace !== 'nowrap') || rect.height < 43.5
+        if (style.textDecorationLine !== 'none' || rect.height < 43.5
           || button.scrollWidth > button.clientWidth + 1
           || clipped
           || (main && size < 20 * Number(AUDIT_SCALE) - 0.5)
@@ -918,9 +934,11 @@ const AUDIT = `<script>
       var close = document.getElementById(prefix + 'SearchClear'), hidden = close.hidden;
       [true, false].forEach(function (closed) {
         close.hidden = closed;
-        var ir = input.getBoundingClientRect(), br = search.getBoundingClientRect();
-        savedSearch.push({closeHidden: closed, sameLine: Math.abs(
+        var ir = input.getBoundingClientRect(), br = search.getBoundingClientRect(), cr = close.getBoundingClientRect();
+        savedSearch.push({favorite:prefix==='fav',closeHidden: closed, sameLine: Math.abs(
           (ir.top + ir.bottom) / 2 - (br.top + br.bottom) / 2) <= 1,
+          inputOwnRow:br.top>=ir.bottom,actionsSameRow:Math.abs(br.top-cr.top)<=0.5,
+          closeWidth:cr.width,closeHeight:cr.height,closeRight:cr.right,
           afterInput: br.left >= ir.right, inputWidth: ir.width,
           right: br.right, width: br.width, height: br.height});
       });
@@ -1285,6 +1303,45 @@ const AUDIT = `<script>
     (document.getElementById('setupContinue') || document.getElementById('setupSkipSeen')).click();
     out.push(scan('(F1180 setup seen result review)'));
     document.getElementById('appSheet').querySelector('[data-setup-confirm-continue]').click();
+    if (document.getElementById('setupSheetBody').dataset.setupStep !== 'favorites')
+      throw new Error('F1280 verified seen review must precede Favorite choices');
+    var favoriteCacheKey='ebird_hotspots_v2:'+String(A.getReport().stateCode || '');
+    var favoriteCache=localStorage.getItem(favoriteCacheKey), savedFavorites=JSON.stringify(A.getFavs());
+    try {
+      localStorage.setItem(favoriteCacheKey,JSON.stringify({at:Date.now(),rows:[
+        {locId:'L128001',locName:'Synthetic searchable first patch',lat:47.6,lng:-122.3,n:20},
+        {locId:'L128002',locName:'Synthetic searchable second patch',lat:47.7,lng:-122.4,n:10}
+      ]}));
+      var favoriteInput=document.getElementById('setupFavoriteSearch');
+      favoriteInput.value='searchable';
+      favoriteInput.dispatchEvent(new Event('input',{bubbles:true}));
+      document.getElementById('setupFavoriteSearchBtn').click();
+      for(var favoriteWait=0;favoriteWait<100
+          && !document.querySelector('[data-setup-favorite="L128002"]');favoriteWait++)
+        await new Promise(function(resolve){setTimeout(resolve,10);});
+      var favoriteChoice=document.querySelector('[data-setup-favorite="L128002"]');
+      if(!favoriteChoice)throw new Error('F1280 actual hotspot choices did not load');
+      var countBefore=Number(document.getElementById('setupFavoriteCount').textContent.split(' ')[0]);
+      favoriteChoice.click();
+      if(Number(document.getElementById('setupFavoriteCount').textContent.split(' ')[0])!==countBefore+1)
+        throw new Error('F1280 selected count must reflect the actual checkbox');
+      var favoriteScan=scan('(F1280 setup Favorite multiselection)');
+      favoriteScan.setupFavorites={choices:document.querySelectorAll('[data-setup-favorite]').length,
+        selected:Number(document.getElementById('setupFavoriteCount').textContent.split(' ')[0])};
+      document.querySelectorAll('[data-setup-favorite]').forEach(function(input){
+        var rect=input.getBoundingClientRect();
+        if(rect.width<43.5||rect.height<43.5)
+          throw new Error('F1280 Favorite checkbox lost its tap target');
+      });
+      out.push(favoriteScan);
+      setupKeyboardRegression(out,'setupFavoriteSearch','Favorites');
+      document.getElementById('setupSkipFavorites').click();
+      if(JSON.stringify(A.getFavs())!==savedFavorites)
+        throw new Error('F1280 Skip replaced saved Favorite choices');
+    } finally {
+      if(favoriteCache===null)localStorage.removeItem(favoriteCacheKey);
+      else localStorage.setItem(favoriteCacheKey,favoriteCache);
+    }
     out.push(scan('(F1067 setup summary)'));
     document.getElementById('setupSheetClose').click();
     A.openRegionChooser();
@@ -1529,6 +1586,10 @@ const AUDIT = `<script>
         {rank:100,name:'Another birder',species:200,checklists:800,
           recent:'American Golden-Plover (Oct. 1, 2026)'}
       ]},'US-WA','https://ebird.org/top100','');
+      var populatedRankLinks=Array.from(document.querySelectorAll('#rankResults .rankrow .rankbirdline a.splink'));
+      if(JSON.stringify(populatedRankLinks.map(function(link){return link.dataset.sp;}))!=='["coripl","amgplo"]')
+        throw new Error('F1289 actual populated Top 100 links are required before geometry: '
+          +JSON.stringify(populatedRankLinks.map(function(link){return link.dataset.sp;})));
       out.push(scan('(F851 compact Top100)'));
       var previousIdentity=localStorage.getItem(A.IDENTITY_META_KEY);
       localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'F857-owner'}));
@@ -1591,23 +1652,21 @@ const AUDIT = `<script>
         readAt:new Date().toISOString(),readDate:A.todayStr()
       }));
       var priorWatch = A.getWatchlist();
+      var yearSpeciesKey=A.speciesCacheKey(A.getObsRegion()), savedYearSpecies=localStorage.getItem(yearSpeciesKey);
+      var yearSpecies=JSON.parse(savedYearSpecies || '{"rows":[]}');
+      var scientificNames={amerob:'Turdus migratorius',bktgwa:'Setophaga nigrescens',lewwoo:'Melanerpes lewis'};
+      yearSpecies.rows=(yearSpecies.rows || []).filter(function(row){return !scientificNames[row.code];})
+        .concat(yearRows.map(function(row){return {code:row.code,name:row.name,sci:scientificNames[row.code]};}));
+      localStorage.setItem(yearSpeciesKey,JSON.stringify(yearSpecies));
       A.setWatchlist([{code:'amerob',name:'American Robin'}]);
       A.updateMyYear();
-      var yearScan = scan('(F1264 full-width lower WATCH row)');
+      var yearScan = scan('(F1275 two-row Year/Life WATCH layout)');
       var cardReadability = ${require('./card-readability').toString()};
       yearScan.watchActions=[].map.call(document.querySelectorAll('#myYearList .myYearWatchlist'),function(button){
         var card=button.closest('li'),photo=card.querySelector('.thumb');
-        var name=card.querySelector('.ntext'),footer=button.parentElement;
+        var name=card.querySelector('.ntext');
         var font=getComputedStyle(name).fontSize;
-        var originalColumns=card.style.gridTemplateColumns;
-        card.style.gridTemplateColumns='80px minmax(0, 1fr) calc(78px * var(--s))';
-        var primary=document.createElement('span');primary.className='spprimary';
-        card.querySelector('.name').appendChild(primary);
-        primary.appendChild(button);footer.remove();
-        var legacyNameWidth=name.getBoundingClientRect().width;
-        card.appendChild(footer);footer.appendChild(button);primary.remove();
-        card.style.gridTemplateColumns=originalColumns;
-        var nameWidth=name.getBoundingClientRect().width;
+        var titleRect=name.getBoundingClientRect(), cardRect=card.getBoundingClientRect();
         var meta=card.querySelector('.meta').getBoundingClientRect();
         var rect=button.getBoundingClientRect(),image=photo.getBoundingClientRect();
         var style=getComputedStyle(button);
@@ -1616,9 +1675,14 @@ const AUDIT = `<script>
           background:style.backgroundColor,color:style.color,
           right:rect.right,left:rect.left,photoRight:image.right,
           primary:button.parentElement.classList.contains('spprimary'),
-          below:rect.top>=meta.bottom-.5,
-          nameWidth:nameWidth,legacyNameWidth:legacyNameWidth,
-          stackedName:getComputedStyle(name).gridColumn==='1 / -1',
+          belowName:rect.top>=titleRect.bottom-.5,
+          besideMeta:Math.abs(rect.top-meta.top)<=.5 && rect.left>=meta.right-.5,
+          rightAligned:Math.abs(rect.right-cardRect.right)<=.5,
+          imageSpans:getComputedStyle(photo).gridRow==='1 / 3',
+          nameSpans:getComputedStyle(name).gridColumn==='2 / 4',
+          identifiersBelow:!!card.querySelector('.meta > .spidline')
+            && !card.querySelector('.ntext > .spsci, .ntext > .spidline'),
+          science:card.querySelector('.meta > .spsci') && card.querySelector('.meta > .spsci').textContent,
           sameFont:getComputedStyle(name).fontSize===font,
           title:cardReadability(card),clipped:cardReadability(card).actions.some(function(action){return action.clipped;}),
           wordBroken:cardReadability(card).wordBroken};
@@ -1648,6 +1712,8 @@ const AUDIT = `<script>
         });
       } finally { A.setTheme(watchTheme); }
       out.push(yearScan);
+      if(savedYearSpecies===null)localStorage.removeItem(yearSpeciesKey);
+      else localStorage.setItem(yearSpeciesKey,savedYearSpecies);
       var readingRows = Array.from({length:200},function (_,index) {
         return {code:'reading' + index,name:'Reading position bird ' + String(index).padStart(3,'0'),
           observedAt:''};
@@ -3525,7 +3591,13 @@ const AUDIT = `<script>
       if(body.dataset.setupStep!=='loading'||!continuation)throw new Error('F1270 actual mixed loading component missing');
       var result=scan('(F1269/F1270 mixed initial checks)');
       var box=continuation.getBoundingClientRect();
+      var states=Object.values(A.setupPrefetchEngine().states);
       result.mixedSetup={count:document.getElementById('setupPrefetchCount').textContent,
+        total:Object.keys(tasks).length,
+        finished:states.filter(function(item){
+          return ['ready','partial','failed','blocked','notApplicable','cancelled'].includes(item.state);
+        }).length,
+        ready:states.filter(function(item){return item.state==='ready';}).length,
         activity:document.getElementById('setupActivityStage').textContent,
         width:box.width,height:box.height,right:box.right};
       out.push(result);
@@ -3629,6 +3701,39 @@ const AUDIT = `<script>
       else localStorage.removeItem(key);
     }
   }
+  function setupKeyboardRegression(out, fieldId, state) {
+    var field=document.getElementById(fieldId), body=document.getElementById('setupSheetBody');
+    var descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport');
+    var focus=document.activeElement, scroll=body.scrollTop;
+    try {
+      Object.defineProperty(window,'visualViewport',{configurable:true,value:{
+        height:400,offsetTop:24,scale:1
+      }});
+      field.focus();
+      window.dispatchEvent(new Event('resize'));
+      var area=body.getBoundingClientRect(), input=field.getBoundingClientRect();
+      if(document.activeElement!==field || area.height<input.height
+          || input.top<area.top-.5 || input.bottom>area.bottom+.5)
+        throw new Error('F1278 focused field is not usable in the contracted viewport: '
+          +JSON.stringify({state:state,bodyTop:area.top,bodyBottom:area.bottom,
+            inputTop:input.top,inputBottom:input.bottom}));
+      var result=scan('(F1278 '+state+' contracted editing viewport)');
+      var draft=field.value, next=document.getElementById('setupBack');
+      next.focus({preventScroll:true});
+      window.dispatchEvent(new Event('resize'));
+      if(document.activeElement!==next || field.value!==draft)
+        throw new Error('F1278 footer focus lost the editing draft');
+      scan('(F1278 '+state+' editing footer focus)');
+      result.setupKeyboard={state:state,bodyHeight:area.height,inputHeight:input.height};
+      out.push(result);
+    } finally {
+      if(descriptor)Object.defineProperty(window,'visualViewport',descriptor);
+      else delete window.visualViewport;
+      window.dispatchEvent(new Event('resize'));
+      body.scrollTop=scroll;
+      if(focus && focus.isConnected)focus.focus({preventScroll:true});
+    }
+  }
   async function homeApprovalRegression(out) {
     var A = window.__app, fetch = window.fetch;
     var descriptor = Object.getOwnPropertyDescriptor(navigator,'geolocation');
@@ -3647,7 +3752,7 @@ const AUDIT = `<script>
       var dialog = document.getElementById('appSheet');
       var root = dialog && !dialog.hidden && /^setup-/.test(dialog.dataset.infoId || '')
         ? dialog.querySelector('.sheetbody') : document.getElementById(state === 'Settings Home candidate'
-          ? 'settingsPanel' : 'setupSheetBody');
+          ? 'settingsPanel' : 'setupSheet');
       require(root.getBoundingClientRect().width > 0,state + ' is hidden');
       var controls = Array.from(root.querySelectorAll('button')).filter(function (button) {
         return button.getBoundingClientRect().width > 0;
@@ -3755,6 +3860,7 @@ const AUDIT = `<script>
       require(document.activeElement===document.getElementById('setupHomePlace'),
         'F1177 Edit Home did not focus the actual field');
       record('Home candidate');
+      setupKeyboardRegression(out,'setupHomePlace','Home');
       document.getElementById('setupHomeApprove').click();
       require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
         'F1172 manual Home review bypassed its confirmation');
@@ -3856,7 +3962,7 @@ const AUDIT = `<script>
           });
           return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
         }
-        document.querySelectorAll('#setupSheetBody button').forEach(function(button){
+        document.querySelectorAll('#setupSheetBody button, #setupSheetActions button').forEach(function(button){
           if(!button.getBoundingClientRect().height || button.disabled) return;
           var chain=[],node=button;
           while(node){chain.unshift(node);node=node.parentElement;}
@@ -3873,12 +3979,34 @@ const AUDIT = `<script>
       });
       A.setTheme(previousTheme);
       out.push(scan('(F1155/F1156 key setup actions)'));
+      setupKeyboardRegression(out,'setupApiKey','API key');
       document.getElementById('setupHelp').click();
       record(document.getElementById('appSheet'),'setup Help');
       document.getElementById('appSheet').querySelector('.sheetclose').click();
       document.getElementById('setupSheetClose').click();
       A.showSection('settingsPanel');
-      record(document.getElementById('settingsPanel'),'Settings');
+      out.push(scan('(F1284 Settings controls)'));
+      document.getElementById('keyApplicationInfo').focus();
+      document.getElementById('keyApplicationInfo').click();
+      record(document.getElementById('appSheet'),'Settings');
+      var settingsHelp=document.getElementById('appSheet');
+      var topics=Array.from(settingsHelp.querySelectorAll('[data-settings-jump]'));
+      if(topics.length!==18)throw new Error('F1284 Settings topic index is incomplete');
+      topics.forEach(function(link){
+        var heading=document.getElementById(link.getAttribute('href').slice(1));
+        if(!heading||heading.textContent!==link.textContent||link.getBoundingClientRect().height<43.5)
+          throw new Error('F1284 topic links must match setting labels and retain tap targets');
+      });
+      var settingsResult=scan('(F1284 organized Settings Info)');
+      settingsResult.settingsHelp={topics:topics.length};
+      out.push(settingsResult);
+      settingsHelp.querySelector('[data-settings-jump="advanced"]').click();
+      if(document.activeElement.id!=='settings-help-advanced')
+        throw new Error('F1284 topic jump must focus its actual heading');
+      out.push(scan('(F1284 Advanced help jump)'));
+      settingsHelp.querySelector('.sheetclose').click();
+      if(document.activeElement.id!=='keyApplicationInfo')
+        throw new Error('F1284 Settings help must restore the opening action');
     } finally {
       if (!document.getElementById('setupSheet').hidden) {
         document.getElementById('setupSheetClose').click();
@@ -4011,6 +4139,111 @@ const AUDIT = `<script>
         mutationIntercepts:mutant.length,globeOpens:true}
     }));
   }
+  async function checklistCodeRegression(out) {
+    var A=window.__app, key, saved, taxonomy=localStorage.getItem('bc_taxonomy_v1');
+    var previousModel=await A.taxonomyStore('get','identity:2025.0');
+    try {
+      var taxa=[
+        {speciesCode:'baisan',comName:"Baird's Sandpiper",category:'species',bandingCodes:['BASA']},
+        {speciesCode:'hawama',comName:'Hawaii Amakihi',category:'species',bandingCodes:['HAAM']}
+      ];
+      for(var taxon=0;taxa.length<9000;taxon++)
+        taxa.push({speciesCode:'fixturetax'+taxon,comName:'Synthetic taxon '+taxon,category:'species'});
+      await A.taxonomyStore('put','identity:2025.0',window.BirdTaxonomy.create(taxa,'2025.0'));
+      localStorage.setItem('bc_taxonomy_v1',JSON.stringify({edition:'2025.0',checkedAt:Date.now(),previousEdition:''}));
+      if(!await A.restoreTaxonomyNames())throw new Error('F1281 checked taxonomy did not restore');
+      key=A.personalListKey(A.personalListOwner());saved=localStorage.getItem(key);
+      var owner=A.personalListOwner();
+      localStorage.setItem(key,JSON.stringify({owner:owner,coverage:'empty',declaredCount:0,
+        unresolved:0,paginated:false,codes:[],rows:[],readAt:new Date().toISOString(),readDate:A.todayStr()}));
+      A.showSection('sec-stakeHsBtn',{load:false});
+      var observations=[
+        {speciesCode:'baisan',comName:"Baird's Sandpiper",subId:'S128001',howMany:2},
+        {speciesCode:'hawama',comName:'Hawaii Amakihi',subId:'S128001',howMany:5}
+      ];
+      A.renderStakeHs('L128001','Synthetic code-link patch',[
+        {subId:'S128001',obsDt:A.todayStr()+' 08:00',numSpecies:2,userDisplayName:'Synthetic observer'}
+      ],observations,{lat:47.6,lng:-122.3},false,'loaded');
+      var links=Array.from(document.querySelectorAll('.stakeHsChecklistCards .cktargets .splink'));
+      if(JSON.stringify(links.map(function(link){return link.dataset.sp;}))!=='["baisan","hawama"]')
+        throw new Error('F1281 actual canonical checklist targets missing: '+JSON.stringify({
+          codes:links.map(function(link){return link.dataset.sp;}),
+          evidence:A.personalListEvidence().state
+        }));
+      links.forEach(function(link){
+        var rect=link.getBoundingClientRect();
+        if(rect.width<43.5||rect.height<43.5||!link.hasAttribute('href'))
+          throw new Error('F1281 target link lost readable keyboard/tap access');
+      });
+      var result=scan('(F1281 actual checklist bird links)');
+      result.checklistCodes={codes:links.map(function(link){return link.dataset.sp;}),count:links.length};
+      out.push(result);
+      var event=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
+      links[1].focus();links[1].dispatchEvent(event);
+      if(!event.defaultPrevented||document.getElementById('spLookup').value!=='Hawaii Amakihi')
+        throw new Error('F1281 keyboard must navigate the independently selected bird');
+    } finally {
+      if(key) {
+        if(saved===null)localStorage.removeItem(key);else localStorage.setItem(key,saved);
+      }
+      if(previousModel)await A.taxonomyStore('put','identity:2025.0',previousModel);
+      if(taxonomy===null)localStorage.removeItem('bc_taxonomy_v1');else localStorage.setItem('bc_taxonomy_v1',taxonomy);
+      await A.restoreTaxonomyNames();
+    }
+  }
+  async function favoriteSearchRegression(out) {
+    var A = window.__app, input = document.getElementById('favSearch');
+    var search = document.getElementById('favSearchBtn'), close = document.getElementById('favSearchClear');
+    var found = document.getElementById('favFound');
+    var key = 'ebird_hotspots_v2:' + String(A.getReport().stateCode || '');
+    var cached = localStorage.getItem(key), favorites = JSON.stringify(A.getFavs());
+    try {
+      A.showSection(input.closest('section').id, {load:false});
+      if (!close.hidden) close.click();
+      if (!close.hidden || found.children.length) throw new Error('F1286 initial Close state is not empty');
+      localStorage.setItem(key, JSON.stringify({at:Date.now(),rows:[
+        {locId:'L-F1286',locName:'Synthetic searchable marsh',lat:47.75,lng:-122.16,n:100}
+      ]}));
+      input.value = 'searchable';
+      search.click();
+      for (var wait = 0; wait < 100 && close.hidden; wait++)
+        await new Promise(function (resolve) { setTimeout(resolve, 10); });
+      if (close.hidden || found.children.length !== 1) throw new Error('F1286 actual first search did not return its match');
+      var first = search.getBoundingClientRect(), second = close.getBoundingClientRect();
+      if (Math.abs(first.top-second.top) > 0.5)
+        throw new Error('F1286 Search and Close must share an action row: '
+          + JSON.stringify({searchTop:first.top,closeTop:second.top}));
+      [search,close].forEach(function (button) {
+        var rect = button.getBoundingClientRect(), range = document.createRange(), style = getComputedStyle(button);
+        var measure = document.createElement('canvas').getContext('2d');
+        measure.font = style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+        var available = button.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+        var widest = Math.max.apply(null, button.textContent.trim().split(/\\s+/).map(function (word) {
+          return measure.measureText(word).width;
+        }));
+        range.selectNodeContents(button);
+        if (rect.width < 43.5 || rect.height < 43.5
+            || style.fontSize !== getComputedStyle(document.getElementById('nvSearchBtn')).fontSize
+            || widest > available+0.5
+            || Array.from(range.getClientRects()).some(function (line) {
+              return line.left < rect.left-0.5 || line.right > rect.right+0.5;
+            })) throw new Error('F1286 search actions must preserve text and tap targets: '
+              + JSON.stringify({id:button.id,width:rect.width,height:rect.height,font:style.fontSize,
+                wordRequired:widest,wordAvailable:available}));
+      });
+      out.push(Object.assign(scan('(F1286 actual Favorite search action row)'), {
+        favoriteSearch:{matches:found.children.length,searchTop:first.top,closeTop:second.top}
+      }));
+      close.click();
+      if (!close.hidden || found.children.length || input.value
+          || JSON.stringify(A.getFavs()) !== favorites)
+        throw new Error('F1286 Close must dismiss the search without changing Favorites');
+      if (getComputedStyle(document.getElementById('nvSearchClear')).gridColumnStart !== '1')
+        throw new Error('F1286 Favorite styles must not change Watch search');
+    } finally {
+      if (cached === null) localStorage.removeItem(key); else localStorage.setItem(key,cached);
+    }
+  }
   async function finish(out) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
@@ -4025,6 +4258,10 @@ const AUDIT = `<script>
       catch (error) { out.push({label:'(F908 regression)', fixtureError:String(error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await checklistCodeRegression(out); }
+      catch(error) { out.push({label:'F1281 checklist code links',fixtureError:String(error)}); }
+      try { await favoriteSearchRegression(out); }
+      catch(error) { out.push({label:'F1286 Favorite search',fixtureError:String(error)}); }
       try { await personalBackupRegression(out); }
       catch(error) { out.push({label:'F1266 personal backup',fixtureError:String(error)}); }
       try { await mixedSetupRegression(out); }
@@ -4466,6 +4703,26 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F1266 FIXTURE missing expanded backup controls');
     }
+    if (report.filter(r => r.favoriteSearch && r.favoriteSearch.matches === 1).length !== 1) {
+      bad++;
+      console.log('   F1286 FIXTURE missing actual successful Favorite search action geometry');
+    }
+    if (report.filter(r => r.setupKeyboard).length !== 3) {
+      bad++;
+      console.log('   F1278 FIXTURE missing Home or API-key contracted editing geometry');
+    }
+    if (report.filter(r => r.setupFavorites && r.setupFavorites.choices >= 2).length !== 1) {
+      bad++;
+      console.log('   F1280 actual Favorite multiselection geometry fixture is missing');
+    }
+    if (report.filter(r => r.checklistCodes && r.checklistCodes.count === 2).length !== 1) {
+      bad++;
+      console.log('   F1281 actual canonical checklist-link geometry fixture is missing');
+    }
+    if (report.filter(r => r.settingsHelp && r.settingsHelp.topics === 18).length !== 1) {
+      bad++;
+      console.log('   F1284 organized Settings Info geometry fixture is missing');
+    }
     if (report.filter(r => r.mixedSetup).length !== 1 || report.filter(r => r.sourceIcons).length !== 1) {
       bad++;
       console.log('   F1269/F1270/F1271 FIXTURE missing mixed setup or expanded source icons');
@@ -4480,7 +4737,8 @@ server.listen(0, '127.0.0.1', () => {
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
       if (r.previewHeight) console.log('   F1086 PREVIEW HEIGHT ' + JSON.stringify(r.previewHeight));
-      if (r.mixedSetup && (!/6 Of 8 Checks Finished.*5 Ready/.test(r.mixedSetup.count)
+      if (r.mixedSetup && (r.mixedSetup.count !== r.mixedSetup.finished + ' Of '
+            + r.mixedSetup.total + ' Checks Finished · ' + r.mixedSetup.ready + ' Ready'
           || !/Loading|Recovering/.test(r.mixedSetup.activity)
           || r.mixedSetup.width < 44 || r.mixedSetup.height < 44 || r.mixedSetup.right > r.vw + .5)) {
         bad++;
@@ -4536,18 +4794,17 @@ server.listen(0, '127.0.0.1', () => {
         }
       }
         if(r.watchActions){
-          console.log('   F1264 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
+          console.log('   F1275 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
           if(JSON.stringify(r.watchThemes)!=='["light","dark"]'
             ||r.watchActions.length!==3 || r.watchActions.some(action=>
-            action.primary || !action.below || !action.sameFont
-            || action.nameWidth+.5<action.legacyNameWidth
-            || !action.stackedName && action.nameWidth<=action.legacyNameWidth+1
+            action.primary || !action.belowName || !action.besideMeta || !action.sameFont
+            || !action.rightAligned || !action.imageSpans || !action.nameSpans || !action.identifiersBelow || !action.science
             || action.width<44 || action.height<44 || action.right>r.vw+.5
-            || action.wordBroken || action.clipped || action.title.titleClipped
+            || action.clipped || action.title.titleClipped
             || action.textAlign!=='center'
             || action.color!=='rgb(0, 0, 0)'
             || action.background!==(action.pressed==='true'?'rgb(213, 94, 0)':'rgb(0, 158, 115)'))){
-            bad++;console.log('   F1264 WATCH must sit below metadata, restore name width and preserve type/touch targets');
+            bad++;console.log('   F1275 WATCH must sit beside metadata below the full-width name, with the image spanning rows');
           }
         }
         if(r.tickContributors && (!r.tickContributors.open || r.tickContributors.ranks!=='120,2'
@@ -4637,7 +4894,9 @@ server.listen(0, '127.0.0.1', () => {
       }
       if (r.label === 'sec-favResults' || r.label === 'sec-nvResults') {
         if (r.savedSearch.length !== 2 || r.savedSearch.some((search) =>
-          !search.sameLine || !search.afterInput || search.inputWidth <= 0
+          (search.favorite ? !search.inputOwnRow || !search.closeHidden
+              && (!search.actionsSameRow || search.closeWidth < 44 || search.closeHeight < 44 || search.closeRight > r.vw)
+            : !search.sameLine || !search.afterInput) || search.inputWidth <= 0
             || search.right > r.vw || search.width < 44 || search.height < 44)) {
           bad++;
           console.log('   SAVED SEARCH WRAPPED  ' + JSON.stringify(r.savedSearch));

@@ -6,6 +6,7 @@
   var DB_NAME = 'birdchaser-diagnostics';
   var STORE_NAME = 'sessions';
   var MAX_EVENTS = 1200;
+  var MAX_SETUP_TIMINGS = 128;
   var MAX_SESSION_BYTES = 2 * 1024 * 1024;
   var MAX_SESSIONS = 3;
   var MAX_AGE_MS = 72 * 60 * 60 * 1000;
@@ -142,12 +143,26 @@
       };
     }
 
+    function setupTiming(row) {
+      return row.event === 'setup.timing' && row.category === 'lifecycle';
+    }
+    function retainedTiming(row) {
+      return setupTiming(row) || row.event === 'native.lifecycle' && row.category === 'lifecycle';
+    }
+    function evictOrdinaryEvent() {
+      var index = events.findIndex(function (row) { return !retainedTiming(row); });
+      events.splice(index < 0 ? 0 : index, 1);
+    }
     function trimEvents() {
-      while (events.length > MAX_EVENTS) events.shift();
+      var timings = events.filter(setupTiming);
+      while (timings.length > MAX_SETUP_TIMINGS) {
+        events.splice(events.indexOf(timings.shift()), 1);
+      }
+      while (events.length > MAX_EVENTS) evictOrdinaryEvent();
       while (events.length > 1
           && JSON.stringify({ events: events, settings: settings }).length
             > MAX_SESSION_BYTES) {
-        events.shift();
+        evictOrdinaryEvent();
       }
     }
 
@@ -224,6 +239,11 @@
         settings_rev: settingsRev,
         attrs: cleanValue(values.attrs || {}, 0)
       };
+      if (row.event === 'native.lifecycle' && row.category === 'lifecycle') {
+        for (var i = events.length - 1; i >= 0; i--) {
+          if (events[i].event === 'native.lifecycle' && events[i].category === 'lifecycle') events.splice(i, 1);
+        }
+      }
       events.push(row);
       trimEvents();
       if (verbosePersistence || category === 'error' || category === 'lifecycle'

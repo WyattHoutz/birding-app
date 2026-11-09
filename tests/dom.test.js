@@ -433,6 +433,89 @@ test('F1187 complete and stale setup summaries use current owned evidence and ro
   } finally { app.window.close(); }
 });
 
+test('F1285 actual closed-wizard timing survives console churn, Copy all and the native-shared ZIP', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    const nativeAt = Date.now();
+    assert.equal(A.noteNativeLifecycle({ events: [
+      {sequence: 1, phase: 'background', at_ms: nativeAt - 2000, uptime_ms: 100},
+      {sequence: 2, phase: 'foreground', at_ms: nativeAt - 1000, uptime_ms: 1100,
+        displayName: 'F1283-PRIVATE-NATIVE'},
+    ] }), true);
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'summary');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    let release, calls = 0;
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls++;
+        return key === 'busy' ? new Promise(resolve => { release = resolve; })
+          : { state: 'ready', value: { token: 'F1285-PRIVATE', coordinates: [14.752341, -165.164352] } };
+      };
+    });
+    const pending = A.startSetupPrefetch(tasks);
+    await waitFor(() => !!release, 'owned Busy source');
+    A.openSetupSheet();
+    app.click(app.$('setupSheetClose'));
+    release({ state: 'cached' });
+    await pending;
+    assert.equal(calls, 14, 'timing must not alter source acquisition counts');
+    const before = app.window.__audit.events().filter(row => row.event === 'setup.timing');
+    assert.ok(before.some(row => row.attrs.type === 'task' && row.attrs.source === 'taxonomy'));
+    assert.ok(before.some(row => row.attrs.type === 'task' && row.attrs.source === 'busy'
+      && row.attrs.state === 'cached' && row.attrs.reuse === 'durable-cache'));
+    assert.ok(before.some(row => row.attrs.type === 'group' && row.attrs.phase === 'initial-final'));
+    for (let row = 0; row < 1400; row++) {
+      app.window.__dbg.push('info', ['Unrelated console activity ' + row]);
+      app.window.__audit.event('render.progress', { category: 'render', attrs: { completed: row } });
+    }
+    let copied, zip;
+    Object.defineProperty(app.window.navigator, 'clipboard', { configurable: true, value: {
+      writeText: text => { copied = text; return Promise.resolve(); }
+    } });
+    app.click(app.$('openDebugBtn'));
+    app.click(app.$('dbgCopy'));
+    await waitFor(() => !!copied, 'copied retained setup timings');
+    assert.match(copied, /Initial data timing:.*"source":"taxonomy"/);
+    assert.match(copied, /Initial data timing:.*"source":"busy".*"state":"cached"/);
+    const native = JSON.parse(copied.match(/Native lifecycle evidence.*: (\{[^\n]+\})/)[1]);
+    assert.equal(native.observed, true);
+    assert.equal(native.events.length, 2);
+    assert.equal(native.events[1].sequence, 2, 'positive native evidence survives console churn and Copy all');
+    assert.doesNotMatch(copied, /F1283-PRIVATE-NATIVE/);
+    assert.doesNotMatch(copied, /F1285-PRIVATE|14\.752341|-165\.164352/);
+    app.window.__BUILD_INFO__ = {
+      channel: 'sideload', buildId: 'F1285-control', builtAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString()
+    };
+    app.window.Capacitor = app.window.Capacitor || {};
+    app.window.Capacitor.Plugins = app.window.Capacitor.Plugins || {};
+    app.window.Capacitor.Plugins.FullReport = {
+      shareDiagnosticPackage(options) {
+        zip = Buffer.from(options.base64, 'base64');
+        return Promise.resolve({ completed: false, bytes: zip.length });
+      }
+    };
+    A.initBetaRuntime(); A.initBetaTools();
+    await A.shareDiagnostic('betaDiag');
+    assert.ok(zip);
+    const contents = zip.toString('utf8');
+    const nativeMatch = contents.match(/\{[^\n]*"event":"native\.lifecycle"[^\n]*\}/);
+    assert.ok(nativeMatch, 'actual native-shared structured lifecycle snapshot is retained');
+    const nativeRow = JSON.parse(nativeMatch[0]);
+    assert.equal(nativeRow.attrs.native_observed, true);
+    assert.equal(nativeRow.attrs.events[1].sequence, 2,
+      'actual native-shared package includes positive retained lifecycle evidence');
+    assert.doesNotMatch(contents, /F1283-PRIVATE-NATIVE/);
+    assert.match(contents, /"event":"setup\.timing"/);
+    assert.match(contents, /"source":"taxonomy"/);
+    assert.match(contents, /"source":"busy"/);
+    assert.doesNotMatch(contents, /F1285-PRIVATE|14\.752341|-165\.164352/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at the final data summary', async () => {
   const app = await setupOwnedSeenApp(['stable']);
   try {
@@ -452,7 +535,20 @@ test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at
     await waitFor(() => !!release, 'shared Busy acquisition');
     A.openSetupSheet();
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
-    assert.equal(app.$('setupPrefetchRows').children.length, 8);
+    assert.equal(app.$('setupPrefetchRows').children.length, Object.keys(tasks).length,
+      'F1288 exactly one box per acquisition source');
+    const rows = [...app.$('setupPrefetchRows').children];
+    const order = rows.map(row => row.dataset.source);
+    assert.deepEqual([...order].sort(), Object.keys(tasks).sort(),
+      'F1288 every actual acquisition source appears exactly once');
+    assert.deepEqual(order.slice(0, 7),
+      ['taxonomy', 'personal', 'rankings', 'rba', 'sightings', 'patches', 'busy'],
+      'F1287 sources have a stable dependency-aware presentation order');
+    assert.match(rows.find(row => row.dataset.source === 'sightings').textContent,
+      /^Recent Bird Reports/, 'F1287 shared sightings are labelled Recent Bird Reports');
+    assert.match(app.$('setupActivityStage').textContent, /Busy Patches/);
+    assert.equal(calls, Object.keys(tasks).length,
+      'F1288 splitting the presentation must not duplicate shared acquisition');
     assert.match(app.$('setupPrefetchActivity').textContent, /Please wait.*continue automatically/);
     assert.equal(app.$('setupStartBirding'), null);
     assert.equal(app.$('setupPrefetchRetry'), null);
@@ -468,6 +564,7 @@ test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at
     await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'settled final summary');
     assert.match(app.$('setupDataResult').textContent, /Initial data fetched/);
     assert.equal(app.$('setupDataResult').dataset.initialDataOutcome, 'ready');
+    assert.equal(calls, Object.keys(tasks).length);
     const coldCalls = calls;
     await A.startSetupPrefetch(tasks);
     assert.equal(calls, coldCalls, 'warm/reopened setup must reuse every success');
@@ -499,18 +596,20 @@ test('F1260 partial initial attempts automatically advance with an honest result
     });
     const pending = A.startSetupPrefetch(tasks);
     A.openSetupSheet();
+    assert.match(app.$('setupPrefetchRows').querySelector('[data-source="cascades"]').textContent,
+      /Waiting for Rankings, Recent Bird Reports/,
+      'F1288 dependency waiting must name prerequisites rather than imply an active download');
     await waitFor(() => release, 'actual held source');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
     assert.match(app.$('setupPrefetchActivity').textContent, /Please wait/);
-    const birdGen = [...app.$('setupPrefetchRows').children]
-      .find(row => /Bird Gen/.test(row.textContent));
-    assert.equal(birdGen.dataset.state, 'loading',
+    const busy = app.$('setupPrefetchRows').querySelector('[data-source="busy"]');
+    assert.equal(busy.dataset.state, 'loading',
       'F1269 terminal partial/failure children cannot hide the current Busy acquisition');
-    assert.match(birdGen.textContent, /Loading/);
+    assert.match(busy.textContent, /Loading/);
     assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
-    assert.equal(parseInt(app.$('setupPrefetchCount').textContent, 10), 6,
+    assert.equal(parseInt(app.$('setupPrefetchCount').textContent, 10), Object.keys(tasks).length - 1,
       'F1270 finished checks include the terminal failed Rankings check');
-    assert.match(app.$('setupPrefetchCount').textContent, /· 5 Ready$/);
+    assert.match(app.$('setupPrefetchCount').textContent, /· 10 Ready$/);
     assert.equal(app.$('setupContinue'), null);
     release({ state: 'ready', value: {} });
     await pending;
@@ -525,7 +624,8 @@ test('F1260 partial initial attempts automatically advance with an honest result
     assert.ok(diagnostic.latestBlocker.source in diagnostic.sourceStates);
     assert.equal(diagnostic.settled, true);
     assert.equal(app.$('setupDataResult').dataset.initialDataOutcome, 'partial');
-    assert.match(app.$('setupDataResult').textContent, /some data is unavailable.*normal refresh.*Bird Gen.*Rankings/is);
+    assert.match(app.$('setupDataResult').textContent,
+      /some data is unavailable.*normal refresh.*Rankings.*Mass Flocks.*Rank Discoveries/is);
     assert.doesNotMatch(app.$('setupDataResult').textContent, /Initial data fetched|Retry/);
     assert.equal(app.$('setupPrefetchRetry'), null);
     await A.startSetupPrefetch(tasks);
@@ -536,6 +636,258 @@ test('F1260 partial initial attempts automatically advance with an honest result
     assert.equal(app.$('menuPanel').hidden, false);
     assert.equal(app.$('setupPrefetchBackground'), null);
   } finally { if (release) release({ state: 'ready' }); app.window.close(); }
+});
+
+test('F1278 recommended actions remain in the footer while alternatives, drafts and focus survive updates', async () => {
+  const app = await boot({ report: null, key: null, home: false, sample: false });
+  try {
+    const A = app.window.__app;
+    app.click(app.$('setupSkip'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
+    for (const value of ['', 'SYNTHETIC-DRAFT', '', 'SYNTHETIC-DRAFT']) {
+      const input = app.$('setupApiKey');
+      input.value = value;
+      input.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+      const primary = value ? 'setupVerifyKey' : 'setupGetKey';
+      const alternative = value ? 'setupGetKey' : 'setupVerifyKey';
+      const footer = app.$('setupSheetActions'), body = app.$('setupSheetBody');
+      assert.deepEqual([...footer.querySelectorAll('button')].map(button => button.id),
+        [primary, 'setupBack'], 'only the current recommendation and necessary navigation reserve footer space');
+      assert.ok(body.contains(app.$(alternative)), 'the alternative remains reachable in the scrollable body');
+      assert.ok(body.contains(app.$('setupKeyAlternatives')));
+      assert.equal(body.querySelectorAll(':scope > .setupoptionalactions').length, 1,
+        'changing recommendations must not accumulate empty action wrappers');
+      input.focus();
+      A.renderSetupSheet();
+      assert.equal(app.$('setupApiKey').value, value);
+      assert.equal(app.document.activeElement, app.$('setupApiKey'));
+    }
+    const last = app.$('setupBack'), first = app.$('setupSheetClose');
+    last.focus();
+    last.dispatchEvent(new app.window.KeyboardEvent('keydown',
+      { key: 'Tab', bubbles: true, cancelable: true }));
+    assert.equal(app.document.activeElement, first, 'footer navigation remains inside the focus loop');
+    app.click(last);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
+    assert.equal(A.getDisplayName(), '', 'Back cannot invent a connected account');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1288 only verified prior data is omitted, and stale data is revealed before real acquisition', async () => {
+  for (const stale of [false, true]) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let releaseTaxonomy, releaseBusy, releaseList;
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+      store.setItem('bc_setup_step_v1', 'loading');
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      assert.equal(tasks.personal.prepared, true, 'actual exact owned list is already verified');
+      const originalFetch = app.window.fetch;
+      let reads = 0;
+      app.window.fetch = (url, options) => /\/lifelist\//.test(url)
+        ? (reads++, new Promise(resolve => { releaseList = resolve; }))
+        : originalFetch(url, options);
+      Object.keys(tasks).filter(key => key !== 'personal').forEach(key => {
+        tasks[key].acquire = () => key === 'taxonomy'
+          ? new Promise(resolve => { releaseTaxonomy = resolve; })
+          : key === 'busy' ? new Promise(resolve => { releaseBusy = resolve; })
+            : { state: 'ready', value: {} };
+      });
+      const pending = A.startSetupPrefetch(tasks);
+      A.openSetupSheet();
+      await waitFor(() => releaseTaxonomy, 'held taxonomy prerequisite');
+      assert.equal(app.$('setupPrefetchRows').querySelector('[data-source="personal"]'), null);
+      assert.ok(app.$('setupPrefetchRows').querySelector('[data-source="taxonomy"]'),
+        'unverified/replaced acquisition cannot inherit a prepared hint');
+      assert.match(app.$('setupPrefetchCount').textContent, /Of 13 Checks/);
+      if (stale) {
+        const key = A.personalListKey(A.personalListOwner());
+        const saved = JSON.parse(store.getItem(key));
+        saved.readDate = '1900-01-01';
+        store.setItem(key, JSON.stringify(saved));
+      }
+      releaseTaxonomy({ state: 'ready', value: {} });
+      if (stale) {
+        await waitFor(() => releaseList, 'real stale-list acquisition');
+        const row = app.$('setupPrefetchRows').querySelector('[data-source="personal"]');
+        assert.ok(row, 'stale prior work must be revealed, not silently skipped');
+        assert.equal(row.dataset.state, 'loading');
+        assert.match(app.$('setupPrefetchCount').textContent, /Of 14 Checks/);
+        releaseList({ ok: true, status: 200, text: async () =>
+          ownedPersonalListFixture({ count: 1, codes: ['stable'] }) });
+      }
+      await waitFor(() => releaseBusy, 'shared Busy source after personal readiness');
+      assert.equal(reads, stale ? 1 : 0, 'fresh verified prior data avoids acquisition; stale data does not');
+      const row = A.setupPrefetchEngine().timings()
+        .find(item => item.type === 'task' && item.source === 'personal');
+      assert.equal(row.verified_prior, !stale);
+      if (!stale) {
+        assert.equal(row.reuse, 'durable-cache');
+        assert.equal(app.$('setupPrefetchRows').querySelector('[data-source="personal"]'), null);
+      }
+      releaseBusy({ state: 'ready', value: {} });
+      await pending;
+      assert.match(app.$('setupDataResult').textContent, /Initial data fetched/);
+      assert.equal(A.setupPrefetchEngine().complete(), true);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (releaseTaxonomy) releaseTaxonomy({ state: 'ready', value: {} });
+      if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+      app.window.close();
+    }
+  }
+});
+
+test('F1288 actual Taxonomy proof is revalidated before work and stale metadata reveals a real version check', async () => {
+  for (const stale of [false, true]) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let releaseBusy;
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+      store.setItem('bc_setup_step_v1', 'loading');
+      let reads = 0;
+      app.state.runtimeFetch = async url => {
+        assert.match(String(url), /ref\/taxonomy\/versions/);
+        reads++;
+        return { ok: true, status: 200, json: async () => [{ authorityVer: 2026, latest: true }] };
+      };
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      assert.equal(tasks.taxonomy.prepared, true);
+      Object.keys(tasks).filter(key => key !== 'taxonomy').forEach(key => {
+        tasks[key].acquire = () => key === 'busy'
+          ? new Promise(resolve => { releaseBusy = resolve; }) : { state: 'ready', value: {} };
+      });
+      if (stale) {
+        const meta = JSON.parse(store.getItem('bc_taxonomy_v1'));
+        meta.checkedAt = 1;
+        store.setItem('bc_taxonomy_v1', JSON.stringify(meta));
+        assert.equal(await A.restoreTaxonomyNames(), true);
+      }
+      const pending = A.startSetupPrefetch(tasks);
+      A.openSetupSheet();
+      await waitFor(() => releaseBusy, 'actual Taxonomy verification settled');
+      assert.equal(reads, stale ? 1 : 0, 'stale metadata performs one shared version check; fresh data performs none');
+      const row = app.$('setupPrefetchRows').querySelector('[data-source="taxonomy"]');
+      assert.equal(!!row, stale, 'Taxonomy visibility follows revalidated prior proof');
+      const timing = A.setupPrefetchEngine().timings().find(item => item.type === 'task' && item.source === 'taxonomy');
+      assert.equal(timing.verified_prior, !stale);
+      releaseBusy({ state: 'ready', value: {} });
+      await pending;
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+      app.window.close();
+    }
+  }
+});
+
+test('F1288 owned Rankings are omitted only with both durable boards and missing storage is visibly repaired', async () => {
+  for (const missing of [false, true]) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let releaseTaxonomy, releaseBusy;
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      const region = A.getReport().stateCode, period = A.personalBoardPeriod(), name = A.getDisplayName();
+      for (const metric of ['spp', 'cl']) {
+        const rr = { region, max: 500, metric, rowLimit: metric === 'spp' ? 500 : undefined };
+        assert.equal(A.rankCachePut(A.rankCacheOwnerKey(rr, period, name), {
+          region, period, metric, profile: A.bcProfile(), ownerRevision: A.identityRevision(),
+          readAt: new Date().toISOString(),
+          rows: [{ rank: 1, species: 10, checklists: 20, name: 'Synthetic Leader' }]
+        }), true);
+      }
+      if (missing) {
+        const [key, entry] = Object.entries(JSON.parse(store.getItem(A.RANK_CACHE_KEY)))[0];
+        const prototype = app.window.Storage.prototype, original = prototype.setItem;
+        prototype.setItem = function (key, value) {
+          if (key !== A.RANK_CACHE_KEY) return original.call(this, key, value);
+        };
+        try {
+          assert.equal(A.rankCachePut(key, {
+            ...entry.data, readAt: new Date(Date.now() + 1).toISOString()
+          }), false, 'a failed read-back establishes a real session-only answer');
+        } finally { prototype.setItem = original; }
+      }
+      store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+      store.setItem('bc_setup_step_v1', 'loading');
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      assert.equal(tasks.rankings.prepared, true, 'both real consistent owned boards are positive prior evidence');
+      Object.keys(tasks).filter(key => key !== 'rankings').forEach(key => {
+        tasks[key].acquire = () => key === 'taxonomy'
+          ? new Promise(resolve => { releaseTaxonomy = resolve; })
+          : key === 'busy' ? new Promise(resolve => { releaseBusy = resolve; })
+            : { state: 'ready', value: {} };
+      });
+      const before = app.state.fetches.length;
+      const pending = A.startSetupPrefetch(tasks);
+      A.openSetupSheet();
+      await waitFor(() => releaseTaxonomy, 'held Ranking prerequisite');
+      assert.equal(app.$('setupPrefetchRows').querySelector('[data-source="rankings"]'), null);
+      if (missing) store.removeItem(A.RANK_CACHE_KEY);
+      releaseTaxonomy({ state: 'ready', value: {} });
+      await waitFor(() => ['cached', 'ready'].includes(A.setupPrefetchEngine().states.rankings.state),
+        'actual owned Ranking settlement');
+      assert.equal(!!app.$('setupPrefetchRows').querySelector('[data-source="rankings"]'), missing);
+      assert.ok(store.getItem(A.RANK_CACHE_KEY), 'ordinary acquisition restores missing durability');
+      assert.equal(app.state.fetches.length, before, 'valid owned memory answers heal storage without redownload');
+      const timing = A.setupPrefetchEngine().timings().find(item => item.type === 'task' && item.source === 'rankings');
+      assert.equal(timing.verified_prior, !missing);
+      await waitFor(() => releaseBusy, 'held shared Busy source');
+      releaseBusy({ state: 'ready', value: {} });
+      await pending;
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (releaseTaxonomy) releaseTaxonomy({ state: 'ready', value: {} });
+      if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+      app.window.close();
+    }
+  }
+});
+
+test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual Full Refresh reacquires it', async () => {
+  for (const overlap of [false, true]) {
+    const app = await setupOwnedSeenApp(['stable']);
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      app.state.runtimeFetch = async () => ({
+        ok: true, status: 200, json: async () => [], text: async () => f821Page([])
+      });
+      A.setCountyView('US-WA-033');
+      await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
+      assert.ok(A.getCounties().length, 'positive county scope must make Busy acquisition eligible');
+      const at = Date.now();
+      assert.equal(await A.zcPut(A.hotCacheKey(), {
+        t: at, hot: [], cold: [], busy: [],
+        busyState: { at, pending: false, partial: false }
+      }), true);
+      store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+      store.setItem('bc_setup_step_v1', 'loading');
+      store.removeItem('bc_setup_dismissed_v1');
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      Object.keys(tasks).filter(key => key !== 'busy').forEach(key => {
+        tasks[key].acquire = () => ({ state: 'ready', value: {} });
+      });
+      await A.startSetupPrefetch(tasks);
+      const registryReads = () => app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033\?/.test(url)).length;
+      const before = registryReads();
+      A.openSetupSheet();
+      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'settled setup summary');
+      app.click(app.$('setupContinue'));
+      const automatic = A.refreshFullBirdGen(true);
+      const manual = overlap ? A.refreshFullBirdGen() : null;
+      await automatic;
+      assert.equal(registryReads(), before, 'automatic handoff cannot reacquire the fresh Busy registry');
+      assert.equal(app.$('setupSheet').hidden, true);
+      assert.equal(app.$('menuPanel').hidden, false);
+      A.fgWindowReset(); A.fgSchedReset(Date.now());
+      await (manual || A.refreshFullBirdGen());
+      assert.equal(registryReads(), before + 1, 'manual Full Refresh must still bypass the fresh Busy snapshot');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
 });
 
 test('F1270 explicit available-data continuation cancels only its setup owner and permits later recovery', async () => {
@@ -11568,7 +11920,7 @@ test('F727 F1181 setup distinguishes capabilities and describes read-only device
   assert.equal(sheet.hidden, false);
   assert.match(sheet.textContent, /Setup Bird Chaser/);
   assert.equal(app.$('setupSheetBody').dataset.setupStep, 'account');
-  assert.match(sheet.textContent, /Step 1 of 5/);
+  assert.match(sheet.textContent, /Step 1 of 6/);
   assert.match(sheet.textContent, /Read-only access to eBird\. Connection details are kept on your device\./);
   app.click(app.$('setupHelp'));
   assert.match(app.$('appSheet').textContent,
@@ -11693,6 +12045,68 @@ test('F1067 F1084 key rejection stays actionable and verified success advances t
     assert.equal(app.window.localStorage.getItem('bc_setup_dismissed_v1'), null);
     assert.equal(A.getReportSlug(), '');
   } finally { app.window.close(); }
+});
+
+test('F1276 delayed owned profile identity resumes in the same window without another Connect tap', async () => {
+  for (const outcome of ['ready', 'missing', 'closed', 'changed-profile']) {
+    const app = await boot({ report: null, key: null, home: false, sample: false });
+    const page = new JSDOM('<!doctype html><main></main>', {
+      url: 'https://ebird.org/profile/synthetic-identity', runScripts: 'outside-only',
+    });
+    try {
+      const A = app.window.__app, handlers = {}, opened = [], closed = [];
+      let injections = 0, shown = 0;
+      const timeout = app.window.setTimeout.bind(app.window);
+      app.window.setTimeout = (fn, ms, ...args) => timeout(fn, ms === 500 ? 1 : ms, ...args);
+      page.window.mobileApp = { postMessage(message) {
+        handlers.messageFromWebview({ id: 'f1276-owned', detail: message.detail });
+      } };
+      app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        addListener(name, handler) { handlers[name] = handler; return { remove() {} }; },
+        clearAllBrowsingData() { return Promise.resolve(); },
+        openWebView(options) { opened.push(options); return Promise.resolve({ id: 'f1276-owned' }); },
+        hide() {}, show() { shown++; }, close(options) { closed.push(options.id); },
+        executeScript(options) {
+          injections++;
+          if (injections === 20 && outcome === 'closed') handlers.closeEvent({ id: 'f1276-owned' });
+          if (injections === 20 && outcome === 'changed-profile') A.bcSetProfile('2');
+          if (injections > 20 && outcome === 'ready') {
+            page.window.document.body.innerHTML =
+              '<main><h1>Synthetic delayed observer</h1></main>';
+          }
+          page.window.eval(options.code);
+          return Promise.resolve();
+        },
+      } } };
+      app.click(app.$('setupConnectEbird'));
+      await waitFor(() => opened.length === 1 && handlers.browserPageLoaded, 'owned profile opens');
+      await new Promise(resolve => setImmediate(resolve));
+      handlers.urlChangeEvent({ id: 'f1276-owned', url: page.window.location.href });
+      handlers.browserPageLoaded({ id: 'f1276-owned' });
+      await waitFor(() => closed.length > 0, 'identity acquisition settles');
+      if (outcome === 'ready') {
+        assert.equal(injections, 21, 'a final missing result must resume before closing the owned window');
+        await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected'
+          && !app.$('appSheet').hidden, 'automatic verified account confirmation');
+        assert.equal(A.getDisplayName(), 'Synthetic delayed observer');
+        assert.equal(A.getIdentityMeta().profileId, 'synthetic-identity');
+      } else {
+        assert.equal(injections, outcome === 'missing' ? 40 : 20,
+          'recovery is bounded and cannot survive an explicit close or profile replacement');
+        assert.equal(A.getDisplayName(), '');
+        assert.equal(A.getIdentityMeta(), null);
+        assert.notEqual(app.$('appSheet')?.dataset.infoId, 'setup-account-connected');
+        if (outcome === 'missing') {
+          await waitFor(() => !app.$('setupConnectEbird').disabled, 'truthful retry fallback');
+          assert.match(app.$('setupActionStatus').textContent, /account name was not available/);
+        }
+      }
+      assert.equal(opened.length, 1, 'recovery cannot open another hidden browser');
+      assert.deepEqual(closed, ['f1276-owned']);
+      assert.equal(shown, 0, 'controlled missing identity is not a proven login prompt');
+      assert.deepEqual(app.state.errors, []);
+    } finally { page.window.close(); app.window.close(); }
+  }
 });
 
 test('F1067 F1251 account connection immediately shows pending activity and starts persistent key acquisition', async () => {
@@ -11829,6 +12243,211 @@ async function setupOwnedSeenApp(codes = []) {
   return app;
 }
 
+async function setupFavoriteApp() {
+  const app = await setupOwnedSeenApp(['stable']);
+  const A = app.window.__app, store = app.window.localStorage;
+  const region = A.getReport().stateCode;
+  const saved = [
+    { id: '47.5,-122.2', locId: '', locName: 'Synthetic coordinates', lat: 47.5, lng: -122.2, region },
+    { id: 'L128003', locId: 'L128003', locName: 'Synthetic other-region patch', lat: 43.1, lng: -75.2, region: 'US-NY' }
+  ];
+  A.setFavs(saved);
+  store.setItem('ebird_hotspots_v2:' + region, JSON.stringify({ at: Date.now(), rows: [
+    { locId: 'L128001', locName: 'Synthetic first patch', lat: 47.6, lng: -122.3, n: 20 },
+    { locId: 'L128002', locName: 'Synthetic second patch', lat: 47.7, lng: -122.4, n: 10 },
+    { locId: 'L128001', locName: 'Synthetic duplicate patch', lat: 47.6, lng: -122.3, n: 5 }
+  ] }));
+  store.setItem('bc_setup_step_v1', 'favorites');
+  A.openSetupSheet();
+  return { app, saved, region };
+}
+async function searchSetupFavoriteFixture(app) {
+  app.$('setupFavoriteSearch').value = 'synthetic';
+  app.$('setupFavoriteSearch').dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  app.click(app.$('setupFavoriteSearchBtn'));
+  await waitFor(() => app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]'),
+    'actual cached hotspot search');
+}
+
+test('F1280 wizard multiselect commits verified Favorites before acquisition and preserves unrelated choices', async () => {
+  const { app, saved } = await setupFavoriteApp();
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+    assert.equal(app.$('setupFavoriteCount').textContent, '2 selected');
+    await searchSetupFavoriteFixture(app);
+    assert.equal(app.$('setupFavoriteOptions').querySelectorAll('[data-setup-favorite="L128001"]').length, 1);
+    for (const id of ['L128001', 'L128002'])
+      app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="' + id + '"]').click();
+    assert.equal(app.$('setupFavoriteCount').textContent, '4 selected');
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128002"]').click();
+    assert.equal(app.$('setupFavoriteCount').textContent, '3 selected');
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved, 'draft edits do not write choices');
+    const concurrent = { id: 'L128004', locId: 'L128004', locName: 'Synthetic concurrent patch',
+      lat: 44, lng: -76, region: 'US-NY' };
+    A.setFavs([...saved, concurrent]);
+    let acquired;
+    const constructed = [];
+    const fetch = app.window.fetch;
+    app.window.fetch = (url, options) => /\/obs\//.test(url)
+      ? Promise.resolve({ ok: true, status: 200, json: async () => [] }) : fetch(url, options);
+    const create = app.window.SetupPrefetch.create;
+    app.window.SetupPrefetch.create = function (tasks, ...args) {
+      constructed.push(JSON.parse(JSON.stringify(A.getFavs())));
+      Object.keys(tasks).forEach(key => {
+        const acquire = tasks[key].acquire;
+        tasks[key].acquire = (...taskArgs) => {
+          if (key === 'favorites') {
+            acquired = JSON.parse(JSON.stringify(A.getFavs()));
+            return acquire(...taskArgs);
+          }
+          return { state: 'ready', value: {} };
+        };
+      });
+      return create(tasks, ...args);
+    };
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    app.click(app.$('setupFavoriteContinue'));
+    await waitFor(() => acquired, 'initial favorite acquisition after Continue');
+    assert.deepEqual(constructed, [acquired], 'one source construction sees verified committed choices');
+    assert.deepEqual(acquired.slice(0, 3), [...saved, concurrent]);
+    assert.equal(acquired[3].locId, 'L128001');
+    assert.equal(acquired.length, 4, 'deselected draft hotspot is not committed');
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), acquired);
+    await waitFor(() => A.setupPrefetchEngine().settled(), 'owned initial acquisition settles');
+    store.setItem('bc_setup_step_v1', 'favorites');
+    A.renderSetupSheet();
+    assert.equal(app.$('setupFavoriteCount').textContent, '4 selected');
+    assert.equal(app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').checked, true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1280 Skip preserves saved Favorites and removing a saved choice is an explicit verified change', async () => {
+  const { app, saved } = await setupFavoriteApp();
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await searchSetupFavoriteFixture(app);
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').click();
+    app.click(app.$('setupSkipFavorites'));
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved);
+    store.setItem('bc_setup_step_v1', 'favorites');
+    A.renderSetupSheet();
+    assert.equal(app.$('setupFavoriteCount').textContent, '2 selected');
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128003"]').click();
+    app.click(app.$('setupFavoriteContinue'));
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), [saved[0]]);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1280 unavailable hotspot directory cannot block Skip or replace saved choices', async () => {
+  const { app, saved, region } = await setupFavoriteApp();
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.removeItem('ebird_hotspots_v2:' + region);
+    const fetch = app.window.fetch;
+    app.window.fetch = (url, options) => /ref\/hotspot\//.test(url)
+      ? Promise.resolve({ ok: true, status: 200, json: async () => ({ unavailable: true }) })
+      : fetch(url, options);
+    app.$('setupFavoriteSearch').value = 'synthetic';
+    app.click(app.$('setupFavoriteSearchBtn'));
+    await waitFor(() => /directory unavailable/.test(app.$('setupFavoriteStatus').textContent), 'directory failure');
+    app.click(app.$('setupSkipFavorites'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1280 silent Favorite save failure stays on review without starting initial acquisition', async () => {
+  const { app, saved } = await setupFavoriteApp();
+  const prototype = app.window.Storage.prototype, set = prototype.setItem;
+  try {
+    const A = app.window.__app;
+    await searchSetupFavoriteFixture(app);
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').click();
+    const before = app.window.localStorage.getItem('ebird_favs');
+    let acquisitions = 0;
+    const create = app.window.SetupPrefetch.create;
+    app.window.SetupPrefetch.create = function (...args) { acquisitions++; return create(...args); };
+    prototype.setItem = function (key, value) {
+      if (String(key).endsWith('ebird_favs') && value !== before) return;
+      return set.call(this, key, value);
+    };
+    app.click(app.$('setupFavoriteContinue'));
+    assert.match(app.$('setupActionStatus').textContent, /could not be saved and verified/);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+    assert.equal(acquisitions, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved);
+    prototype.setItem = set;
+    app.click(app.$('setupFavoriteContinue'));
+    assert.equal(A.getFavs().length, 3);
+    assert.deepEqual(app.state.errors, []);
+  } finally { prototype.setItem = set; app.window.close(); }
+});
+
+test('F1280 profile change rejects late hotspot lookup and detached Favorite approval', async () => {
+  const { app, saved, region } = await setupFavoriteApp();
+  let release;
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    await searchSetupFavoriteFixture(app);
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').click();
+    store.removeItem('ebird_hotspots_v2:' + region);
+    const fetch = app.window.fetch;
+    app.window.fetch = (url, options) => /ref\/hotspot\//.test(url)
+      ? new Promise(resolve => { release = resolve; }) : fetch(url, options);
+    app.$('setupFavoriteSearch').value = 'synthetic';
+    app.click(app.$('setupFavoriteSearchBtn'));
+    await waitFor(() => release, 'owned directory lookup starts');
+    const continueButton = app.$('setupFavoriteContinue');
+    A.bcSetProfile('2');
+    release({ ok: true, status: 200, json: async () => [
+      { locId: 'L128001', locName: 'Synthetic old-profile patch', lat: 47.6, lng: -122.3 }
+    ] });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    app.click(continueButton);
+    assert.equal(A.getFavs().length, 0);
+    assert.doesNotMatch(app.$('setupSheetBody').textContent, /Synthetic old-profile patch/);
+    assert.deepEqual(JSON.parse(store.getItem('ebird_favs')), saved);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1280 partial modern-record save is rolled back with WATCH intact and unreadable Favorites remain untouched', async () => {
+  const { app, saved } = await setupFavoriteApp();
+  const prototype = app.window.Storage.prototype, set = prototype.setItem;
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    const key = 'ebird_personal_choices_v1';
+    const original = JSON.stringify({ version: 1, watch: [{ code: 'stable', name: 'Stable bird' }], favorites: saved });
+    store.setItem(key, original);
+    A.renderSetupSheet();
+    await searchSetupFavoriteFixture(app);
+    app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').click();
+    prototype.setItem = function (name, value) {
+      if (String(name).endsWith(key) && value !== original)
+        return set.call(this, name, JSON.stringify({ version: 1, watch: [], favorites: [] }));
+      return set.call(this, name, value);
+    };
+    app.click(app.$('setupFavoriteContinue'));
+    assert.equal(store.getItem(key), original, 'failed read-back restores the whole owned record');
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+    prototype.setItem = set;
+    store.setItem(key, '{"version":1,"favorites":"unreadable"}');
+    app.click(app.$('setupSheetClose'));
+    store.setItem('bc_setup_step_v1', 'favorites');
+    A.openSetupSheet();
+    assert.match(app.$('setupFavoriteStatus').textContent, /could not be read/);
+    app.click(app.$('setupFavoriteContinue'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+    app.click(app.$('setupSkipFavorites'));
+    assert.equal(store.getItem(key), '{"version":1,"favorites":"unreadable"}');
+    assert.deepEqual(app.state.errors, []);
+  } finally { prototype.setItem = set; app.window.close(); }
+});
+
 test('F1180 F1261 automatic pending seen fetch has explicit Please wait and Skip, then an exact result review', async () => {
   for (const count of [0, 1]) {
     const app = await setupOwnedSeenApp();
@@ -11892,6 +12511,8 @@ test('F1180 F1261 automatic pending seen fetch has explicit Please wait and Skip
       forward.dispatchEvent(held);
       assert.equal(held.defaultPrevented, true);
       app.click(forward);
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+      app.click(app.$('setupSkipFavorites'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
       assert.equal(app.$('setupSheet').hidden, false, 'result review is not final completion');
       assert.equal(app.$('setupContinue').textContent, 'Start birding');
@@ -11958,6 +12579,8 @@ test('F1180 deliberate Skip does not certify missing evidence and late work cann
     assert.equal(app.$('appSheet').dataset.infoId, 'setup-seen-skip');
     assert.equal(A.personalListEvidence().complete, false);
     app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+    app.click(app.$('setupSkipFavorites'));
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
     assert.equal(A.personalListEvidence().complete, false);
     assert.equal(app.window.localStorage.getItem('ebird_seen_setup_skipped'), A.personalListKey(A.personalListOwner()));
@@ -13379,7 +14002,9 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
       displayName: "Prior O'Field Sentinel", profileLabel: 'Private Alias Sentinel',
       lat: 14.752341, lng: -165.164352, latitude: 14.987654, longitude: -165.678912,
       foo: 'https://api.ebird.org/v2/data/obs/geo/recent?lat=14.752341&lng=-165.164352',
-      cacheKey: 'geo:' + encodeURIComponent(encodeURIComponent('14.752341:-165.164352')),
+      cacheKey: 'geo:' + encodeURIComponent(encodeURIComponent('14.752341||-165.164352')),
+      stage: 'F1282 polygon=https://api.gbif.org/v1/occurrence/search?geometry=POLYGON((14.752341 -165.164352,14.987654 -165.678912))'
+        + ' fragment=[URL redacted; host=api.gbif.org] -165.678912',
       nativeUrl: 'api.birdcast.org/forecast?latLng=14.987654%2C-165.678912&location=PrivateLocation1267',
       codes: ['privatebird1259'], rows: [{ name: 'Private Roster Sentinel', seen: true }]
     };
@@ -13390,6 +14015,9 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
       'cache=geo:' + encodeURIComponent('14.752341|-165.164352'),
       'cache=geo:' + encodeURIComponent(encodeURIComponent('14.752341:-165.164352')),
       'malformed=%ZZ cache=14.752341%3A-165.164352',
+      'cache=scope||14.752341||-165.164352',
+      'https://api.gbif.org/v1/occurrence/search?geometry=POLYGON((14.752341 -165.164352,14.987654 -165.678912))',
+      '[URL redacted; host=api.gbif.org] -165.678912',
       'api.birdcast.org/forecast?latLng=14.987654%252C-165.678912',
       'latLng=14,-165'
     ]) {
@@ -13399,6 +14027,8 @@ test('F1259 whole diagnostic export scrubs current, previous, verdict, native an
     }
     assert.equal(debug.scrubText('received=224 elapsedMs=1500 counts=500,100'),
       'received=224 elapsedMs=1500 counts=500,100');
+    assert.equal(debug.scrubText('received=224 elapsedMs=1500.25 queuedMs=12.75 malformed=%ZZ'),
+      'received=224 elapsedMs=1500.25 queuedMs=12.75 malformed=%ZZ');
     assert.equal(debug.scrubText('observer@example.test'), '[email redacted]');
     assert.equal(debug.scrubText('api.birdcast.org/forecast?location=PrivateLocation1267'),
       '[URL redacted; host=api.birdcast.org]');
@@ -25647,6 +26277,7 @@ test('F1126 capped empty regional Mega snapshots are loaded without cap-only att
 test('F1112 actual full Menu acquisition permits Mega sign-in only after an explicit refresh', async () => {
   const app = await boot({sample:false,fetch:url => {
     if (/alert\/summary/.test(url)) return '<html>anubis_challenge</html>';
+    if (/https:\/\/ebird\.org\/region\//.test(url)) return '<html>anubis_challenge</html>';
     if (/bird-list/.test(url)) return f821Page([]);
     return [];
   }});
@@ -25666,9 +26297,13 @@ test('F1112 actual full Menu acquisition permits Mega sign-in only after an expl
     assert.ok(app.state.fetches.some(url => /alert\/summary/.test(url)));
     assert.equal(opened.filter(url => /alert\/summary/.test(url)).length,0,
       'first setup must not request a Mega sign-in handoff');
+    assert.equal(opened.filter(url => /https:\/\/ebird\.org\/region\//.test(url)).length,0,
+      'automatic setup handoff must also preserve noninteractive Mass recovery');
     await A.refreshFullBirdGen();
     assert.equal(opened.filter(url => /alert\/summary/.test(url)).length,1,
       'a manual full refresh must allow the same owned recovery as source retry');
+    assert.equal(opened.filter(url => /https:\/\/ebird\.org\/region\//.test(url)).length,1,
+      'manual full refresh must preserve explicit Mass website recovery');
     assert.equal(app.$('surgeResults').dataset.sourceMega,'failed',
       'a failed native read must not become successful acquisition');
   } finally { app.window.close(); }
@@ -31624,12 +32259,62 @@ function makeSingleEntryZip(filename, text) {
   return Buffer.concat([local, name, compressed, central, name, eocd]);
 }
 
+test('F1284 actual Settings Info preserves live errors and warnings with ordered jump help and focus return', async () => {
+  const app = await boot();
+  try {
+    app.click(app.$('brandSettings'));
+    const panel = app.$('settingsPanel'), info = app.$('settingsInfoBtn');
+    const statusIds = ['keyStatus','geocodeStatus','csvStatus','birdGenNotifyStatus','birdGenNotifyNotice',
+      'personalBackupStatus','taxonomyStatus','namingStatus','massPageCaptureStatus','lifeProbeStatus','wallProbeStatus'];
+    const owners = statusIds.map(id => app.$(id));
+    assert.ok(owners.every(node => panel.contains(node)), 'live nodes remain in Settings');
+    assert.doesNotMatch(panel.textContent, /Scales text, photos, tap targets, spacing and contrast together/);
+    assert.match(panel.textContent, /Save an external JSON copy before erasing/);
+    assert.match(panel.textContent, /Switching profiles reloads/);
+    assert.ok(panel.contains(app.$('sourcesPanel')), 'provider terms remain visible');
+    app.$('apiKey').value = '';
+    app.click(app.$('keyTestBtn'));
+    assert.match(app.$('keyStatus').textContent, /Enter a key first/);
+    app.$('csvStatus').textContent = 'Synthetic import failure';
+    info.focus(); app.click(info);
+    const sheet = app.$('appSheet');
+    assert.ok(sheet, 'standard Settings help sheet must open');
+    assert.equal(sheet.dataset.infoId, 'settings-help');
+    const headings = [...sheet.querySelectorAll('h3')].map(node => node.textContent);
+    assert.deepEqual(headings.slice(0, 5), ['Display','Report menu badges','Nemesis birds menu badge','Theme','Maps app']);
+    assert.ok(headings.includes('Advanced / Debug'));
+    assert.match(sheet.textContent, /Scales text, photos, tap targets, spacing and contrast together/);
+    assert.match(sheet.textContent, /coordinate-only metadata/);
+    const jumps = [...sheet.querySelectorAll('[data-settings-jump]')];
+    assert.equal(jumps.length, headings.length);
+    for (const link of jumps) {
+      const target = app.document.getElementById(link.getAttribute('href').slice(1));
+      assert.ok(target);
+      assert.equal(target.textContent, link.textContent);
+    }
+    app.click(sheet.querySelector('[data-settings-jump="profile"]'));
+    assert.equal(app.document.activeElement, app.$('settings-help-profile'));
+    app.click(sheet.querySelector('.sheetclose'));
+    assert.equal(app.document.activeElement, info);
+    assert.deepEqual(statusIds.map(id => app.$(id)), owners, 'opening help does not replace live status owners');
+    assert.match(app.$('keyStatus').textContent, /Enter a key first/);
+    assert.equal(app.$('csvStatus').textContent, 'Synthetic import failure');
+    app.$('keyApplicationInfo').focus(); app.click(app.$('keyApplicationInfo'));
+    assert.equal(app.document.activeElement, app.$('settings-help-key'));
+    assert.ok(sheet.querySelector('[data-birdchaser-api-help]'), 'existing application instructions live in standard Info');
+    app.click(sheet.querySelector('.sheetclose'));
+    assert.equal(app.document.activeElement, app.$('keyApplicationInfo'));
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F560: Settings separates download from local ZIP or CSV import', async () => {
   const app = await boot({ key: null, sample: false });
   const A = app.window.__app;
   assert.equal(app.$('csvFile').getAttribute('accept'),
     '.zip,.csv,application/zip,text/csv');
   assert.match(app.$('csvDownloadBtn').textContent, /Download my eBird data/);
+  app.click(app.$('settingsInfoBtn'));
   const steps = Array.from(app.document.querySelectorAll('#csvSteps > li'))
     .map((li) => li.textContent.trim());
   assert.equal(steps.length, 4);
@@ -31637,6 +32322,7 @@ test('F560: Settings separates download from local ZIP or CSV import', async () 
   assert.match(steps[1], /Download my eBird data/);
   assert.match(steps[2], /Download my data/);
   assert.match(steps[3], /Import eBird data/);
+  app.click(app.$('appSheet').querySelector('.sheetclose'));
   assert.match(HTML, /https:\/\/ebird\.org\/downloadMyData/);
 
   app.window.TextDecoder = TextDecoder;
@@ -36346,6 +37032,8 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   assert.equal(button.parentElement.parentElement, rows[0], 'WATCH owns a separate card row');
   assert.ok(rows[0].querySelector('.meta').compareDocumentPosition(button)
     & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'WATCH follows the bird text and metadata');
+  assert.ok(rows[0].querySelector('.meta > .spidline'), 'F1275 codes remain in the metadata beside WATCH');
+  assert.equal(rows[0].querySelector('.ntext > .spidline'), null, 'codes do not occupy the common-name row');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   const beforeFetches = app.state.fetches.length;
   const originalButton = button, originalRows = [...rows];
@@ -39951,6 +40639,41 @@ test('the hotspot ceiling reaches the Cascade foothills (F252)', async () => {
       + 'lowering the bar globally makes the imbalance worse');
 });
 
+test('F1289 Top 100 resolves delayed and replaced regional indexes instead of retaining another populated index', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    const key = A.speciesCacheKey(A.getObsRegion());
+    const row = { rank: 1, name: 'Synthetic observer', species: 100, checklists: 200,
+      recent: 'Synthetic recent bird (Oct. 1, 2026)' };
+    const render = () => A.renderRankings({ rows: [row] }, 'US-WA', 'https://ebird.org/top100', '');
+    store.setItem(key, JSON.stringify({ at: Date.now(), rows: [
+      { code: 'oldbird', name: 'Synthetic older bird' }
+    ] }));
+    render();
+    assert.equal(app.$('rankResults').querySelector('.rankbirdline .splink'), null);
+    store.setItem(key, JSON.stringify({ at: Date.now(), rows: [
+      { code: 'newbird', name: 'Synthetic recent bird' }
+    ] }));
+    render();
+    assert.equal(app.$('rankResults').querySelector('.rankbirdline .splink')?.dataset.sp, 'newbird',
+      'a previously populated name index cannot hide a newly hydrated canonical link');
+    store.setItem(key, JSON.stringify({ at: Date.now(), rows: [
+      { code: 'changedbird', name: 'Synthetic recent bird' }
+    ] }));
+    render();
+    assert.equal(app.$('rankResults').querySelector('.rankbirdline .splink')?.dataset.sp, 'changedbird');
+    A.setActiveReport('hi');
+    store.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({ at: Date.now(), rows: [
+      { code: 'regionbird', name: 'Synthetic recent bird' }
+    ] }));
+    render();
+    assert.equal(app.$('rankResults').querySelector('.rankbirdline .splink')?.dataset.sp, 'regionbird',
+      'canonical link lookup follows the actual active regional source');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F732/F851 Top 100 keeps compact rank columns and readable latest-bird icons', async () => {
   // Owner, 2026-08-29: "in the top 100, increase the font size by 50% and show
   // the bird icon for the recently added birds just for the rows, not
@@ -41448,6 +42171,53 @@ test('the My-year NEW window is decided by dates, never by the time of day', asy
 // could see it: the unit suite asserted the block was PRESENT, never that it
 // had text, and the layout audit is blind to it because an empty row overflows
 // nothing. So this guard asserts CONTENT.
+test('F1281 actual checklist codes route independently by canonical identity with counts and keyboard access', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], [], [
+      { code: 'birdone', name: 'Synthetic first bird' }, { code: 'birdtwo', name: 'Synthetic second bird' }
+    ]);
+    app.window.localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({ at: Date.now(), rows: [
+      { code: 'birdone', name: 'Synthetic first bird', alpha: 'SAME' },
+      { code: 'birdtwo', name: 'Synthetic second bird', alpha: 'SAME' }
+    ] }));
+    const lists = [{ subId: 'S128001', obsDt: recentObsStamp(), numSpecies: 2, userDisplayName: 'Synthetic observer' }];
+    const observations = [
+      { speciesCode: 'birdone', comName: 'Synthetic first bird', subId: 'S128001', howMany: 2 },
+      { speciesCode: 'birdtwo', comName: 'Synthetic second bird', subId: 'S128001', howMany: 5 },
+      { speciesCode: '', comName: '<img src=x onerror=alert(1)>', subId: 'S128001', howMany: 9 }
+    ];
+    function render() { A.renderStakeHs('L128001', 'Synthetic patch', lists, observations,
+      { lat: 47.6, lng: -122.3 }, false, 'loaded'); }
+    for (const [code, count] of [['birdone', 2], ['birdtwo', 5]]) {
+      render();
+      const row = app.document.querySelector('.stakeHsChecklistCards > li');
+      const links = [...row.querySelectorAll('.cktargets .splink')];
+      assert.deepEqual(links.map(link => link.dataset.sp), ['birdone', 'birdtwo']);
+      assert.deepEqual(links.map(link => link.textContent), ['SAME ×2', 'SAME ×5']);
+      assert.ok(links.every(link => link.hasAttribute('href')));
+      assert.equal(row.querySelector('.ckgo').getAttribute('href'), 'https://ebird.org/checklist/S128001');
+      assert.match(row.textContent, /Synthetic observer/);
+      assert.equal(row.querySelector('img[onerror]'), null);
+      const link = links.find(item => item.dataset.sp === code);
+      assert.match(link.textContent, new RegExp('×' + count));
+      if (code === 'birdtwo') {
+        link.focus();
+        const event = new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        link.dispatchEvent(event);
+        assert.equal(event.defaultPrevented, true);
+      } else app.click(link);
+      assert.equal(app.$('spLookup').value, observations.find(item => item.speciesCode === code).comName,
+        'each canonical link opens its own named bird, not a reverse lookup of the repeated label');
+    }
+    const escaped = app.document.createElement('div');
+    escaped.innerHTML = app.window.ChecklistCards.small({ date: 'Today', targets: '<img src=x onerror=alert(1)>' });
+    assert.equal(escaped.querySelector('img'), null, 'ordinary target text remains escaped');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('a checklist row under a hotspot actually says something', async () => {
   const app = await boot();
   const w = app.window, doc = w.document;
@@ -47611,6 +48381,9 @@ test('F1010 actual diagnostic ZIP exports redacted correlated native stages', as
     app.window.__audit.event('network.request_end', { category: 'network', outcome: 'ok', attrs: {
       stage: 'F1267 source=BirdCast received=224 elapsedMs=1500'
         + ' cache=geo:14.752341%253A-165.164352'
+        + ' tuple=14.752341||-165.164352'
+        + ' geometry=https://api.gbif.org/v1/occurrence/search?geometry=POLYGON((14.752341 -165.164352,14.987654 -165.678912))'
+        + ' fragment=[URL redacted; host=api.gbif.org] -165.678912'
         + ' request=api.birdcast.org/forecast?latLng=14.987654%2C-165.678912',
       received_rows: 224, duration_ms: 1500
     } });
@@ -58810,51 +59583,146 @@ test('the Mega rarities verdict names every place its rows can be lost', () => {
     '_abaUl must come from the rendered DOM');
 });
 
-// ── F187: not running is not the same as waiting ──────────────────────────
-// iOS suspends a backgrounded WKWebView; timers stop but the wall clock does
-// not, so on resume the whole nap was charged to the eBird queue. The device
-// log showed "232082ms queued" and "102566ms queued" in a session whose
-// largest REAL queue wait was 5305ms, and which contained no 429 at all.
-test('a suspended app is charged to sleep, not to the eBird queue', async () => {
+test('F1283 heartbeat gaps retain scheduling protection without proving suspension', async () => {
   const app = await boot();
   const A = app.window.__app;
+  Object.defineProperty(app.document, 'hidden', { configurable: true, value: false });
   A.sleepReset();
-  assert.equal(A.sleptMs(), 0, 'starts with nothing charged to sleep');
-
-  // Ordinary jank must NOT read as suspension, or every slow render would
-  // start silently deleting real queue time from the log.
+  assert.equal(A.sleptMs(), 0);
   A.beat(Date.now() - 3000);
-  assert.equal(A.sleptMs(), 0,
-    `a 3s hiccup is jank, not a suspension — charged ${A.sleptMs()}ms`);
-
-  // A tick set 1s apart that returns 60s later can only mean the runtime
-  // stopped scheduling it.
+  assert.equal(A.sleptMs(), 0, 'ordinary jitter leaves the existing scheduling budget unchanged');
   A.beat(Date.now() - 60000);
-  assert.ok(A.sleptMs() > 50000,
-    `a 60s gap must be charged to sleep, got ${A.sleptMs()}ms`);
+  assert.ok(A.sleptMs() > 50000, 'the scheduling/watchdog gap counter is still protected');
+  let messages = JSON.stringify(app.window.__dbg.buf);
+  assert.match(messages, /Heartbeat gap observed: wall=.*monotonic=.*visibility=visible.*cause and provider time unverified/);
+  Object.defineProperty(app.document, 'hidden', { configurable: true, value: true });
+  A.beat(Date.now() - 60000);
+  messages = JSON.stringify(app.window.__dbg.buf);
+  assert.match(messages, /visibility=hidden.*cause and provider time unverified/);
+  assert.doesNotMatch(messages, /app was suspended|that time is not eBird/);
+  for (let i = 0; i < 40; i++) A.beat(Date.now() - 60000);
+  const retained = JSON.parse(A.dbgContext().match(/Heartbeat observations.*: (\[[^\n]+\])/)[1]);
+  assert.equal(retained.length, 32, 'retained clock observations are independently bounded');
+  assert.ok(retained.every(row => Number.isFinite(row.monotonic_gap_ms)));
   app.window.close();
 });
 
-test('the queued figure has the suspended time taken out of it', async () => {
+test('F1283 phase elapsed retains wall time and does not deduct overlapping heartbeat observations', async () => {
   const app = await boot();
   const A = app.window.__app;
   A.sleepReset();
-  const t0 = Date.now() - 240000;          // the call was made 4 minutes ago
+  const t0 = Date.now() - 240000;
   const stat = { slept0: A.sleptMs() };
-  // It waited 200s for a slot, and the app was asleep for 195s of that.
   stat.slotAt = t0 + 200000;
   A.beat(Date.now() - 195000);
   stat.sleptAtSlot = A.sleptMs();
   const tm = A.fgTiming(stat, t0);
-  assert.ok(tm.slept > 190000, `the sleep must be recorded, got ${tm.slept}ms`);
-  assert.ok(tm.queued < 20000,
-    `the queue waited ~5s, not ${Math.round(tm.queued / 1000)}s — suspended time must come out`);
+  assert.equal(tm.slept, 0, 'heartbeat drift is not confirmed suspension');
+  assert.ok(tm.scheduling_gap > 190000, 'the observed gap remains available as an annotation');
+  assert.equal(tm.queued, 200000, 'queue-phase wall elapsed is not deleted');
+  assert.equal(tm.queued + tm.net, tm.total);
   assert.ok(tm.total > 230000, 'the wall-clock total still tells the truth');
-  // And the log must SAY it, because a silently subtracted number cannot be
-  // checked by the person reading the log.
-  assert.match(A.fgTimingStr(tm), /app suspended/,
-    `the suspension must be printed: ${A.fgTimingStr(tm)}`);
+  assert.match(A.fgTimingStr(tm), /observed heartbeat overlap=.*cause and provider time unverified/);
+  assert.doesNotMatch(A.fgTimingStr(tm), /app suspended/);
   app.window.close();
+});
+
+test('F1283 native background evidence is bounded, validated and distinct from queued timer gaps', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = Date.now();
+    A.sleepReset();
+    const events = Array.from({ length: 20 }, (_, i) => ({
+      sequence: i + 1, phase: i % 2 ? 'foreground' : 'background',
+      at_ms: now - 1000 + i * 5, uptime_ms: i * 5,
+      displayName: 'Forbidden lifecycle identity',
+    }));
+    assert.equal(A.noteNativeLifecycle({ events }), true);
+    A.beat(now - 30000);
+    A.beat(Date.now() - 20000);
+    let tm = A.fgTiming({}, now - 40000);
+    assert.equal(tm.native_background, 30, 'only six retained complete background intervals contribute');
+    assert.equal(tm.net, 0, 'no acquired slot means the entire elapsed phase is queued');
+    assert.equal(tm.queued, tm.total);
+    assert.ok(tm.scheduling_gap >= 28000 && tm.scheduling_gap < 31000,
+      'overlapping heartbeat observations use their union, not their sum');
+    assert.equal(tm.slept, 0, 'native background is not proof of runtime/provider suspension');
+    assert.equal(A.noteNativeLifecycle({ events: [{ ...events[19], sequence: 21, uptime_ms: -1 }] }), false);
+    assert.equal(A.noteNativeLifecycle({ events: events.slice(0, 2) }), false,
+      'an older snapshot cannot overwrite newer native evidence');
+    tm = A.fgTiming({}, now - 40000);
+    assert.equal(tm.native_background, 30);
+    assert.match(A.dbgContext(), /Native lifecycle evidence.*"observed":true/);
+    assert.doesNotMatch(A.dbgContext(), /Forbidden lifecycle identity/);
+  } finally { app.window.close(); }
+});
+
+test('F1283 matching wall and monotonic gaps in an active document do not prove provider suspension', async () => {
+  const app = await boot();
+  const A = app.window.__app, date = app.window.Date, originalNow = date.now;
+  const performance = app.window.performance, descriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+  const base = originalNow(), clock = { wall: base, monotonic: 1000 };
+  try {
+    date.now = () => clock.wall;
+    Object.defineProperty(performance, 'now', { configurable: true, value: () => clock.monotonic });
+    Object.defineProperty(app.document, 'hidden', { configurable: true, value: false });
+    A.sleepReset();
+    clock.wall += 12000; clock.monotonic += 12000;
+    A.heartbeat();
+    const tm = A.fgTiming({ slotAt: base + 9000 }, base);
+    assert.equal(tm.total, 12000);
+    assert.equal(tm.queued, 9000);
+    assert.equal(tm.net, 3000);
+    assert.equal(tm.scheduling_gap, 11000);
+    assert.equal(tm.native_background, 0);
+    assert.equal(tm.slept, 0);
+    assert.match(JSON.stringify(app.window.__dbg.buf),
+      /wall=11000ms; monotonic=11000ms; native-background overlap=0ms; visibility=visible; cause and provider time unverified/);
+  } finally {
+    date.now = originalNow;
+    if (descriptor) Object.defineProperty(performance, 'now', descriptor);
+    else delete performance.now;
+    app.window.close();
+  }
+});
+
+test('F1283 clock rollback cannot make phase partitions negative or larger than wall elapsed', async () => {
+  const app = await boot();
+  const date = app.window.Date, originalNow = date.now;
+  try {
+    const A = app.window.__app;
+    date.now = () => 900;
+    let tm = A.fgTiming({ slotAt: 1500 }, 1000);
+    assert.equal(tm.total, 0); assert.equal(tm.queued, 0); assert.equal(tm.net, 0);
+    date.now = () => 1500;
+    tm = A.fgTiming({ slotAt: 2000 }, 1000);
+    assert.equal(tm.total, 500); assert.equal(tm.queued, 500); assert.equal(tm.net, 0);
+    assert.equal(tm.queued + tm.net, tm.total);
+  } finally { date.now = originalNow; app.window.close(); }
+});
+
+test('F1283 actual native lifecycle startup accepts events without enabling notifications', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, now = Date.now(), handlers = {};
+    let reads = 0;
+    app.window.Capacitor = { Plugins: { BirdGenNotifications: {
+      lifecycle() { reads++; return Promise.resolve({ events: [] }); },
+      addListener(name, handler) { handlers[name] = handler; return { remove() {} }; },
+    } } };
+    await A.initBirdGenNotifications();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reads, 1);
+    assert.equal(typeof handlers.lifecycle, 'function');
+    handlers.lifecycle({ events: [
+      { sequence: 1, phase: 'background', at_ms: now - 2000, uptime_ms: 100 },
+      { sequence: 2, phase: 'foreground', at_ms: now - 1000, uptime_ms: 1100 },
+    ] });
+    const tm = A.fgTiming({}, now - 3000);
+    assert.equal(tm.native_background, 1000);
+    assert.equal(tm.queued + tm.net, tm.total);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
 });
 
 test('the pause message only blames eBird when eBird actually refused', () => {
@@ -60492,7 +61360,7 @@ test('F570: Top 100 uses a compact top-aligned three-column sentence row', () =>
   assert.match(n[1], /--rf/, 'the species count still scales with the row');
 
   assert.match(HTML,
-    /name: '<span class="wholine">'[\s\S]{0,250}\+ rankInlineDetailsHTML\(r\)/,
+    /name: '<span class="wholine">'[\s\S]{0,250}\+ rankInlineDetailsHTML\(r, latestCodes\)/,
     'the birder and recent-bird details are not emitted as one sentence');
   assert.match(HTML, /icon:\s*'<span class="rankstack">/,
     'the rank does not emit a dedicated fixed stack');
