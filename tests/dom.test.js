@@ -1156,11 +1156,13 @@ test('F1210 F1211 F1212 Watch matches Year furniture and Year refresh delegates 
       }
     }
     for (const row of [year, watch]) {
-      const line = row.querySelector('.ntext > .spidline');
-      assert.ok(line, 'identifiers stay under the name, not under the photo');
+      const line = row.querySelector(row === year
+        ? ':scope > .meta > .spidline' : '.ntext > .spidline');
+      assert.ok(line, 'identifiers retain their owned name or second-row metadata container');
       assert.equal(line.querySelector('.spcode').textContent.toLowerCase(), 'amerob');
-      assert.equal(row.querySelector('.meta .spcode'), null);
+      assert.equal(row.querySelector('.thumb .spcode'), null);
     }
+    assert.equal(watch.querySelector('.meta .spcode'), null);
     assert.equal(watch.querySelector('.spidline [data-href]'), null, 'Watch gets no sighting date');
     assert.equal(watch.querySelector('.spidline').textContent.trim().toLowerCase(),
       [watch.querySelector('.spcode'), watch.querySelector('.spalpha')].filter(Boolean)
@@ -9985,7 +9987,8 @@ test('every section HEADING is the same name as its tile (F238)', async () => {
   //   * dead text is read as true. A maintainer opening index.html on a
   //     section headed "My eBird rankings" is reading a name the product no
   //     longer has, and www/sections.html shows what copying it leads to.
-  const strip = (t) => t.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const strip = (t) => t.replace(/<button\b[^>]*>[\s\S]*?<\/button>/gi, '')
+    .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   const unescape16 = (s) => s.replace(/\\u([0-9a-fA-F]{4})/g,
     (_, h) => String.fromCharCode(parseInt(h, 16)));
   const bySectionLabel = new Map(CONTRACT.menu.map((m) => [m.at, m.label]));
@@ -12723,6 +12726,9 @@ test('F1067/F1068 preparation and exact-list pending share one read and accept p
       assert.equal(app.$('setupContinue'), null);
       app.click(app.$('setupSkipSeen'));
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+      assert.equal(listReads, 1, 'the optional Favorite step cannot repeat the pending personal read');
+      app.click(app.$('setupSkipFavorites'));
       assert.match(app.$('setupSheet').textContent, /seen list fetching/);
       releaseList(ownedPersonalListFixture({ count, codes: count ? ['stable'] : [] }));
       await waitFor(() => /seen list ready/.test(app.$('setupSheet').textContent), 'live setup summary ready');
@@ -14540,9 +14546,11 @@ test('F841 saved personal dates sort newest-first with undated tails and separat
   assert.match(rows[1].textContent,/Alpha older bird/);
   assert.match(rows[2].textContent,/Beta undated bird/);
   assert.doesNotMatch(rows[2].textContent,/Date not supplied by eBird/);
-  assert.equal(rows[2].querySelector('.meta').textContent.trim(), '');
-  assert.ok(rows[0].querySelector('.ntext .spidline [data-href*="S300000002"]'),
-    'the linked date follows identifiers under the name, not below the photo');
+  const undatedMeta = rows[2].querySelector('.meta').cloneNode(true);
+  undatedMeta.querySelectorAll('.spsci,.spidline').forEach(node => node.remove());
+  assert.equal(undatedMeta.textContent.trim(), '', 'undated rows add no report detail beyond identifiers');
+  assert.ok(rows[0].querySelector(':scope > .meta > .spidline [data-href*="S300000002"]'),
+    'the linked date follows identifiers in the owned second-row metadata');
   assert.equal(rows[0].querySelector('[data-href*="S300000002"]') != null,true);
   assert.match(app.$('myYearExtras').textContent,/Escapee bird/);
   assert.equal(A.personalListEvidence().species.escapee,1,'presentation does not erase targeting membership');
@@ -24927,11 +24935,11 @@ test('every section carries an info button that opens its calculation notes', as
   secs.forEach((s) => {
     const b = s.querySelector('.docbtn');
     assert.ok(b, s.id + ' has an info button');
-    if (['sec-surgeBtn','sec-massBtn','sec-ppteBtn','sec-easyBtn'].includes(s.id)) {
+    if (['settingsPanel','sec-surgeBtn','sec-massBtn','sec-ppteBtn','sec-easyBtn'].includes(s.id)) {
       assert.equal(b.getAttribute('aria-haspopup'), 'dialog');
     }
     else assert.equal(b.getAttribute('aria-expanded'), 'false', s.id + ' starts collapsed');
-    assert.match(b.getAttribute('aria-label') || '', /is calculated/,
+    assert.match(b.getAttribute('aria-label') || '', s.id === 'settingsPanel' ? /Help with Settings/ : /is calculated/,
       s.id + ' names what the button explains');
   });
 
@@ -32117,8 +32125,10 @@ test('F527: the display-name follow-up offers only the eBird fetch', async () =>
   assert.equal(app.$('nameBannerBtn'), null);
   assert.equal(app.$('ebirdName'), null);
   assert.equal(app.$('bcProfileName'), null);
-  assert.match(app.$('settingsPanel').textContent,
-    /separate local storage slots.*not eBird accounts/is);
+  assert.match(app.$('settingsPanel').textContent, /names alone do not prove ownership/);
+  app.click(app.$('settingsInfoBtn'));
+  assert.match(app.$('appSheet').textContent,
+    /separate local storage slots, not discovered or configured eBird accounts/i);
 });
 
 test('F527 Settings cannot persist a programmatic identity override', async () => {
@@ -57292,7 +57302,7 @@ test('a slow call says how much of it was queue and how much was network', async
   await app.window.__app.ebird('ref/region/list/subnational2/US-AZ');
   const done = lines.filter((l) => /^done /.test(l));
   assert.ok(done.length, `no completion line was logged: ${lines.join(' | ')}`);
-  assert.match(done[0], /\d+ms queued \+ \d+ms net/,
+  assert.match(done[0], /\d+ms queued-phase \+ \d+ms network-phase/,
     'the completion line must separate waiting for other calls from this call: '
     + done[0]);
   app.window.close();
@@ -60640,8 +60650,9 @@ test('F188: the picker sits beside the key it scopes, and says when it acts', ()
                               HTML.indexOf('</section>', HTML.indexOf('id="settingsPanel"')));
   assert.doesNotMatch(settings, /<(?:input|select)[^>]+\b(?:readonly|disabled)\b/i,
     'Settings contains a non-editable form control instead of a displayed fact');
-  assert.match(panel, /separate local storage slots.*not eBird accounts/is,
-    'the fixed slots are explained instead of presented as discovered accounts');
+  assert.match(panel, /names alone do not prove ownership/);
+  assert.match(INFO_DIALOGS_SOURCE, /separate local storage slots, not discovered or configured eBird accounts/i,
+    'Settings help explains fixed slots instead of presenting discovered accounts');
   assert.ok(!/<option value="2">Test 2<\/option>/.test(panel),
     'the options are built from the stored names, not hard-coded slot numbers');
 });
@@ -63149,7 +63160,8 @@ test('F674/F1125 automatic Bird Gen recovery retries only its failed hotspot sou
     'Bird Gen fell back to the global whole-section retry');
   const converge = HTML.slice(HTML.indexOf('var pConverge ='),
     HTML.indexOf('return Promise.all([pObserved', HTML.indexOf('var pConverge =')));
-  assert.match(converge, /acquireBusyPatches\(fullRefresh && !retry, retry\)/,
+  assert.match(HTML, /var refreshSources = fullRefresh && options\.reuseFresh !== true/);
+  assert.match(converge, /acquireBusyPatches\(refreshSources && !retry, retry\)/,
     'the failed-only retry must join the common provider without forcing healthy HTTP endpoints');
   assert.match(converge, /busySnapshotSource\(currentBusySnapshot\(\) \|\| result\)/,
     'the source-local retry must publish the same completed Busy snapshot');

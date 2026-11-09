@@ -3935,7 +3935,8 @@
     #setupSheetBody button.setupprimary, #setupSheetActions button.setupprimary, #appSheet .setupconfirmation button.setupprimary { min-height: 48px; padding: 16px; background: var(--accent);
       color: var(--accent-ink); text-decoration: none; text-align: center;
       font-size: calc(20px * var(--s)); font-weight: 800; border: 2px solid currentColor; }
-    #setupSheetBody #setupSkipSeen, #setupSheetBody #setupContinueAvailable { white-space: normal; }
+    #setupSheetBody #setupSkipSeen, #setupSheetActions #setupSkipSeen,
+    #setupSheetBody #setupContinueAvailable, #setupSheetActions #setupContinueAvailable { white-space: normal; }
     #setupSheetBody input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
     #setupSheet .setuppanel, #setupHomeCandidate { display: grid; gap: 12px; }
     #setupFavoriteOptions .setuppanel { grid-template-columns: 44px minmax(0, 1fr); align-items: center; }

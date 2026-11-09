@@ -740,6 +740,8 @@ module.exports = function registerMigrationSetupControls({
         app.click(proceed);
         assert.equal(app.$('appSheet').dataset.infoId, 'setup-seen-ready');
         app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+        app.click(app.$('setupSkipFavorites'));
         assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
         app.click(app.$('setupContinue'));
         assert.equal(app.$('setupSheet').hidden, true);
@@ -909,7 +911,7 @@ module.exports = function registerMigrationSetupControls({
       app.click(app.$('appSheet').querySelector('.sheetclose'));
       assert.equal(app.$('setupSkip'), null);
       assert.equal(app.$('setupChooseRegion'), null);
-      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeHere',
+      assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeHere',
         'F1172 automatic location is offered first, without requesting permission on open');
       assert.equal(app.$('setupHomePlace').closest('details'), null, 'Home entry must not be hidden');
       assert.equal(app.$('setupHomeDiscard'), null, 'editing the field replaces a competing change button');
@@ -950,7 +952,7 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupHomeMap').querySelector('svg') !== null, true,
         'the existing renderer provides its offline fallback when Leaflet is unavailable');
       assert.equal(app.$('setupHomePreview').tagName, 'A');
-      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeApprove',
+      assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeApprove',
         'F1158 reviewing the acquired candidate replaces the location action');
       assert.equal(previews.length, 1, 'F1152 returning to the field does not launch external Maps');
       app.click(app.$('setupHomePreview'));
@@ -968,7 +970,7 @@ module.exports = function registerMigrationSetupControls({
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       await waitFor(() => app.$('setupNext'), 'Home-derived pair confirmation');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
-      assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupNext');
+      assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupNext');
       assert.equal(A.getReportSlug(), '', 'suggestion accepted itself');
       assert.equal(A.getHome(), null);
       assert.match(app.$('setupHomeSuggested').textContent, /Seattle|Current location/);
@@ -1220,8 +1222,8 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('setupHomePreview').hidden, true);
         assert.equal(app.$('setupHomeMapPreview').hidden, true);
         assert.equal(app.$('setupHomeFind').hidden, false);
-        assert.equal(app.$('setupSheetBody').querySelectorAll('.setupprimary').length, 1);
-        assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id, 'setupHomeFind');
+        assert.equal(app.$('setupSheet').querySelectorAll('.setupprimary').length, 1);
+        assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeFind');
         assert.equal(A.getHome(), null);
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
@@ -1499,7 +1501,7 @@ module.exports = function registerMigrationSetupControls({
           'settled initial setup summary');
         assert.doesNotMatch(app.$('setupSheetBody').textContent, copy,
           step + ' explanations belong in Help, not the action screen');
-        const controls = [...app.$('setupSheetBody').querySelectorAll('button')];
+        const controls = [...app.document.querySelectorAll('#setupSheetBody button, #setupSheetActions button')];
         const primary = controls.filter(control => control.classList.contains('setupprimary')
           && !control.closest('[hidden]'));
         assert.equal(primary.length, 1, step + ' must guide the user with one recommended action');
@@ -1541,7 +1543,7 @@ module.exports = function registerMigrationSetupControls({
         if (field) {
           field.value = step === 'key' ? 'SYNTHETIC_HELP_INPUT' : 'Example place';
           field.dispatchEvent(new app.window.Event('input'));
-          assert.equal(app.$('setupSheetBody').querySelector('.setupprimary').id,
+          assert.equal(app.$('setupSheet').querySelector('.setupprimary').id,
             step === 'key' ? 'setupVerifyKey' : 'setupHomeFind', 'F1158 entered input becomes the next action');
           if (step === 'key') {
             assert.equal(field.closest('details'), null);
