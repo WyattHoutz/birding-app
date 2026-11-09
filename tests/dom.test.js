@@ -22282,17 +22282,48 @@ test('a rate-limited foreground call is retried, not fatal', async () => {
   app.window.close();
 });
 
-test('a 429 that never clears says what it is, in words', async () => {
+// Drive the real retry scheduler without sleeping through its cooldowns.
+async function withForegroundTestClock(t, app, run) {
+  const realNow = app.window.Date.now;
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  app.window.Date.now = () => Date.now();
+  let done = false, result, failure;
+  Promise.resolve().then(run).then(value => {
+    result = value; done = true;
+  }, error => { failure = error; done = true; });
+  try {
+    for (let seconds = 0; seconds < 180 && !done; seconds++) {
+      t.mock.timers.tick(1000);
+      await new Promise(setImmediate);
+    }
+    assert.ok(done, 'foreground work must settle within the controlled retry budget');
+    if (failure) throw failure;
+    return result;
+  } finally {
+    app.window.Date.now = realNow;
+    t.mock.timers.reset();
+  }
+}
+
+test('a 429 that never clears says what it is, in words', async t => {
+  const attempts = [];
   const app = await boot({
     fetch(url) {
       if (!/ref\/region\/info/.test(url)) return null;
+      attempts.push(Date.now());
       return { __status: 429, __headers: { 'Retry-After': '0.01' } };
     },
   });
   const A = app.window.__app;
   let err = null;
-  try { await A.ebird('ref/region/info/US-WA'); } catch (e) { err = e; }
+  try { await withForegroundTestClock(t, app, () => A.ebird('ref/region/info/US-WA')); }
+  catch (e) { err = e; }
   assert.ok(err, 'it still fails eventually rather than retrying forever');
+  assert.equal(attempts.length, 5, 'the real foreground retry loop must exhaust its four retries');
+  for (let i = 1; i < attempts.length; i++) {
+    assert.ok(attempts[i] - attempts[i - 1] >= 20000,
+      'virtual time must preserve the real lane cooldown between refused attempts');
+  }
   // "eBird returned HTTP 429" tells the reader nothing they can act on.
   assert.match(err.message, /rate-limit/i,
     `the message names the cause: got "${err && err.message}"`);
@@ -47717,13 +47748,14 @@ test('a harvested own-checklist bird retains a named annual row without certifyi
 
 // A name lookup that fails leaves a record that cannot be rendered — so the
 // next harvest simply tries again, at no cost when there is nothing to fix.
-test('a name that failed to resolve is retried, not lost', async () => {
-  let allow = false;
+test('a name that failed to resolve is retried, not lost', async t => {
+  let allow = false, failedLookups = 0, successfulLookups = 0;
   const app = await boot({
     fetch(url) {
       const u = String(url);
       if (/product\/checklist\/view\/S1/.test(u)) return { obs: [{ speciesCode: 'tuftpu' }] };
       if (/ref\/taxonomy\/ebird/.test(u)) {
+        if (allow) successfulLookups++; else failedLookups++;
         return allow ? [{ speciesCode: 'tuftpu', comName: 'Tufted Puffin' }] : { __status: 500 };
       }
       return null;
@@ -47736,17 +47768,21 @@ test('a name that failed to resolve is retried, not lost', async () => {
     subId: 'S1', userDisplayName: 'Birder Wyatt', isoObsDate: '2026-08-09 16:46',
     loc: { locId: 'L1', name: 'Here', isHotspot: true },
   }]);
-  await A.nameOwnCodes();
-  assert.equal(A.ownSeenCodes().tuftpu.n, '', 'no name yet');
-  assert.ok(A.ownSeenCodes().tuftpu,'the capture survives without a resolved name');
-  assert.equal(A.isSpeciesSeen('tuftpu'),false,'name lookup cannot replace exact membership');
-  assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 0,
-    'and it is kept OUT of the list rather than rendered as a blank row');
+  await withForegroundTestClock(t, app, async () => {
+    await A.nameOwnCodes();
+    assert.equal(failedLookups, 5, 'a failed lookup must still exhaust its real foreground retries');
+    assert.equal(A.ownSeenCodes().tuftpu.n, '', 'no name yet');
+    assert.ok(A.ownSeenCodes().tuftpu,'the capture survives without a resolved name');
+    assert.equal(A.isSpeciesSeen('tuftpu'),false,'name lookup cannot replace exact membership');
+    assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 0,
+      'and it is kept OUT of the list rather than rendered as a blank row');
 
-  allow = true;
-  await A.nameOwnCodes();
-  assert.equal(A.ownSeenCodes().tuftpu.n, 'Tufted Puffin', 'the retry fills it in');
-  assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 1, 'and now it is a row');
+    allow = true;
+    await A.nameOwnCodes();
+    assert.equal(successfulLookups, 1, 'a later harvest must actually reacquire the unresolved name');
+    assert.equal(A.ownSeenCodes().tuftpu.n, 'Tufted Puffin', 'the retry fills it in');
+    assert.equal(A.mergedYearList().filter((e) => e.code === 'tuftpu').length, 1, 'and now it is a row');
+  });
   app.window.close();
 });
 
