@@ -73,7 +73,7 @@ function isolateFixturePhotoSlot(slot) {
   return owned;
 }
 
-async function decodeFixtureImage(img, src) {
+async function decodeFixtureImage(img, src, resolveSource) {
   async function decodeOnce() {
     await img.decode();
     if (!img.naturalWidth) throw new Error('decode resolved with zero natural width');
@@ -82,7 +82,8 @@ async function decodeFixtureImage(img, src) {
     await decodeOnce();
     return;
   } catch (firstError) {
-    img.src = src + '?fixture-retry=1';
+    const retry = src + '?fixture-retry=1';
+    img.src = resolveSource ? await resolveSource(retry) : retry;
     try {
       await decodeOnce();
     } catch (retryError) {
@@ -1915,6 +1916,22 @@ const BOOTSTRAP = `
   var fixtureIconPath = ${fixtureIconPath.toString()};
   var fixtureImageNeedsRefresh = ${fixtureImageNeedsRefresh.toString()};
   var isolateFixturePhotoSlot = ${isolateFixturePhotoSlot.toString()};
+  var fixturePhotoWaiters = Object.create(null), fixturePhotoSequence = 0;
+  window.__fixturePhotoResult = function (id, result) {
+    var pending = fixturePhotoWaiters[id];
+    if (!pending) return;
+    delete fixturePhotoWaiters[id];
+    if (result.error) pending.reject(new Error(result.error));
+    else pending.resolve(result.source);
+  };
+  function fixturePhotoSource(source) {
+    return new Promise(function (resolve, reject) {
+      var id = ++fixturePhotoSequence;
+      fixturePhotoWaiters[id] = {resolve:resolve,reject:reject};
+      try { window.__fixturePhotoBytes(JSON.stringify({id:id,source:source})); }
+      catch (error) { delete fixturePhotoWaiters[id]; reject(error); }
+    });
+  }
   var decodeFixtureImage = ${decodeFixtureImage.toString()};
   var preparePersonalFixture = ${preparePersonalFixture.toString()};
   var RealDate = Date;
@@ -2893,9 +2910,10 @@ const BOOTSTRAP = `
       img.addEventListener('error', function () {
         lifecycle.push('error(width=' + img.naturalWidth + ')');
       });
-      if (needsSource) img.src = source;
+      if (needsSource) img.src = await fixturePhotoSource(source);
       try {
-        await decodeFixtureImage(img, source);
+        await decodeFixtureImage(img, source, fixturePhotoSource);
+        slot.classList.remove('nopic');
       } catch (error) {
         var resources = window.performance.getEntriesByName(img.currentSrc || img.src)
           .map(function (entry) {
@@ -4796,6 +4814,34 @@ async function main() {
   await c.send('Page.setLifecycleEventsEnabled', { enabled: true }, sessionId);
   await c.send('Network.enable', {}, sessionId);
   await c.send('Runtime.enable', {}, sessionId);
+  c.onEvent('Runtime.bindingCalled', async (event, eventSession) => {
+    if (eventSession !== sessionId || event.name !== '__fixturePhotoBytes') return;
+    let request, result;
+    try {
+      request = JSON.parse(event.payload);
+      const url = new URL(request.source, origin + '/');
+      const match = /^\/assets\/birds\/([a-z0-9_-]+)\.(jpg|png)$/.exec(url.pathname);
+      if (url.origin !== origin || !match
+          || BUNDLED_ICON_EXTENSIONS[match[1]] !== '.' + match[2]) {
+        throw new Error('Unknown bundled fixture photo: ' + request.source);
+      }
+      const bytes = fs.readFileSync(path.join(BIRD_ICON_DIR, match[1] + '.' + match[2]));
+      result = {source:'data:' + MIME['.' + match[2]] + ';base64,' + bytes.toString('base64')
+        + (url.search ? '#' + url.search.slice(1) : '')};
+    } catch (error) {
+      result = {error:error.message};
+    }
+    try {
+      await c.send('Runtime.evaluate', {
+        expression:'window.__fixturePhotoResult(' + JSON.stringify(request && request.id)
+          + ',' + JSON.stringify(result) + ')',
+        contextId:event.executionContextId
+      }, sessionId);
+    } catch (error) {
+      console.error('Fixture photo owner unavailable: ' + error.message);
+    }
+  });
+  await c.send('Runtime.addBinding', {name:'__fixturePhotoBytes'}, sessionId);
   const birdRequests = new Map(), birdNetworkEvents = [];
   c.onEvent('Network.requestWillBeSent', (params, eventSession) => {
     if (eventSession !== sessionId || !params.request.url.includes('/assets/birds/')) return;

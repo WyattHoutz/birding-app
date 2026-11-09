@@ -719,6 +719,46 @@ test('F359 mockup preparation timeout rejects a hung fixture by shot name', asyn
   );
 });
 
+test('F1273 actual gallery decodes bundled photos when HTTP image requests are cancelled',
+  {timeout:120000}, () => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'fixture-photo-'));
+    const preload = path.join(output, 'cancel-images.cjs');
+    const target = path.join(ROOT, 'assets', 'mockups.js');
+    const needle = 'const birdRequests = new Map(), birdNetworkEvents = [];';
+    const block = needle + `
+      let blockedFixturePhoto = false;
+      c.onEvent('Fetch.requestPaused', (p,s) => {
+        if (s !== sessionId) return;
+        if (!blockedFixturePhoto) { console.error('F1273_HTTP_IMAGE_ABORTED'); blockedFixturePhoto = true; }
+        c.send('Fetch.failRequest', {requestId:p.requestId,errorReason:'Aborted'}, sessionId);
+      });
+      await c.send('Fetch.enable', {patterns:[
+        {urlPattern:'*/assets/birds/*',resourceType:'Image',requestStage:'Request'}
+      ]}, sessionId);
+    `;
+    fs.writeFileSync(preload, `
+      const fs=require('node:fs'),path=require('node:path'),read=fs.readFileSync;
+      fs.readFileSync=function(file,...args) {
+        const data=read.call(this,file,...args);
+        if(typeof file!=='string'||path.resolve(file)!==${JSON.stringify(target)})return data;
+        const text=Buffer.isBuffer(data)?data.toString('utf8'):data;
+        const needle=${JSON.stringify(needle)};
+        if(text.split(needle).length!==2)throw new Error('Photo fault injection must bind once');
+        const changed=text.replace(needle,${JSON.stringify(block)});
+        return Buffer.isBuffer(data)?Buffer.from(changed,'utf8'):changed;
+      };
+    `);
+    try {
+      const result = spawnSync(process.execPath, ['--require', preload, target,
+        '--only','menu','--width','402','--scale','1.3','--out',output],
+      {cwd:ROOT,encoding:'utf8',timeout:110000});
+      assert.match(result.stderr, /F1273_HTTP_IMAGE_ABORTED/, 'fault must actually occur');
+      assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+      assert.match(result.stdout, /1 mockup\(s\)/);
+      assert.ok(fs.existsSync(path.join(output, 'menu-402px.png')));
+    } finally { fs.rmSync(output, {recursive:true,force:true}); }
+  });
+
 test('F1049/F1051-F1055 release galleries render primary help and production Common/Big days/Convoys',
   {timeout:120000}, () => {
     const output=fs.mkdtempSync(path.join(os.tmpdir(),'approved-release-'));
@@ -1494,8 +1534,8 @@ test('F920 fixture photos preserve an in-flight production request for the same 
     source.indexOf('async function prepareTwitches(',
       source.indexOf('async function fillFixturePhotos(')));
   assert.match(fill, /fixtureImageNeedsRefresh\(img, source, document\.baseURI\)/);
-  assert.match(fill, /if \(needsSource\) img\.src = source/);
-  assert.match(fill, /await decodeFixtureImage\(img, source\)/);
+  assert.match(fill, /if \(needsSource\) img\.src = await fixturePhotoSource\(source\)/);
+  assert.match(fill, /await decodeFixtureImage\(img, source, fixturePhotoSource\)/);
 });
 
 test('F920 fixture image decode retries once but still requires decoded pixels', async () => {
