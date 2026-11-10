@@ -62,7 +62,7 @@ async function waitForTests(repository, sha, token, options = {}) {
   throw new Error('Authoritative CI gate did not settle within its bounded wait');
 }
 
-module.exports = { selectRun, waitForTests };
+module.exports = { selectRun, waitForTests, MAX_AGE_MS, WAIT_MS };
 
 if (require.main === module) {
   console.log('Waiting for the authoritative tests and layout checks on this exact source.');

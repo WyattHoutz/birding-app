@@ -1140,6 +1140,7 @@
                        min-width: 44px; min-height: 44px; margin: 0; padding: 4px 6px;
                        font-size: calc(12px * var(--s)); line-height: 1.2;
                        white-space: normal; text-align: center; }
+    #myYearList .myYearWatchlist { overflow-wrap: normal; word-break: normal; }
     button.speciesWatchlistAction[aria-pressed="false"], button.nvadd {
       background: #009E73; color: #000; border: 2px solid #000; }
     button.speciesWatchlistAction[aria-pressed="true"]:not(.nvadd) {
@@ -1596,6 +1597,7 @@
              max-width: 100%; overflow-wrap: anywhere; white-space: normal; min-width: 0; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    .raritylatest { min-width: 44px; min-height: 44px; }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: calc(12px * var(--s)); color: var(--muted); margin: 8px 0 0; }
     .destfoot { margin: 8px 0 2px; }
@@ -2138,6 +2140,12 @@
     .spLookupControlBar .sortpick > .sortbtn { padding: 0 4px; }
     .spLookupRecent > h3, .spLookupDetailsContent > h3 { margin: 14px 0 6px; }
     .spLookupDetailsContent[hidden], .spLookupRecent:empty { display: none; }
+    #spLookupStatus.splookuploading { padding: 12px; border: 2px solid var(--safe-blue);
+      border-radius: var(--btn-radius); background: var(--card); overflow-wrap: anywhere; }
+    #spLookupStatus.splookuploading strong { display: block; font-size: calc(18px * var(--s)); }
+    #spLookupStatus.splookuploading progress { display: block; width: 100%; margin: 8px 0;
+      accent-color: var(--safe-blue); }
+    #spLookupStatus.splookuploading p { margin: 6px 0 0; }
     .spLookupIconicSection .hscard-md .hsdist {
       font-size: calc(27px * var(--s)); font-weight: 900; color: var(--ink); }
     .convoywrap { margin: 8px 0 14px; }
@@ -2558,6 +2566,9 @@
       width: 42px; height: 42px; }
     .recent-birdgen-list .surgealerttitle { font-size: calc(16px * var(--s)); line-height: 1.3; }
     .recent-birdgen-list .ntext { min-width: 0; }
+    .recent-birdgen-list .recent-patch-yield {
+      display: block; margin-top: 4px; font-size: calc(13px * var(--s));
+      line-height: 1.35; overflow-wrap: anywhere; color: var(--muted); }
     .recent-birdgen-list .surgealerttitle, .recent-birdgen-list .hslink {
       white-space: normal; overflow-wrap: anywhere; }
     .recent-birdgen-list .recent-birdgen-time {
@@ -3876,12 +3887,13 @@
     .setupstate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
       padding: 12px 0; border-bottom: 1px solid var(--line); }
     .setupstate strong { font-size: calc(16px * var(--s)); }
-    #setupSheet .sheethead { flex-wrap: wrap; }
+    #setupSheet .sheethead { position: static; flex-wrap: nowrap; }
+    #setupSheet .sheethead h2 { min-width: 0; overflow-wrap: anywhere; }
     #setupSheet { display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
       top: var(--setup-viewport-top, 0px); bottom: auto;
       height: var(--setup-viewport-height, 100dvh); overflow: hidden; }
     #setupSheet[hidden] { display: none; }
-    #setupSheetClose { min-width: 44px; min-height: 44px; }
+    #setupSheetClose { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     #setupSheetBody { width: 100%; max-width: 490px; min-height: 0; margin: 0 auto;
       overflow-y: auto; overscroll-behavior: contain; }
     #setupSheetActions { width: 100%; max-width: 490px; margin: 0 auto;
@@ -3891,7 +3903,8 @@
     #setupSheetActions .setupfooteractions button { min-width: 0; min-height: 44px; max-width: 100%;
       white-space: normal; overflow-wrap: anywhere; }
     #setupSheetActions button.setupprimary, #setupContinueAvailable,
-    #setupSheetActions #setupBack, #setupSheetActions #setupSkipSeen { grid-column: 1 / -1; }
+    #setupSheetActions #setupBack, #setupSheetActions #setupReview,
+    #setupSheetActions #setupSkipSeen { grid-column: 1 / -1; }
     #setupSheet.setup-editing-viewport { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
     #setupSheet.setup-editing-viewport .sheethead h2 { display: none; }
     #setupSheet.setup-editing-viewport #setupSheetClose { padding-top: 0; padding-bottom: 0; }
@@ -3938,6 +3951,29 @@
     #setupSheetBody #setupSkipSeen, #setupSheetActions #setupSkipSeen,
     #setupSheetBody #setupContinueAvailable, #setupSheetActions #setupContinueAvailable { white-space: normal; }
     #setupSheetBody input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
+    #setupSheet .setupsearch { margin: 12px 0; }
+    #setupSheet .setupsearch label { display: block; font-weight: 700; margin-bottom: 8px; }
+    #setupSheet .setupsearch input { display: block; width: 100%; min-width: 0; box-sizing: border-box; }
+    #setupSheet .setupsearch input:focus { outline: none; border-color: var(--safe-blue);
+      box-shadow: inset 0 0 0 1px var(--safe-blue); }
+    #setupSheetBody .setupsearch button { margin-top: 10px; white-space: normal; }
+    #setupSheetBody #setupHomeHere, #setupSheetBody #setupFavoriteMore { white-space: normal; }
+    #setupSheetActions #setupFavoriteNext { grid-column: 1 / -1; margin: 0; }
+    #setupSheet .setupsearchshort { display: none; }
+    #setupSheet.setup-editing-viewport[data-setup-step="home"] .setupprogress,
+    #setupSheet.setup-editing-viewport[data-setup-step="home"] .setupstep,
+    #setupSheet.setup-editing-viewport[data-setup-step="home"] .setupheading,
+    #setupSheet.setup-editing-viewport[data-setup-step="favorites"] .setupprogress,
+    #setupSheet.setup-editing-viewport[data-setup-step="favorites"] .setupstep,
+    #setupSheet.setup-editing-viewport[data-setup-step="favorites"] .setupheading,
+    #setupSheet.setup-editing-viewport[data-setup-step="favorites"] .setupsearchintro,
+    #setupSheet.setup-editing-viewport #setupHomeApprove,
+    #setupSheet.setup-editing-viewport #setupFavoriteContinue,
+    #setupSheet.setup-editing-viewport #setupFavoriteNext { display: none; }
+    @media (max-width: 360px) {
+      #setupSheet.setup-editing-viewport .setupsearchlong { display: none; }
+      #setupSheet.setup-editing-viewport .setupsearchshort { display: inline; }
+    }
     #setupSheet .setuppanel, #setupHomeCandidate { display: grid; gap: 12px; }
     #setupFavoriteOptions .setuppanel { grid-template-columns: 44px minmax(0, 1fr); align-items: center; }
     #setupFavoriteOptions input { width: 44px; min-height: 44px; margin: 0; }
@@ -3961,7 +3997,8 @@
     }
     .prefetch-icon { display: grid; place-items: center; width: 32px; height: 32px; }
     .prefetch-icon svg { width: 100%; height: 100%; }
-    .prefetch-detail { display: block; font-size: calc(12px * var(--s)); font-weight: 400; }
+    .prefetch-detail, .prefetch-dependencies { display: block; font-size: calc(12px * var(--s)); font-weight: 400; }
+    .prefetch-group { grid-column: 1 / -1; margin-top: 8px; font-size: calc(13px * var(--s)); }
     .prefetch-hint { font-size: calc(12px * var(--s)); font-style: italic; color: var(--muted); }
     .prefetch-action { display: block; }
     #setupSheetBody .prefetch-action:disabled { opacity: 1; color: var(--muted); background: var(--bg); }
@@ -4082,6 +4119,10 @@
       <div class="row">
         <button id="refreshBtn">Refresh</button>
       </div>
+      <div class="row">
+        <button id="twitchFetchLatest" class="secondary raritylatest" type="button" aria-live="polite" aria-busy="false"
+                title="Recheck RBA sightings only; keep cached results and other Bird Gen inputs.">Fetch latest RBA</button>
+      </div>
       <div id="status" class="status"></div>
       <ul id="results" class="obs big xl"></ul>
     </section>
@@ -4140,7 +4181,7 @@
       <ul id="spCodesList" class="obs picklist" hidden></ul>
       <ul id="spLookupFound" class="obs picklist spuhsearchhits"></ul>
       <div class="row"><button id="spuhMore" class="secondary" type="button" hidden>Show more matches</button></div>
-      <div id="spLookupStatus" class="status">Search for any bird or spuh. Birds open recent places and checklists; spuhs open their bird hierarchy and candidates on this same screen.</div>
+      <div id="spLookupStatus" class="status" role="status" aria-live="polite">Search for any bird or spuh. Birds open recent places and checklists; spuhs open their bird hierarchy and candidates on this same screen.</div>
       <div id="spLookupQueryHelp"></div>
       <div class="spLookupControlBar" id="spLookupSortRow" hidden>
         <span class="sortpick twopill" role="group" aria-label="Sort Stakeout reports">
@@ -4397,6 +4438,10 @@
       <div class="row">
         <button id="activeBtn">Load rarity reports</button>
       </div>
+      <div class="row">
+        <button id="activeFetchLatest" class="secondary raritylatest" type="button" aria-live="polite" aria-busy="false"
+                title="Recheck notable sightings only; keep cached results and other Bird Gen inputs.">Fetch latest RBA</button>
+      </div>
       <div id="activeStatus" class="status">Every rare species currently being reported — one row per bird and local place, closest report first.</div>
       <ul id="activeResults" class="obs big xl"></ul>
     </section>
@@ -4494,7 +4539,7 @@
     </section>
 
     <section class="panel">
-      <h2>🦅 Target Birds <span class="dim" id="easyRegionLabel"></span></h2>
+      <h2>🎯 Target Birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div class="row">
         <button id="easyBtn">Find birds I need</button>
@@ -5038,9 +5083,9 @@
   },
   {
     "at": "easyBtn",
-    "icon": "🦅",
+    "icon": "🎯",
     "title": "Target Birds",
-    "sectionTitle": "🦅 Target Birds",
+    "sectionTitle": "🎯 Target Birds",
     "subtitle": "Recent birds you still need",
     "needs": "county",
     "group": "Bird alerts"
@@ -5468,7 +5513,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.186.0';
+      var APP_VERSION = '1.187.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -7124,7 +7169,15 @@
       var PERSONAL_LIST_NS = 'ebird_personal_list_v1:';
       var _personalListLoads = {}, _personalListErrors = {}, _personalListMemo = {};
       var _personalPreparations = {}, _personalAutoAttempts = {};
+      var _personalListIntents = {}, _personalPreparationIntents = {};
       var _personalDerivedMemo = {};
+      function personalListContinuation(pending, intent, current, reload) {
+        if (!intent.latest) intent.latest = pending.catch(function () {}).then(function () {
+          if (!current()) throw new Error('Personal-list request was superseded.');
+          return reload();
+        });
+        return intent.latest;
+      }
       function personalPeriod() {
         var stored = localStorage.getItem(PERSONAL_PERIOD_KEY);
         if (stored && stored !== 'current' && stored !== 'all') {
@@ -7739,7 +7792,8 @@
             + (Date.now() - started) + ' controlsEnabled=true ' + (error.message || error));
         }).finally(releaseControls);
       }
-      function ensurePersonalList(scope, force, onStatus) {
+      function ensurePersonalList(scope, force, onStatus, options) {
+        options = options || {};
         scope = scope || activeScope();
         var owner = personalListOwner(scope), key = personalListKey(owner);
         var generation = _identityGeneration;
@@ -7766,7 +7820,13 @@
           return page;
         }
         if (!current()) return Promise.reject(new Error('Personal-list request was superseded.'));
-        if (_personalListLoads[loadKey]) return _personalListLoads[loadKey];
+        if (_personalListLoads[loadKey]) {
+          var intent = _personalListIntents[loadKey];
+          return force && !options.quiet && !intent.force
+            ? personalListContinuation(_personalListLoads[loadKey], intent, current, function () {
+              return ensurePersonalList(scope, true, onStatus, options);
+            }) : _personalListLoads[loadKey];
+        }
         var evidence = personalListEvidence(scope);
         if (!force && evidence.complete && !evidence.stale) {
           return Promise.resolve(personalListRead(owner));
@@ -7779,12 +7839,21 @@
         }
         _personalAutoAttempts[personalPreparationKey(scope, generation)] = true;
         var url = personalListUrl(owner);
-        _personalListLoads[loadKey] = fetchPublicHTML(url, true).then(function (html) {
+        _personalListIntents[loadKey] = { force: !!force && !options.quiet };
+        var controller = options.quiet ? new AbortController() : null, timer;
+        var direct = fetchPublicHTML(url, true, controller ? controller.signal : undefined);
+        if (controller) direct = Promise.race([direct, new Promise(function (resolve, reject) {
+          timer = setTimeout(function () {
+            reject(new Error('Personal source timed out after 20 seconds.'));
+            controller.abort();
+          }, 20000);
+        })]).finally(function () { clearTimeout(timer); });
+        _personalListLoads[loadKey] = direct.then(function (html) {
           var page = parsePersonalListPage(html);
           return page.identity.status === 'missing' || (getIdentityMeta() && getIdentityMeta().profileId)
             ? fetchPersonalSessionPage(url) : page;
         }).then(read).catch(function (error) {
-          if (!current() || !ibAvail()) throw error;
+          if (!current() || options.allowBrowser === false || !ibAvail()) throw error;
           dbg('warn', 'Personal-list direct read failed; trying the same exact eBird list.');
           return captureEbird({
             kind: 'personalList', url: url, alive: current, injectAttempts: 240,
@@ -7845,6 +7914,7 @@
           throw error;
         }).finally(function () {
           delete _personalListLoads[loadKey];
+          delete _personalListIntents[loadKey];
           if (generation === _identityGeneration && scope.cacheIdentity === activeScope().cacheIdentity) {
             renderKeyBanner();
           }
@@ -7852,16 +7922,27 @@
         renderKeyBanner();
         return _personalListLoads[loadKey];
       }
-      function preparePersonalList(scope, force, onStatus) {
+      function preparePersonalList(scope, force, onStatus, options) {
+        options = options || {};
         scope = scope || activeScope();
         var generation = _identityGeneration;
         var key = personalPreparationKey(scope, generation);
-        function current() { return scopeCurrent(scope) && generation === _identityGeneration; }
+        var owner = personalListOwner(scope);
+        function current() {
+          return scopeCurrent(scope) && generation === _identityGeneration
+            && personalListOwner().period === owner.period;
+        }
         var evidence = personalListEvidence(scope);
         if (!force && evidence.complete && !evidence.stale) return Promise.resolve(personalListRead(personalListOwner(scope)));
-        if (_personalPreparations[key]) return _personalPreparations[key];
+        if (_personalPreparations[key]) {
+          var intent = _personalPreparationIntents[key];
+          return force && !options.quiet && !intent.force
+            ? personalListContinuation(_personalPreparations[key], intent, current, function () {
+              return preparePersonalList(scope, true, onStatus, options);
+            }) : _personalPreparations[key];
+        }
         var pending = _personalListLoads[personalListKey(personalListOwner(scope)) + '|' + generation];
-        if (pending) return pending;
+        if (pending) return ensurePersonalList(scope, force, onStatus, options);
         if (!force && _personalAutoAttempts[key]) {
           return Promise.reject(new Error('Automatic personal-list refresh already attempted; use the refresh icon to retry.'));
         }
@@ -7869,11 +7950,12 @@
         var ready = !getDisplayName()
           ? Promise.reject(new Error('Fetch your signed-in eBird identity in Settings first.'))
           : _taxonomyModel ? Promise.resolve(true) : checkTaxonomyEdition(false);
+        _personalPreparationIntents[key] = { force: !!force && !options.quiet };
         _personalPreparations[key] = ready.then(function (ok) {
           if (!current()) throw new Error('Personal-list request was superseded.');
           if (!ok || !_taxonomyModel) throw new Error('A checked official taxonomy is unavailable; retry in Settings.');
           _personalAutoAttempts[personalPreparationKey(scope, generation)] = true;
-          return ensurePersonalList(scope, force, onStatus);
+          return ensurePersonalList(scope, force, onStatus, options);
         }).catch(function (error) {
           if (current()) {
             _personalListErrors[personalListKey(personalListOwner(scope))] = error.message;
@@ -7882,12 +7964,33 @@
           throw error;
         }).finally(function () {
           delete _personalPreparations[key];
+          delete _personalPreparationIntents[key];
           if (generation === _identityGeneration && scope.cacheIdentity === activeScope().cacheIdentity) {
             renderKeyBanner();
           }
         });
         renderKeyBanner();
         return _personalPreparations[key];
+      }
+      function bindPersonalListReturn() {
+        var departure = null;
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden) {
+            departure = { at: Date.now(), key: personalListKey(personalListOwner()),
+              generation: _identityGeneration };
+            return;
+          }
+          var previous = departure;
+          departure = null;
+          if (!previous || previous.generation !== _identityGeneration
+              || previous.key !== personalListKey(personalListOwner())
+              || !getDisplayName() || !_taxonomyModel || !personalListEvidence().complete
+              || setupPrefetchCurrent() && !_setupPrefetch.settled) return;
+          var saved = personalListRead(personalListOwner());
+          if (saved && Date.parse(saved.readAt) >= previous.at) return;
+          preparePersonalList(activeScope(), true, null, { quiet: true, allowBrowser: false })
+            .catch(function () {});
+        });
       }
       // ── THE CSV ROUTE ────────────────────────────────────────────────────
       //
@@ -12327,6 +12430,7 @@
         });
       }
       var _stateRbaCache = {};
+      var _stateRbaInflight = {};
       var _stateRbaDiagnostics = { firstFailures: [], recent: [] };
       var STATE_RBA_TTL_MS = 15 * 60 * 1000;
       var RBA_RETAINED_NS = 'ebird_rba_retained_v1:';
@@ -12480,6 +12584,20 @@
           return Promise.resolve({ rows: [], complete: true });
         }
         var retainedKey = rbaRetainedKey(region), scope = activeScope(), startSid = getAbaSid();
+        var currentSlug = report.slug, pendingRba = _stateRbaInflight[retainedKey];
+        if (pendingRba && pendingRba.current()) {
+          if (force && !pendingRba.forceFresh) {
+            if (!pendingRba.forcedContinuation) {
+              function acquireLatestRba() {
+                if (!current()) throw queueCancelledError(null, 'State RBA scope changed');
+                return stateRbaRecords(force, onStatus, regionOverride, allowBrowser);
+              }
+              pendingRba.forcedContinuation = pendingRba.then(acquireLatestRba, acquireLatestRba);
+            }
+            return pendingRba.forcedContinuation;
+          }
+          return pendingRba;
+        }
         var cached = _stateRbaCache[retainedKey];
         var attempt = {
           region: region, at: Date.now(), forced: !!force,
@@ -12504,7 +12622,9 @@
           dbg(result.complete ? 'net' : 'warn', 'RBA source attempt: ' + JSON.stringify(summary));
           return Object.assign({}, result, { diagnostics: summary });
         }
-        if (!force && cached && Date.now() - cached.t < STATE_RBA_TTL_MS) {
+        var cacheAge = cached && Date.now() - cached.t;
+        if (!force && cached && Number.isFinite(cached.t) && cached.t > 0
+            && cacheAge >= 0 && cacheAge < STATE_RBA_TTL_MS) {
           attempt.cache = 'warm';
           attempt.acquisition = 'cache';
           attempt.cacheAgeMs = Math.max(0, Date.now() - cached.t);
@@ -12517,7 +12637,6 @@
         }
         var url = 'https://ebird.org/alert/rba/' + encodeURIComponent(region)
           + '?sortBy=obsDt&o=desc';
-        var currentSlug = report.slug;
         function current() {
           var active = getReport() || {};
           return scopeCurrent(scope) && getAbaSid() === startSid
@@ -12527,7 +12646,7 @@
           attempt.directPage = pageKind(html);
           return verifiedAlertRows(html);
         }
-        return fetchPublicHTML(url, !!force).then(read).catch(function (directError) {
+        var run = fetchPublicHTML(url, !!force).then(read).catch(function (directError) {
           var http = String(directError && directError.message || '').match(/\bHTTP (\d{3})\b/);
           attempt.directFailure = http ? http[0] : String(directError && directError.name || 'Error');
           if (!current()) throw new Error('State alert request superseded by a new report.');
@@ -12562,7 +12681,13 @@
           return rbaBackfill([], region, false, current, retainedKey).then(function (backfill) {
             return diagnose(Object.assign({}, backfill, { complete: false, error: e }));
           });
+        }).finally(function () {
+          if (_stateRbaInflight[retainedKey] === run) delete _stateRbaInflight[retainedKey];
         });
+        run.forceFresh = !!force;
+        run.current = current;
+        _stateRbaInflight[retainedKey] = run;
+        return run;
       }
 
       function loadPpteAlertSource(force, current, onResult, retryRegions) {
@@ -12814,12 +12939,23 @@
       }
 
       var _twitchRefreshGeneration = 0;
-      function refresh() {
+      function rarityLatestState(button, pending) {
+        button.disabled = !!pending;
+        button.textContent = pending ? 'Fetching latest\u2026' : 'Fetch latest RBA';
+        button.setAttribute('aria-busy', String(!!pending));
+      }
+      function refresh(options) {
+        var fetchLatest = !!(options && options.fetchLatest === true);
+        var focusedPpte = ppteTwitchContext(), latestButton = $('twitchFetchLatest');
+        latestButton.hidden = !!focusedPpte || !BL.planFeeds(chaseProfile()).some(function (feed) {
+          return feed.kind === 'notable';
+        });
+        if (fetchLatest && latestButton.hidden) return;
         // Your own new checklists, read without being asked, once per session.
         // Hung off the wave rather than off boot: refresh() is the thing that
         // runs when you actually open the app to go birding, and it is the
         // moment a stale seen list matters. See scheduleOwnHarvest.
-        if (!ppteTwitchContext()) scheduleOwnHarvest();
+        if (!fetchLatest && !focusedPpte) scheduleOwnHarvest();
         if (!getKey()) { $('status').textContent = 'Add your eBird API key in Settings to begin.'; showSettings(true); return; }
         var btn = $('refreshBtn'), st = $('status'), out = $('results'), label = getReport().label;
         var refreshId = ++_twitchRefreshGeneration, chaseGeneration = _chaseGeneration;
@@ -12832,6 +12968,7 @@
             && context === twitchContext(twitchView()) && out._twitchList === list;
         }
         btn.disabled = true;
+        if (fetchLatest) rarityLatestState(latestButton, true);
         if (!list.shown) st.textContent = 'Loading rarity reports for ' + label + '\u2026';
         // Was a raw notable-feed read: eBird's default 14-day window, deduped by
         // species+location and left in feed order. That is a different section
@@ -12840,13 +12977,13 @@
         // BirdLogic.notableRecent is the live form of section_today (rolling
         // 24 h, deduped by CHECKLIST so each observer's report of the same bird
         // stands, newest first) and is covered by the cross-repo golden.
-        var force = takeForce();
-        var focusedPpte = ppteTwitchContext();
+        var force = takeForce() || fetchLatest;
         var startingFilters = focusedPpte ? { year: 'all', distance: 'region' } : rarityFilters();
         var stateRba = !focusedPpte && startingFilters.distance === 'region'
-          ? stateRbaRecords(force, function (message) { st.textContent = message; })
+          ? stateRbaRecords(force, function (message) { if (current()) st.textContent = message; },
+            null, fetchLatest ? false : undefined)
           : Promise.resolve({ rows: [], complete: true });
-        Promise.all([
+        return Promise.all([
           focusedPpte ? Promise.resolve({ cv: { merged: [] }, t: Date.now() })
             : getChaseRarity(force ? 'notable' : false),
           stateRba
@@ -12936,7 +13073,7 @@
                 + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out available' : '');
           }
           if (statewideIncomplete) {
-            summary += ' Statewide RBA unavailable; showing the geographic rarity feed only.';
+            summary += ' Statewide RBA check incomplete; showing available geographic and retained evidence.';
           }
           // A HEADER, then the prose. Asked for as "a bolder formatted header
           // carrying the COUNT and the LAST UPDATE TIME" - the two facts that
@@ -13290,7 +13427,11 @@
           // not just the near half, or the far ones would read as new forever.
           markRaritySeen(all.map(rarityRowId));
         }).catch(function (e) { if (current()) st.textContent = netErr(e); })
-          .finally(function () { if (refreshId === _twitchRefreshGeneration) btn.disabled = false; });
+          .finally(function () {
+            if (refreshId !== _twitchRefreshGeneration) return;
+            btn.disabled = false;
+            rarityLatestState(latestButton, false);
+          });
       }
 
       // Closest spots: one row per unseen species, at the NEAREST place it has
@@ -15180,6 +15321,8 @@
       var _spLookupRenderRevision = 0;
       var _spLookupViewKey = '';
       var _spLookupLoading = false;
+      var _spLookupSavedAt = 0;
+      var _spLookupShowingSaved = false;
       var _spLookupEvidence = null;
       var ICONIC_MIN_VISIBLE = 3;
       var _spLookupIconicRadius = null;
@@ -15188,6 +15331,46 @@
         return 'data/obs/' + encodeURIComponent(region) + '/recent/'
           + encodeURIComponent(code) + '?back=' + back
           + '&detail=full&includeProvisional=true';
+      }
+
+      function speciesLookupSavedAge() {
+        var minutes = Math.max(0, Math.floor((Date.now() - _spLookupSavedAt) / 60000));
+        return minutes < 1 ? 'less than a minute ago'
+          : minutes < 60 ? minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago'
+          : new Date(_spLookupSavedAt).toLocaleString();
+      }
+
+      function readSpeciesLookupSnapshot(key, context, code) {
+        var raw;
+        try { raw = localStorage.getItem(key); } catch (e) { return Promise.resolve(null); }
+        return unpackJson(raw).then(function (snapshot) {
+          var now = Date.now();
+          return snapshot && snapshot.context === context
+            && typeof snapshot.at === 'number' && isFinite(snapshot.at)
+            && snapshot.at > 0 && snapshot.at <= now
+            && typeof snapshot.expiresAt === 'number' && isFinite(snapshot.expiresAt)
+            && snapshot.expiresAt > 0 && snapshot.expiresAt <= snapshot.at + EB_CACHE_MS
+            && Array.isArray(snapshot.rows) && snapshot.rows.every(function (row) {
+              return row && row.speciesCode === code;
+            }) ? snapshot : null;
+        }).catch(function () { return null; });
+      }
+
+      function saveSpeciesLookupSnapshot(key, context, rows, expiresAt, current) {
+        if (!Array.isArray(rows) || !current()) return Promise.resolve(false);
+        var at = Date.now();
+        return packJson({ context: context, at: at, expiresAt: expiresAt, rows: rows })
+          .then(function (payload) {
+            if (!current()) return false;
+            localStorage.setItem(key, payload);
+            return current() && localStorage.getItem(key) === payload;
+          }).then(function (saved) {
+            if (saved && current()) _spLookupSavedAt = at;
+            return saved;
+          }).catch(function (error) {
+            dbg('warn', 'Stakeout results could not be saved: ' + storageErrorName(error));
+            return false;
+          });
       }
 
       // Raw eBird rows -> the record shape buildAllUnseen expects. Distance is
@@ -15271,6 +15454,9 @@
         _spLookupIconic = null; _spLookupSeason = null;
         _spLookupIconicRadius = null;
         _spLookupLoading = false;
+        _spLookupSavedAt = 0;
+        _spLookupShowingSaved = false;
+        if ($('spLookupStatus')) $('spLookupStatus').classList.remove('splookuploading');
         if ($('spLookupRefresh')) $('spLookupRefresh').disabled = true;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupDetailsContent')) $('spLookupDetailsContent').hidden = true;
@@ -15662,16 +15848,20 @@
           && !error.ebirdCancelled;
       }
 
-      function loadSpeciesSightings(region, code, generation, scopeSlug, force) {
+      function loadSpeciesSightings(region, code, generation, scopeSlug, force, isCurrent) {
         var path = speciesLookupPath(region, code, SP_LOOKUP_BACK);
         function attempt(number) {
           return ebird(path, false, false, !!force).catch(function (error) {
             if (number === 0 && isSpeciesSightingsTransportError(error)
                 && generation === _spLookupGeneration
-                && scopeSlug === getReportSlug()) {
+                && scopeSlug === getReportSlug() && (!isCurrent || isCurrent())) {
               var status = $('spLookupStatus');
-              if (status) status.textContent =
-                'The sightings connection failed; retrying once…';
+              if (status) {
+                renderSpeciesLookup();
+                var retryNote = document.createElement('p');
+                retryNote.textContent = 'The sightings connection failed; retrying once…';
+                status.appendChild(retryNote);
+              }
               return attempt(1);
             }
             throw error;
@@ -15695,11 +15885,12 @@
         scopeSlug = scopeSlug || getReportSlug();
         if (generation !== _spLookupGeneration || scopeSlug !== getReportSlug()) return Promise.resolve();
         var refreshScope = activeScope(), refreshNavigation = _navGeneration;
-        var refreshHome = JSON.stringify(anchorPoint());
+        var refreshHome = JSON.stringify(anchorPoint()), refreshKey = getKey();
         function current() {
-          return generation === _spLookupGeneration && scopeSlug === getReportSlug()
-            && (!refresh || (scopeCurrent(refreshScope) && refreshNavigation === _navGeneration
-              && refreshHome === JSON.stringify(anchorPoint())));
+          return !!(window.document && !_appUnloading
+            && generation === _spLookupGeneration && scopeSlug === getReportSlug()
+            && scopeCurrent(refreshScope) && refreshNavigation === _navGeneration
+            && refreshHome === JSON.stringify(anchorPoint()) && refreshKey === getKey());
         }
         var mega = megaEntry(megaRef, code);
         if (mega) {
@@ -15710,6 +15901,10 @@
         var report = getReport();
         var reportLabel = report.label || getRegion();
         var region = BL.speciesFeedRegion(report) || getObsRegion();
+        var snapshotKey = 'bc_stakeout_bird_v1:' + bcProfile();
+        var sourcePath = speciesLookupPath(region, code, SP_LOOKUP_BACK);
+        var snapshotContext = JSON.stringify([refreshScope.cacheIdentity, taxonomyEdition(), sourcePath]);
+        var restoredSnapshot = null, reusedSnapshot = false, sourceDeadline = 0;
         var anchors = getAnchors().map(function (a) {
           return { name: a.name, lat: a.lat, lng: a.lng };
         });
@@ -15747,9 +15942,34 @@
         }
         if (!refresh) hydrateStakeoutEvidence(_spLookupEvidence, generation);
         renderSpeciesLookup();
-        var sightings = mega && !refresh
-          ? megaEnsureState(mega.view, mega)
-          : loadSpeciesSightings(region, code, generation, scopeSlug, refresh);
+        var sightings = (refresh || mega ? Promise.resolve(null)
+          : readSpeciesLookupSnapshot(snapshotKey, snapshotContext, code)).then(function (snapshot) {
+          if (!current()) return null;
+          if (snapshot) {
+            restoredSnapshot = snapshot;
+            var currentMemo = _ebCache[ebirdObservationPath(sourcePath)];
+            reusedSnapshot = Date.now() < snapshot.expiresAt
+              && !(currentMemo && workCurrent(currentMemo.work)
+                && currentMemo.t + EB_CACHE_MS >= snapshot.expiresAt);
+            _spLookupSavedAt = snapshot.at;
+            _spLookupShowingSaved = true;
+            _spLookupEvidence = stakeoutEvidence(code, name, snapshot.rows, generation);
+            var savedGroup = buildStakeoutGroup(speciesLookupRecords(_spLookupEvidence.stateRows, anchors));
+            if (savedGroup) {
+              savedGroup.name = savedGroup.name || name;
+              savedGroup.code = savedGroup.code || code;
+              _spLookupGroup = savedGroup;
+            }
+            _spLookupLoading = !reusedSnapshot;
+            renderSpeciesLookup();
+            if (reusedSnapshot) return snapshot.rows;
+          }
+          var request = mega && !refresh ? megaEnsureState(mega.view, mega)
+            : loadSpeciesSightings(region, code, generation, scopeSlug, refresh, current);
+          var memo = !refresh && _ebCache[ebirdObservationPath(sourcePath)];
+          sourceDeadline = memo ? memo.t + EB_CACHE_MS : 0;
+          return request;
+        });
         var stateRba = stateRbaRecords(false).then(function (result) {
           return stakeoutRarityEvidenceRows(
             result && result.rows || [], code, name);
@@ -15760,11 +15980,19 @@
             renderSpeciesLookup();
           });
         return sightings.then(function (rows) {
-          var currentRows = rows || [];
           if (!current()) return;
+          if (!Array.isArray(rows)) throw new Error('Sightings response could not be verified.');
+          var currentRows = rows;
+          if (refresh && currentRows.every(function (row) { return row && row.speciesCode === code; })) {
+            seedEbirdCache(sourcePath, currentRows);
+            sourceDeadline = _ebCache[ebirdObservationPath(sourcePath)].t + EB_CACHE_MS;
+          }
+          if (!refresh && restoredSnapshot && sourceDeadline === restoredSnapshot.expiresAt
+              && JSON.stringify(currentRows) === JSON.stringify(restoredSnapshot.rows)) reusedSnapshot = true;
           _spLookupLoading = false;
+          _spLookupShowingSaved = reusedSnapshot;
           if (_spLookupGroup) _spLookupGroup.loadError = '';
-          if (refresh) _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
+          if (refresh || restoredSnapshot) _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
           updateStakeoutEvidence(_spLookupEvidence, currentRows);
           hydrateStakeoutEvidence(_spLookupEvidence, generation);
           var liveRecs = speciesLookupRecords(currentRows, anchors);
@@ -15806,7 +16034,7 @@
             renderSpeciesLookup();
             st.textContent = emptyMessage;
             hydrateUnwatched(code, name, 'spLookupUnwatched', [], generation);
-            return;
+            return retain();
           }
           var g = buildStakeoutGroup(recs);
           if (!g) { st.textContent = 'No reports of ' + name + ' in range.'; return; }
@@ -15822,6 +16050,14 @@
           hydrateUnwatched(code, name, 'spLookupUnwatched',
             (g.places || []).map(function (p) { return p.name || p.locName; }),
             generation);
+          return retain();
+          function retain() {
+            if (mega || reusedSnapshot || currentRows.some(function (row) {
+              return !row || row.speciesCode !== code;
+            })) return;
+            return saveSpeciesLookupSnapshot(snapshotKey, snapshotContext, currentRows,
+              sourceDeadline || Date.now() + EB_CACHE_MS, current);
+          }
         }).catch(function (e) {
           if (current()) {
             _spLookupLoading = false;
@@ -15833,9 +16069,13 @@
             }
           }
         }).finally(function () {
-          if (refresh && generation === _spLookupGeneration && typeof document !== 'undefined') {
+          if (generation === _spLookupGeneration && typeof document !== 'undefined') {
             _spLookupLoading = false;
             if ($('spLookupRefresh')) $('spLookupRefresh').disabled = false;
+            if (!current() && st.classList.contains('splookuploading')) {
+              st.classList.remove('splookuploading');
+              st.textContent = 'The hotspot update stopped for the previous view. Refresh to try again.';
+            }
           }
         });
       }
@@ -16818,23 +17058,34 @@
         var watched = isWatched(g.code);
         var seenIt = isSpeciesSeen(g.code, g.name);
         st.hidden = false;
+        st.classList.toggle('splookuploading', _spLookupLoading);
         if (g.loadError) {
           st.textContent = '';
           st.hidden = true;
           sightingsFailure = '<div class="status splookuperror">'
             + '<strong>Sightings could not load.</strong> '
             + esc(g.loadError)
+            + ((g.places || []).length
+              ? ' Earlier results remain visible; freshness could not be confirmed.'
+                + (_spLookupShowingSaved ? ' Saved ' + esc(speciesLookupSavedAge()) + '.' : '')
+              : '')
             + ' <button type="button" class="secondary spLookupRetrySightings" '
             + 'data-code="' + esc(g.code) + '" data-name="' + esc(g.name)
             + '">Retry sightings</button></div>';
-        } else if (g.emptyCurrent) {
+        } else if (g.emptyCurrent && !_spLookupLoading) {
           st.textContent = 'No reports of ' + g.name + ' in '
             + (BL.speciesFeedRegion(getReport()) || getObsRegion()) + ' in the last '
             + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
         } else if (_spLookupLoading) {
-          st.textContent = (evidence && evidence.stateRows.length ? 'Report evidence shown · ' : '')
-            + 'Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
-            + ' (last ' + SP_LOOKUP_BACK + ' days)…';
+          st.innerHTML = '<strong>Loading hotspot data</strong>'
+            + '<progress aria-label="Loading hotspot data"></progress><p>'
+            + esc('Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
+              + ' (last ' + SP_LOOKUP_BACK + ' days)…') + '</p><p>'
+            + (_spLookupShowingSaved ? 'Saved results from ' + esc(speciesLookupSavedAge())
+                + ' remain visible while updating.'
+              : (g.places || []).length ? 'Earlier results remain visible while updating.'
+              : 'Waiting for hotspots and supporting checklist reports.')
+            + '</p>';
         } else {
           lookupSummary = g.name + ' · ' + (g.nPlaces || 0) + ' place'
             + (g.nPlaces === 1 ? '' : 's')
@@ -16851,6 +17102,10 @@
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
+          if (_spLookupShowingSaved) {
+            st.textContent = 'Saved results from ' + speciesLookupSavedAge() + '.';
+            st.hidden = false;
+          }
         }
         var placesHtml = !recentChanged || (_spLookupLoading && !(g.places || []).length) ? ''
           : (noNearbyEvidence
@@ -16908,7 +17163,8 @@
         }
         var detailMain = $('spLookupDetailMain');
         var detailChanged = updateStakeoutHtml(detailMain, (lookupSummary
-            ? '<h3>Current results</h3><p class="status splookupsummary">'
+            ? '<h3>' + (_spLookupShowingSaved ? 'Saved results' : 'Current results')
+              + '</h3><p class="status splookupsummary">'
               + esc(lookupSummary) + '</p>'
             : '') + sightingsFailure);
         var evidenceHost = $('spLookupEvidenceDetails');
@@ -17909,6 +18165,7 @@
       // its promise per region, for the rare caller (and the tests) that needs
       // the complete answer rather than the fast one.
       var _chasePhase2 = {};
+      var _chaseEnrichment = new WeakMap();
       var _chasePhase2Owner = {};
       // A full cache clear changes WHERE the wave is gathered. Requests that
       // were already in flight cannot be cancelled, so this generation is the
@@ -18448,23 +18705,77 @@
       }
       function chaseKey(slug) { return CHASE_NS + slug + ':' + todayStr(); }
       var _chaseSnapshotStoreGate = null;
+      var _chaseSnapshotWrites = {};
+      function mergeChaseNotable(base, notable) {
+        if (!base || !base.rows || !notable || !notable.rows || !notable.feedTimes
+            || base.fetchBaseKey !== notable.fetchBaseKey || base === notable) return base;
+        var out = null;
+        BL.planFeeds(notable.profile || chaseProfile()).filter(function (feed) {
+          return feed.kind === 'notable';
+        }).forEach(function (feed) {
+          var file = feed.file, at = notable.feedTimes[file];
+          if (!notable.feedStates || notable.feedStates[file] !== 'ok'
+              || !Array.isArray(notable.rows[file]) || !Number.isFinite(at)
+              || at <= 0 || at > Date.now() || Date.now() - at >= CHASE_TTL_MS) return;
+          if (file === 'geo-notable.json'
+              && (!Number.isFinite(notable.geoNotableKm) || notable.geoNotableKm <= 0)) return;
+          var previous = base.feedTimes ? base.feedTimes[file] : base.t;
+          if (Array.isArray(base.rows[file]) && base.feedStates && base.feedStates[file] === 'ok'
+              && Number.isFinite(previous) && previous > 0 && previous <= Date.now()
+              && (previous > at || (previous === at && base.rows[file] === notable.rows[file]))) return;
+          if (!out) {
+            out = Object.assign({}, base, {
+              rows: Object.assign({}, base.rows),
+              feedStates: Object.assign({}, base.feedStates),
+              feedTimes: Object.assign({}, base.feedTimes)
+            });
+            if (!base.feedTimes) Object.keys(base.rows).forEach(function (key) {
+              out.feedTimes[key] = base.t;
+            });
+          }
+          out.rows[file] = notable.rows[file];
+          out.feedStates[file] = 'ok';
+          out.feedTimes[file] = at;
+          if (file === 'geo-notable.json') out.geoNotableKm = notable.geoNotableKm;
+        });
+        if (!out) return base;
+        var times = Object.keys(out.rows).map(function (file) { return out.feedTimes[file]; });
+        if (times.length && times.every(function (at) {
+          return Number.isFinite(at) && at > 0 && at <= Date.now();
+        })) out.t = Math.min.apply(null, times);
+        if (_chaseEnrichment.has(base)) _chaseEnrichment.set(out, _chaseEnrichment.get(base));
+        return out;
+      }
       function saveChaseSnapshot(slug, codes, rowsByFile, feedStates,
                                  expectedGeneration, provenance) {
         provenance = provenance || {
           fetchBaseKey: chaseFetchBaseKey(chaseProfile()),
           geoNotableKm: BL.geoNotableDistKm(chaseProfile())
         };
-        return packJson({
-          v: 2, t: Date.now(), codes: codes || null, rows: rowsByFile,
-          feedStates: feedStates || null,
+        var record = {
+          v: 2, t: provenance.acquiredAt == null ? Date.now() : provenance.acquiredAt,
+          codes: codes ? codes.slice() : null, rows: Object.assign({}, rowsByFile),
+          feedStates: feedStates ? Object.assign({}, feedStates) : null,
+          feedTimes: provenance.feedTimes ? Object.assign({}, provenance.feedTimes) : null,
           fetchBaseKey: provenance.fetchBaseKey || '',
           geoNotableKm: provenance.geoNotableKm
-        })
+        };
+        var queueKey = chaseKey(slug) + '|' + (expectedGeneration == null ? _chaseGeneration : expectedGeneration);
+        function store() {
+          if (expectedGeneration != null && expectedGeneration !== _chaseGeneration) return false;
+          return (provenance.notableOnly ? loadChaseSnapshot(slug) : Promise.resolve(record))
+            .then(function (base) {
+              if (!base || base.fetchBaseKey !== record.fetchBaseKey) return null;
+              return packJson(mergeChaseNotable(base, provenance.notableOnly
+                ? Object.assign({profile: provenance.profile}, record) : _chaseRarity[slug]));
+            })
           .then(function (payload) {
+            if (payload == null) return null;
             var gate = _chaseSnapshotStoreGate ? _chaseSnapshotStoreGate() : null;
             return Promise.resolve(gate).then(function () { return payload; });
           })
           .then(function (payload) {
+            if (payload == null) return true;
             if (expectedGeneration != null && expectedGeneration !== _chaseGeneration) {
               dbg('info', 'superseded chase snapshot not written · ' + slug);
               return false;
@@ -18530,6 +18841,13 @@
             dbg('warn', 'chase snapshot packing failed: ' + storageErrorName(error));
             return false;
           });
+        }
+        var pending = _chaseSnapshotWrites[queueKey] || Promise.resolve();
+        var run = pending.then(store, store).finally(function () {
+          if (_chaseSnapshotWrites[queueKey] === run) delete _chaseSnapshotWrites[queueKey];
+        });
+        _chaseSnapshotWrites[queueKey] = run;
+        return run;
       }
       function loadChaseSnapshot(slug) {
         var raw = null;
@@ -19022,6 +19340,7 @@
         Object.keys(res).forEach(function (key) { out[key] = res[key]; });
         out.profile = profile;
         out.cv = computeChaseRows(profile, slug, res.rows, res.speciesCodes);
+        if (_chaseEnrichment.has(res)) _chaseEnrichment.set(out, _chaseEnrichment.get(res));
         return out;
       }
       // What the two rarity sections read. They need the notable feeds and
@@ -19031,13 +19350,16 @@
       // The ordinary eBird URL memo is shared, so a later chase section reuses
       // these notable responses and buys only the additional feeds it needs.
       function getChaseRarity(force, background, ownerWork, retainedFeeds) {
-        if (!ownerWork) yieldAutomaticRecentBirdGen();
         var showProgress = !ownerWork || !ownerWork.recentBirdGen;
         var slug = getReport().slug;
         var full = _chase[slug];
         var profile = chaseProfile();
         var generation = _chaseGeneration, fetchBaseKey = chaseFetchBaseKey(profile);
         var geoNotableKm = BL.geoNotableDistKm(profile);
+        var snapshotBase = null;
+        var feeds = BL.planFeeds(profile).filter(function (feed) {
+          return feed.kind === 'notable';
+        });
         function current() {
           return !!window.document && !_appUnloading && (!ownerWork || workCurrent(ownerWork))
             && generation === _chaseGeneration && slug === getReportSlug()
@@ -19048,52 +19370,103 @@
             && value.fetchBaseKey === chaseFetchBaseKey(profile)
             && value.geoNotableKm >= BL.geoNotableDistKm(profile);
         }
-        function snapshotResult(snap) {
-          var feeds = BL.planFeeds(profile).filter(function (feed) {
-            return feed.kind === 'notable';
+        function validAge(at) {
+          return Number.isFinite(at) && at > 0 && at <= Date.now()
+            && Date.now() - at < CHASE_TTL_MS;
+        }
+        function retainedFeed(value) {
+          return value && value.fetchBaseKey === fetchBaseKey
+            && value.geoNotableKm >= geoNotableKm
+            && Array.isArray(value.rows) && validAge(value.acquiredAt) ? value : null;
+        }
+        function savedFeed(value, feed) {
+          if (!coversRarity(value) || !value.feedStates || value.feedStates[feed.file] !== 'ok') return null;
+          return retainedFeed({
+            fetchBaseKey: value.fetchBaseKey,
+            geoNotableKm: value.geoNotableKm,
+            rows: value.rows[feed.file],
+            acquiredAt: value.feedTimes ? value.feedTimes[feed.file] : value.t
           });
-          var states = snap.feedStates || {};
-          var failed = feeds.some(function (feed) {
-            return states[feed.file] === 'failed';
+        }
+        function newestFeed(feed, snap) {
+          return [snap, full, p].reduce(function (best, value) {
+            var candidate = savedFeed(value, feed);
+            return candidate && (!best || candidate.acquiredAt >= best.acquiredAt) ? candidate : best;
+          }, null);
+        }
+        function sourceResult(parts) {
+          var rowsByFile = {}, feedStates = {}, feedTimes = {};
+          feeds.forEach(function (feed, index) {
+            rowsByFile[feed.file] = parts[index].rows;
+            feedStates[feed.file] = 'ok';
+            feedTimes[feed.file] = parts[index].acquiredAt;
           });
-          var complete = feeds.length > 0 && feeds.every(function (feed) {
-            return states[feed.file] === 'ok';
-          });
-          return projectChaseResult({
-            t: snap.t,
+          return {
+            t: Math.min.apply(null, parts.map(function (part) { return part.acquiredAt; })),
             profile: profile,
             rarity: false,
-            geoNotableKm: snap.geoNotableKm,
-            fetchBaseKey: snap.fetchBaseKey,
-            rows: snap.rows,
-            speciesCodes: snap.codes || null,
-            feedStates: states,
-            feedFailed: failed,
-            feedComplete: complete,
-            partial: !complete,
+            geoNotableKm: geoNotableKm,
+            fetchBaseKey: fetchBaseKey,
+            rows: rowsByFile,
+            cv: computeChaseRows(profile, slug, rowsByFile, null),
+            feedStates: feedStates,
+            feedTimes: feedTimes,
+            feedFailed: false,
+            feedComplete: true,
+            partial: false,
             stale: false
-          }, profile, slug);
+          };
         }
-        var covers = coversRarity(full);
-        if (!force && covers && (Date.now() - full.t) < CHASE_TTL_MS) {
-          full = projectChaseResult(full, profile, slug);
-          _chase[slug] = full;
-          return Promise.resolve(countyView(full));
+        function normalView(res) {
+          var base = _chase[slug] || snapshotBase;
+          if (coversRarity(base) && validAge(base.t)) {
+            var merged = mergeChaseNotable(base, res);
+            if (!Object.keys(merged.rows).every(function (file) { return Array.isArray(merged.rows[file]); })) {
+              return countyView(res);
+            }
+            if (!BL.planFeeds(profile).some(function (feed) {
+              return feed.kind !== 'notable' && Object.prototype.hasOwnProperty.call(merged.rows, feed.file);
+            })) return countyView(res);
+            if (!merged.profile) {
+              merged = Object.assign({}, merged, {rarity:false, speciesCodes:merged.codes || null});
+              merged.feedComplete = BL.planFeeds(profile).every(function (feed) {
+                var at = merged.feedTimes ? merged.feedTimes[feed.file] : merged.t;
+                return Array.isArray(merged.rows[feed.file])
+                  && merged.feedStates && merged.feedStates[feed.file] === 'ok' && validAge(at);
+              });
+              merged.partial = !merged.feedComplete;
+              merged.feedFailed = Object.keys(merged.feedStates || {}).some(function (file) {
+                return merged.feedStates[file] === 'failed';
+              });
+              merged.stale = false;
+            }
+            var projected = projectChaseResult(merged, profile, slug);
+            _chase[slug] = projected;
+            return countyView(projected);
+          }
+          return countyView(res);
+        }
+        var pending = _chaseRarityInflight[slug];
+        if (pending && pending.current() && pending.fetchBaseKey === fetchBaseKey
+            && pending.geoNotableKm >= geoNotableKm) {
+          if (force && force !== 'failed' && !pending.forceFresh) {
+            if (!pending.latestContinuation) {
+              function acquireLatest() {
+                if (!current()) throw queueCancelledError(ownerWork, 'Twitch rarity Home changed');
+                return getChaseRarity(force, background, ownerWork, retainedFeeds);
+              }
+              pending.latestContinuation = pending.then(acquireLatest, acquireLatest);
+            }
+            return pending.latestContinuation;
+          }
+          return pending;
         }
         var p = _chaseRarity[slug];
-        if (!force && coversRarity(p) && (Date.now() - p.t) < CHASE_TTL_MS) {
-          return Promise.resolve(countyView(projectChaseResult(p, profile, slug)));
+        var cachedParts = !force && feeds.map(function (feed) { return newestFeed(feed); });
+        if (cachedParts && feeds.length && cachedParts.every(function (part) { return !!part; })) {
+          return Promise.resolve(normalView(sourceResult(cachedParts)));
         }
-        if (_chaseRarityInflight[slug]
-            && _chaseRarityInflight[slug].current()
-            && _chaseRarityInflight[slug].fetchBaseKey === fetchBaseKey
-            && _chaseRarityInflight[slug].geoNotableKm >= geoNotableKm) {
-          return _chaseRarityInflight[slug];
-        }
-        if (force) {
-          if (force !== 'failed') ebClearMatching(FORCE_NOTABLE_RE);
-          delete _chaseRarity[slug];
-        }
+        if (!ownerWork) yieldAutomaticRecentBirdGen();
         var markStarted;
         var started = new Promise(function (resolve) { markStarted = resolve; });
         _chaseRarityStarted[slug] = started;
@@ -19105,38 +19478,42 @@
         var run = (force ? Promise.resolve(null) : loadChaseSnapshot(slug))
           .then(function (snap) {
             if (!current()) throw queueCancelledError(null, 'Twitch rarity Home changed');
-            if (coversRarity(snap) && (Date.now() - snap.t) < CHASE_TTL_MS) {
-              feedsStarted();
-              var saved = snapshotResult(snap);
-              _chase[slug] = saved;
-              return countyView(saved);
-            }
-            var feeds = BL.planFeeds(profile).filter(function (feed) {
-              return feed.kind === 'notable';
+            snapshotBase = snap;
+            var parts = feeds.map(function (feed) {
+              return force === 'failed' ? retainedFeed(retainedFeeds && retainedFeeds[feed.file])
+                : force ? null : newestFeed(feed, snap);
             });
+            if (feeds.length && parts.every(function (part) { return !!part; })) {
+              feedsStarted();
+              return force ? countyView(sourceResult(parts)) : normalView(sourceResult(parts));
+            }
             if (!feeds.length) {
               feedsStarted();
               return { t: Date.now(), profile: profile, cv: null, rarity: true };
             }
-            var rowsByFile = {}, feedStates = {};
             var work = ownerWork ? Object.assign({}, ownerWork) : cancellableWork('Twitch rarity feeds');
             work.current = current;
             if (showProgress) progressStage('Rare sightings near you', feeds.length, 1, 1);
-            var requests = feeds.map(function (feed) {
-              var previous = force === 'failed' && retainedFeeds && retainedFeeds[feed.file];
-              var request = previous && previous.fetchBaseKey === fetchBaseKey
+            var requests = feeds.map(function (feed, index) {
+              var previous = parts[index], path = ebirdObservationPath(BL.requestUrl(feed));
+              var oldMemo = _ebCache[path], bypass = !!force || !!(oldMemo && !validAge(oldMemo.t));
+              var request = previous
                 ? Promise.resolve(previous.rows)
-                : ebird(BL.requestUrl(feed), !!background,
-                  !!force && force !== 'failed', !!force && force !== 'failed', work);
+                : ebird(path, !!background, bypass, bypass, work);
+              var memo = _ebCache[path];
               return request
                 .then(function (rows) {
                   if (!Array.isArray(rows)) throw new Error('Invalid notable feed response: ' + feed.file);
+                  var at = previous ? previous.acquiredAt
+                    : memo && memo.p === request ? memo.t : Date.now();
+                  if (!validAge(at)) throw new Error('Invalid notable feed acquisition time: ' + feed.file);
+                  var part = {fetchBaseKey:fetchBaseKey, geoNotableKm:geoNotableKm,
+                    rows:rows, acquiredAt:at};
                   if (retainedFeeds && current()) {
-                    retainedFeeds[feed.file] = {fetchBaseKey:fetchBaseKey, rows:rows};
+                    retainedFeeds[feed.file] = part;
                   }
-                  rowsByFile[feed.file] = rows;
-                  feedStates[feed.file] = 'ok';
                   if (showProgress) progressStep(1, feedLabel(feed));
+                  return part;
                 });
             });
             feedsStarted();
@@ -19144,22 +19521,20 @@
               if (!current()) throw queueCancelledError(work, 'Twitch rarity Home changed');
               var failed = results.find(function (result) { return result.status === 'rejected'; });
               if (failed) throw failed.reason;
-              var res = {
-                t: Date.now(),
-                profile: profile,
-                fetchBaseKey: fetchBaseKey,
-                geoNotableKm: geoNotableKm,
-                rows: rowsByFile,
-                feedStates: feedStates,
-                feedComplete: true,
-                feedFailed: false,
-                partial: false,
-                stale: false,
-                cv: computeChaseRows(profile, slug, rowsByFile, null),
-                rarity: false
-              };
+              var res = sourceResult(results.map(function (result) { return result.value; }));
               _chaseRarity[slug] = res;
-              return countyView(res);
+              var base = _chase[slug];
+              if (base && base.fetchBaseKey === fetchBaseKey) {
+                _chase[slug] = projectChaseResult(mergeChaseNotable(base, res), profile, slug);
+              }
+              return saveChaseSnapshot(slug, null, res.rows, res.feedStates, generation, {
+                acquiredAt: res.t, feedTimes: res.feedTimes, fetchBaseKey: fetchBaseKey,
+                geoNotableKm: geoNotableKm, notableOnly: true, profile: profile
+              }).then(function (saved) {
+                if (!current()) throw queueCancelledError(work, 'Twitch rarity Home changed');
+                if (!saved) dbg('warn', 'notable publication could not update the retained chase snapshot');
+                return force ? countyView(res) : normalView(res);
+              });
             });
           }).finally(function () {
           feedsStarted();
@@ -19173,6 +19548,7 @@
         });
         run.fetchBaseKey = fetchBaseKey;
         run.geoNotableKm = geoNotableKm;
+        run.forceFresh = !!force && force !== 'failed';
         run.current = current;
         _chaseRarityInflight[slug] = run;
         return run;
@@ -19365,7 +19741,7 @@
           // for ~3 calls instead of ~47.
           if (force === 'notable') ebClearMatching(FORCE_NOTABLE_RE);
           else if (force === 'obs') ebClearMatching(FORCE_OBS_RE);
-          else ebClearObsCache();
+          else if (force !== 'failed') ebClearObsCache();
           c = null;
         }
         // 30 minutes, not 10. This wave is ~47 calls (6 region feeds, then one
@@ -19449,6 +19825,7 @@
 
         var rowsByFile = {};
         var feedStates = {};
+        var feedTimes = {};
         var snapshotCodes = null;
         var snapshotTime = null;
         var usingSnapshot = false;
@@ -19485,6 +19862,7 @@
             feedStates[r.file] = r.state;
             if (r.state === 'ok') {
               rowsByFile[r.file] = r.rows;
+              feedTimes[r.file] = r.acquiredAt;
               liveOkCount++;
             } else if (!Object.prototype.hasOwnProperty.call(rowsByFile, r.file)) {
               rowsByFile[r.file] = [];
@@ -19498,6 +19876,9 @@
           snapshotTime = Number(snap && snap.t);
           if (!isFinite(snapshotTime) || snapshotTime <= 0) snapshotTime = null;
           usingSnapshot = !!(snap && anyRows(rowsByFile));
+          Object.keys(snap && snap.feedStates || {}).forEach(function (file) {
+            feedTimes[file] = snap.feedTimes ? snap.feedTimes[file] : snapshotTime;
+          });
           gatheredKm = Number(snap && snap.geoNotableKm);
           if (!isFinite(gatheredKm)) gatheredKm = wantKm;
           if (!preserveLiveStates) {
@@ -19513,10 +19894,33 @@
         // home - a STORED result would keep calling a bird unseen after it was
         // logged. Recomputing is pure local work.
         function compute(codes) {
+          syncNotable();
           return computeChaseRows(profile, slug, rowsByFile, codes);
+        }
+        function syncNotable() {
+          var merged = mergeChaseNotable({
+            t: snapshotTime, rows: rowsByFile, feedTimes: feedTimes, feedStates: feedStates,
+            fetchBaseKey: wantBaseKey, geoNotableKm: gatheredKm
+          }, _chaseRarity[slug]);
+          rowsByFile = merged.rows;
+          feedTimes = merged.feedTimes;
+          feedStates = merged.feedStates;
+          gatheredKm = merged.geoNotableKm;
+        }
+        function snapshotProvenance(cv) {
+          var required = feeds.concat(BL.planSpeciesFeeds(profile,
+            chasePhase2Codes(cv || compute(null), feeds.length, BL.SPECIES_FEED_MAX)));
+          var times = required.map(function (feed) { return feedTimes[feed.file]; })
+            .filter(function (at) { return Number.isFinite(at) && at > 0 && at <= Date.now(); });
+          return {
+            fetchBaseKey: wantBaseKey, geoNotableKm: wantKm,
+            acquiredAt: times.length ? Math.min.apply(null, times) : snapshotTime || Date.now(),
+            feedTimes: feedTimes
+          };
         }
         function finish(codes, stale) {
           requireCurrentChase();
+          syncNotable();
           var partial = !!arguments[2];
           var outputProfile = profileOverride || chaseProfile();
           var outputBaseKey = chaseFetchBaseKey(outputProfile);
@@ -19528,11 +19932,12 @@
           var seenCodes = {}; cv.merged.forEach(function (r) { if (r.code) seenCodes[r.code] = 1; });
           saveSnapCodes(slug, Object.keys(seenCodes));
           var sourceTime = snapshotTime && (liveOkCount === 0 || stale)
-            ? snapshotTime : Date.now();
+            ? snapshotTime : snapshotProvenance(cv).acquiredAt;
           var res = { t: sourceTime, profile: outputProfile, cv: cv, rarity: false,
                       geoNotableKm: gatheredKm,
                       fetchBaseKey: wantBaseKey,
                       rows: rowsByFile,
+                      feedTimes: Object.assign({}, feedTimes),
                       speciesCodes: codes || null };
           var meta = chaseFeedMeta(partial, stale);
           Object.keys(meta).forEach(function (key) { res[key] = meta[key]; });
@@ -19542,10 +19947,19 @@
         function fetchAll(list, step, bg, work, onResult) {
           var stage = _stage;
           return Promise.all(list.map(function (f) {
-            return ebird(BL.requestUrl(f), bg, false, false, work)
+            var at = feedTimes[f.file], reuse = force === 'failed'
+              && feedStates[f.file] === 'ok' && Array.isArray(rowsByFile[f.file])
+              && Number.isFinite(at) && at > 0 && at <= Date.now()
+              && Date.now() - at < CHASE_TTL_MS;
+            var path = ebirdObservationPath(BL.requestUrl(f));
+            var request = reuse ? Promise.resolve(rowsByFile[f.file])
+              : ebird(path, bg, force === 'failed', force === 'failed', work);
+            var memo = _ebCache[path];
+            return request
               .then(function (rows) {
                 if (!Array.isArray(rows)) throw new Error('Invalid observation feed response: ' + f.file);
-                return { file: f.file, state: 'ok', rows: rows };
+                return { file: f.file, state: 'ok', rows: rows,
+                  acquiredAt: reuse ? at : memo && memo.p === request ? memo.t : Date.now() };
               })
               .catch(function (e) {
                 if (e && e.queueCancelled) throw e;
@@ -19596,7 +20010,7 @@
           var _t0 = Date.now();
           var endCacheNotice = !snapshotTime ? beginCacheNotice(slug, waveWork) : function () {};
           var earlyPublished = false;
-          feedStates = {};
+          if (force !== 'failed') feedStates = {};
           liveOkCount = 0;
           gatheredKm = wantKm;
           dbg('net', 'WAVE start · ' + feeds.length + ' region feeds');
@@ -19659,8 +20073,13 @@
               // NOT into _chase. A view built from notable feeds alone is
               // complete for rarities and badly incomplete for everything
               // else, and _chase is what every other section reads.
-              _chaseRarity[slug] = { t: Date.now(), profile: profile, cv: compute(null),
-                                     rarity: false };
+              var earlyCv = compute(null);
+              _chaseRarity[slug] = {
+                t: snapshotProvenance(earlyCv).acquiredAt, profile: profile, cv: earlyCv,
+                rarity: false, rows: Object.assign({}, rowsByFile),
+                feedTimes: Object.assign({}, feedTimes),
+                fetchBaseKey: wantBaseKey, geoNotableKm: gatheredKm
+              };
               var earlyMeta = chaseFeedMeta(true, usingSnapshot);
               Object.keys(earlyMeta).forEach(function (key) {
                 _chaseRarity[slug][key] = earlyMeta[key];
@@ -19675,7 +20094,6 @@
             endCacheNotice();
             requireCurrentChase();
             if (!incremental) applyFetchResults(results);
-            delete _chaseRarity[slug];
             dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
 
             // Every feed failing leaves rowsByFile empty, and computing views
@@ -19749,7 +20167,7 @@
             // cannot leave only the independently cached MEGA rows behind.
             var phaseOneSaved = saveChaseSnapshot(
               slug, codes, rowsByFile, feedStates, generation,
-              { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm }
+              snapshotProvenance(phaseOneCv)
             );
             if (!spFeeds.length) {
               progressEnd();
@@ -19827,7 +20245,7 @@
                   + 's · whole wave ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
                 requireCurrentChase();
                 return saveChaseSnapshot(slug, currentCodes, rowsByFile, feedStates, generation,
-                  { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm });
+                  snapshotProvenance(currentCv));
               });
             }
             _chasePhase2[slug] = phaseOneSaved.then(function () {
@@ -19852,11 +20270,12 @@
               // result, but the enrichment promise still rejects so callers
               // cannot mistake an incomplete pass for success.
               return saveChaseSnapshot(slug, codes, rowsByFile, feedStates, generation,
-                { fetchBaseKey: wantBaseKey, geoNotableKm: wantKm })
+                snapshotProvenance())
                 .then(function () { throw e; });
             });
             _chasePhase2[slug]._fetchBaseKey = wantBaseKey;
             _chasePhase2[slug]._geoNotableKm = wantKm;
+            _chaseEnrichment.set(first, _chasePhase2[slug]);
             // ⚠️ F267. CLEAR IT WHEN IT FINISHES, or the guard above becomes
             // permanent and the section can never fetch again — the mirror
             // failure of not having the guard at all. Identity-checked, so a
@@ -26008,7 +26427,12 @@
       }
 
       var _activeRarityGeneration = 0;
-      function loadActiveRarities() {
+      function loadActiveRarities(options) {
+        var fetchLatest = !!(options && options.fetchLatest === true), latestButton = $('activeFetchLatest');
+        latestButton.hidden = !BL.planFeeds(chaseProfile()).some(function (feed) {
+          return feed.kind === 'notable';
+        });
+        if (fetchLatest && latestButton.hidden) return;
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         var generation = ++_activeRarityGeneration, chaseGeneration = _chaseGeneration;
@@ -26018,6 +26442,7 @@
             && context === twitchContext('week') && el._twitchList === list;
         }
         btn.disabled = true;
+        if (fetchLatest) rarityLatestState(latestButton, true);
         if (!list.shown) st.textContent = 'Collecting rarity reports for ' + label + '…';
         var done = false;
         var slowTimer = setTimeout(function () {
@@ -26028,7 +26453,8 @@
           btn.disabled = false;
         }, 8000);
         var snap = null, days = {};
-        getChaseRarity(takeForce() ? 'notable' : false).then(function (c) {
+        var force = takeForce() || fetchLatest;
+        return getChaseRarity(force ? 'notable' : false).then(function (c) {
           if (!current()) return null;
           // The snapshot's own timestamp, kept so the status line can say when
           // the DATA was read rather than when the page was painted.
@@ -26249,7 +26675,10 @@
         }).finally(function () {
           done = true;
           clearTimeout(slowTimer);
-          if (generation === _activeRarityGeneration) btn.disabled = false;
+          if (generation === _activeRarityGeneration) {
+            btn.disabled = false;
+            rarityLatestState(latestButton, false);
+          }
         });
       }
 
@@ -27117,8 +27546,8 @@
             : row;
         });
       }
-      function enrichChecklistParties(rows, work) {
-        var unique = {}, buckets = {}, cached = [], selected = [];
+      function enrichChecklistParties(rows, work, readDetail) {
+        var unique = {}, buckets = {}, cached = [], selected = [], detailFailure = null;
         (rows || []).forEach(function (row) {
           var sub = row.subId || row.subID;
           var loc = row.locId || (row.loc && row.loc.locId);
@@ -27153,10 +27582,13 @@
           }
           return pool(selected, CKL_EVID_CONC, function (sub) {
             if (!workCurrent(work)) throw queueCancelledError(work);
-            return checklistView(sub, true, work);
+            return readDetail ? Promise.resolve().then(function () { return readDetail(sub); })
+              .catch(function (error) { detailFailure = error; throw error; })
+              : checklistView(sub, true, work);
           });
         }).then(function () {
           if (!workCurrent(work)) throw queueCancelledError(work);
+          if (detailFailure) throw detailFailure;
           return checklistPartyRows(rows);
         });
       }
@@ -30408,6 +30840,8 @@
       }
       var SETUP_STEP_KEY = 'bc_setup_step_v1';
       var SETUP_STEPS = ['account', 'key', 'home', 'region', 'seen', 'favorites'];
+      var SETUP_DURATION_NOTE = 'Initial data checks can take 3–5 minutes, sometimes longer. '
+        + 'You can continue with available data.';
       var _setupRenderedProfile = null, _setupKeyDraft = '', _setupReturnFocus = null;
       var _setupFavoriteDraft = null;
       function setupStep() {
@@ -30548,8 +30982,19 @@
         var contracted = viewport && viewport.scale === 1 && viewport.height < window.innerHeight;
         sheet.classList.toggle('setup-editing-viewport', !!(contracted
           && (editing || sheet.classList.contains('setup-editing-viewport'))));
+        if ($('setupFavoriteSearchBtn') && $('setupFavoriteContinue')) {
+          var searching = sheet.classList.contains('setup-editing-viewport');
+          $('setupFavoriteSearchBtn').classList.toggle('setupprimary', searching);
+          $('setupFavoriteContinue').classList.toggle('setupprimary', !searching);
+        }
+        if ($('setupHomeApprove') && !$('setupHomeApprove').hidden) {
+          var editingHome = sheet.classList.contains('setup-editing-viewport');
+          $('setupHomeApprove').classList.toggle('setupprimary', !editingHome);
+          $('setupHomeFind').classList.toggle('setupprimary', editingHome);
+        }
         if (contracted && editing && input.scrollIntoView) {
-          input.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          var target = input.closest('.setupsearch') || input;
+          target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
       }
       function placeSetupActions() {
@@ -30560,7 +31005,7 @@
         if (!actions) return;
         var status = $('setupActionStatus');
         if (status && footer.contains(status)) body.appendChild(status);
-        var primary = sheet.querySelector('button.setupprimary');
+        var primary = sheet.querySelector('button.setupprimary:not([data-setup-inline])');
         var previous = actions.querySelector('[data-setup-promoted]');
         if (previous && previous !== primary) {
           if (previous._setupActionOrigin && previous._setupActionOrigin.isConnected) {
@@ -30600,8 +31045,40 @@
         ['Favorite Patch Reports', ['favorites']], ['Mass Flocks', ['mass']],
         ['Patagonia Picnic Table Effect', ['ppte']], ['Rank Discoveries', ['cascades']]
       ];
+      function setupPrefetchGroups(tasks) {
+        tasks = tasks || _setupPrefetch && _setupPrefetch.tasks;
+        var catalog = tasks && tasks.resources ? tasks.resources.catalog() : [];
+        var groups = SETUP_PREFETCH_GROUPS.filter(function (group) {
+          return !tasks || !!tasks[group[1][0]];
+        }).map(function (group) {
+          var feature = catalog.find(function (item) { return item.id === group[1][0]; });
+          return feature ? [feature.label, [feature.id]] : group;
+        });
+        catalog.forEach(function (feature) {
+          if (!groups.some(function (group) { return group[1].indexOf(feature.id) >= 0; })) {
+            groups.push([feature.label, [feature.id]]);
+          }
+        });
+        var ordered = [], pending = groups.slice();
+        while (pending.length) {
+          var next = pending.filter(function (group) {
+            var task = tasks && tasks[group[1][0]];
+            return !task || !(task.depends || []).some(function (key) {
+              return pending.some(function (other) { return other[1].indexOf(key) >= 0; });
+            });
+          });
+          if (!next.length) return groups;
+          ordered = ordered.concat(next);
+          pending = pending.filter(function (group) { return next.indexOf(group) < 0; });
+        }
+        return ordered;
+      }
       function setupPrefetchSourceLabel(key) {
         var group = SETUP_PREFETCH_GROUPS.find(function (item) { return item[1].indexOf(key) >= 0; });
+        if (!group && _setupPrefetch && _setupPrefetch.tasks.resources) {
+          var feature = _setupPrefetch.tasks.resources.catalog().find(function (item) { return item.id === key; });
+          if (feature) return feature.label;
+        }
         return group && group[0] === 'My Year List' && personalPeriod() === 'all'
           ? 'My Life List' : group ? group[0] : key;
       }
@@ -30718,21 +31195,7 @@
                 && results[1].retentionSaved !== false, 'Rare Bird Alert coverage is incomplete.');
             });
           } },
-          sightings: { depends: ['personal'], acquire: function (retry) {
-            return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi(), false, sourceWork('sightings'))
-              .then(function () { return getChaseAll(retry ? 'failed' : false, null, sourceWork('sightings')); })
-              .then(function (result) { return _chasePhase2[getReportSlug()] || result; })
-              .then(function (result) {
-                if (!result || !result.feedComplete || result.feedFailed) {
-                  throw new Error('Sightings coverage is incomplete.');
-                }
-                return loadChaseSnapshot(getReportSlug()).then(function (snapshot) {
-                  return verified(result, chaseSnapshotCompatible(snapshot, result.profile || chaseProfile())
-                    && Date.now() - snapshot.t < CHASE_TTL_MS,
-                    'The complete sightings snapshot could not be saved.');
-                });
-              });
-          } },
+          sightings: { depends: ['personal'] },
           patches: { depends: ['sightings'], acquire: function (retry, values) {
             return loadTravelZones().then(function (cfg) {
               var result = values.sightings;
@@ -30777,8 +31240,8 @@
             return loadPpteAlertSource(retry, work.current)
               .then(function (result) { return retained('ppte', result); });
           } },
-          busy: { depends: ['sightings'], acquire: function (retry) {
-            return acquireBusyPatches(false, retry, sourceWork('busy')).then(function (result) {
+          busy: { acquire: function (retry, values, resourceWork, countyScope, resourceAccess) {
+            return acquireBusyPatches(false, retry, resourceWork || sourceWork('busy'), countyScope, resourceAccess).then(function (result) {
               if (!result || !result.busyState || result.busyState.pending
                   || result.busyState.partial || result.busyState.failed) {
                 throw new Error('Busy Patch reference coverage is incomplete.');
@@ -30825,10 +31288,244 @@
               if (result.sourceFailed) throw new Error('Rank discovery sightings are incomplete.');
               return cascadePublicHotspots(result, work, work.current);
             }).then(function (result) {
-              return retained('cascades', { state: result.hotspotsFailed ? 'partial' : 'ok', rows: result });
+              var source = { state: result.hotspotsFailed ? 'partial' : 'ok', rows: result };
+              if (source.state !== 'ok') return retained('cascades', source);
+              if (!workCurrent(work)) throw queueCancelledError(work);
+              return saveSurgeSourceCache({ cascades: source }).then(function (saved) {
+                verified(source, saved, 'Rank discovery reuse evidence could not be saved.');
+                return retained('cascades', source);
+              });
             });
           } }
         };
+        // Receipts stay immutable; legacy view models and promises stay private to their adapters.
+        var resourceValues = Object.create(null), resourceErrors = Object.create(null);
+        var recentEnrichment = Object.create(null), enrichmentAttempts = Object.create(null), resourceSequence = 0;
+        var resourceScope = { profile: bcProfile(), revision: identityRevision(),
+          identity: scope.cacheIdentity, date: todayStr() };
+        var resourceSlug = getReportSlug(), originalBusy = tasks.busy.acquire;
+        function resourceRef(id) { return { provider: id, params: {} }; }
+        function resourceEvidence(id, value, at, expiresAt) {
+          var token = id + ':' + (++resourceSequence);
+          resourceValues[token] = value;
+          return { state: 'ready', value: token, acquiredAt: at,
+            expiresAt: expiresAt == null ? at + CHASE_TTL_MS : expiresAt,
+            coverage: { resource: id } };
+        }
+        function initialProvider(id, dependencies, acquire, validate) {
+          return {
+            id: id, revision: 1,
+            validate: validate || function (params) { return !!params && !Object.keys(params).length; },
+            identity: function (params, captured) {
+              return JSON.stringify([captured, id, Object.keys(params).sort().map(function (key) {
+                return [key, params[key]];
+              })]);
+            },
+            depends: function () { return dependencies; },
+            read: function () { return null; },
+            acquire: function (params, inputs, context) {
+              var source = id.indexOf('busy') === 0 ? 'busy' : 'sightings';
+              context.work.initialDataset = sourceWork(source).initialDataset;
+              resourceErrors[id] = null;
+              return Promise.resolve().then(function () { return acquire(inputs, context, params); })
+                .catch(function (error) { resourceErrors[id] = error; throw error; });
+            },
+            verify: function (evidence, params, captured, now) {
+              return evidence.coverage && evidence.coverage.resource === id
+                && Object.hasOwn(resourceValues, evidence.value)
+                && evidence.acquiredAt > 0 && evidence.acquiredAt <= now && evidence.expiresAt > now;
+            }
+          };
+        }
+        function busySourceEvidence(id, path, rows) {
+          var memo = _ebCache[path], at = memo && memo.t, expiresAt = at + EB_CACHE_MS;
+          if (EB_REF_RE.test(path)) {
+            var ref = null;
+            try { ref = JSON.parse(localStorage.getItem(EB_REF_NS + path) || 'null'); } catch (error) {}
+            if (ref && Array.isArray(ref.v) && ref.t > 0 && ref.t <= Date.now()
+                && Date.now() - ref.t < EB_REF_MS) {
+              at = ref.t; expiresAt = ref.t + EB_REF_MS;
+            }
+          }
+          if (!Number.isFinite(at) || at <= 0 || at > Date.now()) {
+            throw new Error('Busy source acquisition metadata is unavailable.');
+          }
+          return resourceEvidence(id, rows, at, expiresAt);
+        }
+        function busyCode(params, keys) {
+          return !!params && Object.keys(params).length === keys
+            && typeof params.code === 'string' && /^[A-Za-z0-9-]+$/.test(params.code);
+        }
+        var resourceProviders = [
+          initialProvider('county-scope', {}, function (inputs, context) {
+            return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi(), false, context.work)
+              .then(function (rows) {
+                if (!context.current()) throw queueCancelledError(context.work);
+                if (!countyCodes().length) throw new Error('County acquisition scope is unavailable.');
+                return resourceEvidence('county-scope', rows, Date.now());
+              });
+          }),
+          initialProvider('recent-base', { county: resourceRef('county-scope') }, function (inputs, context) {
+            return getChaseAll(context.mode === 'retryMissing' ? 'failed' : false, null, context.work)
+              .then(function (result) {
+                if (!context.current()) throw queueCancelledError(context.work);
+                var enrichment = _chaseEnrichment.get(result)
+                  || _chasePhase2[resourceSlug] || Promise.resolve(result);
+                enrichment.catch(function () {});
+                if (!result || !result.feedComplete || result.feedFailed) {
+                  throw new Error('Sightings coverage is incomplete.');
+                }
+                var evidence = resourceEvidence('recent-base', result, result.t);
+                recentEnrichment[evidence.value] = enrichment;
+                return evidence;
+              });
+          }),
+          initialProvider('recent-enrichment', { base: resourceRef('recent-base') }, function (inputs, context) {
+            var token = inputs.base.value, pending = recentEnrichment[token];
+            if (context.mode === 'retryMissing' && enrichmentAttempts[token]) {
+              pending = getChaseAll('failed', null, context.work).then(function (result) {
+                return _chaseEnrichment.get(result) || _chasePhase2[resourceSlug] || result;
+              });
+            }
+            enrichmentAttempts[token] = true;
+            return pending.then(function (result) {
+              if (!context.current()) throw queueCancelledError(context.work);
+              if (!result || !result.feedComplete || result.feedFailed) {
+                throw new Error('Sightings coverage is incomplete.');
+              }
+              return loadChaseSnapshot(resourceSlug).then(function (snapshot) {
+                if (!context.current()) throw queueCancelledError(context.work);
+                if (!chaseSnapshotCompatible(snapshot, result.profile || chaseProfile())
+                    || Date.now() - snapshot.t >= CHASE_TTL_MS) {
+                  throw new Error('The complete sightings snapshot could not be saved.');
+                }
+                var profile = result.profile || chaseProfile();
+                var targets = chasePhase2Codes(result.cv, BL.planFeeds(profile).length, BL.SPECIES_FEED_MAX);
+                var requiredFeeds = BL.planFeeds(profile).concat(BL.planSpeciesFeeds(profile, targets));
+                if (!requiredFeeds.every(function (feed) {
+                  var at = snapshot.feedTimes ? snapshot.feedTimes[feed.file] : snapshot.t;
+                  return snapshot.feedStates && snapshot.feedStates[feed.file] === 'ok'
+                    && Array.isArray(snapshot.rows[feed.file])
+                    && Number.isFinite(at) && at > 0 && at <= Date.now()
+                    && Date.now() - at < CHASE_TTL_MS;
+                })) throw new Error('Required sightings enrichment coverage is incomplete.');
+                return resourceEvidence('recent-enrichment', result, result.t);
+              });
+            });
+          }),
+          initialProvider('busy', {}, function (inputs, context) {
+            return originalBusy(context.mode === 'retryMissing', {}, context.work, function () {
+              return context.require(resourceRef('county-scope'), 'current').then(function (evidence) {
+                if (SetupPrefetch.readyStates.indexOf(evidence.state) < 0) {
+                  throw new Error('County acquisition scope is unavailable.');
+                }
+              });
+            }, function (id, params, priority) {
+              return context.require({ provider: id, params: params }, priority).then(function (evidence) {
+                if (!context.current()) throw queueCancelledError(context.work);
+                if (SetupPrefetch.readyStates.indexOf(evidence.state) < 0 && evidence.state !== 'partial') {
+                  throw resourceErrors[id] || new Error('Busy resource coverage is unavailable.');
+                }
+                return resourceValues[evidence.value];
+              });
+            }).then(function (result) {
+              return resourceEvidence('busy', result.value, result.value.busyState.at);
+            });
+          }),
+          initialProvider('busy-registry', {}, function (inputs, context, params) {
+            var path = busyRequestPath('ref/hotspot/' + encodeURIComponent(params.code) + '?fmt=json',
+              hotspotContextKey());
+            return ebird(path, false, false, false, context.work).then(function (rows) {
+              if (!Array.isArray(rows) || !rows.length) throw new Error('Public hotspot registry unavailable.');
+              return busySourceEvidence('busy-registry', path, rows);
+            });
+          }, function (params) { return busyCode(params, 1); }),
+          initialProvider('busy-checklist-list', {}, function (inputs, context, params) {
+            var path = busyRequestPath('product/lists/' + encodeURIComponent(params.code) + '?maxResults=1200',
+              hotspotContextKey());
+            return ebird(path, false, params.force, params.force || context.mode === 'retryMissing',
+              context.work).then(function (rows) {
+              if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
+              var evidence = busySourceEvidence('busy-checklist-list', path, rows);
+              var owned = params.coverage === 'reference' ? rows.filter(function (row) {
+                return (row.locId || row.loc && row.loc.locId) === params.code;
+              }) : rows;
+              var depth = busyChecklistCoverage(owned, Date.now());
+              if (params.coverage === 'reference'
+                  ? owned.length !== rows.length || !depth.references
+                  : rows.length && (!depth.ordered || rows.length >= 1200 && !depth.current)) {
+                evidence.state = 'partial';
+              }
+              return evidence;
+            });
+          }, function (params) {
+            return busyCode(params, 3) && typeof params.force === 'boolean'
+              && ['current', 'reference'].indexOf(params.coverage) >= 0;
+          }),
+          initialProvider('busy-party-detail', {}, function (inputs, context, params) {
+            if (context.mode === 'retryMissing' && !cklCached(params.sub)) forgetChecklistView(params.sub);
+            return checklistView(params.sub, true, context.work).then(function (detail) {
+              if (!detail) throw new Error('Required checklist party evidence is unavailable.');
+              return resourceEvidence('busy-party-detail', detail, Date.now());
+            });
+          }, function (params) {
+            return !!params && Object.keys(params).length === 1
+              && typeof params.sub === 'string' && /^[A-Za-z0-9-]+$/.test(params.sub);
+          })
+        ];
+        function initialManifest(id, sections, needs) {
+          var label = setupPrefetchSourceLabel(id);
+          return {
+            id: id, sections: sections, enabled: function () { return true; },
+            label: function () { return label; },
+            needs: function () { return needs; },
+            project: function (inputs) {
+              var usable = inputs.base || inputs.complete;
+              return { usable: !!usable && SetupPrefetch.readyStates.indexOf(usable.state) >= 0,
+                evidence: inputs.complete || null };
+            },
+            retainAndVerify: function (projection, context) {
+              return context.current() ? projection.evidence : { state: 'cancelled' };
+            }
+          };
+        }
+        var resources = SetupPrefetch.createResources(resourceProviders, [
+          initialManifest('sightings', ['sec-chaseBtn', 'sec-destBtn', 'sec-surgeBtn'], {
+            base: { ref: resourceRef('recent-base'), requiredFor: 'usable', priority: 'current' },
+            complete: { ref: resourceRef('recent-enrichment'), requiredFor: 'complete', priority: 'reference' }
+          }),
+          initialManifest('busy', ['sec-hotBtn', 'sec-surgeBtn'], {
+            complete: { ref: resourceRef('busy'), requiredFor: 'usable', priority: 'current' }
+          })
+        ], resourceScope, {
+          current: work.current, changed: renderSetupPrefetchProgress,
+          trace: function (event) {
+            auditEvent('setup.resource', { category: 'lifecycle', tags: ['performance'],
+              operationId: 'setup-' + (_setupPrefetch ? _setupPrefetch.id : 0), attrs: event });
+          },
+          work: function (context) {
+            return { label: 'Initial resource', sectionId: 'setupSheet', current: context.current };
+          },
+          promote: promoteSetupPrefetchWork
+        });
+        Object.defineProperty(tasks, 'resources', { value: resources });
+        ['sightings', 'busy'].forEach(function (key) {
+          if (!resources.get(key)) delete tasks[key];
+        });
+        resources.catalog().forEach(function (feature) {
+          var key = feature.id;
+          if (!tasks[key]) tasks[key] = {};
+          tasks[key].acquire = function (retry) {
+            return resources.get(key).start(retry ? 'retryMissing' : 'normal').then(function (result) {
+              if (SetupPrefetch.readyStates.indexOf(result.state) < 0) {
+                throw (key === 'busy' ? resourceErrors.busy
+                  : resourceErrors['recent-enrichment'] || resourceErrors['recent-base'])
+                  || resourceErrors['county-scope'] || new Error('Initial resource coverage is incomplete.');
+              }
+              return { state: result.state, value: resourceValues[result.value] };
+            });
+          };
+        });
         var prepared = setupPreparedInitialTasks(scope);
         Object.keys(tasks).forEach(function (key) {
           if (prepared[key]) {
@@ -30845,7 +31542,10 @@
             };
             tasks[key].preparedAcquire = tasks[key].acquire;
           }
-          tasks[key].promote = function () { promoteSetupPrefetchWork(sourceWork(key)); };
+          tasks[key].promote = function () {
+            if (resources.get(key)) resources.get(key).promote();
+            promoteSetupPrefetchWork(sourceWork(key));
+          };
         });
         return tasks;
       }
@@ -30872,11 +31572,15 @@
         if (!setupPrefetchCurrent()) return;
         var keys = {
           'sec-myYearBtn': ['personal'], 'sec-activeBtn': ['rba'],
-          'sec-chaseBtn': ['sightings'], 'sec-destBtn': ['patches'],
-          'sec-hotBtn': ['busy'], 'sec-rankBtn': ['rankings'],
+          'sec-destBtn': ['patches'], 'sec-rankBtn': ['rankings'],
           'sec-favLoadBtn': ['favorites'], 'sec-bcBtn': ['birdcast'],
-          'sec-surgeBtn': ['mega', 'birdcast', 'foy', 'favorites', 'mass', 'ppte', 'cascades', 'busy', 'sightings']
+          'sec-surgeBtn': ['mega', 'birdcast', 'foy', 'favorites', 'mass', 'ppte', 'cascades']
         }[id] || [];
+        if (_setupPrefetch.tasks.resources) {
+          keys = keys.concat(_setupPrefetch.tasks.resources.catalog().filter(function (feature) {
+            return feature.sections.indexOf(id) >= 0;
+          }).map(function (feature) { return feature.id; }));
+        }
         keys.forEach(function (key) { _setupPrefetch.engine.promote(key); });
       }
       function setupPrefetchIcon(state) {
@@ -30908,12 +31612,13 @@
         var run = setupPrefetchCurrent() && _setupPrefetch.engine;
         var container = $('setupPrefetchRows');
         var ready = 0, finished = 0;
-        var groups = SETUP_PREFETCH_GROUPS.filter(function (group) {
+        var groups = setupPrefetchGroups().filter(function (group) {
           var task = _setupPrefetch && _setupPrefetch.tasks[group[1][0]];
           var state = run ? run.group(group[1]) : 'queued';
           return !task || !task.prepared || task.preparedAcquire !== task.acquire
             || ['failed', 'partial', 'blocked', 'cancelled'].indexOf(state) >= 0;
         });
+        var shownGroups = {};
         var rows = groups.map(function (group) {
           var state = run ? run.group(group[1]) : 'queued';
           var complete = state === 'ready' || state === 'notApplicable';
@@ -30936,12 +31641,26 @@
               : state === 'partial' ? 'Partial Data'
                 : state === 'cancelled' ? 'Cancelled'
                   : state === 'blocked' ? _setupPrefetch && !_setupPrefetch.settled
-                    ? 'Waiting for recovery of required data' : 'Required Data Unavailable' : '';
+                    ? 'Waiting for recovery of ' + waiting.map(setupPrefetchSourceLabel).join(', ')
+                    : 'Required Data Unavailable: ' + waiting.map(setupPrefetchSourceLabel).join(', ') : '';
+          var dependencies = task && task.depends || [];
+          var kind = dependencies.length ? 'Dependent checks' : 'Independent checks';
+          var heading = shownGroups[kind] ? '' : '<span class="prefetch-group" role="heading" aria-level="3">'
+            + kind + '</span>';
+          shownGroups[kind] = true;
+          var dependencyDetail = dependencies.length && !waiting.length
+            ? 'Uses ' + dependencies.map(setupPrefetchSourceLabel).join(', ') : '';
+          var resource = _setupPrefetch && _setupPrefetch.tasks.resources
+            && _setupPrefetch.tasks.resources.get(group[1][0]);
+          if (state === 'loading' && resource && resource.snapshot().projection
+              && resource.snapshot().projection.usable) detail = 'Available; verifying required data';
           return '<li class="prefetch-row" data-source="' + esc(group[1][0])
-            + '" data-state="' + visual + '">'
+            + '" data-state="' + visual + '">' + heading
             + '<span class="prefetch-icon" role="img" aria-label="' + esc(state) + '">'
             + setupPrefetchIcon(visual) + '</span><span class="prefetch-name">' + esc(label)
-            + (detail ? '<span class="prefetch-detail">' + esc(detail) + '</span>' : '') + '</span></li>';
+            + (detail ? '<span class="prefetch-detail">' + esc(detail) + '</span>' : '')
+            + (dependencyDetail ? '<span class="prefetch-dependencies">' + esc(dependencyDetail) + '</span>' : '')
+            + '</span></li>';
         }).join('');
         if (container) container.innerHTML = rows;
         var count = $('setupPrefetchCount');
@@ -31008,9 +31727,14 @@
               entry.latestBlocker = blocker;
             }
             dbg('info', 'Initial data: run=' + id + ' ' + JSON.stringify(event));
-          }, { groups: SETUP_PREFETCH_GROUPS.map(function (group) {
+          }, { groups: setupPrefetchGroups(sources).map(function (group) {
             return [group[0] === 'My Year List' && personalPeriod() === 'all' ? 'My Life List' : group[0], group[1]];
           }) });
+        var cancel = engine.cancel;
+        engine.cancel = function () {
+          if (sources.resources) sources.resources.cancel();
+          cancel();
+        };
         var entry = _setupPrefetch = { id: id, context: context, engine: engine, work: work,
           tasks: sources, settled: false, started: Date.now() };
         renderSetupPrefetchProgress();
@@ -31018,11 +31742,13 @@
       }
       function showSetupPrefetch() {
         $('setupSheetTitle').textContent = 'Getting Ready';
+        $('setupSheet').dataset.setupStep = 'loading';
         $('setupSheetBody').dataset.setupStep = 'loading';
         $('setupSheetBody').innerHTML = '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Checking initial data</h3>'
           + setupActivityHtml('Checking initial data', 'Waiting for initial prerequisites.')
           + '<p id="setupPrefetchActivity" class="setuppanel" role="status" data-setup-pending="true">'
           + 'Please wait. Making the initial data checks. Setup will continue automatically.</p>'
+          + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
           + '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
           + '<p id="setupPrefetchHint" class="prefetch-hint">Setup advances automatically after the initial checks '
@@ -31050,7 +31776,8 @@
         if (!entry || !entry.settled) return '<section id="setupDataResult" class="setuppanel">'
           + '<h4>Initial data not fetched</h4><p>Complete missing setup in Settings. '
           + 'Normal refresh can load data afterward.</p></section>';
-        var missing = SETUP_PREFETCH_GROUPS.filter(function (group) {
+        var groups = setupPrefetchGroups(entry.tasks);
+        var missing = groups.filter(function (group) {
           return ['ready', 'notApplicable'].indexOf(entry.engine.group(group[1])) < 0;
         }).map(function (group) {
           return group[0] === 'My Year List' && personalPeriod() === 'all' ? 'My Life List' : group[0];
@@ -31059,8 +31786,8 @@
           + (missing.length ? 'partial' : 'ready') + '"><h4>'
           + (missing.length ? 'Initial checks finished — some data is unavailable' : 'Initial data fetched')
           + '</h4><p role="status">'
-          + (missing.length ? (SETUP_PREFETCH_GROUPS.length - missing.length) + ' of '
-            + SETUP_PREFETCH_GROUPS.length + ' data groups are ready. Available data is retained. '
+          + (missing.length ? (groups.length - missing.length) + ' of '
+            + groups.length + ' data groups are ready. Available data is retained. '
             + 'You can start birding; normal refresh can recover the missing data.'
             : 'Verified data or matching cache is ready. Not-applicable sources were skipped.')
           + '</p>' + (missing.length ? '<p>Unavailable or partial: ' + missing.map(esc).join(', ') + '.</p>' : '')
@@ -31276,6 +32003,15 @@
           if (draft.changes[id] && !draft.choices[id]) count++;
         });
         $('setupFavoriteCount').textContent = count + ' selected';
+        var changed = Object.keys(draft.changes).some(function (id) {
+          return draft.changes[id] ? !draft.choices[id] : !!draft.choices[id];
+        });
+        $('setupFavoriteSaveHint').textContent = changed
+          ? 'Selection changes are not saved yet. Search again to add more, then save below.'
+          : 'Saved Favorites are kept. Search for more or continue to the setup summary.';
+        $('setupFavoriteContinue').textContent = changed ? 'Save Favorites & continue'
+          : count ? 'Continue with saved Favorites' : 'Continue without Favorites';
+        $('setupFavoriteMore').hidden = !count;
         $('setupFavoriteOptions').innerHTML = Object.keys(choices).map(function (id) {
           var favorite = choices[id], selected = Object.hasOwn(draft.changes, id)
             ? !!draft.changes[id] : !!draft.choices[id];
@@ -31305,6 +32041,7 @@
             : 'Type at least two letters to search.';
           return;
         }
+        $('setupFavoriteSearch').blur();
         draft.loading = true;
         $('setupFavoriteSearchBtn').disabled = true;
         status.textContent = 'Please wait. Loading the hotspot directory...';
@@ -31314,8 +32051,10 @@
           draft.rows = rows;
           renderSetupFavoriteOptions(draft);
           status.textContent = searchHotspots(rows, draft.query).length
-            ? 'Choose one or more hotspots. Choices are saved when you continue.'
+            ? 'Choose one or more hotspots. Search again to add more; save below when finished.'
             : 'No matching hotspots. Existing choices are retained; you can continue or skip.';
+          if ($('setupFavoriteOptions').scrollIntoView)
+            $('setupFavoriteOptions').scrollIntoView({ block: 'nearest' });
         }).catch(function () {
           if (setupFavoriteCurrent(draft)) status.textContent =
             'Hotspot directory unavailable. Existing choices are retained; you can continue or skip.';
@@ -31454,6 +32193,7 @@
           recommended = 'setupConnectEbird';
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Connect your eBird Account</h3>'
             + '<p>Read-only access to eBird. Connection details are kept on your device.</p>'
+            + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
             + (website ? '<p class="setupnote">Connected as ' + esc(getDisplayName()) + '.</p>' : '');
           actions = '<button id="setupConnectEbird" type="button">'
             + (website ? 'Continue' : 'Connect eBird') + '</button>'
@@ -31489,18 +32229,20 @@
           var savedHome = getHome();
           recommended = homeDraft && homeDraft.options && homeDraft.options.length ? ''
             : homePoint ? 'setupHomeApprove'
-              : homeDraft && homeDraft.query ? 'setupHomeFind' : 'setupHomeHere';
+              : 'setupHomeFind';
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Set your Home</h3>'
             + '<div id="setupHomeMapPreview"' + (mapPoint ? '' : ' hidden') + '>'
             + '<div id="setupHomeMap" class="map" role="region" aria-label="'
             + (mapDraft && mapDraft.source === 'saved' ? 'Saved Home map' : 'Home candidate map') + '"></div>'
             + '<a id="setupHomePreview" href="' + esc(mapPoint ? mapPointUrl(mapPoint.lat + ', ' + mapPoint.lng) : '#')
             + '" target="_blank" rel="noopener noreferrer">Open Maps</a></div>'
-            + '<label for="setupHomePlace">Home location</label>'
+            + '<form id="setupHomeSearch" class="setupsearch">'
+            + '<label for="setupHomePlace">Address or town</label>'
             + '<input id="setupHomePlace" type="text" autocapitalize="words" autocorrect="off" '
-            + 'spellcheck="false" placeholder="Waypoint, address or city" value="' + esc(homeValue) + '">'
-            + '<div class="setupactions"><button id="setupHomeHere" class="secondary" type="button">Use location</button></div>'
-            + '<button id="setupHomeFind" type="button"' + (homePoint || !homeValue ? ' hidden' : '') + '>Validate Home</button>'
+            + 'spellcheck="false" enterkeyhint="search" placeholder="Address, town or coordinates" value="' + esc(homeValue) + '">'
+            + '<button id="setupHomeFind" type="submit" data-setup-inline'
+            + (!homeValue.trim() ? ' disabled' : '') + '>Find address</button></form>'
+            + '<div class="setupactions"><button id="setupHomeHere" class="secondary" type="button">Use current location instead</button></div>'
             + '<button id="setupHomeCancel" class="secondary" type="button" hidden>Cancel lookup</button>'
             + '<div id="setupHomeOptions" class="setupactions">'
             + ((homeDraft && homeDraft.options) || []).map(function (point, index) {
@@ -31577,15 +32319,20 @@
           var favoriteDraft = setupFavoriteDraft();
           recommended = 'setupFavoriteContinue';
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Choose Favorite Patches</h3>'
-            + '<p>Optional: search for hotspots and select one or more. Existing Favorites are retained unless you deselect them.</p>'
-            + '<label for="setupFavoriteSearch">Find hotspots by name</label>'
-            + '<input id="setupFavoriteSearch" type="search" autocomplete="off" value="' + esc(favoriteDraft.query) + '">'
-            + '<div class="setupactions"><button id="setupFavoriteSearchBtn" class="secondary" type="button"'
-            + (favoriteDraft.loading || favoriteDraft.error ? ' disabled' : '') + '>Search hotspots</button></div>'
+            + '<p class="setupsearchintro">Optional: choose patches you visit. Search again to add more. Saved Favorites are retained unless you deselect them.</p>'
+            + '<form id="setupFavoriteForm" class="setupsearch">'
+            + '<label for="setupFavoriteSearch">Hotspot name</label>'
+            + '<input id="setupFavoriteSearch" type="search" autocomplete="off" enterkeyhint="search" value="' + esc(favoriteDraft.query) + '">'
+            + '<button id="setupFavoriteSearchBtn" class="secondary" type="submit" data-setup-inline aria-label="Search hotspots"'
+            + (favoriteDraft.loading || favoriteDraft.error ? ' disabled' : '') + '>'
+            + '<span class="setupsearchlong">Search hotspots</span><span class="setupsearchshort" aria-hidden="true">Search</span></button></form>'
             + '<p id="setupFavoriteStatus" class="hint" role="status">' + esc(favoriteDraft.error
               || 'Choose hotspots, continue with your saved choices, or skip for now.') + '</p>'
-            + '<p id="setupFavoriteCount" role="status"></p><div id="setupFavoriteOptions" class="setupfavoriteoptions"></div>';
-          actions = '<button id="setupFavoriteContinue" type="button">Continue</button>'
+            + '<p id="setupFavoriteCount" role="status"></p><p id="setupFavoriteSaveHint" class="hint"></p>'
+            + '<div id="setupFavoriteOptions" class="setupfavoriteoptions"></div>'
+            + '<button id="setupFavoriteMore" class="secondary" type="button">Search again - keep selections</button>';
+          actions = '<p id="setupFavoriteNext" class="hint">Next: setup summary</p>'
+            + '<button id="setupFavoriteContinue" type="button">Continue</button>'
             + '<button id="setupSkipFavorites" class="secondary" type="button">Skip for now</button>';
         } else {
           var seenReady = seenSetupComplete() && !state.pending && !state.evidence.stale && !state.evidence.failure;
@@ -31621,6 +32368,7 @@
             + (completeSetup ? '<button id="setupReview" class="secondary" type="button">Review setup</button>' : '');
         }
         body.dataset.setupStep = step;
+        $('setupSheet').dataset.setupStep = step;
         body.innerHTML = html + '<p id="setupActionStatus" class="hint" role="status"></p>'
           + '<div class="setupactions setupfooteractions">' + actions
           + (step !== 'account'
@@ -31691,9 +32439,9 @@
           });
           updateVerify();
         }
-        function bind(id, action) {
+        function bind(id, action, eventType) {
           var button = $(id);
-          if (button) button.addEventListener('click', action);
+          if (button) button.addEventListener(eventType || 'click', action);
         }
         bind('setupHelp', function () {
           var sheet = $('setupSheet');
@@ -31743,10 +32491,10 @@
             }
             $('setupHomeOptions').innerHTML = '';
             $('setupHomeHere').disabled = false; $('setupHomeFind').disabled = false;
-            $('setupHomeFind').hidden = !homeInput.value.trim();
+            $('setupHomeFind').disabled = !homeInput.value.trim();
             $('setupHomeCancel').hidden = true;
-            recommendSetupAction(homeInput.value.trim() ? 'setupHomeFind' : 'setupHomeHere');
-            $('setupActionStatus').textContent = 'Validate the updated Home to continue.';
+            recommendSetupAction('setupHomeFind');
+            $('setupActionStatus').textContent = 'Find the updated address, or use your current location.';
           });
           $('setupHomeOptions').querySelectorAll('[data-setup-home-option]').forEach(function (button) {
             button.addEventListener('change', function () {
@@ -31764,8 +32512,20 @@
             });
           });
         }
-        bind('setupHomeHere', function () { lookupSetupHome(true); });
-        bind('setupHomeFind', function () { lookupSetupHome(false, true); });
+        bind('setupHomeHere', function () { homeInput.blur(); lookupSetupHome(true); });
+        bind('setupHomeSearch', function (event) {
+          event.preventDefault();
+          if (!$('setupHomeFind').disabled) {
+            homeInput.blur();
+            lookupSetupHome(false, true);
+          }
+        }, 'submit');
+        if (homeInput) homeInput.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' && !event.repeat && !event.isComposing) {
+            event.preventDefault();
+            $('setupHomeSearch').requestSubmit($('setupHomeFind'));
+          }
+        });
         var displayedHomeToken = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
         var displayedHomeOwner = bcProfile(), displayedHomeScope = activeScope();
         function displayedHomeCurrent() {
@@ -31905,11 +32665,18 @@
             renderSetupFavoriteOptions(favoriteDraft);
           });
           $('setupFavoriteSearch').addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' && !event.repeat) {
+            if (event.key === 'Enter' && !event.repeat && !event.isComposing) {
               event.preventDefault(); searchSetupFavorites(favoriteDraft);
             }
           });
-          bind('setupFavoriteSearchBtn', function () { searchSetupFavorites(favoriteDraft); });
+          bind('setupFavoriteForm', function (event) {
+            event.preventDefault(); searchSetupFavorites(favoriteDraft);
+          }, 'submit');
+          bind('setupFavoriteMore', function () {
+            var input = $('setupFavoriteSearch');
+            input.focus({ preventScroll: true });
+            if (input.scrollIntoView) input.scrollIntoView({ block: 'center' });
+          });
           bind('setupFavoriteContinue', function () { finishSetupFavorites(favoriteDraft, false); });
           bind('setupSkipFavorites', function () { finishSetupFavorites(favoriteDraft, true); });
         }
@@ -39902,7 +40669,7 @@
         return snapshot && snapshot.context === hotspotContextKey()
           && snapshot.apiKey === getKey() ? snapshot.result : null;
       }
-      function acquireBusyPatches(force, retry, ownerWork) {
+      function acquireBusyPatches(force, retry, ownerWork, countyScope, resourceAccess) {
         var context = hotspotContextKey(), apiKey = getKey();
         if (_busyPromise && _busyContext === context && workCurrent(_busyWork) && !force) return _busyPromise;
         var complete = currentBusySnapshot(true);
@@ -39942,18 +40709,23 @@
           var complete = currentBusySnapshot(true);
           if (!force && !retry && complete && !complete.busyState.partial
               && Date.now() - complete.busyState.at < CHASE_TTL_MS) return complete;
-          return Promise.all(codes.map(function (code) {
-            return ebird(busyRequestPath('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json', context),
-              false, false, false, work).then(function (rows) {
-                if (!Array.isArray(rows) || !rows.length) throw new Error('Public hotspot registry unavailable.');
-                return rows;
-              });
-          })).then(function (registries) {
+          return (countyScope ? countyScope() : Promise.resolve()).then(function () {
+            if (!workCurrent(work)) throw queueCancelledError(work);
+            codes = countyCodes();
+            return Promise.all(codes.map(function (code) {
+              if (resourceAccess) return resourceAccess('busy-registry', { code: code }, 'current');
+              return ebird(busyRequestPath('ref/hotspot/' + encodeURIComponent(code) + '?fmt=json', context),
+                false, false, false, work).then(function (rows) {
+                  if (!Array.isArray(rows) || !rows.length) throw new Error('Public hotspot registry unavailable.');
+                  return rows;
+                });
+            }));
+          }).then(function (registries) {
             if (!workCurrent(work)) throw queueCancelledError(work);
             return startBusyPatches({
               codes: codes, home: home, anchors: anchors, context: context,
               reportSlug: reportSlug, cacheKey: cacheKey, force: !!force, retry: !!retry,
-              meta: [].concat.apply([], registries), ownerWork: ownerWork
+              meta: [].concat.apply([], registries), ownerWork: ownerWork, resourceAccess: resourceAccess
             });
           });
         });
@@ -40154,9 +40926,14 @@
           renderHot(r);
           if ($('hotStatus')) $('hotStatus').textContent = busyPatchStatus(r);
         }
-        function lists(path) {
-          return ebird(busyRequestPath(path + '?maxResults=1200', input.context),
-            false, !!input.force, !!input.force, work)
+        function lists(code, priority) {
+          var read = input.resourceAccess
+            ? input.resourceAccess('busy-checklist-list', {
+              code: code, force: !!input.force, coverage: priority === 'current' ? 'current' : 'reference'
+            }, priority)
+            : ebird(busyRequestPath('product/lists/' + encodeURIComponent(code) + '?maxResults=1200', input.context),
+              false, !!input.force, !!input.force, work);
+          return read
             .then(function (rows) {
               if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
               return { ok: true, rows: rows };
@@ -40209,7 +40986,7 @@
           paint();
         });
         _busyPromise = Promise.all(input.codes.map(function (code) {
-          return lists('product/lists/' + encodeURIComponent(code));
+          return lists(code, 'current');
         })).then(function (feeds) {
           if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
           state.failed = feeds.some(function (feed) { return !feed.ok; });
@@ -40232,7 +41009,7 @@
           return candidates.reduce(function (promise, candidate) {
             return promise.then(function () {
               if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
-              return lists('product/lists/' + encodeURIComponent(candidate.locId));
+              return lists(candidate.locId, 'reference');
             }).then(function (feed) {
               if (!workCurrent(work)) throw queueCancelledError(null, 'Busy Patch context changed');
               state.checked++;
@@ -40263,7 +41040,9 @@
               return at >= window.start && at <= window.end;
             });
           });
-          return enrichChecklistParties(relevant, work).then(function () {
+          return enrichChecklistParties(relevant, work, input.resourceAccess && function (sub) {
+            return input.resourceAccess('busy-party-detail', { sub: sub }, 'reference');
+          }).then(function () {
             all = checklistPartyRows(all);
             refreshScores();
           });
@@ -40447,8 +41226,8 @@
           return null;
         });
       }
-      function loadHotspots() { runHotspotScan({ force: true, redirect: true }); }
-      function loadColdspots() { runHotspotScan({ force: true, redirect: true }); }
+      function loadHotspots() { return runHotspotScan({ force: takeForce(), redirect: true }); }
+      function loadColdspots() { return runHotspotScan({ force: takeForce(), redirect: true }); }
 
       // ── F156: ICONIC SPOTS NEAR ME ─────────────────────────────────────
       //
@@ -42138,14 +42917,16 @@
         var rejection = null;
         function read(html) {
           var page = parseFirstYearBirdList(html);
-          var validation = page.validation;
+          var validation = page.validation, kind = pageKind(html);
           function count(value) {
             return Number.isSafeInteger(value) && value > 0 ? Math.min(100000, value) : 0;
           }
           rejection = {
-            classification: !validation.membershipComplete ? 'invalid-membership'
+            classification: kind !== 'OPEN' ? 'website-access-required'
+              : !validation.membershipComplete ? 'invalid-membership'
               : validation.parsedRows && !validation.countMatches ? 'row-count-mismatch'
               : !page.valid ? 'no-recognized-table' : 'source-mismatch',
+            websiteKind: kind,
             parsedRows: count(validation.parsedRows), declaredRows: count(page.declared),
             missingCodeRows: count(validation.missingCodeRows),
             missingNameRows: count(validation.missingNameRows),
@@ -42157,6 +42938,9 @@
             annualFirst: !!(page.source && page.source.kind === 'annual-first'),
             pageShape: page.pageShape
           };
+          if (kind !== 'OPEN') {
+            throw new Error('Annual-first page needs website access (' + kind + ').');
+          }
           if (!page.valid) {
             throw new Error('eBird bird-list markup did not contain its declared Native/Naturalized rows');
           }
@@ -43724,7 +44508,7 @@
         var age = Date.now() - Number(part.t || 0);
         return {
           state: isFinite(age) && age >= 0 && age < CHASE_TTL_MS ? 'ok' : 'stale',
-          rows: part.rows
+          rows: part.rows, acquiredAt: part.t
         };
       }
       function surgeSourceFallback(live, cached) {
@@ -43749,7 +44533,7 @@
           ['cascades', 'convergence'].forEach(function (key) {
             var part = model && model[key];
             if (part && part.state === 'ok' && Array.isArray(part.rows)) {
-              next[key] = { t: now, rows: part.rows };
+              next[key] = { t: part.acquiredAt == null ? now : part.acquiredAt, rows: part.rows };
             }
           });
           if (!next.cascades && !next.convergence) return false;
@@ -44129,6 +44913,7 @@
           'surge-reason-text': reason.text
         };
         Object.keys(a.data || {}).forEach(function (key) { data[key] = a.data[key]; });
+        if (a.kind === 'patch') data['patch-yield'] = surgeReasonPlain(a);
         var evidence = surgeExplanationHtml(a, reason.text);
         var evidenceText = document.createElement('div');
         evidenceText.innerHTML = evidence;
@@ -45209,7 +45994,11 @@
       }
       function parseMassHighCountPage(text, region, allowPartial) {
         var kind = pageKind(text);
-        if (kind !== 'OPEN') throw new Error('High-count page needs website access (' + kind + ').');
+        if (kind !== 'OPEN') {
+          var accessError = new Error('High-count page needs website access (' + kind + ').');
+          accessError.websiteKind = kind;
+          throw accessError;
+        }
         var markup = String(text).replace(/<head\b[^>]*>[\s\S]*?<\/head>/i, '')
           .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
         var doc = new DOMParser().parseFromString(markup, 'text/html');
@@ -46134,7 +46923,10 @@
             dbg('warn', 'Bird gen mass source: ' + ((error && error.message) || error));
           }
           return finish({ state: 'failed', rows: [], diagnostics: diagnostics,
-            coverage: cancelled ? 'Search cancelled' : 'High-count page or public-location source failed'
+            coverage: cancelled ? 'Search cancelled'
+              : ['ANUBIS', 'LOGIN'].indexOf(error && error.websiteKind) >= 0
+                ? 'High-count page needs website access (' + error.websiteKind + ').'
+                : 'High-count page or public-location source failed'
           }, cancelled);
         });
         }
@@ -47439,8 +48231,8 @@
           if (!current()) return Promise.resolve({ state: 'cancelled' });
           var summary = surgeSourceSummary(attemptStates, pendingSources);
           var eligible = summary.failed.concat(summary.incomplete);
-          return Promise.all(keys.filter(function (key, index) {
-            return keys.indexOf(key) === index && eligible.indexOf(key) >= 0 && sourceTasks[key];
+          return Promise.all((keys || eligible).filter(function (key, index, selected) {
+            return selected.indexOf(key) === index && eligible.indexOf(key) >= 0 && sourceTasks[key];
           }).map(function (key) { return sourceTasks[key](true); }));
         };
         _surgeActiveLoad = activeLoad;
@@ -47917,7 +48709,7 @@
             var state = result && result.state || 'settled';
             if (source[0] === 'mega') state = megaAlertSourceState(megaLane(getAnchors()));
             if (source[0] === 'birdcast') state = birdcastState;
-            if (fullRefresh && current() && state === 'ok') acquired.times[source[0]] = Date.now();
+            if (refreshSources && current() && state === 'ok') acquired.times[source[0]] = Date.now();
             if (_performance && current()) {
               _performance.source(performanceLoadId, { source: source[0], state: state });
             }
@@ -50651,7 +51443,7 @@
           sec._label ? 'Reload ' + splitLabel(sec._label).text
                      : (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
         btn.addEventListener('click', function () {
-          _forceReload = true;
+          _forceReload = false;
           if (nemesisModes) {
             var patchPane = $('nemesisPatchPane');
             load = patchPane && !patchPane.hidden ? $('targetsBtn') : $('allUnseenBtn');
@@ -51672,12 +52464,17 @@
             + '<div class="recent-birdgen-actions">'
             + '<button type="button" class="refreshbtn" id="recentBirdGenRefresh"'
             + ' aria-label="Refresh full Bird Gen feed"><span aria-hidden="true">↻</span></button>'
+            + '<button type="button" class="refreshbtn" id="recentBirdGenLatest"'
+            + ' aria-label="Fetch latest full Bird Gen feed">Fetch latest</button>'
             + '<button type="button" class="refreshbtn" id="recentBirdGenOpen" data-at="surgeBtn"'
             + ' aria-label="Open full Bird Gen feed">Full feed</button>'
             + '<span id="recentBirdGenStatus" class="vh" role="status" aria-live="polite"></span></div></div>'
             + '<ul id="recentBirdGenRows" class="obs card-sm recent-birdgen-list"></ul>';
           list.before(root);
           $('recentBirdGenRefresh').addEventListener('click', function () {
+            refreshFullBirdGen('normal');
+          });
+          $('recentBirdGenLatest').addEventListener('click', function () {
             refreshFullBirdGen();
           });
           $('recentBirdGenOpen').addEventListener('click', function () {
@@ -51733,6 +52530,12 @@
           [].forEach.call(row.querySelectorAll('.surgekindwrap,template,.sub,.surgebirdtag'), function (node) {
             node.remove();
           });
+          if (kind === 'patch' && source.getAttribute('data-patch-yield')) {
+            var yieldNote = document.createElement('span');
+            yieldNote.className = 'recent-patch-yield';
+            yieldNote.textContent = source.getAttribute('data-patch-yield');
+            row.querySelector('.ntext').appendChild(yieldNote);
+          }
           var label = source.getAttribute('data-surge-age-label');
           if (!label) {
             var parts = surgeAgeParts(Number(source.getAttribute('data-surge-age-time')
@@ -51815,14 +52618,19 @@
       }
       function yieldAutomaticRecentBirdGen() {
         if (!_recentBirdGenJob || !_recentBirdGenJob.automatic) return;
+        if (_recentBirdGenFullJob && _recentBirdGenFullJob.reuseFresh
+            && _recentBirdGenFullJob.current()) return;
         _recentBirdGenJob.cancelled = true;
         fgCancelObsolete();
       }
       function refreshFullBirdGen(automatic) {
+        var reuseFresh = automatic === true || automatic === 'normal';
         if (_recentBirdGenFullJob) {
           if (_recentBirdGenFullJob.current()) {
             var active = _recentBirdGenFullJob;
-            if (automatic !== true && active.reuseFresh) {
+            if (!reuseFresh && active.reuseFresh) {
+              $('recentBirdGenLatest').disabled = true;
+              $('recentBirdGenLatest').textContent = 'Fetch latest queued';
               if (!active.manualContinuation) active.manualContinuation = active.promise.then(function () {
                 if (active.current()) return refreshFullBirdGen();
               });
@@ -51840,7 +52648,7 @@
         }
         var context = recentBirdGenKey(), scope = activeScope();
         var nav = _navGeneration, cancellation = _workCancelGeneration;
-        var button = $('recentBirdGenRefresh');
+        var button = $('recentBirdGenRefresh'), latest = $('recentBirdGenLatest');
         function current() {
           return !!window.document && !_appUnloading && menuVisible()
             && context === recentBirdGenKey() && scopeCurrent(scope)
@@ -51850,11 +52658,15 @@
           setRecentBirdGenStatus('Retained results only. Set Home and an eBird API key to refresh the full Bird Gen feed.');
           return warmRecentBirdGen();
         }
-        yieldAutomaticRecentBirdGen();
-        var job = { current: current, promise: null, reuseFresh: automatic === true };
-        var actionLabel = job.reuseFresh ? 'Setup Bird Gen check' : 'Full Bird Gen refresh';
+        if (!reuseFresh) yieldAutomaticRecentBirdGen();
+        var job = { current: current, promise: null, reuseFresh: reuseFresh };
+        var actionLabel = job.reuseFresh
+          ? automatic === true ? 'Setup Bird Gen check' : 'Bird Gen check'
+          : 'Full Bird Gen refresh';
         _recentBirdGenFullJob = job;
         button.disabled = true;
+        latest.disabled = !job.reuseFresh;
+        latest.textContent = job.reuseFresh ? 'Fetch latest' : 'Fetching latest...';
         function progress(states, settled) {
           if (!current()) return;
           var warnings = Object.keys(states || {}).filter(function (key) {
@@ -51862,7 +52674,8 @@
           }).map(function (key) { return SURGE_SOURCE_LABELS[key] + ': ' + states[key]; });
           setRecentBirdGenStatus((settled
             ? actionLabel + ' finished' + (warnings.length ? ' · partial coverage · retained results kept' : '')
-            : job.reuseFresh ? 'Checking setup Bird Gen coverage · fresh sources reused'
+            : job.reuseFresh ? (automatic === true ? 'Checking setup' : 'Checking')
+                + ' Bird Gen coverage · fresh sources reused'
               : 'Refreshing full Bird Gen feed · results update as sources arrive')
             + (warnings.length ? ' · ' + warnings.join('; ') : ''));
         }
@@ -51887,6 +52700,8 @@
           _recentBirdGenFullJob = null;
           if (_appUnloading || !window.document) return;
           button.disabled = false;
+          latest.disabled = false;
+          latest.textContent = 'Fetch latest';
           if (!current() && context === recentBirdGenKey()) {
             setRecentBirdGenStatus(actionLabel + ' cancelled · retained results kept. Retry the refresh button.');
           }
@@ -52751,7 +53566,18 @@
           return Promise.resolve(pending).then(function () {
             if (navigation !== _navGeneration || !scopeCurrent(scope)
                 || context !== surgeSourceContext() || (menu ? !menuVisible() : sec.hidden)) return false;
-            return menu ? refreshFullBirdGen() : loadSurge(null, false, { fullRefresh: true });
+            if (typeof _surgeRetrySources !== 'function') return false;
+            return _surgeRetrySources().then(function (results) {
+              if (menu && navigation === _navGeneration && scopeCurrent(scope)
+                  && context === surgeSourceContext() && menuVisible()) {
+                var incomplete = results.some(function (result) {
+                  return result.state !== 'ok' && result.state !== 'notApplicable';
+                });
+                setRecentBirdGenStatus('Bird Gen recovery finished'
+                  + (incomplete ? ' · partial coverage' : '') + ' · healthy sources retained');
+              }
+              return results;
+            });
           });
         }
         if (!sec || sec.hidden || !sec._loader || !sec._loader.fn) return;
@@ -54468,7 +55294,7 @@
           Object.keys(initial.engine.states).forEach(function (key) {
             sourceStates[key] = initial.engine.states[key].state;
           });
-          SETUP_PREFETCH_GROUPS.forEach(function (group) {
+          setupPrefetchGroups(initial.tasks).forEach(function (group) {
             groupStates[group[0]] = initial.engine.group(group[1]);
           });
           add('Initial data diagnostics: ' + JSON.stringify({ run: initial.id,
@@ -54870,6 +55696,7 @@
       });
       bindSwipeBack();
       bindZoomReset();
+      bindPersonalListReturn();
       if ($('loadRetry')) $('loadRetry').addEventListener('click', retryStalledSection);
       if ($('loadNoticeHide')) $('loadNoticeHide').addEventListener('click', function () {
         if (_loadLimitUntil) _loadLimitUntil = 0;
@@ -55160,7 +55987,7 @@
         if (ev.key === 'Enter') { ev.preventDefault(); runNvSearch(); }
         if (ev.key === 'Escape') { ev.preventDefault(); clearNvSearch(); }
       });
-      $('nvBtn').addEventListener('click', function () { loadWatchlist(true); });
+      $('nvBtn').addEventListener('click', loadWatchlist);
       $('nvCopyBtn').addEventListener('click', function () {
         var md = watchlistMarkdown(), st = $('nvStatus');
         var say = function (ok) {
@@ -55177,6 +56004,8 @@
         say(false);
       });
       $('refreshBtn').addEventListener('click', refresh);
+      $('twitchFetchLatest').addEventListener('click', function () { refresh({fetchLatest:true}); });
+      $('activeFetchLatest').addEventListener('click', function () { loadActiveRarities({fetchLatest:true}); });
       $('destBtn').addEventListener('click', loadDestinations);
       $('myYearBtn').addEventListener('click', function () { _forceReload = true; loadMyYear(); });
       if ($('csvDownloadBtn')) $('csvDownloadBtn').addEventListener('click', function () {
@@ -55207,11 +56036,11 @@
         if (ev.key === 'Enter') { ev.preventDefault(); quickFindPlace(); }
       });
       $('wxBtn').addEventListener('click', loadConditions);
-      $('rankBtn').addEventListener('click', function () { loadRankings(true); });
+      $('rankBtn').addEventListener('click', loadRankings);
       $('patchBtn').addEventListener('click', loadChoicePatches);
       $('lastNewBtn').addEventListener('click', loadLastNew);
       $('abaBtn').addEventListener('click', loadAbaAlert);
-      $('foyBtn').addEventListener('click', function () { loadFoy(true); });
+      $('foyBtn').addEventListener('click', loadFoy);
       $('foyUnseenBtn').addEventListener('click', function () {
         _foyUnseen = !_foyUnseen;
         $('foyUnseenBtn').setAttribute('aria-pressed', _foyUnseen ? 'true' : 'false');
@@ -56255,6 +57084,7 @@
         surgeSourceCacheKey: surgeSourceCacheKey,
         loadSurgeSourceCache: loadSurgeSourceCache,
         saveSurgeSourceCache: saveSurgeSourceCache,
+        surgeCachedSource: surgeCachedSource,
         surgeSourceFallback: surgeSourceFallback,
         megaAlertSourceState: megaAlertSourceState,
         lazyRefreshMegaSnapshot: lazyRefreshMegaSnapshot,
@@ -56385,6 +57215,7 @@
         recoverCachedRecentRegions: recoverCachedRecentRegions, recentRegions: recentRegions,
         openSetupSheet: openSetupSheet, renderSetupSheet: renderSetupSheet,
         startSetupPrefetch: startSetupPrefetch, setupPrefetchEligible: setupPrefetchEligible,
+        showSetupPrefetch: showSetupPrefetch,
         promoteSetupPrefetchWork: promoteSetupPrefetchWork,
         setupPrefetchContext: setupPrefetchContext,
         acquireInitialDatasetTasks: acquireInitialDatasetTasks,
@@ -56561,6 +57392,7 @@
         runHotspotScan: runHotspotScan,
         startHotspotOwnership: startHotspotOwnership,
         startBusyPatches: startBusyPatches, busyPatchReason: busyPatchReason,
+        currentBusySnapshot: currentBusySnapshot,
         busyChecklistCoverage: busyChecklistCoverage,
         hotspotContextKey: hotspotContextKey, hotCacheKey: hotCacheKey,
         hotspotOwnershipState: hotspotOwnershipState,

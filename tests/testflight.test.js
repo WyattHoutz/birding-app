@@ -244,9 +244,13 @@ test('F1059 independent signed delivery cannot gate the unsigned Release or its 
   assert.doesNotMatch(unsigned, /run: node assets\/testflight\.js/);
   assert.match(signed, /workflow_run:/);
   assert.match(signed, /workflows: \[Build unsigned iOS IPA\]/);
-  assert.match(signed, /run: node assets\/testflight\.js source/);
-  assert.match(signed, /ref: \$\{\{ steps\.source\.outputs\.sha \}\}/);
-  assert.match(signed, /run-id: \$\{\{ steps\.source\.outputs\.run_id \}\}/);
+  assert.match(signed, /types: \[in_progress\]/);
+  assert.match(signed, /run: node assets\/testflight-source\.js/);
+  assert.match(signed, /ref: \$\{\{ needs\.source\.outputs\.sha \}\}/);
+  assert.match(signed, /run-id: \$\{\{ needs\.source\.outputs\.run_id \}\}/);
+  assert.match(signed, /artifact-ids: \$\{\{ needs\.source\.outputs\.artifact_id \}\}/);
+  assert.match(signed, /TESTFLIGHT_SOURCE_ROOT: \$\{\{ github\.workspace \}\}\/source/);
+  assert.match(signed, /TESTFLIGHT_SOURCE_RUN_ID: \$\{\{ needs\.source\.outputs\.run_id \}\}/);
   assert.match(signed, /run: node assets\/testflight\.js/);
   assert.match(signed, /if: always\(\)\s+run: node assets\/testflight\.js cleanup/);
   assert.doesNotMatch(signed, /contents: write/);

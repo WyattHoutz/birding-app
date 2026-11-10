@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const vm = require('node:vm');
 const xcode = require('xcode');
 const flight = require('../assets/testflight.js');
+const sourceGate = require('../assets/testflight-source.js');
 
 function nativeProject(root) {
   const file = path.join(root, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj');
@@ -19,7 +20,7 @@ function nativeProject(root) {
   return project;
 }
 
-async function deliveryFixture(failArchive, failNative = false) {
+async function deliveryFixture(failArchive, failNative = false, options = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-flight-delivery-'));
   const root = path.join(temp, 'app'), home = path.join(temp, 'home');
   const runner = path.join(temp, 'runner');
@@ -47,15 +48,24 @@ async function deliveryFixture(failArchive, failNative = false) {
     IOS_APP_STORE_PROFILE_BASE64: Buffer.from('synthetic-profile').toString('base64'),
     GITHUB_RUN_ID: '123', GITHUB_RUN_NUMBER: '538', GITHUB_RUN_ATTEMPT: '1',
     TESTFLIGHT_SOURCE_SHA: sha, RUNNER_TEMP: runner,
+    GH_TOKEN: 'synthetic-workflow-token', GITHUB_REPOSITORY: 'owner/app',
+    TESTFLIGHT_SOURCE_RUN_ID: '321', TESTFLIGHT_SOURCE_ATTEMPT: '1',
+    TESTFLIGHT_SOURCE_ARTIFACT_ID: '777',
+    TESTFLIGHT_SOURCE_ARTIFACT_NAME: 'BirdChaser-ios-project-1',
   };
+  const separateSourceRoot = !!options.separateSourceRoot;
+  if (separateSourceRoot) env.TESTFLIGHT_SOURCE_ROOT = root;
+  let authorizations = 0;
   let uploaded = false, processingReads = 0, dependencyPatched = false;
   const spawnSync = (program, args, options) => {
     calls.push({ program, args });
-    for (const name of ['ASC_PRIVATE_KEY', 'IOS_DISTRIBUTION_P12_PASSWORD', 'IOS_APP_STORE_PROFILE_BASE64']) {
+    for (const name of ['ASC_PRIVATE_KEY', 'IOS_DISTRIBUTION_P12_PASSWORD',
+      'IOS_APP_STORE_PROFILE_BASE64', 'GH_TOKEN']) {
       assert.equal(options.env[name], undefined, 'a subprocess inherited signing material');
     }
     let stdout = '';
-    if (program === 'git') stdout = sha;
+    if (program === 'git') stdout = separateSourceRoot && options.cwd !== root
+      ? 'b'.repeat(40) : sha;
     if (program === 'security' && args[0] === 'list-keychains') stdout = '"original.keychain"';
     if (program === 'security' && args[0] === 'create-keychain') fs.writeFileSync(args.at(-1), 'synthetic');
     if (program === 'security' && args[0] === 'find-identity') stdout = identity;
@@ -123,8 +133,18 @@ async function deliveryFixture(failArchive, failNative = false) {
   const customRequire = name => {
     if (name === 'node:child_process') return { spawnSync };
     if (name === 'node:os') return { ...os, homedir: () => home };
-    if (name === '../package.json') return { version: '1.168.0' };
-    if (name === '../capacitor.config.json') return { appId: 'com.example.bird' };
+    if (name === path.join(root, 'package.json')) return { version: '1.168.0' };
+    if (name === path.join(root, 'capacitor.config.json')) return { appId: 'com.example.bird' };
+    if (name === './testflight-source.js') return {
+      captured: sourceGate.captured,
+      authorize: async current => {
+        calls.push({ program: 'authorizeSource', args: [] });
+        authorizations++;
+        if (authorizations === options.rejectAuthorization)
+          throw new Error('Prepared source authorization rejected');
+        return { ...sourceGate.captured(current), testRunId: 456 };
+      },
+    };
     if (name === './release-contract.json') return {};
     if (name === './verify-release-bundle.js') return {
       verifyBundle: () => { calls.push({ program: 'verifyBundle', args: [] }); },
@@ -133,7 +153,8 @@ async function deliveryFixture(failArchive, failNative = false) {
   };
   const module = { exports: {} };
   vm.runInNewContext(source, {
-    require: customRequire, module, __dirname: path.join(root, 'assets'),
+    require: customRequire, module, __dirname: path.join(
+      options.separateSourceRoot ? path.join(temp, 'tools') : root, 'assets'),
     process: { platform: 'darwin', env, execPath: process.execPath, stderr: { write() {} } },
     console: { log() {} }, Buffer, URL, AbortSignal, fetch: fetcher,
     setTimeout: callback => queueMicrotask(callback),
@@ -141,13 +162,16 @@ async function deliveryFixture(failArchive, failNative = false) {
   try {
     if (failArchive) await assert.rejects(module.exports.deliver(), /xcodebuild failed/);
     else if (failNative) await assert.rejects(module.exports.deliver(), /python3 failed/);
+    else if (options.rejectAuthorization)
+      await assert.rejects(module.exports.deliver(), /source authorization rejected/);
     else await assert.doesNotReject(module.exports.deliver());
     assert.equal(fs.existsSync(path.join(runner, 'bird-chaser-signing-123-1')), false,
       'temporary private keys/keychain remained after delivery');
     assert.equal(fs.existsSync(path.join(home, 'Library', 'MobileDevice', 'Provisioning Profiles',
       profile.uuid + '.mobileprovision')), false, 'installed profile remained after delivery');
     const reportText = fs.readFileSync(path.join(root, 'testflight-status.json'), 'utf8');
-    assert.doesNotMatch(reportText, /private-link|private-name|private-id|synthetic-password/);
+    assert.doesNotMatch(reportText,
+      /private-link|private-name|private-id|synthetic-password|synthetic-workflow-token/);
     return { calls, report: JSON.parse(reportText), uploaded };
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
@@ -179,6 +203,33 @@ test('F1059 archive failure cannot upload and still removes the keychain, privat
   assert.equal(result.report.processingState, 'NOT_UPLOADED');
   assert.match(result.report.error, /xcodebuild failed/);
   assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
+});
+
+test('F1313 separate current delivery tools authorize the exact source before validation and again before upload', async () => {
+  const result = await deliveryFixture(false, false, { separateSourceRoot: true });
+  const positions = result.calls.map((call, index) => ({ ...call, index }));
+  const guards = positions.filter(call => call.program === 'authorizeSource');
+  const validate = positions.find(call => call.program === 'xcrun' && call.args.includes('--validate-app'));
+  const upload = positions.find(call => call.program === 'xcrun' && call.args.includes('--upload-app'));
+  const contents = positions.find(call => call.program === 'verifyBundle');
+  assert.equal(guards.length, 2);
+  assert.ok(contents.index < guards[0].index && guards[0].index < validate.index);
+  assert.ok(validate.index < guards[1].index && guards[1].index < upload.index);
+  assert.equal(result.report.version, '1.168.0', 'the source version is not the delivery-tools version');
+  assert.equal(result.report.commit, 'a'.repeat(40));
+  assert.equal(result.report.deliveryToolsCommit, 'b'.repeat(40));
+  assert.equal(result.report.sourceAuthorization.testRunId, 456);
+});
+
+test('F1313 rejected tests or changed source after validation prevent upload and still clean signing material', async () => {
+  for (const rejectAuthorization of [1, 2]) {
+    const result = await deliveryFixture(false, false, { rejectAuthorization });
+    assert.equal(result.uploaded, false);
+    assert.equal(result.report.processingState, 'NOT_UPLOADED');
+    assert.equal(result.calls.some(call => call.program === 'xcrun'
+      && call.args.includes('--validate-app')), rejectAuthorization === 2);
+    assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
+  }
 });
 
 test('F1059 a failed exported native contract prevents validation/upload and still cleans up', async () => {

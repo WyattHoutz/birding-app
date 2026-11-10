@@ -516,7 +516,7 @@ test('F1285 actual closed-wizard timing survives console churn, Copy all and the
   } finally { app.window.close(); }
 });
 
-test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at the final data summary', async () => {
+test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance and ends at the final data summary', async () => {
   const app = await setupOwnedSeenApp(['stable']);
   try {
     const A = app.window.__app, store = app.window.localStorage;
@@ -541,15 +541,21 @@ test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at
     const order = rows.map(row => row.dataset.source);
     assert.deepEqual([...order].sort(), Object.keys(tasks).sort(),
       'F1288 every actual acquisition source appears exactly once');
-    assert.deepEqual(order.slice(0, 7),
-      ['taxonomy', 'personal', 'rankings', 'rba', 'sightings', 'patches', 'busy'],
-      'F1287 sources have a stable dependency-aware presentation order');
+    for (const key of order) {
+      for (const prerequisite of tasks[key].depends || []) {
+        assert.ok(order.indexOf(prerequisite) < order.indexOf(key),
+          `F1287 ${prerequisite} must appear before its dependent ${key}`);
+      }
+    }
     assert.match(rows.find(row => row.dataset.source === 'sightings').textContent,
       /^Recent Bird Reports/, 'F1287 shared sightings are labelled Recent Bird Reports');
     assert.match(app.$('setupActivityStage').textContent, /Busy Patches/);
     assert.equal(calls, Object.keys(tasks).length,
       'F1288 splitting the presentation must not duplicate shared acquisition');
     assert.match(app.$('setupPrefetchActivity').textContent, /Please wait.*continue automatically/);
+    assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
+      /3–5 minutes, sometimes longer.*continue with available data/);
+    assert.equal(app.$('setupContinueAvailable').disabled, false);
     assert.equal(app.$('setupStartBirding'), null);
     assert.equal(app.$('setupPrefetchRetry'), null);
     app.click(app.$('setupSheetClose'));
@@ -564,6 +570,7 @@ test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at
     await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'settled final summary');
     assert.match(app.$('setupDataResult').textContent, /Initial data fetched/);
     assert.equal(app.$('setupDataResult').dataset.initialDataOutcome, 'ready');
+    assert.equal(app.$('setupReview').textContent, 'Review setup');
     assert.equal(calls, Object.keys(tasks).length);
     const coldCalls = calls;
     await A.startSetupPrefetch(tasks);
@@ -575,6 +582,126 @@ test('F1249 F1252 F1263 setup work survives Close without a Home bar and ends at
     assert.equal(app.$('setupPrefetchBackground'), null);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F1299 actual setup Mass access failure waits for Recent, retries only missing work and settles without a browser', async () => {
+  const app = await setupOwnedSeenApp(['stable'], {
+    fetch: url => /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : [],
+  });
+  let releaseRecent, pending, opens = 0, recentCalls = 0;
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(){return {remove(){}};}, executeScript(){return Promise.resolve();},
+    openWebView(){opens++; return Promise.reject(new Error('Unexpected automatic browser'));},
+    close(){}, hide(){}, show(){},
+  }}};
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    const actual = A.acquireInitialDatasetTasks(A.activeScope(), {current: () => true});
+    const massRequests = () => app.state.fetches.filter(url => /\/bird-list\?.*rank=hc/.test(url));
+    pending = A.startSetupPrefetch({
+      sightings: {acquire() {
+        recentCalls++;
+        return new Promise(resolve => { releaseRecent = resolve; });
+      }},
+      mass: actual.mass,
+    });
+    await waitFor(() => !!releaseRecent, 'held actual Recent dependency');
+    A.showSetupPrefetch();
+    assert.equal(A.setupPrefetchEngine().states.mass.state, 'queued');
+    assert.equal(massRequests().length, 0, 'dependency waiting must not issue a Mass request');
+    releaseRecent({state:'ready', value:{}});
+    releaseRecent = null;
+    await pending;
+    const engine = A.setupPrefetchEngine();
+    assert.equal(engine.states.mass.state, 'failed');
+    assert.equal(opens, 0, 'automatic selective recovery must not acquire a browser');
+    assert.match(engine.states.mass.detail, /needs website access \(ANUBIS\)/);
+    assert.equal(engine.settled(), true);
+    assert.equal(engine.complete(), false, 'access failure is not verified empty coverage');
+    assert.equal(recentCalls, 1, 'selective recovery must reuse healthy Recent evidence');
+    assert.equal(massRequests().length, 2, 'one first attempt and one bounded selective recovery');
+    const attempts = engine.timings().filter(row => row.type === 'task' && row.source === 'mass');
+    assert.deepEqual(arr(attempts, row => [row.pass, row.state, row.retry]),
+      [[1, 'failed', false], [2, 'failed', true]]);
+    for (const row of attempts) {
+      assert.equal(row.elapsed_ms, row.dependency_wait_ms + row.acquisition_ms);
+      assert.ok(row.acquisition_ms >= 0);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (releaseRecent) releaseRecent({state:'ready', value:{}});
+    if (pending) await pending;
+    app.window.close();
+  }
+});
+
+test('F1298 setup groups actual dependencies without hiding independent work or moving source rows', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let releaseTaxonomy, releaseBusy, pending;
+  try {
+    const A = app.window.__app, store = app.window.localStorage, calls = {};
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls[key] = (calls[key] || 0) + 1;
+        if (key === 'taxonomy' && calls[key] === 1) {
+          return new Promise(resolve => { releaseTaxonomy = resolve; });
+        }
+        if (key === 'busy' && calls[key] === 1) {
+          return new Promise(resolve => { releaseBusy = resolve; });
+        }
+        return { state: 'ready', value: {} };
+      };
+    });
+    pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => releaseTaxonomy && releaseBusy && calls.birdcast === 1,
+      'actual independent acquisition while taxonomy is held');
+    const sourceOrder = () => [...app.$('setupPrefetchRows').children].map(row => row.dataset.source);
+    const order = sourceOrder();
+    assert.deepEqual(order.slice(0, 3).sort(), ['taxonomy', 'busy', 'birdcast'].sort());
+    assert.deepEqual([...app.$('setupPrefetchRows').querySelectorAll('.prefetch-group')]
+      .map(node => node.textContent), ['Independent checks', 'Dependent checks']);
+    for (const key of order) {
+      for (const prerequisite of tasks[key].depends || []) {
+        assert.ok(order.indexOf(prerequisite) < order.indexOf(key),
+          `${key} must follow its actual prerequisite ${prerequisite}`);
+      }
+    }
+    assert.equal(calls.personal, undefined, 'personal acquisition cannot start before taxonomy');
+    const personal = () => app.$('setupPrefetchRows').querySelector('[data-source="personal"]');
+    assert.match(personal().querySelector('.prefetch-detail').textContent, /Waiting for Taxonomy/);
+    releaseTaxonomy({ state: 'failed' });
+    releaseTaxonomy = null;
+    await waitFor(() => A.setupPrefetchEngine().states.personal.state === 'blocked',
+      'actual failed prerequisite propagates a blocked dependent');
+    assert.match(personal().querySelector('.prefetch-detail').textContent,
+      /Waiting for recovery of Taxonomy/);
+    assert.notEqual(personal().dataset.state, 'ready');
+    assert.equal(calls.personal, undefined);
+    assert.deepEqual(sourceOrder(), order, 'failure and independent completion must not reorder boxes');
+    assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
+    releaseBusy({ state: 'ready', value: {} });
+    releaseBusy = null;
+    await pending;
+    assert.equal(A.setupPrefetchEngine().complete(), true, 'selective recovery completes the failed chain');
+    A.showSetupPrefetch();
+    assert.deepEqual(sourceOrder(), order, 'successful recovery must retain the same source order');
+    const dependency = personal().querySelector('.prefetch-dependencies');
+    assert.ok(dependency, 'a recovered row must retain its dependency relationship');
+    assert.equal(dependency.textContent, 'Uses Taxonomy');
+    assert.equal(calls.busy, 1, 'presentational grouping must not reacquire an independent success');
+    assert.equal(calls.birdcast, 1);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (releaseTaxonomy) releaseTaxonomy({ state: 'ready', value: {} });
+    if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+    if (pending) await pending;
+    app.window.close();
+  }
 });
 
 test('F1260 partial initial attempts automatically advance with an honest result and no Retry gate', async () => {
@@ -602,6 +729,8 @@ test('F1260 partial initial attempts automatically advance with an honest result
     await waitFor(() => release, 'actual held source');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
     assert.match(app.$('setupPrefetchActivity').textContent, /Please wait/);
+    assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
+      /3–5 minutes, sometimes longer/);
     const busy = app.$('setupPrefetchRows').querySelector('[data-source="busy"]');
     assert.equal(busy.dataset.state, 'loading',
       'F1269 terminal partial/failure children cannot hide the current Busy acquisition');
@@ -642,6 +771,8 @@ test('F1278 recommended actions remain in the footer while alternatives, drafts 
   const app = await boot({ report: null, key: null, home: false, sample: false });
   try {
     const A = app.window.__app;
+    assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
+      /3–5 minutes, sometimes longer.*continue with available data/);
     app.click(app.$('setupSkip'));
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');
     for (const value of ['', 'SYNTHETIC-DRAFT', '', 'SYNTHETIC-DRAFT']) {
@@ -672,6 +803,657 @@ test('F1278 recommended actions remain in the footer while alternatives, drafts 
     assert.equal(A.getDisplayName(), '', 'Back cannot invent a connected account');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F1295 Home address submission stays with the field, respects composition and retains an uncommitted candidate choice', async () => {
+  const app = await boot({ sample: false, home: false });
+  let release;
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    let queries = 0;
+    app.window.fetch = (url, options) => /photon\.komoot\.io\/api/.test(String(url))
+      ? (++queries, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
+    app.window.localStorage.setItem('bc_setup_step_v1', 'home');
+    A.openSetupSheet();
+    const input = app.$('setupHomePlace'), find = app.$('setupHomeFind');
+    assert.equal(find.hidden, false);
+    assert.equal(find.disabled, true);
+    assert.equal(find.textContent, 'Find address');
+    assert.equal(input.closest('form'), find.closest('form'), 'Find address must stay in the input form');
+    assert.ok(app.$('setupSheetBody').contains(find), 'Find address must not be separated into the footer');
+    input.value = 'Synthetic Town';
+    input.focus();
+    input.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+    assert.equal(find.disabled, false);
+    assert.ok(app.$('setupSheetBody').contains(find), 'typing must not promote the lookup away from its field');
+    input.dispatchEvent(new app.window.KeyboardEvent('keydown', {
+      key: 'Enter', isComposing: true, bubbles: true, cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(queries, 0, 'confirming composed text must not submit an unfinished query');
+    input.dispatchEvent(new app.window.KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    }));
+    await waitFor(() => !!release, 'owned address query');
+    assert.equal(queries, 1, 'keyboard submission uses one owned lookup');
+    assert.notEqual(app.document.activeElement, input);
+    assert.equal(find.disabled, true);
+    release({ ok: true, json: async () => ({ features: [
+      { geometry: { coordinates: [-122.3, 47.6] }, properties: { name: 'Synthetic Town' } },
+      { geometry: { coordinates: [-122.4, 47.7] }, properties: { name: 'Synthetic Town Park' } },
+    ] }) });
+    await waitFor(() => app.$('setupHomeOptions').querySelectorAll('input').length === 2,
+      'actual address candidate choice');
+    release = null;
+    assert.equal(app.$('setupHomePlace').value, 'Synthetic Town');
+    assert.equal(A.getHome(), null, 'lookup alone cannot save or approve Home');
+    assert.notEqual(app.$('appSheet')?.hidden, false, 'multiple matches require an actual choice');
+    assert.equal(queries, 1);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release({ ok: true, json: async () => ({ features: [] }) }); app.window.close(); }
+});
+
+async function initialResourceFixture(options = {}) {
+  const app = await setupOwnedSeenApp(['stable'], { fetch: options.fetch || (url => /ref\/hotspot\//.test(url)
+    ? [{ locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 }]
+    : []) });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_county_view:wa', 'US-WA-033');
+  await seedSeen(app, ['stable'], null, [{ code: 'stable', name: 'Stable bird' }]);
+  const base = await A.getChase();
+  let release, reject;
+  const enrichment = new Promise((resolve, fail) => { release = resolve; reject = fail; });
+  enrichment.catch(() => {});
+  A.seedChasePhase2(A.getReportSlug(), enrichment);
+  return { app, A, base, release, reject };
+}
+
+test('F1310 actual Busy completes while Recent enrichment is held, without reacquiring base observations', async t => {
+  const { app, A, base, release } = await initialResourceFixture();
+  try {
+    const store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    for (const key of Object.keys(tasks))
+      if (!['sightings', 'busy'].includes(key)) tasks[key].acquire = () => ({ state: 'ready', value: {} });
+    const observations = app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length;
+    assert.equal(A.setupPrefetchEligible(), true, 'actual owned setup prerequisites are satisfied');
+    const started = performance.now(), pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => tasks.resources.get('sightings').snapshot().projection?.usable,
+      'actual usable Recent base');
+    assert.ok(['loading', 'ready'].includes(A.setupPrefetchEngine().states.busy.state),
+      'Busy must be admitted independently of Recent enrichment');
+    await waitFor(() => A.setupPrefetchEngine().states.busy.state === 'ready',
+      'actual Busy independent of held enrichment');
+    const busyReadyMs = performance.now() - started;
+    assert.equal(A.setupPrefetchEngine().states.sightings.state, 'loading');
+    assert.equal(tasks.resources.get('sightings').snapshot().projection.usable, true);
+    assert.match(app.$('setupPrefetchRows').querySelector('[data-source="sightings"]').textContent,
+      /Available; verifying required data/);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading', 'usable is not complete readiness');
+    assert.equal(app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length, observations,
+      'Busy and another Recent consumer must reuse the valid observation feeds');
+    const registry = app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url));
+    const currentLists = app.state.fetches.filter(url => /product\/lists\/US-WA-033/.test(url));
+    assert.equal(registry.length, 1, 'one actual public registry acquisition');
+    assert.equal(currentLists.length, 1, 'one actual current-checklist acquisition');
+    release(base);
+    await pending;
+    assert.equal(A.setupPrefetchEngine().complete(), true);
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+    const coldFetches = app.state.fetches.length, warmStarted = performance.now();
+    const busyAt = (await A.zcGet(A.hotCacheKey())).busyState.at;
+    await Promise.all([tasks.sightings.acquire(false), tasks.busy.acquire(false)]);
+    assert.equal(app.state.fetches.length, coldFetches, 'healthy normal readers must not reacquire providers');
+    assert.equal((await A.zcGet(A.hotCacheKey())).busyState.at, busyAt,
+      'normal reuse cannot renew the source acquisition time');
+    t.diagnostic(JSON.stringify({ fixture: 'synthetic warm Recent, cold Busy, held enrichment',
+      busyReadyMs: Math.round(busyReadyMs), warmReuseMs: Math.round(performance.now() - warmStarted),
+      registryFetches: registry.length, currentListFetches: currentLists.length, warmExtraFetches: 0 }));
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+function busyResourceFixtureRows() {
+  const rows = [], now = new Date();
+  for (const days of [0, 7, 14, 21, 28, 35]) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - days);
+    date.setMinutes(date.getMinutes() - 10);
+    for (let index = 0; index < (days ? 1 : 6); index++) rows.push({
+      locId: 'L131001', locName: 'Synthetic public patch',
+      subId: 'S' + (1310000 + days * 10 + index),
+      userDisplayName: 'synthetic-' + days + '-' + index,
+      isoObsDate: formatObsStamp(date), numSpecies: 20 + index,
+      ...(index >= 2 ? { groupId: 'known-synthetic-' + days + '-' + index } : {}),
+    });
+  }
+  assert.equal(BL.busyPatchActivity(BL.normalizeChecklistRows(rows))[0].observers, 6,
+    'fixture must contain six estimated current parties before detail verification');
+  return rows;
+}
+
+function busyResourceDetail(rows, url) {
+  const sub = decodeURIComponent(String(url).split('/view/')[1].split('?')[0]);
+  const row = rows.find(row => row.subId === sub);
+  return { subId: sub, locId: row.locId, obsDt: row.isoObsDate,
+    groupId: 'synthetic-group-' + sub, numObservers: 1, obs: [] };
+}
+
+test('F1310 actual discovered Busy history and party resources share independent manifest leases', async t => {
+  const rows = busyResourceFixtureRows();
+  let releaseHistory, releaseDetail, holdHistory = true, holdDetail = true;
+  const fixture = await initialResourceFixture({ fetch: url => {
+    if (/ref\/hotspot\//.test(url)) return [
+      { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+    ];
+    if (/product\/lists\/US-/.test(url)) return rows.filter(row => row.subId.startsWith('S131000'));
+    if (/product\/lists\/L131001/.test(url))
+      return holdHistory ? new Promise(resolve => { releaseHistory = () => {
+        holdHistory = false; resolve(rows);
+      }; }) : rows;
+    if (/product\/checklist\/view\/S1310000/.test(url) && holdDetail)
+      return new Promise(resolve => { releaseDetail = () => {
+        holdDetail = false; resolve(busyResourceDetail(rows, url));
+      }; });
+    if (/product\/checklist\/view\//.test(url)) return busyResourceDetail(rows, url);
+    return [];
+  } });
+  const { app, A, base, release } = fixture;
+  let pending, recent, shared;
+  try {
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    const started = performance.now();
+    recent = tasks.sightings.acquire(false).catch(error => error);
+    pending = tasks.busy.acquire(false);
+    await waitFor(() => releaseHistory, 'discovered public reference resource');
+    const currentMs = performance.now() - started;
+    assert.match(app.$('hotStatus').textContent, /current estimates.*6 estimated parties/);
+    assert.equal(A.currentBusySnapshot().busyState.pending, true);
+    assert.equal(A.currentBusySnapshot(true), null, 'current estimates are not completed reference evidence');
+    releaseHistory();
+    await waitFor(() => releaseDetail, 'discovered party detail resource');
+    const graphAcquisitions = () => A.auditLog().events().filter(row =>
+      row.event === 'setup.resource' && row.attrs.event === 'acquire').length;
+    const beforeShared = graphAcquisitions();
+    assert.ok(beforeShared > 0, 'actual resource admissions must be observable');
+    const detail = tasks.resources.add({
+      id: 'independent-detail', label: () => 'Synthetic detail reader', sections: [], enabled: () => true,
+      needs: () => Object.fromEntries([
+        ['detail', 'busy-party-detail', { sub: 'S1310000' }],
+        ['registry', 'busy-registry', { code: 'US-WA-033' }],
+        ['current', 'busy-checklist-list', { coverage: 'current', code: 'US-WA-033', force: false }],
+        ['reference', 'busy-checklist-list', { force: false, code: 'L131001', coverage: 'reference' }],
+      ].map(([name, provider, params]) => [name,
+        { ref: { provider, params }, requiredFor: 'usable', priority: 'current' }])),
+      project: inputs => ({ usable: !!inputs.detail && inputs.detail.state === 'ready', evidence: inputs.detail || null }),
+      retainAndVerify: projection => projection.evidence,
+    });
+    shared = detail.start();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(graphAcquisitions(), beforeShared,
+      'registered consumers must join Busy resource nodes, not merely the lower HTTP memo');
+    tasks.resources.remove('sightings');
+    release(base);
+    assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\/S1310000/.test(url)).length, 1,
+      'Busy and another manifest must share one physical party-detail acquisition');
+    assert.equal(A.currentBusySnapshot().busyState.pending, true,
+      'party verification remains required while another consumer waits');
+    releaseDetail();
+    const [result, detailResult] = await Promise.all([pending, shared]);
+    assert.equal(result.state, 'ready');
+    assert.equal(detailResult.state, 'ready', 'removing Recent cannot cancel a surviving Busy/detail lease');
+    assert.equal(result.value.busyState.partial, false);
+    assert.equal(result.value.busy.length, 1);
+    assert.equal(result.value.busy[0].observers, 6);
+    assert.equal(result.value.busy[0].baseline, 1);
+    assert.equal(result.value.busy[0].ratio, 6);
+    const requests = app.state.fetches.length, at = result.value.busyState.at;
+    await tasks.busy.acquire(false);
+    await detail.start();
+    assert.equal(app.state.fetches.length, requests, 'verified warm reference/detail demand cannot reacquire');
+    assert.equal(A.currentBusySnapshot(true).busyState.at, at);
+    t.diagnostic(JSON.stringify({ fixture: 'synthetic cold Busy, held history/detail, held Recent enrichment',
+      currentMs: Math.round(currentMs), completeMs: Math.round(performance.now() - started),
+      registry: app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url)).length,
+      currentLists: app.state.fetches.filter(url => /product\/lists\/US-WA-033/.test(url)).length,
+      referenceLists: app.state.fetches.filter(url => /product\/lists\/L131001/.test(url)).length,
+      partyDetails: app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length,
+      warmExtraRequests: 0 }));
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    release(base);
+    holdHistory = false; holdDetail = false;
+    if (releaseHistory) releaseHistory();
+    if (releaseDetail) releaseDetail();
+    await Promise.allSettled([pending, recent, shared]);
+    app.window.close();
+  }
+});
+
+test('F1310 actual incomplete Busy reference recovery retains healthy registry current and detail resources', async () => {
+  const rows = busyResourceFixtureRows();
+  let complete = false;
+  const { app, A, base, release } = await initialResourceFixture({ fetch: url => {
+    if (/ref\/hotspot\//.test(url)) return [
+      { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+    ];
+    if (/product\/lists\/US-/.test(url)) return rows.filter(row => row.subId.startsWith('S131000'));
+    if (/product\/lists\/L131001/.test(url)) return complete ? rows : rows.filter(row =>
+      row.isoObsDate >= recentObsStamp(8));
+    if (/product\/checklist\/view\//.test(url)) return busyResourceDetail(rows, url);
+    return [];
+  } });
+  try {
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    await assert.rejects(tasks.busy.acquire(false), /incomplete|unavailable/);
+    assert.equal(A.currentBusySnapshot(true).busyState.partial, true);
+    const count = pattern => app.state.fetches.filter(url => pattern.test(url)).length;
+    const healthy = [count(/ref\/hotspot\/US-WA-033/), count(/product\/lists\/US-WA-033/),
+      count(/product\/checklist\/view\//)];
+    assert.deepEqual(healthy.slice(0, 2), [1, 1]);
+    assert.equal(count(/product\/lists\/L131001/), 1);
+    complete = true;
+    const recovered = await tasks.busy.acquire(true).catch(() => null);
+    assert.ok(recovered, 'selective recovery must reacquire incomplete reference evidence');
+    assert.equal(recovered.state, 'ready');
+    assert.equal(recovered.value.busyState.partial, false);
+    assert.equal(recovered.value.busy[0].ratio, 6);
+    assert.equal(count(/product\/lists\/L131001/), 2,
+      'selective recovery must bypass the incomplete reference memo');
+    assert.deepEqual([count(/ref\/hotspot\/US-WA-033/), count(/product\/lists\/US-WA-033/),
+      count(/product\/checklist\/view\//)], healthy, 'healthy resource acquisitions must survive reference recovery');
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+test('F1310 actual registry resource retains original durable acquisition age on warm reuse', async () => {
+  const { app, A, base, release } = await initialResourceFixture();
+  try {
+    const at = Date.now() - 60000, path = 'ref/hotspot/US-WA-033?fmt=json';
+    app.window.localStorage.setItem('bc_ref:' + path, JSON.stringify({ t: at, v: [
+      { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+    ] }));
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    await tasks.busy.acquire(false);
+    const registry = tasks.resources.add({
+      id: 'registry-age', label: () => 'Synthetic registry reader', sections: [], enabled: () => true,
+      needs: () => ({ source: { ref: { provider: 'busy-registry', params: { code: 'US-WA-033' } },
+        requiredFor: 'usable', priority: 'current' } }),
+      project: inputs => ({ usable: !!inputs.source && inputs.source.state === 'ready', evidence: inputs.source || null }),
+      retainAndVerify: projection => projection.evidence,
+    });
+    const result = await registry.start();
+    assert.equal(result.state, 'ready');
+    assert.equal(result.acquiredAt, at, 'reading a durable registry cannot renew its original acquisition age');
+    assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url)).length, 0);
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+test('F1310 actual failed required party detail cannot certify Busy readiness and heals selectively', async () => {
+  const rows = busyResourceFixtureRows();
+  let recover = false;
+  const { app, A, base, release } = await initialResourceFixture({ fetch: url => {
+    if (/ref\/hotspot\//.test(url)) return [
+      { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+    ];
+    if (/product\/lists\/US-/.test(url)) return rows.filter(row => row.subId.startsWith('S131000'));
+    if (/product\/lists\/L131001/.test(url)) return rows;
+    if (/product\/checklist\/view\/S1310000/.test(url) && !recover) return [];
+    if (/product\/checklist\/view\//.test(url)) return busyResourceDetail(rows, url);
+    return [];
+  } });
+  try {
+    assert.equal(await A.checklistView('S1310000', true), null,
+      'fixture must contain an earlier failed unowned detail response');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    const failed = await tasks.busy.acquire(false).catch(() => null);
+    assert.equal(failed, null, 'failed required party evidence cannot produce Ready');
+    assert.equal(A.currentBusySnapshot(true).busyState.partial, true);
+    const healthy = app.state.fetches.filter(url => !/product\/checklist\/view\/S1310000/.test(url)).length;
+    recover = true;
+    const result = await tasks.busy.acquire(true).catch(() => null);
+    assert.ok(result, 'failed party detail must heal without retaining its poisoned response memo');
+    assert.equal(result.state, 'ready');
+    assert.equal(result.value.busy[0].ratio, 6);
+    assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\/S1310000/.test(url)).length, 2);
+    assert.equal(app.state.fetches.filter(url => !/product\/checklist\/view\/S1310000/.test(url)).length, healthy,
+      'party recovery cannot reacquire healthy source siblings');
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+test('F1310 matched legacy and resource Busy runs preserve scores coverage and physical request inventory', async t => {
+  const rows = busyResourceFixtureRows(), results = [];
+  for (const mode of ['legacy', 'resources']) {
+    let firstCurrent;
+    const { app, A, base, release } = await initialResourceFixture({ fetch: url => {
+      if (/ref\/hotspot\//.test(url)) return [
+        { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+      ];
+      if (/product\/lists\/US-/.test(url)) return rows.filter(row => row.subId.startsWith('S131000'));
+      if (/product\/lists\/L131001/.test(url)) {
+        firstCurrent = performance.now();
+        return rows;
+      }
+      if (/product\/checklist\/view\//.test(url)) return busyResourceDetail(rows, url);
+      return [];
+    } });
+    try {
+      const before = app.state.fetches.length, started = performance.now(), work = { current: () => true };
+      let result;
+      if (mode === 'legacy') {
+        await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi(), false, work);
+        const codes = A.getCounties().map(county => county.code);
+        const registries = await Promise.all(codes.map(code =>
+          A.ebird('ref/hotspot/' + code + '?fmt=json', false, false, false, work)));
+        result = await A.startBusyPatches({
+          codes, home: A.getHome(), anchors: A.getAnchors(), context: A.hotspotContextKey(),
+          reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(), meta: registries.flat(), ownerWork: work,
+        });
+      } else {
+        const tasks = A.acquireInitialDatasetTasks(A.activeScope(), work);
+        result = (await tasks.busy.acquire(false)).value;
+      }
+      assert.equal(result.busyState.partial, false);
+      const requestPaths = app.state.fetches.slice(before).filter(url =>
+        /ref\/hotspot\/|product\/lists\/|product\/checklist\/view\//.test(url)).sort();
+      results.push({ busy: JSON.parse(JSON.stringify(result.busy)).map(({ at, ...row }) => row),
+        checked: result.busyState.checked, candidates: result.busyState.candidates, requestPaths });
+      t.diagnostic(JSON.stringify({ fixture: 'matched synthetic cold Busy, unchanged limiter', mode,
+        currentMs: Math.round(firstCurrent - started), completeMs: Math.round(performance.now() - started),
+        physicalRequests: requestPaths.length }));
+      assert.deepEqual(app.state.errors, []);
+    } finally { release(base); app.window.close(); }
+  }
+  assert.deepEqual(results[1], results[0],
+    'resource extraction must preserve legacy scores coverage and source demand');
+});
+
+test('F1310 matched fully cold Recent and Busy schedules retain physical demand and warm source ages', async t => {
+  const rows = busyResourceFixtureRows(), measured = [], stamp = formatObsStamp(new Date());
+  for (const mode of ['legacy-serial', 'resources']) {
+    const network = [];
+    const app = await setupOwnedSeenApp(['stable'], { key: null, fetch: url => {
+      const trace = { url, start: performance.now() };
+      network.push(trace);
+      let value = [];
+      if (/\/data\/obs\//.test(url)) value = [{
+        speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius',
+        locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3,
+        subnational2Code: 'US-WA-033', obsDt: stamp, howMany: 1,
+        obsValid: true, obsReviewed: false, locationPrivate: false,
+      }];
+      if (/ref\/hotspot\//.test(url)) value = [
+        { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+      ];
+      if (/product\/lists\/US-/.test(url)) value = rows.filter(row => row.subId.startsWith('S131000'));
+      if (/product\/lists\/L131001/.test(url)) value = rows;
+      if (/product\/checklist\/view\//.test(url)) value = busyResourceDetail(rows, url);
+      return new Promise(resolve => setTimeout(() => {
+        trace.end = performance.now();
+        resolve(value);
+      }, 25));
+    } });
+    try {
+      const A = app.window.__app, work = { current: () => true };
+      app.window.localStorage.setItem('ebird_api_key', 'TESTKEY');
+      app.window.localStorage.setItem('ebird_county_view:wa', 'US-WA-033');
+      await seedSeen(app, ['stable'], null, [{ code: 'stable', name: 'Stable bird' }]);
+      assert.equal(app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length, 0,
+        'do not mistake bootstrap-warmed Recent observations for a fully cold run');
+      assert.equal(await A.loadChaseSnapshot(A.getReportSlug()), null);
+      const before = network.length, started = performance.now();
+      let baseMs, recentCompleteMs, busyCompleteMs, busy, tasks, busyInput;
+      if (mode === 'legacy-serial') {
+        await A.getChaseAll(false, null, work);
+        baseMs = performance.now() - started;
+        await A.chasePhase2();
+        recentCompleteMs = performance.now() - started;
+        await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi(), false, work);
+        const codes = A.getCounties().map(county => county.code);
+        const registries = await Promise.all(codes.map(code =>
+          A.ebird('ref/hotspot/' + code + '?fmt=json', false, false, false, work)));
+        busyInput = {
+          codes, home: A.getHome(), anchors: A.getAnchors(), context: A.hotspotContextKey(),
+          reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(), meta: registries.flat(), ownerWork: work,
+        };
+        busy = await A.startBusyPatches(busyInput);
+        busyCompleteMs = performance.now() - started;
+      } else {
+        tasks = A.acquireInitialDatasetTasks(A.activeScope(), work);
+        const recentPending = tasks.sightings.acquire(false).then(result => {
+          recentCompleteMs = performance.now() - started;
+          return result;
+        });
+        const busyPending = tasks.busy.acquire(false).then(result => {
+          busyCompleteMs = performance.now() - started;
+          return result.value;
+        });
+        await waitFor(() => tasks.resources.get('sightings').snapshot().projection?.usable,
+          'actual fully cold Recent usable projection');
+        baseMs = performance.now() - started;
+        [, busy] = await Promise.all([recentPending, busyPending]);
+      }
+      const snapshot = await A.loadChaseSnapshot(A.getReportSlug());
+      const requests = network.slice(before);
+      assert.ok(requests.some(row => /\/recent\/amerob(?:\?|$)/.test(row.url)),
+        'the comparison must include actual cold species enrichment, not just empty base feeds: '
+        + JSON.stringify({ paths: requests.map(row => new URL(row.url).pathname),
+          unseen: (await A.getChaseAll()).cv?.unseenAll?.map(row => row.code) }));
+      assert.equal(busy.busyState.partial, false);
+      const ages = JSON.stringify(snapshot.feedTimes), busyAt = busy.busyState.at;
+      const warmBefore = network.length, warmStarted = performance.now();
+      if (tasks) await Promise.all([tasks.sightings.acquire(false), tasks.busy.acquire(false)]);
+      else { await A.getChaseAll(); await A.startBusyPatches(busyInput); }
+      assert.equal(network.length, warmBefore, 'healthy normal reuse cannot acquire more sources');
+      assert.equal(JSON.stringify((await A.loadChaseSnapshot(A.getReportSlug())).feedTimes), ages);
+      assert.equal((await A.zcGet(A.hotCacheKey())).busyState.at, busyAt);
+      measured.push({
+        requests: requests.map(row => row.url).sort(),
+        feedStates: JSON.parse(JSON.stringify(snapshot.feedStates)),
+        observations: JSON.parse(JSON.stringify(snapshot.rows)),
+        busy: JSON.parse(JSON.stringify(busy.busy)).map(({ at, ...row }) => row),
+        checked: busy.busyState.checked, candidates: busy.busyState.candidates,
+      });
+      t.diagnostic(JSON.stringify({ fixture: 'fully cold Recent and Busy; synthetic 25ms transport; unchanged limiter',
+        mode, usableProjectionMs: Math.round(baseMs), recentCompleteMs: Math.round(recentCompleteMs),
+        busyCompleteMs: Math.round(busyCompleteMs), physicalRequests: requests.length,
+        observedTransportMs: Math.round(requests.reduce((sum, row) => sum + row.end - row.start, 0)),
+        warmReuseMs: Math.round(performance.now() - warmStarted), warmExtraRequests: 0 }));
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+  assert.deepEqual(measured[1], measured[0],
+    'resource scheduling must preserve fully cold source demand, observations and Busy scores');
+});
+
+test('F1310 a registered third manifest supplies actual task, progress and section routing without scheduler edits', async () => {
+  const { app, A, base, release } = await initialResourceFixture();
+  try {
+    const create = app.window.SetupPrefetch.createResources;
+    app.window.SetupPrefetch.createResources = (providers, manifests, scope, options) => create(providers, [
+      ...manifests, {
+        id: 'synthetic-third', label: () => 'Synthetic third feature',
+        sections: ['sec-spLookupBtn'], enabled: () => true,
+        needs: () => ({ base: { ref: { provider: 'recent-base', params: {} },
+          requiredFor: 'usable', priority: 'current' } }),
+        project: inputs => ({ usable: inputs.base?.state === 'ready', evidence: inputs.base || null }),
+        retainAndVerify: projection => projection.evidence,
+      },
+    ], scope, options);
+    const store = app.window.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    assert.ok(Object.hasOwn(tasks, 'synthetic-third'), 'registered manifests must create their actual task');
+    for (const key of Object.keys(tasks))
+      if (!['sightings', 'busy', 'synthetic-third'].includes(key))
+        tasks[key].acquire = () => ({ state: 'ready', value: {} });
+    const before = app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length;
+    const pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => A.setupPrefetchEngine().states['synthetic-third'].state === 'ready',
+      'actual generated third feature task');
+    const row = app.$('setupPrefetchRows').querySelector('[data-source="synthetic-third"]');
+    assert.ok(row, 'registered manifests must create their progress row');
+    assert.match(row.textContent, /Synthetic third feature.*Ready/);
+    assert.match(app.$('setupPrefetchCount').textContent, /Of 15 Checks/);
+    let promoted = 0;
+    const handle = tasks.resources.get('synthetic-third'), promote = handle.promote;
+    handle.promote = () => { promoted++; promote(); };
+    A.showSection('sec-spLookupBtn', { load: false });
+    assert.equal(promoted, 1, 'section routing must come from the registered manifest');
+    assert.equal(app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length, before,
+      'third feature joins the existing compatible base');
+    release(base);
+    await pending;
+    assert.equal(A.setupPrefetchEngine().complete(), true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+test('F1310 actual failed Recent enrichment retains usable base but cannot certify complete readiness', async () => {
+  const { app, A, base, release, reject } = await initialResourceFixture();
+  try {
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    const pending = tasks.sightings.acquire(false);
+    await waitFor(() => tasks.resources.get('sightings').snapshot().projection?.usable,
+      'actual useful phase-one projection');
+    reject(new Error('Synthetic enrichment failure'));
+    await assert.rejects(pending, /Synthetic enrichment failure/);
+    const snapshot = tasks.resources.get('sightings').snapshot();
+    assert.equal(snapshot.state, 'partial');
+    assert.equal(snapshot.projection.usable, true);
+    assert.equal((await A.getChase()).feedComplete, base.feedComplete);
+    assert.ok(await A.loadChaseSnapshot(A.getReportSlug()), 'valid phase-one evidence remains retained');
+    assert.deepEqual(app.state.errors, []);
+  } finally { release(base); app.window.close(); }
+});
+
+async function failedSpeciesResourceFixture() {
+  const now = formatObsStamp(new Date());
+  let failed = true;
+  const app = await setupOwnedSeenApp(['stable'], { fetch: url => {
+    if (/\/recent\/amerob(?:\?|$)/.test(url)) return failed ? { invalidRows: true } : [];
+    if (/\/data\/obs\//.test(url)) return [{
+      speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius',
+      locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3,
+      subnational2Code: 'US-WA-033', obsDt: now, howMany: 1,
+      obsValid: true, obsReviewed: false, locationPrivate: false
+    }];
+    return [];
+  } });
+  const A = app.window.__app;
+  app.window.localStorage.setItem('ebird_county_view:wa', 'US-WA-033');
+  await seedSeen(app, ['stable'], null, [{ code: 'stable', name: 'Stable bird' }]);
+  const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+  return { app, A, tasks, recover: () => { failed = false; } };
+}
+
+test('F1310 actual failed species feeds require selective recovery without renewing healthy source ages', async () => {
+  const { app, A, tasks, recover } = await failedSpeciesResourceFixture();
+  try {
+    await assert.rejects(tasks.sightings.acquire(false), /enrichment coverage is incomplete/);
+    assert.equal(tasks.resources.get('sightings').snapshot().state, 'partial');
+    assert.equal(tasks.resources.get('sightings').snapshot().projection.usable, true);
+    assert.ok(app.state.fetches.some(url => /\/recent\/amerob(?:\?|$)/.test(url)),
+      'actual admitted species source must execute before asserting its failure');
+    const snapshot = await A.loadChaseSnapshot(A.getReportSlug());
+    assert.ok(Object.keys(snapshot.feedTimes).length > 1, 'actual healthy feed ages must be recorded');
+    const unrelated = 'data/obs/F1292-unrelated/recent';
+    await A.ebird(unrelated);
+    const before = app.state.fetches.length;
+    const failedPath = new URL(app.state.fetches.find(url => /\/recent\/amerob(?:\?|$)/.test(url))).pathname;
+    recover();
+    await assert.doesNotReject(async () => {
+      assert.equal((await tasks.sightings.acquire(true)).state, 'ready');
+    }, 'recovery must bypass the malformed successful-response memo for the failed species');
+    assert.deepEqual(app.state.fetches.slice(before).map(url => new URL(url).pathname),
+      [failedPath],
+      'recover only the failed species, not the healthy regional observation feeds');
+    await A.ebird(unrelated);
+    assert.equal(app.state.fetches.length, before + 1,
+      'selective recovery cannot evict an unrelated healthy response');
+    const recovered = await A.loadChaseSnapshot(A.getReportSlug());
+    for (const [file, at] of Object.entries(snapshot.feedTimes)) {
+      assert.equal(recovered.feedTimes[file], at, 'healthy source age must not slide: ' + file);
+    }
+    assert.equal(recovered.t, snapshot.t, 'repair cannot renew the aggregate age of reused source data');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 selective observation recovery checks individual source ages without renewing healthy siblings', async () => {
+  for (const invalid of ['expired', 'future', 'missing', 'legacy']) {
+    const { app, A, tasks, recover } = await failedSpeciesResourceFixture();
+    try {
+      await assert.rejects(tasks.sightings.acquire(false), /enrichment coverage is incomplete/);
+      const slug = A.getReportSlug(), original = await A.loadChaseSnapshot(slug);
+      const file = Object.keys(original.feedTimes)[0];
+      const feed = BL.planFeeds((await A.getChase()).profile).find(feed => feed.file === file);
+      assert.ok(feed, 'mutate an actual retained base source, not a synthetic unused key');
+      let feedTimes = { ...original.feedTimes, [file]: Date.now()
+        + (invalid === 'expired' ? -31 * 60000 : 60000) };
+      if (invalid === 'missing') delete feedTimes[file];
+      if (invalid === 'legacy') feedTimes = null;
+      const acquiredAt = invalid === 'legacy' ? original.t - 5000 : original.t;
+      await A.saveChaseSnapshot(slug, original.codes, original.rows, original.feedStates, null, {
+        fetchBaseKey: original.fetchBaseKey, geoNotableKm: original.geoNotableKm,
+        acquiredAt, feedTimes
+      });
+      recover();
+      const before = app.state.fetches.length;
+      await A.getChase('failed');
+      await A.chasePhase2();
+      const requested = app.state.fetches.slice(before).map(url => new URL(url).pathname).sort();
+      const basePath = new URL(BL.requestUrl(feed), 'https://api.ebird.org/v2/').pathname;
+      const speciesPath = new URL(app.state.fetches.find(url => /\/recent\/amerob(?:\?|$)/.test(url))).pathname;
+      assert.deepEqual(requested, (invalid === 'legacy' ? [speciesPath] : [basePath, speciesPath]).sort(),
+        invalid + ' evidence must be reacquired without refreshing healthy sibling feeds');
+      const saved = await A.loadChaseSnapshot(slug);
+      if (invalid !== 'legacy') {
+        assert.ok(saved.feedTimes[file] <= Date.now() && saved.feedTimes[file] > original.feedTimes[file],
+          'the invalid source needs its own newly verified acquisition time');
+      }
+      for (const [other, at] of Object.entries(original.feedTimes)) {
+        if (invalid === 'legacy') assert.equal(saved.feedTimes[other], acquiredAt,
+          'legacy source ages must conservatively retain their original snapshot time');
+        else if (other !== file) assert.equal(saved.feedTimes[other], at, 'unrelated source age must remain');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1310 actual complete readiness rejects invalid retained component ages despite a fresh aggregate', async () => {
+  for (const invalid of ['expired', 'future', 'missing']) {
+    const { app, A, base, release } = await initialResourceFixture();
+    try {
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      const pending = tasks.sightings.acquire(false);
+      await waitFor(() => tasks.resources.get('sightings').snapshot().projection?.usable,
+        'usable base before retained component verification');
+      const slug = A.getReportSlug(), original = await A.loadChaseSnapshot(slug);
+      const feedTimes = { ...original.feedTimes }, file = Object.keys(feedTimes)[0];
+      assert.ok(file, 'a real retained component must be mutated');
+      if (invalid === 'missing') delete feedTimes[file];
+      else feedTimes[file] = Date.now() + (invalid === 'expired' ? -31 * 60000 : 60000);
+      await A.saveChaseSnapshot(slug, original.codes, original.rows, original.feedStates, null, {
+        fetchBaseKey: original.fetchBaseKey, geoNotableKm: original.geoNotableKm,
+        acquiredAt: Date.now(), feedTimes
+      });
+      release(base);
+      await assert.rejects(pending, /enrichment coverage is incomplete/,
+        invalid + ' retained component cannot inherit the fresh aggregate timestamp');
+      assert.equal(tasks.resources.get('sightings').snapshot().projection.usable, true,
+        'failed complete verification cannot erase the useful base projection');
+      assert.deepEqual(app.state.errors, []);
+    } finally { release(base); app.window.close(); }
+  }
 });
 
 test('F1288 only verified prior data is omitted, and stale data is revealed before real acquisition', async () => {
@@ -718,7 +1500,10 @@ test('F1288 only verified prior data is omitted, and stale data is revealed befo
         releaseList({ ok: true, status: 200, text: async () =>
           ownedPersonalListFixture({ count: 1, codes: ['stable'] }) });
       }
-      await waitFor(() => releaseBusy, 'shared Busy source after personal readiness');
+      await waitFor(() => releaseBusy, 'independent Busy source');
+      await waitFor(() => A.setupPrefetchEngine().timings()
+        .some(item => item.type === 'task' && item.source === 'personal'),
+      'actual personal readiness, not unrelated Busy readiness');
       assert.equal(reads, stale ? 1 : 0, 'fresh verified prior data avoids acquisition; stale data does not');
       const row = A.setupPrefetchEngine().timings()
         .find(item => item.type === 'task' && item.source === 'personal');
@@ -877,16 +1662,1400 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'settled setup summary');
       app.click(app.$('setupContinue'));
       const automatic = A.refreshFullBirdGen(true);
+      assert.equal(A.refreshFullBirdGen('normal'), automatic,
+        'normal Refresh must join the compatible setup check, not queue a forced continuation');
       const manual = overlap ? A.refreshFullBirdGen() : null;
+      if (overlap) {
+        assert.equal(A.refreshFullBirdGen(), manual, 'repeated Fetch latest joins one forced continuation');
+        assert.equal(app.$('recentBirdGenLatest').disabled, true,
+          'Fetch latest queued must reserve one forced continuation');
+        assert.equal(app.$('recentBirdGenLatest').textContent, 'Fetch latest queued');
+      }
       await automatic;
       assert.equal(registryReads(), before, 'automatic handoff cannot reacquire the fresh Busy registry');
       assert.equal(app.$('setupSheet').hidden, true);
       assert.equal(app.$('menuPanel').hidden, false);
+      if (!overlap) {
+        const orderKey = 'bc_surge_acquired_v1:' + A.activeScope().cacheIdentity;
+        const order = JSON.parse(store.getItem(orderKey)), acquiredAt = Date.now() - 60000;
+        order.times.hotspots = acquiredAt;
+        store.setItem(orderKey, JSON.stringify(order));
+        app.click(app.$('recentBirdGenRefresh'));
+        await A.refreshFullBirdGen('normal');
+        assert.equal(registryReads(), before, 'normal Contents Refresh must reuse the fresh Busy source');
+        assert.equal(JSON.parse(store.getItem(orderKey)).times.hotspots, acquiredAt,
+          'a normal successful reuse cannot renew the source acquisition-order age');
+        pullMenu(app);
+        await A.refreshFullBirdGen('normal');
+        assert.equal(registryReads(), before, 'ordinary Contents pull must also reuse fresh Busy data');
+        const observations = app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length;
+        A.showSection('sec-surgeBtn', { load: false });
+        app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+        await A.loadSurge();
+        assert.equal(registryReads(), before, 'normal Bird Gen heading must not force a fresh Busy registry');
+        assert.equal(app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length, observations,
+          'normal Bird Gen heading cannot bypass healthy observation evidence');
+        pullMenu(app);
+        await A.loadSurge();
+        assert.equal(registryReads(), before, 'ordinary Bird Gen pull must also reuse fresh Busy data');
+        assert.equal(app.state.fetches.filter(url => /\/data\/obs\//.test(url)).length, observations,
+          'ordinary Bird Gen pull cannot bypass healthy observation evidence');
+        A.showMenu();
+      }
       A.fgWindowReset(); A.fgSchedReset(Date.now());
+      if (!overlap) {
+        app.click(app.$('recentBirdGenLatest'));
+        assert.equal(app.$('recentBirdGenLatest').disabled, true, 'explicit latest owns a forced job');
+        assert.equal(app.$('recentBirdGenLatest').textContent, 'Fetching latest...');
+      }
       await (manual || A.refreshFullBirdGen());
       assert.equal(registryReads(), before + 1, 'manual Full Refresh must still bypass the fresh Busy snapshot');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
+  }
+});
+
+test('F1292 a complete actual prefetch makes zero provider requests through Contents and normal Bird Gen refresh', {
+  timeout: 180000,
+}, async () => {
+  const alert = '<script>window.__NUXT__=(function(a,b){return {state:{env:{'
+    + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
+    + '"FIXTURE_PUBLIC_KEY"));</script>';
+  const dashboard = '<span id="total-passed">0</span>'
+    + '<span class="is-visuallyHidden">0</span><span>Birds crossed King County last night (est.)</span>'
+    + '<script>window.__NUXT__=(function(a,b){return {config:{baseUrl:a,bcApiKey:b}}}'
+    + '("https:\\u002F\\u002Fdashboard.birdcast.org","FIXTURE_DASHBOARD_KEY"));</script>';
+  const forecast = { forecastNights: [-1, 0, 1].map(offset => ({
+    code: 0, raw: 0, total: 0, totalMin: 0, totalMax: 0,
+    date: new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10) + 'T00:00:00',
+  })) };
+  const rba = megaAlertHtml([{
+    code: 'mallar3', name: 'Mallard', subId: 'S1292001', when: recentObsStamp(1),
+    lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1, observer: 'Synthetic observer'
+  }]);
+  const app = await setupOwnedSeenApp(['stable'], { fetch: url => {
+    if (/^https:\/\/alert\.birdcast\.org\/\?/.test(url)) return alert;
+    if (/alert\.birdcast\.org\/api\//.test(url)) return forecast;
+    if (/dashboard\.birdcast\.org\/region\//.test(url)) return dashboard;
+    if (/dashboard\.birdcast\.org\/api\//.test(url)) return { dataRows: [] };
+    if (/\/bird-list\?.*rank=hc/.test(url)) return f821Page([]);
+    if (/\/bird-list\?/.test(url)) return foySourceFixture(1);
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    if (/alert\/rba\//.test(url)) return rba;
+    if (/top100/.test(url)) return dualRankFixture(new URL(url).searchParams.get('rankedBy'), [{
+      rank: 1, name: 'Sample Observer', profileId: '1292001', species: 1, checklists: 1
+    }], 'US-WA', String(new Date().getFullYear()));
+    if (/ref\/hotspot\//.test(url)) return [{
+      locId: 'L1292001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3
+    }];
+    if (/ref\/region\/list\/subnational2/.test(url)) return [{ code: 'US-WA-033', name: 'King' }];
+    if (/api\.gbif\.org\/v1\/geocode\/reverse/.test(url)) return [
+      { type: 'GADM1', title: 'Washington', distance: 0 },
+      { type: 'GADM2', title: 'King County', distance: 0 }
+    ];
+    return [];
+  } });
+  try {
+    const A = app.window.__app, store = app.window.localStorage;
+    A.setFavs([]);
+    await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
+    await seedSeen(app, ['stable'], null, [{ code: 'stable', name: 'Stable bird' }]);
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    await A.startSetupPrefetch(tasks);
+    assert.equal(A.setupPrefetchEngine().complete(), true, JSON.stringify(Object.fromEntries(
+      Object.entries(A.setupPrefetchEngine().states).map(([key, value]) => [key, {
+        state: value.state, detail: value.detail
+      }]))) + '\n' + JSON.stringify(app.window.__dbg.buf.filter(row =>
+        row.level === 'warn' || /^RBA source attempt:/.test(row.msg)).map(row => row.msg)));
+    const providerCalls = () => app.state.fetches.filter(url => /^https?:/.test(url));
+    const before = providerCalls().length;
+    async function acquisitionTimes() {
+      const cascades = await A.loadSurgeSourceCache();
+      return {
+        observations: (await A.loadChaseSnapshot(A.getReportSlug())).feedTimes,
+        busy: (await A.zcGet(A.hotCacheKey())).busyState.at,
+        cascades: cascades && cascades.cascades ? cascades.cascades.t : null,
+        birdcast: (await A.loadBirdcastSnapshot()).fetchedAt,
+        foy: A.foyHistoryRead(A.foyContext()).readAt,
+        rankings: Object.fromEntries(Object.entries(A.rankCacheEntries())
+          .map(([key, entry]) => [key, entry.data.readAt])),
+      };
+    }
+    const sourceTimes = await acquisitionTimes();
+    A.openSetupSheet();
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'verified complete summary');
+    app.click(app.$('setupContinue'));
+    let result = await A.refreshFullBirdGen(true);
+    assert.equal(result.state, 'ok', JSON.stringify(result.sources));
+    assert.equal(providerCalls().length, before, 'complete setup-to-Contents handoff cannot reacquire providers: '
+      + JSON.stringify(providerCalls().slice(before)));
+    app.click(app.$('recentBirdGenRefresh'));
+    result = await A.refreshFullBirdGen('normal');
+    assert.equal(result.state, 'ok', JSON.stringify(result.sources));
+    assert.equal(providerCalls().length, before, 'complete ordinary Contents Refresh must make zero provider calls: '
+      + JSON.stringify(providerCalls().slice(before)));
+    A.showSection('sec-surgeBtn', { load: false });
+    app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+    await A.loadSurge(null, false, { fullRefresh: true, reuseFresh: true });
+    assert.equal(providerCalls().length, before, 'opening/checking complete Bird Gen must not reacquire providers: '
+      + JSON.stringify(providerCalls().slice(before)));
+    assert.deepEqual(await acquisitionTimes(), sourceTimes, 'reused sources retain their original acquisition times');
+    for (const at of ['foyBtn', 'rankBtn', 'massBtn', 'ppteBtn']) {
+      if (at === 'rankBtn') await A.ebirderCount('US-WA');
+      const headingBefore = providerCalls().length;
+      const section = app.$(at).closest('section');
+      A.showSection(section.id, { load: false });
+      app.click(section.querySelector('.refreshbtn'));
+      await A.LOADERS[at].fn();
+      assert.equal(providerCalls().length, headingBefore,
+        at + ': ordinary heading cannot force valid prefetched source evidence: '
+        + JSON.stringify(providerCalls().slice(headingBefore)));
+      assert.deepEqual(await acquisitionTimes(), sourceTimes,
+        at + ': checking retained sources cannot renew their acquisition times');
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 ordinary Favorite Watch Nemesis and Busy headings reuse their actual valid source inputs', async () => {
+  const headings = ['favResults', 'nvResults', 'allUnseenBtn', 'hotBtn', 'coldBtn'];
+  const app = await boot({ sample: false, enabledMenus: headings, fetch: url => {
+    if (/ref\/hotspot\//.test(url)) return [{
+      locId: 'L1292701', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3
+    }];
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    await A.refreshRecentBirdGen(false);
+    await seedSeen(app, [], null, [{ code: 'mallar3', name: 'Mallard' }]);
+    A.setFavs([{ id: 'L1292701', locId: 'L1292701', region: 'US-WA',
+      locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 }]);
+    A.setWatchlist([{ code: 'mallar3', name: 'Mallard' }]);
+    const calls = () => app.state.fetches.filter(url => /^https?:/.test(url));
+    for (const at of headings) {
+      const node = app.$(at), section = node.closest('section'), loader = A.LOADERS[at];
+      const sourceButton = app.$({ favResults: 'favLoadBtn', nvResults: 'nvBtn' }[at] || at);
+      A.showSection(section.id, { load: false });
+      assert.notEqual(await loader.fn(), false, at + ': do not prove reuse by skipping an unavailable loader');
+      const button = section.querySelector('.refreshbtn');
+      assert.ok(button, at + ': the actual heading action must exist');
+      await waitFor(() => !button.disabled && !sourceButton.disabled, at + ': initial source acquisition settles');
+      const before = calls().length;
+      const scanStatus = at === 'hotBtn' || at === 'coldBtn' ? app.$('coldStatus') : null;
+      if (scanStatus) scanStatus.textContent = '';
+      app.click(button);
+      if (scanStatus) {
+        await waitFor(() => /overlooked gem/.test(scanStatus.textContent)
+          && !sourceButton.disabled, at + ': actual heading scan finishes');
+      } else await loader.fn();
+      await waitFor(() => !button.disabled && !sourceButton.disabled, at + ': normal heading settles');
+      assert.equal(calls().length, before, at + ': normal heading cannot bypass valid inputs: '
+        + JSON.stringify(calls().slice(before)));
+    }
+    assert.ok(calls().some(url => /data\/obs\/L1292701\/recent/.test(url)), 'Favorite input is genuinely acquired');
+    assert.ok(calls().some(url => /ref\/hotspot\//.test(url)), 'Busy public references are genuinely acquired');
+    assert.ok(calls().some(url => /product\/lists\//.test(url)), 'Busy current lists are genuinely acquired');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 dedicated Year Reload always reacquires its exact valid same-day source through both controls', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch, reads = [];
+    app.window.fetch = (url, options) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      reads.push(String(url));
+      return Promise.resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    };
+    const owner = A.personalListOwner(), scope = A.activeScope();
+    assert.equal(A.personalListEvidence().complete, true, 'start from a valid current owned list');
+    const section = app.$('myYearBody').closest('section');
+    A.showSection(section.id, { load: false });
+    for (const control of [section.querySelector('.refreshbtn'), app.$('myYearBtn')]) {
+      const before = reads.length;
+      app.click(control);
+      await A.preparePersonalList(scope, false);
+      await waitFor(() => !section.querySelector('[data-personal-progress]'), 'owned Year Reload UI settles');
+      assert.equal(reads.length, before + 1, 'dedicated Reload must bypass valid same-day personal evidence');
+      assert.equal(A.personalListKey(A.personalListOwner()), A.personalListKey(owner),
+        'Reload cannot widen or replace the active owner');
+      assert.equal(A.personalListEvidence().complete, true);
+      assert.equal(A.personalListEvidence().count, 1);
+      assert.ok(!A.personalListEvidence().failure && !A.personalListEvidence().stale,
+        'the source must verify and persist, not merely attempt a read');
+      await A.preparePersonalList(scope, false);
+      assert.equal(reads.length, before + 1, 'ordinary exact-list reuse remains valid after verified Reload');
+    }
+    assert.equal(new Set(reads).size, 1, 'both controls reacquire the same exact source');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+function personalReturnVisibility(app) {
+  let hidden = false;
+  Object.defineProperty(app.document, 'hidden', { configurable: true, get: () => hidden });
+  return value => {
+    hidden = value;
+    app.document.dispatchEvent(new app.window.Event('visibilitychange'));
+  };
+}
+
+test('F1292 quiet personal return revalidates one exact source and updates shared membership without navigation', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let release;
+  try {
+    const A = app.window.__app, clock = f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+    const visibility = personalReturnVisibility(app), calls = [], originalFetch = app.window.fetch;
+    app.window.fetch = (url, options) => {
+      calls.push(String(url));
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      return new Promise(resolve => { release = () => resolve({
+        ok: true, status: 200, text: async () => ownedPersonalListFixture({ codes: ['stable', 'rename'], count: 2 })
+      }); });
+    };
+    visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 0, 'initial/post-setup foreground signals are not an app return');
+    visibility(true); clock.now += 1000; visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 1, 'a due app return must start one quiet exact-list acquisition');
+    const pending = A.preparePersonalList(A.activeScope(), true, null, { quiet: true, allowBrowser: false });
+    assert.equal(A.personalListEvidence().count, 1, 'last verified list remains available while checking');
+    assert.equal(app.$('myYearBody').closest('section').hidden, true, 'quiet check cannot navigate to My Year');
+    const held = release;
+    visibility(false); visibility(true); visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 1, 'rapid repeated resumes join the owned quiet acquisition');
+    held();
+    await pending;
+    assert.equal(A.personalListEvidence().count, 2, 'verified addition reaches shared evidence');
+    assert.equal(A.personalListEvidence().complete, true);
+    assert.equal(A.personalListEvidence().failure, '');
+    assert.ok(A.getReportSeen().rename, 'target projections use newly verified membership');
+    const owner = A.personalListOwner();
+    assert.equal(JSON.parse(app.window.localStorage.getItem(A.personalListKey(owner))).rows.length, 2);
+    assert.equal(calls.length, 1, 'quiet synchronization cannot reacquire unrelated provider inputs');
+    await A.preparePersonalList(A.activeScope(), false);
+    assert.equal(calls.length, 1, 'normal reuse does not renew or reacquire the checked source');
+    clock.now += 1000;
+    const at = A.personalListEvidence().savedAt;
+    release = null;
+    visibility(true); clock.now += 1000; visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 2, 'next actual return checks unchanged source');
+    const unchanged = A.preparePersonalList(A.activeScope(), true, null, { quiet: true, allowBrowser: false });
+    release();
+    await unchanged;
+    assert.notEqual(A.personalListEvidence().savedAt, at, 'unchanged source is verified again');
+    assert.equal(calls.length, 2, 'one exact-source read per completed background/foreground pair');
+    assert.equal(A.personalListEvidence().count, 2);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1292 quiet personal return retains exact session verification and avoids rechecking work completed while hidden', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY, JSON.stringify({
+      ...JSON.parse(app.window.localStorage.getItem(A.IDENTITY_META_KEY)), profileId: 'fixture-account'
+    }));
+    const clock = f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+    const visibility = personalReturnVisibility(app), calls = [], originalFetch = app.window.fetch;
+    app.window.fetch = (url, options) => {
+      calls.push(String(url));
+      if (/\/lifelist\//.test(url)) return Promise.resolve({
+        ok: true, status: 200, url: String(url),
+        text: async () => ownedPersonalListFixture({ codes: ['stable', 'rename'], count: 2 })
+      });
+      if (/\/profile$/.test(url)) return Promise.resolve({
+        ok: true, status: 200, url: 'https://ebird.org/profile/fixture-account',
+        text: async () => '<html><title>eBird profile shell</title></html>'
+      });
+      return originalFetch(url, options);
+    };
+    visibility(true); clock.now += 1000; visibility(false);
+    await waitFor(() => A.personalListEvidence().count === 2 || A.personalListEvidence().failure,
+      'same-session quiet addition').catch(error => assert.fail(error.message + '\n' + JSON.stringify({
+        calls, evidence: A.personalListEvidence(), errors: app.state.errors,
+        tail: app.window.__dbg.buf.slice(-8).map(row => row.msg)
+      })));
+    assert.equal(A.personalListEvidence().failure, '', JSON.stringify({
+      calls, tail: app.window.__dbg.buf.slice(-8).map(row => row.msg)
+    }));
+    assert.equal(calls.length, 4, 'bound account retains the initial list plus profile/list/profile proof');
+    assert.equal(calls.filter(url => /\/profile$/.test(url)).length, 2);
+    assert.equal(calls.filter(url => /\/lifelist\//.test(url)).length, 2);
+    assert.equal(A.personalListEvidence().complete, true);
+    clock.now += 1000; visibility(true); clock.now += 1000;
+    await A.preparePersonalList(A.activeScope(), true);
+    assert.equal(calls.length, 8, 'control performs a real owned source verification while hidden');
+    const acquired = A.personalListEvidence().savedAt;
+    visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 8, 'return cannot immediately reacquire a source verified during the absence');
+    assert.equal(A.personalListEvidence().savedAt, acquired, 'skipping a redundant return does not renew acquisition age');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 quiet personal return preserves retained evidence and never opens challenge recovery', async () => {
+  for (const failure of ['offline', 'challenge', 'obsolete']) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let release, reject;
+    try {
+      const A = app.window.__app, visibility = personalReturnVisibility(app);
+      f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+      const key = A.personalListKey(A.personalListOwner()), saved = app.window.localStorage.getItem(key);
+      const originalFetch = app.window.fetch;
+      let opened = 0, reads = 0;
+      app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        addListener() { return { remove() {} }; },
+        openWebView() { opened++; return Promise.reject(new Error('Interactive recovery is forbidden')); }
+      } } };
+      app.window.fetch = (url, options) => {
+        if (/\/profile$/.test(url)) return Promise.resolve({ ok: false, status: 401 });
+        if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+        reads++;
+        if (reads > 1) return Promise.resolve({
+          ok: true, status: 200, text: async () => '<html>anubis_challenge</html>'
+        });
+        return new Promise((resolve, fail) => {
+          reject = () => fail(new Error('Synthetic offline source'));
+          release = () => resolve({ ok: true, status: 200, text: async () => failure === 'challenge'
+            ? '<html>anubis_challenge</html>'
+            : ownedPersonalListFixture({ codes: ['stable', 'rename'], count: 2 }) });
+        });
+      };
+      visibility(true); visibility(false);
+      await waitFor(() => release, 'held quiet source');
+      if (failure === 'obsolete') A.bcSetProfile('2');
+      (failure === 'offline' ? reject : release)();
+      if (failure === 'obsolete') {
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(A.personalListEvidence().complete, false, 'a replacement owner cannot borrow prior evidence');
+      } else {
+        await waitFor(() => A.personalListEvidence().failure, failure + ': quiet failure is recorded truthfully')
+          .catch(error => assert.fail(error.message + '\n' + JSON.stringify({
+            reads, opened, tail: app.window.__dbg.buf.slice(-8).map(row => row.msg)
+          })));
+        assert.equal(A.personalListEvidence().count, 1);
+        assert.equal(A.personalListEvidence().stale, true);
+      }
+      visibility(false); visibility(false);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(reads, 1,
+        failure + ': failure does not start an automatic foreground retry loop beyond same-session verification');
+      assert.equal(opened, 0, 'quiet return cannot authorize interactive browser recovery');
+      assert.equal(app.window.localStorage.getItem(key), saved, 'failed or obsolete reads retain the verified snapshot');
+      assert.deepEqual(app.state.errors, []);
+    } finally { if (release) release(); app.window.close(); }
+  }
+});
+
+test('F1292 quiet personal source timeout releases ownership for deliberate Reload', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, visibility = personalReturnVisibility(app);
+    f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+    const originalFetch = app.window.fetch, originalTimer = app.window.setTimeout;
+    let reads = 0, aborted = false, bounds = 0;
+    app.window.setTimeout = (fn, delay, ...args) => {
+      if (delay === 20000) bounds++;
+      return originalTimer(fn, delay === 20000 ? 1 : delay, ...args);
+    };
+    app.window.fetch = (url, options) => {
+      if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+      reads++;
+      if (reads === 1) return new Promise(() => {
+        options.signal.addEventListener('abort', () => { aborted = true; });
+      });
+      return Promise.resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+    };
+    visibility(true); visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(bounds, 1, 'quiet direct source must install its bounded transport deadline');
+    await waitFor(() => A.personalListEvidence().failure, 'quiet transport timeout');
+    assert.match(A.personalListEvidence().failure, /timed out after 20 seconds/);
+    assert.equal(aborted, true);
+    assert.equal(A.personalListEvidence().count, 1, 'hung transport cannot erase retained membership');
+    await A.preparePersonalList(A.activeScope(), true);
+    assert.equal(reads, 2, 'deliberate Reload is not permanently joined to a hung quiet request');
+    assert.equal(A.personalListEvidence().failure, '');
+    assert.equal(A.personalListEvidence().complete, true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 quiet personal return cannot carry a departure across a period change', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  try {
+    const A = app.window.__app, visibility = personalReturnVisibility(app);
+    f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+    const originalFetch = app.window.fetch;
+    let reads = 0;
+    app.window.fetch = (url, options) => {
+      if (/\/lifelist\//.test(url)) reads++;
+      return originalFetch(url, options);
+    };
+    visibility(true);
+    A.setPersonalPeriod('all');
+    await new Promise(resolve => setImmediate(resolve));
+    const replacementReads = reads;
+    assert.equal(A.personalListOwner().period, 'all');
+    visibility(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reads, replacementReads,
+      'return cannot start an old-owner check for a replacement period');
+    assert.equal(A.personalListEvidence().complete, false);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 personal Reload queues one exact forced continuation behind normal acquisition', async () => {
+  for (const [entry, outcome, quiet] of [
+    ['preparePersonalList', 'success'], ['ensurePersonalList', 'success'],
+    ['preparePersonalList', 'failure'], ['preparePersonalList', 'obsolete'],
+    ['preparePersonalList', 'success', true], ['ensurePersonalList', 'success', true]
+  ]) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let release, reject, observedNormal, observedLatest;
+    try {
+      const A = app.window.__app, scope = A.activeScope(), owner = A.personalListOwner(scope);
+      A.showSection(app.$('myYearBody').closest('section').id, { load: false });
+      app.window.localStorage.removeItem(A.personalListKey(owner));
+      const originalFetch = app.window.fetch, reads = [];
+      app.window.fetch = (url, options) => {
+        if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
+        reads.push(String(url));
+        if (reads.length === 1) return new Promise((resolve, fail) => {
+          release = () => resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture() });
+          reject = () => fail(new Error('Synthetic normal acquisition failure'));
+        });
+        return Promise.resolve({ ok: true, status: 200, text: async () =>
+          ownedPersonalListFixture({ codes: ['stable', 'rename'], count: 2 }) });
+      };
+      const normal = A[entry](scope, !!quiet, null, quiet ? { quiet: true, allowBrowser: false } : undefined);
+      observedNormal = normal.catch(error => error);
+      await waitFor(() => release, 'held normal exact-list source');
+      app.click(app.$('myYearBtn'));
+      const latest = A.preparePersonalList(scope, true);
+      observedLatest = latest.catch(error => error);
+      assert.notEqual(latest, normal, 'deliberate Reload cannot settle with pre-action normal work');
+      assert.equal(A.preparePersonalList(scope, true), latest, 'repeated Reload owns one forced continuation');
+      assert.equal(A.preparePersonalList(scope, false), normal, 'normal reader cannot be broadened into later force');
+      assert.equal(reads.length, 1, 'deliberate Reload waits for existing owned acquisition');
+      if (outcome === 'obsolete') app.window.localStorage.setItem('ebird_personal_period_v1', 'all');
+      (outcome === 'failure' ? reject : release)();
+      await observedNormal;
+      const result = await observedLatest;
+      if (outcome === 'obsolete') {
+        assert.ok(result instanceof app.window.Error);
+        assert.equal(reads.length, 1, 'obsolete intent cannot acquire for the replacement owner');
+        assert.equal(app.window.localStorage.getItem(A.personalListKey(owner)), null, 'obsolete normal work cannot publish');
+      } else {
+        assert.equal(reads.length, 2, 'deliberate Reload must perform one post-action source acquisition');
+        assert.equal(new Set(reads).size, 1, 'forced continuation cannot widen the exact source');
+        assert.equal(A.personalListEvidence().complete, true);
+        assert.equal(A.personalListEvidence().count, 2, 'newer verified source must reach shared projections');
+        assert.equal(JSON.parse(app.window.localStorage.getItem(A.personalListKey(owner))).rows.length, 2,
+          'forced result must survive durable readback');
+        await A.preparePersonalList(scope, false);
+        assert.equal(reads.length, 2, 'verified latest evidence remains normally reusable');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (release) release();
+      await Promise.allSettled([observedNormal, observedLatest]);
+      await new Promise(resolve => setImmediate(resolve));
+      app.window.close();
+    }
+  }
+});
+
+test('F1292 explicit notable refresh queues one forced continuation behind compatible normal work', async () => {
+  let hold = true, heldUrl, first, latest;
+  const pending = [];
+  const app = await boot({ sample: false, fetch: url => {
+    if (hold && /data\/obs\/.*notable/.test(url) && (!heldUrl || heldUrl === url)) {
+      heldUrl = url;
+      return new Promise(resolve => pending.push(() => resolve([])));
+    }
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+    first = A.getChaseRarity(false);
+    await waitFor(() => pending.length === 1, 'normal notable wave with one held input');
+    assert.equal(A.getChaseRarity(false), first, 'compatible normal work must join');
+    latest = A.getChaseRarity('notable');
+    assert.notEqual(latest, first, 'explicit latest cannot settle with the normal acquisition');
+    assert.equal(A.getChaseRarity('notable'), latest, 'repeated latest owns one forced continuation');
+    assert.equal(A.getChaseRarity(false), first, 'normal reader cannot be broadened into a later forced continuation');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(pending.length, 1, 'forced continuation cannot race its normal predecessor');
+    hold = false;
+    pending.forEach(release => release());
+    const initial = await first;
+    const feeds = Object.keys(initial.feedStates).length;
+    const fresh = await latest;
+    assert.equal(fresh.feedComplete, true);
+    assert.equal(count(), 2 * feeds, 'one forced wave bypasses the selected normal response memos');
+    assert.equal((await A.getChaseRarity(false)).t, fresh.t);
+    assert.equal(count(), 2 * feeds, 'normal repeat reuses the newly acquired notable result');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    pending.forEach(release => release());
+    await Promise.allSettled([first, latest].filter(Boolean));
+    app.window.close();
+  }
+});
+
+test('F1292 failed notable force retains last-good evidence and unrelated notable response memos', async () => {
+  let fail = false, hold = false, forced, repeated;
+  const pending = [];
+  const app = await boot({ sample: false, fetch: url => {
+    if (fail && /data\/obs\/.*notable/.test(url) && !url.includes('/US-OR/')) {
+      if (hold) return new Promise(resolve => pending.push(() => resolve({ invalidRows: true })));
+      return { invalidRows: true };
+    }
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const foreign = 'data/obs/US-OR/recent/notable?back=30';
+    await A.ebird(foreign);
+    const previous = await A.getChaseRarity('notable');
+    A.seedChase(A.getReportSlug(), null);
+    app.window.localStorage.removeItem(A.chaseKey(A.getReportSlug()));
+    const count = () => app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
+    fail = true;
+    hold = true;
+    forced = A.getChaseRarity('notable');
+    await waitFor(() => pending.length > 0, 'held explicit notable refresh');
+    assert.equal(A.getChaseRarity(false), forced, 'normal reader must join force ahead of older valid cached data');
+    repeated = A.getChaseRarity('notable');
+    repeated.catch(() => {});
+    assert.equal(repeated, forced, 'another explicit request joins already forced work');
+    hold = false;
+    pending.forEach(release => release());
+    await assert.rejects(forced, /Invalid notable feed response/);
+    const before = count();
+    let retained;
+    await assert.doesNotReject(async () => { retained = await A.getChaseRarity(false); },
+      'failed force must preserve usable last-good notable evidence');
+    assert.equal(retained.t, previous.t, 'failed force cannot discard or renew successful notable evidence');
+    assert.equal(retained.feedComplete, true);
+    assert.equal(count(), before, 'valid last-good evidence remains usable without another acquisition');
+    await A.ebird(foreign);
+    assert.equal(count(), before, 'selected notable force must not evict an unrelated region');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    pending.forEach(release => release());
+    await Promise.allSettled([forced, repeated].filter(Boolean));
+    app.window.close();
+  }
+});
+
+test('F1292 queued notable latest survives predecessor failure but never a retired owner', async () => {
+  for (const mode of ['predecessor-fails', 'owner-retires']) {
+    let hold = true, heldUrl, owned = true, first, latest, initial, fresh;
+    const pending = [];
+    const app = await boot({ sample: false, fetch: url => {
+      if (hold && /data\/obs\/.*notable/.test(url) && (!heldUrl || heldUrl === url)) {
+        heldUrl = url;
+        return new Promise(resolve => pending.push(() => resolve(
+          mode === 'predecessor-fails' ? { invalidRows: true } : [])));
+      }
+      return [];
+    } });
+    try {
+      const A = app.window.__app;
+      const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+      first = A.getChaseRarity(false);
+      await waitFor(() => pending.length > 0, 'held predecessor for ' + mode);
+      latest = A.getChaseRarity('notable', true, { current: () => owned });
+      if (mode === 'owner-retires') owned = false;
+      const firstCheck = mode === 'predecessor-fails'
+        ? assert.rejects(first, /Invalid notable feed response/)
+        : first.then(value => { initial = value; });
+      const latestCheck = mode === 'predecessor-fails'
+        ? assert.doesNotReject(async () => { fresh = await latest; },
+          'explicit latest must still acquire after its normal predecessor fails')
+        : assert.rejects(latest, /Twitch rarity Home changed/,
+          'a retired queued owner must not acquire');
+      hold = false;
+      pending.forEach(release => release());
+      await Promise.all([firstCheck, latestCheck]);
+      const completed = fresh || initial, feeds = Object.keys(completed.feedStates).length;
+      assert.equal(completed.feedComplete, true);
+      assert.equal(count(), feeds * (fresh ? 2 : 1), 'only an owned continuation may start another wave');
+      assert.equal((await A.getChaseRarity(false)).t, completed.t);
+      assert.equal(count(), feeds * (fresh ? 2 : 1), 'terminal ownership state cannot trigger another wave');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      hold = false;
+      pending.forEach(release => release());
+      await Promise.allSettled([first, latest].filter(Boolean));
+      app.window.close();
+    }
+  }
+});
+
+test('F1292 notable recovery preserves individual acquisition ages and bypasses only invalid retained inputs', async () => {
+  const app = await boot({ sample: false, fetch: () => [] });
+  try {
+    const A = app.window.__app, retained = {};
+    await A.getChaseRarity(false);
+    const first = await A.getChaseRarity('notable', false, null, retained);
+    const files = Object.keys(first.feedStates);
+    assert.ok(files.length > 1, 'exercise actual independent notable feeds');
+    assert.ok(first.feedTimes, 'verified notable reads must carry individual acquisition evidence');
+    assert.deepEqual(Object.keys(first.feedTimes).sort(), files.sort(),
+      'every verified notable source needs its own acquisition evidence');
+    for (const file of files) {
+      assert.equal(retained[file].acquiredAt, first.feedTimes[file]);
+      retained[file].acquiredAt -= 5000;
+    }
+    const ages = Object.fromEntries(files.map(file => [file, retained[file].acquiredAt]));
+    const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+    const before = count(), reused = await A.getChaseRarity('failed', false, null, retained);
+    assert.equal(count(), before, 'verified retained inputs need no new provider calls');
+    assert.deepEqual({ ...reused.feedTimes }, ages, 'recovery cannot renew successful sibling acquisition ages');
+    assert.equal(reused.t, Math.min(...Object.values(ages)));
+    const selected = files[0];
+    for (const invalid of ['expired', 'future', 'missing', 'foreign', 'malformed', 'coverage']) {
+      if (invalid === 'missing') delete retained[selected].acquiredAt;
+      else if (invalid === 'foreign') retained[selected].fetchBaseKey = 'foreign-scope';
+      else if (invalid === 'malformed') retained[selected].rows = {};
+      else if (invalid === 'coverage') retained[selected].geoNotableKm = 0;
+      else retained[selected].acquiredAt = Date.now() + (invalid === 'expired' ? -31 * 60000 : 60000);
+      const start = count();
+      let recovered;
+      await assert.doesNotReject(async () => {
+        recovered = await A.getChaseRarity('failed', false, null, retained);
+      }, invalid + ' evidence must be reacquired rather than breaking retained rendering');
+      assert.equal(count(), start + 1, invalid + ' retained input must bypass its lower response memo');
+      assert.ok(recovered.feedTimes[selected] > ages[selected]
+        && recovered.feedTimes[selected] <= Date.now(), 'repaired source has its own valid acquisition time');
+      for (const other of files.filter(file => file !== selected)) {
+        assert.equal(recovered.feedTimes[other], ages[other], 'healthy sibling age must remain: ' + other);
+      }
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 ordinary notable reads validate individual memory and durable source evidence', async () => {
+  for (const location of ['memory', 'snapshot']) {
+    for (const invalid of ['expired', 'future', 'missing', 'failed', 'malformed', 'legacy']) {
+      const app = await boot({ sample: false, fetch: () => [] });
+      try {
+        const A = app.window.__app;
+        await A.refreshRecentBirdGen(false);
+        const original = await A.getChaseRarity(false), profile = A.chaseProfile();
+        const feeds = app.window.BirdLogic.planFeeds(profile).filter(feed => feed.kind === 'notable');
+        const acquiredAt = Date.now() - 5000;
+        const feedTimes = Object.fromEntries(feeds.map(feed => [feed.file, acquiredAt - 5000]));
+        const source = { ...original, t: acquiredAt,
+          rows: Object.fromEntries(feeds.map(feed => [feed.file, []])),
+          feedStates: Object.fromEntries(feeds.map(feed => [feed.file, 'ok'])), feedTimes };
+        const selected = feeds[0];
+        if (invalid === 'legacy') source.feedTimes = null;
+        else if (invalid === 'missing') delete feedTimes[selected.file];
+        else if (invalid === 'failed') source.feedStates[selected.file] = 'failed';
+        else if (invalid === 'malformed') source.rows[selected.file] = {};
+        else feedTimes[selected.file] = Date.now() + (invalid === 'expired' ? -31 * 60000 : 60000);
+        A.clearChaseCache();
+        if (location === 'memory') A.seedChase(profile.slug, source);
+        else await A.saveChaseSnapshot(profile.slug, null, source.rows, source.feedStates, null, {
+          acquiredAt, feedTimes: source.feedTimes,
+          fetchBaseKey: source.fetchBaseKey, geoNotableKm: source.geoNotableKm
+        });
+        const before = app.state.fetches.length;
+        const result = await A.getChaseRarity(false);
+        const calls = app.state.fetches.slice(before).filter(url => /data\/obs\/.*notable/.test(url))
+          .map(url => new URL(url).pathname);
+        const expected = invalid === 'legacy' ? [] : [
+          new URL(app.window.BirdLogic.requestUrl(selected), 'https://api.ebird.org/v2/').pathname
+        ];
+        assert.deepEqual(calls, expected, location + '/' + invalid
+          + ': a fresh aggregate cannot certify an invalid component or broaden reacquisition');
+        assert.equal(result.feedComplete, true);
+        for (const other of feeds.filter(feed => invalid === 'legacy' || feed.file !== selected.file)) {
+          assert.equal(result.feedTimes[other.file], invalid === 'legacy' ? acquiredAt : feedTimes[other.file],
+            'reused source keeps its original evidence, including conservative legacy fallback');
+        }
+        assert.equal((await A.getChaseRarity(false)).t, result.t, 'repeated normal read cannot renew evidence');
+        assert.equal(app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length,
+          app.state.fetches.slice(0, before).filter(url => /data\/obs\/.*notable/.test(url)).length + expected.length);
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    }
+  }
+});
+
+test('F1292 notable memo reuse preserves original source ages and rejects future-dated lower evidence', async () => {
+  for (const future of [false, true]) {
+    const app = await boot({ sample: false, fetch: () => [] }), clock = app.window.Date.now;
+    try {
+      const A = app.window.__app;
+      await A.refreshRecentBirdGen(false);
+      await A.getChaseRarity(false);
+      A.clearChaseCache();
+      const feeds = app.window.BirdLogic.planFeeds(A.chaseProfile()).filter(feed => feed.kind === 'notable');
+      const acquiredAt = clock() - 5000, selected = feeds[0];
+      try {
+        app.window.Date.now = () => acquiredAt;
+        feeds.forEach(feed => A.seedEbirdCache(app.window.BirdLogic.requestUrl(feed), []));
+        if (future) {
+          app.window.Date.now = () => acquiredAt + 65000;
+          A.seedEbirdCache(app.window.BirdLogic.requestUrl(selected), []);
+        }
+      } finally { app.window.Date.now = clock; }
+      const before = app.state.fetches.length;
+      let result;
+      await assert.doesNotReject(async () => { result = await A.getChaseRarity(false); },
+        'normal notable check must reacquire invalid memos without breaking rendering');
+      const calls = app.state.fetches.slice(before).filter(url => /data\/obs\/.*notable/.test(url));
+      assert.equal(calls.length, future ? 1 : 0, 'only future-dated lower evidence requires a provider request');
+      assert.equal(result.t, acquiredAt, 'building a source model from response memos cannot renew its age');
+      for (const feed of feeds) {
+        if (future && feed.file === selected.file) {
+          assert.ok(result.feedTimes[feed.file] > acquiredAt && result.feedTimes[feed.file] <= clock());
+        } else assert.equal(result.feedTimes[feed.file], acquiredAt, 'memo age remains original: ' + feed.file);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.Date.now = clock; app.window.close(); }
+  }
+});
+
+test('F1292 normal notable projection prefers newer verified inputs over older full-feed evidence', async () => {
+  let latest = false;
+  const app = await boot({ sample: false, fetch: url => /data\/obs\/.*notable/.test(url) ? [{
+    speciesCode: 'mallar3', comName: 'Mallard', subId: latest ? 'S1292412' : 'S1292411',
+    obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+    locId: 'L1292401', locName: 'Synthetic public patch', howMany: 1
+  }] : [] });
+  try {
+    const A = app.window.__app, first = await A.getChaseRarity(false);
+    A.seedChase(A.chaseProfile().slug, first);
+    latest = true;
+    const fresh = await A.getChaseRarity('notable'), before = app.state.fetches.length;
+    A.seedChase(A.chaseProfile().slug, first);
+    const normal = await A.getChaseRarity(false);
+    assert.ok(Object.values(normal.rows).every(rows => rows[0].subId === 'S1292412'),
+      'normal readers must not fall back to older full-feed notable rows after targeted latest');
+    assert.deepEqual(normal.feedTimes, fresh.feedTimes);
+    assert.equal(normal.t, fresh.t);
+    assert.equal(app.state.fetches.length, before, 'newer verified evidence needs no repeat provider acquisition');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+async function notablePublicationFixture(options = {}) {
+  const bird = (code, subId) => ({
+    speciesCode: code, comName: code === 'mallar3' ? 'Mallard' : 'American Robin',
+    subId, obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+    locId: 'L1292501', locName: 'Synthetic public patch', howMany: 1
+  });
+  const app = await boot({ sample: false, fetch: url => /data\/obs\/.*notable/.test(url)
+    ? [bird('mallar3', 'S1292512')] : [] });
+  const A = app.window.__app;
+  await A.refreshRecentBirdGen(false);
+  await A.getChaseRarity(false);
+  A.clearChaseCache();
+  const profile = options.wide ? { ...A.chaseProfile(), chaseMaxMi: 75 } : A.chaseProfile();
+  const at = Date.now() - 5000;
+  const feeds = app.window.BirdLogic.planFeeds(profile)
+    .concat(app.window.BirdLogic.planSpeciesFeeds(profile, ['amerob']));
+  const rows = Object.fromEntries(feeds.map(feed => [feed.file, [
+    feed.kind === 'notable' ? bird('mallar3', 'S1292511') : bird('amerob', 'S1292513')
+  ]]));
+  if (options.wide) rows['geo-notable.json'].push({
+    ...bird('mallar3', 'S1292514'), lat: 48.7
+  });
+  const source = { t: at, profile, rows, speciesCodes: ['amerob'],
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+    feedStates: Object.fromEntries(feeds.map(feed => [feed.file, 'ok'])),
+    feedTimes: Object.fromEntries(feeds.map(feed => [feed.file, at])),
+    feedComplete: true, feedFailed: false, partial: false, stale: false };
+  source.cv = A.computeChaseRows(profile, profile.slug, rows, source.speciesCodes);
+  A.seedChase(profile.slug, source);
+  const provenance = { acquiredAt: at, fetchBaseKey: source.fetchBaseKey,
+    geoNotableKm: source.geoNotableKm, feedTimes: source.feedTimes };
+  await A.saveChaseSnapshot(profile.slug, source.speciesCodes, rows, source.feedStates, null, provenance);
+  return { app, A, profile, source, provenance };
+}
+
+test('F1292 targeted notable publication preserves full memory and durable sibling evidence', async () => {
+  const { app, A, profile, source } = await notablePublicationFixture();
+  try {
+    const firstView = await A.getChaseRarity(false);
+    const regular = Object.keys(source.rows).filter(file => !file.endsWith('-notable.json'));
+    assert.ok(regular.length > 1, 'exercise ordinary and per-species evidence');
+    regular.forEach(file => assert.deepEqual(firstView.rows[file], source.rows[file],
+      'normal full-cache reuse must preserve existing ordinary/species content'));
+    const latest = await A.getChaseRarity('notable'), before = app.state.fetches.length;
+    const full = await A.getChase(false), saved = await A.loadChaseSnapshot(profile.slug);
+    for (const result of [full, saved, await A.getChaseRarity(false)]) {
+      for (const file of Object.keys(latest.feedTimes)) {
+        assert.equal(result.rows[file][0].subId, 'S1292512', 'shared consumers need the new notable input');
+        assert.equal(result.feedTimes[file], latest.feedTimes[file], 'publication preserves actual notable ages');
+      }
+      regular.forEach(file => {
+        assert.ok(Array.isArray(result.rows[file]), 'notable publication must not erase ordinary/species rows');
+        assert.deepEqual(JSON.parse(JSON.stringify(result.rows[file])), source.rows[file],
+          'notable publication must not erase ordinary/species rows');
+        assert.equal(result.feedTimes[file], source.feedTimes[file], 'unrelated acquisition age stays original');
+      });
+      assert.equal(result.t, source.t, 'publishing one source cannot renew healthy sibling ages');
+    }
+    assert.deepEqual(Array.from(saved.codes), source.speciesCodes, 'retain enrichment plan metadata');
+    assert.equal(app.state.fetches.length, before, 'publication and reuse cannot refetch unrelated sources');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 notable publication survives an older packed writer and later detached full-source saves', async () => {
+  const { app, A, profile, source, provenance } = await notablePublicationFixture();
+  let release, entered = false, oldSave, latest, latestSettled = false;
+  const held = new Promise(resolve => { release = resolve; });
+  try {
+    A.setChaseSnapshotStoreGate(() => {
+      if (entered) return null;
+      entered = true;
+      return held;
+    });
+    oldSave = A.saveChaseSnapshot(profile.slug, source.speciesCodes, source.rows,
+      source.feedStates, null, provenance);
+    await waitFor(() => entered, 'older already-packed full snapshot');
+    const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+    const before = count(), expected = Object.keys(source.rows).filter(file => file.endsWith('-notable.json')).length;
+    latest = A.getChaseRarity('notable');
+    latest.finally(() => { latestSettled = true; }).catch(() => {});
+    await waitFor(() => count() === before + expected, 'selected latest source requests');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(latestSettled, false, 'publication must wait for the older snapshot writer before committing its patch');
+    release();
+    const [, fresh] = await Promise.all([oldSave, latest]);
+    let saved = await A.loadChaseSnapshot(profile.slug);
+    for (const file of Object.keys(fresh.feedTimes)) {
+      assert.equal(saved.rows[file][0].subId, 'S1292512', 'older packed writer cannot win after publication');
+    }
+    await A.saveChaseSnapshot(profile.slug, source.speciesCodes, source.rows,
+      source.feedStates, null, provenance);
+    saved = await A.loadChaseSnapshot(profile.slug);
+    for (const file of Object.keys(fresh.feedTimes)) {
+      assert.equal(saved.rows[file][0].subId, 'S1292512', 'detached full save cannot overwrite newer notable evidence');
+      assert.equal(saved.feedTimes[file], fresh.feedTimes[file]);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    release();
+    A.setChaseSnapshotStoreGate(null);
+    await Promise.allSettled([oldSave, latest].filter(Boolean));
+    app.window.close();
+  }
+});
+
+test('F1292 notable publication cannot replace newer full evidence or import invalid source components', async () => {
+  for (const mode of ['newer-full', 'foreign', 'future', 'expired', 'missing', 'failed', 'malformed', 'coverage']) {
+    const { app, A, profile, source, provenance } = await notablePublicationFixture();
+    try {
+      const fresh = await A.getChaseRarity('notable');
+      const selected = mode === 'coverage' ? 'geo-notable.json' : Object.keys(fresh.feedTimes)[0];
+      let rows = source.rows, times = source.feedTimes, expectedId = 'S1292511';
+      if (mode === 'newer-full') {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        const acquiredAt = Date.now();
+        rows = { ...rows };
+        times = { ...times };
+        Object.keys(fresh.feedTimes).forEach(file => {
+          rows[file] = [{ ...fresh.rows[file][0], subId: 'S1292515' }];
+          times[file] = acquiredAt;
+        });
+        expectedId = 'S1292515';
+      } else if (mode === 'foreign') fresh.fetchBaseKey = 'foreign-scope';
+      else if (mode === 'future') fresh.feedTimes[selected] = Date.now() + 60000;
+      else if (mode === 'expired') {
+        times = { ...times, [selected]: Date.now() - 45 * 60000 };
+        fresh.feedTimes[selected] = Date.now() - 31 * 60000;
+      } else if (mode === 'missing') delete fresh.feedTimes[selected];
+      else if (mode === 'failed') fresh.feedStates[selected] = 'failed';
+      else if (mode === 'coverage') fresh.geoNotableKm = NaN;
+      else fresh.rows[selected] = {};
+      await A.saveChaseSnapshot(profile.slug, source.speciesCodes, rows, source.feedStates, null,
+        { ...provenance, feedTimes: times });
+      const saved = await A.loadChaseSnapshot(profile.slug);
+      assert.ok(Array.isArray(saved.rows[selected]), 'invalid notable components cannot corrupt retained source rows');
+      assert.equal(saved.rows[selected][0].subId, expectedId,
+        mode + ': only valid newer compatible components may replace full evidence');
+      assert.equal(saved.feedTimes[selected], times[selected], 'rejected replacement cannot renew source age');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1292 narrower notable publication cannot retain a falsely broad geographic coverage claim', async () => {
+  const { app, A, profile, source } = await notablePublicationFixture({ wide: true });
+  try {
+    const wanted = app.window.BirdLogic.geoNotableDistKm(A.chaseProfile());
+    assert.ok(source.geoNotableKm > wanted, 'the control starts with a genuinely wider source');
+    await A.getChaseRarity('notable');
+    const full = await A.getChase(false), saved = await A.loadChaseSnapshot(profile.slug);
+    for (const result of [full, saved]) {
+      assert.equal(result.geoNotableKm, wanted, 'replacement coverage describes the actual new geographic input');
+      assert.equal(result.rows['geo-notable.json'].length, 1, 'do not union stale wider geographic rows into the replacement');
+      assert.equal(result.rows['geo-notable.json'][0].subId, 'S1292512');
+      for (const file of Object.keys(source.rows).filter(file => !file.endsWith('-notable.json'))) {
+        assert.equal(result.feedTimes[file], source.feedTimes[file], 'unrelated source age remains unchanged');
+      }
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1292 actual detached species completion cannot roll back targeted notable publication', async () => {
+  let latest = false, hold = true, freshRequest;
+  const releases = [];
+  function bird(code) {
+    return { speciesCode: code, comName: {
+      mallar3: 'Mallard', amerob: 'American Robin', norfli: 'Northern Flicker', dowwoo: 'Downy Woodpecker'
+    }[code],
+      subId: code === 'mallar3' ? latest ? 'S1292522' : 'S1292521'
+        : code === 'norfli' ? 'S1292524' : code === 'dowwoo' ? 'S1292525' : 'S1292523',
+      obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+      locId: 'L1292501', locName: 'Synthetic public patch', howMany: 1 };
+  }
+  const app = await boot({ sample: false, fetch: url => {
+    const species = url.match(/\/recent\/(amerob|norfli|dowwoo)(?:\?|$)/);
+    if (species) {
+      return hold ? new Promise(resolve => releases.push(() => resolve([bird(species[1])]))) : [bird(species[1])];
+    }
+    if (/data\/obs\/.*notable/.test(url)) return [bird('mallar3')].concat(latest ? [bird('norfli')] : []);
+    if (/data\/obs\//.test(url)) return [bird('amerob'), bird('dowwoo')];
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    await A.refreshRecentBirdGen(false);
+    await seedSeen(app, ['mallar3'], null, [
+      { code: 'mallar3', name: 'Mallard' }, { code: 'amerob', name: 'American Robin' },
+      { code: 'norfli', name: 'Northern Flicker' }, { code: 'dowwoo', name: 'Downy Woodpecker' }
+    ]);
+    const first = await A.getChase(true);
+    await waitFor(() => releases.length > 0, 'held actual species response after phase-one publication');
+    latest = true;
+    freshRequest = A.getChaseRarity('notable');
+    releases[0]();
+    const fresh = await freshRequest;
+    hold = false;
+    releases.forEach(release => release());
+    await A.chasePhase2();
+    const full = await A.getChase(false), saved = await A.loadChaseSnapshot(A.getReportSlug());
+    for (const result of [full, saved]) {
+      for (const file of Object.keys(fresh.feedTimes)) {
+        assert.equal(result.rows[file][0].subId, 'S1292522', 'actual phase-two completion must retain latest notable rows');
+        assert.equal(result.feedTimes[file], fresh.feedTimes[file]);
+      }
+      for (const file of Object.keys(first.feedTimes).filter(file => !file.endsWith('-notable.json'))) {
+        assert.equal(result.feedTimes[file], first.feedTimes[file], 'phase-two work cannot renew healthy base-source ages');
+      }
+    }
+    assert.ok(Object.keys(saved.rows).some(file => /amerob/.test(file)), 'the actual admitted species evidence also survives');
+    assert.ok(app.state.fetches.some(url => /\/recent\/norfli(?:\?|$)/.test(url)),
+      'actual phase-two planning must admit a new target discovered by the latest notable input');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    releases.forEach(release => release());
+    if (freshRequest) await Promise.allSettled([freshRequest]);
+    app.window.close();
+  }
+});
+
+test('F1292 TWITCH headings stay soft and labelled latest actions update only their applicable RBA inputs', async () => {
+  for (const weekly of [false, true]) {
+    let latest = false, hold = false, browserCache;
+    const pending = [], webReads = [];
+    const row = () => ({
+      speciesCode: 'mallar3', comName: 'Mallard', subId: latest ? 'S1292602' : 'S1292601',
+      obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+      locId: 'L1292601', locName: 'Synthetic public patch', howMany: 1
+    });
+    const app = await boot({ sample: false, storage: {
+      ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region' }),
+    }, fetch: (url, options) => {
+      if (/data\/obs\/.*notable/.test(url)) {
+        const rows = [row()];
+        return hold ? new Promise(resolve => pending.push(() => resolve(rows))) : rows;
+      }
+      if (/alert\/rba\/US-WA\?/.test(url)) {
+        webReads.push(options.cache);
+        const html = megaAlertHtml([{
+          code: 'mallar3', name: 'Mallard', subId: latest ? 'S1292612' : 'S1292611',
+          when: recentObsStamp(1), lat: 47.8, lng: -122.3, place: 'Other synthetic public patch', count: 1
+        }]);
+        if (!browserCache) browserCache = html;
+        return options.cache === 'no-store' ? html : browserCache;
+      }
+      return [];
+    } });
+    try {
+      const A = app.window.__app, load = weekly ? () => A.loadActiveRarities() : () => A.refresh();
+      const section = app.$(weekly ? 'activeBtn' : 'refreshBtn').closest('section');
+      const button = app.$(weekly ? 'activeFetchLatest' : 'twitchFetchLatest');
+      assert.ok(button, 'each TWITCH consumer needs a labelled source-scoped latest action');
+      assert.match(button.textContent, /Fetch latest RBA/);
+      A.showSection(section.id, { load: false });
+      await load();
+      await waitFor(() => section.querySelector('.refreshbtn') && /S1292601/.test(
+        app.$(weekly ? 'activeResults' : 'results').innerHTML), 'initial actual rarity render');
+      const calls = () => app.state.fetches.filter(url => /api\.ebird\.org\/v2\/data\/obs\//.test(url));
+      const before = calls().length, webBefore = webReads.length;
+      app.click(section.querySelector('.refreshbtn'));
+      await load();
+      assert.equal(calls().length, before, 'ordinary TWITCH heading must reuse valid notable inputs');
+      assert.equal(webReads.length, webBefore, 'ordinary TWITCH heading must reuse valid website evidence');
+      latest = true;
+      hold = true;
+      app.click(button);
+      assert.equal(button.disabled, true, 'explicit latest has an owned pending indicator');
+      assert.equal(button.getAttribute('aria-busy'), 'true', 'assistive technology receives the pending state');
+      assert.match(button.textContent, /Fetching latest/);
+      await waitFor(() => pending.length > 0 || !button.disabled, 'latest begins or settles');
+      assert.ok(pending.length, 'Fetch latest must request newer notable inputs rather than reuse valid cache');
+      assert.match(app.$(weekly ? 'activeResults' : 'results').innerHTML, /S1292601/,
+        'last-good rarity cards stay visible while the selected input is pending');
+      hold = false;
+      pending.forEach(release => release());
+      await waitFor(() => !button.disabled && /S1292602/.test(
+        app.$(weekly ? 'activeResults' : 'results').innerHTML), 'new rarity evidence paints');
+      const expected = app.window.BirdLogic.planFeeds(A.chaseProfile()).filter(feed => feed.kind === 'notable').length;
+      assert.equal(calls().length, before + expected, 'latest reacquires only the planned notable inputs');
+      assert.ok(calls().slice(before).every(url => /\/notable(?:\?|$)/.test(url)),
+        'latest cannot broaden into ordinary or species observations');
+      assert.equal(webReads.length, webBefore + (weekly ? 0 : 1), 'only the consumer using website RBA updates it');
+      if (!weekly) {
+        assert.equal(webReads.at(-1), 'no-store');
+        assert.match(app.$('results').innerHTML, /S1292612/, 'latest bypasses the website HTTP cache too');
+      }
+      assert.match(button.textContent, /Fetch latest RBA/);
+      assert.deepEqual(app.state.errors, []);
+    } finally { hold = false; pending.forEach(release => release()); app.window.close(); }
+  }
+});
+
+test('F1292 TWITCH latest failure retains cards, settles its action and never opens a challenge browser', async () => {
+  for (const mode of ['challenge', 'main-api-fails', 'weekly-api-fails']) {
+    let failing = false, opens = 0;
+    const weekly = mode === 'weekly-api-fails';
+    const app = await boot({ sample: false, storage: {
+      ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region' }),
+    }, fetch: url => {
+      if (/data\/obs\/.*notable/.test(url)) {
+        if (failing && mode !== 'challenge') return { invalid: true };
+        return [{ speciesCode: 'mallar3', comName: 'Mallard', subId: 'S1292621',
+          obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+          locId: 'L1292621', locName: 'Synthetic public patch', howMany: 1 }];
+      }
+      if (/alert\/rba\/US-WA\?/.test(url)) {
+        if (failing) return '<html><title>Just a moment...</title><body>Verify you are human</body></html>';
+        return megaAlertHtml([{ code: 'mallar3', name: 'Mallard', subId: 'S1292622',
+          when: recentObsStamp(1), lat: 47.8, lng: -122.3,
+          place: 'Other synthetic public patch', count: 1 }]);
+      }
+      return [];
+    } });
+    try {
+      const A = app.window.__app, out = app.$(weekly ? 'activeResults' : 'results');
+      const button = app.$(weekly ? 'activeFetchLatest' : 'twitchFetchLatest');
+      A.showSection(app.$(weekly ? 'activeBtn' : 'refreshBtn').closest('section').id, { load: false });
+      await (weekly ? A.loadActiveRarities() : A.refresh());
+      assert.match(out.innerHTML, /S1292621/, 'the control starts with actual last-good cards');
+      app.window.Capacitor = { isNativePlatform: () => true, Plugins: { CapgoInAppBrowser: {
+        addListener() { return Promise.resolve({ remove() {} }); },
+        openWebView() { opens++; return Promise.reject(new Error('Unexpected challenge browser')); },
+        close() { return Promise.resolve(); }
+      } } };
+      failing = true;
+      app.click(button);
+      assert.equal(button.disabled, true);
+      await waitFor(() => !button.disabled, mode + ' latest action settles');
+      assert.equal(button.getAttribute('aria-busy'), 'false');
+      assert.match(button.textContent, /Fetch latest RBA/);
+      assert.match(out.innerHTML, /S1292621/, 'failed acquisition cannot erase last-good cards');
+      if (mode === 'challenge') {
+        assert.match(out.innerHTML, /S1292622/, 'verified website evidence survives a later challenge');
+        assert.match(app.$('status').textContent, /Statewide RBA check incomplete/);
+      } else {
+        assert.match(app.$(weekly ? 'activeStatus' : 'status').textContent, /Invalid notable feed response/);
+      }
+      assert.equal(opens, 0, 'targeted latest never authorizes interactive browser recovery');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1292 unsupported TWITCH latest actions are hidden and cannot acquire live sources', async () => {
+  for (const report of ['aba', 'lower48']) {
+    const app = await boot({ sample: false, report, fetch: () => [] });
+    try {
+      const A = app.window.__app;
+      await A.refresh();
+      await A.loadActiveRarities();
+      for (const id of ['twitchFetchLatest', 'activeFetchLatest']) assert.equal(app.$(id).hidden, true);
+      const before = app.state.fetches.length;
+      app.click(app.$('twitchFetchLatest'));
+      app.click(app.$('activeFetchLatest'));
+      await A.refresh({ fetchLatest: true });
+      await A.loadActiveRarities({ fetchLatest: true });
+      assert.equal(app.state.fetches.length, before, 'unsupported action cannot create a live acquisition');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1292 state RBA readers share normal work and reserve one explicit latest continuation', async () => {
+  let hold = true, first, latest, forced, browserCache;
+  const pending = [], reads = [];
+  function page(subId) {
+    return megaAlertHtml([{
+      code: 'mallar3', name: 'Mallard', subId, when: recentObsStamp(1),
+      lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1
+    }]);
+  }
+  let body = page('S1292401');
+  const app = await boot({ sample: false, fetch: (url, options) => {
+    if (!/alert\/rba\/US-WA\?/.test(url)) return [];
+    if (!browserCache) browserCache = body;
+    const captured = options.cache === 'no-store' ? body : browserCache;
+    return hold ? new Promise(resolve => pending.push(() => resolve(captured))) : captured;
+  } });
+  try {
+    const A = app.window.__app;
+    const read = force => {
+      const request = A.stateRbaRecords(force, null, 'US-WA', false);
+      reads.push(request);
+      return request;
+    };
+    const count = () => app.state.fetches.filter(url => /alert\/rba\/US-WA\?/.test(url)).length;
+    first = read(false);
+    await waitFor(() => pending.length === 1, 'held normal RBA page');
+    assert.equal(read(false), first, 'compatible state RBA normal reads must join');
+    body = page('S1292402');
+    latest = read(true);
+    assert.notEqual(latest, first, 'state RBA latest cannot settle with the normal page');
+    assert.equal(read(true), latest, 'state RBA latest reserves only one continuation');
+    assert.equal(read(false), first, 'normal state RBA readers do not demand the later force');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(count(), 1, 'state RBA force cannot race its normal predecessor');
+    hold = false;
+    pending.forEach(release => release());
+    assert.equal((await first).complete, true);
+    const fresh = await latest;
+    assert.equal(fresh.complete, true);
+    assert.ok(fresh.rows.some(row => row.subId === 'S1292402'), 'latest verifies the new page, not cached normal HTML');
+    assert.equal(count(), 2);
+    hold = true;
+    forced = read(true);
+    await waitFor(() => pending.length === 2, 'held already-forced RBA page');
+    assert.equal(read(false), forced, 'normal RBA read joins force ahead of older cache');
+    assert.equal(read(true), forced, 'already-forced RBA acquisition is shared');
+    hold = false;
+    pending.forEach(release => release());
+    assert.equal((await forced).complete, true);
+    assert.equal((await read(false)).complete, true);
+    assert.equal(count(), 3, 'settled RBA work leaves reusable evidence, not another request');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    pending.forEach(release => release());
+    await Promise.allSettled(reads);
+    app.window.close();
+  }
+});
+
+test('F1292 queued state RBA latest cannot adopt a changed acquisition scope', async () => {
+  let hold = true, release, first, latest;
+  const html = megaAlertHtml([{
+    code: 'mallar3', name: 'Mallard', subId: 'S1292404', when: recentObsStamp(1),
+    lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1
+  }]);
+  const app = await boot({ sample: false, fetch: url => {
+    if (!/alert\/rba\/US-WA\?/.test(url)) return [];
+    return hold ? new Promise(resolve => { release = () => resolve(html); }) : html;
+  } });
+  try {
+    const A = app.window.__app;
+    const count = () => app.state.fetches.filter(url => /alert\/rba\/US-WA\?/.test(url)).length;
+    first = A.stateRbaRecords(false, null, 'US-WA', false);
+    await waitFor(() => !!release, 'held old-scope RBA source');
+    latest = A.stateRbaRecords(true, null, 'US-WA', false);
+    const stopped = assert.rejects(latest, /State RBA scope changed/,
+      'queued state RBA force must keep its original scope');
+    A.setCountyView('US-WA-033');
+    hold = false;
+    release();
+    assert.equal((await first).complete, false, 'retired source cannot certify the new scope');
+    await stopped;
+    assert.equal(count(), 1, 'retired state RBA continuation must not reacquire in the destination scope');
+    assert.equal((await A.stateRbaRecords(false, null, 'US-WA', false)).complete, true);
+    assert.equal(count(), 2, 'the new scope can start its own normal acquisition');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    if (release) release();
+    await Promise.allSettled([first, latest].filter(Boolean));
+    app.window.close();
+  }
+});
+
+test('F1292 queued state RBA force preserves the explicit no-browser policy after a challenged normal read', async () => {
+  let hold = true, release, first, latest, opened = 0;
+  const app = await boot({ sample: false, fetch: url => {
+    if (!/alert\/rba\/US-WA\?/.test(url)) return [];
+    return hold ? new Promise(resolve => { release = () => resolve('<html>anubis_challenge</html>'); })
+      : '<html>anubis_challenge</html>';
+  } });
+  app.window.Capacitor = { Plugins: { CapgoInAppBrowser: {
+    addListener() { return { remove() {} }; },
+    openWebView() { opened++; return Promise.reject(new Error('Interactive recovery is forbidden in this fixture.')); },
+    close() { return Promise.resolve(); }, hide() {}, show() {}
+  } } };
+  try {
+    const A = app.window.__app;
+    first = A.stateRbaRecords(false, null, 'US-WA', false);
+    await waitFor(() => !!release, 'held challenged normal RBA page');
+    latest = A.stateRbaRecords(true, null, 'US-WA', false);
+    hold = false;
+    release();
+    assert.equal((await first).complete, false);
+    assert.equal((await latest).complete, false, 'force cannot convert a challenge to successful empty data');
+    assert.equal(app.state.fetches.filter(url => /alert\/rba\/US-WA\?/.test(url)).length, 2,
+      'explicit force still tries its own source after the normal challenge');
+    assert.equal(opened, 0, 'queued state RBA force cannot silently gain interactive-browser permission');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    hold = false;
+    if (release) release();
+    await Promise.allSettled([first, latest].filter(Boolean));
+    app.window.close();
+  }
+});
+
+test('F1292 state RBA cache rejects future acquisition times and its existing expired-age boundary', async () => {
+  for (const offset of [-60000, 16 * 60000]) {
+    const html = megaAlertHtml([{
+      code: 'mallar3', name: 'Mallard', subId: 'S1292405', when: recentObsStamp(1),
+      lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1
+    }]);
+    const app = await boot({ sample: false, fetch: url => /alert\/rba\/US-WA\?/.test(url) ? html : [] });
+    const clock = app.window.Date.now;
+    try {
+      const A = app.window.__app;
+      const read = () => A.stateRbaRecords(false, null, 'US-WA', false);
+      assert.equal((await read()).complete, true);
+      const count = () => app.state.fetches.filter(url => /alert\/rba\/US-WA\?/.test(url)).length;
+      const before = count();
+      app.window.Date.now = () => clock() + offset;
+      const checked = await read();
+      assert.equal(checked.complete, true);
+      assert.equal(count(), before + 1, 'future or expired RBA acquisition time cannot certify fresh reuse');
+      assert.ok(checked.rows[0].__rbaAcquiredAt <= app.window.Date.now(), 'repaired acquisition is not future-dated');
+      assert.equal((await read()).complete, true);
+      assert.equal(count(), before + 1, 'the repaired RBA source is reusable at the corrected clock');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.Date.now = clock; app.window.close(); }
+  }
+});
+
+test('F1292 failed state RBA work releases its slot without poisoning or renewing retained evidence', async () => {
+  for (const previousGood of [false, true]) {
+    let fail = !previousGood;
+    const html = megaAlertHtml([{
+      code: 'mallar3', name: 'Mallard', subId: 'S1292403', when: recentObsStamp(1),
+      lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1
+    }]);
+    const app = await boot({ sample: false, fetch: url => /alert\/rba\/US-WA\?/.test(url)
+      ? fail ? '<html>anubis_challenge</html>' : html : [] });
+    try {
+      const A = app.window.__app;
+      const read = force => A.stateRbaRecords(force, null, 'US-WA', false);
+      const count = () => app.state.fetches.filter(url => /alert\/rba\/US-WA\?/.test(url)).length;
+      const good = previousGood ? await read(false) : null;
+      if (good) assert.equal(good.complete, true);
+      fail = true;
+      const failed = await read(true);
+      assert.equal(failed.complete, false, 'a challenge is incomplete, never a successful empty answer');
+      const before = count();
+      fail = false;
+      const normal = await read(false);
+      assert.equal(normal.complete, true, 'settled failed RBA promise must not become a cache');
+      assert.equal(count(), before + (previousGood ? 0 : 1), 'only missing RBA evidence needs normal reacquisition');
+      if (good) assert.equal(normal.rows[0].__rbaAcquiredAt, good.rows[0].__rbaAcquiredAt,
+        'failed replacement cannot renew original RBA acquisition age');
+      assert.equal((await read(true)).complete, true, 'a new deliberate force can replace failed work');
+      assert.equal(count(), before + (previousGood ? 1 : 2), 'later force must actually reacquire its selected page');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1292 normal full check joins an already owned automatic notable acquisition', async () => {
+  let release, holding = true;
+  const held = new Promise(resolve => { release = resolve; });
+  const app = await boot({ sample: false, storage: { 'ebird_county_view:wa': 'US-WA-033' }, fetch: url => {
+    if (/data\/obs\//.test(url)) return holding ? held : [];
+    if (/bird-list/.test(url)) return f821Page([]);
+    if (/top100/.test(url)) return fs.readFileSync(path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
+    return [];
+  } });
+  const jobs = [];
+  try {
+    const A = app.window.__app;
+    await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
+    await seedSeen(app, [], null, [{ code: 'stable', name: 'Stable bird' }]);
+    jobs.push(A.refreshRecentBirdGen(false));
+    await waitFor(() => app.state.fetches.some(url => /\/notable/.test(url)), 'owned automatic notable work');
+    const shared = A.getChaseRarity(false, false, { current: () => true });
+    jobs.push(shared);
+    const normal = A.refreshFullBirdGen('normal');
+    jobs.push(normal);
+    holding = false; release([]);
+    const result = await normal;
+    let source;
+    await assert.doesNotReject(async () => { source = await shared; },
+      JSON.stringify(app.window.__dbg.buf.map(row => row.msg)
+        .filter(message => /TRACE|recent\/notable source|Invalid notable|chase view/i.test(message))));
+    assert.ok(source.cv, 'the controlled notable acquisition must return a real chase view');
+    assert.equal(result.sources.observations, 'ok',
+      'normal full check must not cancel the compatible automatic observation owner: '
+      + JSON.stringify({ tail: app.window.__dbg.buf.map(row => row.msg)
+        .filter(message => /cancelled|recent\/notable source|Invalid notable|chase view/i.test(message))
+        .slice(-12) }));
+    const counts = new Map();
+    app.state.fetches.filter(url => /\/notable/.test(url)).forEach(url =>
+      counts.set(url, (counts.get(url) || 0) + 1));
+    assert.ok(counts.size, 'real notable providers must have been requested');
+    assert.ok([...counts.values()].every(count => count === 1),
+      'compatible automatic and normal readers must not duplicate notable providers');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    holding = false; release([]);
+    await Promise.allSettled(jobs);
+    app.window.close();
   }
 });
 
@@ -1178,8 +3347,6 @@ test('F1210 F1211 F1212 Watch matches Year furniture and Year refresh delegates 
     }, true);
     app.click(section.querySelector('.refreshbtn'));
     assert.equal(forwarded, 1);
-    assert.equal(A.takeForce(), true, 'the existing icon still requests a fresh owned personal-list acquisition');
-    assert.equal(A.takeForce(), false);
     const card = app.document.createElement('ul');
     card.innerHTML = app.window.SpeciesCards.medium({ name: 'Test bird', sci: 'Testus birdus',
       code: 'amerob', alpha: 'AMRO', identifierLine: true, sub: '<a data-href="https://ebird.org/checklist/S1">Today</a>' });
@@ -2006,6 +4173,212 @@ test('F1193 Busy Patches resolves distance-derived counties before scanning and 
   } finally { app.window.close(); }
 });
 
+test('F1315 actual Stakeout restores saved reports before acquisition and preserves the original freshness deadline', async () => {
+  const app = await boot({ sample: false });
+  let release;
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.showSection('sec-spLookupBtn', { load: false });
+    let calls = 0, mode = 'held';
+    const response = rows => ({ ok: true, status: 200, json: () => Promise.resolve(rows) });
+    const rows = [{
+      speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      obsDt: recentObsStamp(), locId: 'LF1315', locName: 'Saved synthetic patch',
+      lat: 47.76, lng: -122.15, subId: 'SF1315', howMany: 1,
+    }];
+    app.window.fetch = (url, init) => {
+      if (!/data\/obs\/US-WA\/recent\/verfly\?/.test(String(url))) {
+        if (/api\.ebird\.org/.test(String(url))) return Promise.resolve(response([]));
+        return originalFetch(url, init);
+      }
+      calls++;
+      if (mode === 'held') return new Promise(resolve => { release = () => resolve(response(rows)); });
+      if (mode === 'empty') return Promise.resolve(response([]));
+      if (mode === 'invalid') return Promise.resolve(response(null));
+      throw new Error('Unexpected extra species acquisition');
+    };
+    const first = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    const status = app.$('spLookupStatus');
+    await waitFor(() => !!release, 'first selected-species acquisition');
+    assert.match(status.textContent, /Loading hotspot data.*Waiting for hotspots/s);
+    assert.equal(status.hidden, false);
+    assert.equal(status.getAttribute('role'), 'status');
+    assert.equal(status.getAttribute('aria-live'), 'polite');
+    assert.ok(status.classList.contains('splookuploading'));
+    assert.ok(status.querySelector('progress:not([value])'),
+      'waiting must be visible without inventing a completion percentage');
+    assert.doesNotMatch(status.textContent, /No reports/);
+    release(); await first; release = null;
+    const store = app.window.localStorage;
+    const key = Array.from({ length: store.length }, (_, i) => store.key(i))
+      .find(name => name.startsWith('bc_stakeout_bird_v1:'));
+    assert.ok(key, 'a successful selected source must be retained for later entry');
+    const saved = store.getItem(key);
+    A.clearSpeciesLookup();
+    const reopened = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    await reopened;
+    assert.equal(calls, 1, 'fresh saved evidence must not hide an extra background request');
+    assert.match(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
+    assert.match(status.textContent, /Saved results from less than a minute ago/);
+    assert.equal(status.querySelector('progress'), null);
+    assert.equal(store.getItem(key), saved, 'reusing saved evidence must not renew timestamps');
+
+    mode = 'held';
+    const refreshButton = app.$('spLookupRefresh');
+    app.click(refreshButton);
+    await waitFor(() => !!release, 'forced request while saved results remain visible');
+    assert.match(status.textContent, /Loading hotspot data.*Saved results.*remain visible/s);
+    assert.match(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
+    release(); await waitFor(() => !refreshButton.disabled, 'forced request completion'); release = null;
+    assert.equal(calls, 2, 'explicit Refresh still acquires the selected source');
+    const lastGood = store.getItem(key);
+    mode = 'invalid';
+    app.click(refreshButton);
+    await waitFor(() => !refreshButton.disabled, 'unverifiable request completion');
+    assert.match(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
+    assert.match(app.$('spLookupDetailMain').textContent,
+      /Sightings response could not be verified.*freshness could not be confirmed/);
+    assert.equal(store.getItem(key), lastGood, 'an unverifiable response cannot poison the last good cache');
+    mode = 'empty';
+    app.click(refreshButton);
+    await waitFor(() => !refreshButton.disabled, 'successful-empty request completion');
+    assert.match(status.textContent, /No reports of Vermilion Flycatcher/);
+    assert.doesNotMatch(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
+    A.clearSpeciesLookup();
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    assert.equal(calls, 4, 'verified empty is retained too, without another fetch on reopening');
+    assert.doesNotMatch(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
+    mode = 'held';
+    app.click(refreshButton);
+    await waitFor(() => !!release, 'refresh after a verified empty response');
+    assert.match(status.textContent, /Loading hotspot data/,
+      'an earlier successful-empty answer must not hide an active request');
+    release(); await waitFor(() => !refreshButton.disabled, 'last request completion'); release = null;
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK),
+      rows.map(row => ({ ...row, locName: 'Newer prefetched synthetic patch' })));
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    assert.equal(calls, 5, 'newer prefetched evidence is reused without another request');
+    assert.match(app.$('spLookupRecent').textContent, /Newer prefetched synthetic patch/,
+      'a durable saved answer must not override newer live source evidence');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1315 expired or invalid saved Stakeout evidence cannot suppress an owned source request', async () => {
+  const app = await boot({ sample: false });
+  let release;
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch, store = app.window.localStorage;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.showSection('sec-spLookupBtn', { load: false });
+    const rows = [{
+      speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+      obsDt: recentObsStamp(), locId: 'LF1315OLD', locName: 'Earlier synthetic patch',
+      lat: 47.76, lng: -122.15, subId: 'SF1315OLD', howMany: 1,
+    }];
+    const response = value => ({ ok: true, status: 200, json: () => Promise.resolve(value) });
+    let calls = 0;
+    app.window.fetch = (url, init) => {
+      if (!/data\/obs\/US-WA\/recent\/verfly\?/.test(String(url))) {
+        if (/api\.ebird\.org/.test(String(url))) return Promise.resolve(response([]));
+        return originalFetch(url, init);
+      }
+      if (++calls === 1) return Promise.resolve(response(rows));
+      return new Promise(resolve => { release = () => resolve(response([])); });
+    };
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    const key = Array.from({ length: store.length }, (_, i) => store.key(i))
+      .find(name => name.startsWith('bc_stakeout_bird_v1:'));
+    const original = await A.unpackJson(store.getItem(key));
+    const start = app.window.Date.now(), county = A.getCountyView();
+    const cases = ['expired', 'other scope', 'other bird', 'future time', 'overlong expiry', 'poisoned'];
+    for (const [index, kind] of cases.entries()) {
+      const now = start + (index + 1) * 31 * 60000;
+      app.window.Date.now = () => now;
+      const snapshot = { ...original, at: now - 2 * 60000, expiresAt: now - 1 };
+      if (kind === 'other bird') snapshot.rows = rows.map(row => ({ ...row, speciesCode: 'mallar3' }));
+      if (kind === 'future time') snapshot.at = now + 60000;
+      if (kind === 'overlong expiry') snapshot.expiresAt = now + 60 * 60000;
+      store.setItem(key, kind === 'poisoned' ? 'null' : await A.packJson(snapshot));
+      if (kind === 'other scope') A.setCountyView(county === 'US-WA-033' ? 'US-WA-061' : 'US-WA-033');
+      const pending = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+      const acquired = await Promise.race([
+        pending.then(() => false),
+        waitFor(() => !!release, kind + ' source request').then(() => true),
+      ]);
+      assert.equal(acquired, true, kind + ' must acquire before settling');
+      assert.equal(calls, index + 2, kind + ' must acquire exactly once');
+      assert.match(app.$('spLookupStatus').textContent, /Loading hotspot data/, kind);
+      if (kind === 'expired') {
+        assert.match(app.$('spLookupRecent').textContent, /Earlier synthetic patch/);
+        assert.match(app.$('spLookupStatus').textContent, /Saved results.*remain visible/s);
+      } else {
+        assert.doesNotMatch(app.$('spLookupRecent').textContent, /Earlier synthetic patch/, kind);
+        assert.doesNotMatch(app.$('spLookupStatus').textContent, /Saved results/, kind);
+      }
+      release(); await pending; release = null;
+      assert.doesNotMatch(app.$('spLookupRecent').textContent, /Earlier synthetic patch/,
+        'verified successful-empty replaces even valid expired evidence');
+      if (kind === 'other scope') A.setCountyView(county);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1315 a completed source cannot overwrite saved results after ownership changes during compression', async () => {
+  const app = await boot({ sample: false });
+  let release;
+  try {
+    const A = app.window.__app, originalFetch = app.window.fetch, store = app.window.localStorage;
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    A.showSection('sec-spLookupBtn', { load: false });
+    let calls = 0;
+    app.window.fetch = (url, init) => {
+      if (!/data\/obs\/US-WA\/recent\/verfly\?/.test(String(url))) {
+        if (/api\.ebird\.org/.test(String(url))) return Promise.resolve({
+          ok: true, status: 200, json: () => Promise.resolve([]) });
+        return originalFetch(url, init);
+      }
+      const row = { speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
+        obsDt: recentObsStamp(), locId: 'LF1315PACK', locName: 'Compression control patch ' + ++calls,
+        lat: 47.76, lng: -122.15, subId: 'SF1315PACK', howMany: 1 };
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([row]) });
+    };
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    const key = Array.from({ length: store.length }, (_, i) => store.key(i))
+      .find(name => name.startsWith('bc_stakeout_bird_v1:'));
+    const saved = store.getItem(key);
+    const NativeResponse = app.window.Response || globalThis.Response;
+    app.window.CompressionStream = globalThis.CompressionStream;
+    app.window.Response = class {
+      constructor(value) {
+        if (typeof value === 'string' && value.includes('"context":')
+            && value.includes('LF1315PACK')) {
+          this.body = { pipeThrough: () => ({ snapshot: value }) };
+        } else if (value && value.snapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            release = () => {
+              const gzip = require('node:zlib').gzipSync(value.snapshot);
+              resolve(gzip.buffer.slice(gzip.byteOffset, gzip.byteOffset + gzip.byteLength));
+            };
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    app.click(app.$('spLookupRefresh'));
+    await waitFor(() => !!release, 'actual snapshot compression');
+    assert.match(app.$('spLookupRecent').textContent, /Compression control patch 2/,
+      'the new owned source must be rendered before this write-boundary control');
+    A.showMenu();
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    await waitFor(() => !app.$('spLookupRefresh').disabled, 'retired compressed write completion');
+    assert.equal(store.getItem(key), saved, 'compression must recheck ownership before persisting');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
 test('F1057 Stakeout Refresh bypasses only selected sightings and retains evidence on failure', async () => {
   const app = await boot({ sample: false });
   try {
@@ -2062,7 +4435,8 @@ test('F1057 Stakeout Refresh bypasses only selected sightings and retains eviden
 });
 
 for (const changed of ['Home', 'navigation']) {
-test(`F1057 a held selected-bird refresh cannot publish after ${changed} changes`, async () => {
+for (const refresh of [true, false]) {
+test(`F1057 F1315 a held selected-bird ${refresh ? 'refresh' : 'entry'} cannot publish after ${changed} changes`, async () => {
   const app = await boot({ sample: false });
   let release;
   try {
@@ -2085,17 +4459,32 @@ test(`F1057 a held selected-bird refresh cannot publish after ${changed} changes
       return new Promise(resolve => { release = () => resolve(response('Obsolete patch')); });
     };
     await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
-    app.click(app.$('spLookupRefresh'));
+    const store = app.window.localStorage;
+    const savedKey = Array.from({ length: store.length }, (_, i) => store.key(i))
+      .find(name => name.startsWith('bc_stakeout_bird_v1:'));
+    const saved = store.getItem(savedKey);
+    let pending;
+    if (refresh) app.click(app.$('spLookupRefresh'));
+    else {
+      const later = app.window.Date.now() + 31 * 60000;
+      app.window.Date.now = () => later;
+      pending = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    }
     await waitFor(() => !!release, 'refresh request');
     assert.match(app.$('spLookupRecent').textContent, /Retained patch/);
     if (changed === 'Home') app.window.localStorage.setItem(A.homeKey('lat'), '48.75');
     else A.showMenu();
     release();
+    if (pending) await pending;
     await waitFor(() => !app.$('spLookupRefresh').disabled, 'obsolete acquisition to settle');
     assert.doesNotMatch(app.$('spLookupRecent').textContent, /Obsolete patch/);
     assert.match(app.$('spLookupRecent').textContent, /Retained patch/);
+    assert.equal(store.getItem(savedKey), saved, 'obsolete work cannot overwrite saved results');
+    assert.doesNotMatch(app.$('spLookupStatus').textContent, /Loading hotspot data/,
+      'a retired view must not keep pretending acquisition is still pending');
   } finally { if (release) release(); app.window.close(); }
 });
+}
 }
 
 test('F1045/F1058 migration dates and all current alerts agree without opening Migration or fetching history', async () => {
@@ -2855,14 +5244,17 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
   } finally { app.window.close(); }
 });
 
-test('F1143/F1146 disabled Nemesis stays inaccessible while Target Birds owns the exchanged icon', async () => {
+test('F1143/F1146/F1314 disabled Nemesis stays inaccessible while Target Birds uses its target icon', async () => {
   const saved = JSON.stringify(['allUnseenBtn', 'easyBtn']);
   const app = await boot({ storage: { bc_menu_shortcuts_v1: saved } });
   try {
     const A = app.window.__app;
     const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="easyBtn"]');
     assert.match(bird.textContent, /Target Birds/);
-    assert.equal(bird.querySelector('.tileicon').textContent, '🦅');
+    assert.equal(bird.querySelector('.tileicon').textContent, '🎯');
+    assert.match(app.$('sec-easyBtn').querySelector('h2').textContent, /^🎯 Target Birds/);
+    assert.equal(app.document.querySelector(
+      '#menuList .menuShortcut .toclink[data-at="easyBtn"] .tileicon').textContent, '🎯');
     assert.equal(app.document.querySelector('#menuList [data-at="allUnseenBtn"]'), null);
     assert.ok(app.$('nemesisMenuBadge').closest('[hidden]'));
     const section = app.$('allUnseenBtn').closest('section');
@@ -3379,7 +5771,7 @@ function assertSurgeDiagnostic(app, expected, message) {
   assert.match(entry.msg, expected, message);
 }
 
-test('F1011 actual Menu gesture and labelled action share forced full acquisition through the optional tail', async () => {
+test('F1011 actual Fetch latest action forces full acquisition through the optional tail', async () => {
   let full = false, failingFavorite = true, releaseMass;
   const work = [];
   let heldMass = new Promise(resolve => { releaseMass = () => resolve(f821Page([])); });
@@ -3402,7 +5794,7 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
     return [];
   } });
   try {
-    const A = app.window.__app, button = app.$('recentBirdGenRefresh');
+    const A = app.window.__app, button = app.$('recentBirdGenLatest');
     await A.refreshRecentBirdGen(false);
     const automatic = app.state.fetches.slice();
     assert.ok(automatic.filter(url => /data\/obs\//.test(url)).every(url => /notable/.test(url)));
@@ -3418,9 +5810,9 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
       locName: 'Retained public marsh', checklistId: 'SF1011KEEP',
     }] });
     A.saveMegaSnapshot([], true);
-    assert.equal(button.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
-    assert.equal(button.textContent.trim(), '↻');
-    assert.equal(app.document.querySelectorAll('#recentBirdGenRefresh').length, 1);
+    assert.equal(button.getAttribute('aria-label'), 'Fetch latest full Bird Gen feed');
+    assert.equal(button.textContent.trim(), 'Fetch latest');
+    assert.equal(app.document.querySelectorAll('#recentBirdGenLatest').length, 1);
     const beforeUnsafe = app.state.fetches.length;
     for (const gesture of [{ y: 30 }, { x: 100, y: 80 }, { scrollTop: 1 }, { fingers: 2 }]) {
       pullMenu(app, gesture);
@@ -3441,7 +5833,7 @@ test('F1011 actual Menu gesture and labelled action share forced full acquisitio
     await waitFor(() => /On for this profile/.test(app.$('birdGenNotifyStatus').textContent), 'native opt-in');
     await A.syncBirdGenNotificationRows([]);
     full = true;
-    pullMenu(app);
+    button.click();
     assert.equal(button.disabled, true, 'the actual gesture must start the full owner before a direct join');
     const pending = A.refreshFullBirdGen();
     work.push(pending);
@@ -3874,6 +6266,45 @@ test('F1085/F1086/F1032 the five-row preview uses source order and compact acces
     assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-birdgen-empty]'));
     app.$('recentBirdGenOpen').click();
     assert.equal(app.$('surgeBtn').closest('section').hidden, false, 'the bell opens the complete feed');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1311 actual Recent TOP PATCH reuses its full-feed yield explanation without expanding other kinds', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, stamp = formatObsStamp(new Date(Date.now() - 60000));
+    const name = 'Representative Estuary and Upper Woodland Wildlife Observation Reserve';
+    const before = app.state.fetches.length;
+    A.renderSurge([], [], [{
+      loc: 'Representative busy patch', locId: 'LF1311BUSY',
+      observers: 12, baseline: 2, ratio: 6, latest: stamp,
+    }], [], [], { observations: 'ok', hotspots: 'ok', suppressNotifications: true }, [{
+      locId: 'LF1311YIELD', locName: name, species: [
+        { code: 'snogoo', comName: 'Snow Goose', dateStr: stamp, count: 3 },
+        { code: 'amepip', comName: 'American Pipit', dateStr: stamp, count: 1 },
+      ],
+    }]);
+    const full = app.$('surgeFeed').querySelector('[data-alert-kind="patch"]');
+    const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="patch"]');
+    const note = recent.querySelector('.recent-patch-yield');
+    assert.ok(note, 'TOP PATCH must visibly explain its high yield');
+    assert.equal(note.textContent, full.dataset.patchYield);
+    assert.match(note.textContent, /High yield.*scored in the top category/);
+    assert.ok(full.dataset.surgeReasonText.endsWith(note.textContent),
+      'the full-feed model remains the meaning authority');
+    assert.equal(recent.querySelector('.surgealerttitle').textContent, name);
+    assert.equal(recent.querySelector('[data-birdgen-total]').dataset.birdgenTotal, '2');
+    assert.ok(recent.querySelector('.recent-birdgen-time').textContent.trim());
+    const busy = app.$('recentBirdGenRows').querySelector('[data-recent-kind="hotspot"]');
+    assert.equal(busy.querySelector('.recent-patch-yield,.sub'), null,
+      'unrelated kinds keep their compact exclusions');
+    A.updateRecentBirdGen();
+    assert.equal(app.$('recentBirdGenRows').querySelectorAll('.recent-patch-yield').length, 1);
+    assert.equal(app.state.fetches.length, before, 'rendering never acquires new source data');
+    app.$('recentBirdGenRows').querySelector('[data-recent-kind="patch"] > .name').click();
+    assert.equal(app.$('stakeHsBtn').closest('section').hidden, false);
+    assert.equal(app.$('stakeHs').value, name);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
@@ -5819,10 +8250,20 @@ async function seedRarityChase(app, rows, at = Date.now()) {
     subnational2Code: 'US-WA-033',
     subnational2Name: 'King',
   }));
+  const feeds = app.window.BirdLogic.planFeeds(profile).filter(feed => feed.kind === 'notable');
+  const sourceRows = {}, feedStates = {}, feedTimes = {};
+  feeds.forEach((feed, index) => {
+    sourceRows[feed.file] = index ? [] : raw;
+    feedStates[feed.file] = 'ok';
+    feedTimes[feed.file] = at;
+  });
+  A.setRarityInflight(null);
   A.seedChase(profile.slug, {
     t: at,
     rarity: false,
-    rows: { 'king-notable.json': raw },
+    rows: sourceRows,
+    feedStates,
+    feedTimes,
     speciesCodes: raw.map((row) => row.speciesCode),
     fetchBaseKey: A.chaseFetchBaseKey(profile),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
@@ -6032,7 +8473,10 @@ function boot(opts = {}) {
         state,
         $: (id) => window.document.getElementById(id),
         links: () => [...window.document.querySelectorAll('.toclink, #recentBirdGen:not([hidden]) #recentBirdGenOpen')],
-        click(el) { el.dispatchEvent(new window.Event('click', { bubbles: true })); },
+        click(el) {
+          if (el.matches('button[type="submit"]')) el.click();
+          else el.dispatchEvent(new window.Event('click', { bubbles: true }));
+        },
         open(labelRe) {
           const a = [...window.document.querySelectorAll('.toclink, #recentBirdGen:not([hidden]) #recentBirdGenOpen')]
             .find((x) => labelRe.test(x.getAttribute('aria-label') || '')
@@ -7154,6 +9598,51 @@ test('F863/F1102 Bird Gen retains every eligible recent annual first including m
   }finally{app.window.close();}
 });
 
+test('F1297 annual-first website access rejection differs from invalid markup without automatic browser recovery', async () => {
+  let html = '';
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? html : []});
+  let opened = 0;
+  app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+    addListener(){return {remove(){}};}, executeScript(){return Promise.resolve();},
+    openWebView(){opened++; throw new Error('Unexpected automatic browser');},
+    close(){}, hide(){}, show(){},
+  }}};
+  try {
+    const A = app.window.__app;
+    for (const [body, classification, kind] of [
+      ['<html>anubis_challenge</html>', 'website-access-required', 'ANUBIS'],
+      ['<html><title>Sign in</title><input type="password" value="F1297-PRIVATE"></html>',
+        'website-access-required', 'LOGIN'],
+      [FIRST_YEAR_HTML + '<div>anubis_challenge</div>', 'website-access-required', 'ANUBIS'],
+      ['<div class="BirdList"></div>', 'no-recognized-table', 'OPEN'],
+    ]) {
+      html = body;
+      await assert.rejects(A.firstYearFetch('US-WA', () => true, null, false),
+        kind === 'OPEN' ? /markup did not contain/ : new RegExp('needs website access \\(' + kind + '\\)'));
+      const event = app.window.__dbg.buf.filter(row =>
+        row.msg.startsWith('Annual-first direct source rejected: ')).at(-1);
+      assert.ok(event);
+      const evidence = JSON.parse(event.msg.split('Annual-first direct source rejected: ')[1]);
+      assert.equal(evidence.classification, classification);
+      assert.equal(evidence.websiteKind, kind);
+      assert.doesNotMatch(JSON.stringify(evidence), /F1297-PRIVATE|<html|<input/);
+    }
+    html = FIRST_YEAR_HTML;
+    assert.equal(A.firstYearSourceMatches(
+      await A.firstYearFetch('US-WA', () => true, null, false), 'US-WA', new Date().getFullYear()), true);
+    html = '<div class="BirdList-controls">'
+      + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">0 This Year '
+      + new Date().getFullYear() + '</a>'
+      + '<a aria-current="true" href="/region/US-WA/bird-list?yr=cur&amp;rank=lrec">First Observed</a></div>'
+      + '<section><h3>Native and Naturalized (0)</h3><ol class="BirdList-list-list"></ol></section>';
+    const empty = await A.firstYearFetch('US-WA', () => true, null, false);
+    assert.equal(A.firstYearSourceMatches(empty, 'US-WA', new Date().getFullYear()), true);
+    assert.equal(empty.rows.length, 0, 'only a verified owned zero list may settle as empty');
+    assert.equal(opened, 0, 'classification must not acquire an automatic browser');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F815 background annual-first failure cannot steal another source browser reader', async () => {
   const app = await boot({sample:false, fetch:url =>
     /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
@@ -7994,8 +10483,8 @@ for (const distance of ['near', 'region']) {
     try {
       const A = app.window.__app;
       await seedSeen(app, []);
-      const refresh = app.$('refreshBtn').closest('section').querySelector('.refreshbtn');
-      assert.ok(refresh, 'exercise the actual section Refresh action');
+      const refresh = app.$('twitchFetchLatest');
+      assert.match(refresh.textContent, /Fetch latest RBA/, 'exercise the explicit source-scoped force action');
       const notableReads = () => app.state.fetches.filter(url =>
         /data\/obs\/.*\/recent\/notable/.test(url)).length;
       for (let wave = 0; wave < 2; wave++) {
@@ -10565,7 +13054,7 @@ test('every Wikimedia width the app asks for is on the served ladder', async () 
 // keeps its evidence after routing, and that today's list keeps the columns the
 // markdown table prints.
 test("today's rarities lists checklists; Mega routes one bird to Stakeout", () => {
-  const today = HTML.slice(HTML.indexOf('function refresh()'),
+  const today = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function buildClosestSpots('));
   const index = HTML.slice(HTML.indexOf('function renderMegaIndex('),
     HTML.indexOf('function renderAbaAlert('));
@@ -10704,7 +13193,7 @@ test('F386 bird and hotspot subjects route through Stakeout before external evid
     /\/checklist\/S386003$/,
     'the shared medium checklist card cannot retain its dated evidence link');
 
-  const today = HTML.slice(HTML.indexOf('function refresh()'),
+  const today = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function buildClosestSpots('));
   assert.match(today, /icon:\s*photoSlot\(r\.name,\s*r\.code,\s*\{\s*stakeout:\s*true\s*\}\)/,
     "Today's rarity photo does not route to Species Stakeout");
@@ -10818,7 +13307,7 @@ test('the ABA-wide stat counts locations, and says so', () => {
     'subnational1Code across every location is accurate and worth stating');
 
   const wide = HTML.slice(HTML.indexOf('function abaWideHistory('),
-    HTML.indexOf('function refresh()'));
+    HTML.indexOf('function refresh('));
   assert.match(wide, /ABA_WIDE_COUNTRIES/, 'it queries whole countries, not the alert');
   assert.match(wide, /data\/obs\/'\s*\+\s*c\s*\+\s*'\/recent\//,
     'a species-scoped region feed is the only ABA-wide source with no row cap');
@@ -12230,8 +14719,8 @@ test('F1067 delayed key verification cannot save after a step or profile change'
   }
 });
 
-async function setupOwnedSeenApp(codes = []) {
-  const app = await boot({ sample: false, indexedDB: new IDBFactory(), storage: {
+async function setupOwnedSeenApp(codes = [], options = {}) {
+  const app = await boot({ ...options, sample: false, indexedDB: new IDBFactory(), storage: {
     ebird_display_name: 'Sample Observer',
     ebird_seen_meta: JSON.stringify({ source: 'csv', count: 0, year: new Date().getFullYear() }),
   } });
@@ -12272,7 +14761,7 @@ async function searchSetupFavoriteFixture(app) {
     'actual cached hotspot search');
 }
 
-test('F1280 wizard multiselect commits verified Favorites before acquisition and preserves unrelated choices', async () => {
+test('F1280 F1296 wizard multiselect commits verified Favorites before acquisition and preserves unrelated choices', async () => {
   const { app, saved } = await setupFavoriteApp();
   try {
     const A = app.window.__app, store = app.window.localStorage;
@@ -12285,6 +14774,25 @@ test('F1280 wizard multiselect commits verified Favorites before acquisition and
     assert.equal(app.$('setupFavoriteCount').textContent, '4 selected');
     app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128002"]').click();
     assert.equal(app.$('setupFavoriteCount').textContent, '3 selected');
+    assert.match(app.$('setupFavoriteSaveHint').textContent, /not saved yet/);
+    assert.equal(app.$('setupFavoriteContinue').textContent, 'Save Favorites & continue');
+    assert.match(app.$('setupFavoriteNext').textContent, /Next: setup summary/);
+    assert.equal(app.$('setupFavoriteSearch').closest('form'), app.$('setupFavoriteSearchBtn').closest('form'));
+    assert.ok(app.$('setupSheetBody').contains(app.$('setupFavoriteSearchBtn')),
+      'the search action stays with its field, not the navigation footer');
+    app.click(app.$('setupFavoriteMore'));
+    const query = app.$('setupFavoriteSearch');
+    assert.equal(app.document.activeElement, query);
+    query.value = 'second';
+    query.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+    query.dispatchEvent(new app.window.KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    }));
+    await waitFor(() => !app.$('setupFavoriteSearchBtn').disabled, 'second query to finish');
+    assert.notEqual(app.document.activeElement, query, 'explicit submission dismisses the editing focus');
+    assert.equal(app.$('setupFavoriteCount').textContent, '3 selected');
+    assert.equal(app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').checked, true,
+      'another query must retain the previously selected patch');
     assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved, 'draft edits do not write choices');
     const concurrent = { id: 'L128004', locId: 'L128004', locName: 'Synthetic concurrent patch',
       lat: 44, lng: -76, region: 'US-NY' };
@@ -12773,6 +15281,7 @@ test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra 
     A.renderKeyBanner();
     assert.equal(reads, 0);
     app.$('setupHomePlace').value = '47.75, -122.16';
+    app.$('setupHomePlace').dispatchEvent(new app.window.Event('input', { bubbles: true }));
     app.click(app.$('setupHomeFind'));
     await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
       && !app.$('appSheet').hidden, 'validated Home confirmation');
@@ -12784,6 +15293,7 @@ test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra 
     app.$('setupHomePlace').dispatchEvent(new app.window.Event('input'));
     assert.equal(app.$('setupNext'), null, 'editing Home must not allow a region-only bypass');
     app.$('setupHomePlace').value = '47.75, -122.16';
+    app.$('setupHomePlace').dispatchEvent(new app.window.Event('input', { bubbles: true }));
     app.click(app.$('setupHomeFind'));
     await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
       && !app.$('appSheet').hidden, 'replacement Home confirmation');
@@ -16957,7 +19467,7 @@ test('fetchRank rejects a leaderboard for the wrong region', async () => {
   app.window.close();
 });
 
-test('F764 actual Top 100 refresh bypasses a warm cache and retains data on failure', async () => {
+test('F764 explicit Top 100 source refresh bypasses a warm cache and retains data on failure', async () => {
   let html = FIX('top100-wa.html'), hold = false, release, fail = false;
   const app = await boot({ fetch: (url) => {
     if (!/top100/.test(url)) return [];
@@ -16968,28 +19478,31 @@ test('F764 actual Top 100 refresh bypasses a warm cache and retains data on fail
   app.open(/Top 100/);
   await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').textContent.includes('sally frandsen'),
     'initial leaderboard');
-  const count = () => app.state.fetches.filter((url) => /top100/.test(url)).length;
+  const count = () => app.state.fetches.filter(url => /top100/.test(url)
+    && new URL(url).searchParams.get('rankedBy') !== 'cl').length;
   const before = count();
   html = html.replaceAll('sally frandsen', 'Changed control birder');
-  hold = true;
   const button = app.$('rankResults').closest('section').querySelector('h2 .refreshbtn');
   app.click(button);
+  await app.window.__app.loadRankings();
+  assert.equal(count(), before, 'ordinary heading retains the valid Species board');
+  hold = true;
+  const freshRead = app.window.__app.loadRankings(true);
   await assert.doesNotReject(waitFor(() => release, 'fresh request'),
     'the refresh control must bypass the warm cache and request a fresh board');
   assert.match(app.$('rankStatus').textContent, /Refreshing/);
   assert.match(app.$('rankResults').textContent, /sally frandsen/);
   assert.ok(count() > before, 'refresh must issue a network read despite the warm cache');
   hold = false; release();
+  await freshRead;
   await waitFor(() => !app.$('rankBtn').disabled, 'fresh result');
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
-  app.click(button);
-  await waitFor(() => !app.$('rankBtn').disabled, 'unchanged read');
+  await app.window.__app.loadRankings(true);
   assert.match(app.$('rankStatus').textContent, /Partial coverage: Checklists unavailable/,
     'an unchanged successful board must not conceal the other source failure');
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
   fail = true;
-  app.click(button);
-  await waitFor(() => !app.$('rankBtn').disabled, 'failed refresh');
+  await app.window.__app.loadRankings(true);
   assert.match(app.$('rankStatus').textContent, /Could not refresh/);
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
   app.window.close();
@@ -17013,7 +19526,7 @@ test('F764 repeated refresh and scope changes cannot paint an obsolete leaderboa
     'initial board');
   const button = app.$('rankResults').closest('section').querySelector('h2 .refreshbtn');
   hold = true;
-  app.click(button);
+  A.loadRankings(true);
   await waitFor(() => pending.length === 1, 'first refresh');
   app.click(button);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -17313,7 +19826,7 @@ test('rankings: your own row on the board is highlighted', async () => {
 });
 
 test("Unified Twitches starts from every rarity-wave row without a second raw feed", () => {
-  const src = HTML.slice(HTML.indexOf('function refresh()'),
+  const src = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function loadTargets('));
   assert.match(src, /var sourceRows = focusedPpte \? focusedPpte\.event\.evidenceRows : \(c\.cv && c\.cv\.merged\) \|\| \[\]/,
     'the unified surface does not start from the complete shared rarity wave');
@@ -19552,6 +22065,9 @@ test('F944/F959 Patagonia bird-name headlines retain focused Twitches without no
       new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await waitFor(() => doc.querySelector('[data-ppte-context]'), 'event-specific Twitches context');
     assert.equal(app.$('sec-refreshBtn').hidden, false);
+    assert.equal(app.$('twitchFetchLatest').hidden, true, 'event evidence is read-only, not a live RBA refresh');
+    app.click(app.$('twitchFetchLatest'));
+    await A.refresh({ fetchLatest: true });
     assert.equal(doc.querySelectorAll('#results .twitchcard').length, 5,
       'all five qualification-day reports remain available despite saved unseen/near filters');
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), prefs);
@@ -20053,7 +22569,7 @@ test('Leader Board Ticks: the bird links to Stakeout without automatic checklist
 });
 
 test("today's rarities show the time of the latest report, not just the date", () => {
-  const src = HTML.slice(HTML.indexOf('function refresh()'),
+  const src = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function loadTargets('));
   assert.match(src, /fmtDateTime\(r\.dateStr\)/,
     'a rarity is chased within hours, so the clock time is the deciding number');
@@ -24259,7 +26775,7 @@ test('F771 leaving Watch cancels its paint and reopening retries automatically',
   app.window.close();
 });
 
-test('F771 both Watch refresh controls bypass a warm answer and failed refresh retains good details', async () => {
+test('F771 Watch normal controls reuse warm evidence and explicit recovery retains good details', async () => {
   const app = await boot({ storage: { ebird_watchlist_v1: JSON.stringify([
     { code: 'amerob', name: 'American Robin' },
   ]) } });
@@ -24273,8 +26789,13 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
   app.click(app.document.querySelector('#nvScope .nvscopebtn'));
   assert.equal(await A.LOADERS.nvResults.fn(), true);
   assert.equal(A.watchEvidence().rows.amerob.loc, 'Warm Park');
+  let retainedPlace = 'Warm Park';
   for (const [selector, place] of [['#nvBtn', 'Manual Fresh Park'],
     ['#sec-nvResults .refreshbtn', 'Header Fresh Park']]) {
+    await seedRarityChase(app, [{
+      code: 'amerob', name: 'American Robin', loc: retainedPlace, locId: 'LWARM',
+      distMi: 4, dateStr: recentObsStamp()
+    }]);
     let release;
     const pending = new Promise((resolve) => { release = resolve; });
     A.setChaseInflight(profile.slug, pending, A.chaseFetchBaseKey(profile),
@@ -24282,18 +26803,21 @@ test('F771 both Watch refresh controls bypass a warm answer and failed refresh r
     app.click(app.document.querySelector(selector));
     assert.equal(app.$('nvResults').getAttribute('aria-busy'), 'true',
       'the pressed control must start the owned refresh before any test reentry');
-    const reading = A.LOADERS.nvResults.fn();
+    assert.equal(await A.LOADERS.nvResults.fn(), true);
+    assert.equal(A.watchEvidence().rows.amerob.loc, retainedPlace,
+      'ordinary controls may immediately project the valid retained evidence');
+    const reading = A.LOADERS.nvResults.fn(true);
     release({ profile, rarity: false, cv: { merged: [
       { code: 'amerob', loc: place, distMi: 2, dateStr: recentObsStamp() },
     ] } });
     assert.equal(await reading, true);
     assert.equal(A.watchEvidence().rows.amerob.loc, place);
+    retainedPlace = place;
   }
   let reject;
   A.setChaseInflight(profile.slug, new Promise((resolve, fail) => { reject = fail; }),
     A.chaseFetchBaseKey(profile), app.window.BirdLogic.geoNotableDistKm(profile));
-  app.click(app.$('nvBtn'));
-  const failed = A.LOADERS.nvResults.fn();
+  const failed = A.LOADERS.nvResults.fn(true);
   reject(new Error('Synthetic refresh outage'));
   assert.equal(await failed, false);
   assert.equal(A.watchEvidence().rows.amerob.loc, 'Header Fresh Park');
@@ -27356,6 +29880,84 @@ test('F834 live distant history is progressive, retained and fails closed on cov
   app.window.close();
 });
 
+test('F1303 actual Mass Retry clears Loading after a held acquisition reaches a partial verdict', async () => {
+  let hold = false, releasePage, releaseHistory;
+  const page = () => f821Page([
+    { count: 4000, locId: 'L1303001' },
+    { code: 'margod', name: 'Marbled Godwit', count: 600, locId: 'L821' },
+    { code: 'mallar3', name: 'Mallard', count: 600, locId: 'L1303999' },
+  ]);
+  const app = await boot({ sample: false, fetch: url => {
+    if (/bird-list\?.*rank=hc/.test(url)) {
+      if (hold) return new Promise(resolve => { releasePage = resolve; });
+      return page();
+    }
+    if (/ref\/hotspot\//.test(url)) return [
+      ...f821Hotspots().map(row => ({ ...row, lat: 46.7064, lng: -123.972 })),
+      { ...f821Hotspots()[0], locId: 'L1303001', locName: 'Synthetic local patch' },
+    ];
+    if (/\/historic\//.test(url) && hold) {
+      return new Promise(resolve => { releaseHistory = resolve; });
+    }
+    if (/api\.ebird/.test(url)) return [];
+    if (/ebird\.org|birdcast/.test(url)) return '';
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, []);
+    A.setCountySeed({ 'US-WA': { 'US-WA-061': {
+      name: 'Synthetic county', bounds: { minX: -122.4, maxX: -122, minY: 47.5, maxY: 48 },
+    } } });
+    await A.loadSurge('f1303-controlled', false);
+    const massLine = () => app.$('surgeResults').querySelector('[data-source-status="mass"]');
+    await waitFor(() => /Partially loaded/.test(massLine()?.textContent || '')
+      && massLine().querySelector('[data-source-retry="mass"]'),
+    'actual terminal Mass state before manual Retry', 30000);
+    assert.match(massLine().textContent, /Partially loaded/);
+    const initial = A.loadSurgeRetained().mass;
+    const oldCards = [...app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]')]
+      .map(card => card.dataset.alertKind + ':' + card.textContent);
+    assert.ok(oldCards.length, 'retention control needs an actual usable local Mass card');
+    const pageReads = () => app.state.fetches.filter(url => /bird-list\?.*rank=hc/.test(url)).length;
+    const unrelated = () => app.state.fetches.filter(url =>
+      /\/data\/obs\/.*\/recent(?:\/notable)?(?:\?|$)|ranked/.test(url)).length;
+    const beforePages = pageReads(), beforeUnrelated = unrelated();
+    const verdicts = () => app.window.__dbg.buf.filter(row => row.msg.startsWith('Bird Gen Mass Flock verdict:')).length;
+    const beforeVerdicts = verdicts();
+    hold = true;
+    A.fgWindowReset(); A.fgSchedReset(Date.now());
+    app.click(massLine().querySelector('[data-source-retry="mass"]'));
+    await waitFor(() => releasePage, 'actual retry page request');
+    assert.match(massLine().textContent, /Loading/);
+    assert.ok(app.$('surgeResults').querySelector('.surgesourcemeter[role="progressbar"]'));
+    assert.deepEqual([...app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]')]
+      .map(card => card.dataset.alertKind + ':' + card.textContent), oldCards,
+    'manual Retry must retain already usable partial cards while data is held');
+    await A.retrySurgeSources(['mass']);
+    assert.equal(pageReads(), beforePages + 1, 'a repeated pending retry cannot acquire another page');
+    releasePage(page());
+    await waitFor(() => releaseHistory, 'actual retry arrival-history request');
+    assert.match(massLine().textContent, /Loading/, 'page extraction is not completed arrival coverage');
+    releaseHistory([]);
+    await waitFor(() => verdicts() > beforeVerdicts, 'actual terminal partial acquisition verdict', 30000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.match(massLine().textContent, /Partially loaded/,
+      'the terminal partial acquisition must clear its rendered pending state');
+    assert.equal(app.$('surgeResults').dataset.sourceMass, 'partial');
+    assert.doesNotMatch(massLine().textContent, /Loading/);
+    assert.ok(massLine().querySelector('[data-source-retry="mass"]'),
+      'limited evidence must retain a retry affordance, not become full success');
+    assert.equal(unrelated(), beforeUnrelated, 'Mass Retry cannot refresh completed observation/ranking sources');
+    assert.ok(A.loadSurgeRetained().mass.acquiredAt >= initial.acquiredAt);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    releasePage?.(page());
+    releaseHistory?.([]);
+    app.window.close();
+  }
+});
+
 test('F906 completed partial Mass acquisition stays warm when production publication retains older rows', async () => {
   let refresh = false;
   let clock = null, realAcquisitionStart = null;
@@ -30027,6 +32629,20 @@ test('F1217 Bird Gen reuses its successful cascade but rejects the independent l
   app.window.close();
 });
 
+test('F1292 retaining a reused cascade cannot renew its original source age', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, acquiredAt = Date.now() - 5 * 60000;
+    await A.saveSurgeSourceCache({ cascades: { state: 'ok', rows: [], acquiredAt } });
+    const cached = A.surgeCachedSource(await A.loadSurgeSourceCache(), 'cascades');
+    assert.equal(cached.state, 'ok');
+    await A.saveSurgeSourceCache({ cascades: cached });
+    assert.equal((await A.loadSurgeSourceCache()).cascades.t, acquiredAt,
+      'retaining a cached projection cannot renew the underlying cascade source age');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F379 a failed Bird Gen source refresh retains the last successful rows', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -31654,7 +34270,7 @@ test('every hotspot list is built by the one shared card', () => {
   const fns = {
     'Top destinations / excursions': ['function renderDestinations(', 'function renderRoute('],
     'the trip planner': ['function renderRoute(', 'function loadTripPlanner('],
-    'closest spots': ['function renderTargetPlaces(', 'function refresh()'],
+    'closest spots': ['function renderTargetPlaces(', 'function refresh('],
     'quick outing': ['function loadQuickOuting(', 'function parseCSV('],
     // Hot & Cold were the last holdouts: they rendered a hand-rolled row with
     // the birds — unseen AND seen together — collapsed behind one expander.
@@ -31720,9 +34336,9 @@ test('a section that renders photo slots must also hydrate them', () => {
   for (const [name, from, to] of [
     ['the trip planner', 'function renderRoute(', 'function loadTripPlanner('],
     ['top destinations', 'function renderDestinations(', 'function renderRoute('],
-    ['closest spots', 'function renderTargetPlaces(', 'function refresh()'],
+    ['closest spots', 'function renderTargetPlaces(', 'function refresh('],
     ['Leader Board Ticks', 'function renderLastNew(', 'function loadAbaAlert('],
-    ["today's rarities", 'function refresh()', 'function buildClosestSpots('],
+    ["today's rarities", 'function refresh(', 'function buildClosestSpots('],
   ]) {
     const src = HTML.slice(HTML.indexOf(from), HTML.indexOf(to));
     assert.match(src, /hydratePhotos\(/,
@@ -32518,7 +35134,7 @@ test('F9: getChase makes a SECOND wave of per-species calls', async () => {
   app.window.close();
 });
 
-test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
+test('F9/F1312: phase 2 is batched, not 41 simultaneous requests', async t => {
   // Measured at 41 unseen species on a normal Washington day. The report can
   // throttle to 1.2s/call because it is an hourly job; a phone firing all 41
   // at once earns a 429 and renders an empty section, which reads as a broken
@@ -32537,15 +35153,21 @@ test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
     }
   });
   const w = app.window;
+  t.after(() => w.close());
   await seedSeen(app,[],null,CODES.map(code => ({code,name:code})));
   const orig = w.fetch;
-  let inFlight = 0, peak = 0;
+  let inFlight = 0, peak = 0, pendingPeak = 0;
   // A REAL async delay, not a resolved promise: batches are chained through
   // microtasks, so a synchronous counter would see every call at once no
   // matter how the fetching is scheduled and the guard would prove nothing.
   w.fetch = function (u) {
-    if (/data\/obs\/US-WA\/recent\/[a-z]/.test(String(u))) {
+    const species = /data\/obs\/US-WA\/recent\/([a-z0-9]+)(?:\?|$)/.exec(String(u));
+    if (species && CODES.includes(species[1])) {
       inFlight++; peak = Math.max(peak, inFlight);
+      queueMicrotask(() => {
+        const state = w.__app.fgState();
+        pendingPeak = Math.max(pendingPeak, state.active + state.queued + state.queuedBg);
+      });
       return new Promise((res) => setTimeout(() => {
         inFlight--;
         res({ ok: true, status: 200, json: () => Promise.resolve([]), text: () => Promise.resolve('[]') });
@@ -32554,13 +35176,17 @@ test('F9: phase 2 is batched, not 41 simultaneous requests', async () => {
     return orig(u);
   };
   w.__app.clearChaseCache();
-  const res = await w.__app.getChase().then(function () { return w.__app.chasePhase2(); });
+  const res = await withForegroundTestClock(t, app, async () => {
+    await w.__app.getChase();
+    return w.__app.chasePhase2();
+  });
   assert.ok(res.speciesCodes.length > 6,
     'the fixture must produce more needs than one batch (' + res.speciesCodes.length + ')');
   assert.ok(peak > 0, 'phase 2 actually ran');
   assert.ok(peak <= 6,
     'no more than 6 species calls are ever in flight at once (peak was ' + peak + ')');
-  w.close();
+  assert.ok(pendingPeak <= 6,
+    'the governor must not hide an unbatched phase-two queue (pending peak was ' + pendingPeak + ')');
 });
 
 test('F9: concurrent callers share one wave, not two', async () => {
@@ -34096,7 +36722,7 @@ test('Unified Twitches keeps nearby results and names an unavailable statewide R
   await waitFor(() => /Near Rarity/.test(doc.getElementById('results').textContent),
     'nearby fallback rarity');
   assert.match(doc.getElementById('status').textContent,
-    /Statewide RBA unavailable; showing the geographic rarity feed only/,
+    /Statewide RBA check incomplete; showing available geographic and retained evidence/,
     'a failed state alert is disclosed instead of looking like a complete statewide result');
   app.window.close();
 });
@@ -41207,7 +43833,7 @@ test('Twitches this week bounds checklist evidence before lazy expansion', async
 });
 
 test('Twitches today paints rarity rows in bounded batches', async () => {
-  const render = HTML.slice(HTML.indexOf('function refresh()'),
+  const render = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function buildClosestSpots('));
   assert.match(render, /class="progressive-more todayRarityMore"/,
     'Twitches today has no explicit show-more control for remaining rows');
@@ -41705,7 +44331,7 @@ test('Today\u2019s rarities: the icon and name open Stakeout and the date opens 
     'the dated evidence action still opens the checklist');
 
   // The section really wires it that way.
-  const src = HTML.slice(HTML.indexOf('function refresh()'),
+  const src = HTML.slice(HTML.indexOf('function refresh('),
     HTML.indexOf('function loadTargets('));
   assert.match(src, /photoSlot\(r\.name, r\.code, \{ stakeout: true \}\)/,
     'Today\u2019s rarities routes the icon through Species Stakeout');
@@ -45432,7 +48058,7 @@ test('F749 cached plans and cancelled owners do not show a false cold countdown'
   app.window.close();
 });
 
-test('F749 production species batches count down while publishing useful partial results', async () => {
+test('F749 production species batches count down while publishing useful partial results', async t => {
   let releaseEnrichment;
   const observations = Array.from({ length: 12 }, (_, i) => ({
     speciesCode: 'tax' + i, comName: 'Synthetic target ' + i,
@@ -45451,6 +48077,7 @@ test('F749 production species batches count down while publishing useful partial
     }));
     return [];
   } });
+  t.after(() => app.window.close());
   const A = app.window.__app;
   await seedSeen(app, []);
   const profile = Object.assign({}, A.chaseProfile(), {
@@ -45467,12 +48094,13 @@ test('F749 production species batches count down while publishing useful partial
   await waitFor(() => Boolean(releaseEnrichment), 'held species enrichment');
   assert.equal(A.getLoadingStage().estimate.remaining, 12);
   assert.match(app.$('loadBarText').textContent, /Estimated time remaining for this stage/);
-  releaseEnrichment(observations.filter((row) => row.speciesCode === 'tax0'));
-  await waitFor(() => partial.some((row) => row.done === row.total), 'all species batches', 90000);
+  await withForegroundTestClock(t, app, async () => {
+    releaseEnrichment(observations.filter((row) => row.speciesCode === 'tax0'));
+    await waitFor(() => partial.some((row) => row.done === row.total), 'all species batches', 90000);
+  });
   assert.ok(partial.some((row) => row.done < row.total && row.rows > 0 && row.remaining > 0),
     'a real completed batch must publish useful rows before enrichment is complete');
   assert.ok(partial.some((row) => row.remaining === 0), 'actual feed completions retire the estimate');
-  app.window.close();
 });
 
 test('F758 bundled JSON is the production authority for menu icons, titles and subtitles', async () => {
@@ -63069,13 +65697,32 @@ test('F1123 the real hotspot dispatcher distinguishes unhandled work from a hand
   assert.equal(calls,1,'unhandled or obsolete work cannot start a shared acquisition');
 });
 
-test('F1123 Menu retry waits for the full owner and reacquires an unhandled failed source', async () => {
-  let releaseMass, massReads = 0, hold = true;
-  const app = await boot({ sample: false, storage: { bc_manual_retry_controls_v1: 'on' }, fetch(url) {
-    if (/bird-list/.test(url)) {
+test('F1123/F1292 Menu and section retries wait for the full owner and recover failed sources without restarting healthy siblings', async () => {
+  for (const menu of [true, false]) {
+  let releaseMass, massReads = 0, hold = true, failedFavorite = true;
+  const app = await boot({ sample: false, storage: {
+    bc_manual_retry_controls_v1: 'on',
+    ebird_favs: JSON.stringify([{ id: 'f1292stall', locId: 'LF1292STALL',
+      locName: 'Synthetic public patch', region: 'US-WA' }])
+  }, fetch(url) {
+    if (/data\/obs\/LF1292STALL\//.test(url)) return failedFavorite ? { __status: 400 } : [];
+    if (/bird-list\?.*rank=hc/.test(url)) {
       massReads++;
       return hold ? new Promise(resolve => { releaseMass = () => resolve(f821Page([])); }) : f821Page([]);
     }
+    if (/bird-list\?/.test(url)) return foySourceFixture(1);
+    if (/^https:\/\/alert\.birdcast\.org\/\?/.test(url)) return '<script>window.__NUXT__=(function(a,b){'
+      + 'return {state:{env:{birdcastApiUrl:a,birdcastApiKey:b}}}}'
+      + '("https:\\u002F\\u002Fexample.test\\u002F","FIXTURE_PUBLIC_KEY"));</script>';
+    if (/alert\.birdcast\.org\/api\//.test(url)) return { forecastNights: [-1, 0, 1].map(offset => ({
+      code: 0, raw: 0, total: 0, totalMin: 0, totalMax: 0,
+      date: new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10) + 'T00:00:00'
+    })) };
+    if (/dashboard\.birdcast\.org\/region\//.test(url)) return '<span id="total-passed">0</span>'
+      + '<span class="is-visuallyHidden">0</span><span>Birds crossed King County last night (est.)</span>'
+      + '<script>window.__NUXT__=(function(a,b){return {config:{baseUrl:a,bcApiKey:b}}}'
+      + '("https:\\u002F\\u002Fdashboard.birdcast.org","FIXTURE_DASHBOARD_KEY"));</script>';
+    if (/dashboard\.birdcast\.org\/api\//.test(url)) return { dataRows: [] };
     if (/top100/.test(url)) return fs.readFileSync(path.join(__dirname, 'fixtures', 'top100-wa.html'), 'utf8');
     if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
     if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
@@ -63083,19 +65730,27 @@ test('F1123 Menu retry waits for the full owner and reacquires an unhandled fail
   } });
   try {
     const A = app.window.__app;
+    if (!menu) A.showSection('sec-surgeBtn', { load: false });
+    const full = () => menu ? A.refreshFullBirdGen() : A.loadSurge(null, false, { fullRefresh: true });
     const waves = () => app.window.__dbg.buf.filter(row =>
       row.msg === 'Bird Gen ready source · birdcast').length;
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
-    const first = A.refreshFullBirdGen();
+    const first = full();
     await waitFor(() => releaseMass, 'held optional source');
     await A.loadSurge('F1123-primary-join');
     const firstWaves = waves();
     assert.ok(firstWaves > 0, 'the control must start the real BirdCast source');
+    assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'failed');
+    const healthy = /notable|top100|product\/lists\/|alert\/summary|alert\.birdcast/;
+    const healthyCalls = () => app.state.fetches.filter(url => healthy.test(url));
+    const beforeHealthy = healthyCalls().length;
+    const favoriteCalls = () => app.state.fetches.filter(url => /data\/obs\/LF1292STALL\//.test(url)).length;
+    const beforeFavorite = favoriteCalls();
     const mark = () => {
       A.sleepReset();
       assert.equal(A.fgCheckActiveStall('birdcast/forecast',
         { activeSlept0: A.sleptMs() }, 100000, 100000 + A.FG_ACTIVE_STALL_MS + 1,
-        { label: 'BirdCast forecast', sectionId: '(menu)' }), true);
+        { label: 'BirdCast forecast', sectionId: menu ? '(menu)' : 'sec-surgeBtn' }), true);
     };
     mark();
     assert.match(app.$('loadBarText').textContent, /BirdCast forecast:/);
@@ -63103,18 +65758,26 @@ test('F1123 Menu retry waits for the full owner and reacquires an unhandled fail
     assert.equal(A.fgStall(), null);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(massReads, 1, 'a retry cannot overlap the current full acquisition');
+    assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'failed',
+      'recovery must wait for the full owner before starting failed siblings');
+    assert.equal(favoriteCalls(), beforeFavorite, 'failed-source recovery is not started behind the pending owner');
     hold = false;
+    failedFavorite = false;
     releaseMass();
     await first;
     await retry;
-    assert.equal(waves(), firstWaves + 1,
-      'Menu must start a new source wave, not count more pages from the original wave');
+    assert.equal(favoriteCalls(), beforeFavorite + 1, 'retry must actually reacquire the failed Favorite source');
+    assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'ok');
+    assert.equal(massReads, 1, 'settled healthy Mass is not part of failed-source recovery');
+    assert.equal(healthyCalls().length, beforeHealthy, 'stalled recovery cannot refetch healthy source inputs');
+    assert.equal(waves(), firstWaves, 'stalled recovery cannot restart the healthy BirdCast task');
+    if (menu) assert.match(app.$('recentBirdGenStatus').textContent, /recovery finished.*healthy sources retained/);
     const settledReads = massReads;
     assert.equal(app.$('recentBirdGenRefresh').disabled, false);
-    assert.ok(app.$('sec-surgeBtn').hidden, 'the retry must keep the owner on Menu');
+    assert.equal(app.$('sec-surgeBtn').hidden, menu, 'the retry must keep the owner on the original view');
     hold = true;
     releaseMass = null;
-    const third = A.refreshFullBirdGen();
+    const third = full();
     await waitFor(() => releaseMass, 'held source for changed-context control');
     await A.loadSurge('F1123-primary-context-control');
     mark();
@@ -63124,8 +65787,9 @@ test('F1123 Menu retry waits for the full owner and reacquires an unhandled fail
     await third;
     assert.equal(await obsolete, false);
     assert.equal(massReads, settledReads + 1, 'an obsolete retry cannot reacquire after Home changes');
-    assert.equal(waves(), firstWaves + 2, 'Home changes must suppress the fourth source wave');
+    assert.equal(waves(), firstWaves + 1, 'Home changes must suppress another source wave');
   } finally { if (releaseMass) releaseMass(); app.window.close(); }
+  }
 });
 
 test('F674/F1125 automatic Bird Gen recovery retries only its failed hotspot source once', async () => {

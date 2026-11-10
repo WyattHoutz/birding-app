@@ -274,6 +274,16 @@ const AUDIT = `<script>
               usableTop:usableTop,usableBottom:usableBottom}));
       });
       var footer = document.getElementById('setupSheetActions');
+      var review = document.getElementById('setupReview');
+      if (review) {
+        var reviewBox = review.getBoundingClientRect();
+        ['setupContinue', 'setupBack'].forEach(function (id) {
+          var referenceBox = document.getElementById(id).getBoundingClientRect();
+          if (Math.abs(reviewBox.left - referenceBox.left) > .5
+              || Math.abs(reviewBox.right - referenceBox.right) > .5)
+            throw new Error('F1301 Review setup must match the summary action edges');
+        });
+      }
       if (footer && footer.children.length
           && document.getElementById('setupSheetBody').getBoundingClientRect().bottom
             > footer.getBoundingClientRect().top + 0.5)
@@ -299,7 +309,9 @@ const AUDIT = `<script>
       if (waiting && !/Please wait/.test(seenStatus.textContent))
         throw new Error('F1261 pending seen work needs immediate wait feedback');
       if (primary.length !== (choosing || waiting || initial ? 0 : 1))
-        throw new Error('F1158 setup needs one recommended action except place choice or automatic acquisition');
+        throw new Error('F1158 setup needs one recommended action except place choice or automatic acquisition: '
+          + JSON.stringify({label:label,step:setup.dataset.setupStep,
+            primary:primary.map(function(button){return button.id;})}));
       var reference = primary.length ? getComputedStyle(primary[0]) : null;
       var close = document.getElementById('setupSheetClose'), closeRect = close.getBoundingClientRect();
       if (closeRect.width >= setup.clientWidth / 2 || closeRect.width < 43.5 || closeRect.height < 43.5
@@ -1642,9 +1654,9 @@ const AUDIT = `<script>
       var yearOwner = A.personalListOwner();
       var savedYear = localStorage.getItem(A.personalListKey(yearOwner));
       var yearRows = [
-        {code:'amerob',name:'American Robin',observedAt:''},
-        {code:'bktgwa',name:'Black-throated Gray Warbler',observedAt:''},
-        {code:'lewwoo',name:"Lewis's Woodpecker",observedAt:''}
+        {code:'amerob',name:'American Robin',observedAt:A.todayStr()+' 08:00'},
+        {code:'bktgwa',name:'Black-throated Gray Warbler',observedAt:A.todayStr()+' 08:00'},
+        {code:'lewwoo',name:"Lewis's Woodpecker",observedAt:A.todayStr()+' 08:00'}
       ];
       localStorage.setItem(A.personalListKey(yearOwner),JSON.stringify({
         owner:yearOwner,coverage:'complete',declaredCount:3,unresolved:0,paginated:false,
@@ -1670,7 +1682,23 @@ const AUDIT = `<script>
         var meta=card.querySelector('.meta').getBoundingClientRect();
         var rect=button.getBoundingClientRect(),image=photo.getBoundingClientRect();
         var style=getComputedStyle(button);
+        var words=[], walker=document.createTreeWalker(button,NodeFilter.SHOW_TEXT),wordNode;
+        while((wordNode=walker.nextNode())){
+          var wordPattern=/\\S+/g,wordMatch;
+          while((wordMatch=wordPattern.exec(wordNode.textContent))){
+            var wordRange=document.createRange();
+            wordRange.setStart(wordNode,wordMatch.index);
+            wordRange.setEnd(wordNode,wordMatch.index+wordMatch[0].length);
+            var wordRects=Array.from(wordRange.getClientRects()).filter(function(box){return box.width>0;});
+            words.push({word:wordMatch[0],lines:wordRects.length,
+              inside:wordRects.every(function(box){
+                return box.left>=rect.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft)-.5
+                  && box.right<=rect.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight)+.5;
+              })});
+          }
+        }
         return {label:button.textContent,width:rect.width,height:rect.height,
+          words:words,
           pressed:button.getAttribute('aria-pressed'),textAlign:style.textAlign,
           background:style.backgroundColor,color:style.color,
           right:rect.right,left:rect.left,photoRight:image.right,
@@ -1874,16 +1902,24 @@ const AUDIT = `<script>
           && document.getElementById('recentBirdGenStatus').classList.contains('vh')
           && document.getElementById('recentBirdGenStatus').getAttribute('aria-live')==='polite',
         outcome:!document.getElementById('recentBirdGenFeedback')
-          && document.querySelectorAll('.recent-birdgen-actions button').length===2,
-        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh'].map(function(id){
+          && document.querySelectorAll('.recent-birdgen-actions button').length===3
+          && document.getElementById('recentBirdGenLatest').textContent==='Fetch latest'
+          && document.getElementById('recentBirdGenLatest').getAttribute('aria-label')==='Fetch latest full Bird Gen feed',
+        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenLatest'].map(function(id){
           var button=document.getElementById(id);
           return {id:id,rect:button.getBoundingClientRect().toJSON(),label:button.getAttribute('aria-label')};
         }),
-        compactActions:['recentBirdGenOpen','recentBirdGenRefresh'].every(function(id){
+        compactActions:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenLatest'].every(function(id){
           var button=document.getElementById(id), rect=button.getBoundingClientRect();
+          var range=document.createRange();range.selectNodeContents(button);
+          var textFits=[].every.call(range.getClientRects(),function(line){
+            return line.left>=rect.left-.5 && line.right<=rect.right+.5
+              && line.top>=rect.top-.5 && line.bottom<=rect.bottom+.5;
+          });
           return document.querySelector('.recent-birdgen-head').contains(button)
             && rect.height>=44 && rect.width>=44
             && rect.width<document.getElementById('recentBirdGen').getBoundingClientRect().width-1
+            && textFits
             && button.getAttribute('aria-label');
         }),
         contentSizedAges:previewRows.every(function(row,i){
@@ -1942,6 +1978,34 @@ const AUDIT = `<script>
       categoryFeed.replaceChildren.apply(categoryFeed,originalRows);
       A.updateRecentBirdGen();
       out.push(recentScan);
+      A.renderSurge([],[],[],[],[],{
+        observations:'ok',hotspots:'ok',suppressNotifications:true,deferPhotos:true
+      },[{
+        locId:'LF1311YIELD',
+        locName:'Representative Estuary and Upper Woodland Wildlife Observation Reserve',
+        species:[
+          {code:'snogoo',comName:'Snow Goose',dateStr:previewStamp(1),count:3},
+          {code:'amepip',comName:'American Pipit',dateStr:previewStamp(1),count:1}
+        ]
+      }]);
+      A.showMenu();
+      var yieldSource=document.querySelector('#surgeFeed [data-alert-kind="patch"]');
+      var yieldNote=document.querySelector('#recentBirdGenRows .recent-patch-yield');
+      if(!yieldSource || !yieldNote) throw new Error('F1311 TOP PATCH explanation is missing');
+      var yieldBox=yieldNote.getBoundingClientRect();
+      var yieldColumn=yieldNote.closest('.ntext').getBoundingClientRect();
+      var yieldRange=document.createRange();yieldRange.selectNodeContents(yieldNote);
+      if(yieldNote.textContent!==yieldSource.getAttribute('data-patch-yield')
+          || !yieldNote.textContent.trim() || yieldBox.height<=0
+          || parseFloat(getComputedStyle(yieldNote).fontSize)<13*headingScale-.2
+          || Array.from(yieldRange.getClientRects()).some(function(rect){
+            return rect.left<yieldColumn.left-.5 || rect.right>yieldColumn.right+.5
+              || rect.top<yieldColumn.top-.5 || rect.bottom>yieldColumn.bottom+.5;
+          })) throw new Error('F1311 TOP PATCH explanation must remain readable inside its column: '
+            + JSON.stringify({note:yieldBox.toJSON(),column:yieldColumn.toJSON(),
+              font:getComputedStyle(yieldNote).fontSize,scale:headingScale,
+              lines:Array.from(yieldRange.getClientRects()).map(function(rect){return rect.toJSON();})}));
+      out.push(scan('(F1311 TOP PATCH high-yield context)'));
       var alignmentNow=new Date(), alignmentLocal=A.birdcastLocalParts(alignmentNow,A.getReport());
       var alignmentDate=new Date(Date.UTC(alignmentLocal.year,alignmentLocal.month-1,alignmentLocal.day))
         .toISOString().slice(0,10);
@@ -2525,7 +2589,8 @@ const AUDIT = `<script>
           favorite.populatedFixture = true;
           out.push(favorite);
           var profile = A.chaseProfile();
-          A.seedChase(profile.slug, {
+          A.setRarityInflight(null);
+          A.seedChase(profile.slug, verifiedNotableFixture(profile, {
             t: Date.now(), rarity: false,
             fetchBaseKey: A.chaseFetchBaseKey(profile),
             geoNotableKm: window.BirdLogic.geoNotableDistKm(profile),
@@ -2540,7 +2605,7 @@ const AUDIT = `<script>
                 lat: 47.65, lng: -122.29, howMany: 1,
                 obsDt: new Date().toISOString().slice(0, 10) + ' 07:00', subId: 'SAUDIT2' }
             ]}
-          });
+          }));
           A.showSection('sec-nvResults');
           return A.LOADERS.nvResults.fn();
         }).then(function (ready) {
@@ -2562,7 +2627,8 @@ const AUDIT = `<script>
           var profile = A.chaseProfile();
           A.setWatchlist([{code:'shtsan', name:'Sharp-tailed Sandpiper'},
             {code:'solsan', name:'Solitary Sandpiper'}]);
-          A.seedChase(profile.slug, {
+          A.setRarityInflight(null);
+          A.seedChase(profile.slug, verifiedNotableFixture(profile, {
             t: Date.now(), rarity: false,
             fetchBaseKey: A.chaseFetchBaseKey(profile),
             geoNotableKm: window.BirdLogic.geoNotableDistKm(profile),
@@ -2583,7 +2649,7 @@ const AUDIT = `<script>
                 obsDt: new Date().toISOString().slice(0, 10) + ' 10:00',
                 subId: 'S-TWITCH3', obsReviewed: true, obsValid: true }
             ]}
-          });
+          }));
           localStorage.setItem('ebird_rarity_filters_v1', JSON.stringify({year:'unseen',distance:'near'}));
           localStorage.setItem('ebird_twitch_view_v1', 'grouped');
           A.showSection('sec-refreshBtn');
@@ -2983,6 +3049,20 @@ const AUDIT = `<script>
     await pause(500);
     var host = document.getElementById('spLookupRecent');
     require(visible(host).length >= 10, 'held evidence must render before the late species response');
+    var pendingStatus=document.getElementById('spLookupStatus');
+    var pendingHeading=pendingStatus.querySelector('strong');
+    var pendingProgress=pendingStatus.querySelector('progress:not([value])');
+    var pendingBox=pendingStatus.getBoundingClientRect();
+    if(pendingStatus.hidden || !pendingHeading || !pendingProgress
+        || !pendingHeading.textContent.includes('Loading hotspot data')
+        || pendingStatus.getAttribute('role')!=='status'
+        || pendingStatus.getAttribute('aria-live')!=='polite'
+        || getComputedStyle(pendingStatus).display==='none'
+        || pendingBox.width<=0 || pendingBox.height<=0
+        || pendingBox.left<0 || pendingBox.right>innerWidth+.5
+        || pendingStatus.scrollWidth>pendingStatus.clientWidth+1)
+      throw new Error('F1315 pending hotspot acquisition needs a visible contained loading status');
+    out.push(scan('(F1315 actual hotspot acquisition pending)'));
     out.push(watchTagCheck('#spLookupResults', '(F892 Stakeout large)'));
     var first = visible(host)[0], main = first.querySelector('.ckmain');
     var date = main.querySelector('.ckdate').getBoundingClientRect();
@@ -3176,6 +3256,18 @@ const AUDIT = `<script>
       out.push(scan('(F1029 '+scenario+' source locations)'));
     }
   }
+  function verifiedNotableFixture(profile, result) {
+    result.feedStates = {};
+    result.feedTimes = {};
+    window.BirdLogic.planFeeds(profile).filter(function (feed) {
+      return feed.kind === 'notable';
+    }).forEach(function (feed) {
+      if (!result.rows[feed.file]) result.rows[feed.file] = [];
+      result.feedStates[feed.file] = 'ok';
+      result.feedTimes[feed.file] = result.t;
+    });
+    return result;
+  }
   async function twitchRegression(out) {
     var A = window.__app, logic = window.BirdLogic, errors = [], measurements = [];
     var profileName = ${JSON.stringify(PROFILE)};
@@ -3237,9 +3329,9 @@ const AUDIT = `<script>
     function snapshot(raw) {
       var profile = A.chaseProfile();
       var files = {'king-notable.json':raw}, codes = raw.map(function(r){return r.speciesCode;});
-      return {t:Date.now(), rarity:false, fetchBaseKey:A.chaseFetchBaseKey(profile),
+      return verifiedNotableFixture(profile, {t:Date.now(), rarity:false, fetchBaseKey:A.chaseFetchBaseKey(profile),
         geoNotableKm:logic.geoNotableDistKm(profile), speciesCodes:codes,
-        rows:files, cv:A.computeChaseRows(profile,'wa',files,codes)};
+        rows:files, cv:A.computeChaseRows(profile,'wa',files,codes)});
     }
     var weekEnabled = document.getElementById('sec-activeBtn')._enabled !== false;
     for (var mode of ['list','grouped','week'].filter(function (value) {
@@ -3259,6 +3351,22 @@ const AUDIT = `<script>
       A.showSection(week ? 'sec-activeBtn' : 'sec-refreshBtn');
       load();
       await until(function () { return !button.disabled && cards(host).length >= 10; }, mode + ' initial');
+      var latest = document.getElementById(week ? 'activeFetchLatest' : 'twitchFetchLatest');
+      var previousLabel = latest.textContent;
+      check(!latest.hidden, 'F1292 selected notable source needs its labelled latest action');
+      ['Fetch latest RBA', 'Fetching latest\u2026'].forEach(function (label) {
+        latest.textContent = label;
+        var rect = latest.getBoundingClientRect(), range = document.createRange();
+        range.selectNodeContents(latest);
+        check(rect.width >= 44 && rect.height >= 44 && rect.left >= 0
+          && rect.right <= innerWidth && latest.scrollWidth <= latest.clientWidth + 1
+          && Array.from(range.getClientRects()).every(function (line) {
+            return line.left >= rect.left - 1 && line.right <= rect.right + 1
+              && line.top >= rect.top - 1 && line.bottom <= rect.bottom + 1;
+          }), 'F1292 latest label must remain readable and touchable: ' + label);
+        out.push(scan('(F1292 ' + mode + ' ' + label + ')'));
+      });
+      latest.textContent = previousLabel;
       var before = cards(host), saved = anchor(before[before.length - 1],true);
       await until(function () { return cards(host).length > before.length; }, mode + ' auto append');
       await painted();
@@ -3590,6 +3698,23 @@ const AUDIT = `<script>
       var continuation=document.getElementById('setupContinueAvailable');
       if(body.dataset.setupStep!=='loading'||!continuation)throw new Error('F1270 actual mixed loading component missing');
       var result=scan('(F1269/F1270 mixed initial checks)');
+      var sourceRows=Array.from(document.querySelectorAll('#setupPrefetchRows > [data-source]'));
+      var headings=Array.from(document.querySelectorAll('#setupPrefetchRows .prefetch-group'));
+      if(headings.map(function(node){return node.textContent;}).join('|')
+          !=='Independent checks|Dependent checks')
+        throw new Error('F1298 actual initial checks need stable labelled dependency groups');
+      sourceRows.forEach(function(row){
+        (tasks[row.dataset.source].depends||[]).forEach(function(key){
+          var prerequisite=sourceRows.findIndex(function(other){return other.dataset.source===key;});
+          if(prerequisite>=sourceRows.indexOf(row))
+            throw new Error('F1298 dependent appears before '+key);
+        });
+      });
+      headings.forEach(function(heading){
+        var headingBox=heading.getBoundingClientRect();
+        if(headingBox.width<=0||headingBox.left<0||headingBox.right>window.innerWidth+1)
+          throw new Error('F1298 dependency heading is clipped or missing');
+      });
       var box=continuation.getBoundingClientRect();
       var states=Object.values(A.setupPrefetchEngine().states);
       result.mixedSetup={count:document.getElementById('setupPrefetchCount').textContent,
@@ -3601,11 +3726,19 @@ const AUDIT = `<script>
         activity:document.getElementById('setupActivityStage').textContent,
         width:box.width,height:box.height,right:box.right};
       out.push(result);
+      release({state:'ready',value:{}});
+      release=null;
+      await pending;
+      if (!document.getElementById('setupReview'))
+        throw new Error('F1301 complete setup with partial initial data must expose Review setup');
+      out.push(scan('(F1301 completed setup with partial initial data)'));
     } finally {
       var continuation=document.getElementById('setupContinueAvailable');
       if(continuation)continuation.click();
       if(release)release({state:'ready',value:{}});
       if(pending)await pending;
+      if(!document.getElementById('setupSheet').hidden)
+        document.getElementById('setupSheetClose').click();
       [[verified,savedVerified],['bc_setup_step_v1',step],['bc_setup_dismissed_v1',dismissed]]
         .forEach(function(pair){if(pair[1]===null)localStorage.removeItem(pair[0]);else localStorage.setItem(pair[0],pair[1]);});
       [[A.IDENTITY_META_KEY,identity],['ebird_display_name',display],[personalKey,personal]]
@@ -3703,11 +3836,14 @@ const AUDIT = `<script>
   }
   function setupKeyboardRegression(out, fieldId, state) {
     var field=document.getElementById(fieldId), body=document.getElementById('setupSheetBody');
+    var sheet=document.getElementById('setupSheet'), form=field.closest('.setupsearch');
+    var paddingTop=sheet.style.paddingTop, paddingBottom=sheet.style.paddingBottom;
     var descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport');
     var focus=document.activeElement, scroll=body.scrollTop;
     try {
+      if(form) {sheet.style.paddingTop='62px';sheet.style.paddingBottom='34px';}
       Object.defineProperty(window,'visualViewport',{configurable:true,value:{
-        height:400,offsetTop:24,scale:1
+        height:form?(state==='Home'?504:478):400,offsetTop:form?0:24,scale:1
       }});
       field.focus();
       window.dispatchEvent(new Event('resize'));
@@ -3718,6 +3854,28 @@ const AUDIT = `<script>
           +JSON.stringify({state:state,bodyTop:area.top,bodyBottom:area.bottom,
             inputTop:input.top,inputBottom:input.bottom}));
       var result=scan('(F1278 '+state+' contracted editing viewport)');
+      if(form) {
+        var submit=form.querySelector('button[type="submit"]');
+        var controls=[field,submit,document.getElementById('setupBack'),
+          document.getElementById('setupSheetClose')];
+        controls.forEach(function(control) {
+          var rect=control.getBoundingClientRect();
+          var hit=document.elementFromPoint((rect.left+rect.right)/2,(rect.top+rect.bottom)/2);
+          if(rect.height<43.5||rect.left<-.5||rect.right>innerWidth+.5
+              || !hit || !control.contains(hit)
+              || (form.contains(control)&&(rect.top<area.top-.5||rect.bottom>area.bottom+.5))
+              || (control.tagName==='BUTTON'&&control.scrollWidth>control.clientWidth+1))
+            throw new Error('F1295/F1296 search control is clipped or obscured: '
+              +JSON.stringify({state:state,id:control.id,rect:rect.toJSON(),body:area.toJSON()}));
+        });
+        var painted=getComputedStyle(field);
+        if(painted.outlineStyle!=='none'||painted.borderLeftStyle==='none'
+            || parseFloat(painted.borderLeftWidth)<1
+            || !painted.boxShadow.includes('inset'))
+          throw new Error('F1295/F1296 focused input needs an internally painted edge');
+        result.setupSearch={state:state,fieldHeight:input.height,
+          buttonHeight:submit.getBoundingClientRect().height,matchedUsableHeight:window.visualViewport.height};
+      }
       var draft=field.value, next=document.getElementById('setupBack');
       next.focus({preventScroll:true});
       window.dispatchEvent(new Event('resize'));
@@ -3727,6 +3885,7 @@ const AUDIT = `<script>
       result.setupKeyboard={state:state,bodyHeight:area.height,inputHeight:input.height};
       out.push(result);
     } finally {
+      sheet.style.paddingTop=paddingTop;sheet.style.paddingBottom=paddingBottom;
       if(descriptor)Object.defineProperty(window,'visualViewport',descriptor);
       else delete window.visualViewport;
       window.dispatchEvent(new Event('resize'));
@@ -4807,6 +4966,12 @@ server.listen(0, '127.0.0.1', () => {
       }
         if(r.watchActions){
           console.log('   F1275 WATCH GEOMETRY '+JSON.stringify(r.watchActions));
+          if(!r.watchActions.some(action=>action.label==='Add Watch')
+              || !r.watchActions.some(action=>action.label==='Remove Watch')
+              || r.watchActions.some(action=>action.words.length!==2
+                || action.words.some(word=>word.lines!==1 || !word.inside))){
+            bad++;console.log('   F1304 Add Watch and Remove Watch must keep whole words inside usable button padding');
+          }
           if(JSON.stringify(r.watchThemes)!=='["light","dark"]'
             ||r.watchActions.length!==3 || r.watchActions.some(action=>
             action.primary || !action.belowName || !action.besideMeta || !action.sameFont

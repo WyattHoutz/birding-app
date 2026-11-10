@@ -68,7 +68,7 @@ test('F1108 bounded CI waiting requires a real success and fails closed on autho
   }), /bounded wait/);
 });
 
-test('F1108 one full CI catalog and layout gate authorizes the unsigned build', () => {
+test('F1108/F1313 one full CI catalog and layout gate authorizes unsigned publication', () => {
   const root = path.join(__dirname, '..', '.github', 'workflows');
   const tests = fs.readFileSync(path.join(root, 'tests.yml'), 'utf8');
   const ios = fs.readFileSync(path.join(root, 'ios-build.yml'), 'utf8');
@@ -77,6 +77,7 @@ test('F1108 one full CI catalog and layout gate authorizes the unsigned build', 
   assert.equal(commandCount(ios), 0);
   assert.match(tests, /run:\s*npm run test:layout/);
   assert.match(ios, /run:\s*node assets\/ci-test-gate\.js/);
-  assert.match(ios, /^\s*build:\s*\n\s*needs:\s*gate\s*$/m);
+  assert.doesNotMatch(ios, /^\s*build:\s*\n\s*needs:/m);
+  assert.match(ios, /needs:\s*\[build, gate\]/);
   assert.match(ios, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
 });

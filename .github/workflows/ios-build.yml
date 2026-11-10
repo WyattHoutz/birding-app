@@ -36,8 +36,10 @@ jobs:
         run: node assets/ci-test-gate.js
 
   build:
-    needs: gate
     runs-on: macos-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,7 +181,7 @@ jobs:
       - name: Preserve the prepared native project for signing
         uses: actions/upload-artifact@v4
         with:
-          name: BirdChaser-ios-project
+          name: BirdChaser-ios-project-${{ github.run_attempt }}
           path: ios/
           retention-days: 1
           include-hidden-files: true
@@ -201,7 +203,7 @@ jobs:
   # binary provably matches the tag rather than being a later rebuild.
   release:
     name: Publish Release when the version changes
-    needs: build
+    needs: [build, gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:

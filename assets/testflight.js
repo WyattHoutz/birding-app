@@ -156,6 +156,7 @@ function exportOptions(profile, identity, bundleId) {
 function commandEnv(env) {
   const clean = { ...env };
   for (const name of SECRET_NAMES) delete clean[name];
+  delete clean.GH_TOKEN;
   return clean;
 }
 
@@ -254,13 +255,17 @@ async function deliver() {
     if (!process.env[name]) throw new Error(`Required signing/upload secret is missing: ${name}`);
   }
   const env = process.env;
-  const root = path.resolve(__dirname, '..');
-  const version = require('../package.json').version;
-  const bundleId = require('../capacitor.config.json').appId;
+  const root = env.TESTFLIGHT_SOURCE_ROOT || path.resolve(__dirname, '..');
+  if (!path.isAbsolute(root)) throw new Error('Signed source root must be absolute');
+  const version = require(path.join(root, 'package.json')).version;
+  const bundleId = require(path.join(root, 'capacitor.config.json')).appId;
   if (!/^[a-f0-9]{40}$/.test(env.TESTFLIGHT_SOURCE_SHA || '')
       || run('git', ['rev-parse', 'HEAD'], { cwd: root }).trim() !== env.TESTFLIGHT_SOURCE_SHA) {
     throw new Error('Signed checkout does not match the verified unsigned source commit');
   }
+  const sourceGate = require('./testflight-source.js');
+  sourceGate.captured(env);
+  if (!env.GH_TOKEN) throw new Error('Existing workflow authorization is required');
   const number = buildNumber(env.GITHUB_RUN_NUMBER, env.GITHUB_RUN_ATTEMPT);
   const api = client(env);
   const appId = await api.app(bundleId);
@@ -270,6 +275,8 @@ async function deliver() {
   const reportPath = path.join(root, 'testflight-status.json');
   const report = {
     version, number, bundleId, appId, commit: env.TESTFLIGHT_SOURCE_SHA,
+    deliveryToolsCommit: run('git', ['rev-parse', 'HEAD'],
+      { cwd: path.resolve(__dirname, '..') }).trim(),
     url: `https://appstoreconnect.apple.com/apps/${appId}/testflight/ios`,
     processingState: 'NOT_UPLOADED', signatureVerified: false,
   };
@@ -317,10 +324,10 @@ async function deliver() {
 
     run(process.execPath, [path.join(root, 'assets', 'stamp-build-info.js'),
       path.join(root, 'ios', 'App', 'App', 'public', 'build-info.js'),
-      'testflight', `${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT}`, '90']);
+      'testflight', `${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT}`, '90'], { cwd: root });
     run(process.execPath, [
       path.join(root, 'native', 'ios', 'install-hidden-window-diagnostics.js'), root,
-    ], { stdio: 'inherit' });
+    ], { cwd: root, stdio: 'inherit' });
     configureAppSigning(root, profile, identity, bundleId);
     run('python3', [path.join(root, 'assets', 'testflight-profile.py'), 'configure-export',
       path.join(root, 'ios', 'App', 'App', 'Info.plist')]);
@@ -361,6 +368,8 @@ async function deliver() {
     report.ipaSha256 = crypto.createHash('sha256').update(fs.readFileSync(ipa)).digest('hex');
     save();
 
+    report.sourceAuthorization = await sourceGate.authorize(env);
+    save();
     const keys = path.join(work, 'private_keys');
     fs.mkdirSync(keys, { mode: 0o700 });
     if (!/^[A-Za-z0-9]+$/.test(env.ASC_KEY_ID)) throw new Error('Invalid App Store Connect key ID');
@@ -368,6 +377,8 @@ async function deliver() {
     const auth = ['--apiKey', env.ASC_KEY_ID, '--apiIssuer', env.ASC_ISSUER_ID];
     run('xcrun', ['altool', '--validate-app', '--type', 'ios', '--file', ipa, ...auth],
       { cwd: work, stdio: 'inherit' });
+    report.sourceAuthorization = await sourceGate.authorize(env);
+    save();
     run('xcrun', ['altool', '--upload-app', '--type', 'ios', '--file', ipa, ...auth],
       { cwd: work, stdio: 'inherit' });
     report.processingState = 'UPLOADED';

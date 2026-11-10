@@ -911,8 +911,9 @@ module.exports = function registerMigrationSetupControls({
       app.click(app.$('appSheet').querySelector('.sheetclose'));
       assert.equal(app.$('setupSkip'), null);
       assert.equal(app.$('setupChooseRegion'), null);
-      assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeHere',
-        'F1172 automatic location is offered first, without requesting permission on open');
+      assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeFind',
+        'F1295 address lookup stays explicit; location permission still requires its own tap');
+      assert.equal(app.$('setupHomeHere').textContent, 'Use current location instead');
       assert.equal(app.$('setupHomePlace').closest('details'), null, 'Home entry must not be hidden');
       assert.equal(app.$('setupHomeDiscard'), null, 'editing the field replaces a competing change button');
       assert.equal(A.getReportSlug(), '');
@@ -943,7 +944,8 @@ module.exports = function registerMigrationSetupControls({
       assert.match(app.$('setupHomeCandidate').textContent, /Current location \(GPS\)/);
       assert.match(app.$('setupActionStatus').textContent, /Current location found.*Nothing has been saved/);
       assert.equal(app.$('setupActionStatus').getAttribute('role'), 'status');
-      assert.equal(app.$('setupHomeFind').hidden, true, 'only one validation action is visible');
+      assert.equal(app.$('setupHomeFind').hidden, false, 'F1295 inline address lookup remains discoverable');
+      assert.equal(app.$('setupHomeFind').closest('form').id, 'setupHomeSearch');
       assert.equal(app.$('setupHomeApprove').textContent, 'Confirm Home');
       assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000', 'GPS fills the same Home field');
       assert.ok(app.$('setupHomeMap').childNodes.length, 'F1177 candidate map is immediately visible');
@@ -1523,7 +1525,8 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.window.getComputedStyle(app.$('setupHelp').firstElementChild).width, '28px',
           'the visible circle is smaller than its interactive target');
         for (const control of controls) assert.equal(app.window.getComputedStyle(control).whiteSpace,
-          control.id === 'setupSkipSeen' ? 'normal' : 'nowrap');
+          ['setupSkipSeen', 'setupHomeHere', 'setupFavoriteMore'].includes(control.id)
+            || control.closest('.setupsearch') ? 'normal' : 'nowrap');
         assert.equal(app.$('setupHelp').getAttribute('aria-label'), 'Help: ' + primary[0].textContent.trim());
         if (step === 'account') {
           assert.match(app.$('setupSheetBody').textContent, /Read-only access to eBird\. Connection details are kept on your device\./);

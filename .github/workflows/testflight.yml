@@ -3,7 +3,7 @@ name: Signed TestFlight delivery
 on:
   workflow_run:
     workflows: [Build unsigned iOS IPA]
-    types: [completed]
+    types: [in_progress]
   workflow_dispatch:
     inputs:
       unsigned_run_id:
@@ -20,14 +20,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  testflight:
+  source:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.event == 'push')
-    runs-on: macos-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      run_id: ${{ steps.source.outputs.run_id }}
+      attempt: ${{ steps.source.outputs.attempt }}
+      artifact_id: ${{ steps.source.outputs.artifact_id }}
+      artifact_name: ${{ steps.source.outputs.artifact_name }}
     steps:
       - name: Checkout delivery tools
         uses: actions/checkout@v4
@@ -37,29 +42,55 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate the exact successful source run
+      - name: Await the verified attempt-bound native project
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
           UNSIGNED_RUN_ID: ${{ github.event.workflow_run.id || inputs.unsigned_run_id }}
-        run: node assets/testflight.js source
+          MANUAL_SOURCE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node assets/testflight-source.js
+
+  testflight:
+    needs: source
+    runs-on: macos-latest
+    timeout-minutes: 110
+    steps:
+      - name: Checkout delivery tools
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Checkout the verified source commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ needs.source.outputs.sha }}
+          path: source
           persist-credentials: false
-      - name: Install JS dependencies
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install delivery-tool dependencies
+        run: npm ci
+      - name: Install exact-source native dependencies
+        working-directory: source
         run: npm ci
       - name: Download the already prepared native project
         uses: actions/download-artifact@v4
         with:
-          name: BirdChaser-ios-project
-          path: ios/
+          artifact-ids: ${{ needs.source.outputs.artifact_id }}
+          path: source/ios/
+          merge-multiple: true
           github-token: ${{ github.token }}
-          run-id: ${{ steps.source.outputs.run_id }}
+          run-id: ${{ needs.source.outputs.run_id }}
       - name: Sign, validate, upload and check Apple processing
         env:
-          TESTFLIGHT_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          TESTFLIGHT_SOURCE_ROOT: ${{ github.workspace }}/source
+          TESTFLIGHT_SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          TESTFLIGHT_SOURCE_RUN_ID: ${{ needs.source.outputs.run_id }}
+          TESTFLIGHT_SOURCE_ATTEMPT: ${{ needs.source.outputs.attempt }}
+          TESTFLIGHT_SOURCE_ARTIFACT_ID: ${{ needs.source.outputs.artifact_id }}
+          TESTFLIGHT_SOURCE_ARTIFACT_NAME: ${{ needs.source.outputs.artifact_name }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
@@ -76,6 +107,6 @@ jobs:
         with:
           name: BirdChaser-TestFlight
           path: |
-            BirdChaser-TestFlight.ipa
-            testflight-status.json
+            source/BirdChaser-TestFlight.ipa
+            source/testflight-status.json
           if-no-files-found: warn

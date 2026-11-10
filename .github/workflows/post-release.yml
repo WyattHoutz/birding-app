@@ -224,6 +224,18 @@ jobs:
             --release-url "https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify.outputs.tag }}"
           test -f "pages-site/mockups/${{ needs.verify.outputs.tag }}/index.html"
 
+      - name: Retain the two newest browsable galleries within the Pages budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node assets/gallery-retention.js pages-site gallery-retention.json
+
+      - name: Preserve Pages retention and archive identities
+        uses: actions/upload-artifact@v4
+        with:
+          name: BirdChaser-gallery-retention-${{ needs.verify.outputs.version }}
+          path: gallery-retention.json
+          if-no-files-found: error
+
       - name: Publish the browsable gallery
         working-directory: pages-site
         run: |
