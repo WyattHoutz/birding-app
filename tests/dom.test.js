@@ -10777,9 +10777,15 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
         locId: 'L-CACHED', subId: 'S-CACHED', lat: 47.7, lng: -122.2 }],
     }));
     const requests = [];
-    app.window.fetch = (url, options) => new Promise((resolve, reject) => {
-      requests.push({ resolve, reject, signal: options.signal });
-    });
+    const originalFetch = app.window.fetch;
+    app.window.fetch = (url, options) => {
+      if (!/^https:\/\/ebird\.org\/alert\/summary\?sid=SN10489(?:&|$)/.test(String(url))) {
+        return originalFetch(url, options);
+      }
+      return new Promise((resolve, reject) => {
+        requests.push({ resolve, reject, signal: options.signal });
+      });
+    };
     const original = A.loadAbaAlert();
     assert.equal(app.$('abaBtn').disabled, false,
       'cached refresh must allow restarting a stalled request');
@@ -10798,6 +10804,8 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
       'current Mega refresh failure');
     assert.equal(app.$('loadBar').hidden, true, 'the current Mega owner must release its own progress');
     assert.equal(app.$('abaBtn').disabled, false);
+    app.window.fetch('https://api.ebird.org/v2/ref/region/info/US-WA', {}).catch(() => {});
+    assert.equal(requests.length, 2, 'independent traffic cannot be counted as a Mega restart');
     section.querySelector('.refreshbtn').click();
     assert.equal(requests.length, 3, 'refresh must remain usable after failure');
     requests[2].reject(new Error('retry failed'));
