@@ -4,8 +4,8 @@ const WORKFLOW = '.github/workflows/tests.yml';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const WAIT_MS = 65 * 60 * 1000;
 const REQUIRED_JOBS = {
-  test: ['Install dependencies', 'Unit, syntax and DOM suites',
-    'Layout \u2014 nothing may overflow the screen'],
+  catalog: ['Install dependencies', 'Unit, syntax and DOM suites'],
+  layout: ['Install dependencies', 'Layout \u2014 nothing may overflow the screen'],
 };
 
 function selectRun(runs, repository, sha, now = Date.now()) {

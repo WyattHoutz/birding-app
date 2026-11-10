@@ -33,121 +33,34 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      benchmark_mode:
-        description: 'Controlled benchmark only; ordinary main validation remains serial'
-        type: choice
-        default: serial
-        options: [serial, parallel]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    if: github.event_name != 'workflow_dispatch' || inputs.benchmark_mode != 'parallel'
+  catalog:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-
-      # The DOM suite boots www/index.html in jsdom, so devDependencies are
-      # required. logic.js and smoke-wiring.js are stdlib-only, but the DOM
-      # tests are not.
       - name: Install dependencies
         run: npm ci
-
-      - name: Capture benchmark inputs
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "CHROME_BIN=$(command -v google-chrome)" >> "$GITHUB_ENV"
-          CHROME_BIN="$(command -v google-chrome)" node assets/ci-validation-evidence.js before serial
-
       - name: Unit, syntax and DOM suites
         run: npm test
 
-      # jsdom has NO LAYOUT ENGINE, so the suite above is blind to geometry.
-      # v1.26.13 shipped a 55.6px overflow with a fully green unit suite; the
-      # only thing that caught it was this audit, running in the macOS .ipa
-      # job — after the expensive runner had already started.
-      #
-      # Moved here 2026-08-21 so a layout regression fails in ~1 free minute on
-      # Linux instead of part-way through a macOS build. A check that exists
-      # but fires late still costs the thing it was meant to save.
-      #
-      # Six viewport/text combinations, in real Chrome: the narrowest phone at
-      # the largest text setting is where rows actually break.
+  layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      # jsdom cannot check geometry. Keep every viewport/text profile in Chrome.
       - name: Layout — nothing may overflow the screen
         run: npm run test:layout
-
-      - name: Verify unchanged benchmark inputs
-        if: github.event_name == 'workflow_dispatch'
-        run: node assets/ci-validation-evidence.js after serial
-
-      - name: Preserve benchmark evidence
-        if: always() && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-serial
-          path: benchmark-*
-          if-no-files-found: error
-
-  catalog:
-    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_mode == 'parallel'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Capture benchmark inputs
-        run: |
-          echo "CHROME_BIN=$(command -v google-chrome)" >> "$GITHUB_ENV"
-          CHROME_BIN="$(command -v google-chrome)" node assets/ci-validation-evidence.js before catalog
-      - name: Unit, syntax and DOM suites
-        shell: bash
-        run: npm test 2>&1 | tee benchmark-catalog.log
-      - name: Verify unchanged benchmark inputs
-        run: node assets/ci-validation-evidence.js after catalog
-      - name: Preserve benchmark evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-catalog
-          path: benchmark-*
-          if-no-files-found: error
-
-  layout:
-    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_mode == 'parallel'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Capture benchmark inputs
-        run: |
-          echo "CHROME_BIN=$(command -v google-chrome)" >> "$GITHUB_ENV"
-          CHROME_BIN="$(command -v google-chrome)" node assets/ci-validation-evidence.js before layout
-      - name: Layout — nothing may overflow the screen
-        shell: bash
-        run: npm run test:layout 2>&1 | tee benchmark-layout.log
-      - name: Verify unchanged benchmark inputs
-        run: node assets/ci-validation-evidence.js after layout
-      - name: Preserve benchmark evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-layout
-          path: benchmark-*
-          if-no-files-found: error

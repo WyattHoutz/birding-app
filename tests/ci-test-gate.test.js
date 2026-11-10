@@ -140,11 +140,13 @@ test('F1309 actual unsigned waiting inspects required jobs and complete history'
       ? { total_count: jobs.length, jobs }
       : { total_count: total, workflow_runs: [passed] } }),
   };
-  for (const conclusion of ['failure', 'skipped', 'cancelled']) {
-    jobs[0].conclusion = conclusion;
-    await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /did not pass/);
+  for (const job of jobs) {
+    for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+      job.conclusion = conclusion;
+      await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /did not pass/);
+    }
+    job.conclusion = 'success';
   }
-  jobs[0].conclusion = 'success';
   total = 99;
   await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /incomplete/);
 });
@@ -155,6 +157,14 @@ test('F1108/F1313 one full CI catalog and layout gate authorizes unsigned public
   const ios = fs.readFileSync(path.join(root, 'ios-build.yml'), 'utf8');
   const commandCount = text => (text.match(/^\s*run:\s*npm test\s*$/gm) || []).length;
   assert.equal(commandCount(tests), 1);
+  const [, jobSection] = tests.split(/^jobs:\r?$/m);
+  assert.ok(jobSection);
+  const jobs = [...jobSection.matchAll(/^  (\w+):\s*$/gm)].map(match => match[1]);
+  assert.deepEqual(jobs, Object.keys(gate.REQUIRED_JOBS));
+  assert.deepEqual(new Set(jobs), new Set(['catalog', 'layout']));
+  assert.doesNotMatch(tests, /^    (?:if|needs):/m);
+  assert.doesNotMatch(tests, /benchmark_mode/);
+  assert.match(tests, /^  push:\s*\n    branches:\s*\[\s*main\s*\]/m);
   assert.equal(commandCount(ios), 0);
   assert.match(tests, /run:\s*npm run test:layout/);
   assert.match(ios, /run:\s*node assets\/ci-test-gate\.js/);
