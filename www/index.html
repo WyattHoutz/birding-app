@@ -15240,12 +15240,17 @@
           + '</div></details></div></div>';
       }
 
-      function renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode) {
+      function renderSpuhStakeoutLoading(code) {
         var host = $('spLookupIdHelp');
-        if (!host) return Promise.resolve(null);
-        if (generation == null) generation = _spLookupGeneration;
+        if (!host) return null;
         host.innerHTML = '<div class="spuhtaxnav" data-species="' + esc(code) + '">'
           + '<div class="status spuhtaxstatus">Loading the eBird taxonomy…</div></div>';
+        return host;
+      }
+      function renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode) {
+        var host = renderSpuhStakeoutLoading(code);
+        if (!host) return Promise.resolve(null);
+        if (generation == null) generation = _spLookupGeneration;
         return loadSpuhModel().then(function (model) {
           if (generation !== _spLookupGeneration) return null;
           if (!model || typeof model.speciesRow !== 'function') {
@@ -15938,6 +15943,7 @@
           _spLookupGroup = heldGroup;
         }
         renderSpeciesLookup();
+        if (!refresh) renderSpuhStakeoutLoading(code);
         function startSupportingEvidence() {
           // Admit primary sightings before independent taxonomy/rarity work,
           // including after the asynchronous saved-result read.
@@ -19451,7 +19457,9 @@
           return countyView(res);
         }
         var pending = _chaseRarityInflight[slug];
-        if (!ownerWork && pending) yieldAutomaticRecentBirdGen();
+        if (!ownerWork && pending && pending.ownerWork && pending.ownerWork.recentBirdGen) {
+          yieldAutomaticRecentBirdGen();
+        }
         if (pending && pending.current() && pending.fetchBaseKey === fetchBaseKey
             && pending.geoNotableKm >= geoNotableKm) {
           if (force && force !== 'failed' && !pending.forceFresh) {
@@ -19551,6 +19559,7 @@
             delete _chaseRarityStarted[slug];
           }
         });
+        run.ownerWork = ownerWork;
         run.fetchBaseKey = fetchBaseKey;
         run.geoNotableKm = geoNotableKm;
         run.forceFresh = !!force && force !== 'failed';

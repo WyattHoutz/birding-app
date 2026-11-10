@@ -2185,7 +2185,7 @@ test('F1292 personal Reload queues one exact forced continuation behind normal a
 test('F1292 explicit notable refresh queues one forced continuation behind compatible normal work', async () => {
   let hold = true, heldUrl, first, latest;
   const pending = [];
-  const app = await boot({ sample: false, fetch: url => {
+  const app = await boot({ sample: false, key: null, fetch: url => {
     if (hold && /data\/obs\/.*notable/.test(url) && (!heldUrl || heldUrl === url)) {
       heldUrl = url;
       return new Promise(resolve => pending.push(() => resolve([])));
@@ -2195,6 +2195,8 @@ test('F1292 explicit notable refresh queues one forced continuation behind compa
   try {
     const A = app.window.__app;
     const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+    assert.equal(count(), 0, 'isolate the intended normal predecessor from automatic bootstrap');
+    app.window.localStorage.setItem('ebird_api_key', 'TESTKEY');
     first = A.getChaseRarity(false);
     await waitFor(() => pending.length === 1, 'normal notable wave with one held input');
     assert.equal(A.getChaseRarity(false), first, 'compatible normal work must join');
@@ -2273,7 +2275,7 @@ test('F1292 queued notable latest survives predecessor failure but never a retir
   for (const mode of ['predecessor-fails', 'owner-retires']) {
     let hold = true, heldUrl, owned = true, first, latest, initial, fresh;
     const pending = [];
-    const app = await boot({ sample: false, fetch: url => {
+    const app = await boot({ sample: false, key: null, fetch: url => {
       if (hold && /data\/obs\/.*notable/.test(url) && (!heldUrl || heldUrl === url)) {
         heldUrl = url;
         return new Promise(resolve => pending.push(() => resolve(
@@ -2284,6 +2286,8 @@ test('F1292 queued notable latest survives predecessor failure but never a retir
     try {
       const A = app.window.__app;
       const count = () => app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+      assert.equal(count(), 0, 'isolate the intended normal predecessor from automatic bootstrap');
+      app.window.localStorage.setItem('ebird_api_key', 'TESTKEY');
       first = A.getChaseRarity(false);
       await waitFor(() => pending.length > 0, 'held predecessor for ' + mode);
       latest = A.getChaseRarity('notable', true, { current: () => owned });
@@ -20938,7 +20942,7 @@ test('F888 Stakeout birds and patches retain immediate hidden private RBA eviden
 
   const lookup = HTML.slice(HTML.indexOf('function runSpeciesLookup('),
     HTML.indexOf('function renderSpeciesLookup('));
-  assert.match(lookup, /var stateRba = stateRbaRecords\(false\)/,
+  assert.match(lookup, /\bstateRbaRecords\(false\)/,
     'exact Stakeout lookup does not start the shared RBA acquisition');
   assert.doesNotMatch(lookup, /rarityKind\s*\?/,
     'an RBA-only bird cannot be required to prove rarity before RBA is read');
@@ -40373,11 +40377,14 @@ test('F434 a dawn seawatch with no defensible top three reports finder unknown',
         return { userDisplayName: row.userDisplayName, obsDt: row.obsDt,
           durationHrs: 4, obs: [{ speciesCode: 'shtsan' }] };
       }
-      if (/ref\/taxonomy/.test(url)) return [];
+      if (/ref\/taxonomy|\/recent\/notable(?:\?|$)/.test(url)) return [];
       return null;
     },
   });
   const A = app.window.__app;
+  const started = Date.now(), historical = Date.parse('2026-09-21T12:00:00Z');
+  app.window.Date.now = () => historical + Date.now() - started;
+  A.fgWindowReset(); A.fgSchedReset(historical);
   A.abaArchiveAdd('US-WA', initial.concat([latest]));
   await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
   await waitFor(() => /Finder unknown/.test(
