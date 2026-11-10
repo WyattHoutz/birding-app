@@ -2,11 +2,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const source = require('../assets/testflight-source.js');
+const gate = require('../assets/ci-test-gate.js');
 const repository = 'owner/app', sha = 'a'.repeat(40);
 const now = Date.parse('2026-11-09T12:00:00Z');
 const run = {
   id: 25, run_attempt: 2, repository: { full_name: repository },
-  head_repository: { full_name: repository }, head_sha: sha, head_branch: 'main',
+  head_repository: { full_name: repository, fork: false }, head_sha: sha, head_branch: 'main',
   path: '.github/workflows/ios-build.yml', event: 'push',
   status: 'in_progress', conclusion: null, run_started_at: '2026-11-09T11:00:00Z',
 };
@@ -35,7 +36,14 @@ function fixture() {
       if (url.pathname.endsWith('/actions/workflows/tests.yml/runs')) {
         state.testReads++;
         state.onTests?.();
-        data = { workflow_runs: state.tests };
+        data = { total_count: state.tests.length, workflow_runs: state.tests };
+      } else if (url.pathname.endsWith('/runs/90/attempts/2/jobs')) {
+        const jobs = Object.entries(gate.REQUIRED_JOBS).map(([name, steps], number) => ({
+          id: 91 + number, name, head_sha: sha, run_attempt: 2,
+          status: 'completed', conclusion: 'success', labels: ['ubuntu-latest'],
+          steps: steps.map(name => ({ name, status: 'completed', conclusion: 'success' })),
+        }));
+        data = { total_count: jobs.length, jobs };
       } else if (url.pathname.endsWith('/attempts/2/jobs')) data = { jobs: state.builds };
       else if (url.pathname.endsWith('/artifacts')) data = { artifacts: state.artifacts };
       else if (url.pathname.endsWith('/actions/runs/25')) data = state.run;
@@ -102,7 +110,7 @@ test('F1313 signed preparation can precede publication, but upload waits for act
   f.tests[0].conclusion = null;
   f.afterSleep = () => { f.tests[0].status = 'completed'; f.tests[0].conclusion = 'success'; };
   assert.deepEqual(await source.authorize(env, f.options), { ...expected, testRunId: 90 });
-  assert.equal(f.testReads, 2);
+  assert.equal(f.testReads, 3);
   f.run.status = 'completed';
   f.run.conclusion = 'failure';
   assert.deepEqual(await source.authorize(env, f.options), { ...expected, testRunId: 90 },

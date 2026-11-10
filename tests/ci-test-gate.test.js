@@ -10,10 +10,18 @@ const repository = 'owner/app', sha = 'a'.repeat(40);
 const now = Date.parse('2026-11-07T12:00:00Z');
 const passed = {
   id: 10, path: '.github/workflows/tests.yml',
-  repository: { full_name: repository }, head_repository: { full_name: repository },
+  repository: { full_name: repository }, head_repository: { full_name: repository, fork: false },
+  run_attempt: 1,
   head_sha: sha, head_branch: 'main', event: 'push',
   status: 'completed', conclusion: 'success', created_at: '2026-11-07T11:00:00Z',
 };
+function successfulJobs(run = passed) {
+  return Object.entries(gate.REQUIRED_JOBS).map(([name, steps], number) => ({
+    id: 20 + number, name, head_sha: sha, run_attempt: run.run_attempt,
+    status: 'completed', conclusion: 'success', labels: ['ubuntu-latest'],
+    steps: steps.map(name => ({ name, status: 'completed', conclusion: 'success' })),
+  }));
+}
 
 test('F1108 CI accepts only the authoritative successful trusted exact-source main push', () => {
   assert.deepEqual(gate.selectRun([passed], repository, sha, now), { id: 10, sha });
@@ -48,24 +56,97 @@ test('F1108 a newer failed or pending test run cannot borrow an older success', 
 
 test('F1108 bounded CI waiting requires a real success and fails closed on authorization errors', async () => {
   let clock = now, calls = 0;
+  const jobs = successfulJobs();
   const options = {
     now: () => clock,
     sleep: async ms => { clock += ms; },
     fetcher: async url => {
-      assert.equal(url.searchParams.get('head_sha'), sha);
       calls++;
-      return { ok: true, json: async () => ({ workflow_runs: calls === 1 ? [] : [passed] }) };
+      if (url.pathname.endsWith('/jobs')) {
+        assert.match(url.pathname, /\/runs\/10\/attempts\/1\/jobs$/);
+        return { ok: true, json: async () => ({ total_count: jobs.length, jobs }) };
+      }
+      assert.equal(url.searchParams.get('head_sha'), sha);
+      const rows = calls === 1 ? [] : [passed];
+      return { ok: true, json: async () => ({ total_count: rows.length, workflow_runs: rows }) };
     },
   };
   assert.deepEqual(await gate.waitForTests(repository, sha, 'synthetic', options), { id: 10, sha });
-  assert.equal(calls, 2);
+  assert.equal(calls, 4);
   await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', {
     ...options, fetcher: async () => ({ ok: false, status: 403 }),
   }), /HTTP 403/);
   await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', {
     ...options, sleep: async () => { clock += 66 * 60 * 1000; },
-    fetcher: async () => ({ ok: true, json: async () => ({ workflow_runs: [] }) }),
+    fetcher: async () => ({ ok: true, json: async () => ({ total_count: 0, workflow_runs: [] }) }),
   }), /bounded wait/);
+});
+
+test('F1309 every required job and coverage step must succeed; parallel skips cannot bless publication', () => {
+  const required = { catalog: ['Install dependencies', 'Unit, syntax and DOM suites'],
+    layout: ['Install dependencies', 'Layout \u2014 nothing may overflow the screen'] };
+  const jobs = Object.entries(required).map(([name, steps], index) => ({
+    id: 20 + index, name, head_sha: sha, run_attempt: 1, status: 'completed',
+    conclusion: 'success', labels: ['ubuntu-latest'],
+    steps: steps.map(name => ({ name, status: 'completed', conclusion: 'success' })),
+  }));
+  const payload = { total_count: 2, jobs };
+  assert.deepEqual(gate.checkJobs(payload, passed, required), { catalog: 20, layout: 21 });
+  for (const index of [0, 1]) {
+    for (const change of [
+      { conclusion: 'failure' }, { conclusion: 'skipped' }, { conclusion: 'cancelled' },
+      { status: 'in_progress' }, { head_sha: 'b'.repeat(40) }, { run_attempt: 2 },
+      { labels: ['self-hosted'] }, { name: 'optional' },
+    ]) {
+      const altered = structuredClone(payload);
+      Object.assign(altered.jobs[index], change);
+      assert.throws(() => gate.checkJobs(altered, passed, required));
+    }
+    for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+      const altered = structuredClone(payload);
+      altered.jobs[index].steps[1].conclusion = conclusion;
+      assert.throws(() => gate.checkJobs(altered, passed, required), /coverage/);
+    }
+  }
+  assert.throws(() => gate.checkJobs({ total_count: 2, jobs: jobs.slice(1) }, passed, required));
+  assert.throws(() => gate.checkJobs({ total_count: 1, jobs: jobs.slice(1) }, passed, required));
+  assert.throws(() => gate.checkJobs({ total_count: 2, jobs: [jobs[0], jobs[0]] }, passed, required));
+});
+
+test('F1309 a rerun during required-job verification cannot inherit an earlier pass', async () => {
+  let histories = 0;
+  await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', {
+    now: () => now,
+    fetcher: async url => {
+      let data;
+      if (url.pathname.endsWith('/jobs')) {
+        const jobs = successfulJobs();
+        data = { total_count: jobs.length, jobs };
+      } else {
+        histories++;
+        data = { total_count: 1, workflow_runs: [{ ...passed, run_attempt: histories }] };
+      }
+      return { ok: true, json: async () => data };
+    },
+  }), /attempt changed/);
+});
+
+test('F1309 actual unsigned waiting inspects required jobs and complete history', async () => {
+  const jobs = successfulJobs();
+  let total = 1;
+  const options = {
+    now: () => now,
+    fetcher: async url => ({ ok: true, json: async () => url.pathname.endsWith('/jobs')
+      ? { total_count: jobs.length, jobs }
+      : { total_count: total, workflow_runs: [passed] } }),
+  };
+  for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+    jobs[0].conclusion = conclusion;
+    await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /did not pass/);
+  }
+  jobs[0].conclusion = 'success';
+  total = 99;
+  await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /incomplete/);
 });
 
 test('F1108/F1313 one full CI catalog and layout gate authorizes unsigned publication', () => {

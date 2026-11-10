@@ -1979,8 +1979,8 @@ test('F340 mockups and artifact checks run after, never inside, the IPA release 
     'the pre-upload check does not use the release-driving package version');
 
   const release = workflow.slice(workflow.indexOf('\n  release:'));
-  assert.match(release, /^\s{4}needs:\s*build\s*$/m,
-    'the Release should wait for the IPA build only');
+  assert.match(release, /^\s{4}needs:\s*\[build, gate\]\s*$/m,
+    'the Release must wait for the IPA build and authoritative tests, not galleries');
   assert.doesNotMatch(release, /BirdChaser-mockups|needs:[^\r\n]*mockups/,
     'the installable Release waits for or publishes mockup artifacts');
 

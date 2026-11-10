@@ -1393,8 +1393,9 @@ test('F1292 selective observation recovery checks individual source ages without
     try {
       await assert.rejects(tasks.sightings.acquire(false), /enrichment coverage is incomplete/);
       const slug = A.getReportSlug(), original = await A.loadChaseSnapshot(slug);
-      const file = Object.keys(original.feedTimes)[0];
-      const feed = BL.planFeeds((await A.getChase()).profile).find(feed => feed.file === file);
+      const feed = BL.planFeeds((await A.getChase()).profile)
+        .find(feed => feed.kind !== 'notable' && Object.hasOwn(original.feedTimes, feed.file));
+      const file = feed?.file;
       assert.ok(feed, 'mutate an actual retained base source, not a synthetic unused key');
       let feedTimes = { ...original.feedTimes, [file]: Date.now()
         + (invalid === 'expired' ? -31 * 60000 : 60000) };
@@ -1420,8 +1421,12 @@ test('F1292 selective observation recovery checks individual source ages without
           'the invalid source needs its own newly verified acquisition time');
       }
       for (const [other, at] of Object.entries(original.feedTimes)) {
-        if (invalid === 'legacy') assert.equal(saved.feedTimes[other], acquiredAt,
-          'legacy source ages must conservatively retain their original snapshot time');
+        if (invalid === 'legacy') {
+          const notable = BL.planFeeds((await A.getChase()).profile)
+            .some(feed => feed.file === other && feed.kind === 'notable');
+          assert.equal(saved.feedTimes[other], notable ? at : acquiredAt,
+            'verified newer notable ages win over a legacy snapshot fallback');
+        }
         else if (other !== file) assert.equal(saved.feedTimes[other], at, 'unrelated source age must remain');
       }
       assert.deepEqual(app.state.errors, []);
@@ -4173,6 +4178,33 @@ test('F1193 Busy Patches resolves distance-derived counties before scanning and 
   } finally { app.window.close(); }
 });
 
+test('F1315 cold selected-bird sightings cannot queue behind unanswered supporting rarity feeds', async () => {
+  const app = await boot({ sample: false, fetch: url => {
+    if (/\/recent\/zzzrare(?:\?|$)/.test(url)) return [];
+    return null;
+  } });
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-spLookupBtn', { load: false });
+    const firstRequest = app.state.fetches.length;
+    const pending = A.lookupSpecies('zzzrare', 'Synthetic Absent Grebe');
+    const relevant = url => /\/recent\/zzzrare(?:\?|$)|ref\/taxonomy|\/recent\/notable(?:\?|$)/.test(url);
+    await waitFor(() => app.state.fetches.slice(firstRequest).some(relevant),
+      'first selected-bird or supporting acquisition');
+    assert.match(app.state.fetches.slice(firstRequest).find(relevant), /\/recent\/zzzrare(?:\?|$)/,
+      'primary sightings must enter the foreground governor before independent supporting evidence');
+    await waitFor(() => /No reports of Synthetic Absent Grebe/.test(
+      app.$('spLookupStatus').textContent), 'primary sightings despite unanswered supporting feeds');
+    await pending;
+    assert.ok(app.state.fetches.some(url => /\/recent\/zzzrare(?:\?|$)/.test(url)));
+    await waitFor(() => app.state.fetches.some(url => /ref\/taxonomy|\/recent\/notable(?:\?|$)/.test(url)),
+      'actual unanswered supporting acquisition');
+    assert.match(app.$('spLookupStatus').textContent, /No reports of Synthetic Absent Grebe/);
+    assert.equal(app.$('spLookupStatus').querySelector('progress'), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F1315 actual Stakeout restores saved reports before acquisition and preserves the original freshness deadline', async () => {
   const app = await boot({ sample: false });
   let release;
@@ -4985,7 +5017,7 @@ for (const cancel of [false, true]) {
       assert.equal(JSON.parse(saved).episodes.verfly, undefined, 'automatic full-feed work stays conservative');
       if (cancel) held = new Promise(resolve => { release = () => resolve([bird]); });
       const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
-      app.$('surgeBtn').closest('section').querySelector('.refreshbtn').click();
+      const refreshed = A.loadSurge(null, false, { fullRefresh: true });
       await waitFor(() => app.state.fetches.filter(url => /data\/obs\//.test(url)).length > before,
         'full-feed explicit notable acquisition');
       if (cancel) {
@@ -4993,6 +5025,7 @@ for (const cancel of [false, true]) {
         release();
       }
       await A.getChaseRarity();
+      await refreshed;
       await new Promise(resolve => setTimeout(resolve, 0));
       if (cancel) {
         assert.equal(store.getItem(key), saved, 'a completed obsolete source cannot create an episode');
@@ -5584,8 +5617,7 @@ test('F1046 production observation retry refetches only failed feeds and cannot 
       /data\/obs\/.+\/recent\/notable/.test(url) && !url.endsWith(failedPath));
     assert.ok(successfulNotable.length > 0,
       'the control must acquire a successful notable sibling before it can prove cache preservation');
-    const realNow = app.window.Date.now;
-    app.window.Date.now = () => realNow() + 31 * 60 * 1000;
+    A.fgWindowReset(); A.fgSchedReset(Date.now());
     const before = app.state.fetches.length;
     await A.retrySurgeSources(['observations', 'hotspots']);
     assert.deepEqual(app.state.fetches.slice(before), ['https://api.ebird.org/v2/' + failedPath],
@@ -8226,6 +8258,22 @@ async function seedCurrentSeen(app,codes) {
   seedOwnedSnapshot(app,codes,model);
 }
 
+function seedCompleteNotableChase(app, rowsByFile, at = Date.now()) {
+  const A = app.window.__app, profile = A.chaseProfile();
+  const rows = {}, feedStates = {}, feedTimes = {};
+  app.window.BirdLogic.planFeeds(profile).filter(feed => feed.kind === 'notable').forEach(feed => {
+    rows[feed.file] = rowsByFile[feed.file] || [];
+    feedStates[feed.file] = 'ok';
+    feedTimes[feed.file] = at;
+  });
+  A.seedChase(profile.slug, {
+    t: at, rarity: false, rows, feedStates, feedTimes,
+    fetchBaseKey: A.chaseFetchBaseKey(profile),
+    geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
+    speciesCodes: [...new Set(Object.values(rows).flat().map(row => row.speciesCode))],
+  });
+}
+
 async function seedRarityChase(app, rows, at = Date.now()) {
   const A = app.window.__app;
   if (A.personalListEvidence().complete) {
@@ -9705,9 +9753,10 @@ test('F815 live Bird Gen acquires FOY after primary startup and owns its pending
       .samples[1]?.outcome === 'ok', 'warm FOY-owned reopening');
     assert.equal(annualRequests(), 1, 'warm baseline reopening must not repeat its regional page read');
     releaseFirst = null;
-    app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+    const refreshed = A.loadSurge(null, false, { fullRefresh: true });
     await waitFor(() => releaseFirst, 'explicit annual-first refresh');
     releaseFirst(foySourceFixture(1, true));
+    await refreshed;
     await waitFor(() => A.performanceReport({sectionId:'sec-surgeBtn'})
       .samples[2]?.outcome === 'ok', 'refreshed annual-first publication');
     assert.equal(annualRequests(), 2);
@@ -17261,15 +17310,12 @@ test('F830 gallery personal fixture qualifies real Twitches controls and preserv
   assert.equal(A.personalListEvidence().complete, true);
   assert.equal(A.personalListEvidence().count, 1);
   const profile = A.chaseProfile();
-  A.seedChase(profile.slug,{t:Date.now(),rarity:false,
-    fetchBaseKey:A.chaseFetchBaseKey(profile),
-    geoNotableKm:app.window.BirdLogic.geoNotableDistKm(profile),
-    speciesCodes:['shtsan'],rows:{'king-notable.json':[
+  seedCompleteNotableChase(app, {'king-notable.json':[
       {speciesCode:'shtsan',comName:'Sharp-tailed Sandpiper',
         lat:profile.home.lat,lng:profile.home.lng,
         obsDt:new Date().toISOString().slice(0,10),locName:'Representative patch',
         locId:'L2',subId:'S-TWITCH-1'}
-    ]}});
+    ]});
   A.showSection('sec-refreshBtn');
   await A.refresh();
   await waitFor(() => app.$('todayYear'), 'real Twitches personal filter');
@@ -20595,11 +20641,7 @@ test('F739 captured RBA inputs survive scoped Unseen ingestion, deduplication an
     [countyFeed.file]: king.concat(control),
     'geo-notable.json': jefferson.concat(king, control),
   };
-  A.seedChase(profile.slug, {
-    t: Date.now(), rarity: false, rows: raw,
-    fetchBaseKey: A.chaseFetchBaseKey(profile),
-    geoNotableKm: BL.geoNotableDistKm(profile),
-  });
+  seedCompleteNotableChase(app, raw);
   A.setTwitchView('list');
   A.setRarityFilter('distance', 'near');
   app.window.localStorage.setItem(A.chaseMiKey(), '35');
@@ -22450,7 +22492,8 @@ test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial
     const episodeId = A.loadSurgeRetained().ppte.rows[0].id;
     assert.equal(box.querySelector('.surgealerttitle .hslink').getAttribute('data-loc'), 'L333');
     for (phase of ['partial', 'failed']) {
-      app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+      A.fgWindowReset(); A.fgSchedReset(Date.now());
+      await A.loadSurge(null, false, { fullRefresh: true });
       await settled();
       assert.equal(box.dataset.sourcePpte, phase);
       assert.equal(box.querySelectorAll('[data-alert-kind="ppte"]').length, 1);
@@ -22462,7 +22505,8 @@ test('F931/F1009 production Bird Gen retains dated PPTE evidence through partial
         'retained source waves must not create a new notification episode');
     }
     phase = 'malformed';
-    app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+    A.fgWindowReset(); A.fgSchedReset(Date.now());
+    await A.loadSurge(null, false, { fullRefresh: true });
     await settled();
     assert.equal(box.dataset.sourcePpte, 'failed',
       'a malformed placeholder is not a verified successful-empty RBA acquisition');
@@ -24353,9 +24397,11 @@ test('F374 a forced offline patch refresh keeps the last good chase snapshot and
   A.fgSchedReset(clock);
   const refresh = app.$('destBtn').closest('section').querySelector('.refreshbtn');
   assert.ok(refresh, 'Today’s patches has no refresh control');
-  app.click(refresh);
+  const forced = A.getChase(true);
   assert.match(app.$('destResults').textContent, /Cached Airplane Marsh/,
     'starting a refresh erased the last good patch card');
+  await forced;
+  await A.loadDestinations();
   await waitFor(() => !app.$('destBtn').disabled,
     'the forced offline patch refresh to settle', 30000);
 
@@ -25492,6 +25538,7 @@ test('a species lookup shows how good its places are historically', async () => 
         }];
       }
       // GBIF: species/match, then the counts the multiplier divides.
+      if (/\/recent\/notable(?:\?|$)/.test(url)) return [];
       if (/species\/match/.test(url)) return { usageKey: 2482593 };
       // The baseline is the COUNTY the place sits in, so the code reverse-
       // geocodes the coordinate first. Unstubbed, this hangs forever by design
@@ -25548,7 +25595,8 @@ test('a species lookup shows how good its places are historically', async () => 
 
   doc.getElementById('spLookup').value = 'Western Kingbird';
   A.runSpeciesLookup();
-  await new Promise((r) => setTimeout(r, 400));
+  await waitFor(() => /Historically back around/.test(
+    doc.getElementById('spLookupBest').textContent), 'independent arrival note after primary sightings');
   const host = doc.getElementById('spLookupBest');
   assert.ok(host, 'the lookup has somewhere to put this');
   const txt = host.textContent;
@@ -25579,6 +25627,7 @@ test('switching reports invalidates Stakeout bird results, code lists and in-fli
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/US-WA\/recent\?/.test(url)) return [];
+      if (/\/recent\/notable(?:\?|$)/.test(url)) return [];
       return null;
     },
     storage: {
@@ -25660,6 +25709,7 @@ test('Stakeout search tries parent regions without claiming a parent bird is loc
         }];
       }
       if (/data\/obs\/US-WA\/recent\/ostric2/.test(u)) return [];
+      if (/\/recent\/notable(?:\?|$)/.test(u)) return [];
       if (/ref\/taxonomy\/ebird\?fmt=json&locale=en$/.test(u)) return [];
       return null;
     },
@@ -28287,7 +28337,7 @@ test('F801 repeated refresh joins existing work instead of spending another quer
   app.window.close();
 });
 
-test('F801 a failed refresh keeps retained cards and a successful empty refresh removes them', async () => {
+test('F801 a failed source keeps retained cards and a successful empty Retry removes them', async () => {
   let failing = true;
   const app = await boot({ storage: {
     ...f801Days(), ebird_favs: JSON.stringify([
@@ -28310,7 +28360,7 @@ test('F801 a failed refresh keeps retained cards and a successful empty refresh 
   await waitFor(() => A.performanceReport({ sectionId: 'sec-surgeBtn' })
     .samples[0].outcome === 'ok', 'failed sources settled');
   failing = false;
-  app.click(app.$('sec-surgeBtn').querySelector('.refreshbtn'));
+  app.click(app.$('surgeResults').querySelector('[data-source-retry="favorites"]'));
   await waitFor(() => app.$('surgeResults').dataset.sourceFavorites === 'ok', 'successful empty replacement');
   assert.doesNotMatch(app.$('surgeResults').textContent, /Marbled Godwit/);
   assert.equal(A.loadSurgeRetained().favorite.rows.length, 0,
@@ -29438,8 +29488,9 @@ test('F1020 F1021 F1034 Recent keeps icon refresh, operable PATAGONIA links and 
     assert.equal(refresh.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
     assert.equal(root.querySelectorAll(':scope > p').length, 0, 'surrounding small-print blocks remain');
     assertRecentOutcome(app, /Set Home/, true);
-    assert.equal(root.querySelectorAll('.recent-birdgen-actions button').length, 2,
-      'only Refresh and Full feed remain in the main Menu');
+    assert.deepEqual([...root.querySelectorAll('.recent-birdgen-actions button')].map(button => button.id),
+      ['recentBirdGenRefresh', 'recentBirdGenLatest', 'recentBirdGenOpen'],
+      'normal Refresh, explicit Fetch latest and Full feed remain separate actions');
     const preview = root.querySelector('[data-recent-kind="ppte"]');
     const birds = [...preview.querySelectorAll('.surgealerttitle .splink')];
     const full = [...app.$('surgeFeed').querySelectorAll('.surgealerttitle .splink')];
@@ -29948,6 +29999,23 @@ test('F1303 actual Mass Retry clears Loading after a held acquisition reaches a 
     assert.doesNotMatch(massLine().textContent, /Loading/);
     assert.ok(massLine().querySelector('[data-source-retry="mass"]'),
       'limited evidence must retain a retry affordance, not become full success');
+    await new Promise(resolve => app.window.requestAnimationFrame(resolve));
+    const traces = app.window.__dbg.buf.map(row => row.msg)
+      .filter(message => message.startsWith('Bird Gen retry trace:'));
+    assert.equal(traces.length, 4, 'only one admitted manual attempt gets four bounded witnesses');
+    const identity = traces[0].match(/^Bird Gen retry trace: load \d+; attempt \d+; source mass;/)?.[0];
+    assert.ok(identity, 'native witnesses need an opaque same-load/attempt identity');
+    assert.ok(traces.every(message => message.startsWith(identity)));
+    assert.match(traces[0], /phase admitted; result unknown; current true; pending true/);
+    assert.match(traces[1], /phase terminal; result partial; current true; pending true/);
+    for (const [index, phase] of [[2, 'DOM'], [3, 'frame-callback']]) {
+      assert.ok(traces[index].includes('; phase ' + phase + '; result partial; current true; pending false'));
+      assert.match(traces[index], /generation-current true; navigation-current true; scope-current true/);
+      assert.match(traces[index], /retained-context-current true; render-context-current true; cancellation-current true/);
+      assert.match(traces[index], /DOM partial; DOM-loading false; DOM-retry true; page-visible true/);
+    }
+    assert.doesNotMatch(traces.join('\n'),
+      /L1303001|L1303999|L821|margod|mallar3|Marbled Godwit|Synthetic|api\.ebird|47\.|-123\./);
     assert.equal(unrelated(), beforeUnrelated, 'Mass Retry cannot refresh completed observation/ranking sources');
     assert.ok(A.loadSurgeRetained().mass.acquiredAt >= initial.acquiredAt);
     assert.deepEqual(app.state.errors, []);
@@ -33561,15 +33629,21 @@ test('F578 Favorite patches reclassifies cached observations and Refresh fetches
   A.renderFavs();
   assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager/,
     'removing a seen bird from the watchlist must hide it without refetching');
+  app.click(app.$('favResults').closest('section').querySelector('h2 .refreshbtn'));
+  await waitFor(() => !app.$('favLoadBtn').disabled, 'fresh Favorite patches normal Refresh');
+  assert.equal(calls(), 1, 'normal Refresh must reuse still-fresh visible patch observations');
   observations = [{
     speciesCode: 'comnig', comName: 'Common Nighthawk', obsDt: '2026-09-26 08:00',
     subId: 'S-new-feed',
   }];
+  const realNow = app.window.Date.now;
+  app.window.Date.now = () => realNow() + 31 * 60000;
+  A.fgWindowReset(); A.fgSchedReset(app.window.Date.now());
   app.click(app.$('favResults').closest('section').querySelector('h2 .refreshbtn'));
   for (let i = 0; i < 300 && !app.$('favResults').textContent.includes('Common Nighthawk'); i++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.equal(calls(), 2, 'Refresh did not bypass both rendered-detail and eBird response caches');
+  assert.equal(calls(), 2, 'normal Refresh must reacquire expired rendered-detail and eBird evidence');
   assert.match(app.$('favResults').textContent, /Common Nighthawk/);
   assert.doesNotMatch(app.$('favResults').textContent, /Western Tanager|Hidden Hawaii Patch/);
   assert.equal(app.state.fetches.some((url) => url.includes('/data/obs/L-HI/')), false,
@@ -36145,12 +36219,7 @@ test('F889/F892 Twitches Unseen retains seen Watch birds with a plain WATCH tag'
     'the watched control must have genuinely unresolved taxonomy');
   assert.ok(A.personalListEvidence().needsProof.taxmiss,
     'the unresolved code is still explicit Watch List evidence');
-  A.seedChase(profile.slug,{
-    t:Date.now(),rarity:false,rows:{'king-notable.json':raw},
-    speciesCodes:raw.map(row => row.speciesCode),
-    fetchBaseKey:A.chaseFetchBaseKey(profile),
-    geoNotableKm:app.window.BirdLogic.geoNotableDistKm(profile),
-  });
+  seedCompleteNotableChase(app, {'king-notable.json':raw});
 
   A.refresh();
   await waitFor(() => doc.querySelector('#results .twitchcard'), 'Twitches cards');
@@ -40235,8 +40304,10 @@ test('F434 likely finders rank overlapping checklists by earliest end time', asy
     },
   });
   try {
-    app.window.Date.now = () => Date.parse('2026-09-21T12:00:00Z');
+    const started = Date.now(), historical = Date.parse('2026-09-21T12:00:00Z');
+    app.window.Date.now = () => historical + Date.now() - started;
     const A = app.window.__app;
+    A.fgWindowReset(); A.fgSchedReset(historical);
     A.abaArchiveAdd('US-WA', reports);
     await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
     await waitFor(() => {
@@ -40501,7 +40572,8 @@ test('a species with no recent reports says so as a result, not an error', async
   const doc = app.window.document;
   doc.getElementById('spLookup').value = 'Absent Grebe';
   app.window.__app.runSpeciesLookup();
-  await new Promise((r) => setTimeout(r, 250));
+  await waitFor(() => /No reports/.test(doc.getElementById('spLookupStatus').textContent),
+    'verified empty primary sightings');
   const st = doc.getElementById('spLookupStatus').textContent;
   assert.match(st, /not being seen right now|No reports/,
     `absence is stated plainly: got "${st}"`);
@@ -40539,7 +40611,7 @@ test('tapping a species in the match list runs the lookup', async () => {
   assert.equal(btns.length, 2, 'two matches offer two choices rather than guessing');
   assert.equal(hit.length, 0, 'and nothing is fetched until one is chosen');
   btns[0].dispatchEvent(new app.window.Event('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 250));
+  await waitFor(() => hit.length === 1, 'chosen species primary sightings request');
   assert.equal(hit.length, 1, 'tapping a match actually looks it up');
   app.window.close();
 });
@@ -49279,8 +49351,8 @@ test('Refresh actually refetches; opening the section does not', async () => {
   assert.equal(waves, first,
     'reloading from cache costs nothing — a section you open twice is not two waves');
 
-  // ...but the ↻ is a promise to go and look again.
-  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  // Deliberate source force is separate from the cache-aware normal arrow.
+  doc.getElementById('twitchFetchLatest').click();
   await waitFor(() => waves > first,'visible Refresh to start a new rarity read');
   assert.ok(waves > first,
     `Refresh must actually refetch: ${first} calls before, ${waves} after`);
@@ -49382,7 +49454,7 @@ test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
   calls = [];
   await waitFor(() => !doc.getElementById('refreshBtn').disabled,
     'the first load to release the button');
-  doc.getElementById('sec-refreshBtn').querySelector('.refreshbtn').click();
+  doc.getElementById('twitchFetchLatest').click();
   await waitFor(() => calls.some((u) => /notable/.test(u)),
     'the alert feeds to be re-read');
   await new Promise((r) => setTimeout(r, 400));   // let any stragglers land
@@ -50937,8 +51009,8 @@ test('the early rarity view never leaks into the shared chase cache', () => {
   assert.ok(!/_chase\[slug\]\s*=/.test(src),
     'and runWave never writes the shared cache itself — finish() does that, '
     + 'and only with a complete phase-1 view');
-  assert.match(src, /delete _chaseRarity\[slug\];/,
-    'and it is dropped the moment the real phase-1 view exists');
+  assert.match(src, /feedTimes:\s*Object\.assign\(\{\}, feedTimes\)/,
+    'independent notable retention keeps actual source ages after full phase one');
   // The rarity sections are complete here. Bird Gen is a labelled partial
   // head start and has a separate full-phase repaint. F309 deliberately
   // removed Bird Gen from this loader fan-out: putting it back recursively

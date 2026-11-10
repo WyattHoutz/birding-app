@@ -15916,9 +15916,6 @@
         }
         if (finderContext && $('spLookup')) $('spLookup').value = name;
         if (!refresh) resetSpeciesLookupView();
-        // Taxonomy and sightings have separate data owners. Start the visible
-        // path without awaiting it, so taxonomy failure cannot block sightings.
-        if (!refresh) renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
         if ($('spLookupClear')) $('spLookupClear').hidden = false;
         st.textContent = 'Looking up ' + name + ' across ' + reportLabel
           + ' (last ' + SP_LOOKUP_BACK + ' days)…';
@@ -15940,8 +15937,20 @@
           heldGroup.code = heldGroup.code || code;
           _spLookupGroup = heldGroup;
         }
-        if (!refresh) hydrateStakeoutEvidence(_spLookupEvidence, generation);
         renderSpeciesLookup();
+        function startSupportingEvidence() {
+          // Admit primary sightings before independent taxonomy/rarity work,
+          // including after the asynchronous saved-result read.
+          if (!refresh) renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
+          if (!refresh) hydrateStakeoutEvidence(_spLookupEvidence, generation);
+          stateRbaRecords(false).then(function (result) {
+            return stakeoutRarityEvidenceRows(result && result.rows || [], code, name);
+          }).catch(function () { return []; }).then(function (rbaRows) {
+            if (!current() || !rbaRows.length) return;
+            refreshStakeoutLookupEvidence(_spLookupEvidence, rbaRows);
+            renderSpeciesLookup();
+          });
+        }
         var sightings = (refresh || mega ? Promise.resolve(null)
           : readSpeciesLookupSnapshot(snapshotKey, snapshotContext, code)).then(function (snapshot) {
           if (!current()) return null;
@@ -15962,23 +15971,18 @@
             }
             _spLookupLoading = !reusedSnapshot;
             renderSpeciesLookup();
-            if (reusedSnapshot) return snapshot.rows;
+            if (reusedSnapshot) {
+              startSupportingEvidence();
+              return snapshot.rows;
+            }
           }
           var request = mega && !refresh ? megaEnsureState(mega.view, mega)
             : loadSpeciesSightings(region, code, generation, scopeSlug, refresh, current);
           var memo = !refresh && _ebCache[ebirdObservationPath(sourcePath)];
           sourceDeadline = memo ? memo.t + EB_CACHE_MS : 0;
+          startSupportingEvidence();
           return request;
         });
-        var stateRba = stateRbaRecords(false).then(function (result) {
-          return stakeoutRarityEvidenceRows(
-            result && result.rows || [], code, name);
-        }).catch(function () { return []; });
-        stateRba.then(function (rbaRows) {
-            if (!current() || !rbaRows.length) return;
-            refreshStakeoutLookupEvidence(_spLookupEvidence, rbaRows);
-            renderSpeciesLookup();
-          });
         return sightings.then(function (rows) {
           if (!current()) return;
           if (!Array.isArray(rows)) throw new Error('Sightings response could not be verified.');
@@ -19447,6 +19451,7 @@
           return countyView(res);
         }
         var pending = _chaseRarityInflight[slug];
+        if (!ownerWork && pending) yieldAutomaticRecentBirdGen();
         if (pending && pending.current() && pending.fetchBaseKey === fetchBaseKey
             && pending.geoNotableKm >= geoNotableKm) {
           if (force && force !== 'failed' && !pending.forceFresh) {
@@ -48163,6 +48168,7 @@
         };
         var acquired = surgeAcquiredSources(), birdcastState = 'loading';
         var attemptStates = {}, pendingSources = {}, sourceTasks = {}, runningSources = {};
+        var retrySequence = 0;
         var observationRetryFeeds = {};
         Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
           attemptStates[key] = 'loading';
@@ -48170,13 +48176,37 @@
         });
         var sourceModelKeys = { leaderboard: 'cascades', hotspots: 'convergence',
           favorites: 'favorite', mass: 'mass', ppte: 'ppte' };
+        function traceSourceRetry(key, attempt, phase, result) {
+          if (!window.document) return;
+          function state(value) {
+            return ['loading', 'ok', 'partial', 'failed', 'cancelled', 'notApplicable']
+              .indexOf(value) >= 0 ? value : 'unknown';
+          }
+          var owned = current(), box = owned && $('surgeResults');
+          var row = box && box.querySelector('[data-source-status="' + key + '"]');
+          dbg('net', 'Bird Gen retry trace: load ' + generation + '; attempt ' + attempt
+            + '; source ' + key + '; phase ' + phase + '; result ' + state(result && result.state)
+            + '; current ' + owned + '; pending ' + !!pendingSources[key]
+            + '; generation-current ' + (generation === _surgeLoadGeneration)
+            + '; navigation-current ' + (loadNavigation === _navGeneration)
+            + '; scope-current ' + scopeCurrent(loadScope)
+            + '; retained-context-current ' + (loadRetainedContext === surgeRetainedContext())
+            + '; render-context-current ' + (loadContext === surgeSourceContext())
+            + '; cancellation-current ' + (loadCancellation === _workCancelGeneration)
+            + '; DOM ' + state(box && box.getAttribute('data-source-' + key))
+            + '; DOM-loading ' + !!(row && /Loading/.test(row.textContent))
+            + '; DOM-retry ' + !!(row && row.querySelector('[data-source-retry="' + key + '"]'))
+            + '; page-visible ' + !document.hidden);
+        }
         function sourceTask(schedule, key, start, finish) {
           sourceTasks[key] = function (retry) {
             if (!current()) return Promise.resolve({ state: 'cancelled' });
             if (runningSources[key]) return runningSources[key];
+            var retryAttempt = retry ? ++retrySequence : 0;
             attemptStates[key] = 'loading';
             pendingSources[key] = true;
             paintSurgeModel();
+            if (retry) traceSourceRetry(key, retryAttempt, 'admitted');
             var started;
             try {
               started = retry && countyState === 'failed'
@@ -48194,6 +48224,7 @@
                 }
                 return { state: error && error.queueCancelled ? 'cancelled' : 'failed', rows: [] };
               }).then(function (result) {
+                if (retry) traceSourceRetry(key, retryAttempt, 'terminal', result);
                 if (!current()) return { state: 'cancelled' };
                 pendingSources[key] = false;
                 if (key === 'mega') attemptStates[key] = result && result.state === 'failed'
@@ -48219,6 +48250,12 @@
                   });
                 }
                 paintSurgeModel();
+                if (retry) {
+                  traceSourceRetry(key, retryAttempt, 'DOM', result);
+                  paintFrame(function () {
+                    traceSourceRetry(key, retryAttempt, 'frame-callback', result);
+                  });
+                }
                 return result;
               }).finally(function () { delete runningSources[key]; });
             runningSources[key] = task;
