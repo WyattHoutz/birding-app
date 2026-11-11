@@ -3710,9 +3710,12 @@ test('F1217 a reopened offline view restores one canonical Busy snapshot, not an
 });
 
 test('F1233 F1255 shared provisional Busy revisions converge without leaking below-threshold Bird Gen alerts', async () => {
-  const now = Date.now(), at = (days, minute) => {
-    const date = new Date(now); date.setDate(date.getDate() - days);
-    date.setMinutes(date.getMinutes() - 10 - minute);
+  const now = new Date();
+  now.setHours(0, 10, 0, 0);
+  const at = (days, minute) => {
+    const date = new Date(now); date.setDate(date.getDate() - days - 1);
+    // Distinct shared-checklist times stay on one day and inside each 36h window.
+    date.setHours(18, minute, 0, 0);
     return formatObsStamp(date);
   };
   const meta = ['POSITIVE', 'NOISE', 'WALK'].map(label => ({
