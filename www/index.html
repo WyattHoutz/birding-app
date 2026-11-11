@@ -4005,7 +4005,6 @@
     .prefetch-icon { display: grid; place-items: center; width: 32px; height: 32px; }
     .prefetch-icon svg { width: 100%; height: 100%; }
     .prefetch-detail, .prefetch-dependencies { display: block; font-size: calc(12px * var(--s)); font-weight: 400; }
-    .prefetch-group { grid-column: 1 / -1; margin-top: 8px; font-size: calc(13px * var(--s)); }
     .prefetch-hint { font-size: calc(12px * var(--s)); font-style: italic; color: var(--muted); }
     .prefetch-action { display: block; }
     #setupSheetBody .prefetch-action:disabled { opacity: 1; color: var(--muted); background: var(--bg); }
@@ -30911,7 +30910,7 @@
           && !state.pending && !state.attempted
           && (!state.evidence.complete || state.evidence.stale);
       }
-      var _setupActivityTimer = null, _setupSeenActivity = null;
+      var _setupActivityTimer = null, _setupSeenActivity = null, _setupOpenedAt = 0;
       function stopSetupActivity() {
         if (_setupActivityTimer != null) clearInterval(_setupActivityTimer);
         _setupActivityTimer = null;
@@ -30921,10 +30920,14 @@
           + '<span class="prefetch-icon" aria-hidden="true">' + setupPrefetchIcon('loading') + '</span>'
           + '<strong>' + esc(label) + '</strong></div>'
           + '<p id="setupActivityStage" role="status">' + esc(stage) + '</p>'
-          + '<p aria-live="off">Elapsed wall time: <span id="setupActivityElapsed">0s</span>.</p></div>';
+          + setupElapsedHtml() + '</div>';
+      }
+      function setupElapsedHtml() {
+        return '<p aria-live="off">Elapsed this visit: <span id="setupActivityElapsed">0s</span>.</p>';
       }
       function startSetupActivity(started) {
         stopSetupActivity();
+        started = Math.max(started, _setupOpenedAt);
         var elapsed = $('setupActivityElapsed'), profile = bcProfile();
         if (!elapsed) return;
         function tick() {
@@ -31615,7 +31618,6 @@
           return !task || !task.prepared || task.preparedAcquire !== task.acquire
             || ['failed', 'partial', 'blocked', 'cancelled'].indexOf(state) >= 0;
         });
-        var shownGroups = {};
         var rows = groups.map(function (group) {
           var state = run ? run.group(group[1]) : 'queued';
           var complete = state === 'ready' || state === 'notApplicable';
@@ -31641,10 +31643,6 @@
                     ? 'Waiting for recovery of ' + waiting.map(setupPrefetchSourceLabel).join(', ')
                     : 'Required Data Unavailable: ' + waiting.map(setupPrefetchSourceLabel).join(', ') : '';
           var dependencies = task && task.depends || [];
-          var kind = dependencies.length ? 'Dependent checks' : 'Independent checks';
-          var heading = shownGroups[kind] ? '' : '<span class="prefetch-group" role="heading" aria-level="3">'
-            + kind + '</span>';
-          shownGroups[kind] = true;
           var dependencyDetail = dependencies.length && !waiting.length
             ? 'Uses ' + dependencies.map(setupPrefetchSourceLabel).join(', ') : '';
           var resource = _setupPrefetch && _setupPrefetch.tasks.resources
@@ -31652,7 +31650,7 @@
           if (state === 'loading' && resource && resource.snapshot().projection
               && resource.snapshot().projection.usable) detail = 'Available; verifying required data';
           return '<li class="prefetch-row" data-source="' + esc(group[1][0])
-            + '" data-state="' + visual + '">' + heading
+            + '" data-state="' + visual + '">'
             + '<span class="prefetch-icon" role="img" aria-label="' + esc(state) + '">'
             + setupPrefetchIcon(visual) + '</span><span class="prefetch-name">' + esc(label)
             + (detail ? '<span class="prefetch-detail">' + esc(detail) + '</span>' : '')
@@ -31663,17 +31661,6 @@
         var count = $('setupPrefetchCount');
         if (count) count.textContent = finished + ' Of ' + groups.length
           + ' Checks Finished · ' + ready + ' Ready';
-        if (run && setupStep() === 'loading' && $('setupActivityStage')) {
-          var active = Object.keys(run.states).filter(function (key) {
-            return run.states[key].state === 'loading' && groups.some(function (group) {
-              return group[1].indexOf(key) >= 0;
-            });
-          });
-          $('setupActivityStage').textContent = active.length
-            ? (_setupPrefetch.recovering ? 'Recovering: ' : 'Loading: ')
-              + active.map(setupPrefetchSourceLabel).join(', ') + '.'
-            : 'Waiting for prerequisites or final source results.';
-        }
       }
       function settleSetupPrefetch(entry, results) {
         if (_setupPrefetch !== entry || !setupPrefetchCurrent() || !entry.engine.settled()) return results;
@@ -31741,17 +31728,13 @@
         $('setupSheetTitle').textContent = 'Getting Ready';
         $('setupSheet').dataset.setupStep = 'loading';
         $('setupSheetBody').dataset.setupStep = 'loading';
-        $('setupSheetBody').innerHTML = '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Checking initial data</h3>'
-          + setupActivityHtml('Checking initial data', 'Waiting for initial prerequisites.')
-          + '<p id="setupPrefetchActivity" class="setuppanel" role="status" data-setup-pending="true">'
-          + 'Please wait. Making the initial data checks. Setup will continue automatically.</p>'
-          + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
-          + '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
+        $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
-          + '<p id="setupPrefetchHint" class="prefetch-hint">Setup advances automatically after the initial checks '
-          + 'and one selective recovery pass, even if some sources fail. '
-          + 'Continue now to retain available data and cancel only these setup checks. '
-          + 'Normal refresh can recover missing data afterward. Close keeps the checks running.</p>'
+          + setupElapsedHtml()
+          + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
+          + '<p id="setupPrefetchActivity" class="prefetch-hint" role="status" data-setup-pending="true">'
+          + 'Setup continues automatically. Close keeps checks running; '
+          + 'Continue with available data stops pending setup checks.</p>'
           + '<div class="setupactions setupfooteractions"><button id="setupContinueAvailable" type="button">'
           + 'Continue with available data</button></div>';
         $('setupContinueAvailable').addEventListener('click', function () {
@@ -32731,7 +32714,10 @@
       function openSetupSheet() {
         var sheet = $('setupSheet');
         if (!sheet) return;
-        if (sheet.hidden) _setupReturnFocus = document.activeElement;
+        if (sheet.hidden) {
+          _setupReturnFocus = document.activeElement;
+          _setupOpenedAt = Date.now();
+        }
         sheet.hidden = false;
         if (!_setupViewportBound) {
           _setupViewportBound = true;

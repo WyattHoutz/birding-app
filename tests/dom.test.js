@@ -549,10 +549,20 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     }
     assert.match(rows.find(row => row.dataset.source === 'sightings').textContent,
       /^Recent Bird Reports/, 'F1287 shared sightings are labelled Recent Bird Reports');
-    assert.match(app.$('setupActivityStage').textContent, /Busy Patches/);
+    assert.match(rows.find(row => row.dataset.source === 'busy').textContent, /Busy Patches.*Loading/);
     assert.equal(calls, Object.keys(tasks).length,
       'F1288 splitting the presentation must not duplicate shared acquisition');
-    assert.match(app.$('setupPrefetchActivity').textContent, /Please wait.*continue automatically/);
+    assert.match(app.$('setupPrefetchActivity').textContent, /continues automatically.*Close keeps checks running/);
+    const body = app.$('setupSheetBody'), list = app.$('setupPrefetchRows');
+    assert.equal(body.firstElementChild.id, 'setupPrefetchCount', 'checks must precede ancillary loading prose');
+    assert.equal(app.$('setupActivityStage'), null, 'the source graphic replaces the aggregate loading paragraph');
+    assert.equal(body.querySelector('.setupactivityheading'), null, 'the duplicate global spinner/header is removed');
+    assert.doesNotMatch(body.textContent, /Checking initial data|Loading:|Please wait/);
+    for (const note of [app.$('setupActivityElapsed'), body.querySelector('.setupduration'),
+      app.$('setupPrefetchActivity')]) {
+      assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+        'useful loading guidance and the timer belong below the unified list');
+    }
     assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
       /3–5 minutes, sometimes longer.*continue with available data/);
     assert.equal(app.$('setupContinueAvailable').disabled, false);
@@ -636,7 +646,7 @@ test('F1299 actual setup Mass access failure waits for Recent, retries only miss
   }
 });
 
-test('F1298 setup groups actual dependencies without hiding independent work or moving source rows', async () => {
+test('F1298/F1326 unified setup list preserves actual dependencies, recovery and stable source rows', async () => {
   const app = await setupOwnedSeenApp(['stable']);
   let releaseTaxonomy, releaseBusy, pending;
   try {
@@ -663,8 +673,9 @@ test('F1298 setup groups actual dependencies without hiding independent work or 
     const sourceOrder = () => [...app.$('setupPrefetchRows').children].map(row => row.dataset.source);
     const order = sourceOrder();
     assert.deepEqual(order.slice(0, 3).sort(), ['taxonomy', 'busy', 'birdcast'].sort());
-    assert.deepEqual([...app.$('setupPrefetchRows').querySelectorAll('.prefetch-group')]
-      .map(node => node.textContent), ['Independent checks', 'Dependent checks']);
+    assert.equal(app.$('setupPrefetchRows').querySelectorAll('.prefetch-group, [role="heading"]').length, 0,
+      'one unified source list must not expose dependency-category headings');
+    assert.doesNotMatch(app.$('setupPrefetchRows').textContent, /Independent checks|Dependent checks/);
     for (const key of order) {
       for (const prerequisite of tasks[key].depends || []) {
         assert.ok(order.indexOf(prerequisite) < order.indexOf(key),
@@ -728,7 +739,7 @@ test('F1260 partial initial attempts automatically advance with an honest result
       'F1288 dependency waiting must name prerequisites rather than imply an active download');
     await waitFor(() => release, 'actual held source');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
-    assert.match(app.$('setupPrefetchActivity').textContent, /Please wait/);
+    assert.match(app.$('setupPrefetchActivity').textContent, /Setup continues automatically/);
     assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
       /3–5 minutes, sometimes longer/);
     const busy = app.$('setupPrefetchRows').querySelector('[data-source="busy"]');
@@ -15124,6 +15135,76 @@ test('F1280 partial modern-record save is rolled back with WATCH intact and unre
     assert.equal(store.getItem(key), '{"version":1,"favorites":"unreadable"}');
     assert.deepEqual(app.state.errors, []);
   } finally { prototype.setItem = set; app.window.close(); }
+});
+
+test('F1325 reopening pending wizard activities resets only the visible visit timer', async () => {
+  for (const step of ['loading', 'seen']) {
+    const app = await setupOwnedSeenApp(['stable']);
+    let release, pending, calls = 0;
+    try {
+      const A = app.window.__app, W = app.window, store = W.localStorage;
+      const clock = W.Date.now.bind(W.Date);
+      let offset = 0;
+      W.Date.now = () => clock() + offset;
+      if (step === 'loading') {
+        store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+        const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+        Object.keys(tasks).forEach(key => {
+          tasks[key].acquire = () => {
+            calls++;
+            return key === 'busy' ? new Promise(resolve => { release = resolve; })
+              : { state: 'ready', value: {} };
+          };
+        });
+        pending = A.startSetupPrefetch(tasks);
+      } else {
+        store.removeItem(A.personalListKey(A.personalListOwner()));
+        store.removeItem('ebird_seen_setup_skipped');
+        const fetch = W.fetch;
+        W.fetch = (url, options) => /\/lifelist\//.test(url)
+          ? (calls++, new Promise(resolve => { release = resolve; })) : fetch(url, options);
+      }
+      store.setItem('bc_setup_step_v1', step);
+      A.openSetupSheet();
+      await waitFor(() => release, 'actual wizard acquisition is held');
+      const engine = A.setupPrefetchEngine();
+      const age = step === 'loading' ? 2407000 : 5000;
+      offset += age;
+      await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= age / 1000,
+        'the initial visit has a long-running held acquisition');
+      app.click(app.$('setupSheetClose'));
+      assert.equal(app.$('setupSheet').hidden, true);
+      offset += step === 'loading' ? 600000 : 1000;
+      const before = calls;
+      A.openSetupSheet();
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
+      assert.equal(app.$('setupActivityElapsed').textContent, '0s', 'reopening must reset the visible timer');
+      assert.match(app.$('setupActivityElapsed').parentElement.textContent, /Elapsed this visit/);
+      assert.equal(calls, before, 'reopening must reuse the pending acquisition');
+      assert.equal(A.setupPrefetchEngine(), engine, 'a visible timer reset must not replace the engine');
+      offset += 2500;
+      await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+        'the reopened visit timer advances');
+      A.renderSetupSheet();
+      assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+        'a same-visit progress repaint must not reset the clock');
+      A.openSetupSheet();
+      assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+        'opening an already visible wizard must not reset the clock');
+      release(step === 'loading' ? { state: 'ready', value: {} } : {
+        ok: true, status: 200, text: async () => ownedPersonalListFixture({ count: 1, codes: ['stable'] })
+      });
+      if (pending) await pending;
+      await waitFor(() => !app.$('setupActivityElapsed'), 'settled wizard activity removes the timer');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (release) release(step === 'loading' ? { state: 'ready', value: {} } : {
+        ok: true, status: 200, text: async () => ownedPersonalListFixture({ count: 1, codes: ['stable'] })
+      });
+      if (pending) await pending;
+      app.window.close();
+    }
+  }
 });
 
 test('F1180 F1261 automatic pending seen fetch has explicit Please wait and Skip, then an exact result review', async () => {

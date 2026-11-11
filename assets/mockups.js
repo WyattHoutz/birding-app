@@ -816,10 +816,21 @@ async function prepareSetupLoadingReview(A, document, personalFixture, lower) {
   const body = document.getElementById('setupSheetBody');
   if (body.querySelector('[data-source="taxonomy"], [data-source="personal"]'))
     throw new Error('Verified prior work still appears in the loading preview');
+  if (body.firstElementChild.id !== 'setupPrefetchCount')
+    throw new Error('The finished-check count must be first in Getting Ready');
+  if (body.querySelector('.prefetch-group, .setupactivityheading, #setupActivityStage')
+      || /Checking initial data|Independent checks|Dependent checks/.test(body.textContent))
+    throw new Error('Getting Ready must use one source list without duplicate loading headings');
+  const rows = document.getElementById('setupPrefetchRows');
+  for (const note of [document.getElementById('setupActivityElapsed'),
+    body.querySelector('.setupduration'), document.getElementById('setupPrefetchActivity')]) {
+    if (!note || !(rows.compareDocumentPosition(note) & w.Node.DOCUMENT_POSITION_FOLLOWING))
+      throw new Error('Getting Ready guidance and elapsed time must follow the source list');
+  }
   const notice = document.createElement('p');
   notice.className = 'hint';
   notice.textContent = 'PREVIEW - sample account and source outcomes.';
-  body.prepend(notice);
+  body.insertBefore(notice, rows);
   body.dataset.mockData = 'true';
   await document.fonts.ready;
   const button = document.getElementById('setupContinueAvailable');
