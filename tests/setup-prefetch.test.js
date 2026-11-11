@@ -3,6 +3,68 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const prefetch = require('../www/setup-prefetch.js');
 
+test('F1330 remaining duration uses compact minutes and zero-padded seconds, rounded up', () => {
+  assert.deepEqual([4000, 59000, 60000, 70000, 2407000, 1].map(prefetch.formatDuration),
+    ['0m04s', '0m59s', '1m00s', '1m10s', '40m07s', '0m01s']);
+});
+
+test('F1330 request-work ETA revises for completion, unequal service, queue expansion and one retry hold', () => {
+  let now = 0;
+  const estimate = prefetch.createEstimate({ rangeMs: [60000, 120000], paceMs: 4000, clock: () => now });
+  const state = { pending: 0 };
+  assert.deepEqual(estimate.read(state), { minMs: 60000, maxMs: 120000, prior: true });
+  const first = estimate.begin(), second = estimate.begin();
+  now += 1000;
+  assert.equal(estimate.read(state).minMs, 60000, 'wall time is not a fixed countdown');
+  estimate.end(first, 2000);
+  assert.equal(estimate.read(state).minMs, 56000, 'completed request work reduces the prior');
+  estimate.end(first, 20000);
+  assert.equal(estimate.read(state).minMs, 56000, 'a repeated completion cannot double-charge work');
+  estimate.end(second, 14000);
+  estimate.begin();
+  assert.equal(estimate.read(state).minMs, 104000, 'unequal live service revises the pace upward');
+  assert.equal(estimate.read({ pending: 40 }).maxMs, 320000, 'discovered shared queue work can exceed the prior');
+  assert.equal(estimate.read({ pending: 40, retryMs: 10000 }).maxMs, 330000,
+    'one retry hold is added once, not once per request or per source');
+  assert.equal(estimate.read({ pending: 40, paceMs: 10000 }).maxMs, 400000,
+    'the existing limiter spacing participates without changing its policy');
+});
+
+test('F1330 unknown/overrun/cancellation cannot masquerade as zero remaining or train failed work', () => {
+  let now = 0;
+  const estimate = prefetch.createEstimate({ rangeMs: [4000, 8000], paceMs: 4000, clock: () => now });
+  const request = estimate.begin();
+  estimate.start(request);
+  now = 4001;
+  assert.equal(estimate.read({ pending: 1 }), null, 'an overdue active request has no supported countdown');
+  estimate.end(request, null);
+  assert.equal(estimate.read({ pending: 9 }), null, 'only unrelated work remains; future source demand is unknown');
+  const next = estimate.begin();
+  assert.equal(estimate.read({}).maxMs, 4000, 'unusable service measurements do not inflate the pace');
+  estimate.end(next, null);
+  assert.equal(estimate.read({}), null, 'exhausted prior with unknown future work is not zero');
+  assert.equal(estimate.read({ pending: 2 }), null, 'unrelated requests cannot turn an unknown source into a known plan');
+  estimate.begin();
+  assert.equal(estimate.read({ pending: 2 }).minMs, 8000, 'newly discovered work restores a live forecast');
+  assert.deepEqual(estimate.read({ settled: true }), { minMs: 0, maxMs: 0, prior: false });
+  estimate.cancel();
+  estimate.start(request); estimate.end(request, 90000);
+  assert.equal(estimate.begin(), null);
+  assert.equal(estimate.read({ pending: 9 }), null, 'retired acquisition owns no new estimate');
+});
+
+test('F1330 display-observer failure cannot interrupt request admission or settlement', () => {
+  const estimate = prefetch.createEstimate({ rangeMs: [4000, 8000], paceMs: 4000,
+    changed: () => { throw new Error('Synthetic display failure'); } });
+  assert.doesNotThrow(() => {
+    const ticket = estimate.begin();
+    estimate.start(ticket);
+    estimate.end(ticket, 1000);
+    estimate.begin();
+  }, 'display failures cannot change request admission or settlement');
+  assert.equal(estimate.read({}).maxMs, 4000);
+});
+
 function resourceFixture(config = {}) {
   const time = { now: 1000 }, calls = [], events = [], projections = [];
   const scope = { owner: 'synthetic-owner', region: 'synthetic-region', date: 'fixture-day' };

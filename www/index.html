@@ -3993,15 +3993,18 @@
       width: 100%; max-width: 320px; margin-left: auto; margin-right: auto;
     }
     .prefetch-count { font-size: calc(15px * var(--s)); font-weight: 600; }
-    .prefetch-ready { display: inline-block; white-space: nowrap; }
+    #setupSheetBody[data-setup-step="loading"] .prefetch-count,
+    #setupSheetBody[data-setup-step="loading"] .prefetch-list,
+    #setupSheetBody[data-setup-step="loading"] .prefetch-hint { max-width: none; }
+    .prefetch-count { margin-top: 8px; margin-bottom: 4px; }
     @media (max-width: 360px) {
       #setupSheet[data-setup-step="loading"] { padding-left: 8px; padding-right: 8px; }
     }
-    .prefetch-list { list-style: none; padding: 0; display: grid; gap: 4px; }
-    .prefetch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr);
-      gap: 10px; align-items: center; font-size: calc(17px * var(--s));
+    .prefetch-list { list-style: none; padding: 0; display: grid; gap: 2px; margin-top: 8px; margin-bottom: 8px; }
+    .prefetch-row { display: grid; grid-template-columns: 26px minmax(0, 1fr);
+      gap: 8px; align-items: center; font-size: calc(17px * var(--s));
       font-weight: 600; line-height: 1.2; }
-    .prefetch-name { padding: 4px 8px; border: 2px solid var(--muted);
+    .prefetch-name { padding: 2px 8px; border: 2px solid var(--muted);
       border-radius: var(--btn-radius); background: var(--card); color: var(--ink); }
     .prefetch-row[data-state="ready"] .prefetch-name {
       background: var(--band); border-color: var(--accent);
@@ -4010,9 +4013,14 @@
       background: color-mix(in srgb, var(--band) 45%, var(--card)); border-style: dashed;
     }
     .prefetch-icon { display: grid; place-items: center; width: 32px; height: 32px; }
+    .prefetch-row .prefetch-icon { width: 26px; height: 26px; }
     .prefetch-icon svg { width: 100%; height: 100%; }
-    .prefetch-detail, .prefetch-dependencies { display: block; font-size: calc(12px * var(--s)); font-weight: 400; }
-    .prefetch-hint { font-size: calc(12px * var(--s)); font-style: italic; color: var(--muted); }
+    .prefetch-detail, .prefetch-dependencies {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    }
+    .prefetch-hint { font-size: calc(12px * var(--s)); font-style: italic; color: var(--muted);
+      margin-top: 8px; margin-bottom: 8px; }
     .prefetch-action { display: block; }
     #setupSheetBody .prefetch-action:disabled { opacity: 1; color: var(--muted); background: var(--bg); }
     @media (prefers-reduced-motion: no-preference) {
@@ -5518,7 +5526,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.188.0';
+      var APP_VERSION = '1.189.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9258,11 +9266,12 @@
       var _etaRetryHold = null;
       var _fgIdleTimer = null, _fgPauseTimer = null;
       var FG_IDLE_RESET_MS = 8000;
+      var LOADING_REQUEST_PACE_MS = 3888;
       function createLoadingEstimate(live, now, slept) {
         if (!Number.isInteger(live) || live < 0) throw new Error('Unreadable remaining request plan.');
         return { remaining: live, completed: 0, started: now, lastDone: now,
           slept0: slept, lastDoneSlept: slept, paused: 0, lastDonePaused: 0,
-          tickAt: now, tickSlept: slept, enabled: live * 3888 >= 30000 };
+          tickAt: now, tickSlept: slept, enabled: live * LOADING_REQUEST_PACE_MS >= 30000 };
       }
       function loadingEstimateText(estimate, now, slept, retryHold) {
         if (!estimate || !estimate.enabled || !estimate.remaining) return '';
@@ -9275,7 +9284,7 @@
         var active = Math.max(0, estimate.lastDone - estimate.started
           - (estimate.lastDoneSlept - estimate.slept0) - estimate.lastDonePaused);
         var pace = estimate.completed >= 3
-          ? Math.max(3888, active / estimate.completed) : 3888;
+          ? Math.max(LOADING_REQUEST_PACE_MS, active / estimate.completed) : LOADING_REQUEST_PACE_MS;
         var sinceLast = Math.max(0, now - estimate.lastDone
           - (slept - estimate.lastDoneSlept) - (estimate.paused - estimate.lastDonePaused));
         var retry = retryHold ? Math.max(0, retryHold.until - now) : 0;
@@ -9770,8 +9779,10 @@
         return Math.min(FG_COOLDOWN_MS, Math.pow(2, attempt) * 1000);
       }
       function fgAttempt(path, attempt, bg, stat, work) {
+        if (stat) stat.attempt = attempt;
         return fgSlot(bg, work).then(function (job) {
           heartbeat();
+          if (stat && work && work.setupEstimate) work.setupEstimate.start(stat.setupEstimateTicket);
           // The moment the queue let this call go. Everything before it is
           // waiting for OTHER calls; everything after is this one.
           if (stat && stat.slotAt == null) {
@@ -10101,11 +10112,14 @@
         //
         // A queue stall and a hung request need opposite responses, so they no
         // longer share a number.
-        var stat = { slept0: _sleptMs };
+        var estimator = work && work.setupEstimate;
+        var ticket = estimator && estimator.begin();
+        var stat = { slept0: _sleptMs, setupEstimateTicket: ticket };
         var p = fgAttempt(path, 0, bg, stat, work)
           .then(function (v) {
             release(); fgNoteOk();
             if (!workCurrent(work)) {
+              if (estimator) estimator.end(ticket, null);
               if (_ebCache[path] && _ebCache[path].p === p) delete _ebCache[path];
               throw queueCancelledError(work);
             }
@@ -10123,6 +10137,8 @@
             // them a 3-second pause between calls is indistinguishable from a
             // hung request.
             var tm = fgTiming(stat, t0);
+            if (estimator) estimator.end(ticket, v != null && !stat.attempt
+              && !tm.slept && !tm.scheduling_gap && !tm.native_background ? tm.net : null);
             performanceNetworkFor(section, work, {
               cached: false,
               queued_ms: tm.queued,
@@ -10147,6 +10163,7 @@
           }, function (e) {
             release(); fgProgressSync();
             var tm = fgTiming(stat, t0);
+            if (estimator) estimator.end(ticket, null);
             performanceNetworkFor(section, work, {
               cached: false,
               queued_ms: tm.queued,
@@ -30843,7 +30860,10 @@
       }
       var SETUP_STEP_KEY = 'bc_setup_step_v1';
       var SETUP_STEPS = ['account', 'key', 'home', 'region', 'seen', 'favorites'];
-      var SETUP_DURATION_ESTIMATE = '3–5 minutes, sometimes longer';
+      var SETUP_ESTIMATE_RANGE_MS = [180000, 300000];
+      var SETUP_DURATION_ESTIMATE = SETUP_ESTIMATE_RANGE_MS.map(function (ms) {
+        return ms / 60000;
+      }).join('–') + ' minutes, sometimes longer';
       var SETUP_DURATION_NOTE = 'Initial data checks can take ' + SETUP_DURATION_ESTIMATE + '. '
         + 'You can continue with available data.';
       var _setupRenderedProfile = null, _setupKeyDraft = '', _setupReturnFocus = null;
@@ -30936,13 +30956,14 @@
       function startSetupActivity(started) {
         stopSetupActivity();
         started = Math.max(started, _setupOpenedAt);
-        var elapsed = $('setupActivityElapsed'), profile = bcProfile();
-        if (!elapsed) return;
+        var elapsed = $('setupActivityElapsed'), estimate = $('setupActivityEstimate'), profile = bcProfile();
+        if (!elapsed && !estimate) return;
         function tick() {
-          if (!elapsed.isConnected || $('setupSheet').hidden || profile !== bcProfile()) {
+          if (!(elapsed || estimate).isConnected || $('setupSheet').hidden || profile !== bcProfile()) {
             stopSetupActivity(); return;
           }
-          elapsed.textContent = Math.max(0, Math.floor((Date.now() - started) / 1000)) + 's';
+          if (elapsed) elapsed.textContent = Math.max(0, Math.floor((Date.now() - started) / 1000)) + 's';
+          if (estimate) renderSetupPrefetchEstimate();
         }
         tick();
         _setupActivityTimer = setInterval(tick, 1000);
@@ -31616,10 +31637,24 @@
       function setupPrefetchCurrent() {
         return _setupPrefetch && _setupPrefetch.context === setupPrefetchContext();
       }
+      function renderSetupPrefetchEstimate() {
+        var node = $('setupActivityEstimate'), entry = setupPrefetchCurrent() && _setupPrefetch;
+        if (!node || !entry) return;
+        var result = entry.work.setupEstimate.read({
+          settled: entry.settled,
+          pending: _fgWaiters.length + _fgBgWaiters.length + _fgActive,
+          paceMs: _fgGap,
+          retryMs: _etaRetryHold ? Math.max(0, _etaRetryHold.until - Date.now()) : 0
+        });
+        node.textContent = !result ? 'Est: calculating...'
+          : 'Est: ' + (result.prior ? Math.round(result.minMs / 60000) + '–'
+              + Math.round(result.maxMs / 60000) + 'm'
+            : SetupPrefetch.formatDuration((result.minMs + result.maxMs) / 2)) + '.';
+      }
       function renderSetupPrefetchProgress() {
         var run = setupPrefetchCurrent() && _setupPrefetch.engine;
         var container = $('setupPrefetchRows');
-        var ready = 0, finished = 0;
+        var finished = 0;
         var groups = setupPrefetchGroups().filter(function (group) {
           var task = _setupPrefetch && _setupPrefetch.tasks[group[1][0]];
           var state = run ? run.group(group[1]) : 'queued';
@@ -31629,7 +31664,6 @@
         var rows = groups.map(function (group) {
           var state = run ? run.group(group[1]) : 'queued';
           var complete = state === 'ready' || state === 'notApplicable';
-          if (complete) ready++;
           if (['loading', 'queued'].indexOf(state) < 0) finished++;
           var visual = complete ? 'ready' : state === 'blocked' ? 'queued' : state;
           var label = group[0];
@@ -31666,10 +31700,9 @@
             + '</span></li>';
         }).join('');
         if (container) container.innerHTML = rows;
-        var count = $('setupPrefetchFinished'), readyCount = $('setupPrefetchReady');
-        if (count) count.textContent = finished + ' Of ' + groups.length
-          + ' Checks Finished ·';
-        if (readyCount) readyCount.textContent = ready + ' Ready';
+        var count = $('setupPrefetchFinished');
+        if (count) count.textContent = finished + ' of ' + groups.length + ' done.';
+        renderSetupPrefetchEstimate();
       }
       function settleSetupPrefetch(entry, results) {
         if (_setupPrefetch !== entry || !setupPrefetchCurrent() || !entry.engine.settled()) return results;
@@ -31698,6 +31731,9 @@
           current: function () {
             return !work.cancelled && !!window.document && !_appUnloading && context === setupPrefetchContext();
           } };
+        work.setupEstimate = SetupPrefetch.createEstimate({ rangeMs: SETUP_ESTIMATE_RANGE_MS,
+          paceMs: LOADING_REQUEST_PACE_MS, clock: Date.now,
+          changed: renderSetupPrefetchEstimate });
         var sources = tasks || acquireInitialDatasetTasks(scope, work);
         var engine = SetupPrefetch.create(sources,
           work.current, renderSetupPrefetchProgress, function (event) {
@@ -31725,6 +31761,7 @@
           }) });
         var cancel = engine.cancel;
         engine.cancel = function () {
+          work.setupEstimate.cancel();
           if (sources.resources) sources.resources.cancel();
           cancel();
         };
@@ -31738,9 +31775,8 @@
         $('setupSheet').dataset.setupStep = 'loading';
         $('setupSheetBody').dataset.setupStep = 'loading';
         $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status">'
-          + '<span id="setupPrefetchFinished"></span> <span class="prefetch-ready">'
-          + '<span id="setupPrefetchReady"></span><span class="prefetch-elapsed" aria-live="off"'
-          + ' title="Elapsed this visit"> <span id="setupActivityElapsed">0s</span> elapsed</span></span></p>'
+          + '<span id="setupPrefetchFinished"></span> '
+          + '<span id="setupActivityEstimate" aria-live="off"></span></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
           + '<p id="setupPrefetchActivity" class="prefetch-hint setupduration" role="status" data-setup-pending="true">'
           + 'Setup continues automatically after initial checks (' + SETUP_DURATION_ESTIMATE
@@ -57252,6 +57288,7 @@
         setupPrefetchContext: setupPrefetchContext,
         acquireInitialDatasetTasks: acquireInitialDatasetTasks,
         setupPrefetchEngine: function () { return setupPrefetchCurrent() && _setupPrefetch.engine; },
+        setupPrefetchEstimate: function () { return setupPrefetchCurrent() && _setupPrefetch.work.setupEstimate; },
         favoritePatchAlerts: favoritePatchAlerts,
         reportingDates: reportingDates, validReportingStats: validReportingStats,
         loadReportingActivity: loadReportingActivity,

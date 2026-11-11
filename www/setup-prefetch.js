@@ -659,5 +659,58 @@
       }
     };
   }
-  return { create: create, createResources: createResources, readyStates: readyStates };
+  function formatDuration(ms) {
+    var seconds = Math.ceil(ms / 1000);
+    return Math.floor(seconds / 60) + 'm' + String(seconds % 60).padStart(2, '0') + 's';
+  }
+  function createEstimate(options) {
+    var clock = options.clock || Date.now, changed = options.changed || function () {};
+    var pace = options.paceMs, range = options.rangeMs.slice();
+    var budget = range.map(function (ms) { return ms / pace; });
+    var started = clock(), requests = new Set(), completed = 0, service = 0, samples = 0, live = true;
+    function notify() {
+      try { changed(); } catch (e) {}
+    }
+    return {
+      begin: function () {
+        if (!live) return null;
+        var ticket = { activeAt: null };
+        requests.add(ticket);
+        notify();
+        return ticket;
+      },
+      start: function (ticket) {
+        if (live && requests.has(ticket)) ticket.activeAt = clock();
+      },
+      end: function (ticket, serviceMs) {
+        if (!live || !requests.delete(ticket)) return;
+        completed++;
+        if (Number.isFinite(serviceMs) && serviceMs > 0) {
+          service += serviceMs;
+          samples++;
+        }
+        notify();
+      },
+      read: function (state) {
+        if (!live) return null;
+        if (state.settled) return { minMs: 0, maxMs: 0, prior: false };
+        var step = Math.max(pace, state.paceMs || 0, samples ? service / samples : 0);
+        var overrun = false;
+        requests.forEach(function (ticket) {
+          if (ticket.activeAt !== null && clock() - ticket.activeAt > step) overrun = true;
+        });
+        if (overrun) return null;
+        var known = requests.size ? Math.max(requests.size, state.pending || 0) : 0;
+        var low = Math.max(known, budget[0] - completed);
+        var high = Math.max(known, budget[1] - completed);
+        if (high <= 0 || !known && (completed > 0 || clock() - started > range[1])) return null;
+        var hold = Math.max(0, state.retryMs || 0);
+        return { minMs: low * step + hold, maxMs: high * step + hold,
+          prior: completed === 0 && step === pace && !hold && known <= budget[0] };
+      },
+      cancel: function () { live = false; requests.clear(); }
+    };
+  }
+  return { create: create, createResources: createResources, createEstimate: createEstimate,
+    formatDuration: formatDuration, readyStates: readyStates };
 });

@@ -558,11 +558,12 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     assert.equal(app.$('setupActivityStage'), null, 'the source graphic replaces the aggregate loading paragraph');
     assert.equal(body.querySelector('.setupactivityheading'), null, 'the duplicate global spinner/header is removed');
     assert.doesNotMatch(body.textContent, /Checking initial data|Loading:|Please wait/);
-    assert.ok(app.$('setupPrefetchCount').contains(app.$('setupActivityElapsed')),
-      'elapsed time belongs in the first progress summary');
-    assert.ok(app.$('setupPrefetchReady').compareDocumentPosition(app.$('setupActivityElapsed'))
-      & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'elapsed time must follow Ready');
-    assert.equal(app.$('setupActivityElapsed').parentElement.getAttribute('aria-live'), 'off');
+    assert.ok(app.$('setupPrefetchCount').contains(app.$('setupActivityEstimate')),
+      'remaining time belongs in the single progress summary');
+    assert.equal(app.$('setupPrefetchReady'), null, 'F1332 removes the contradictory Ready counter');
+    assert.equal(app.$('setupActivityElapsed'), null, 'F1332 final copy omits visible elapsed');
+    assert.equal(app.$('setupActivityEstimate').getAttribute('aria-live'), 'off');
+    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est: 3–5m\.$/);
     const note = app.$('setupPrefetchActivity');
     assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
       'useful loading guidance belongs below the unified list');
@@ -691,8 +692,8 @@ test('F1298/F1326 unified setup list preserves actual dependencies, recovery and
     }
     assert.equal(calls.personal, undefined, 'personal acquisition cannot start before taxonomy');
     const personal = () => app.$('setupPrefetchRows').querySelector('[data-source="personal"]');
-    const elapsed = app.$('setupActivityElapsed');
-    assert.ok(elapsed, 'pending source progress must retain a visible elapsed timer');
+    const estimate = app.$('setupActivityEstimate');
+    assert.ok(estimate, 'pending source progress must retain a visible estimate');
     assert.match(personal().querySelector('.prefetch-detail').textContent, /Waiting for Taxonomy/);
     releaseTaxonomy({ state: 'failed' });
     releaseTaxonomy = null;
@@ -702,10 +703,10 @@ test('F1298/F1326 unified setup list preserves actual dependencies, recovery and
       /Waiting for recovery of Taxonomy/);
     assert.notEqual(personal().dataset.state, 'ready');
     assert.equal(calls.personal, undefined);
-    assert.equal(app.$('setupActivityElapsed'), elapsed,
-      'source progress updates must retain the live elapsed timer node');
+    assert.equal(app.$('setupActivityEstimate'), estimate,
+      'source progress updates must retain the live estimate node');
     assert.deepEqual(sourceOrder(), order, 'failure and independent completion must not reorder boxes');
-    assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
+    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est:/);
     releaseBusy({ state: 'ready', value: {} });
     releaseBusy = null;
     await pending;
@@ -724,6 +725,101 @@ test('F1298/F1326 unified setup list preserves actual dependencies, recovery and
     if (pending) await pending;
     app.window.close();
   }
+});
+
+test('F1330 actual request completion updates the retained ETA without charging cache or pending joins', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let releaseBusy, releaseNetwork, releaseReference, pending;
+  try {
+    const A = app.window.__app, W = app.window, store = W.localStorage;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => key === 'busy'
+        ? new Promise(resolve => { releaseBusy = resolve; }) : { state: 'ready', value: {} };
+    });
+    pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => releaseBusy, 'actual source work remains pending');
+    await waitFor(() => Object.entries(A.setupPrefetchEngine().states)
+      .every(([key, value]) => key === 'busy' || value.state === 'ready'),
+    'all cheap source completions have settled before measuring ETA-only progress');
+    const node = app.$('setupActivityEstimate'), estimate = A.setupPrefetchEstimate();
+    const counter = app.$('setupPrefetchFinished').textContent;
+    assert.equal(node.textContent, 'Est: 3–5m.', 'cheap completed rows cannot invent a faster request pace');
+    let admissions = 0, downloads = 0, completions = 0;
+    const serviceSamples = [];
+    const begin = estimate.begin, end = estimate.end;
+    estimate.begin = () => { admissions++; return begin(); };
+    estimate.end = (...args) => { completions++; serviceSamples.push(args[1]); return end(...args); };
+    const fetch = W.fetch;
+    W.fetch = (url, options) => {
+      if (!String(url).includes('F1330')) return fetch(url, options);
+      downloads++;
+      if (downloads > 1) return new Promise(resolve => { releaseReference = () => resolve({
+        ok: true, status: 200, json: async () => []
+      }); });
+      return new Promise(resolve => { releaseNetwork = () => resolve({
+        ok: true, status: 200, json: async () => []
+      }); });
+    };
+    const work = { current: () => true, sectionId: 'setupSheet', setupEstimate: estimate };
+    const first = A.ebird('data/obs/F1330/recent', true, true, false, work);
+    const joined = A.ebird('data/obs/F1330/recent', true, true, false, work);
+    await waitFor(() => releaseNetwork, 'the one actual uncached request acquired its slot');
+    assert.equal(admissions, 1, 'a pending memo join is not another physical request');
+    const reference = A.ebird('ref/hotspot/F1330?fmt=json', false, false, true, work);
+    releaseNetwork(); releaseNetwork = null;
+    await Promise.all([first, joined]);
+    assert.equal(completions, 1);
+    assert.ok(serviceSamples[0] > 0, 'successful first-attempt network service trains the live pace');
+    assert.equal(app.$('setupActivityEstimate'), node, 'request progress cannot replace the retained display');
+    assert.match(node.textContent, /^Est: \d+m\d{2}s\.$/);
+    assert.notEqual(node.textContent, 'Est: 3–5m.', 'real request completion revises the remaining forecast');
+    assert.equal(app.$('setupPrefetchFinished').textContent, counter, 'ETA changes without an equal-cost check increment');
+    await A.ebird('data/obs/F1330/recent', true, true, false, work);
+    await waitFor(() => releaseReference, 'newly discovered reference work reaches the shared queue');
+    releaseReference(); releaseReference = null;
+    await reference;
+    await A.ebird('ref/hotspot/F1330?fmt=json', false, false, true, work);
+    assert.equal(downloads, 2);
+    assert.equal(admissions, 2, 'memory and durable cache hits cannot become request work');
+    assert.equal(completions, 2);
+    assert.equal(node.textContent, 'Est: calculating...',
+      'remaining unknown source work cannot be replaced by an unrelated queue or a false numeric countdown');
+    releaseBusy({ state: 'ready', value: {} }); releaseBusy = null;
+    await pending;
+    assert.equal(app.$('setupActivityEstimate'), null, 'settlement leaves no pending countdown');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (releaseNetwork) releaseNetwork();
+    if (releaseReference) releaseReference();
+    if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+    if (pending) await pending;
+    app.window.close();
+  }
+});
+
+test('F1330 retrying request service cannot train a false successful cold pace', async () => {
+  let hits = 0;
+  const app = await boot({ fetch(url) {
+    if (!String(url).includes('F1330-retry')) return null;
+    return ++hits === 1 ? { __status: 503 } : { result: 'loaded' };
+  } });
+  try {
+    const A = app.window.__app, samples = [], timings = [];
+    const observer = { begin: () => ({}), start: () => {},
+      end: (ticket, service) => { samples.push(service); } };
+    const result = await A.ebird('ref/region/info/F1330-retry', false, false, false,
+      { current: () => true, setupEstimate: observer }, timing => timings.push(timing));
+    assert.equal(result.result, 'loaded');
+    assert.equal(hits, 2, 'the real unchanged scheduler performed one retry');
+    assert.equal(timings[0].suspended_ms, 0, 'control has no observed heartbeat gap');
+    assert.equal(timings[0].scheduling_gap_ms, 0, 'control has no unrelated scheduling gap');
+    assert.equal(timings[0].native_background_ms, 0);
+    assert.deepEqual(samples, [null], 'retried network work must be excluded from successful pace training');
+  } finally { app.window.close(); }
 });
 
 test('F1260 partial initial attempts automatically advance with an honest result and no Retry gate', async () => {
@@ -757,10 +853,10 @@ test('F1260 partial initial attempts automatically advance with an honest result
     assert.equal(busy.dataset.state, 'loading',
       'F1269 terminal partial/failure children cannot hide the current Busy acquisition');
     assert.match(busy.textContent, /Loading/);
-    assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
+    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est:/);
     assert.equal(parseInt(app.$('setupPrefetchCount').textContent, 10), Object.keys(tasks).length - 1,
       'F1270 finished checks include the terminal failed Rankings check');
-    assert.match(app.$('setupPrefetchReady').textContent, /^10 Ready$/);
+    assert.equal(app.$('setupPrefetchReady'), null, 'one done count includes terminal failure without claiming ready');
     assert.equal(app.$('setupContinue'), null);
     release({ state: 'ready', value: {} });
     await pending;
@@ -1323,7 +1419,7 @@ test('F1310 a registered third manifest supplies actual task, progress and secti
     const row = app.$('setupPrefetchRows').querySelector('[data-source="synthetic-third"]');
     assert.ok(row, 'registered manifests must create their progress row');
     assert.match(row.textContent, /Synthetic third feature.*Ready/);
-    assert.match(app.$('setupPrefetchCount').textContent, /Of 15 Checks/);
+    assert.match(app.$('setupPrefetchCount').textContent, /of 15 done\./);
     let promoted = 0;
     const handle = tasks.resources.get('synthetic-third'), promote = handle.promote;
     handle.promote = () => { promoted++; promote(); };
@@ -1510,7 +1606,7 @@ test('F1288 only verified prior data is omitted, and stale data is revealed befo
       assert.equal(app.$('setupPrefetchRows').querySelector('[data-source="personal"]'), null);
       assert.ok(app.$('setupPrefetchRows').querySelector('[data-source="taxonomy"]'),
         'unverified/replaced acquisition cannot inherit a prepared hint');
-      assert.match(app.$('setupPrefetchCount').textContent, /Of 13 Checks/);
+      assert.match(app.$('setupPrefetchCount').textContent, /of 13 done\./);
       if (stale) {
         const key = A.personalListKey(A.personalListOwner());
         const saved = JSON.parse(store.getItem(key));
@@ -1523,7 +1619,7 @@ test('F1288 only verified prior data is omitted, and stale data is revealed befo
         const row = app.$('setupPrefetchRows').querySelector('[data-source="personal"]');
         assert.ok(row, 'stale prior work must be revealed, not silently skipped');
         assert.equal(row.dataset.state, 'loading');
-        assert.match(app.$('setupPrefetchCount').textContent, /Of 14 Checks/);
+        assert.match(app.$('setupPrefetchCount').textContent, /of 14 done\./);
         releaseList({ ok: true, status: 200, text: async () =>
           ownedPersonalListFixture({ count: 1, codes: ['stable'] }) });
       }
@@ -15179,37 +15275,49 @@ test('F1325 reopening pending wizard activities resets only the visible visit ti
       A.openSetupSheet();
       await waitFor(() => release, 'actual wizard acquisition is held');
       const engine = A.setupPrefetchEngine();
+      const estimate = A.setupPrefetchEstimate();
       const age = step === 'loading' ? 2407000 : 5000;
       offset += age;
-      await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= age / 1000,
-        'the initial visit has a long-running held acquisition');
+      if (step === 'loading') {
+        await waitFor(() => /calculating/.test(app.$('setupActivityEstimate').textContent),
+          'unknown long-running work cannot retain an obsolete numerical estimate');
+      } else {
+        await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= age / 1000,
+          'the initial visit has a held seen-list acquisition');
+      }
       app.click(app.$('setupSheetClose'));
       assert.equal(app.$('setupSheet').hidden, true);
       offset += step === 'loading' ? 600000 : 1000;
       const before = calls;
       A.openSetupSheet();
       assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
-      assert.equal(app.$('setupActivityElapsed').textContent, '0s', 'reopening must reset the visible timer');
       if (step === 'loading') {
-        assert.equal(app.$('setupActivityElapsed').parentElement.title, 'Elapsed this visit');
-        assert.match(app.$('setupActivityElapsed').parentElement.textContent, /elapsed/);
-      } else assert.match(app.$('setupActivityElapsed').parentElement.textContent, /Elapsed this visit/);
+        assert.equal(app.$('setupActivityElapsed'), null);
+        assert.match(app.$('setupActivityEstimate').textContent, /calculating/,
+          'reopening cannot reset the original acquisition estimate to the initial prior');
+      } else {
+        assert.equal(app.$('setupActivityElapsed').textContent, '0s', 'reopening must reset the visible timer');
+        assert.match(app.$('setupActivityElapsed').parentElement.textContent, /Elapsed this visit/);
+      }
       assert.equal(calls, before, 'reopening must reuse the pending acquisition');
       assert.equal(A.setupPrefetchEngine(), engine, 'a visible timer reset must not replace the engine');
+      if (step === 'loading') assert.equal(A.setupPrefetchEstimate(), estimate,
+        'reopening must keep the same request workload and pace evidence');
       offset += 2500;
-      await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
-        'the reopened visit timer advances');
+      if (step === 'seen') await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+        'the reopened seen-list visit timer advances');
       A.renderSetupSheet();
-      assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
-        'a same-visit progress repaint must not reset the clock');
+      if (step === 'seen') assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+        'a same-visit progress repaint must not reset the seen-list clock');
       A.openSetupSheet();
-      assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
+      if (step === 'seen') assert.ok(parseInt(app.$('setupActivityElapsed').textContent, 10) >= 2,
         'opening an already visible wizard must not reset the clock');
       release(step === 'loading' ? { state: 'ready', value: {} } : {
         ok: true, status: 200, text: async () => ownedPersonalListFixture({ count: 1, codes: ['stable'] })
       });
       if (pending) await pending;
-      await waitFor(() => !app.$('setupActivityElapsed'), 'settled wizard activity removes the timer');
+      await waitFor(() => !app.$('setupActivityElapsed') && !app.$('setupActivityEstimate'),
+        'settled wizard activity removes the activity indicators');
       assert.deepEqual(app.state.errors, []);
     } finally {
       if (release) release(step === 'loading' ? { state: 'ready', value: {} } : {

@@ -3720,35 +3720,62 @@ const AUDIT = `<script>
         });
       });
       var count=document.getElementById('setupPrefetchCount');
-      var ready=document.getElementById('setupPrefetchReady');
-      var elapsed=document.getElementById('setupActivityElapsed');
+      var estimate=document.getElementById('setupActivityEstimate');
       var guidance=document.getElementById('setupPrefetchActivity');
       if(body.firstElementChild!==count || body.querySelector('#setupActivityStage, .setupactivityheading')
           || /Checking initial data|Please wait/.test(body.textContent))
         throw new Error('F1327 finished checks must be first without duplicate loading prose');
-      if(!elapsed || !count.contains(elapsed)
-          || !(ready.compareDocumentPosition(elapsed)&Node.DOCUMENT_POSITION_FOLLOWING))
-        throw new Error('F1328 elapsed must follow Ready in the summary');
-      ['fontFamily','fontSize','fontWeight'].forEach(function(property){
-        if(getComputedStyle(ready)[property]!==getComputedStyle(elapsed)[property])
-          throw new Error('F1328 elapsed must match Ready typography: '+property);
-      });
-      var savedElapsed=elapsed.textContent;
-      elapsed.textContent='2407s';
+      if(!estimate || !count.contains(estimate)
+          || document.getElementById('setupPrefetchReady') || document.getElementById('setupActivityElapsed')
+          || !/^\\d+ of \\d+ done\\. Est:/.test(count.textContent))
+        throw new Error('F1332 needs one done/total counter and remaining estimate, without Ready/elapsed');
+      var savedEstimate=estimate.textContent;
+      estimate.textContent='Est: 40m07s.';
       var savedFont=count.style.fontFamily;
-      var timerGeometry=['', 'Arial, sans-serif'].map(function(font){
+      var estimateGeometry=['', 'Arial, sans-serif'].map(function(font){
         count.style.fontFamily=font;
-        var pair=ready.parentElement.getBoundingClientRect();
+        var pair=count.getBoundingClientRect();
         var measurement={font:font||'platform',pair:pair.toJSON(),body:body.getBoundingClientRect().toJSON(),
-          text:ready.parentElement.textContent};
-        if(Math.abs(ready.getBoundingClientRect().top-elapsed.getBoundingClientRect().top)>2
-            || pair.left<body.getBoundingClientRect().left-.5
+          text:count.textContent};
+        if(pair.left<body.getBoundingClientRect().left-.5
             || pair.right>Math.min(innerWidth,body.getBoundingClientRect().right)+1)
-          throw new Error('F1328 Ready and elapsed must fit together on one line: '+JSON.stringify(measurement));
+          throw new Error('F1330 long remaining estimate must fit the body: '+JSON.stringify(measurement));
         return measurement;
       });
       count.style.fontFamily=savedFont;
-      elapsed.textContent=savedElapsed;
+      estimate.textContent=savedEstimate;
+      var labelGeometry=sourceRows.flatMap(function(row){
+        var name=row.querySelector('.prefetch-name'),range=document.createRange();
+        var saved=name.style.fontFamily;
+        var measurements=['','Arial, sans-serif'].map(function(font){
+          name.style.fontFamily=font;
+          range.selectNodeContents(name.firstChild);
+          var text=range.getBoundingClientRect(),box=name.getBoundingClientRect();
+          var lines=Array.from(range.getClientRects()).filter(function(rect){return rect.width>0;}).length;
+          if(text.left<box.left-.5||text.right>box.right+.5||text.bottom>box.bottom+.5)
+            throw new Error('F1331 full source name is clipped: '+name.firstChild.textContent);
+          return {name:name.firstChild.textContent,font:font||'platform',lines:lines};
+        });
+        name.style.fontFamily=saved;
+        return measurements;
+      });
+      if(sourceRows.some(function(row){
+        return Array.from(row.querySelectorAll('.prefetch-detail,.prefetch-dependencies')).some(function(note){
+          var style=getComputedStyle(note);
+          return style.position!=='absolute'||style.clipPath==='none';
+        });
+      }))throw new Error('F1331 source rows must show only their full name and distinct status icon');
+      var compactFit=null;
+      if(innerWidth>=402&&Number('${SCALE}')<=1.2){
+        var sheet=document.getElementById('setupSheet');
+        var oldTop=sheet.style.paddingTop,oldBottom=sheet.style.paddingBottom;
+        sheet.style.paddingTop='62px';sheet.style.paddingBottom='34px';
+        compactFit={clientHeight:body.clientHeight,scrollHeight:body.scrollHeight,
+          simulatedTop:62,simulatedBottom:34};
+        if(body.scrollHeight>body.clientHeight+1||labelGeometry.some(function(label){return label.lines!==1;}))
+          throw new Error('F1331 compact checks must fit without scrolling at normal/120% text');
+        sheet.style.paddingTop=oldTop;sheet.style.paddingBottom=oldBottom;
+      }
       if(!guidance || body.querySelectorAll('.setupduration').length!==1
           || getComputedStyle(guidance).fontStyle!=='italic'
           || !(document.getElementById('setupPrefetchRows').compareDocumentPosition(guidance)&Node.DOCUMENT_POSITION_FOLLOWING)
@@ -3757,8 +3784,10 @@ const AUDIT = `<script>
       var box=continuation.getBoundingClientRect();
       var states=Object.values(A.setupPrefetchEngine().states);
       result.mixedSetup={count:document.getElementById('setupPrefetchFinished').textContent,
-        readyCount:ready.textContent,
-        timerGeometry:timerGeometry,
+        estimate:estimate.textContent,
+        estimateGeometry:estimateGeometry,
+        labelGeometry:labelGeometry,
+        compactFit:compactFit,
         total:Object.keys(tasks).length,
         finished:states.filter(function(item){
           return ['ready','partial','failed','blocked','notApplicable','cancelled'].includes(item.state);
@@ -4949,10 +4978,11 @@ server.listen(0, '127.0.0.1', () => {
       console.log('== ' + r.label + ' == vw ' + r.vw + '  els ' + r.n
         + '  text ' + r.text + '  maxRight ' + r.maxRight
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
+      if (r.mixedSetup) console.log('   F1331 SETUP GEOMETRY ' + JSON.stringify(r.mixedSetup));
       if (r.previewHeight) console.log('   F1086 PREVIEW HEIGHT ' + JSON.stringify(r.previewHeight));
-      if (r.mixedSetup && (r.mixedSetup.count !== r.mixedSetup.finished + ' Of '
-            + r.mixedSetup.total + ' Checks Finished ·'
-          || r.mixedSetup.readyCount !== r.mixedSetup.ready + ' Ready'
+      if (r.mixedSetup && (r.mixedSetup.count !== r.mixedSetup.finished + ' of '
+            + r.mixedSetup.total + ' done.'
+          || !/^Est:/.test(r.mixedSetup.estimate)
           || !/Loading|Recovering/.test(r.mixedSetup.activity)
           || r.mixedSetup.width < 44 || r.mixedSetup.height < 44 || r.mixedSetup.right > r.vw + .5)) {
         bad++;
