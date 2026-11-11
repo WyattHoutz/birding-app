@@ -558,10 +558,15 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     assert.equal(app.$('setupActivityStage'), null, 'the source graphic replaces the aggregate loading paragraph');
     assert.equal(body.querySelector('.setupactivityheading'), null, 'the duplicate global spinner/header is removed');
     assert.doesNotMatch(body.textContent, /Checking initial data|Loading:|Please wait/);
-    for (const note of [app.$('setupActivityElapsed'), body.querySelector('.setupduration'),
+    assert.ok(app.$('setupPrefetchCount').contains(app.$('setupActivityElapsed')),
+      'elapsed time belongs in the first progress summary');
+    assert.ok(app.$('setupPrefetchReady').compareDocumentPosition(app.$('setupActivityElapsed'))
+      & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'elapsed time must follow Ready');
+    assert.equal(app.$('setupActivityElapsed').parentElement.getAttribute('aria-live'), 'off');
+    for (const note of [body.querySelector('.setupduration'),
       app.$('setupPrefetchActivity')]) {
       assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-        'useful loading guidance and the timer belong below the unified list');
+        'useful loading guidance belongs below the unified list');
     }
     assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
       /3–5 minutes, sometimes longer.*continue with available data/);
@@ -684,6 +689,8 @@ test('F1298/F1326 unified setup list preserves actual dependencies, recovery and
     }
     assert.equal(calls.personal, undefined, 'personal acquisition cannot start before taxonomy');
     const personal = () => app.$('setupPrefetchRows').querySelector('[data-source="personal"]');
+    const elapsed = app.$('setupActivityElapsed');
+    assert.ok(elapsed, 'pending source progress must retain a visible elapsed timer');
     assert.match(personal().querySelector('.prefetch-detail').textContent, /Waiting for Taxonomy/);
     releaseTaxonomy({ state: 'failed' });
     releaseTaxonomy = null;
@@ -693,6 +700,8 @@ test('F1298/F1326 unified setup list preserves actual dependencies, recovery and
       /Waiting for recovery of Taxonomy/);
     assert.notEqual(personal().dataset.state, 'ready');
     assert.equal(calls.personal, undefined);
+    assert.equal(app.$('setupActivityElapsed'), elapsed,
+      'source progress updates must retain the live elapsed timer node');
     assert.deepEqual(sourceOrder(), order, 'failure and independent completion must not reorder boxes');
     assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
     releaseBusy({ state: 'ready', value: {} });
@@ -749,7 +758,7 @@ test('F1260 partial initial attempts automatically advance with an honest result
     assert.match(app.$('setupPrefetchCount').textContent, /Checks Finished.*Ready/);
     assert.equal(parseInt(app.$('setupPrefetchCount').textContent, 10), Object.keys(tasks).length - 1,
       'F1270 finished checks include the terminal failed Rankings check');
-    assert.match(app.$('setupPrefetchCount').textContent, /· 10 Ready$/);
+    assert.match(app.$('setupPrefetchReady').textContent, /^10 Ready$/);
     assert.equal(app.$('setupContinue'), null);
     release({ state: 'ready', value: {} });
     await pending;
@@ -15179,7 +15188,10 @@ test('F1325 reopening pending wizard activities resets only the visible visit ti
       A.openSetupSheet();
       assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
       assert.equal(app.$('setupActivityElapsed').textContent, '0s', 'reopening must reset the visible timer');
-      assert.match(app.$('setupActivityElapsed').parentElement.textContent, /Elapsed this visit/);
+      if (step === 'loading') {
+        assert.equal(app.$('setupActivityElapsed').parentElement.title, 'Elapsed this visit');
+        assert.match(app.$('setupActivityElapsed').parentElement.textContent, /elapsed/);
+      } else assert.match(app.$('setupActivityElapsed').parentElement.textContent, /Elapsed this visit/);
       assert.equal(calls, before, 'reopening must reuse the pending acquisition');
       assert.equal(A.setupPrefetchEngine(), engine, 'a visible timer reset must not replace the engine');
       offset += 2500;

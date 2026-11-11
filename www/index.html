@@ -3990,6 +3990,7 @@
       width: 100%; max-width: 320px; margin-left: auto; margin-right: auto;
     }
     .prefetch-count { font-size: calc(15px * var(--s)); font-weight: 600; }
+    .prefetch-ready { display: inline-block; white-space: nowrap; }
     .prefetch-list { list-style: none; padding: 0; display: grid; gap: 4px; }
     .prefetch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr);
       gap: 10px; align-items: center; font-size: calc(17px * var(--s));
@@ -31658,9 +31659,10 @@
             + '</span></li>';
         }).join('');
         if (container) container.innerHTML = rows;
-        var count = $('setupPrefetchCount');
+        var count = $('setupPrefetchFinished'), readyCount = $('setupPrefetchReady');
         if (count) count.textContent = finished + ' Of ' + groups.length
-          + ' Checks Finished · ' + ready + ' Ready';
+          + ' Checks Finished ·';
+        if (readyCount) readyCount.textContent = ready + ' Ready';
       }
       function settleSetupPrefetch(entry, results) {
         if (_setupPrefetch !== entry || !setupPrefetchCurrent() || !entry.engine.settled()) return results;
@@ -31728,9 +31730,11 @@
         $('setupSheetTitle').textContent = 'Getting Ready';
         $('setupSheet').dataset.setupStep = 'loading';
         $('setupSheetBody').dataset.setupStep = 'loading';
-        $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status"></p>'
+        $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status">'
+          + '<span id="setupPrefetchFinished"></span> <span class="prefetch-ready">'
+          + '<span id="setupPrefetchReady"></span><span class="prefetch-elapsed" aria-live="off"'
+          + ' title="Elapsed this visit"> · <span id="setupActivityElapsed">0s</span> elapsed</span></span></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
-          + setupElapsedHtml()
           + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
           + '<p id="setupPrefetchActivity" class="prefetch-hint" role="status" data-setup-pending="true">'
           + 'Setup continues automatically. Close keeps checks running; '

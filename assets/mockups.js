@@ -822,10 +822,33 @@ async function prepareSetupLoadingReview(A, document, personalFixture, lower) {
       || /Checking initial data|Independent checks|Dependent checks/.test(body.textContent))
     throw new Error('Getting Ready must use one source list without duplicate loading headings');
   const rows = document.getElementById('setupPrefetchRows');
-  for (const note of [document.getElementById('setupActivityElapsed'),
-    body.querySelector('.setupduration'), document.getElementById('setupPrefetchActivity')]) {
+  const ready = document.getElementById('setupPrefetchReady');
+  const elapsed = document.getElementById('setupActivityElapsed');
+  if (!ready || !elapsed || !document.getElementById('setupPrefetchCount').contains(elapsed)
+      || !(ready.compareDocumentPosition(elapsed) & w.Node.DOCUMENT_POSITION_FOLLOWING))
+    throw new Error('Elapsed time must follow Ready in the first summary');
+  const readyRect = ready.getBoundingClientRect(), elapsedRect = elapsed.getBoundingClientRect();
+  const readyStyle = w.getComputedStyle(ready), elapsedStyle = w.getComputedStyle(elapsed);
+  for (const property of ['fontFamily', 'fontSize', 'fontWeight']) {
+    if (readyStyle[property] !== elapsedStyle[property])
+      throw new Error('Elapsed time must match the Ready font and bold weight: ' + property);
+  }
+  if (Math.abs(readyRect.top - elapsedRect.top) > 2)
+    throw new Error('Ready and elapsed time must share a line');
+  const pair = ready.parentElement.getBoundingClientRect();
+  if (pair.left < 0 || pair.right > w.innerWidth)
+    throw new Error('Ready/elapsed pair exceeds the viewport');
+  const savedElapsed = elapsed.textContent;
+  elapsed.textContent = '2407s';
+  const longPair = ready.parentElement.getBoundingClientRect();
+  elapsed.textContent = savedElapsed;
+  if (longPair.left < 0 || longPair.right > Math.min(w.innerWidth, body.getBoundingClientRect().right) + 1)
+    throw new Error('Long elapsed time exceeds the body: ' + JSON.stringify({
+      right: longPair.right, bodyRight: body.getBoundingClientRect().right
+    }));
+  for (const note of [body.querySelector('.setupduration'), document.getElementById('setupPrefetchActivity')]) {
     if (!note || !(rows.compareDocumentPosition(note) & w.Node.DOCUMENT_POSITION_FOLLOWING))
-      throw new Error('Getting Ready guidance and elapsed time must follow the source list');
+      throw new Error('Getting Ready guidance must follow the source list');
   }
   const notice = document.createElement('p');
   notice.className = 'hint';
