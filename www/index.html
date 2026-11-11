@@ -1010,6 +1010,9 @@
                   border: 1px solid var(--line); background: transparent;
                   color: var(--muted); vertical-align: middle; }
     .refreshbtn:disabled { opacity: .45; }
+    #sec-refreshBtn > h2 .refreshbtn, #sec-activeBtn > h2 .refreshbtn {
+      min-width: 44px; min-height: 44px;
+    }
     /* The two-state order picker shared by both rarity lists. Deliberately not
        a <select>: two options, and the one in force must be readable without
        opening anything. */
@@ -2543,7 +2546,7 @@
     #menuPanel .recent-birdgen-head h2 { flex: 1 1 auto; min-width: 0; }
     .recent-birdgen-actions { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; margin-left: auto; }
     .recent-birdgen-actions button { min-width: 44px; min-height: 44px; margin: 0; }
-    #recentBirdGenRefresh { width: 44px; padding: 0; font-size: calc(20px * var(--s)); }
+    #recentBirdGenRefresh { width: 44px; min-height: max(44px, 1.4em); padding: 0; font-size: calc(20px * var(--s)); }
     #recentBirdGenOpen { white-space: nowrap; font-size: calc(14px * var(--s)); }
     @media (max-width: 360px) {
       #menuPanel .recent-birdgen-head h2 { font-size: calc(14px * var(--s)); letter-spacing: .02em; }
@@ -31734,7 +31737,7 @@
         $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status">'
           + '<span id="setupPrefetchFinished"></span> <span class="prefetch-ready">'
           + '<span id="setupPrefetchReady"></span><span class="prefetch-elapsed" aria-live="off"'
-          + ' title="Elapsed this visit"> · <span id="setupActivityElapsed">0s</span> elapsed</span></span></p>'
+          + ' title="Elapsed this visit"> <span id="setupActivityElapsed">0s</span> elapsed</span></span></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
           + '<p id="setupPrefetchActivity" class="prefetch-hint setupduration" role="status" data-setup-pending="true">'
           + 'Setup continues automatically after initial checks (' + SETUP_DURATION_ESTIMATE

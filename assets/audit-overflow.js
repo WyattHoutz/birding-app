@@ -300,8 +300,9 @@ const AUDIT = `<script>
         var activity = document.getElementById('setupPrefetchActivity');
         if (!activity || activity.getAttribute('role') !== 'status'
             || activity.dataset.setupPending !== 'true'
-            || !/Please wait/.test(activity.textContent)
-            || !/continue automatically/.test(activity.textContent))
+            || !/Setup continues automatically/.test(activity.textContent)
+            || !/Close keeps checks running/.test(activity.textContent)
+            || !/Continue with available data stops pending checks/.test(activity.textContent))
           throw new Error('F1260 initial checks need announced automatic continuation');
       }
       if (waiting && (!document.getElementById('setupSkipSeen') || document.getElementById('setupContinue')))
@@ -1889,7 +1890,9 @@ const AUDIT = `<script>
       recentScan.recentBirdGen={
         five:previewRows.length===5,
         headingTypography:Math.abs(parseFloat(menuHeading.fontSize)-16*headingScale)<.2
-          && ['fontSize','fontWeight','color','letterSpacing','textTransform'].every(function(property){
+          && Math.abs(parseFloat(recentHeading.fontSize)-(innerWidth<=360?14:16)*headingScale)<.2
+          && (innerWidth<=360 || recentHeading.letterSpacing===menuHeading.letterSpacing)
+          && ['fontWeight','color','textTransform'].every(function(property){
             return recentHeading[property]===menuHeading[property];
           }),
         newestFirst:previewRows.every(function(row,i){
@@ -1897,19 +1900,20 @@ const AUDIT = `<script>
           return place && place.textContent==='Representative public patch '+i;
         }),
         iconOnly:document.getElementById('recentBirdGenRefresh').textContent.trim()==='↻'
-          && document.getElementById('recentBirdGenRefresh').getAttribute('aria-label')==='Refresh full Bird Gen feed',
+          && document.getElementById('recentBirdGenRefresh').getAttribute('aria-label')==='Refresh Recent Bird Gen',
         listOnly:!document.querySelector('#recentBirdGen > p')
           && document.getElementById('recentBirdGenStatus').classList.contains('vh')
           && document.getElementById('recentBirdGenStatus').getAttribute('aria-live')==='polite',
         outcome:!document.getElementById('recentBirdGenFeedback')
-          && document.querySelectorAll('.recent-birdgen-actions button').length===3
-          && document.getElementById('recentBirdGenLatest').textContent==='Fetch latest'
-          && document.getElementById('recentBirdGenLatest').getAttribute('aria-label')==='Fetch latest full Bird Gen feed',
-        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenLatest'].map(function(id){
+          && document.querySelectorAll('.recent-birdgen-actions button').length===2
+          && !document.getElementById('recentBirdGenLatest'),
+        actionGeometry:['recentBirdGenOpen','recentBirdGenRefresh'].map(function(id){
           var button=document.getElementById(id);
-          return {id:id,rect:button.getBoundingClientRect().toJSON(),label:button.getAttribute('aria-label')};
+          var range=document.createRange();range.selectNodeContents(button);
+          return {id:id,rect:button.getBoundingClientRect().toJSON(),label:button.getAttribute('aria-label'),
+            text:Array.from(range.getClientRects()).map(function(rect){return rect.toJSON();})};
         }),
-        compactActions:['recentBirdGenOpen','recentBirdGenRefresh','recentBirdGenLatest'].every(function(id){
+        compactActions:['recentBirdGenOpen','recentBirdGenRefresh'].every(function(id){
           var button=document.getElementById(id), rect=button.getBoundingClientRect();
           var range=document.createRange();range.selectNodeContents(button);
           var textFits=[].every.call(range.getClientRects(),function(line){
@@ -3351,22 +3355,28 @@ const AUDIT = `<script>
       A.showSection(week ? 'sec-activeBtn' : 'sec-refreshBtn');
       load();
       await until(function () { return !button.disabled && cards(host).length >= 10; }, mode + ' initial');
-      var latest = document.getElementById(week ? 'activeFetchLatest' : 'twitchFetchLatest');
-      var previousLabel = latest.textContent;
-      check(!latest.hidden, 'F1292 selected notable source needs its labelled latest action');
-      ['Fetch latest RBA', 'Fetching latest\u2026'].forEach(function (label) {
-        latest.textContent = label;
-        var rect = latest.getBoundingClientRect(), range = document.createRange();
-        range.selectNodeContents(latest);
+      var refresh = button.closest('section').querySelector('.refreshbtn');
+      check(!document.getElementById(week ? 'activeFetchLatest' : 'twitchFetchLatest'),
+        'F1322 the existing RBA refresh icon must not have a duplicate action');
+      check(refresh && refresh.textContent.trim() === '\u21bb' && refresh.getAttribute('aria-label'),
+        'F1322 selected notable source needs its accessible heading refresh icon');
+      [false, true].forEach(function (pending) {
+        if (pending) load();
+        check(refresh.disabled === pending && refresh.getAttribute('aria-busy') === String(pending),
+          'F1322 RBA heading must expose acquisition busy state');
+        var rect = refresh.getBoundingClientRect(), range = document.createRange();
+        range.selectNodeContents(refresh);
         check(rect.width >= 44 && rect.height >= 44 && rect.left >= 0
-          && rect.right <= innerWidth && latest.scrollWidth <= latest.clientWidth + 1
+          && rect.right <= innerWidth && refresh.scrollWidth <= refresh.clientWidth + 1
           && Array.from(range.getClientRects()).every(function (line) {
             return line.left >= rect.left - 1 && line.right <= rect.right + 1
               && line.top >= rect.top - 1 && line.bottom <= rect.bottom + 1;
-          }), 'F1292 latest label must remain readable and touchable: ' + label);
-        out.push(scan('(F1292 ' + mode + ' ' + label + ')'));
+          }), 'F1322 heading refresh must remain readable and touchable: '+JSON.stringify({
+            mode:mode,pending:pending,rect:rect.toJSON(),width:innerWidth,
+            text:Array.from(range.getClientRects()).map(function(line){return line.toJSON();})}));
+        out.push(scan('(F1322 ' + mode + (pending ? ' pending' : ' ready') + ')'));
       });
-      latest.textContent = previousLabel;
+      await until(function () { return !button.disabled; }, mode + ' heading state settles');
       var before = cards(host), saved = anchor(before[before.length - 1],true);
       await until(function () { return cards(host).length > before.length; }, mode + ' auto append');
       await painted();
@@ -3700,9 +3710,8 @@ const AUDIT = `<script>
       var result=scan('(F1269/F1270 mixed initial checks)');
       var sourceRows=Array.from(document.querySelectorAll('#setupPrefetchRows > [data-source]'));
       var headings=Array.from(document.querySelectorAll('#setupPrefetchRows .prefetch-group'));
-      if(headings.map(function(node){return node.textContent;}).join('|')
-          !=='Independent checks|Dependent checks')
-        throw new Error('F1298 actual initial checks need stable labelled dependency groups');
+      if(headings.length || /Independent checks|Dependent checks/.test(body.textContent))
+        throw new Error('F1326 actual initial checks need one unified source list');
       sourceRows.forEach(function(row){
         (tasks[row.dataset.source].depends||[]).forEach(function(key){
           var prerequisite=sourceRows.findIndex(function(other){return other.dataset.source===key;});
@@ -3710,20 +3719,44 @@ const AUDIT = `<script>
             throw new Error('F1298 dependent appears before '+key);
         });
       });
-      headings.forEach(function(heading){
-        var headingBox=heading.getBoundingClientRect();
-        if(headingBox.width<=0||headingBox.left<0||headingBox.right>window.innerWidth+1)
-          throw new Error('F1298 dependency heading is clipped or missing');
+      var count=document.getElementById('setupPrefetchCount');
+      var ready=document.getElementById('setupPrefetchReady');
+      var elapsed=document.getElementById('setupActivityElapsed');
+      var guidance=document.getElementById('setupPrefetchActivity');
+      if(body.firstElementChild!==count || body.querySelector('#setupActivityStage, .setupactivityheading')
+          || /Checking initial data|Please wait/.test(body.textContent))
+        throw new Error('F1327 finished checks must be first without duplicate loading prose');
+      if(!elapsed || !count.contains(elapsed)
+          || !(ready.compareDocumentPosition(elapsed)&Node.DOCUMENT_POSITION_FOLLOWING))
+        throw new Error('F1328 elapsed must follow Ready in the summary');
+      ['fontFamily','fontSize','fontWeight'].forEach(function(property){
+        if(getComputedStyle(ready)[property]!==getComputedStyle(elapsed)[property])
+          throw new Error('F1328 elapsed must match Ready typography: '+property);
       });
+      var savedElapsed=elapsed.textContent;
+      elapsed.textContent='2407s';
+      var pair=ready.parentElement.getBoundingClientRect();
+      if(Math.abs(ready.getBoundingClientRect().top-elapsed.getBoundingClientRect().top)>2
+          || pair.right>Math.min(innerWidth,body.getBoundingClientRect().right)+1)
+        throw new Error('F1328 Ready and elapsed must fit together on one line: '+JSON.stringify({
+          ready:ready.getBoundingClientRect().toJSON(),elapsed:elapsed.getBoundingClientRect().toJSON(),
+          pair:pair.toJSON(),body:body.getBoundingClientRect().toJSON(),text:ready.parentElement.textContent}));
+      elapsed.textContent=savedElapsed;
+      if(!guidance || body.querySelectorAll('.setupduration').length!==1
+          || getComputedStyle(guidance).fontStyle!=='italic'
+          || !(document.getElementById('setupPrefetchRows').compareDocumentPosition(guidance)&Node.DOCUMENT_POSITION_FOLLOWING)
+          || (guidance.textContent.match(/[.!?](?=\\s|$)/g)||[]).length!==1)
+        throw new Error('F1329 one italic guidance sentence must follow the source list');
       var box=continuation.getBoundingClientRect();
       var states=Object.values(A.setupPrefetchEngine().states);
-      result.mixedSetup={count:document.getElementById('setupPrefetchCount').textContent,
+      result.mixedSetup={count:document.getElementById('setupPrefetchFinished').textContent,
+        readyCount:ready.textContent,
         total:Object.keys(tasks).length,
         finished:states.filter(function(item){
           return ['ready','partial','failed','blocked','notApplicable','cancelled'].includes(item.state);
         }).length,
         ready:states.filter(function(item){return item.state==='ready';}).length,
-        activity:document.getElementById('setupActivityStage').textContent,
+        activity:sourceRows.find(function(row){return row.dataset.source==='busy';}).textContent,
         width:box.width,height:box.height,right:box.right};
       out.push(result);
       release({state:'ready',value:{}});
@@ -4229,7 +4262,8 @@ const AUDIT = `<script>
         if (!rect.width || rect.top < 0 || rect.bottom > window.innerHeight)
           throw new Error('F1140 refresh is not visibly testable: ' + sec.id);
         var load = sec.querySelector(':scope > .row[hidden] button:not(.secondary):not(.pressbtn):not(.sortbtn):not([hidden])');
-        var direct = !load && /^(stakeHsRefresh|spLookupRefresh)$/.test(refresh.id);
+        var direct = (!load && /^(stakeHsRefresh|spLookupRefresh)$/.test(refresh.id))
+          || (load && /^(refreshBtn|activeBtn)$/.test(load.id));
         if (direct) load = refresh;
         if (!load) throw new Error('F1140 original refresh action missing: ' + sec.id);
         var forwarded = 0, disabled = load.disabled;
@@ -4909,7 +4943,8 @@ server.listen(0, '127.0.0.1', () => {
         + '  docScrollW ' + r.docScrollW + '  (' + (+r.over).toFixed(1) + 'px over)');
       if (r.previewHeight) console.log('   F1086 PREVIEW HEIGHT ' + JSON.stringify(r.previewHeight));
       if (r.mixedSetup && (r.mixedSetup.count !== r.mixedSetup.finished + ' Of '
-            + r.mixedSetup.total + ' Checks Finished · ' + r.mixedSetup.ready + ' Ready'
+            + r.mixedSetup.total + ' Checks Finished ·'
+          || r.mixedSetup.readyCount !== r.mixedSetup.ready + ' Ready'
           || !/Loading|Recovering/.test(r.mixedSetup.activity)
           || r.mixedSetup.width < 44 || r.mixedSetup.height < 44 || r.mixedSetup.right > r.vw + .5)) {
         bad++;
