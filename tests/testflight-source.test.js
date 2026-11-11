@@ -131,6 +131,30 @@ test('F1313 rejected authoritative tests never authorize an Apple upload', async
   await assert.rejects(source.authorize(env, f.options), /did not pass/);
 });
 
+test('F1316 signed authorization retries transport failures but still rejects changed artifacts', async () => {
+  for (const changed of [false, true]) {
+    const f = fixture(), original = f.options.fetcher;
+    let calls = 0;
+    f.options.fetcher = async (...args) => {
+      if (++calls === 1) {
+        if (changed) f.artifacts[0].id++;
+        throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+      }
+      return original(...args);
+    };
+    if (changed) await assert.rejects(source.authorize(env, f.options), /artifact changed/);
+    else assert.deepEqual(await source.authorize(env, f.options), { ...expected, testRunId: 90 });
+    assert.ok(calls > 1);
+  }
+  for (const status of [401, 403, 404, 429]) {
+    const f = fixture();
+    let calls = 0;
+    f.options.fetcher = async () => { calls++; return { ok: false, status }; };
+    await assert.rejects(source.authorize(env, f.options), new RegExp('HTTP ' + status));
+    assert.equal(calls, 1);
+  }
+});
+
 test('F1313 cancellation, reruns and changed artifacts cannot use a captured upload authorization', async () => {
   for (const alter of [
     f => { f.run.status = 'completed'; f.run.conclusion = 'cancelled'; },

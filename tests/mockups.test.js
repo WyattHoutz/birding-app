@@ -893,6 +893,21 @@ test('F951/F967/F970/F971 Bird Gen, PPTE and Date/Count Ticks render production 
   } finally {fs.rmSync(output,{recursive:true,force:true});}
 });
 
+test('F1317 default Twitches gallery renders with verified per-feed fixture provenance', { timeout: 90000 }, () => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-twitch-provenance-'));
+  try {
+    for (const scale of [1, 1.75]) {
+      const result = spawnSync(process.execPath, [
+        path.join(ROOT, 'assets', 'mockups.js'), '--only', 'section-refreshBtn',
+        '--width', '402', '--scale', String(scale), '--out', output,
+      ], { cwd: ROOT, encoding: 'utf8', timeout: 40000 });
+      assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+      assert.match(result.stdout, /1 mockup\(s\)/);
+      assert.ok(fs.existsSync(path.join(output, 'section-refreshBtn-402px.png')));
+    }
+  } finally { fs.rmSync(output, { recursive: true, force: true }); }
+});
+
 test('F830 Twitches preparation acquires exact personal membership before rendering', () => {
   const twitch = source.slice(source.indexOf('async function prepareTwitches('),
     source.indexOf('async function waitFor(', source.indexOf('async function prepareTwitches(')));

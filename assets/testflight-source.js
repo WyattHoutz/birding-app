@@ -1,6 +1,6 @@
 'use strict';
 const fs = require('node:fs');
-const { MAX_AGE_MS, WAIT_MS, waitForTests } = require('./ci-test-gate.js');
+const { MAX_AGE_MS, WAIT_MS, waitForTests, githubGet } = require('./ci-test-gate.js');
 
 function identity(run, repository, now) {
   const started = Date.parse(run.run_started_at || run.created_at);
@@ -56,7 +56,7 @@ function github(repository, token, fetcher = fetch) {
   if (!token || !/^[\w.-]+\/[\w.-]+$/.test(repository))
     throw new Error('Existing workflow authorization and repository are required');
   return async resource => {
-    const response = await fetcher(new URL(`https://api.github.com/repos/${repository}/${resource}`), {
+    const response = await githubGet(fetcher, new URL(`https://api.github.com/repos/${repository}/${resource}`), {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28' },
       signal: AbortSignal.timeout(60000),

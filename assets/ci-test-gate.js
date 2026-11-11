@@ -72,6 +72,24 @@ function checkJobs(data, run, required = REQUIRED_JOBS) {
   return result;
 }
 
+async function githubGet(fetcher, url, init) {
+  if (init.method && init.method !== 'GET') throw new Error('GitHub retries require a read-only GET');
+  for (let attempt = 0; ; attempt++) {
+    init.signal.throwIfAborted();
+    try {
+      return await fetcher(url, init);
+    } catch (error) {
+      if (!(error instanceof TypeError) || error.message !== 'fetch failed' || init.signal.aborted) throw error;
+      if (attempt === 2) {
+        const code = error.cause?.code;
+        const reason = typeof code === 'string' && /^[A-Z0-9_]{1,48}$/.test(code) ? code : 'unknown';
+        throw new Error(`GitHub read fetch failed after 3 attempts (${reason})`, { cause: error });
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+}
+
 async function waitForTests(repository, sha, token, options = {}) {
   if (!token) throw new Error('Existing workflow authorization is required');
   const fetcher = options.fetcher || fetch;
@@ -79,7 +97,7 @@ async function waitForTests(repository, sha, token, options = {}) {
   const sleep = options.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
   selectRun([], repository, sha, now());
   const request = async url => {
-    const response = await fetcher(url, {
+    const response = await githubGet(fetcher, url, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28' },
       signal: AbortSignal.timeout(60000),
@@ -115,7 +133,7 @@ async function waitForTests(repository, sha, token, options = {}) {
   throw new Error('Authoritative CI gate did not settle within its bounded wait');
 }
 
-module.exports = { selectRun, checkJobs, waitForTests, REQUIRED_JOBS, MAX_AGE_MS, WAIT_MS };
+module.exports = { selectRun, checkJobs, waitForTests, githubGet, REQUIRED_JOBS, MAX_AGE_MS, WAIT_MS };
 
 if (require.main === module) {
   console.log('Waiting for the authoritative tests and layout checks on this exact source.');

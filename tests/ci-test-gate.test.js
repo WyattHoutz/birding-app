@@ -82,6 +82,60 @@ test('F1108 bounded CI waiting requires a real success and fails closed on autho
   }), /bounded wait/);
 });
 
+test('F1316 unsigned authorization recovers a transient read without borrowing coverage', async () => {
+  let calls = 0;
+  const jobs = successfulJobs();
+  const options = {
+    now: () => now,
+    fetcher: async url => {
+      if (++calls === 1) throw new TypeError('fetch failed');
+      return { ok: true, json: async () => url.pathname.endsWith('/jobs')
+        ? { total_count: jobs.length, jobs }
+        : { total_count: 1, workflow_runs: [passed] } };
+    },
+  };
+  await assert.doesNotReject(async () => {
+    assert.deepEqual(await gate.waitForTests(repository, sha, 'synthetic', options), { id: 10, sha });
+  });
+  assert.equal(calls, 4);
+  calls = 0;
+  jobs[0].conclusion = 'failure';
+  await assert.rejects(gate.waitForTests(repository, sha, 'synthetic', options), /did not pass/);
+});
+
+test('F1316 transport retries are bounded, share the original timeout and exclude writes', async () => {
+  const signal = AbortSignal.timeout(60000), seen = [];
+  await assert.rejects(gate.githubGet(async (url, init) => {
+    seen.push(init.signal);
+    throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+  }, new URL('https://api.github.com/'), { signal }), /fetch failed after 3 attempts \(ECONNRESET\)/);
+  assert.equal(seen.length, 3);
+  assert.ok(seen.every(value => value === signal), 'retrying must not restart the request deadline');
+  let writes = 0;
+  await assert.rejects(gate.githubGet(async () => { writes++; }, new URL('https://api.github.com/'),
+    { signal, method: 'POST' }), /read-only GET/);
+  assert.equal(writes, 0);
+});
+
+test('F1316 aborts and non-transport errors are never retried', async () => {
+  for (const failure of [new Error('authorization failed'), new SyntaxError('invalid JSON')]) {
+    let calls = 0;
+    await assert.rejects(gate.githubGet(async () => { calls++; throw failure; },
+      new URL('https://api.github.com/'), { signal: AbortSignal.timeout(60000) }),
+    error => error === failure);
+    assert.equal(calls, 1);
+  }
+  const controller = new AbortController();
+  const failure = new TypeError('fetch failed');
+  let calls = 0;
+  await assert.rejects(gate.githubGet(async () => {
+    calls++;
+    controller.abort();
+    throw failure;
+  }, new URL('https://api.github.com/'), { signal: controller.signal }), error => error === failure);
+  assert.equal(calls, 1);
+});
+
 test('F1309 every required job and coverage step must succeed; parallel skips cannot bless publication', () => {
   const required = { catalog: ['Install dependencies', 'Unit, syntax and DOM suites'],
     layout: ['Install dependencies', 'Layout \u2014 nothing may overflow the screen'] };

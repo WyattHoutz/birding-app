@@ -2959,11 +2959,19 @@ const BOOTSTRAP = `
           obsDt: mockObservationDate(11), subId: 'S-TWITCH-3',
           userDisplayName: 'Representative observer', obsReviewed: true }
     ];
+    var acquiredAt = Date.now(), feedRows = {}, feedStates = {}, feedTimes = {};
+    document.defaultView.BirdLogic.planFeeds(profile).filter(function (feed) {
+      return feed.kind === 'notable';
+    }).forEach(function (feed, index) {
+      feedRows[feed.file] = index === 0 ? twitchRows : [];
+      feedStates[feed.file] = 'ok';
+      feedTimes[feed.file] = acquiredAt;
+    });
     A.seedChase(profile.slug, {
-      t: Date.now(), rarity: false, fetchBaseKey: A.chaseFetchBaseKey(profile),
+      t: acquiredAt, rarity: false, fetchBaseKey: A.chaseFetchBaseKey(profile),
       geoNotableKm: document.defaultView.BirdLogic.geoNotableDistKm(profile),
       speciesCodes: ['shtsan', 'solsan'],
-      rows: {'king-notable.json': twitchRows}
+      rows: feedRows, feedStates: feedStates, feedTimes: feedTimes
     });
     twitchRows.forEach(function (row) {
       A.seedEbirdCache('product/checklist/view/' + row.subId, Object.assign({}, row, {
