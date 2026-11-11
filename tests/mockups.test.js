@@ -893,16 +893,19 @@ test('F951/F967/F970/F971 Bird Gen, PPTE and Date/Count Ticks render production 
   } finally {fs.rmSync(output,{recursive:true,force:true});}
 });
 
-test('F1317 default Twitches gallery renders with verified per-feed fixture provenance', { timeout: 90000 }, () => {
+test('F1317 default Twitches gallery isolates prior pending work and verifies feed provenance', { timeout: 180000 }, () => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), 'bird-twitch-provenance-'));
+  const shots = mockups.SHOTS.slice(0,
+    mockups.SHOTS.findIndex(shot => shot.id === 'section-refreshBtn') + 1);
+  assert.ok(shots.length > 1, 'exercise the actual preceding gallery producers');
   try {
     for (const scale of [1, 1.75]) {
       const result = spawnSync(process.execPath, [
-        path.join(ROOT, 'assets', 'mockups.js'), '--only', 'section-refreshBtn',
+        path.join(ROOT, 'assets', 'mockups.js'), '--only', shots.map(shot => shot.id).join(','),
         '--width', '402', '--scale', String(scale), '--out', output,
-      ], { cwd: ROOT, encoding: 'utf8', timeout: 40000 });
+      ], { cwd: ROOT, encoding: 'utf8', timeout: 80000 });
       assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
-      assert.match(result.stdout, /1 mockup\(s\)/);
+      assert.ok(result.stdout.includes(shots.length + ' mockup(s)'));
       assert.ok(fs.existsSync(path.join(output, 'section-refreshBtn-402px.png')));
     }
   } finally { fs.rmSync(output, { recursive: true, force: true }); }

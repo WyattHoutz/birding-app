@@ -270,7 +270,7 @@ const SECTION_SHOTS = CONTRACT.menu.map((item) => {
     id: 'section-' + item.at,
     at: item.at,
     title: item.label + (item.sub ? ' — ' + item.sub : ''),
-    freshApp: ['easyBtn','cklBtn','convoyBtn'].includes(item.at),
+    freshApp: ['easyBtn','cklBtn','convoyBtn','refreshBtn'].includes(item.at),
     kind: spec && spec.kind,
     host: item.at === 'rankBtn' ? 'sec-rankBtn' : spec && spec.host,
     fullPage: item.at === 'rankBtn' || item.at === 'stakeHsBtn',
