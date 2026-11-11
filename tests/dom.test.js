@@ -563,13 +563,15 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     assert.ok(app.$('setupPrefetchReady').compareDocumentPosition(app.$('setupActivityElapsed'))
       & app.window.Node.DOCUMENT_POSITION_FOLLOWING, 'elapsed time must follow Ready');
     assert.equal(app.$('setupActivityElapsed').parentElement.getAttribute('aria-live'), 'off');
-    for (const note of [body.querySelector('.setupduration'),
-      app.$('setupPrefetchActivity')]) {
-      assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
-        'useful loading guidance belongs below the unified list');
-    }
-    assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
-      /3–5 minutes, sometimes longer.*continue with available data/);
+    const note = app.$('setupPrefetchActivity');
+    assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'useful loading guidance belongs below the unified list');
+    assert.equal(body.querySelectorAll('.setupduration').length, 1, 'duration guidance must not be a second paragraph');
+    assert.equal(body.querySelector('.setupduration'), note);
+    assert.equal((note.textContent.match(/[.!?](?=\s|$)/g) || []).length, 1,
+      'footer guidance must be optimized into one sentence');
+    assert.match(note.textContent,
+      /3–5 minutes, sometimes longer.*Close keeps checks running.*Continue with available data stops pending checks/);
     assert.equal(app.$('setupContinueAvailable').disabled, false);
     assert.equal(app.$('setupStartBirding'), null);
     assert.equal(app.$('setupPrefetchRetry'), null);

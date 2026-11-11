@@ -30837,7 +30837,8 @@
       }
       var SETUP_STEP_KEY = 'bc_setup_step_v1';
       var SETUP_STEPS = ['account', 'key', 'home', 'region', 'seen', 'favorites'];
-      var SETUP_DURATION_NOTE = 'Initial data checks can take 3–5 minutes, sometimes longer. '
+      var SETUP_DURATION_ESTIMATE = '3–5 minutes, sometimes longer';
+      var SETUP_DURATION_NOTE = 'Initial data checks can take ' + SETUP_DURATION_ESTIMATE + '. '
         + 'You can continue with available data.';
       var _setupRenderedProfile = null, _setupKeyDraft = '', _setupReturnFocus = null;
       var _setupFavoriteDraft = null;
@@ -31735,10 +31736,9 @@
           + '<span id="setupPrefetchReady"></span><span class="prefetch-elapsed" aria-live="off"'
           + ' title="Elapsed this visit"> · <span id="setupActivityElapsed">0s</span> elapsed</span></span></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
-          + '<p class="hint setupduration">' + SETUP_DURATION_NOTE + '</p>'
-          + '<p id="setupPrefetchActivity" class="prefetch-hint" role="status" data-setup-pending="true">'
-          + 'Setup continues automatically. Close keeps checks running; '
-          + 'Continue with available data stops pending setup checks.</p>'
+          + '<p id="setupPrefetchActivity" class="prefetch-hint setupduration" role="status" data-setup-pending="true">'
+          + 'Setup continues automatically after initial checks (' + SETUP_DURATION_ESTIMATE
+          + '); Close keeps checks running, while Continue with available data stops pending checks.</p>'
           + '<div class="setupactions setupfooteractions"><button id="setupContinueAvailable" type="button">'
           + 'Continue with available data</button></div>';
         $('setupContinueAvailable').addEventListener('click', function () {

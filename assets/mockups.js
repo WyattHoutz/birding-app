@@ -846,10 +846,13 @@ async function prepareSetupLoadingReview(A, document, personalFixture, lower) {
     throw new Error('Long elapsed time exceeds the body: ' + JSON.stringify({
       right: longPair.right, bodyRight: body.getBoundingClientRect().right
     }));
-  for (const note of [body.querySelector('.setupduration'), document.getElementById('setupPrefetchActivity')]) {
-    if (!note || !(rows.compareDocumentPosition(note) & w.Node.DOCUMENT_POSITION_FOLLOWING))
-      throw new Error('Getting Ready guidance must follow the source list');
-  }
+  const guidance = document.getElementById('setupPrefetchActivity');
+  if (!guidance || !(rows.compareDocumentPosition(guidance) & w.Node.DOCUMENT_POSITION_FOLLOWING))
+    throw new Error('Getting Ready guidance must follow the source list');
+  if (body.querySelectorAll('.setupduration').length !== 1
+      || body.querySelector('.setupduration') !== guidance
+      || w.getComputedStyle(guidance).fontStyle !== 'italic')
+    throw new Error('Duration guidance must share the single italic footer paragraph');
   const notice = document.createElement('p');
   notice.className = 'hint';
   notice.textContent = 'PREVIEW - sample account and source outcomes.';
