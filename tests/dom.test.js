@@ -5239,7 +5239,7 @@ function pullMenu(app, { x = 0, y = 90, scrollTop = 0, fingers = 1 } = {}) {
   (doc.scrollingElement || doc.documentElement).scrollTop = 0;
 }
 
-function assertRecentOutcome(app, expected, warning) {
+function assertRecentOutcome(app, expected, warning, actionText = warning ? 'Retry' : '\u21BB') {
   const status = app.$('recentBirdGenStatus');
   assert.match(status.textContent, expected);
   assert.equal(status.getAttribute('role'), 'status');
@@ -5248,7 +5248,7 @@ function assertRecentOutcome(app, expected, warning) {
   assert.equal(app.$('recentBirdGen').querySelectorAll(':scope > p').length, 0);
   assert.equal(app.$('recentBirdGenFeedback'), null, 'technical outcomes must not add a menu info button');
   const refresh = app.$('recentBirdGenRefresh');
-  assert.equal(refresh.textContent, refresh.disabled ? 'Checking...' : warning ? 'Retry' : '\u21BB',
+  assert.equal(refresh.textContent, refresh.disabled ? 'Checking...' : actionText,
     'the existing action must provide visible pending or retry feedback without technical prose');
   const entry = app.window.__dbg.buf.findLast(row => row.msg === 'Bird Gen refresh: ' + status.textContent);
   assert.ok(entry, 'the exact refresh outcome must remain in debug logs');
@@ -29579,7 +29579,7 @@ test('F1020 F1021 F1034 Recent keeps icon refresh, operable PATAGONIA links and 
     assert.equal(refresh.textContent.trim(), '↻');
     assert.equal(refresh.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
     assert.equal(root.querySelectorAll(':scope > p').length, 0, 'surrounding small-print blocks remain');
-    assertRecentOutcome(app, /Set Home/, true);
+    assertRecentOutcome(app, /Set Home/, true, '\u21BB');
     assert.deepEqual([...root.querySelectorAll('.recent-birdgen-actions button')].map(button => button.id),
       ['recentBirdGenRefresh', 'recentBirdGenLatest', 'recentBirdGenOpen'],
       'normal Refresh, explicit Fetch latest and Full feed remain separate actions');
