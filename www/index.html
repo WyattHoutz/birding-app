@@ -5513,7 +5513,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.187.1';
+      var APP_VERSION = '1.187.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -52494,9 +52494,17 @@
         var scope = activeScope();
         return scope.cacheIdentity + '||' + scope.generation + '||' + surgeRetainedContext();
       }
+      function updateRecentBirdGenRefreshLabel() {
+        var button = $('recentBirdGenRefresh');
+        if (!button) return;
+        var retry = /failed|cancelled|partial|not saved|withheld|could not/i
+          .test($('recentBirdGenStatus').textContent);
+        button.textContent = button.disabled ? 'Checking...' : retry ? 'Retry' : '\u21BB';
+      }
       function setRecentBirdGenStatus(text) {
         var status = $('recentBirdGenStatus');
         status.textContent = text;
+        updateRecentBirdGenRefreshLabel();
         var warning = /failed|cancelled|partial|not saved|withheld|could not|Set Home/i.test(text);
         if (text) dbg(warning ? 'warn' : 'info', 'Bird Gen refresh: ' + text);
       }
@@ -52527,6 +52535,14 @@
             var section = $('surgeBtn').closest('section');
             showSection(section.id);
           });
+        }
+        if (_recentBirdGenFullJob && !_recentBirdGenFullJob.current()
+            && _recentBirdGenFullJob.context === recentBirdGenKey()) {
+          _recentBirdGenFullJob = null;
+          $('recentBirdGenRefresh').disabled = false;
+          $('recentBirdGenLatest').disabled = false;
+          $('recentBirdGenLatest').textContent = 'Fetch latest';
+          updateRecentBirdGenRefreshLabel();
         }
         var section = _sections.find(function (item) { return item._at === 'surgeBtn'; });
         root.hidden = !section || !menuApplies({
@@ -52684,13 +52700,15 @@
             }
             return active.promise;
           }
-          var nextContext = recentBirdGenKey(), navigation = _navGeneration;
-          return _recentBirdGenFullJob.promise.then(function () {
-            if (!_appUnloading && window.document && menuVisible()
-                && nextContext === recentBirdGenKey() && navigation === _navGeneration) {
-              return refreshFullBirdGen(automatic);
-            }
-          });
+          if (_recentBirdGenFullJob.context !== recentBirdGenKey()) {
+            var nextContext = recentBirdGenKey(), navigation = _navGeneration;
+            return _recentBirdGenFullJob.promise.then(function () {
+              if (!_appUnloading && window.document && menuVisible()
+                  && nextContext === recentBirdGenKey() && navigation === _navGeneration) {
+                return refreshFullBirdGen(automatic);
+              }
+            });
+          }
         }
         var context = recentBirdGenKey(), scope = activeScope();
         var nav = _navGeneration, cancellation = _workCancelGeneration;
@@ -52705,7 +52723,7 @@
           return warmRecentBirdGen();
         }
         if (!reuseFresh) yieldAutomaticRecentBirdGen();
-        var job = { current: current, promise: null, reuseFresh: reuseFresh };
+        var job = { current: current, promise: null, reuseFresh: reuseFresh, context: context };
         var actionLabel = job.reuseFresh
           ? automatic === true ? 'Setup Bird Gen check' : 'Bird Gen check'
           : 'Full Bird Gen refresh';
@@ -52751,6 +52769,7 @@
           if (!current() && context === recentBirdGenKey()) {
             setRecentBirdGenStatus(actionLabel + ' cancelled · retained results kept. Retry the refresh button.');
           }
+          updateRecentBirdGenRefreshLabel();
         });
         return job.promise;
       }
@@ -52777,10 +52796,12 @@
         if (!getHome() || !getKey()) {
           setRecentBirdGenStatus('Retained results only. Set Home and an eBird API key to refresh notable sightings.');
           button.disabled = false;
+          updateRecentBirdGenRefreshLabel();
           return retained;
         }
         if (!force && _recentBirdGenAttempt === context) {
           if (!_recentBirdGenJob || !_recentBirdGenJob.current()) button.disabled = false;
+          updateRecentBirdGenRefreshLabel();
           return retained;
         }
         _recentBirdGenAttempt = context;
@@ -52847,6 +52868,7 @@
           if (!current() && context === recentBirdGenKey()) {
             setRecentBirdGenStatus('Refresh cancelled · retained results kept. Retry the refresh button.');
           }
+          updateRecentBirdGenRefreshLabel();
         });
         return job.promise;
       }

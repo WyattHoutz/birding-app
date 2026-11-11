@@ -774,6 +774,73 @@ test('F1049/F1051-F1055 release galleries render primary help and production Com
     } finally {fs.rmSync(output,{recursive:true,force:true});}
   });
 
+test('F1319 actual Contents refresh gestures keep visible action feedback usable in real Chrome',
+  { timeout: 120000 }, () => {
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'recent-refresh-f1319-'));
+    const preload = path.join(output, 'pending-actions.cjs');
+    const target = path.join(ROOT, 'assets', 'mockups.js');
+    const needle = '  const shots = ONLY.length';
+    const extra = `
+      const recentMenu = SHOTS.find(shot => shot.id === 'menu');
+      for (const action of ['normal', 'latest', 'pull']) SHOTS.push({
+        ...recentMenu, id: 'f1319-' + action,
+        prep: recentMenu.prep.replace(/return true;\\s*$/, \`
+          var refresh = document.getElementById('recentBirdGenRefresh');
+          if (refresh.disabled) throw new Error('F1319 fixture must start idle');
+          if ('\${action}' === 'pull') {
+            (document.scrollingElement || document.documentElement).scrollTop = 0;
+            for (var kind of ['touchstart','touchmove','touchend']) {
+              var event = new Event(kind, {bubbles:true});
+              Object.defineProperty(event, 'touches', {value: kind === 'touchend' ? []
+                : [{clientX:100,clientY:kind === 'touchstart' ? 100 : 190}]});
+              document.dispatchEvent(event);
+            }
+          } else document.getElementById('\${action}' === 'latest'
+            ? 'recentBirdGenLatest' : 'recentBirdGenRefresh').click();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (!refresh.disabled || refresh.textContent !== 'Checking...') {
+            throw new Error('F1319 actual gesture has no visible pending feedback');
+          }
+          var range = document.createRange();
+          range.selectNodeContents(refresh);
+          var text = range.getBoundingClientRect();
+          if (text.width <= 1 || text.height <= 1) throw new Error('F1319 pending text is clipped');
+          for (var id of ['recentBirdGenRefresh','recentBirdGenLatest','recentBirdGenOpen']) {
+            var rect = document.getElementById(id).getBoundingClientRect();
+            if (rect.width < 44 || rect.height < 44 || rect.left < 0 || rect.right > innerWidth) {
+              throw new Error('F1319 pending action is too small or overflows: ' + id);
+            }
+          }
+          if (!document.getElementById('recentBirdGenStatus').classList.contains('vh')) {
+            throw new Error('F1319 must preserve debug-only technical diagnostics');
+          }
+          return true;
+        \`)
+      });
+    `;
+    fs.writeFileSync(preload, `
+      const fs=require('node:fs'),path=require('node:path'),read=fs.readFileSync;
+      fs.readFileSync=function(file,...args) {
+        const data=read.call(this,file,...args);
+        if(typeof file!=='string'||path.resolve(file)!==${JSON.stringify(target)})return data;
+        const text=String(data),needle=${JSON.stringify(needle)};
+        if(text.split(needle).length!==2)throw new Error('F1319 actual shot hook drifted');
+        const changed=text.replace(needle,${JSON.stringify(extra)}+needle);
+        return Buffer.isBuffer(data)?Buffer.from(changed):changed;
+      };
+    `);
+    try {
+      for (const scale of ['1', '1.75']) {
+        const result = spawnSync(process.execPath, ['--require', preload, target,
+          '--only', 'f1319-normal,f1319-latest,f1319-pull', '--width', '402',
+          '--scale', scale, '--out', path.join(output, scale)],
+        { cwd: ROOT, encoding: 'utf8', timeout: 55000 });
+        assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
+        assert.match(result.stdout, /3 mockup\(s\)/);
+      }
+    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+  });
+
 test('F987/F992/F993 release menu and Year List prepare production preview, glossary and watch states',
   { timeout: 120000 }, () => {
     const output = fs.mkdtempSync(path.join(os.tmpdir(), 'release-menu-f987-'));

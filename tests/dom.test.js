@@ -5218,7 +5218,7 @@ test('F997 bounded automatic Menu and direct notable acquisition preserve their 
     A.refreshRecentBirdGen(true);
     await A.refreshRecentBirdGen(false);
     assert.equal(app.$('recentBirdGenRows').textContent, retained);
-    assert.match(app.$('recentBirdGenStatus').textContent, /refresh failed.*retained results kept/i);
+    assertRecentOutcome(app, /refresh failed.*retained results kept/i, true);
     assert.equal(app.$('recentBirdGenRefresh').disabled, false);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -5247,6 +5247,9 @@ function assertRecentOutcome(app, expected, warning) {
   assert.ok(status.classList.contains('vh'), 'announcements must not restore the surrounding small print');
   assert.equal(app.$('recentBirdGen').querySelectorAll(':scope > p').length, 0);
   assert.equal(app.$('recentBirdGenFeedback'), null, 'technical outcomes must not add a menu info button');
+  const refresh = app.$('recentBirdGenRefresh');
+  assert.equal(refresh.textContent, refresh.disabled ? 'Checking...' : warning ? 'Retry' : '\u21BB',
+    'the existing action must provide visible pending or retry feedback without technical prose');
   const entry = app.window.__dbg.buf.findLast(row => row.msg === 'Bird Gen refresh: ' + status.textContent);
   assert.ok(entry, 'the exact refresh outcome must remain in debug logs');
   if (warning) assert.equal(entry.level, 'warn');
@@ -5808,6 +5811,80 @@ function assertSurgeDiagnostic(app, expected, message) {
   assert.ok(entry, message || 'full-feed source diagnostics must remain in debug logs');
   assert.equal(entry.level, 'warn');
   assert.match(entry.msg, expected, message);
+}
+
+for (const [preceding, action, retirement = 'navigation'] of [
+  ['normal', 'latest'], ['normal', 'normal'], ['normal', 'pull'],
+  ['latest', 'latest'], ['latest', 'normal'], ['latest', 'pull'],
+  ['normal', 'latest', 'cancel'],
+]) {
+test(`F1319 ${action} replaces an obsolete ${preceding} Contents check after ${retirement} without its optional response`, async () => {
+  let releaseMass, holdMass = true;
+  const mass = new Promise(resolve => { releaseMass = () => resolve(f821Page([])); });
+  const bird = { speciesCode: 'margod', comName: 'Marbled Godwit',
+    obsDt: formatObsStamp(new Date(Date.now() - 600000)),
+    locId: 'LF1319', locName: 'Synthetic public patch', lat: 47.75, lng: -122.16,
+    subId: 'SF1319', howMany: 1, obsValid: true, obsReviewed: true };
+  const app = await boot({ sample: false, storage: { ebird_favs: JSON.stringify([
+    { id: 'f1319', locId: bird.locId, locName: bird.locName, region: 'US-WA' }
+  ]) }, fetch(url) {
+    if (/data\/obs\/LF1319\//.test(url)) return holdMass ? { __status: 400 } : [bird];
+    if (/bird-list/.test(url)) return holdMass ? mass : f821Page([]);
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    if (/alert\/rba\//.test(url)) return '<div class="Observation"></div>';
+    return [];
+  } });
+  let previous;
+  try {
+    const A = app.window.__app;
+    await A.refreshRecentBirdGen(false);
+    await seedSeen(app, [], null, [{ code: bird.speciesCode, name: bird.comName }]);
+    app.click(app.$(preceding === 'latest' ? 'recentBirdGenLatest' : 'recentBirdGenRefresh'));
+    assert.equal(app.$('recentBirdGenRefresh').disabled, true, 'the real button starts its owner');
+    assert.equal(app.$('recentBirdGenRefresh').textContent, 'Checking...');
+    previous = A.refreshFullBirdGen(preceding === 'normal' ? 'normal' : undefined);
+    let retiredSettled = false;
+    previous.then(() => { retiredSettled = true; });
+    await waitFor(() => app.state.fetches.some(url => /bird-list/.test(url)), 'held real optional source');
+    if (retirement === 'cancel') A.cancelStalledWork();
+    else {
+      A.showSection('sec-surgeBtn', { load: false });
+      A.showMenu();
+    }
+    holdMass = false;
+    A.fgWindowReset(); A.fgSchedReset(Date.now());
+    assert.equal(app.$('recentBirdGenLatest').disabled, false,
+      'returning to Contents must not leave the latest button disabled by an obsolete owner');
+    if (action === 'pull') pullMenu(app);
+    else app.click(app.$(action === 'latest' ? 'recentBirdGenLatest' : 'recentBirdGenRefresh'));
+    assert.equal(retiredSettled, false, 'the control must still have an unsettled obsolete owner');
+    assert.equal(app.$('recentBirdGenRefresh').disabled, true,
+      'the actual gesture must own its replacement immediately, not wait for obsolete work');
+    assert.equal(app.$('recentBirdGenLatest').disabled, action === 'latest');
+    assert.equal(app.$('recentBirdGenLatest').textContent, action === 'latest' ? 'Fetching latest...' : 'Fetch latest');
+    await waitFor(() => /Marbled Godwit/.test(app.$('recentBirdGenRows').textContent),
+      'the actual gesture reacquires the failed Favorite before the obsolete response', 30000);
+    assert.equal(retiredSettled, false, 'a retired optional response cannot be required for replacement');
+    await waitFor(() => !app.$('recentBirdGenRefresh').disabled, 'replacement acquisition settles', 30000);
+    assert.match(app.$('recentBirdGenStatus').textContent, /finished/);
+    const full = app.document.querySelector('#surgeFeed [data-alert-kind="favorite"]');
+    assert.ok(full, 'replacement uses a real eligible Full feed Favorite, not a hand-built preview');
+    assert.ok(Number(full.dataset.surgeLatest) >= Date.now() - 86400000);
+    assert.match(app.$('recentBirdGenRows').textContent, /Marbled Godwit/,
+      'the real eligible Full feed card reaches Recent before the retired response');
+    const outcome = app.$('recentBirdGenStatus').textContent;
+    releaseMass();
+    await previous;
+    assert.equal(app.$('recentBirdGenStatus').textContent, outcome,
+      'the obsolete finalizer cannot cancel or overwrite its replacement');
+    assert.match(app.$('recentBirdGenRows').textContent, /Marbled Godwit/);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    releaseMass();
+    if (previous) await previous;
+    app.window.close();
+  }
+});
 }
 
 test('F1011 actual Fetch latest action forces full acquisition through the optional tail', async () => {
