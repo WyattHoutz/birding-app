@@ -774,7 +774,7 @@ test('F1049/F1051-F1055 release galleries render primary help and production Com
     } finally {fs.rmSync(output,{recursive:true,force:true});}
   });
 
-test('F1319 actual Contents refresh gestures keep visible action feedback usable in real Chrome',
+test('F1321 actual two-control Contents header and soft refresh remain usable in real Chrome',
   { timeout: 120000 }, () => {
     const output = fs.mkdtempSync(path.join(os.tmpdir(), 'recent-refresh-f1319-'));
     const preload = path.join(output, 'pending-actions.cjs');
@@ -782,7 +782,7 @@ test('F1319 actual Contents refresh gestures keep visible action feedback usable
     const needle = '  const shots = ONLY.length';
     const extra = `
       const recentMenu = SHOTS.find(shot => shot.id === 'menu');
-      for (const action of ['normal', 'latest', 'pull']) SHOTS.push({
+      for (const action of ['normal', 'pull']) SHOTS.push({
         ...recentMenu, id: 'f1319-' + action,
         prep: recentMenu.prep.replace(/return true;\\s*$/, \`
           var refresh = document.getElementById('recentBirdGenRefresh');
@@ -795,17 +795,32 @@ test('F1319 actual Contents refresh gestures keep visible action feedback usable
                 : [{clientX:100,clientY:kind === 'touchstart' ? 100 : 190}]});
               document.dispatchEvent(event);
             }
-          } else document.getElementById('\${action}' === 'latest'
-            ? 'recentBirdGenLatest' : 'recentBirdGenRefresh').click();
+          } else refresh.click();
           await new Promise(resolve => setTimeout(resolve, 0));
-          if (!refresh.disabled || refresh.textContent !== 'Checking...') {
-            throw new Error('F1319 actual gesture has no visible pending feedback');
+          if (!refresh.disabled || refresh.textContent !== '\\u21bb'
+              || refresh.getAttribute('aria-busy') !== 'true') {
+            throw new Error('F1321 pending soft refresh must keep its icon and accessible busy state');
           }
           var range = document.createRange();
           range.selectNodeContents(refresh);
           var text = range.getBoundingClientRect();
           if (text.width <= 1 || text.height <= 1) throw new Error('F1319 pending text is clipped');
-          for (var id of ['recentBirdGenRefresh','recentBirdGenLatest','recentBirdGenOpen']) {
+          if (document.getElementById('recentBirdGenLatest')
+              || document.querySelectorAll('.recent-birdgen-actions button').length !== 2) {
+            throw new Error('F1321 only the Refresh icon and Full feed belong in the header');
+          }
+          var heading = document.querySelector('.recent-birdgen-head h2');
+          var headingRect = heading.getBoundingClientRect();
+          var iconRect = refresh.getBoundingClientRect();
+          if (Math.abs(headingRect.top + headingRect.height / 2 - iconRect.top - iconRect.height / 2) > 2) {
+            throw new Error('F1321 heading and actions must stay in the same header row');
+          }
+          if (Number(getComputedStyle(document.documentElement).getPropertyValue('--s')) === 1) {
+            var titleRange = document.createRange();
+            titleRange.selectNodeContents(heading);
+            if (titleRange.getClientRects().length !== 1) throw new Error('F1321 standard header title wrapped');
+          }
+          for (var id of ['recentBirdGenRefresh','recentBirdGenOpen']) {
             var rect = document.getElementById(id).getBoundingClientRect();
             if (rect.width < 44 || rect.height < 44 || rect.left < 0 || rect.right > innerWidth) {
               throw new Error('F1319 pending action is too small or overflows: ' + id);
@@ -830,13 +845,13 @@ test('F1319 actual Contents refresh gestures keep visible action feedback usable
       };
     `);
     try {
-      for (const scale of ['1', '1.75']) {
+      for (const [width, scale] of [['402', '1'], ['402', '1.75'], ['320', '1']]) {
         const result = spawnSync(process.execPath, ['--require', preload, target,
-          '--only', 'f1319-normal,f1319-latest,f1319-pull', '--width', '402',
-          '--scale', scale, '--out', path.join(output, scale)],
+          '--only', 'f1319-normal,f1319-pull', '--width', width,
+          '--scale', scale, '--out', path.join(output, width + '-' + scale)],
         { cwd: ROOT, encoding: 'utf8', timeout: 55000 });
         assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
-        assert.match(result.stdout, /3 mockup\(s\)/);
+        assert.match(result.stdout, /2 mockup\(s\)/);
       }
     } finally { fs.rmSync(output, { recursive: true, force: true }); }
   });

@@ -1672,9 +1672,8 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       const manual = overlap ? A.refreshFullBirdGen() : null;
       if (overlap) {
         assert.equal(A.refreshFullBirdGen(), manual, 'repeated Fetch latest joins one forced continuation');
-        assert.equal(app.$('recentBirdGenLatest').disabled, true,
-          'Fetch latest queued must reserve one forced continuation');
-        assert.equal(app.$('recentBirdGenLatest').textContent, 'Fetch latest queued');
+        assert.equal(app.$('recentBirdGenRefresh').disabled, true,
+          'the active check keeps its existing icon busy while an internal forced continuation is reserved');
       }
       await automatic;
       assert.equal(registryReads(), before, 'automatic handoff cannot reacquire the fresh Busy registry');
@@ -1709,9 +1708,8 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       }
       A.fgWindowReset(); A.fgSchedReset(Date.now());
       if (!overlap) {
-        app.click(app.$('recentBirdGenLatest'));
-        assert.equal(app.$('recentBirdGenLatest').disabled, true, 'explicit latest owns a forced job');
-        assert.equal(app.$('recentBirdGenLatest').textContent, 'Fetching latest...');
+        A.refreshFullBirdGen();
+        assert.equal(app.$('recentBirdGenRefresh').disabled, true, 'internal full refresh owns its job');
       }
       await (manual || A.refreshFullBirdGen());
       assert.equal(registryReads(), before + 1, 'manual Full Refresh must still bypass the fresh Busy snapshot');
@@ -2692,7 +2690,7 @@ test('F1292 actual detached species completion cannot roll back targeted notable
   }
 });
 
-test('F1292 TWITCH headings stay soft and labelled latest actions update only their applicable RBA inputs', async () => {
+test('F1292/F1322 TWITCH headings hard-refresh only applicable RBA inputs while normal loads reuse them', async () => {
   for (const weekly of [false, true]) {
     let latest = false, hold = false, browserCache;
     const pending = [], webReads = [];
@@ -2722,25 +2720,25 @@ test('F1292 TWITCH headings stay soft and labelled latest actions update only th
     try {
       const A = app.window.__app, load = weekly ? () => A.loadActiveRarities() : () => A.refresh();
       const section = app.$(weekly ? 'activeBtn' : 'refreshBtn').closest('section');
-      const button = app.$(weekly ? 'activeFetchLatest' : 'twitchFetchLatest');
-      assert.ok(button, 'each TWITCH consumer needs a labelled source-scoped latest action');
-      assert.match(button.textContent, /Fetch latest RBA/);
       A.showSection(section.id, { load: false });
       await load();
       await waitFor(() => section.querySelector('.refreshbtn') && /S1292601/.test(
         app.$(weekly ? 'activeResults' : 'results').innerHTML), 'initial actual rarity render');
+      const button = section.querySelector('.refreshbtn');
+      assert.equal(app.$(weekly ? 'activeFetchLatest' : 'twitchFetchLatest'), null,
+        'the heading icon is the only RBA refresh action');
+      assert.equal(button.textContent.trim(), '\u21BB');
       const calls = () => app.state.fetches.filter(url => /api\.ebird\.org\/v2\/data\/obs\//.test(url));
       const before = calls().length, webBefore = webReads.length;
-      app.click(section.querySelector('.refreshbtn'));
       await load();
-      assert.equal(calls().length, before, 'ordinary TWITCH heading must reuse valid notable inputs');
-      assert.equal(webReads.length, webBefore, 'ordinary TWITCH heading must reuse valid website evidence');
+      assert.equal(calls().length, before, 'ordinary navigation must reuse valid notable inputs');
+      assert.equal(webReads.length, webBefore, 'ordinary navigation must reuse valid website evidence');
       latest = true;
       hold = true;
       app.click(button);
       assert.equal(button.disabled, true, 'explicit latest has an owned pending indicator');
       assert.equal(button.getAttribute('aria-busy'), 'true', 'assistive technology receives the pending state');
-      assert.match(button.textContent, /Fetching latest/);
+      assert.equal(button.textContent.trim(), '\u21BB', 'pending RBA refresh stays icon-only');
       await waitFor(() => pending.length > 0 || !button.disabled, 'latest begins or settles');
       assert.ok(pending.length, 'Fetch latest must request newer notable inputs rather than reuse valid cache');
       assert.match(app.$(weekly ? 'activeResults' : 'results').innerHTML, /S1292601/,
@@ -2758,13 +2756,13 @@ test('F1292 TWITCH headings stay soft and labelled latest actions update only th
         assert.equal(webReads.at(-1), 'no-store');
         assert.match(app.$('results').innerHTML, /S1292612/, 'latest bypasses the website HTTP cache too');
       }
-      assert.match(button.textContent, /Fetch latest RBA/);
+      assert.equal(button.textContent.trim(), '\u21BB');
       assert.deepEqual(app.state.errors, []);
     } finally { hold = false; pending.forEach(release => release()); app.window.close(); }
   }
 });
 
-test('F1292 TWITCH latest failure retains cards, settles its action and never opens a challenge browser', async () => {
+test('F1292/F1322 TWITCH heading hard-refresh failure retains cards, settles its icon and never opens a challenge browser', async () => {
   for (const mode of ['challenge', 'main-api-fails', 'weekly-api-fails']) {
     let failing = false, opens = 0;
     const weekly = mode === 'weekly-api-fails';
@@ -2787,9 +2785,10 @@ test('F1292 TWITCH latest failure retains cards, settles its action and never op
     } });
     try {
       const A = app.window.__app, out = app.$(weekly ? 'activeResults' : 'results');
-      const button = app.$(weekly ? 'activeFetchLatest' : 'twitchFetchLatest');
-      A.showSection(app.$(weekly ? 'activeBtn' : 'refreshBtn').closest('section').id, { load: false });
+      const section = app.$(weekly ? 'activeBtn' : 'refreshBtn').closest('section');
+      A.showSection(section.id, { load: false });
       await (weekly ? A.loadActiveRarities() : A.refresh());
+      const button = section.querySelector('.refreshbtn');
       assert.match(out.innerHTML, /S1292621/, 'the control starts with actual last-good cards');
       app.window.Capacitor = { isNativePlatform: () => true, Plugins: { CapgoInAppBrowser: {
         addListener() { return Promise.resolve({ remove() {} }); },
@@ -2801,7 +2800,7 @@ test('F1292 TWITCH latest failure retains cards, settles its action and never op
       assert.equal(button.disabled, true);
       await waitFor(() => !button.disabled, mode + ' latest action settles');
       assert.equal(button.getAttribute('aria-busy'), 'false');
-      assert.match(button.textContent, /Fetch latest RBA/);
+      assert.equal(button.textContent.trim(), '\u21BB');
       assert.match(out.innerHTML, /S1292621/, 'failed acquisition cannot erase last-good cards');
       if (mode === 'challenge') {
         assert.match(out.innerHTML, /S1292622/, 'verified website evidence survives a later challenge');
@@ -2815,20 +2814,44 @@ test('F1292 TWITCH latest failure retains cards, settles its action and never op
   }
 });
 
-test('F1292 unsupported TWITCH latest actions are hidden and cannot acquire live sources', async () => {
+test('F1292/F1322 unsupported TWITCH hard refresh cannot acquire live sources', async () => {
   for (const report of ['aba', 'lower48']) {
     const app = await boot({ sample: false, report, fetch: () => [] });
     try {
       const A = app.window.__app;
       await A.refresh();
       await A.loadActiveRarities();
-      for (const id of ['twitchFetchLatest', 'activeFetchLatest']) assert.equal(app.$(id).hidden, true);
+      for (const id of ['twitchFetchLatest', 'activeFetchLatest']) assert.equal(app.$(id), null);
       const before = app.state.fetches.length;
-      app.click(app.$('twitchFetchLatest'));
-      app.click(app.$('activeFetchLatest'));
+      for (const id of ['refreshBtn', 'activeBtn']) app.click(app.$(id).closest('section').querySelector('.refreshbtn'));
       await A.refresh({ fetchLatest: true });
       await A.loadActiveRarities({ fetchLatest: true });
       assert.equal(app.state.fetches.length, before, 'unsupported action cannot create a live acquisition');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1323 actual RBA views show compact source age without refreshing a cached timestamp', async () => {
+  for (const weekly of [false, true]) {
+    const app = await boot({ sample: false, fetch: url => /data\/obs\/.*notable/.test(url) ? [{
+      speciesCode: 'mallar3', comName: 'Mallard', subId: 'SF1323',
+      obsDt: recentObsStamp(1), lat: 47.6, lng: -122.3,
+      locId: 'LF1323', locName: 'Synthetic public patch', howMany: 1
+    }] : [] });
+    try {
+      const A = app.window.__app, now = Date.now();
+      app.window.Date.now = () => now;
+      const load = weekly ? () => A.loadActiveRarities() : () => A.refresh();
+      await load();
+      const status = app.$(weekly ? 'activeStatus' : 'status');
+      assert.match(status.textContent, /updated just now/);
+      const reads = app.state.fetches.length;
+      app.window.Date.now = () => now + 4 * 60000;
+      await load();
+      assert.match(status.textContent, /updated 4min ago/);
+      assert.doesNotMatch(status.textContent, /updated [^·]*[AP]M|updated [^·]*\(/);
+      assert.equal(app.state.fetches.length, reads, 'a cached repaint retains the real acquisition age');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
   }
@@ -5239,7 +5262,7 @@ function pullMenu(app, { x = 0, y = 90, scrollTop = 0, fingers = 1 } = {}) {
   (doc.scrollingElement || doc.documentElement).scrollTop = 0;
 }
 
-function assertRecentOutcome(app, expected, warning, actionText = warning ? 'Retry' : '\u21BB') {
+function assertRecentOutcome(app, expected, warning) {
   const status = app.$('recentBirdGenStatus');
   assert.match(status.textContent, expected);
   assert.equal(status.getAttribute('role'), 'status');
@@ -5248,8 +5271,9 @@ function assertRecentOutcome(app, expected, warning, actionText = warning ? 'Ret
   assert.equal(app.$('recentBirdGen').querySelectorAll(':scope > p').length, 0);
   assert.equal(app.$('recentBirdGenFeedback'), null, 'technical outcomes must not add a menu info button');
   const refresh = app.$('recentBirdGenRefresh');
-  assert.equal(refresh.textContent, refresh.disabled ? 'Checking...' : actionText,
-    'the existing action must provide visible pending or retry feedback without technical prose');
+  assert.equal(refresh.textContent, '\u21BB', 'the main-page refresh stays icon-only for every outcome');
+  assert.equal(refresh.getAttribute('aria-busy'), String(refresh.disabled),
+    'pending ownership remains accessible without another visible action label');
   const entry = app.window.__dbg.buf.findLast(row => row.msg === 'Bird Gen refresh: ' + status.textContent);
   assert.ok(entry, 'the exact refresh outcome must remain in debug logs');
   if (warning) assert.equal(entry.level, 'warn');
@@ -5817,8 +5841,9 @@ for (const [preceding, action, retirement = 'navigation'] of [
   ['normal', 'latest'], ['normal', 'normal'], ['normal', 'pull'],
   ['latest', 'latest'], ['latest', 'normal'], ['latest', 'pull'],
   ['normal', 'latest', 'cancel'],
+  ['normal', 'normal', 'cancel'], ['latest', 'normal', 'cancel'],
 ]) {
-test(`F1319 ${action} replaces an obsolete ${preceding} Contents check after ${retirement} without its optional response`, async () => {
+test(`F1319 ${action === 'latest' ? 'internal force' : action} replaces an obsolete ${preceding === 'latest' ? 'forced' : preceding} Contents check after ${retirement} without its optional response`, async () => {
   let releaseMass, holdMass = true;
   const mass = new Promise(resolve => { releaseMass = () => resolve(f821Page([])); });
   const bird = { speciesCode: 'margod', comName: 'Marbled Godwit',
@@ -5839,9 +5864,10 @@ test(`F1319 ${action} replaces an obsolete ${preceding} Contents check after ${r
     const A = app.window.__app;
     await A.refreshRecentBirdGen(false);
     await seedSeen(app, [], null, [{ code: bird.speciesCode, name: bird.comName }]);
-    app.click(app.$(preceding === 'latest' ? 'recentBirdGenLatest' : 'recentBirdGenRefresh'));
+    if (preceding === 'latest') A.refreshFullBirdGen();
+    else app.click(app.$('recentBirdGenRefresh'));
     assert.equal(app.$('recentBirdGenRefresh').disabled, true, 'the real button starts its owner');
-    assert.equal(app.$('recentBirdGenRefresh').textContent, 'Checking...');
+    assert.equal(app.$('recentBirdGenRefresh').textContent, '\u21BB');
     previous = A.refreshFullBirdGen(preceding === 'normal' ? 'normal' : undefined);
     let retiredSettled = false;
     previous.then(() => { retiredSettled = true; });
@@ -5853,15 +5879,16 @@ test(`F1319 ${action} replaces an obsolete ${preceding} Contents check after ${r
     }
     holdMass = false;
     A.fgWindowReset(); A.fgSchedReset(Date.now());
-    assert.equal(app.$('recentBirdGenLatest').disabled, false,
-      'returning to Contents must not leave the latest button disabled by an obsolete owner');
+    assert.equal(app.$('recentBirdGenLatest'), null, 'the removed competing action cannot return');
+    if (retirement === 'navigation') assert.equal(app.$('recentBirdGenRefresh').disabled, false,
+      'returning to Contents must restore the icon disabled by an obsolete owner');
     if (action === 'pull') pullMenu(app);
-    else app.click(app.$(action === 'latest' ? 'recentBirdGenLatest' : 'recentBirdGenRefresh'));
+    else if (action === 'latest') A.refreshFullBirdGen();
+    else app.click(app.$('recentBirdGenRefresh'));
     assert.equal(retiredSettled, false, 'the control must still have an unsettled obsolete owner');
     assert.equal(app.$('recentBirdGenRefresh').disabled, true,
       'the actual gesture must own its replacement immediately, not wait for obsolete work');
-    assert.equal(app.$('recentBirdGenLatest').disabled, action === 'latest');
-    assert.equal(app.$('recentBirdGenLatest').textContent, action === 'latest' ? 'Fetching latest...' : 'Fetch latest');
+    assert.equal(app.$('recentBirdGenRefresh').textContent, '\u21BB');
     await waitFor(() => /Marbled Godwit/.test(app.$('recentBirdGenRows').textContent),
       'the actual gesture reacquires the failed Favorite before the obsolete response', 30000);
     assert.equal(retiredSettled, false, 'a retired optional response cannot be required for replacement');
@@ -5887,7 +5914,7 @@ test(`F1319 ${action} replaces an obsolete ${preceding} Contents check after ${r
 });
 }
 
-test('F1011 actual Fetch latest action forces full acquisition through the optional tail', async () => {
+test('F1011 internal full refresh retains forced acquisition through the optional tail', async () => {
   let full = false, failingFavorite = true, releaseMass;
   const work = [];
   let heldMass = new Promise(resolve => { releaseMass = () => resolve(f821Page([])); });
@@ -5910,7 +5937,8 @@ test('F1011 actual Fetch latest action forces full acquisition through the optio
     return [];
   } });
   try {
-    const A = app.window.__app, button = app.$('recentBirdGenLatest');
+    const A = app.window.__app;
+    const button = app.$('recentBirdGenRefresh');
     await A.refreshRecentBirdGen(false);
     const automatic = app.state.fetches.slice();
     assert.ok(automatic.filter(url => /data\/obs\//.test(url)).every(url => /notable/.test(url)));
@@ -5926,9 +5954,7 @@ test('F1011 actual Fetch latest action forces full acquisition through the optio
       locName: 'Retained public marsh', checklistId: 'SF1011KEEP',
     }] });
     A.saveMegaSnapshot([], true);
-    assert.equal(button.getAttribute('aria-label'), 'Fetch latest full Bird Gen feed');
-    assert.equal(button.textContent.trim(), 'Fetch latest');
-    assert.equal(app.document.querySelectorAll('#recentBirdGenLatest').length, 1);
+    assert.equal(app.$('recentBirdGenLatest'), null, 'internal forced acquisition needs no competing menu action');
     const beforeUnsafe = app.state.fetches.length;
     for (const gesture of [{ y: 30 }, { x: 100, y: 80 }, { scrollTop: 1 }, { fingers: 2 }]) {
       pullMenu(app, gesture);
@@ -5949,8 +5975,8 @@ test('F1011 actual Fetch latest action forces full acquisition through the optio
     await waitFor(() => /On for this profile/.test(app.$('birdGenNotifyStatus').textContent), 'native opt-in');
     await A.syncBirdGenNotificationRows([]);
     full = true;
-    button.click();
-    assert.equal(button.disabled, true, 'the actual gesture must start the full owner before a direct join');
+    A.refreshFullBirdGen();
+    assert.equal(button.disabled, true, 'internal full refresh must start its owner before a direct join');
     const pending = A.refreshFullBirdGen();
     work.push(pending);
     const joined = A.refreshFullBirdGen();
@@ -5983,7 +6009,7 @@ test('F1011 actual Fetch latest action forces full acquisition through the optio
     assert.match(app.$('recentBirdGenStatus').textContent, /^Refreshing full Bird Gen feed/);
     assertRecentOutcome(app, /^Refreshing full Bird Gen feed/);
     const beforeRepeat = app.state.fetches.length;
-    pullMenu(app); button.click();
+    pullMenu(app); A.refreshFullBirdGen();
     const repeated = A.refreshFullBirdGen();
     work.push(repeated);
     assert.equal(repeated, pending);
@@ -6017,8 +6043,8 @@ test('F1011 actual Fetch latest action forces full acquisition through the optio
     const scheduled = published.length;
     failingFavorite = false;
     heldMass = f821Page([]);
-    button.click();
-    assert.equal(button.disabled, true, 'the labelled action must start the owner before a direct join');
+    A.refreshFullBirdGen();
+    assert.equal(button.disabled, true, 'internal full refresh must start its owner before a direct join');
     const next = A.refreshFullBirdGen();
     work.push(next);
     await next;
@@ -10616,8 +10642,8 @@ for (const distance of ['near', 'region']) {
     try {
       const A = app.window.__app;
       await seedSeen(app, []);
-      const refresh = app.$('twitchFetchLatest');
-      assert.match(refresh.textContent, /Fetch latest RBA/, 'exercise the explicit source-scoped force action');
+      const refresh = app.$('refreshBtn').closest('section').querySelector('.refreshbtn');
+      assert.equal(refresh.textContent.trim(), '\u21BB', 'exercise the source-scoped heading force action');
       const notableReads = () => app.state.fetches.filter(url =>
         /data\/obs\/.*\/recent\/notable/.test(url)).length;
       for (let wave = 0; wave < 2; wave++) {
@@ -22199,8 +22225,8 @@ test('F944/F959 Patagonia bird-name headlines retain focused Twitches without no
       new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await waitFor(() => doc.querySelector('[data-ppte-context]'), 'event-specific Twitches context');
     assert.equal(app.$('sec-refreshBtn').hidden, false);
-    assert.equal(app.$('twitchFetchLatest').hidden, true, 'event evidence is read-only, not a live RBA refresh');
-    app.click(app.$('twitchFetchLatest'));
+    assert.equal(app.$('twitchFetchLatest'), null, 'the extra RBA action was removed');
+    app.click(app.$('refreshBtn').closest('section').querySelector('.refreshbtn'));
     await A.refresh({ fetchLatest: true });
     assert.equal(doc.querySelectorAll('#results .twitchcard').length, 5,
       'all five qualification-day reports remain available despite saved unseen/near filters');
@@ -24776,7 +24802,7 @@ test('yesterday\'s snapshot is pruned, not kept forever', async () => {
 // chase pipeline's phase 2 is one call PER UNSEEN SPECIES (~41 on a normal
 // Washington day) and hotspot cards hydrate one call each after paint. A single
 // 429 then rendered an empty section instead of costing a second.
-test('F1222 initial region caching is compact, dismissible and ends before later background work', async () => {
+test('F1324 cold and later region acquisition never show obsolete first-load explanations', async () => {
   for (const hide of [false, true]) {
     let release, blocked = false;
     const app = await boot({
@@ -24791,12 +24817,9 @@ test('F1222 initial region caching is compact, dismissible and ends before later
     });
     try {
       const A = app.window.__app, pending = A.getChase();
-      await waitFor(() => release && !app.$('loadNotice').hidden, 'initial caching explanation');
-      assert.equal(app.$('loadNotice').dataset.cause, 'cache');
-      assert.equal(app.$('loadNoticeText').textContent,
-        'First load: caching data. Later visits here usually load faster. Fresh updates still need eBird.');
-      assert.equal(app.$('loadNoticeHide').textContent, 'Hide');
-      assert.equal(app.$('loadNoticeHide').getAttribute('aria-label'), 'Hide loading explanation');
+      await waitFor(() => release, 'actual first region request is held');
+      assert.equal(app.$('loadNotice').hidden, true, 'first acquisition must not show a cache explanation');
+      assert.doesNotMatch(app.$('loadNoticeText').textContent, /First load|Later visits|Fresh updates/);
       if (hide) {
         app.$('loadNoticeHide').click();
         assert.equal(app.$('loadNotice').hidden, true);
@@ -24842,7 +24865,9 @@ test('F1222 confirmed 429 explains the real owned wait once per session, includi
         app.document.body.appendChild(loaded);
         let settled = false;
         const first = A.ebird('ref/region/info/F1222-first').then(result => { settled = true; return result; });
-        await waitFor(() => !app.$('loadNotice').hidden, 'confirmed 429 explanation');
+        await waitFor(() => A.holdWhy() === 'limit', 'confirmed 429 refusal');
+        A.fgProgressSync();
+        assert.equal(app.$('loadNotice').hidden, false, 'a confirmed 429 must show its real wait explanation');
         assert.equal(app.$('loadNotice').dataset.cause, 'limit');
         const seconds = hide ? 30 : 20;
         assert.match(app.$('loadNoticeText').textContent, new RegExp(
@@ -29577,12 +29602,12 @@ test('F1020 F1021 F1034 Recent keeps icon refresh, operable PATAGONIA links and 
     });
     const root = app.$('recentBirdGen'), refresh = app.$('recentBirdGenRefresh');
     assert.equal(refresh.textContent.trim(), '↻');
-    assert.equal(refresh.getAttribute('aria-label'), 'Refresh full Bird Gen feed');
+    assert.equal(refresh.getAttribute('aria-label'), 'Refresh Recent Bird Gen');
     assert.equal(root.querySelectorAll(':scope > p').length, 0, 'surrounding small-print blocks remain');
     assertRecentOutcome(app, /Set Home/, true, '\u21BB');
     assert.deepEqual([...root.querySelectorAll('.recent-birdgen-actions button')].map(button => button.id),
-      ['recentBirdGenRefresh', 'recentBirdGenLatest', 'recentBirdGenOpen'],
-      'normal Refresh, explicit Fetch latest and Full feed remain separate actions');
+      ['recentBirdGenRefresh', 'recentBirdGenOpen'],
+      'only the soft-refresh icon and Full feed remain beside the heading');
     const preview = root.querySelector('[data-recent-kind="ppte"]');
     const birds = [...preview.querySelectorAll('.surgealerttitle .splink')];
     const full = [...app.$('surgeFeed').querySelectorAll('.surgealerttitle .splink')];
@@ -49446,8 +49471,7 @@ test('Refresh actually refetches; opening the section does not', async () => {
   assert.equal(waves, first,
     'reloading from cache costs nothing — a section you open twice is not two waves');
 
-  // Deliberate source force is separate from the cache-aware normal arrow.
-  doc.getElementById('twitchFetchLatest').click();
+  doc.getElementById('refreshBtn').closest('section').querySelector('.refreshbtn').click();
   await waitFor(() => waves > first,'visible Refresh to start a new rarity read');
   assert.ok(waves > first,
     `Refresh must actually refetch: ${first} calls before, ${waves} after`);
@@ -49549,7 +49573,7 @@ test('a rarity refresh re-reads the alerts, not the whole wave', async () => {
   calls = [];
   await waitFor(() => !doc.getElementById('refreshBtn').disabled,
     'the first load to release the button');
-  doc.getElementById('twitchFetchLatest').click();
+  doc.getElementById('refreshBtn').closest('section').querySelector('.refreshbtn').click();
   await waitFor(() => calls.some((u) => /notable/.test(u)),
     'the alert feeds to be re-read');
   await new Promise((r) => setTimeout(r, 400));   // let any stragglers land

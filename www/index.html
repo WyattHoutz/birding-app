@@ -1597,7 +1597,6 @@
              max-width: 100%; overflow-wrap: anywhere; white-space: normal; min-width: 0; }
     button:active { transform: translateY(1px); }
     button.secondary { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-    .raritylatest { min-width: 44px; min-height: 44px; }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: calc(12px * var(--s)); color: var(--muted); margin: 8px 0 0; }
     .destfoot { margin: 8px 0 2px; }
@@ -2540,9 +2539,17 @@
                       font-weight: 800; margin-top: 2px; }
     .recent-birdgen { margin-bottom: 14px; }
     .recent-birdgen h2 { margin: 8px 0; }
-    .recent-birdgen-head { display: flex; align-items: center; flex-wrap: wrap; column-gap: 8px; }
-    .recent-birdgen-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+    .recent-birdgen-head { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; }
+    #menuPanel .recent-birdgen-head h2 { flex: 1 1 auto; min-width: 0; }
+    .recent-birdgen-actions { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; margin-left: auto; }
     .recent-birdgen-actions button { min-width: 44px; min-height: 44px; margin: 0; }
+    #recentBirdGenRefresh { width: 44px; padding: 0; font-size: calc(20px * var(--s)); }
+    #recentBirdGenOpen { white-space: nowrap; font-size: calc(14px * var(--s)); }
+    @media (max-width: 360px) {
+      #menuPanel .recent-birdgen-head h2 { font-size: calc(14px * var(--s)); letter-spacing: .02em; }
+      #recentBirdGenOpen { font-size: calc(13px * var(--s)); padding: 2px 6px; }
+      .recent-birdgen-head { gap: 4px; }
+    }
     .recent-birdgen .hint { margin: 6px 0 0; }
     .recent-birdgen-list.obs.card-sm > li { padding: 3px 0; border: 0; }
     .recent-birdgen-list.obs.card-sm > li > .name {
@@ -4119,10 +4126,6 @@
       <div class="row">
         <button id="refreshBtn">Refresh</button>
       </div>
-      <div class="row">
-        <button id="twitchFetchLatest" class="secondary raritylatest" type="button" aria-live="polite" aria-busy="false"
-                title="Recheck RBA sightings only; keep cached results and other Bird Gen inputs.">Fetch latest RBA</button>
-      </div>
       <div id="status" class="status"></div>
       <ul id="results" class="obs big xl"></ul>
     </section>
@@ -4437,10 +4440,6 @@
       <h2>🚨 Twitches this week <span class="dim" id="activeRegionLabel"></span></h2>
       <div class="row">
         <button id="activeBtn">Load rarity reports</button>
-      </div>
-      <div class="row">
-        <button id="activeFetchLatest" class="secondary raritylatest" type="button" aria-live="polite" aria-busy="false"
-                title="Recheck notable sightings only; keep cached results and other Bird Gen inputs.">Fetch latest RBA</button>
       </div>
       <div id="activeStatus" class="status">Every rare species currently being reported — one row per bird and local place, closest report first.</div>
       <ul id="activeResults" class="obs big xl"></ul>
@@ -8719,11 +8718,12 @@
       // timestamp, and says how stale it is once it is worth knowing.
       function dataTime(c) {
         var t = c && c.t;
-        if (!t) return nowTime();
-        var mins = Math.floor((Date.now() - t) / 60000);
-        var when = new Date(t).toLocaleTimeString(undefined,
-          { hour: 'numeric', minute: '2-digit' });
-        return when + (mins >= 2 ? ' (' + mins + ' min ago)' : '');
+        if (!t || !isFinite(t)) return 'age unknown';
+        var mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+        if (!mins) return 'just now';
+        if (mins < 60) return mins + 'min ago';
+        if (mins < 1440) return Math.floor(mins / 60) + 'hr ago';
+        return Math.floor(mins / 1440) + 'd ago';
       }
 
       // One observation row, carrying the same links the Markdown report puts on
@@ -9187,18 +9187,6 @@
       // told the owner eBird was rate-limiting them.
       var _fgHoldWhy = 'pace';
       var _loadLimitSeen = false, _loadLimitUntil = 0;
-      var _loadCacheSeen = {}, _loadCacheNotice = null;
-      function beginCacheNotice(slug, work) {
-        if (_loadCacheSeen[slug]) return function () {};
-        _loadCacheSeen[slug] = true;
-        var notice = { work: work };
-        _loadCacheNotice = notice;
-        fgProgressSync();
-        return function () {
-          if (_loadCacheNotice === notice) _loadCacheNotice = null;
-          fgProgressSync();
-        };
-      }
       function noteEbirdLimit() {
         if (!_loadLimitSeen || _loadLimitUntil > Date.now()) _loadLimitUntil = _fgNextAt;
         _loadLimitSeen = true;
@@ -9208,16 +9196,13 @@
         var el = (typeof document !== 'undefined') && document.getElementById('loadNotice');
         if (!el) return false;
         if (_loadLimitUntil <= Date.now()) _loadLimitUntil = 0;
-        if (_loadCacheNotice && !workCurrent(_loadCacheNotice.work)) _loadCacheNotice = null;
-        var cause = _loadLimitUntil ? 'limit' : _loadCacheNotice ? 'cache' : '';
+        var cause = _loadLimitUntil ? 'limit' : '';
         el.hidden = !cause;
         if (!cause) return false;
         el.setAttribute('data-cause', cause);
-        $('loadNoticeIcon').textContent = cause === 'limit' ? '!' : 'i';
-        $('loadNoticeText').textContent = cause === 'limit'
-          ? 'eBird is limiting requests. Next retry: ' + Math.ceil((_loadLimitUntil - Date.now()) / 1000)
-            + 's. Keep browsing loaded results.'
-          : 'First load: caching data. Later visits here usually load faster. Fresh updates still need eBird.';
+        $('loadNoticeIcon').textContent = '!';
+        $('loadNoticeText').textContent = 'eBird is limiting requests. Next retry: '
+          + Math.ceil((_loadLimitUntil - Date.now()) / 1000) + 's. Keep browsing loaded results.';
         return true;
       }
 
@@ -12939,18 +12924,22 @@
       }
 
       var _twitchRefreshGeneration = 0;
-      function rarityLatestState(button, pending) {
+      function rarityRefreshState(button, pending) {
         button.disabled = !!pending;
-        button.textContent = pending ? 'Fetching latest\u2026' : 'Fetch latest RBA';
         button.setAttribute('aria-busy', String(!!pending));
+        var heading = button.closest('section').querySelector('.refreshbtn');
+        if (heading) {
+          heading.disabled = !!pending;
+          heading.setAttribute('aria-busy', String(!!pending));
+        }
       }
       function refresh(options) {
         var fetchLatest = !!(options && options.fetchLatest === true);
-        var focusedPpte = ppteTwitchContext(), latestButton = $('twitchFetchLatest');
-        latestButton.hidden = !!focusedPpte || !BL.planFeeds(chaseProfile()).some(function (feed) {
+        var focusedPpte = ppteTwitchContext();
+        var liveRba = !focusedPpte && BL.planFeeds(chaseProfile()).some(function (feed) {
           return feed.kind === 'notable';
         });
-        if (fetchLatest && latestButton.hidden) return;
+        if (fetchLatest && !liveRba) return;
         // Your own new checklists, read without being asked, once per session.
         // Hung off the wave rather than off boot: refresh() is the thing that
         // runs when you actually open the app to go birding, and it is the
@@ -12967,8 +12956,7 @@
             && reportSlug === getReportSlug() && fetchKey === chaseFetchBaseKey(chaseProfile())
             && context === twitchContext(twitchView()) && out._twitchList === list;
         }
-        btn.disabled = true;
-        if (fetchLatest) rarityLatestState(latestButton, true);
+        rarityRefreshState(btn, true);
         if (!list.shown) st.textContent = 'Loading rarity reports for ' + label + '\u2026';
         // Was a raw notable-feed read: eBird's default 14-day window, deduped by
         // species+location and left in feed order. That is a different section
@@ -13429,8 +13417,7 @@
         }).catch(function (e) { if (current()) st.textContent = netErr(e); })
           .finally(function () {
             if (refreshId !== _twitchRefreshGeneration) return;
-            btn.disabled = false;
-            rarityLatestState(latestButton, false);
+            rarityRefreshState(btn, false);
           });
       }
 
@@ -20022,7 +20009,6 @@
         }
         function runWave() {
           var _t0 = Date.now();
-          var endCacheNotice = !snapshotTime ? beginCacheNotice(slug, waveWork) : function () {};
           var earlyPublished = false;
           if (force !== 'failed') feedStates = {};
           liveOkCount = 0;
@@ -20105,7 +20091,6 @@
             }
             return fetchAll(rest, true, false, waveWork, incremental);
           }).then(function (results) {
-            endCacheNotice();
             requireCurrentChase();
             if (!incremental) applyFetchResults(results);
             dbg('net', 'WAVE phase 1 done in ' + ((Date.now() - _t0) / 1000).toFixed(1) + 's');
@@ -20304,7 +20289,7 @@
             });
 
             return phaseOneSaved.then(function () { return first; });
-          }).finally(endCacheNotice);
+          });
         }
         // A cold start had nothing in memory and paid the whole wave again.
         // "I often close the app and then open it again" - so a snapshot from
@@ -26442,11 +26427,11 @@
 
       var _activeRarityGeneration = 0;
       function loadActiveRarities(options) {
-        var fetchLatest = !!(options && options.fetchLatest === true), latestButton = $('activeFetchLatest');
-        latestButton.hidden = !BL.planFeeds(chaseProfile()).some(function (feed) {
+        var fetchLatest = !!(options && options.fetchLatest === true);
+        var liveRba = BL.planFeeds(chaseProfile()).some(function (feed) {
           return feed.kind === 'notable';
         });
-        if (fetchLatest && latestButton.hidden) return;
+        if (fetchLatest && !liveRba) return;
         if (!getKey()) { $('activeStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
         var btn = $('activeBtn'), st = $('activeStatus'), el = $('activeResults'), label = getReport().label;
         var generation = ++_activeRarityGeneration, chaseGeneration = _chaseGeneration;
@@ -26455,8 +26440,7 @@
           return generation === _activeRarityGeneration && chaseGeneration === _chaseGeneration
             && context === twitchContext('week') && el._twitchList === list;
         }
-        btn.disabled = true;
-        if (fetchLatest) rarityLatestState(latestButton, true);
+        rarityRefreshState(btn, true);
         if (!list.shown) st.textContent = 'Collecting rarity reports for ' + label + '…';
         var done = false;
         var slowTimer = setTimeout(function () {
@@ -26690,8 +26674,7 @@
           done = true;
           clearTimeout(slowTimer);
           if (generation === _activeRarityGeneration) {
-            btn.disabled = false;
-            rarityLatestState(latestButton, false);
+            rarityRefreshState(btn, false);
           }
         });
       }
@@ -51490,6 +51473,8 @@
                      : (load.textContent || 'Reload').replace(/^Load\b/, 'Reload') );
         btn.addEventListener('click', function () {
           _forceReload = false;
+          if (load.id === 'refreshBtn') return refresh({ fetchLatest: true });
+          if (load.id === 'activeBtn') return loadActiveRarities({ fetchLatest: true });
           if (nemesisModes) {
             var patchPane = $('nemesisPatchPane');
             load = patchPane && !patchPane.hidden ? $('targetsBtn') : $('allUnseenBtn');
@@ -52497,9 +52482,8 @@
       function updateRecentBirdGenRefreshLabel() {
         var button = $('recentBirdGenRefresh');
         if (!button) return;
-        var retry = /failed|cancelled|partial|not saved|withheld|could not/i
-          .test($('recentBirdGenStatus').textContent);
-        button.textContent = button.disabled ? 'Checking...' : retry ? 'Retry' : '\u21BB';
+        button.textContent = '\u21BB';
+        button.setAttribute('aria-busy', String(button.disabled));
       }
       function setRecentBirdGenStatus(text) {
         var status = $('recentBirdGenStatus');
@@ -52517,9 +52501,7 @@
           root.innerHTML = '<div class="recent-birdgen-head"><h2>Recent Bird Gen</h2>'
             + '<div class="recent-birdgen-actions">'
             + '<button type="button" class="refreshbtn" id="recentBirdGenRefresh"'
-            + ' aria-label="Refresh full Bird Gen feed"><span aria-hidden="true">↻</span></button>'
-            + '<button type="button" class="refreshbtn" id="recentBirdGenLatest"'
-            + ' aria-label="Fetch latest full Bird Gen feed">Fetch latest</button>'
+            + ' aria-label="Refresh Recent Bird Gen" aria-busy="false"><span aria-hidden="true">↻</span></button>'
             + '<button type="button" class="refreshbtn" id="recentBirdGenOpen" data-at="surgeBtn"'
             + ' aria-label="Open full Bird Gen feed">Full feed</button>'
             + '<span id="recentBirdGenStatus" class="vh" role="status" aria-live="polite"></span></div></div>'
@@ -52527,9 +52509,6 @@
           list.before(root);
           $('recentBirdGenRefresh').addEventListener('click', function () {
             refreshFullBirdGen('normal');
-          });
-          $('recentBirdGenLatest').addEventListener('click', function () {
-            refreshFullBirdGen();
           });
           $('recentBirdGenOpen').addEventListener('click', function () {
             var section = $('surgeBtn').closest('section');
@@ -52540,8 +52519,6 @@
             && _recentBirdGenFullJob.context === recentBirdGenKey()) {
           _recentBirdGenFullJob = null;
           $('recentBirdGenRefresh').disabled = false;
-          $('recentBirdGenLatest').disabled = false;
-          $('recentBirdGenLatest').textContent = 'Fetch latest';
           updateRecentBirdGenRefreshLabel();
         }
         var section = _sections.find(function (item) { return item._at === 'surgeBtn'; });
@@ -52691,8 +52668,6 @@
           if (_recentBirdGenFullJob.current()) {
             var active = _recentBirdGenFullJob;
             if (!reuseFresh && active.reuseFresh) {
-              $('recentBirdGenLatest').disabled = true;
-              $('recentBirdGenLatest').textContent = 'Fetch latest queued';
               if (!active.manualContinuation) active.manualContinuation = active.promise.then(function () {
                 if (active.current()) return refreshFullBirdGen();
               });
@@ -52712,7 +52687,7 @@
         }
         var context = recentBirdGenKey(), scope = activeScope();
         var nav = _navGeneration, cancellation = _workCancelGeneration;
-        var button = $('recentBirdGenRefresh'), latest = $('recentBirdGenLatest');
+        var button = $('recentBirdGenRefresh');
         function current() {
           return !!window.document && !_appUnloading && menuVisible()
             && context === recentBirdGenKey() && scopeCurrent(scope)
@@ -52729,8 +52704,6 @@
           : 'Full Bird Gen refresh';
         _recentBirdGenFullJob = job;
         button.disabled = true;
-        latest.disabled = !job.reuseFresh;
-        latest.textContent = job.reuseFresh ? 'Fetch latest' : 'Fetching latest...';
         function progress(states, settled) {
           if (!current()) return;
           var warnings = Object.keys(states || {}).filter(function (key) {
@@ -52764,8 +52737,6 @@
           _recentBirdGenFullJob = null;
           if (_appUnloading || !window.document) return;
           button.disabled = false;
-          latest.disabled = false;
-          latest.textContent = 'Fetch latest';
           if (!current() && context === recentBirdGenKey()) {
             setRecentBirdGenStatus(actionLabel + ' cancelled · retained results kept. Retry the refresh button.');
           }
@@ -55767,8 +55738,7 @@
       bindPersonalListReturn();
       if ($('loadRetry')) $('loadRetry').addEventListener('click', retryStalledSection);
       if ($('loadNoticeHide')) $('loadNoticeHide').addEventListener('click', function () {
-        if (_loadLimitUntil) _loadLimitUntil = 0;
-        else _loadCacheNotice = null;
+        _loadLimitUntil = 0;
         fgProgressSync();
       });
       if ($('loadCancel')) $('loadCancel').addEventListener('click', cancelStalledWork);
@@ -56072,8 +56042,6 @@
         say(false);
       });
       $('refreshBtn').addEventListener('click', refresh);
-      $('twitchFetchLatest').addEventListener('click', function () { refresh({fetchLatest:true}); });
-      $('activeFetchLatest').addEventListener('click', function () { loadActiveRarities({fetchLatest:true}); });
       $('destBtn').addEventListener('click', loadDestinations);
       $('myYearBtn').addEventListener('click', function () { _forceReload = true; loadMyYear(); });
       if ($('csvDownloadBtn')) $('csvDownloadBtn').addEventListener('click', function () {
