@@ -3735,12 +3735,19 @@ const AUDIT = `<script>
       });
       var savedElapsed=elapsed.textContent;
       elapsed.textContent='2407s';
-      var pair=ready.parentElement.getBoundingClientRect();
-      if(Math.abs(ready.getBoundingClientRect().top-elapsed.getBoundingClientRect().top)>2
-          || pair.right>Math.min(innerWidth,body.getBoundingClientRect().right)+1)
-        throw new Error('F1328 Ready and elapsed must fit together on one line: '+JSON.stringify({
-          ready:ready.getBoundingClientRect().toJSON(),elapsed:elapsed.getBoundingClientRect().toJSON(),
-          pair:pair.toJSON(),body:body.getBoundingClientRect().toJSON(),text:ready.parentElement.textContent}));
+      var savedFont=count.style.fontFamily;
+      var timerGeometry=['', 'Arial, sans-serif'].map(function(font){
+        count.style.fontFamily=font;
+        var pair=ready.parentElement.getBoundingClientRect();
+        var measurement={font:font||'platform',pair:pair.toJSON(),body:body.getBoundingClientRect().toJSON(),
+          text:ready.parentElement.textContent};
+        if(Math.abs(ready.getBoundingClientRect().top-elapsed.getBoundingClientRect().top)>2
+            || pair.left<body.getBoundingClientRect().left-.5
+            || pair.right>Math.min(innerWidth,body.getBoundingClientRect().right)+1)
+          throw new Error('F1328 Ready and elapsed must fit together on one line: '+JSON.stringify(measurement));
+        return measurement;
+      });
+      count.style.fontFamily=savedFont;
       elapsed.textContent=savedElapsed;
       if(!guidance || body.querySelectorAll('.setupduration').length!==1
           || getComputedStyle(guidance).fontStyle!=='italic'
@@ -3751,6 +3758,7 @@ const AUDIT = `<script>
       var states=Object.values(A.setupPrefetchEngine().states);
       result.mixedSetup={count:document.getElementById('setupPrefetchFinished').textContent,
         readyCount:ready.textContent,
+        timerGeometry:timerGeometry,
         total:Object.keys(tasks).length,
         finished:states.filter(function(item){
           return ['ready','partial','failed','blocked','notApplicable','cancelled'].includes(item.state);

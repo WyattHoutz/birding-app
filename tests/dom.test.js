@@ -6285,7 +6285,7 @@ test('F996/F1000/F1003/F1004 reviewed preview actions and evidence styling survi
     assert.ok(head.contains(app.$('recentBirdGenRefresh')));
     assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
     assert.equal(app.$('recentBirdGenRefresh').textContent.trim(), '↻');
-    assert.equal(app.$('recentBirdGenRefresh').getAttribute('aria-label'), 'Refresh full Bird Gen feed');
+    assert.equal(app.$('recentBirdGenRefresh').getAttribute('aria-label'), 'Refresh Recent Bird Gen');
     assert.equal(W.getComputedStyle(app.$('recentBirdGenOpen')).minHeight, '44px');
     assert.match(app.$('recentBirdGenStatus').textContent, /Set Home/);
     const feed = app.document.createElement('ul');

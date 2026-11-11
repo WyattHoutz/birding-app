@@ -2546,7 +2546,7 @@
     #menuPanel .recent-birdgen-head h2 { flex: 1 1 auto; min-width: 0; }
     .recent-birdgen-actions { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; margin-left: auto; }
     .recent-birdgen-actions button { min-width: 44px; min-height: 44px; margin: 0; }
-    #recentBirdGenRefresh { width: 44px; min-height: max(44px, 1.4em); padding: 0; font-size: calc(20px * var(--s)); }
+    #recentBirdGenRefresh { width: max(44px, 1.4em); min-height: max(44px, 1.4em); padding: 0; font-size: calc(20px * var(--s)); }
     #recentBirdGenOpen { white-space: nowrap; font-size: calc(14px * var(--s)); }
     @media (max-width: 360px) {
       #menuPanel .recent-birdgen-head h2 { font-size: calc(14px * var(--s)); letter-spacing: .02em; }
@@ -3994,6 +3994,9 @@
     }
     .prefetch-count { font-size: calc(15px * var(--s)); font-weight: 600; }
     .prefetch-ready { display: inline-block; white-space: nowrap; }
+    @media (max-width: 360px) {
+      #setupSheet[data-setup-step="loading"] { padding-left: 8px; padding-right: 8px; }
+    }
     .prefetch-list { list-style: none; padding: 0; display: grid; gap: 4px; }
     .prefetch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr);
       gap: 10px; align-items: center; font-size: calc(17px * var(--s));
