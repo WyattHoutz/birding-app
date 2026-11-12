@@ -561,9 +561,11 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     assert.ok(app.$('setupPrefetchCount').contains(app.$('setupActivityEstimate')),
       'remaining time belongs in the single progress summary');
     assert.equal(app.$('setupPrefetchReady'), null, 'F1332 removes the contradictory Ready counter');
-    assert.equal(app.$('setupActivityElapsed'), null, 'F1332 final copy omits visible elapsed');
+    assert.equal(app.$('setupActivityElapsed'), null, 'the former elapsed-this-visit paragraph stays absent');
+    assert.ok(app.$('setupPrefetchCount').contains(app.$('setupPrefetchElapsed')),
+      'F1355 elapsed belongs beside the estimate in the single summary');
     assert.equal(app.$('setupActivityEstimate').getAttribute('aria-live'), 'off');
-    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est: 3–5m\.$/);
+    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est: 3–5m\. Elap: \d+s\.$/);
     const note = app.$('setupPrefetchActivity');
     assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
       'useful loading guidance belongs below the unified list');
@@ -969,6 +971,267 @@ test('F1295 Home address submission stays with the field, respects composition a
     assert.equal(queries, 1);
     assert.deepEqual(app.state.errors, []);
   } finally { if (release) release({ ok: true, json: async () => ({ features: [] }) }); app.window.close(); }
+});
+
+async function pendingHomeRegionFixture(online = true) {
+  const app = await boot({ sample: false, home: false });
+  const W = app.window, A = W.__app, requests = [], timers = [];
+  const fetch = W.fetch, timeout = W.setTimeout.bind(W), clear = W.clearTimeout.bind(W);
+  const now = W.Date.now.bind(W.Date);
+  let offset = 0;
+  Object.defineProperty(W.navigator, 'onLine', { configurable: true, get: () => online });
+  W.Date.now = () => now() + offset;
+  W.setTimeout = (fn, delay, ...args) => {
+    const timer = { delay, active: true };
+    timer.id = timeout(() => { timer.active = false; fn(...args); }, delay);
+    timer.fire = () => { timer.active = false; clear(timer.id); fn(...args); };
+    timers.push(timer);
+    return timer.id;
+  };
+  W.clearTimeout = id => {
+    timers.filter(timer => timer.id === id).forEach(timer => { timer.active = false; });
+    clear(id);
+  };
+  W.fetch = (url, options) => {
+    if (/photon\.komoot\.io\/reverse/.test(String(url))) {
+      return new Promise((resolve, reject) => {
+        requests.push({ resolve, reject, signal: options && options.signal });
+      });
+    }
+    if (/photon\.komoot\.io\/api/.test(String(url))) {
+      return Promise.resolve({ ok: true, json: async () => ({ features: [
+        { geometry: { coordinates: [-121, 48] }, properties: { name: 'Synthetic Home' } },
+        { geometry: { coordinates: [-120, 47] }, properties: { name: 'Synthetic Other Home' } },
+      ] }) });
+    }
+    return fetch(url, options);
+  };
+  try {
+    W.localStorage.setItem('bc_setup_step_v1', 'home');
+    A.openSetupSheet();
+    const input = app.$('setupHomePlace');
+    input.value = 'Synthetic Home';
+    input.dispatchEvent(new W.Event('input', { bubbles: true }));
+    app.click(app.$('setupHomeFind'));
+    await waitFor(() => app.$('setupHomeOptions').querySelectorAll('input').length === 2, 'Home choices');
+    app.$('setupHomeOptions').querySelector('input').click();
+    await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-confirmed'
+      && !app.$('appSheet').hidden, 'Home approval');
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region',
+      'region step must open without waiting for the held lookup');
+    if (online) await waitFor(() => requests.length === 1, 'owned region request');
+    return {
+      app, requests, timers,
+      phase: () => app.$('setupRegionStatus')?.dataset.regionPhase,
+      advance(ms) { offset += ms; },
+      fire(delay) {
+        const timer = timers.find(timer => timer.active && timer.delay === delay);
+        assert.ok(timer, 'expected a scheduled recovery at ' + delay + 'ms');
+        timer.fire();
+      },
+      connection(value) {
+        online = value;
+        W.dispatchEvent(new W.Event(value ? 'online' : 'offline'));
+      },
+      resolve(index, features = [{ properties: { state: 'Washington', countrycode: 'US' } }]) {
+        requests[index].resolve({ ok: true, json: async () => ({ features }) });
+      },
+    };
+  } catch (error) { W.close(); throw error; }
+}
+
+test('F1353 Home approval opens a usable region step before lookup and saves only after region approval', async () => {
+  const fixture = await pendingHomeRegionFixture(), { app } = fixture;
+  try {
+    const A = app.window.__app;
+    assert.match(app.$('setupRegionStatus').textContent, /Checking region/);
+    assert.equal(app.$('setupRegionStatus').getAttribute('role'), 'status');
+    assert.ok(app.$('setupSheetActions').contains(app.$('setupRegionStatus')));
+    assert.equal(app.$('setupNext').disabled, true);
+    assert.equal(app.$('setupBack').disabled, false);
+    assert.equal(app.$('setupRegionCancel').hidden, false);
+    assert.equal(!!app.$('setupSheet').inert, false);
+    assert.equal(A.getHome(), null);
+    A.renderSetupSheet();
+    assert.equal(fixture.requests.length, 1, 'rerender must coalesce the owned pending lookup');
+    fixture.resolve(0);
+    await waitFor(() => !app.$('setupNext').disabled, 'verified region approval');
+    assert.match(app.$('setupHomeSuggested').textContent, /Washington.*US-WA/);
+    assert.equal(A.getHome(), null, 'lookup is not Home/region approval');
+    assert.equal(app.$('setupRegionCancel').hidden, true);
+    app.click(app.$('setupNext'));
+    await waitFor(() => A.getHome() && app.$('setupSheetBody').dataset.setupStep === 'seen',
+      'explicit matching-region approval saves Home');
+    assert.equal(A.getHome().lat, 48);
+    assert.equal(A.getHome().lng, -121);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1353 stalled region attempts time out when transport ignores abort, retry automatically and stop honestly', async () => {
+  const fixture = await pendingHomeRegionFixture(), { app, requests } = fixture;
+  try {
+    const A = app.window.__app;
+    fixture.advance(A.FG_ACTIVE_STALL_MS + 1);
+    fixture.fire(A.FG_ACTIVE_STALL_MS);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fixture.phase(), 'backoff', 'expired request releases the UI into recovery');
+    assert.equal(requests[0].signal.aborted, true);
+    fixture.resolve(0);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.$('setupNext').disabled, true, 'late expired success cannot verify the region');
+    fixture.fire(1000);
+    await waitFor(() => requests.length === 2, 'automatic second attempt');
+    assert.match(app.$('setupRegionStatus').textContent, /Retrying region lookup/);
+    requests[1].reject(new Error('Synthetic transport failure'));
+    await waitFor(() => fixture.phase() === 'backoff', 'second retry is scheduled');
+    fixture.fire(2000);
+    await waitFor(() => requests.length === 3, 'automatic final attempt');
+    requests[2].reject(new Error('Synthetic service failure'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fixture.phase(), 'failed', 'bounded retries terminate');
+    assert.match(app.$('setupRegionStatus').textContent, /unavailable.*Home selection is retained/);
+    assert.equal(app.$('setupNext').disabled, true);
+    assert.equal(app.$('setupBack').disabled, false);
+    assert.equal(A.getHome(), null);
+    assert.ok(JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1')).approved);
+    assert.equal([...app.$('setupSheet').querySelectorAll('button')]
+      .filter(button => /retry/i.test(button.textContent)).length, 0, 'no required Retry button');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1353 offline status resumes automatically and a rapid reconnection cannot publish canceled work', async () => {
+  const fixture = await pendingHomeRegionFixture(false), { app, requests } = fixture;
+  try {
+    assert.equal(requests.length, 0);
+    assert.match(app.$('setupRegionStatus').textContent, /Waiting for internet/);
+    fixture.connection(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 1, 'reconnection starts initial lookup');
+    fixture.connection(false);
+    assert.match(app.$('setupRegionStatus').textContent, /Waiting for internet/);
+    fixture.connection(true);
+    fixture.connection(true);
+    await waitFor(() => requests.length === 2, 'one replacement request after rapid reconnect');
+    fixture.resolve(0);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.$('setupNext').disabled, true);
+    assert.match(app.$('setupRegionStatus').textContent, /Retrying region lookup/);
+    fixture.resolve(1);
+    await waitFor(() => !app.$('setupNext').disabled, 'current reconnected lookup wins');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1353 cancel, Back, Close and scope changes retain Home and reject late native responses', async () => {
+  for (const action of ['cancel', 'back', 'close', 'scope']) {
+    const fixture = await pendingHomeRegionFixture(), { app } = fixture;
+    try {
+      if (action === 'scope') {
+        app.window.__app.setActiveReport('hi');
+        app.window.__app.renderSetupSheet();
+      } else app.click(app.$(action === 'cancel' ? 'setupRegionCancel'
+        : action === 'back' ? 'setupBack' : 'setupSheetClose'));
+      fixture.resolve(0);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(app.window.__app.getHome(), null, action + ' cannot save Home');
+      const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+      assert.ok(draft.point && draft.approved);
+      assert.equal(draft.region, null, action + ' cannot accept late region data');
+      if (action === 'cancel') {
+        assert.match(app.$('setupRegionStatus').textContent, /cancelled.*Home selection is retained/);
+        assert.equal(app.$('setupNext').disabled, true);
+      } else if (action === 'scope') {
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+        assert.equal(fixture.requests.length, 2, 'the new scope owns a fresh lookup for the retained draft');
+        assert.equal(app.$('setupNext').disabled, true, 'the old scope cannot verify the retained draft');
+      } else if (action === 'back') assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+      else assert.equal(app.$('setupSheet').hidden, true);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1353 invalid or ambiguous region evidence stays an unsaved draft without transient retries', async () => {
+  for (const features of [[], [
+    { properties: { state: 'Washington', countrycode: 'US' } },
+    { properties: { state: 'Oregon', countrycode: 'US' } },
+  ]]) {
+    const fixture = await pendingHomeRegionFixture(), { app } = fixture;
+    try {
+      fixture.resolve(0, features);
+      await waitFor(() => fixture.phase() === 'failed', 'invalid region evidence is terminal');
+      assert.match(app.$('setupRegionStatus').textContent, /Home selection is retained/);
+      assert.equal(app.$('setupNext').disabled, true);
+      assert.equal(fixture.requests.length, 1);
+      assert.equal(app.window.__app.getHome(), null);
+      assert.equal(fixture.timers.filter(timer => timer.active && [1000, 2000].includes(timer.delay)).length, 0);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1355 preload Elap stays beside Est and advances across stalls and reopening without new acquisition', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  let release;
+  try {
+    const W = app.window, A = W.__app, store = W.localStorage, now = W.Date.now.bind(W.Date);
+    let offset = 0, calls = 0;
+    W.Date.now = () => now() + offset;
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+    Object.keys(tasks).forEach(key => {
+      tasks[key].acquire = () => {
+        calls++;
+        return key === 'busy' ? new Promise(resolve => { release = resolve; })
+          : { state: 'ready', value: {} };
+      };
+    });
+    const pending = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => release, 'owned preload is held');
+    const elapsed = app.$('setupPrefetchElapsed'), estimate = app.$('setupActivityEstimate');
+    assert.ok(elapsed, 'the current preload must display elapsed time');
+    assert.match(elapsed.textContent, /^Elap: \d+s\.$/);
+    assert.equal(elapsed.parentElement, estimate.parentElement);
+    assert.equal(elapsed.getAttribute('aria-live'), 'off');
+    assert.match(elapsed.getAttribute('aria-label'), /^Elapsed time:/);
+    offset += 125000;
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.ok(Number(elapsed.textContent.match(/\d+/)[0]) >= 125, 'elapsed advances despite held work');
+    assert.equal(app.$('setupActivityEstimate'), estimate);
+    const before = calls;
+    app.click(app.$('setupSheetClose'));
+    offset += 60000;
+    A.openSetupSheet();
+    assert.match(app.$('setupPrefetchElapsed').textContent, /^Elap: \d+s\.$/);
+    assert.ok(Number(app.$('setupPrefetchElapsed').textContent.match(/\d+/)[0]) >= 185,
+      'reopening retains actual run age, not visit age');
+    assert.equal(calls, before);
+    const firstRelease = release;
+    app.click(app.$('setupContinueAvailable'));
+    assert.equal(app.$('setupSheet').hidden, true, 'cancellation retires the visible preload');
+    const retiredElapsed = app.$('setupPrefetchElapsed');
+    const retiredText = retiredElapsed.textContent;
+    offset += 60000;
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(retiredElapsed.textContent, retiredText, 'cancellation stops the old elapsed timer');
+    release = null;
+    const next = A.startSetupPrefetch(tasks);
+    A.openSetupSheet();
+    await waitFor(() => release, 'a new owned preload run');
+    assert.ok(Number(app.$('setupPrefetchElapsed').textContent.match(/\d+/)[0]) < 2,
+      'a new run must not inherit canceled run age');
+    firstRelease({ state: 'ready', value: {} });
+    release({ state: 'ready', value: {} });
+    release = null;
+    await Promise.all([pending, next]);
+    await waitFor(() => !app.$('setupPrefetchElapsed'), 'settlement retires pending elapsed display');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release({ state: 'ready', value: {} }); app.window.close(); }
 });
 
 async function initialResourceFixture(options = {}) {
@@ -15754,7 +16017,7 @@ test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra 
     await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
       && !app.$('appSheet').hidden, 'validated Home confirmation');
     app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-    await waitFor(() => app.$('setupNext'), 'validated Home region');
+    await waitFor(() => app.$('setupNext') && !app.$('setupNext').disabled, 'validated Home region');
     assert.equal(reads, 0, 'preparing Home is not a transient visit to the main page');
     app.click(app.$('setupBack'));
     app.$('setupHomePlace').value = '';
@@ -15766,7 +16029,7 @@ test('F1067/F1068 earlier setup steps and the Home draft cannot launch an extra 
     await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
       && !app.$('appSheet').hidden, 'replacement Home confirmation');
     app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-    await waitFor(() => app.$('setupNext'), 'matching Home region');
+    await waitFor(() => app.$('setupNext') && !app.$('setupNext').disabled, 'matching Home region');
     assert.equal(reads, 0, 'reviewing the pair cannot start seen-list acquisition');
     app.click(app.$('setupNext'));
     await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'seen', 'pair confirmation advances');

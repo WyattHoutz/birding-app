@@ -3978,6 +3978,7 @@
     #setupSheetBody .setupsearch button { margin-top: 10px; white-space: normal; }
     #setupSheetBody #setupHomeHere, #setupSheetBody #setupFavoriteMore { white-space: normal; }
     #setupSheetActions #setupFavoriteNext { grid-column: 1 / -1; margin: 0; }
+    #setupRegionStatus { grid-column: 1 / -1; margin: 0; }
     #setupSheet .setupsearchshort { display: none; }
     #setupSheet.setup-editing-viewport[data-setup-step="home"] .setupprogress,
     #setupSheet.setup-editing-viewport[data-setup-step="home"] .setupstep,
@@ -5538,7 +5539,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.190.0';
+      var APP_VERSION = '2.0.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -30654,6 +30655,7 @@
       }
       var SETUP_HOME_DRAFT_KEY = 'bc_setup_home_draft_v1';
       var _setupHomeGeneration = 0, _setupHomeDraftUnreadable = false;
+      var _setupRegionLookup = null;
       function setupHomeDraft() {
         _setupHomeDraftUnreadable = false;
         try {
@@ -30806,12 +30808,14 @@
         });
       }
       function approveSetupHome(button) {
+        if (!button || !button.isConnected || setupStep() !== 'home' || $('setupSheet').hidden) return;
         var draft = setupHomeDraft();
         if (!draft || !draft.point) {
           setupActionFeedback('Validate Home before confirming it.');
           return;
         }
-        var current = setupHomeOperation(button), status = placeSetupActionStatus(button);
+        ++_setupHomeGeneration;
+        var status = placeSetupActionStatus(button);
         var knownRegion = draft.approved && draft.region;
         var saved = draft.source === 'saved' && getHome(draft.savedScope);
         if (!knownRegion && saved && draft.savedScope === getReportSlug()
@@ -30828,28 +30832,163 @@
           status.textContent = 'The approved Home draft could not be saved. Free device storage and retry.';
           return;
         }
-        button.disabled = true;
-        setupPendingStatus(status, true, 'Home approved as a draft. Finding its state or province...');
-        return (knownRegion ? Promise.resolve(knownRegion)
-          : deriveRegionCode(draft.point.lat, draft.point.lng)).then(function (region) {
+        var replacement = setupHomeReplacement(draft);
+        if (replacement.needed && draft.replacementConsent !== replacement.token) {
+          renderSetupSheet();
+          confirmSetupHomeReplacement();
+          return;
+        }
+        goSetupStep('region');
+      }
+      function ownsSetupRegionLookup(state) {
+        return state === _setupRegionLookup && state.profile === bcProfile()
+          && state.identity === identityRevision() && scopeCurrent(state.scope)
+          && state.identityGeneration === _identityGeneration
+          && state.generation === _setupHomeGeneration
+          && state.token === localStorage.getItem(SETUP_HOME_DRAFT_KEY)
+          && setupStep() === 'region' && !$('setupSheet').hidden;
+      }
+      function stopSetupRegionLookup(retain) {
+        var state = _setupRegionLookup;
+        if (!state) return;
+        state.cancelled = true;
+        state.running = false;
+        clearTimeout(state.timer);
+        if (state.cancel) state.cancel();
+        window.removeEventListener('online', state.online);
+        window.removeEventListener('offline', state.offline);
+        if (retain) {
+          state.phase = 'cancelled';
+          renderSetupRegionStatus();
+        } else _setupRegionLookup = null;
+      }
+      function renderSetupRegionStatus() {
+        var status = $('setupRegionStatus'), next = $('setupNext'), cancel = $('setupRegionCancel');
+        if (!status || !next || !cancel) return;
+        var draft = setupHomeDraft(), ready = !!(draft && draft.region), state = _setupRegionLookup;
+        var phase = ready ? 'ready' : state ? state.phase : 'checking';
+        var messages = {
+          checking: 'Checking region...',
+          retrying: 'Retrying region lookup...',
+          backoff: 'Region lookup did not finish. Waiting to retry...',
+          offline: 'Waiting for internet to verify region...',
+          cancelled: 'Region lookup cancelled. Your Home selection is retained.',
+          failed: 'Region lookup unavailable. Your Home selection is retained.',
+          ready: 'Region verified. Review it before confirming.'
+        };
+        status.textContent = phase === 'failed' && state.message
+          ? state.message + ' Your Home selection is retained.' : messages[phase];
+        status.dataset.regionPhase = phase;
+        next.disabled = !ready;
+        cancel.hidden = ['ready', 'failed', 'cancelled'].indexOf(phase) >= 0;
+      }
+      function startSetupRegionLookup() {
+        var draft = setupHomeDraft();
+        if (!draft || !draft.approved || !draft.point || $('setupSheet').hidden) return;
+        if (draft.region) {
+          stopSetupRegionLookup();
+          renderSetupRegionStatus();
+          return;
+        }
+        if (_setupRegionLookup && ownsSetupRegionLookup(_setupRegionLookup)) {
+          renderSetupRegionStatus();
+          return;
+        }
+        stopSetupRegionLookup();
+        var state = _setupRegionLookup = {
+          profile: bcProfile(), identity: identityRevision(), identityGeneration: _identityGeneration, scope: activeScope(),
+          generation: _setupHomeGeneration, token: localStorage.getItem(SETUP_HOME_DRAFT_KEY),
+          phase: 'checking', attempt: 0, totalAttempts: 0, revision: 0, running: false, cancelled: false
+        };
+        function current() { return !state.cancelled && ownsSetupRegionLookup(state); }
+        function request() {
+          return new Promise(function (resolve, reject) {
+            var controller = typeof AbortController === 'function' ? new AbortController() : null;
+            var settled = false, deadline = Date.now() + FG_ACTIVE_STALL_MS;
+            function finish(error, result) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              state.cancel = null;
+              if (error) {
+                if (controller) controller.abort();
+                reject(error);
+              } else resolve(result);
+            }
+            function timeout() {
+              finish(regionResolutionError('offline', 'The region lookup timed out.'));
+            }
+            var timer = setTimeout(timeout, FG_ACTIVE_STALL_MS);
+            state.cancel = function () {
+              finish(regionResolutionError('cancelled', 'Region lookup cancelled.'));
+            };
+            Promise.resolve().then(function () {
+              return deriveRegionCode(draft.point.lat, draft.point.lng,
+                { signal: controller && controller.signal });
+            }).then(function (region) {
+              if (Date.now() >= deadline) timeout();
+              else finish(null, region);
+            }, function (error) { finish(error); });
+          });
+        }
+        function attempt() {
           if (!current()) return;
-          draft.region = region;
-          storeSetupHomeDraft(draft);
-          var replacement = setupHomeReplacement(draft);
-          if (replacement.needed && draft.replacementConsent !== replacement.token) {
-            goSetupStep('home');
-            confirmSetupHomeReplacement();
+          if (navigator.onLine === false) {
+            state.phase = 'offline';
+            renderSetupRegionStatus();
             return;
           }
-          goSetupStep('region');
-          $('setupActionStatus').textContent = '';
-        }).catch(function (error) {
+          state.attempt++;
+          state.totalAttempts++;
+          var revision = ++state.revision;
+          state.running = true;
+          state.phase = state.totalAttempts === 1 ? 'checking' : 'retrying';
+          renderSetupRegionStatus();
+          request().then(function (region) {
+            if (!current() || revision !== state.revision) return;
+            state.running = false;
+            draft.region = region;
+            storeSetupHomeDraft(draft);
+            state.token = localStorage.getItem(SETUP_HOME_DRAFT_KEY);
+            var replacement = setupHomeReplacement(draft);
+            if (replacement.needed && draft.replacementConsent !== replacement.token) {
+              goSetupStep('home');
+              confirmSetupHomeReplacement();
+            } else renderSetupSheet();
+          }).catch(function (error) {
+            if (!current() || revision !== state.revision) return;
+            state.running = false;
+            state.retryable = error.regionStatus === 'offline' && error.retryable !== false;
+            if (navigator.onLine === false) state.phase = 'offline';
+            else if (state.retryable && state.attempt < 3) {
+              state.phase = 'backoff';
+              state.timer = setTimeout(attempt, Math.pow(2, state.attempt - 1) * 1000);
+            } else {
+              state.phase = 'failed';
+              if (!state.retryable) state.message = error.message || 'The region could not be verified.';
+            }
+            renderSetupRegionStatus();
+          });
+        }
+        state.online = function () {
+          if (current() && !state.running && (state.phase === 'offline'
+              || state.phase === 'failed' && state.retryable)) {
+            state.attempt = 0;
+            attempt();
+          }
+        };
+        state.offline = function () {
           if (!current()) return;
-          renderSetupSheet();
-          placeSetupActionStatus($('setupHomeApprove'));
-          setupActionFeedback(error.message
-            + ' Your approved Home remains a draft. Retry the region lookup or choose a different Home; no default was selected.');
-        });
+          ++state.revision;
+          clearTimeout(state.timer);
+          if (state.cancel) state.cancel();
+          state.running = false;
+          state.phase = 'offline';
+          renderSetupRegionStatus();
+        };
+        window.addEventListener('online', state.online);
+        window.addEventListener('offline', state.offline);
+        attempt();
       }
       function setupHomeDestination(draft) {
         if (!draft || !draft.region) return '';
@@ -30861,11 +31000,12 @@
       }
       function confirmSetupRegion() {
         var draft = setupHomeDraft(), status = $('setupActionStatus');
-        if (!draft || !draft.approved || !draft.point || !draft.region) {
+        if (!draft || !draft.approved || !draft.point) {
           goSetupStep('home');
           setupActionFeedback('Choose and approve Home before confirming its region.');
           return;
         }
+        if (!draft.region) { renderSetupRegionStatus(); return; }
         var replacement = setupHomeReplacement(draft);
         if (replacement.needed && draft.replacementConsent !== replacement.token) {
           goSetupStep('home');
@@ -30994,7 +31134,7 @@
         var step = localStorage.getItem(SETUP_STEP_KEY);
         if (step === 'region') {
           var draft = setupHomeDraft();
-          if (!draft || !draft.approved || !draft.region) return 'home';
+          if (!draft || !draft.approved || !draft.point) return 'home';
         }
         if ((step === 'seen' || step === 'favorites') && !getHome()) return 'home';
         return SETUP_STEPS.indexOf(step) >= 0 || step === 'summary' || step === 'loading' ? step : 'account';
@@ -31763,6 +31903,13 @@
       function renderSetupPrefetchEstimate() {
         var node = $('setupActivityEstimate'), entry = setupPrefetchCurrent() && _setupPrefetch;
         if (!node || !entry) return;
+        var elapsed = $('setupPrefetchElapsed');
+        if (elapsed) {
+          var seconds = Math.max(0, Math.floor((Date.now() - entry.started) / 1000));
+          elapsed.textContent = 'Elap: ' + seconds + 's.';
+          elapsed.setAttribute('aria-label', 'Elapsed time: ' + seconds
+            + (seconds === 1 ? ' second' : ' seconds'));
+        }
         var result = entry.work.setupEstimate.read({
           settled: entry.settled,
           pending: _fgWaiters.length + _fgBgWaiters.length + _fgActive,
@@ -31900,7 +32047,8 @@
         $('setupSheetBody').dataset.setupStep = 'loading';
         $('setupSheetBody').innerHTML = '<p id="setupPrefetchCount" class="prefetch-count" role="status">'
           + '<span id="setupPrefetchFinished"></span> '
-          + '<span id="setupActivityEstimate" aria-live="off"></span></p>'
+          + '<span id="setupActivityEstimate" aria-live="off"></span> '
+          + '<span id="setupPrefetchElapsed" role="timer" aria-live="off"></span></p>'
           + '<ul id="setupPrefetchRows" class="prefetch-list" aria-label="Initial Datasets"></ul>'
           + '<p id="setupPrefetchActivity" class="prefetch-hint setupduration" role="status" data-setup-pending="true">'
           + 'Setup continues automatically after initial checks (' + SETUP_DURATION_ESTIMATE
@@ -32306,6 +32454,7 @@
         else if (oldInput) _setupKeyDraft = oldInput.value;
         _setupRenderedProfile = bcProfile();
         var step = setupStep(), website = setupWebsiteConnected();
+        if (_setupRegionLookup && !ownsSetupRegionLookup(_setupRegionLookup)) stopSetupRegionLookup();
         if (step === 'summary' && setupPrefetchEligible()
             && !(setupPrefetchCurrent() && _setupPrefetch.settled)) {
           localStorage.setItem(SETUP_STEP_KEY, 'loading');
@@ -32418,13 +32567,17 @@
           var regionDraft = setupHomeDraft();
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">Confirm region</h3>'
             + '<div class="setuppanel" id="setupHomeSuggested">'
-            + '<p><strong>' + esc(regionDraft.region.label) + ' (' + esc(regionDraft.region.code) + ')</strong></p>'
+            + '<p><strong>' + (regionDraft.region
+              ? esc(regionDraft.region.label) + ' (' + esc(regionDraft.region.code) + ')'
+              : 'Region not yet verified') + '</strong></p>'
             + '<div id="setupRegionOutline" hidden></div>'
             + '<p class="hint">Home: ' + esc(regionDraft.point.label) + '</p>'
             + '</div>'
             + '<p>To pick a different region, go back and select a different Home.</p>'
             + '<p class="hint">More regions are available after setup.</p>';
-          actions = '<button id="setupNext" type="button">Confirm region</button>';
+          actions = '<p id="setupRegionStatus" class="hint" role="status" aria-live="polite"></p>'
+            + '<button id="setupNext" type="button"' + (regionDraft.region ? '' : ' disabled') + '>Confirm region</button>'
+            + '<button id="setupRegionCancel" class="secondary" type="button" aria-label="Cancel region lookup">Cancel</button>';
         } else if (step === 'seen') {
           var message = seenSetupMessage(state);
           html += '<h3 id="setupStepTitle" class="setuptitle" tabindex="-1">'
@@ -32709,7 +32862,8 @@
             $('setupActionStatus').textContent = 'The saved Home could not be prepared. ' + error.message;
           }
         });
-        if (step === 'region') renderSetupRegionOutline(regionDraft);
+        if (step === 'region' && regionDraft.region) renderSetupRegionOutline(regionDraft);
+        bind('setupRegionCancel', function () { stopSetupRegionLookup(true); });
         bind('setupHomeApprove', confirmSetupHomeSelection);
         bind('setupHomeCancel', function () {
           ++_setupHomeGeneration;
@@ -32880,6 +33034,7 @@
           var target = $(restoreFocus) || $('setupStepTitle');
           if (target) target.focus({ preventScroll: true });
         }
+        if (step === 'region') startSetupRegionLookup();
       }
       function openSetupSheet() {
         var sheet = $('setupSheet');
@@ -32921,6 +33076,7 @@
       }
       function closeSetupSheet(deferMain, cause) {
         stopSetupActivity();
+        stopSetupRegionLookup();
         ++_setupHomeGeneration;
         var sheet = $('setupSheet');
         clearMap($('setupHomeMap'));
@@ -54134,7 +54290,7 @@
         error.regionStatus = status;
         return error;
       }
-      function deriveRegionCode(lat, lng) {
+      function deriveRegionCode(lat, lng, options) {
         lat = Number(lat); lng = Number(lng);
         if (!isFinite(lat) || !isFinite(lng)
             || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
@@ -54143,11 +54299,15 @@
         }
         var url = 'https://' + GEOCODER_HOST + '/reverse?lat='
           + lat.toFixed(5) + '&lon=' + lng.toFixed(5);
-        return fetch(url, { headers: { Accept: 'application/json' } })
+        var init = { headers: { Accept: 'application/json' } };
+        if (options && options.signal) init.signal = options.signal;
+        return fetch(url, init)
           .then(function (response) {
             if (!response || !response.ok) {
-              throw regionResolutionError('offline',
+              var error = regionResolutionError('offline',
                 'Region lookup returned HTTP ' + ((response && response.status) || 'error') + '.');
+              error.retryable = !response || !response.status || response.status === 429 || response.status >= 500;
+              throw error;
             }
             return response.json();
           })

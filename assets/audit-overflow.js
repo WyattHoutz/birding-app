@@ -3740,9 +3740,16 @@ const AUDIT = `<script>
       if(!estimate || !count.contains(estimate)
           || document.getElementById('setupPrefetchReady') || document.getElementById('setupActivityElapsed')
           || !/^\\d+ of \\d+ done\\. Est:/.test(count.textContent))
-        throw new Error('F1332 needs one done/total counter and remaining estimate, without Ready/elapsed');
+        throw new Error('F1332 needs one done/total counter and remaining estimate without the former visit timer');
+      var elapsed=document.getElementById('setupPrefetchElapsed');
+      if(!elapsed || elapsed.parentElement!==estimate.parentElement
+          || !/^Elap: \\d+s\\.$/.test(elapsed.textContent)
+          || elapsed.getAttribute('aria-live')!=='off')
+        throw new Error('F1355 needs retained inline Elap beside Est');
       var savedEstimate=estimate.textContent;
+      var savedElapsed=elapsed.textContent;
       estimate.textContent='Est: 40m07s.';
+      elapsed.textContent='Elap: 99999s.';
       var savedFont=count.style.fontFamily;
       var estimateGeometry=['', 'Arial, sans-serif'].map(function(font){
         count.style.fontFamily=font;
@@ -3756,6 +3763,7 @@ const AUDIT = `<script>
       });
       count.style.fontFamily=savedFont;
       estimate.textContent=savedEstimate;
+      elapsed.textContent=savedElapsed;
       var labelGeometry=sourceRows.flatMap(function(row){
         var name=row.querySelector('.prefetch-name'),range=document.createRange();
         var saved=name.style.fontFamily;
@@ -4105,14 +4113,39 @@ const AUDIT = `<script>
       document.getElementById('setupHomeApprove').click();
       require(!confirmation.hidden && confirmation.dataset.infoId==='setup-home-confirmed',
         'F1172 manual Home review bypassed its confirmation');
+      var regionFetch=window.fetch, releaseRegion;
+      window.fetch=function(url,options){
+        if(/photon\\.komoot\\.io\\/reverse/.test(String(url))){
+          return new Promise(function(resolve,reject){
+            releaseRegion=function(){Promise.resolve(regionFetch(url,options)).then(resolve,reject);};
+          });
+        }
+        return regionFetch(url,options);
+      };
       confirmation.querySelector('[data-setup-confirm-continue]').click();
-      await until(function () { return document.getElementById('setupNext')
+      await until(function(){return releaseRegion && document.getElementById('setupRegionStatus');},
+        'F1353 region screen must open before the held lookup settles');
+      var regionStatus=document.getElementById('setupRegionStatus');
+      var regionFooter=document.getElementById('setupSheetActions');
+      var statusRect=regionStatus.getBoundingClientRect(), footerRect=regionFooter.getBoundingClientRect();
+      require(regionFooter.contains(regionStatus) && /Checking region/.test(regionStatus.textContent)
+        && statusRect.top>=footerRect.top-1 && statusRect.bottom<=Math.min(innerHeight,footerRect.bottom)+1,
+        'F1353 pending status is not visible beside the region actions');
+      require(document.getElementById('setupNext').disabled
+        && !document.getElementById('setupBack').disabled
+        && !document.getElementById('setupRegionCancel').hidden && !document.getElementById('setupSheet').inert,
+        'F1353 pending lookup must not block navigation or cancellation');
+      record('F1353 pending region');
+      window.fetch=regionFetch;
+      releaseRegion();
+      await until(function () { return document.getElementById('setupNext') && !document.getElementById('setupNext').disabled
         || !confirmation.hidden && confirmation.dataset.infoId==='setup-home-replace'; },'missing Home consent or region');
       if (!confirmation.hidden && confirmation.dataset.infoId==='setup-home-replace') {
         record('Home replacement confirmation');
         confirmation.querySelector('[data-setup-confirm-continue]').click();
       }
-      await until(function () { return document.getElementById('setupNext'); },'missing matching pair confirmation');
+      await until(function () { return document.getElementById('setupNext') && !document.getElementById('setupNext').disabled; },
+        'missing matching pair confirmation');
       require(!document.getElementById('setupHomeReplace'),'F1178 region still has a replacement checkbox');
       require(JSON.stringify(A.getHome()) === savedHome,'suggestion saved Home before confirmation');
       require(!document.getElementById('setupHomeOutside'),'region mismatch override remains');
