@@ -267,7 +267,8 @@
     '  margin-top: 1px; }',
     '.obs.xl > li > .name > .ntext > .spsci > .spcodes-inline,',
     '.obs.card-md > li > .name > .ntext > .spsci > .spcodes-inline {',
-    '  display: block; font-style: normal; font-weight: 600; }',
+    '  display: inline; font-style: normal; font-weight: 600; }',
+    '.bcsci > .spcodes-inline { font-style: normal; font-weight: 600; }',
     '.obs.xl > li > .name > .ntext > .spidline {',
     '  display: block; font-size: calc(14px * var(--s)); font-weight: 600;',
     '  line-height: 1.25; color: var(--muted); overflow-wrap: break-word; }',
@@ -410,6 +411,11 @@
     '    grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }',
     '  .obs.xl > li > .meta, .obs.card-md > li > .meta { grid-row: 3; }',
     '}',
+    '.obs.xl > li:has(> .name > .ntext > .spact > .speciesWatchlistAction) > .name > .ntext,',
+    '.obs.card-md > li:has(> .name > .ntext > .spact > .speciesWatchlistAction) > .name > .ntext {',
+    '  grid-column: 1 / -1; grid-row: 2; margin-top: 8px; }',
+    '.obs.xl > li:has(> .name > .ntext > .spact > .speciesWatchlistAction) > .meta,',
+    '.obs.card-md > li:has(> .name > .ntext > .spact > .speciesWatchlistAction) > .meta { grid-row: 3; }',
     '.obs .ntext > .speciesWatchlistAction { max-width: 100%; white-space: normal; }',
     /* The whole card scales together, not just the name.
        The name was reported too large at 22px, but dropping it alone to 17px
@@ -650,7 +656,7 @@
 
   function codeHtml(v, tpl) {
     if (tpl !== MEDIUM && tpl !== SMALL && tpl !== LARGE) return '';
-    if (v.codeInSci && tpl === MEDIUM && sciText(v.sci)) return '';
+    if ((tpl === MEDIUM || tpl === LARGE) && sciText(v.sci)) return '';
     var c = codeText(v.code);
     if (!c) return '';
     var a = alphaText(v.alpha);
@@ -672,6 +678,7 @@
     var c = codeText(v.code);
     var a = alphaText(v.alpha);
     var details = subHtml(v, false);
+    if (medium && sciText(v.sci)) return details ? '<span class="sub spidline">' + details + '</span>' : '';
     if (!c && !details) return '';
     var identifier = c
       ? (a && medium
@@ -709,18 +716,16 @@
     if (tpl !== MEDIUM && tpl !== LARGE) return '';
     var n = sciText(v.sci);
     if (!n) return '';
-    if (tpl === LARGE) return '<div class="bcsci">' + n + '</div>';
     var codes = '';
-    if (v.codeInSci) {
-      var alpha = alphaText(v.alpha);
-      var code = v.lowercaseCodeInSci ? codeText(v.code) : codeText(v.code).toUpperCase();
-      if (alpha || code) {
-        codes = '<span class="spcodes-inline">'
-          + [alpha, code].filter(Boolean).join(' / ')
-          + (v.tagsInCodes && v.tags ? ' ' + v.tags : '') + '</span>';
-      }
+    var alpha = alphaText(v.alpha);
+    var code = v.lowercaseCodeInSci ? codeText(v.code) : codeText(v.code).toUpperCase();
+    if (alpha || code) {
+      codes = ' <span class="spcodes-inline">'
+        + [alpha, code].filter(Boolean).join(' / ')
+        + (v.tagsInCodes && v.tags ? ' ' + v.tags : '') + '</span>';
     }
-    return '<span class="spsci">' + n + codes + '</span>';
+    return tpl === LARGE ? '<div class="bcsci">' + n + codes + '</div>'
+      : '<span class="spsci">' + n + codes + '</span>';
   }
 
   function confHtml(v, tpl) {
@@ -809,7 +814,7 @@
       cls: [cls].concat(v.cls ? [v.cls] : []).join(' ').trim(),
       icon: v.icon || '',
       name: nameRenderer(v.name || '', codeText(v.code)),
-      tags: v.tagsInCodes && v.codeInSci && tpl === MEDIUM && sciText(v.sci)
+      tags: v.tagsInCodes && tpl === MEDIUM && sciText(v.sci)
         && (alphaText(v.alpha) || codeText(v.code)) ? '' : v.tags || '',
       sub: identifierLine ? (tpl === SMALL ? identifierLineHtml(v) : '') : subHtml(v, tpl === SMALL),
       largemeta: largeMeta ? '<div class="bcmeta">' + largeMeta + '</div>' : '',

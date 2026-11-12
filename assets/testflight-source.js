@@ -138,7 +138,18 @@ async function authorize(env, options = {}) {
   return { ...expected, testRunId: tests.id };
 }
 
-module.exports = { identity, project, resolve, captured, authorize };
+async function sourceBuildNumber(env, options = {}) {
+  const expected = captured(env);
+  const api = github(env.GITHUB_REPOSITORY, env.GH_TOKEN, options.fetcher);
+  const run = await api(`actions/runs/${expected.runId}`);
+  const actual = identity(run, env.GITHUB_REPOSITORY, (options.now || Date.now)());
+  if (Object.keys(actual).some(key => actual[key] !== expected[key])) {
+    throw new Error('Prepared source identity changed before selecting the Apple build number');
+  }
+  return require('./testflight.js').buildNumber(run.run_number, run.run_attempt);
+}
+
+module.exports = { identity, project, resolve, captured, authorize, sourceBuildNumber };
 
 if (require.main === module) {
   resolve(process.env).then(source => {

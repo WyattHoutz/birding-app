@@ -695,15 +695,15 @@
         if (!live) return null;
         if (state.settled) return { minMs: 0, maxMs: 0, prior: false };
         var step = Math.max(pace, state.paceMs || 0, samples ? service / samples : 0);
-        var overrun = false;
         requests.forEach(function (ticket) {
-          if (ticket.activeAt !== null && clock() - ticket.activeAt > step) overrun = true;
+          if (ticket.activeAt !== null) step = Math.max(step, clock() - ticket.activeAt);
         });
-        if (overrun) return null;
         var known = requests.size ? Math.max(requests.size, state.pending || 0) : 0;
         var low = Math.max(known, budget[0] - completed);
         var high = Math.max(known, budget[1] - completed);
-        if (high <= 0 || !known && (completed > 0 || clock() - started > range[1])) return null;
+        if (high <= 0 || !known && (completed > 0 || clock() - started > range[1])) {
+          return { phase: 'source-checks' };
+        }
         var hold = Math.max(0, state.retryMs || 0);
         return { minMs: low * step + hold, maxMs: high * step + hold,
           prior: completed === 0 && step === pace && !hold && known <= budget[0] };

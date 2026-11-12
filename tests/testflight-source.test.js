@@ -54,6 +54,20 @@ function fixture() {
   return state;
 }
 
+test('F1337 delivery retries share the exact native-source Apple number, not the delivery event number', async () => {
+  const f = fixture();
+  f.run.run_number = 579;
+  for (const delivery of [{ GITHUB_RUN_NUMBER: '47', GITHUB_RUN_ATTEMPT: '1' },
+    { GITHUB_RUN_NUMBER: '48', GITHUB_RUN_ATTEMPT: '3' }]) {
+    assert.equal(await source.sourceBuildNumber({ ...env, ...delivery }, f.options), '579.2');
+  }
+  for (const change of [{ run_attempt: 3 }, { head_sha: 'b'.repeat(40) }, { id: 26 },
+    { event: 'workflow_dispatch' }, { run_number: 10000 }]) {
+    f.run = { ...run, run_number: 579, ...change };
+    await assert.rejects(source.sourceBuildNumber(env, f.options));
+  }
+});
+
 test('F1313 prepared signing requires trusted fresh main-push identity, not arbitrary active runs', () => {
   assert.deepEqual(source.identity(run, repository, now), { sha, runId: '25', attempt: '2' });
   for (const change of [

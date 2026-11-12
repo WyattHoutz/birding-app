@@ -551,7 +551,7 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
       + '<textarea id="abstract-field" name="description">Synthetic private description</textarea>'
       + '<input type="hidden" name="_csrf" value="SYNTHETIC_CSRF">'
       + '<input type="submit" value="Submit Request"></form>';
-    for (const outcome of ['complete', 'cancel', 'timeout', 'profile']) {
+    for (const outcome of ['complete', 'same-page', 'cancel', 'timeout', 'profile']) {
       const app = await boot({ sample: false, key: null, storage: { bc_setup_step_v1: 'key' },
         fetch: url => /ref\/region\/info\/US-WA/.test(url) ? { code: 'US-WA' } : null });
       const bridge = preparedKeyNative(app, markup);
@@ -599,10 +599,11 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         if (outcome === 'timeout') { assert.equal(typeof deadline, 'function'); deadline(); }
         if (outcome === 'profile') app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'Synthetic other account');
         page.document.body.innerHTML = `<p>Your API key is: <strong>${key}</strong></p>`;
-        bridge.emit('browserPageLoaded', { id });
-        if (outcome === 'complete') {
-          await waitFor(() => app.window.localStorage.getItem('ebird_api_key') === key,
-            'user-completed first-time access continues automatic verified capture');
+        if (outcome !== 'same-page') bridge.emit('browserPageLoaded', { id });
+        if (outcome === 'complete' || outcome === 'same-page') {
+          const captured = await waitFor(() => app.window.localStorage.getItem('ebird_api_key') === key,
+            'user-completed first-time access continues automatic verified capture').then(() => true, () => false);
+          assert.equal(captured, true, 'the same owned page must capture the user-completed key without another page-load event');
           assert.equal(bridge.opened.length, 1, 'completion unnecessarily opened a second key window');
           assert.equal(app.state.fetches.filter(url => /ref\/region\/info\/US-WA/.test(url)).length, 1);
           assert.equal(app.$('setupSheetBody').dataset.setupStep, 'key');

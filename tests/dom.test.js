@@ -786,7 +786,7 @@ test('F1330 actual request completion updates the retained ETA without charging 
     assert.equal(downloads, 2);
     assert.equal(admissions, 2, 'memory and durable cache hits cannot become request work');
     assert.equal(completions, 2);
-    assert.equal(node.textContent, 'Est: calculating...',
+    assert.equal(node.textContent, 'Est: waiting for remaining source checks.',
       'remaining unknown source work cannot be replaced by an unrelated queue or a false numeric countdown');
     releaseBusy({ state: 'ready', value: {} }); releaseBusy = null;
     await pending;
@@ -1028,7 +1028,7 @@ test('F1338 actual setup resource requests revise the retained ETA through share
     releaseHistory(); releaseHistory = null;
     await joined;
     assert.ok(completions > before, 'discovered detail work must also settle through the estimator');
-    assert.equal(node.textContent, 'Est: calculating...',
+    assert.equal(node.textContent, 'Est: waiting for remaining source checks.',
       'unprofiled held enrichment is distinct from known owned request work');
     assert.notEqual(node.textContent, held, 'the display must change when real request work drains');
     assert.equal(app.$('setupActivityEstimate'), node, 'updates retain the summary node');
@@ -15375,7 +15375,7 @@ test('F1325 reopening pending wizard activities resets only the visible visit ti
       const age = step === 'loading' ? 2407000 : 5000;
       offset += age;
       if (step === 'loading') {
-        await waitFor(() => /calculating/.test(app.$('setupActivityEstimate').textContent),
+        await waitFor(() => /remaining source checks/.test(app.$('setupActivityEstimate').textContent),
           'unknown long-running work cannot retain an obsolete numerical estimate');
       } else {
         await waitFor(() => parseInt(app.$('setupActivityElapsed').textContent, 10) >= age / 1000,
@@ -15389,7 +15389,7 @@ test('F1325 reopening pending wizard activities resets only the visible visit ti
       assert.equal(app.$('setupSheetBody').dataset.setupStep, step);
       if (step === 'loading') {
         assert.equal(app.$('setupActivityElapsed'), null);
-        assert.match(app.$('setupActivityEstimate').textContent, /calculating/,
+        assert.match(app.$('setupActivityEstimate').textContent, /remaining source checks/,
           'reopening cannot reset the original acquisition estimate to the initial prior');
       } else {
         assert.equal(app.$('setupActivityElapsed').textContent, '0s', 'reopening must reset the visible timer');
@@ -17641,6 +17641,152 @@ test('F805 personal source parses owned metadata, explicit zero and date-free me
   native.window.eval(A.buildPersonalListInject(owner));
   assert.equal(bridged.detail.ok, true, 'native webkit transport carries the same owned result');
   native.window.close();
+});
+
+test('F1334 an owned explicit zero summary needs no nonempty category container and persists verified emptiness', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer',
+      evidence:'profile-heading',profileId:'fixtureA'});
+    await seedSeen(app,['stable'],['Stable bird'],[{code:'stable',name:'Stable bird'}]);
+    const empty = ownedPersonalListFixture({count:0,codes:[]}).replace(/<main>[\s\S]*?<\/main>/,
+      '<h1>Life List</h1><a href="#nativeNatProv"><span>0</span> Species Observed</a>');
+    const parsed = A.parsePersonalListPage(empty);
+    assert.equal(parsed.valid,true,parsed.reason);
+    assert.equal(parsed.declaredCount,0);
+    assert.equal(parsed.rows.length,0);
+    for (const invalid of [
+      empty.replace('<span>0</span>','<span>1</span>'),
+      empty.replace('<span>0</span> Species Observed','No results'),
+      empty.replace('</body>','<a href="#nativeNatProv">0 Species Observed</a></body>'),
+      empty.replace('</body>','<main>Species Total: 3</main></body>'),
+      empty.replace('</body>','<a href="/species/stable">Stable bird</a></body>'),
+      empty.replace('</body>','<a rel="next" href="?page=2">Next</a></body>'),
+      empty.replace('<body>','<body><form action="/login"><input type="password"></form>'),
+      empty.replace(/<header>[\s\S]*?<\/header>/,'')
+    ]) assert.equal(A.parsePersonalListPage(invalid).valid,false);
+    const shell = FIX('personal-profile-shell.html');
+    let markup = empty.replace('<span>0</span>','<span>1</span>');
+    const original = app.window.fetch;
+    app.window.fetch = async (url, options) => {
+      if (!/https:\/\/ebird\.org\/(?:profile|lifelist)/.test(url)) return original(url,options);
+      return {ok:true,url:url.endsWith('/profile')?'https://ebird.org/profile/fixtureA':url,
+        text:async()=>url.endsWith('/profile')?shell:markup};
+    };
+    const key = A.bcReal(A.personalListKey(A.personalListOwner()));
+    const retained = app.window.localStorage.getItem(key);
+    await assert.rejects(A.preparePersonalList(A.activeScope(),true));
+    assert.equal(app.window.localStorage.getItem(key),retained,'parser failure retains prior membership');
+    markup = empty;
+    const saved = await A.preparePersonalList(A.activeScope(),true);
+    assert.equal(saved.coverage,'empty');
+    assert.equal(A.personalListEvidence().complete,true);
+    assert.equal(A.personalListEvidence().species.stable,undefined);
+    assert.equal(JSON.parse(app.window.localStorage.getItem(key)).declaredCount,0);
+    A.headerIdentityRefresh();A.updateMyYear();
+    assert.match(app.$('hdrSpeciesJump').textContent,/^0\s*sp\./);
+  } finally {app.window.close();}
+});
+
+test('F1351 a settled empty finite-distance lookup offers All once and never changes scope without acceptance', async () => {
+  for (const decision of ['accept','decline']) {
+    const app = await boot({sample:false,fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
+    try {
+      const A = app.window.__app;
+      installSpuhFixture(app);
+      const row = {...f890EvidenceFixture().row('S135101'),lat:45,lng:-122};
+      A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),[row]);
+      await A.lookupSpecies('verfly','Vermilion Flycatcher');
+      const offer = app.$('spLookupDistanceOffer');
+      assert.ok(offer,'actual settled out-of-range result must prompt');
+      assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'),'true');
+      let allActions=0;
+      app.$('spLookupStatewide').addEventListener('click',()=>allActions++);
+      const action=offer.querySelector(decision==='accept'?'[data-distance-all]':'[data-distance-keep]');
+      const calls=app.state.fetches.length;
+      app.click(action);app.click(action);
+      assert.equal(allActions,decision==='accept'?1:0);
+      assert.equal(app.$('spLookupStatewide').getAttribute('aria-pressed'),String(decision==='accept'));
+      assert.equal(app.state.fetches.length,calls,'the choice reuses regional evidence, not a broader acquisition');
+      assert.equal(app.$('spLookupDistanceOffer'),null);
+      A.setSpeciesLookupWithinChase(true);
+      A.renderSpeciesLookup();A.renderSpeciesLookup();
+      assert.equal(app.$('spLookupDistanceOffer'),null,'no repeated nag for the same lookup context');
+    } finally {app.window.close();}
+  }
+});
+
+test('F1351 loading, failed, malformed, unlocated, saturated and saved lookups cannot prompt', async()=>{
+  const outside={...f890EvidenceFixture().row('S135121'),lat:45,lng:-122};
+  for(const [kind,rows] of [
+    ['malformed',[outside,{...outside,speciesCode:'amerob'}]],
+    ['unlocated',[{...outside,lat:null,lng:null}]],
+    ['invalid coordinates',[{...outside,lat:91}]],
+    ['saturated',Array(10000).fill(outside)],
+    ['failure',null],
+    ['saved',[outside]]
+  ]){
+    const app=await boot({sample:false,fetch:url=>{
+      if(kind==='failure'&&/data\/obs\/US-WA\/recent\/verfly/.test(url))throw new Error('Synthetic source failure');
+      return /api\.ebird\.org/.test(url)?[]:null;
+    }});
+    try{
+      const A=app.window.__app;
+      installSpuhFixture(app);
+      if(rows)A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),rows);
+      const loading=A.lookupSpecies('verfly','Vermilion Flycatcher');
+      assert.equal(app.$('spLookupDistanceOffer'),null,kind+': no transient-loading prompt');
+      await loading;
+      if(kind==='saved'){
+        assert.ok(app.$('spLookupDistanceOffer'),'live verified control must prompt');
+        await A.lookupSpecies('verfly','Vermilion Flycatcher');
+      }
+      assert.equal(app.$('spLookupDistanceOffer'),null,kind+': source cannot prove empty distance coverage');
+      assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'),'true');
+    }finally{app.window.close();}
+  }
+});
+
+test('F1351 a detached offer cannot change the next lookup owner or distance',async()=>{
+  const app=await boot({sample:false,fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
+  try{
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),
+      [{...f890EvidenceFixture().row('S135122'),lat:45,lng:-122}]);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    const oldAction=app.$('spLookupDistanceOffer').querySelector('[data-distance-all]');
+    A.applyCapturedIdentity({status:'ok',displayName:'Synthetic owner',
+      evidence:'profile-heading',profileId:'synthetic-next-owner'});
+    let actions=0;
+    app.$('spLookupStatewide').addEventListener('click',()=>actions++);
+    app.click(oldAction);
+    assert.equal(actions,0,'an obsolete context cannot accept for a different identity revision');
+    assert.equal(app.$('spLookupWithinChase').getAttribute('aria-pressed'),'true');
+  }finally{app.window.close();}
+});
+
+test('F1352 actual ladder distinguishes a cheapest exact step from an independently verified known-group goal', async()=>{
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'owner'}));
+    const rows=Array.from({length:5000},(_,i)=>({rank:Math.floor(i/8)*8+1,
+      species:701-Math.floor(i/8),profileId:i===3064?'owner':'synthetic'+i,name:'Synthetic birder'}));
+    const period=String(new app.window.Date().getFullYear());
+    const board={region:'US-WA',period,metric:'spp',rows,me:rows[3064]};
+    const pair={boards:{spp:board},failures:{},stale:{},coverage:'synthetic source'};
+    A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
+    assert.ok(app.document.querySelector('.rankclimb-next'),'the actual ladder must expose an inline next-step prompt');
+    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next step: \+1 species.*#3,057/);
+    assert.match(app.document.querySelector('.rankclimb-next').textContent,/not a promise/);
+    assert.match(app.document.querySelector('.rankclimb').textContent,/#2,993.*\+9 species/);
+    board.rows=rows.slice(0,100).concat(rows.slice(101));
+    A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
+    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next known goal: \+1 species.*#3,057/);
+    assert.match(app.document.querySelector('.rankclimb').textContent,/Exact next-rank coverage is incomplete/);
+  } finally {app.window.close();}
 });
 
 test('F805/F812 selected period owns header metrics, personal screen and navigation without repaint reads', async () => {
@@ -23222,10 +23368,10 @@ test('F1104 Common birds keeps public, owned bird/place evidence flat and global
     assert.ok(app.$('easyResults').querySelector('ul.obs.big.xl'),
       'the standard profile keeps the production Twitch list wrapper');
     assert.doesNotMatch(app.$('easyResults').textContent,/×X/);
-    assert.match(app.$('easyResults').textContent,/2 reports · 2 days/);
-    assert.match(app.$('easyResults').textContent,/Source validated; unreviewed/);
-    assert.match(app.$('easyResults').textContent,/Source unvalidated; unreviewed/);
-    assert.match(app.$('easyResults').textContent,/Source validation unavailable/);
+    assert.doesNotMatch(app.$('easyResults').textContent,
+      /2 reports · 2 days|Source validated|Source unvalidated|Source validation unavailable|unreviewed/);
+    assert.equal(app.$('easyResults').querySelector('.bcsub:empty'), null,
+      'F1348 removing the rare-bird summary must not leave an empty row');
     assert.doesNotMatch(app.$('easyResults').textContent,/CONFIRMED/);
     assert.equal(app.$('easyResults').querySelector('.birdreportplaces'),null);
     assert.ok(app.$('easyResults').innerHTML.includes('L1104B'),'the alternative has its own hotspot action');
@@ -23737,6 +23883,174 @@ test('convoy checklists load concurrently, with a hard cap on in-flight calls', 
 // ---------------------------------------------------------------------------
 // v1.0.19: branding, the tile menu, and the two sections the app was missing.
 // ---------------------------------------------------------------------------
+
+test('F1342 F1343 F1345 F1349 actual report cards share ordered checklist facts and hydrate duration', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, host = app.$('results');
+    const row = { code: 'amerob', name: 'American Robin', sci: 'Turdus migratorius',
+      subId: 'S134501', dateStr: recentObsStamp(), count: 2,
+      observer: 'Synthetic Observer', durationHrs: 1.5, evidence: 'P',
+      loc: 'Synthetic public patch', locId: 'L134501', lat: 47, lon: -122 };
+    for (const profile of ['standard', 'high-visibility']) {
+      A.setDisplayProfile(profile);
+      host.innerHTML = A.birdReportListCard(row, { rare: true, cls: 'twitchcard' });
+      const card = host.firstElementChild, facts = card.querySelector('.reportfacts');
+      assert.equal(card.querySelectorAll('.spcodes-inline').length, 1);
+      assert.equal(card.querySelector('.spsci, .bcsci').firstChild.textContent.trim(), 'Turdus migratorius');
+      assert.equal(card.querySelectorAll('.meta .spcode, .bcmeta .spcode').length, 0);
+      assert.deepEqual([...facts.children].slice(0, 6).map(el => el.className),
+        ['when', 'reportobserver', 'raretail', 'ckduration', 'reportid', 'ckevid raremedia']);
+      assert.equal(facts.querySelector('.ckduration').textContent, '1h30m');
+      const id = facts.querySelector('.reportid a');
+      assert.match(id.textContent, /S134501/);
+      assert.equal(id.getAttribute('href'), A.checklistUrl(row.subId));
+      assert.equal(facts.querySelectorAll('.reportid').length, 1);
+      assert.equal(card.querySelector('.reportplace').nextElementSibling, facts);
+      assert.ok(card.querySelector('[data-note-pending]'), 'notes remain an independent action');
+    }
+    A.setDisplayProfile('standard');
+    host.innerHTML = A.birdReportListCard({ ...row, durationHrs: undefined, observer: '', evidence: '' },
+      { rare: true, cls: 'twitchcard' });
+    assert.equal(host.querySelector('.ckduration').textContent, '');
+    assert.ok(host.querySelector('.ckduration[data-pending]'));
+    A.seedChecklistView(row.subId, { obsDt: row.dateStr, durationHrs: 0.25,
+      userDisplayName: 'Hydrated Observer', obs: [{ speciesCode: row.code, comments: 'Synthetic note' }] });
+    await A.hydrateChecklistEvidence(host);
+    assert.equal(host.querySelector('.ckduration').textContent, '15m');
+    assert.equal(host.querySelector('.reportobserver').textContent, 'Hydrated Observer');
+    assert.equal(host.querySelector('.reportid a').getAttribute('href'), A.checklistUrl(row.subId));
+    assert.ok(host.querySelector('.evidbtn[data-evid]'));
+    for (const durationHrs of [null, '', 'not-duration', -1]) {
+      host.innerHTML = A.birdReportListCard({ ...row, subId: '', sci: '', durationHrs }, {});
+      assert.equal(host.querySelector('.ckduration'), null, 'unknown duration is not zero');
+      assert.equal(host.querySelector('.reportid'), null, 'missing identity has no invented link');
+      assert.ok(host.querySelector('.spcode'), 'missing Latin name retains identifier fallback');
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1343 F1348 report media stays inline before its real source and combines delayed evidence without erasing notes',async()=>{
+  const app=await boot();
+  try{
+    const A=app.window.__app, host=app.$('results');
+    const row={code:'amerob',name:'American Robin',subId:'S134399',
+      dateStr:recentObsStamp(),durationHrs:0.25,county:'US-WA-033',countyName:'Synthetic county'};
+    for(const rare of [false,true]){
+      for(const [evidence,icons] of [['',''],['P','\ud83d\udcf7'],['A','\ud83d\udd0a'],['PA','\ud83d\udcf7\ud83d\udd0a']]){
+        host.innerHTML=A.birdReportListCard({...row,evidence},{rare});
+        const facts=host.querySelector('.reportfacts'), media=facts.querySelector('.ckevid');
+        assert.equal(media.textContent,icons);
+        assert.equal(media.previousElementSibling.className,'reportid');
+        assert.equal(media.parentElement,facts,'media must not create another row');
+        assert.equal(host.querySelectorAll('[data-note-pending]').length,1);
+        if(rare){
+          assert.match(media.nextElementSibling.getAttribute('href'),/\/alert\/rba\/US-WA-033/);
+          assert.equal(media.nextElementSibling,facts.lastElementChild);
+        }else assert.equal(media.nextElementSibling,null,'Target Birds has no invented RBA source');
+      }
+    }
+    host.innerHTML=A.birdReportListCard({...row,evidence:'P'},{rare:true});
+    A.seedChecklistView(row.subId,{durationHrs:0.25,comments:'Synthetic checklist comment',
+      obs:[{speciesCode:'amerob',comments:'Synthetic species comment',mediaCounts:{A:1}}]});
+    await A.hydrateChecklistEvidence(host);
+    assert.equal(host.querySelectorAll('.ckevid').length,1);
+    assert.equal(host.querySelector('.ckevid').textContent,'\ud83d\udcf7\ud83d\udd0a',
+      'delayed audio cannot be hidden behind an earlier photo flag');
+    const notes=host.querySelector('[data-evid]');
+    assert.ok(notes,'the notes action remains separate from media');
+    app.click(notes);
+    const popup=app.$('appSheet');
+    assert.match(popup.textContent,/Synthetic checklist comment/);
+    assert.match(popup.textContent,/Synthetic species comment/);
+  }finally{app.window.close();}
+});
+
+test('F1344 private report maps require legitimate coordinates and retain private labels', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, host = app.$('results');
+    const row = { code: 'amerob', name: 'American Robin', subId: 'S134401',
+      loc: 'Synthetic private place', locId: 'L134401', locationPrivate: true,
+      lat: 47, lon: -122, dateStr: recentObsStamp() };
+    for (const provider of ['apple', 'google']) {
+      A.setMapProvider(provider);
+      host.innerHTML = A.birdReportListCard(row, { rare: true });
+      const map = host.querySelector('.reportplace .mapwrap a.maplink');
+      assert.ok(map);
+      assert.equal(map.dataset.q, '47,-122');
+      assert.equal(map.getAttribute('href'), A.mapPointUrl(map.dataset.q));
+      assert.match(host.textContent, /Private location/);
+      assert.equal(host.querySelector('.reportplace .hslink'), null);
+    }
+    for (const coordinates of [{ lat: null }, { lon: '' }, { lat: 91 }, { lon: -181 }, { lat: NaN }]) {
+      host.innerHTML = A.birdReportListCard({ ...row, ...coordinates }, { rare: true });
+      assert.equal(host.querySelector('.reportplace a.maplink'), null);
+      assert.equal(host.querySelector('.reportplace .hslink'), null);
+      assert.match(host.textContent, /Synthetic private place/);
+    }
+  } finally { app.window.close(); }
+});
+
+test('F1345 live checklist projection cannot turn absent duration into zero or use another checklist identity', async()=>{
+  const responses=new Map();
+  const app=await boot({fetch:url=>{
+    const sub=/product\/checklist\/view\/(S1345\d+)/.exec(String(url));
+    return sub?responses.get(sub[1]):null;
+  }});
+  try{
+    const A=app.window.__app, host=app.$('results');
+    let serial=20;
+    for(const durationHrs of [null,'',' ',false,undefined,-1,'bad',0,0.25,1.5]){
+      const subId='S1345'+serial++;
+      responses.set(subId,{subId,durationHrs,obs:[{speciesCode:'amerob',mediaCounts:{P:1}}]});
+      host.innerHTML=A.birdReportListCard({code:'amerob',name:'American Robin',
+        subId,dateStr:recentObsStamp(),count:1},{rare:true});
+      await A.hydrateChecklistEvidence(host);
+      const text=host.querySelector('.ckduration')?.textContent||'';
+      assert.equal(text,[0,0.25,1.5].includes(durationHrs)
+        ? app.window.ChecklistCards.durationText(durationHrs):'');
+      assert.equal(host.querySelector('.reportid a').getAttribute('href'),'https://ebird.org/checklist/'+subId);
+      assert.equal(host.querySelectorAll('.ckevid').length,1);
+    }
+    const subId='S134599';
+    responses.set(subId,{subId:'S999999',durationHrs:9,userDisplayName:'Wrong checklist',
+      obs:[{speciesCode:'amerob',mediaCounts:{P:1}}]});
+    host.innerHTML=A.birdReportListCard({code:'amerob',name:'American Robin',subId,
+      dateStr:recentObsStamp()},{rare:true});
+    await A.hydrateChecklistEvidence(host);
+    assert.doesNotMatch(host.textContent,/9h|Wrong checklist/);
+    assert.equal(host.querySelector('.reportid a').getAttribute('href'),'https://ebird.org/checklist/'+subId);
+  }finally{app.window.close();}
+});
+
+test('F1336 submenu logo returns every section to the visible main menu without acquisition', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, logo = app.$('navMain');
+    assert.equal(logo.tagName, 'BUTTON');
+    assert.equal(logo.type, 'button');
+    assert.equal(logo.getAttribute('aria-label'), 'Back to main menu');
+    for (const section of app.document.querySelectorAll('section[id^="sec-"], #settingsPanel')) {
+      for (let pass = 0; pass < 2; pass++) {
+        A.showSection(section.id, { load: false });
+        app.window.scrollTo(0, 600);
+        const calls = app.state.fetches.length;
+        app.click(logo);
+        assert.equal(app.$('menuPanel').hidden, false, section.id);
+        assert.equal(section.hidden, true, section.id);
+        assert.equal(app.$('navbar').hidden, true);
+        assert.equal(app.document.querySelector('header').hidden, false);
+        assert.equal(app.state.fetches.length, calls, 'logo navigation must not acquire initial data');
+      }
+    }
+    A.showSection('sec-spLookupBtn', { load: false });
+    A.showSection('sec-stakeHsBtn', { load: false });
+    app.click(logo);
+    A.navBack();
+    assert.equal(app.$('menuPanel').hidden, false, 'nested history must not reopen a submenu');
+  } finally { app.window.close(); }
+});
 
 test('branding: the app icon photo is the in-app mark, bundled offline', async () => {
   const app = await boot();
@@ -56074,8 +56388,8 @@ test('F493 medium species cards put the italic scientific name under the common 
       code: 'shtsan', alpha: 'SPTS', codeInSci: true }) + '</ul>');
   const inlineCodes = grouped.window.document.querySelector('.spsci > .spcodes-inline');
   assert.equal(inlineCodes?.textContent, 'SPTS / SHTSAN');
-  assert.equal(grouped.window.getComputedStyle(inlineCodes).display, 'block',
-    'the grouped bird codes are not on their own line after the Latin name');
+  assert.equal(grouped.window.getComputedStyle(inlineCodes).display, 'inline',
+    'F1342 identifiers must remain in the scientific name text flow');
   assert.equal(grouped.window.document.querySelector('.meta').textContent.trim(), '',
     'codeInSci duplicates the identifiers in the metadata row');
   const ticks = new JSDOM('<ul class="obs xl">' + SC.medium({
@@ -65085,7 +65399,8 @@ test('F320 Washington Under-3h Day trip uses bundled county bounds with zero met
   app.window.close();
 });
 
-test('F345 3–5h Day trip paints a completed county before all cold feeds settle', async () => {
+for (const outcome of ['complete', 'cancel']) {
+test('F1350 F345 Day trip owns a known-request generation estimate across cold progress and warm cache: ' + outcome, async () => {
   let interceptFeeds = false;
   let releaseThurston;
   const today = new Date();
@@ -65158,6 +65473,7 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
   interceptFeeds = true;
   A.fgSchedReset(Date.now());
 
+  const coldStarted = Date.now();
   const loading = A.setDayTripRange('from3to5');
   let loadingError;
   loading.catch((error) => { loadingError = error; });
@@ -65171,6 +65487,10 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
     throw error;
   }
   assert.ifError(loadingError);
+  assert.equal(app.$('dayTripEstimate').hidden, false);
+  assert.match(app.$('dayTripEstimate').textContent, /Plan generation: about \d+m\d{2}s remaining for known requests/);
+  assert.match(app.$('dayTripEstimate').textContent, /further phases may add work/);
+  assert.doesNotMatch(app.$('dayTripEstimate').textContent, /3[–-]5m|arrival|drive time/i);
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.match(app.$('excResults').textContent, /Leavenworth/,
     'the useful first county stayed invisible behind the remaining cold feeds');
@@ -65181,18 +65501,40 @@ test('F345 3–5h Day trip paints a completed county before all cold feeds settl
   assert.ok(app.$('excResults').querySelector('.thumb[data-q="1"]'),
     'partial Day trip rows left bird icons unqueued until every county feed settled');
 
+  if (outcome === 'cancel') {
+    try {
+      A.cancelStalledWork();
+      releaseThurston();
+      await loading;
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      assert.equal(app.$('dayTripEstimate').hidden, true,
+        'canceled generation retires its displayed estimate');
+    } finally { app.window.close(); }
+    return;
+  }
   releaseThurston();
   await loading;
+  await waitFor(()=>app.$('dayTripProgress').hidden,'all owned enrichment phases settle');
+  const coldMs = Date.now() - coldStarted;
+  assert.equal(app.$('dayTripEstimate').hidden, true, 'settled generation leaves no stale countdown');
   const completedText = app.$('excResults').textContent;
   const calls = app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length;
+  const warmStarted = Date.now();
   const warm = A.loadExcursions();
   assert.equal(app.$('excResults').textContent, completedText,
     'a warm reopen erased a valid answer before consulting its owned cache');
   await warm;
+  await waitFor(()=>app.$('dayTripProgress').hidden,'warm generation finishes any retained enrichment');
+  assert.equal(app.$('dayTripEstimate').hidden, true);
+  console.log('F1350 controlled generation timing ' + JSON.stringify({
+    coldMs, warmMs: Date.now() - warmStarted, scopedCounties: measured.tierCountyCodes.length,
+    plannedFeeds: measuredFeeds.length, observationCalls: calls
+  }));
   assert.equal(app.state.fetches.filter((url) => /data\/obs\/US-WA-0/.test(url)).length,
     calls, 'the warm tier cache spent the cold feed plan again');
   app.window.close();
 });
+}
 
 test('F331/F338 Hawaii road tiers stay in the county containing Home', async () => {
   const app = await boot({

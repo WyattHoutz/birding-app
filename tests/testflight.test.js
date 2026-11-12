@@ -18,6 +18,30 @@ const build = state => ({
 });
 const included = [{ type: 'preReleaseVersions', id: 'release-id', attributes: { version: '1.168.0' } }];
 
+test('F1337 actual upload effect is idempotent and interrupted pre-upload work can recover', async () => {
+  let uploaded = 0, authorized = 0, existing = null;
+  const api = { async build(app, number, version) {
+    assert.deepEqual([app, number, version], ['app', '579.1', '1.190.0']);
+    return existing;
+  } };
+  const authorize = async () => { authorized++; return { artifactId: '55' }; };
+  const upload = async () => { uploaded++; existing = build('PROCESSING'); };
+  const send = () => flight.uploadIfMissing(api, 'app', '579.1', '1.190.0', authorize, upload);
+  assert.equal((await send()).uploaded, true);
+  assert.equal((await send()).uploaded, false);
+  assert.equal(uploaded, 1, 'a repeated delivery must not cause another Apple upload');
+  assert.equal(authorized, 2, 'deduplication cannot bypass source authorization');
+  existing = null;
+  await assert.rejects(flight.uploadIfMissing(api, 'app', '579.1', '1.190.0',
+    async () => { throw new Error('source changed'); }, upload), /source changed/);
+  assert.equal(uploaded, 1);
+  assert.equal((await send()).uploaded, true, 'pre-upload failure does not consume delivery identity');
+  assert.equal(uploaded, 2);
+  api.build = async () => { throw new Error('Apple status unavailable'); };
+  await assert.rejects(send(), /Apple status unavailable/);
+  assert.equal(uploaded, 2, 'an unavailable Apple identity is not evidence that upload is missing');
+});
+
 test('F1090 both native build paths persist the reviewed declaration before compiling', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ios-build.yml'), 'utf8');
   const signed = fs.readFileSync(path.join(__dirname, '..', 'assets', 'testflight.js'), 'utf8');

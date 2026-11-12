@@ -4640,12 +4640,12 @@
       var rank = prefix[0].rank + prefix.filter(function (row) { return row.species > total; }).length;
       if (rank >= own.rank) return;
       var goal = {rank: rank, total: total, cost: total - own.species, win: !!win};
-      if (!stops[rank] || win || (!stops[rank].win && goal.cost < stops[rank].cost)) stops[rank] = goal;
+      if (!stops[rank] || goal.cost < stops[rank].cost) stops[rank] = goal;
     }
     if (prefix.length && prefix[0].rank === 1) {
       add(prefix[0].species + 1, true);
-      [10, 100].forEach(function (cutoff) {
-        if (prefix.length >= cutoff) add(prefix[cutoff - 1].species, false);
+      [10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
+        if (own.rank > cutoff && prefix.length >= cutoff) add(prefix[cutoff - 1].species, false);
       });
     }
     if (ownIndex >= 0) {
@@ -4653,6 +4653,44 @@
       var higher = prefix.filter(function (row) { return row.species > own.species; });
       if (higher.length) add(higher[higher.length - 1].species, false);
     }
+    var counts = {}, scores = {}, conflicts = {}, groups = [];
+    (rows || []).forEach(function (row) {
+      if (!row || !Number.isInteger(row.rank) || row.rank < 1) return;
+      counts[row.rank] = (counts[row.rank] || 0) + 1;
+      if (!Number.isInteger(row.species) || row.species < 0
+          || scores[row.rank] !== undefined && scores[row.rank] !== row.species) conflicts[row.rank] = true;
+      scores[row.rank] = row.species;
+    });
+    (rows || []).forEach(function (row, index, all) {
+      if (!row || !Number.isInteger(row.rank) || !counts[row.rank] || conflicts[row.rank]
+          || !Number.isInteger(row.species) || row.species < 0
+          || row.rank >= own.rank || row.species <= own.species) return;
+      if (index && all[index - 1] && all[index - 1].rank === row.rank) return;
+      var end = index;
+      while (all[end] && all[end].rank === row.rank && all[end].species === row.species) end++;
+      var following = all[end];
+      if (end - index === counts[row.rank] && following
+          && Number.isInteger(following.rank) && Number.isInteger(following.species)
+          && following.species >= 0 && following.species < row.species
+          && following.rank === row.rank + counts[row.rank]) {
+        groups.push({rank: row.rank, total: row.species, count: counts[row.rank]});
+      }
+    });
+    function addKnown(group) {
+      if (group && (!stops[group.rank] || group.total - own.species < stops[group.rank].cost)) stops[group.rank] = {
+        rank: group.rank, total: group.total, cost: group.total - own.species, win: false, known: true
+      };
+    }
+    groups.sort(function (a, b) { return a.total - b.total; });
+    addKnown(groups[0]);
+    [1, 2, 5].forEach(function (gain) {
+      addKnown(groups.find(function (group) { return group.total === own.species + gain; }));
+    });
+    [10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
+      if (own.rank > cutoff) addKnown(groups.find(function (group) {
+        return group.rank <= cutoff && cutoff < group.rank + group.count;
+      }));
+    });
     var ties = prefix.filter(function (row) {
       return row.rank === own.rank && row.species === own.species;
     }).length;
@@ -4661,8 +4699,9 @@
       .sort(function (a, b) { return a.rank - b.rank; });
     result.push({rank: own.rank, total: own.species, cost: 0, current: true});
     return {stops: result, localAvailable: ownIndex >= 0,
-      missingMilestones: [1,10,100].filter(function (rank) {
-        return own.rank > rank && (!prefix.length || prefix[0].rank !== 1 || prefix.length < rank);
+      missingMilestones: [1,10,100,500,1000,2000,3000,5000].filter(function (rank) {
+        return own.rank > rank && (!prefix.length || prefix[0].rank !== 1 || prefix.length < rank)
+          && !groups.some(function (group) { return group.rank <= rank && rank < group.rank + group.count; });
       }),
       tieCount: ownIndex >= 0 && next && next.rank === own.rank + ties ? ties : null};
   }

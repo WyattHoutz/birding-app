@@ -1163,7 +1163,7 @@
     #myYearList.obs.xl > li > .meta { grid-column: 2; grid-row: 2; min-width: 0; margin: 0; }
     #myYearList > li > .meta > .spsci { display: block; font-style: italic; color: var(--muted);
       font-size: calc(14px * var(--s)); font-weight: 500; line-height: 1.25; }
-    #myYearList > li > .meta > .spsci > .spcodes-inline { display: block; font-style: normal; font-weight: 600; }
+    #myYearList > li > .meta > .spsci > .spcodes-inline { display: inline; font-style: normal; font-weight: 600; }
     #myYearList > li > .meta > .spidline { display: block; font-size: calc(14px * var(--s));
       font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
     .stakeHsChecklistCards .cktargets .splink { display: inline-flex; align-items: center;
@@ -2131,6 +2131,9 @@
     #stakeHsResults .hscardhead { flex-wrap: wrap; }
     #stakeHsResults .hscardhead > .ntext { min-width: min(100%, 6em); }
     #stakeHsResults .hscardhead > .stakeEbird { margin-left: 0; }
+    #stakeHsResults .stakeHsHeadingActions { display: inline-flex; flex: 0 0 auto;
+      align-items: center; gap: 12px; margin-left: auto; }
+    #stakeHsResults .stakeHsHeadingActions > .qrbtn { margin: 0; }
     html[data-display="high-visibility"] #hotResults .busypatch > .name > .ntext {
       grid-column: 1 / -1; grid-row: 2; }
     @media (max-width: 360px) {
@@ -2148,6 +2151,7 @@
     #spLookupStatus.splookuploading progress { display: block; width: 100%; margin: 8px 0;
       accent-color: var(--safe-blue); }
     #spLookupStatus.splookuploading p { margin: 6px 0 0; }
+    #spLookupDistanceOffer button { min-width: 44px; min-height: 44px; }
     .spLookupIconicSection .hscard-md .hsdist {
       font-size: calc(27px * var(--s)); font-weight: 900; color: var(--ink); }
     .convoywrap { margin: 8px 0 14px; }
@@ -2385,6 +2389,9 @@
       font-style: normal;
     }
     .rarewhere a { margin-top: 0; }
+    .rarewhere > .reportplace, .rarewhere > .reportfacts { display: block; }
+    .reportfacts > .ckduration, .reportfacts > .reportid, .reportfacts > .ckevid {
+      white-space: nowrap; }
     /* The flags keep their own spacing INSIDE their cell, so the drawn
        separator sits between the group and the place rather than between
        every badge. */
@@ -3875,6 +3882,8 @@
       .spuhmedia .thumb { width: calc(82px * var(--s)); height: calc(82px * var(--s)); }
       .spuhcandidates { columns: 1; }
     }
+    a { text-decoration: none !important; font-weight: 700; }
+    a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
     select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font-size: calc(16px * var(--s)); }
     .settingvalue { display: block; margin: 4px 0 8px; padding: 0;
       color: var(--ink); font-size: calc(16px * var(--s)); font-weight: 700; }
@@ -4058,7 +4067,9 @@
   <button id="zoomreset" type="button">Reset zoom</button>
   <div id="navbar" hidden>
     <button id="navBack" class="secondary" type="button" aria-label="Back to Contents"><span aria-hidden="true">&lsaquo;</span></button>
-    <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
+    <button id="navMain" class="brandsettings" type="button" aria-label="Back to main menu">
+      <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
+    </button>
     <span id="navTitle"></span>
     <span class="navregion">
       <span class="navregionicon" aria-hidden="true">&#127758;</span>
@@ -4302,6 +4313,7 @@
         useful options appear as evidence arrives. A completed scan may still find no
         matching patches. Switching bands cancels obsolete work.</p>
       <progress id="dayTripProgress" aria-label="Day trip scan progress" hidden></progress>
+      <p id="dayTripEstimate" class="hint" role="status" hidden></p>
       <div class="row" hidden>
         <button id="excBtn">Find day-trip options</button>
       </div>
@@ -5526,7 +5538,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.189.1';
+      var APP_VERSION = '1.190.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -7462,14 +7474,22 @@
         }
         var countSection = doc.getElementById('nativeNatProv');
         var root = doc.querySelector('main, [role="main"]') || countSection;
+        var totalLinks = doc.querySelectorAll('a[href="#nativeNatProv"]');
+        if (totalLinks.length > 1) return fail('Personal-list summary is ambiguous.');
+        var totalLink = totalLinks.length === 1 ? totalLinks[0] : null;
+        var summaryTotal = totalLink && /^([\d,]+)\s+Species\s+Observed$/i.exec(
+          String(totalLink.textContent || '').replace(/\s+/g, ' ').trim());
+        var emptySummary = !countSection && summaryTotal && Number(summaryTotal[1].replace(/,/g, '')) === 0;
+        if (!root && emptySummary) root = doc.body;
         if (!root) return fail('Personal-list content is unavailable.');
         var plain = String(root.textContent || '').replace(/\s+/g, ' ');
         var total = /Species\s+Total\s*:?\s*([\d,]+)(?![\d,.])/i.exec(plain);
-        if (countSection) {
-          var totalLink = doc.querySelector('a[href="#nativeNatProv"]');
-          total = totalLink && /([\d,]+)\s+Species\s+Observed\b/i.exec(
-            String(totalLink.textContent || '').replace(/\s+/g, ' '));
+        if (emptySummary && total && Number(total[1].replace(/,/g, '')) !== 0) {
+          return fail('Personal-list zero summary conflicts with the declared total.');
         }
+        if (countSection) {
+          total = summaryTotal;
+        } else if (emptySummary) total = summaryTotal;
         if (total) result.declaredCount = Number(total[1].replace(/,/g, ''));
         result.paginated = !!root.querySelector(
           'a[rel="next"], button[aria-label="Next page"], .Pagination a[href]:not([aria-disabled="true"])');
@@ -7544,6 +7564,10 @@
           }
         } else readRows(root, 'countable');
         if (invalidDate) return fail('Personal-list dates are unreadable or ambiguous.');
+        if (emptySummary && (result.rows.length || result.paginated
+            || doc.querySelectorAll('[id="nativeNatProv"]').length)) {
+          return fail('Personal-list zero summary conflicts with returned content.');
+        }
         if (!result.rows.length && result.declaredCount !== 0) {
           return fail('No verified personal-list membership was returned.');
         }
@@ -14020,18 +14044,23 @@
           count = opts.uncountedLabel && r.count === 'X' ? opts.uncountedLabel
             : '\u00d7' + (r.count == null || r.count === '' ? 'X' : r.count);
         }
-        return speciesMetaRow({
-          when: r.subId
+        var duration = ChecklistCards.durationText(r.durationHrs);
+        var facts = [
+          '<span class="when">' + (r.subId
             ? checklistLink(r.subId, fmtEvidenceDateTime(r.dateStr))
-            : esc(fmtEvidenceDateTime(r.dateStr)),
-          loc: recLocLink(r),
-          alert: opts.rare ? countyAlertLink(r) : '',
-          observer: r.observer || '',
-          tail: count,
-          noteAction: opts.noteAction || '',
-          end: media ? '<span class="ckevid raremedia"'
-            + ' aria-label="Media attached to this checklist">' + media + '</span>' : ''
-        });
+            : esc(fmtEvidenceDateTime(r.dateStr))) + '</span>',
+          '<span class="reportobserver">' + esc(r.observer || '') + '</span>',
+          count ? '<span class="raretail">' + esc(count) + '</span>' : '',
+          duration || r.subId ? '<span class="ckduration"'
+            + (!duration ? ' data-pending="1"' : '') + '>' + esc(duration) + '</span>' : '',
+          r.subId ? '<span class="reportid">' + checklistLink(r.subId) + '</span>' : '',
+          '<span class="ckevid raremedia" aria-label="Media attached to this checklist">'
+            + media + '</span>',
+          opts.rare ? countyAlertLink(r) : ''
+        ];
+        return '<span class="rarewhere"><span class="reportplace">' + recLocLink(r)
+          + '</span><span class="reportfacts">' + facts.filter(Boolean).join(' ')
+          + '</span></span>';
       }
       function birdReportMetric(r, sortMode) {
         var age = ChecklistCards.ageText(r && r.dateStr);
@@ -14087,6 +14116,7 @@
           code: r.code,
           alpha: alphaFor(r.code),
           sci: sciFor(r.sci || r.code),
+          codeInSci: true,
           icon: large ? heroSlot(r.name, r.code)
             : photoSlot(r.name, r.code, megaView ? null : { stakeout: true }),
           name: common,
@@ -15306,6 +15336,7 @@
       var SP_LOOKUP_BACK = 30;
       var _spLookupSort = 'date';
       var _spLookupWithinChase = true;
+      var _spLookupDistanceOffers = Object.create(null);
       function speciesLookupDetails() { return true; }
       var _spLookupGrouped = true;
       var _spLookupNotes = false;
@@ -15472,6 +15503,7 @@
         _spLookupSavedAt = 0;
         _spLookupShowingSaved = false;
         if ($('spLookupStatus')) $('spLookupStatus').classList.remove('splookuploading');
+        if ($('spLookupDistanceOffer')) $('spLookupDistanceOffer').remove();
         if ($('spLookupRefresh')) $('spLookupRefresh').disabled = true;
         if ($('spLookupSortRow')) $('spLookupSortRow').hidden = true;
         if ($('spLookupDetailsContent')) $('spLookupDetailsContent').hidden = true;
@@ -16016,6 +16048,12 @@
           updateStakeoutEvidence(_spLookupEvidence, currentRows);
           hydrateStakeoutEvidence(_spLookupEvidence, generation);
           var liveRecs = speciesLookupRecords(currentRows, anchors);
+          var sightingsVerified = !mega && currentRows.length < 10000
+            && currentRows.every(function (row) {
+              return row && row.speciesCode === code
+                && typeof row.lat === 'number' && Number.isFinite(row.lat) && Math.abs(row.lat) <= 90
+                && typeof row.lng === 'number' && Number.isFinite(row.lng) && Math.abs(row.lng) <= 180;
+            });
           var recs = speciesLookupRecords(_spLookupEvidence.stateRows, anchors);
           if (!liveRecs.length) {
             var emptyMessage = 'No reports of ' + name + ' in ' + region + ' in the last '
@@ -16049,6 +16087,7 @@
             evidenceGroup.name = evidenceGroup.name || name;
             evidenceGroup.code = evidenceGroup.code || code;
             evidenceGroup.emptyCurrent = true;
+            evidenceGroup.sightingsVerified = sightingsVerified;
             _spLookupGroup = evidenceGroup;
             if ($('spLookupSortRow')) $('spLookupSortRow').hidden = !recs.length;
             renderSpeciesLookup();
@@ -16059,6 +16098,7 @@
           var g = buildStakeoutGroup(recs);
           if (!g) { st.textContent = 'No reports of ' + name + ' in range.'; return; }
           g.name = g.name || name; g.code = g.code || code;
+          g.sightingsVerified = sightingsVerified;
           _spLookupGroup = g;
           if ($('spLookupSortRow')) $('spLookupSortRow').hidden = false;
           renderSpeciesLookup();
@@ -17066,6 +17106,7 @@
         var sightingsFailure = '';
         sortSpeciesPlaces(g, _spLookupSort);
         var nearbyPlaces = spLookupOrderedPlaces(g.places);
+        renderSpeciesDistanceOffer(g, nearbyPlaces);
         var noNearbyEvidence = _spLookupWithinChase
           && (g.places || []).length > 0 && !nearbyPlaces.length;
         var recentMode = _spLookupLoading && !(g.places || []).length
@@ -17978,6 +18019,43 @@
       function setSpeciesLookupWithinChase(on) {
         _spLookupWithinChase = !!on;
         renderSpeciesLookup();
+      }
+
+      function renderSpeciesDistanceOffer(g, nearbyPlaces) {
+        var host = $('spLookupDistanceOffer');
+        var eligible = g && g.sightingsVerified && !_spLookupLoading && !g.loadError
+          && !_spLookupShowingSaved && _spLookupWithinChase
+          && Number.isFinite(chaseMaxMi()) && !nearbyPlaces.length;
+        if (!eligible) { if (host) host.remove(); return; }
+        function currentContext() {
+          return JSON.stringify([bcProfile(), identityRevision(), getReportSlug(),
+            getObsRegion(), g.code, chaseMaxMi(), getCountyView()]);
+        }
+        var context = currentContext();
+        if (_spLookupDistanceOffers[context]) { if (host) host.remove(); return; }
+        if (host && host._context === context) return;
+        if (host) host.remove();
+        host = document.createElement('div');
+        host.id = 'spLookupDistanceOffer';
+        host.className = 'status';
+        host.setAttribute('role', 'region');
+        host.setAttribute('aria-label', 'Empty distance results');
+        host._context = context;
+        host.innerHTML = '<p>No reports within your distance. Show All distances for this same region?</p>'
+          + '<button type="button" class="secondary" data-distance-all>Show All distances</button> '
+          + '<button type="button" class="secondary" data-distance-keep>Keep this distance</button>';
+        host.addEventListener('click', function (event) {
+          var action = event.target.closest('[data-distance-all], [data-distance-keep]');
+          if (!action || !host.isConnected || _spLookupGroup !== g || _spLookupLoading
+              || g.loadError || !_spLookupWithinChase || context !== currentContext()
+              || _spLookupDistanceOffers[context]) return;
+          _spLookupDistanceOffers[context] = true;
+          host.remove();
+          var target = $(action.hasAttribute('data-distance-all') ? 'spLookupStatewide' : 'spLookupWithinChase');
+          if (action.hasAttribute('data-distance-all')) target.click();
+          target.focus();
+        });
+        $('spLookupStatus').insertAdjacentElement('afterend', host);
       }
 
       // --- shared chase pipeline (BirdLogic.computeChaseViews), cached ~10 min -
@@ -19657,6 +19735,7 @@
         function chaseCurrent() { return generation === _chaseGeneration; }
         var waveWork = {
           label: profileOverride ? 'day-tier wave' : 'shared chase wave',
+          setupEstimate: workOverride && workOverride.setupEstimate,
           current: function () {
             return chaseCurrent() && workCurrent(workOverride);
           }
@@ -20213,6 +20292,7 @@
             _chasePhase2Owner[slug] = phase2Cancel;
             var phase2Work = {
               label: 'Bird Gen phase-two enrichment',
+              setupEstimate: phase2Owner && phase2Owner.setupEstimate,
               current: function () {
                 return !phase2Cancel.cancelled
                   && workCurrent(waveWork) && workCurrent(phase2Owner);
@@ -20859,7 +20939,8 @@
       function checklistUrl(sub) { return sub ? 'https://ebird.org/checklist/' + encodeURIComponent(sub) : ''; }
       function hotspotUrl(locId) { return locId ? 'https://ebird.org/hotspot/' + encodeURIComponent(locId) : ''; }
       function extA(url, text, cls) {
-        return url ? '<a class="' + (cls || 'extlink') + '" data-href="' + esc(url) + '">' + esc(text) + '</a>' : esc(text);
+        return url ? '<a class="' + (cls || 'extlink') + '" href="' + esc(url)
+          + '" data-href="' + esc(url) + '">' + esc(text) + '</a>' : esc(text);
       }
       function speciesReferenceLinks(name, code) {
         var wiki = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(String(name || ''));
@@ -21069,8 +21150,10 @@
       }
       function mapA(lat, lng, text) {
         return (lat != null && lng != null && lat !== '' && lng !== ''
-          && isFinite(+lat) && isFinite(+lng))
-          ? '<a class="maplink" data-q="' + esc(lat + ',' + lng) + '">' + esc(text) + '</a>' : esc(text);
+          && isFinite(+lat) && isFinite(+lng) && Math.abs(+lat) <= 90 && Math.abs(+lng) <= 180)
+          ? '<a class="maplink" href="' + esc(mapPointUrl(lat + ',' + lng))
+            + '" aria-label="' + esc(text + ' - open in Maps')
+            + '" data-q="' + esc(lat + ',' + lng) + '">' + esc(text) + '</a>' : esc(text);
       }
       // report.py::_loc_link — public hotspots link the NAME to the hotspot page
       // and append a 🗺 maps link; personal locations have no hotspot page, so
@@ -21175,7 +21258,10 @@
         }
         // Every private location goes through here, so this is the one place
         // the marker has to be added to reach all of them.
-        return mapA(lat, lng, name) + personalPin() + scope;
+        var privateMap = (lat != null && lng != null && lat !== '' && lng !== ''
+          && isFinite(+lat) && isFinite(+lng) && Math.abs(+lat) <= 90 && Math.abs(+lng) <= 180)
+          ? '<span class="mapwrap">\u00a0(' + mapA(lat, lng, '\ud83d\uddfa') + ')</span>' : '';
+        return esc(name) + personalPin() + scope + privateMap;
       }
       function recLocLink(r) {
         return locLink(r.loc || r.locName || '', r.lat, (r.lon != null ? r.lon : r.lng),
@@ -21225,8 +21311,8 @@
         var parts = String(countyCode || '').split('-');
         if (parts.length < 3) return '';
         var st = parts.slice(0, 2).join('-');
-        return '<a class="ebirdlink rbalink" data-href="https://ebird.org/alert/rba/'
-          + encodeURIComponent(st) + '?sortBy=obsDt&o=desc" title="'
+        var url = 'https://ebird.org/alert/rba/' + encodeURIComponent(st) + '?sortBy=obsDt&o=desc';
+        return '<a class="ebirdlink rbalink" href="' + esc(url) + '" data-href="' + esc(url) + '" title="'
           + esc('Every rare bird in ' + st + ', including the ones outside your chase radius')
           + '">' + esc(st + ' state alert') + '</a>';
       }
@@ -21275,7 +21361,8 @@
         // the answer.
         var href = 'https://ebird.org/alert/rba/' + encodeURIComponent(code)
           + '?sortBy=obsDt&o=desc';
-        return '<a class="ebirdlink rbalink" data-href="' + esc(href) + '" title="'
+        return '<a class="ebirdlink rbalink" href="' + esc(href)
+          + '" data-href="' + esc(href) + '" title="'
           + esc((name || code) + ' County rare bird alert, most recent first')
           + '">' + esc(label) + '</a>';
       }
@@ -25349,6 +25436,30 @@
         work.current = current;
         fgCancelObsolete();
         var progress = $('dayTripProgress'), enrichmentPending = false;
+        var estimateNode = $('dayTripEstimate'), estimateTimer = null;
+        function renderEstimate() {
+          if (!current()) return;
+          var value = work.setupEstimate && work.setupEstimate.read({ pending: 0, paceMs: _fgGap });
+          estimateNode.hidden = false;
+          estimateNode.textContent = value && value.phase !== 'source-checks'
+            ? 'Plan generation: about ' + SetupPrefetch.formatDuration(value.maxMs)
+              + ' remaining for known requests; further phases may add work.'
+            : 'Plan generation: checking remaining source work; duration is not known yet.';
+        }
+        work.setupEstimate = SetupPrefetch.createEstimate({
+          rangeMs: [0, 0], paceMs: _fgGap, changed: renderEstimate
+        });
+        function stopEstimate() {
+          if (estimateTimer !== null) clearInterval(estimateTimer);
+          estimateTimer = null;
+          work.setupEstimate.cancel();
+          if (generation === _dayTierGeneration) estimateNode.hidden = true;
+        }
+        renderEstimate();
+        estimateTimer = setInterval(function () {
+          if (!current()) stopEstimate();
+          else renderEstimate();
+        }, 1000);
         $('dayTripWarning').hidden = bandId !== 'from8plus';
         progress.hidden = false;
         progress.removeAttribute('value');
@@ -25453,6 +25564,7 @@
               }).catch(function (error) {
                 if (current()) st.textContent += ' · Enrichment incomplete: ' + netErr(error);
               }).finally(function () {
+                stopEstimate();
                 if (!current()) return;
                 progress.hidden = true;
                 st.setAttribute('aria-busy', 'false');
@@ -25485,6 +25597,7 @@
           if (!current()) return;
           st.textContent = netErr(e);
         }).finally(function () {
+          if (!enrichmentPending) stopEstimate();
           if (!current()) return;
           btn.disabled = enrichmentPending;
           if (!enrichmentPending) {
@@ -27812,6 +27925,9 @@
               forgetChecklistView(sub);
               throw new Error('The checklist response does not match the requested report.');
             }
+            var duration = d.durationHrs;
+            if ((typeof duration !== 'number' && typeof duration !== 'string')
+                || String(duration).trim() === '' || !isFinite(+duration) || +duration < 0) duration = null;
             var v = {
               subId: (d && (d.subId || d.subID)) || '',
               locId: (d && (d.locId || (d.loc && d.loc.locId))) || '',
@@ -27819,7 +27935,7 @@
               numSpecies: d && d.numSpecies,
               userDisplayName: (d && d.userDisplayName) || '',
               obsDt: (d && (d.obsDt || d.isoObsDate)) || '',
-              durationHrs: d && isFinite(+d.durationHrs) ? +d.durationHrs : null,
+              durationHrs: duration == null ? null : +duration,
               groupId: (d && d.groupId) || '',
               numObservers: d && d.numObservers,
               // F222. THE CHECKLIST'S OWN COMMENT, which this projection used
@@ -28043,9 +28159,7 @@
       // `data-ev-media`, is what actually answers this.
       function mediaMarksFor(el, det) {
         var ev = (el && el.getAttribute('data-ev-media')) || '';
-        var marks = BirdLogic.recordIcons({ evidence: ev }) || '';
-        if (marks) return marks;
-        return (det && det.m) ? BirdLogic.recordIcons({ evidence: det.m }) || '' : '';
+        return BirdLogic.recordIcons({ evidence: ev + ((det && det.m) || '') }) || '';
       }
       // Whatever happened — a note, no note, a species the feed named
       // differently, or a call that failed — the row must not be left saying
@@ -28197,6 +28311,8 @@
           return checklistObs(sub).then(twitchReadingUpdate(el, function (got) {
             if (!got) return;
             setChecklistDuration(el, got.durationHrs);
+            var reportObserver = el.querySelector('.reportobserver');
+            if (reportObserver && got.who) reportObserver.textContent = got.who;
             if (el.getAttribute('data-ev-inline') === '1') {
               var meta = el.querySelector('.ckmeta');
               if (!meta) {
@@ -28299,7 +28415,11 @@
               var summary = el.querySelector('.cksummary');
               var lead = summary && summary.querySelector('.cklead');
               var meta = summary && summary.querySelector('.ckmeta');
-              if (el.getAttribute('data-ev-evidence-end') === '1' && meta) {
+              var reportFacts = el.querySelector('.reportfacts');
+              if (reportFacts) {
+                reportFacts.insertBefore(slot, reportFacts.querySelector('.rbalink'));
+              }
+              else if (el.getAttribute('data-ev-evidence-end') === '1' && meta) {
                 meta.insertBefore(slot, meta.querySelector('.cknote'));
               }
               else if (lead) lead.insertAdjacentElement('afterend', slot);
@@ -30195,7 +30315,7 @@
           + 'document.body.insertBefore(help,document.body.firstChild);}'
           + 'send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId) + ','
           + 'ok:r.status==="ok",needsLogin:r.status==="login",terminal:'
-          + (Number(attempt) >= 19) + ',parseStatus:r.status,'
+          + (Number(attempt) >= 239) + ',parseStatus:r.status,'
           + 'data:r.status==="ok"?{key:r.key,sourceUrl:location.origin+location.pathname,'
           + 'account:parseEbirdAccountIdentity(document)}:null});'
           + '}catch(e){send({__ebird:true,kind:"apiKey",requestId:' + JSON.stringify(requestId)
@@ -30273,6 +30393,7 @@
           return captureEbird({
             kind: 'apiKey', url: EBIRD_KEYGEN_URL, title: 'eBird API key',
             requestId: String(generation), alive: current, showImmediately: true,
+            injectAttempts: 240,
             keepOpenOnError: true, onStatus: message,
             buildInject: function (attempt) { return buildKeyResultInject(String(generation), attempt); }
           });
@@ -31648,7 +31769,8 @@
           paceMs: _fgGap,
           retryMs: _etaRetryHold ? Math.max(0, _etaRetryHold.until - Date.now()) : 0
         });
-        node.textContent = !result ? 'Est: calculating...'
+        node.textContent = !result || result.phase === 'source-checks'
+          ? 'Est: waiting for remaining source checks.'
           : 'Est: ' + (result.prior ? Math.round(result.minMs / 60000) + '–'
               + Math.round(result.maxMs / 60000) + 'm'
             : SetupPrefetch.formatDuration((result.minMs + result.maxMs) / 2)) + '.';
@@ -34780,20 +34902,29 @@
           return transitionIsComplete(windowRows[i - 1], row);
         });
         var climb = BL.rankClimbGoals(rows, own);
+        var nextGoal = climb.stops.filter(function (stop) { return stop.cost > 0; })
+          .sort(function (a, b) { return a.cost - b.cost; })[0];
         var html = coverage + '<section class="rankclimb" aria-label="Species rank-climb goals">'
-          + '<h3>Your ladder</h3><ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
+          + '<h3>Your ladder</h3>'
+          + (nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next known goal' : 'Next step')
+            + ':</strong> +' + esc(rankNum(nextGoal.cost)) + ' species to '
+            + (nextGoal.win ? 'exceed the leading score' : 'tie the ' + esc(rankNum(nextGoal.total))
+              + '-species group at #' + esc(rankNum(nextGoal.rank)))
+            + ' in this snapshot. This is a score goal, not a promise of attainable birds or a future rank.</p>' : '')
+          + '<ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
           + climb.stops.map(function (stop, i) {
             return '<li class="rankclimb-stop' + (stop.win ? ' win' : '') + (stop.current ? ' current' : '')
               + (stop.rank >= 1000 ? ' wide' : '') + '"><div class="rankclimb-head">'
               + '<span class="rankclimb-rank">' + (stop.rank === 1 ? '<span class="rankclimb-trophy" aria-hidden="true">🏆</span> ' : '')
               + '#' + esc(rankNum(stop.rank)) + '</span><span class="rankclimb-cost">'
-              + (stop.current ? 'You are here' : '+' + esc(rankNum(stop.cost)) + ' species') + '</span></div>'
+              + (stop.current ? 'You are here' : '+' + esc(rankNum(stop.cost)) + ' species'
+                + (stop.known ? ' · known group' : '')) + '</span></div>'
               + (i < climb.stops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
                 + '<svg viewBox="0 0 24 28" preserveAspectRatio="none"><path d="M12 1L1 12H8V27H16V12H23Z" fill="currentColor"/></svg></div>' : '')
               + '</li>';
           }).join('') + '</ol><p class="hint">Snapshot goals assume unchanged totals; ties can skip rank positions.'
           + (climb.missingMilestones.length ? ' Some top-board milestones are unavailable in returned coverage.' : '')
-          + (!climb.localAvailable ? ' Local climb targets unavailable in returned coverage.' : '') + '</p></section>';
+          + (!climb.localAvailable ? ' Exact next-rank coverage is incomplete; any known-group goals are labelled.' : '') + '</p></section>';
         if (index < 0) return html + unavailable
           + 'your standing is known, but your row is outside the returned competitor table.</p>';
         if (!contiguous) return html + unavailable
@@ -39822,6 +39953,8 @@
               dateStr: checklist.dateStr || place.when || '',
               subId: checklist.subId || '',
               obsValid: checklist.obsValid, obsReviewed: checklist.obsReviewed,
+              observer: checklist.observer || checklist.userDisplayName || '',
+              durationHrs: checklist.durationHrs, evidence: checklist.evidence || '',
               loc: place.name, locId: place.locId,
               lat: place.lat, lon: place.lng, distMi: mi,
               siteEvidence: BL.chaseConfidence(checklists, { nowMs: Date.now() }),
@@ -39866,17 +39999,11 @@
           + 'repeat history is not fully checked.</div>';
         var cards = rows.map(function (r) {
           var otherReports = (r.checklists || []).slice(1);
-          var sourceState = r.obsValid === true ? 'Source validated'
-            : r.obsValid === false ? 'Source unvalidated' : 'Source validation unavailable';
-          var reviewState = r.obsReviewed === true ? '; reviewed'
-            : r.obsReviewed === false ? '; unreviewed' : '; review status unavailable';
           return birdReportListCard(r, {
             cls: 'twitchcard', need: true,
             uncountedLabel: 'Present; not counted',
             sortMode: _easySort === 'dist' ? 'distance' : 'date',
-            below: '<div class="bcsub">' + speciesMetaRow({
-              tail: esc(BL.confidenceNote(r.siteEvidence) + ' \u00b7 ' + sourceState + reviewState)
-            }) + '</div>' + moreDetails(otherReports.length, {
+            below: moreDetails(otherReports.length, {
               one: 'source checklist at this hotspot',
               many: 'source checklists at this hotspot across '
                 + r.siteEvidence.days + ' sampled dates'
@@ -42188,7 +42315,8 @@
 
         box.innerHTML = '<ul class="obs">' + HotspotCards.large({
           name: esc(name || loc.locName || locId),
-          headingAction: qrButton('hotspot', locId) + stakeEbirdButton('hotspot', locId, name),
+          headingAction: '<span class="stakeHsHeadingActions">' + qrButton('hotspot', locId)
+            + stakeEbirdButton('hotspot', locId, name) + '</span>',
           sub: facts,
           // The bird split moved into `below` so it could carry a header like
           // every other block on this card. These slots stay empty rather than
@@ -55762,6 +55890,7 @@
       // door to it beside Refresh was the only thing keeping Today's rarities
       // from collapsing into the ↻ icon every other section already had.
       $('navBack').addEventListener('click', function () { navBack(); });
+      $('navMain').addEventListener('click', function () { showMenu(); });
       $('brandSettings').addEventListener('click', function () { showSettings(true); });
       // Same pairing for the per-birder patch page, and for the same reason.
       if ($('patchBack')) $('patchBack').addEventListener('click', function () {

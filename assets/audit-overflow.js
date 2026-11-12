@@ -226,7 +226,17 @@ const AUDIT = `<script>
     });
     panel.appendChild(cards);
     if (panel.id === 'sec-myYearBody') {
-      result.cardReadability = Array.from(cards.children).map(${require('./card-readability').toString()});
+      var readability = ${require('./card-readability').toString()};
+      result.cardReadability = Array.from(cards.children).map(readability);
+      if (innerWidth === 402 && Math.abs(parseFloat(getComputedStyle(document.documentElement)
+          .getPropertyValue('--s')) - 1.2) < .01) {
+        var oldTitle = document.createElement('style');
+        oldTitle.textContent = '.obs.xl > li > .name > .ntext {grid-column:2!important;grid-row:1!important;margin-top:0!important;}';
+        document.head.appendChild(oldTitle);
+        result.cardReadabilityMutation = readability(cards.firstElementChild).wordBroken;
+        oldTitle.remove();
+        if (!result.cardReadabilityMutation) throw new Error('F1335 constrained-title mutation survived');
+      }
     }
     cards.remove();
     host.remove();
@@ -1396,9 +1406,9 @@ const AUDIT = `<script>
       var root = document.getElementById('stakeHsResults');
       var fav = root.querySelector('.stakeHsFav');
       var title = root.querySelector('.hscardhead').getBoundingClientRect();
-      var qrNode = root.querySelector('.hscardhead > .qrbtn');
+      var qrNode = root.querySelector('.hscardhead .qrbtn:not(.stakeEbird)');
       var qr = qrNode && qrNode.getBoundingClientRect();
-      var externalNode = root.querySelector('.hscardhead > .stakeEbird');
+      var externalNode = root.querySelector('.hscardhead .stakeEbird');
       var external = externalNode && externalNode.getBoundingClientRect();
       var qrIcon = qrNode && qrNode.querySelector('svg').getBoundingClientRect();
       var externalIcon = externalNode && externalNode.querySelector('svg').getBoundingClientRect();
@@ -1409,6 +1419,8 @@ const AUDIT = `<script>
       var actions = root.querySelector('.stakeHsIntroActions').getBoundingClientRect();
       var detailScan = scan('(F828 hotspot favorite ' + (saved ? 'Remove' : 'Add') + ')');
       detailScan.hotspotQr = {
+        headingRight: title.right, qrLeft: qr && qr.left, qrRight: qr && qr.right,
+        externalLeft: external && external.left, externalRight: external && external.right,
         inHeading: !!qrNode,
         separated: !!qr && (qr.left >= titleText.right || qr.top >= titleText.bottom),
         rightAligned: !!qr && !!external && qrNode.nextElementSibling === externalNode
@@ -4392,7 +4404,7 @@ const AUDIT = `<script>
         {speciesCode:'hawama',comName:'Hawaii Amakihi',subId:'S128001',howMany:5}
       ];
       A.renderStakeHs('L128001','Synthetic code-link patch',[
-        {subId:'S128001',obsDt:A.todayStr()+' 08:00',numSpecies:2,userDisplayName:'Synthetic observer'}
+        {subId:'S128001',obsDt:A.todayStr()+' 08:00',numSpecies:2,userDisplayName:'Observer'}
       ],observations,{lat:47.6,lng:-122.3},false,'loaded');
       var links=Array.from(document.querySelectorAll('.stakeHsChecklistCards .cktargets .splink'));
       if(JSON.stringify(links.map(function(link){return link.dataset.sp;}))!=='["baisan","hawama"]')
@@ -4407,6 +4419,36 @@ const AUDIT = `<script>
       });
       var result=scan('(F1281 actual checklist bird links)');
       result.checklistCodes={codes:links.map(function(link){return link.dataset.sp;}),count:links.length};
+      function textBox(node) {
+        var walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT),text;
+        while((text=walker.nextNode())) {
+          if(!text.textContent.trim())continue;
+          var range=document.createRange();range.selectNodeContents(text);
+          return range.getClientRects()[0];
+        }
+      }
+      var checklist=links[0].closest('.cklcard');
+      var dateText=textBox(checklist.querySelector('.ckdate'));
+      var observerText=textBox(checklist.querySelector('.ckwho'));
+      var speciesText=textBox(checklist.querySelector('.cksp'));
+      result.checklistCodes.baselines={date:dateText.bottom,observer:observerText.bottom,
+        species:speciesText.bottom};
+      var sameLine=dateText.top<observerText.bottom && observerText.top<dateText.bottom;
+      if(sameLine && Math.abs(dateText.bottom-observerText.bottom)>1)
+        throw new Error('F1341 same-line date and observer text baselines staggered: '
+          +JSON.stringify(result.checklistCodes.baselines));
+      if(sameLine) {
+        var oldAlignment=document.createElement('style');
+        oldAlignment.textContent='.cklcards-sm .cksummary .ckmeta > span.ckwho {'
+          +'overflow:hidden!important;vertical-align:bottom!important;}';
+        document.head.appendChild(oldAlignment);
+        var mutantDate=textBox(checklist.querySelector('.ckdate'));
+        var mutantObserver=textBox(checklist.querySelector('.ckwho'));
+        oldAlignment.remove();
+        if(Math.abs(mutantDate.bottom-mutantObserver.bottom)<=1)
+          throw new Error('F1341 old-alignment mutation survived');
+        result.checklistCodes.alignmentMutationKilled=true;
+      }
       out.push(result);
       var event=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
       links[1].focus();links[1].dispatchEvent(event);
@@ -4421,6 +4463,211 @@ const AUDIT = `<script>
       await A.restoreTaxonomyNames();
     }
   }
+  function reportPresentationRegression(out) {
+    var A=window.__app, width=window.frameElement.style.width;
+    var scale=document.documentElement.style.getPropertyValue('--s');
+    var profile=A.getDisplayProfile(), host=document.getElementById('results'), hostClass=host.className;
+    var row={code:'amerob',name:'American Robin',sci:'Turdus migratorius',
+      subId:'S134501',dateStr:A.todayStr()+' 08:00',observer:'Synthetic Observer',
+      count:2,durationHrs:1.5,evidence:'P',county:'US-WA-033',countyName:'Synthetic',
+      loc:'Synthetic patch',locId:'L134501',lat:47,lon:-122};
+    function check(ok,message) { if(!ok)throw new Error('F1342-F1349 '+message); }
+    function textBox(node) {
+      var range=document.createRange();range.selectNodeContents(node);
+      return range.getClientRects()[0];
+    }
+    function measure() {
+      var card=host.querySelector('[data-ev-sub]');
+      var place=card.querySelector('.reportplace'), facts=card.querySelector('.reportfacts');
+      var date=textBox(facts.querySelector('.when'));
+      check(date.top>=place.getBoundingClientRect().bottom-.5,'checklist must explicitly start below place');
+      var fields=['.ckduration','.reportid','.ckevid','.rbalink'];
+      check(fields.every(function(selector) {
+        return ['inline','inline-block','inline-flex'].indexOf(
+          getComputedStyle(facts.querySelector(selector)).display)>=0;
+      }),'checklist fields cannot force individual block rows');
+      check(facts.textContent.indexOf('1h30m')<facts.textContent.indexOf('S134501')
+        && facts.querySelector('.reportid').nextElementSibling.matches('.ckevid')
+        && facts.querySelector('.ckevid').nextElementSibling.matches('.rbalink'),
+        'duration, checklist ID, media and source order');
+      var link=facts.querySelector('.rbalink'), style=getComputedStyle(link);
+      check(style.textDecorationLine==='none' && Number(style.fontWeight)>=600
+        && link.hasAttribute('href'),'source must remain a non-underlined semantic action');
+      link.focus();
+      check(document.activeElement===link && getComputedStyle(link).outlineStyle!=='none',
+        'source must retain visible keyboard focus');
+      var rect=card.getBoundingClientRect();
+      check(rect.left>=0 && rect.right<=innerWidth+.5
+        && card.scrollWidth<=card.clientWidth+1,'card must remain contained');
+      return {place:place.getBoundingClientRect().bottom,date:date.top,
+        fields:fields.map(function(selector) { return textBox(facts.querySelector(selector)).top; })};
+    }
+    try {
+      A.showSection('sec-refreshBtn',{load:false});
+      host.className=profile==='high-visibility'?'obs cards':'obs big xl';
+      host.innerHTML=A.birdReportListCard(row,{rare:true,cls:'twitchcard'});
+      var narrow=measure();
+      window.frameElement.style.width='1200px';
+      A.setDisplayProfile('standard');
+      document.documentElement.style.setProperty('--s','1');
+      host.className='obs big xl';
+      host.innerHTML=A.birdReportListCard(row,{rare:true,cls:'twitchcard'});
+      var wide=measure();
+      check(Math.max.apply(null,wide.fields)-Math.min.apply(null,wide.fields)<=2,
+        'wide checklist facts must share the same line');
+      var science=host.querySelector('.spsci'), codes=science.querySelector('.spcodes-inline');
+      var latin=document.createRange();latin.selectNode(science.firstChild);
+      check(getComputedStyle(science).fontStyle==='italic' && getComputedStyle(codes).fontStyle==='normal',
+        'Latin must remain italic and identifiers upright');
+      check(Math.abs(latin.getBoundingClientRect().top-textBox(codes).top)<=2,
+        'identifiers must follow Latin inline when width permits');
+      var mutation=document.createElement('style');
+      mutation.textContent='.reportplace {display:inline!important;} .reportfacts {display:inline!important;}';
+      document.head.appendChild(mutation);
+      var killed=false;
+      try { measure(); } catch(error) { killed=/explicitly start below place/.test(error.message); }
+      mutation.remove();
+      check(killed,'forced-newline removal mutation survived');
+      mutation.textContent='.spcodes-inline {display:block!important;}';
+      document.head.appendChild(mutation);
+      check(Math.abs(latin.getBoundingClientRect().top-textBox(codes).top)>2,
+        'forced identifier-line mutation survived');
+      mutation.remove();
+      mutation.textContent='.rarewhere .rbalink {text-decoration:underline!important;}';
+      document.head.appendChild(mutation);
+      killed=false;
+      try { measure(); } catch(error) { killed=/non-underlined semantic action/.test(error.message); }
+      mutation.remove();
+      check(killed,'restored underline mutation survived');
+      mutation.textContent='.rarewhere .rbalink:focus {outline:none!important;}';
+      document.head.appendChild(mutation);
+      killed=false;
+      try { measure(); } catch(error) { killed=/visible keyboard focus/.test(error.message); }
+      mutation.remove();
+      check(killed,'removed focus mutation survived');
+      window.frameElement.style.width=width;
+      A.setDisplayProfile(profile);
+      document.documentElement.style.setProperty('--s',scale);
+      var logo=document.getElementById('navMain'), menus=0;
+      function returnToMenu(section) {
+        var box=logo.getBoundingClientRect();
+        check(box.width>=44 && box.height>=44,'submenu '+section.id+' logo needs a 44px target');
+        logo.click();
+        check(!document.getElementById('menuPanel').hidden
+          && section.hidden && document.getElementById('navbar').hidden,'logo must display main menu');
+      }
+      Array.from(document.querySelectorAll('section[id^="sec-"], #settingsPanel')).forEach(function(section) {
+        if(A.showSection(section.id,{load:false})===false) return;
+        returnToMenu(section);menus++;
+      });
+      var section=document.getElementById('sec-refreshBtn');
+      A.showSection(section.id,{load:false});
+      logo.disabled=true;killed=false;
+      try { returnToMenu(section); } catch(error) { killed=/logo must display main menu/.test(error.message); }
+      logo.disabled=false;
+      check(killed,'inert logo mutation survived');
+      returnToMenu(section);
+      var result=scan('(F1336 F1342-F1349 shared presentation)');
+      result.reportPresentation={narrow:narrow,wide:wide,menus:menus};
+      out.push(result);
+    } finally {
+      window.frameElement.style.width=width;A.setDisplayProfile(profile);
+      document.documentElement.style.setProperty('--s',scale);
+      host.className=hostClass;
+    }
+  }
+    async function queuePresentationRegression(out) {
+      var A=window.__app, key=A.chaseMiKey(), distance=localStorage.getItem(key);
+      var identity=localStorage.getItem(A.IDENTITY_META_KEY);
+      var create=window.SetupPrefetch.createEstimate;
+      function check(ok,message) { if(!ok)throw new Error('F1350-F1352 '+message); }
+      function contained(node) {
+        check(node && node.getBoundingClientRect().width>0,
+          'expected visible actual consumer: '+(node?node.className:'missing node'));
+        var range=document.createRange();range.selectNodeContents(node);
+        check(Array.from(range.getClientRects()).every(function(rect) {
+          return rect.left>=-.5 && rect.right<=innerWidth+.5;
+        }) && node.scrollWidth<=node.clientWidth+1,'copy must wrap without overflow');
+      }
+      try {
+        localStorage.setItem(key,'35');
+        var lookupPanel=document.getElementById('spLookupStatus').closest('section');
+        A.showSection(lookupPanel.id,{load:false});
+        A.setSpeciesLookupWithinChase(true);
+        A.seedEbirdCache(A.speciesLookupPath('US-WA','amerob',A.SP_LOOKUP_BACK),[{
+          speciesCode:'amerob',comName:'American Robin',subId:'S135101',locId:'L135101',
+          locName:'Synthetic distant patch',lat:40,lng:-120,obsDt:A.todayStr()+' 08:00'
+        }]);
+        await A.lookupSpecies('amerob','American Robin');
+        var offer=document.getElementById('spLookupDistanceOffer');
+        contained(offer);
+        function distanceChoices() {
+          Array.from(offer.querySelectorAll('button')).forEach(function(button) {
+            var rect=button.getBoundingClientRect();
+            check(rect.width>=44 && rect.height>=44 && rect.left>=0 && rect.right<=innerWidth+.5,
+              'distance choices must remain contained touch targets: '+JSON.stringify({
+                width:rect.width,height:rect.height,left:rect.left,right:rect.right}));
+          });
+        }
+        distanceChoices();
+        var result=scan('(F1351 actual opt-in distance prompt)');
+        if(innerWidth===393 && A.getDisplayProfile()==='standard') {
+          var oldTarget=document.createElement('style'), killed=false;
+          oldTarget.textContent='#spLookupDistanceOffer button {min-height:0!important;}';
+          document.head.appendChild(oldTarget);
+          try { distanceChoices(); } catch(error) { killed=/contained touch targets/.test(error.message); }
+          oldTarget.remove();
+          check(killed,'undersized distance-choice mutation survived');
+          result.queueTouchMutation=true;
+        }
+        result.queuePresentation='distance';out.push(result);
+        offer.querySelector('[data-distance-keep]').click();
+
+        var period=String(new Date().getFullYear());
+        var rows=Array.from({length:3500},function(_,i) {
+          return {rank:Math.floor(i/8)*8+1,species:701-Math.floor(i/8),
+            profileId:i===3064?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder',
+            recent:i<2?'Black-throated Gray Warbler (Oct. 1, 2026)':''};
+        });
+        var board={region:'US-WA',period:period,metric:'spp',rows:rows,me:rows[3064]};
+        localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'synthetic-owner'}));
+        A.showSection('sec-rankBtn',{load:false});
+        A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic birder');
+        var speciesMetric=document.querySelector('[data-rank-metric="spp"]');
+        if(speciesMetric && speciesMetric.getAttribute('aria-pressed')!=='true')speciesMetric.click();
+        contained(document.querySelector('.rankclimb-next'));
+        check(document.querySelector('.rankclimb-next').textContent.indexOf('Next step')>=0,'exact next-step label');
+        result=scan('(F1352 actual rank goals)');
+        result.queuePresentation='rank';out.push(result);
+
+        for(var numeric of [false,true]) {
+          A.showSection('sec-excBtn',{load:false});
+          window.SetupPrefetch.createEstimate=function(options) {
+            check(options.rangeMs[0]===0 && options.rangeMs[1]===0,'Day Trips cannot borrow setup prior');
+            var estimate=create(options);
+            estimate.read=function() {
+              return numeric?{minMs:5000000,maxMs:5226000,prior:false}:{phase:'source-checks'};
+            };
+            return estimate;
+          };
+          var loading=A.loadExcursions();
+          window.SetupPrefetch.createEstimate=create;
+          var estimateNode=document.getElementById('dayTripEstimate');
+          check(!estimateNode.hidden && estimateNode.textContent.indexOf('Plan generation:')===0,
+            'generation owns its visible estimate');
+          contained(estimateNode);
+          result=scan('(F1350 actual generation '+(numeric?'numeric stress':'unknown phase')+')');
+          result.queuePresentation=numeric?'plan-numeric':'plan-unknown';out.push(result);
+          A.showMenu();
+          await loading.catch(function() {});
+        }
+      } finally {
+        window.SetupPrefetch.createEstimate=create;
+        if(distance===null)localStorage.removeItem(key);else localStorage.setItem(key,distance);
+        if(identity===null)localStorage.removeItem(A.IDENTITY_META_KEY);else localStorage.setItem(A.IDENTITY_META_KEY,identity);
+        A.showMenu();
+      }
+    }
   function favoriteActionsShareRow(first, second) {
     return Math.abs((first.top + first.bottom) / 2 - (second.top + second.bottom) / 2) <= 0.5;
   }
@@ -4502,6 +4749,10 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await checklistCodeRegression(out); }
       catch(error) { out.push({label:'F1281 checklist code links',fixtureError:String(error)}); }
+      try { reportPresentationRegression(out); }
+      catch(error) { out.push({label:'F1336 F1342-F1349 shared presentation',fixtureError:String(error)}); }
+      try { await queuePresentationRegression(out); }
+      catch(error) { out.push({label:'F1350-F1352 actual presentation',fixtureError:String(error)}); }
       try { await favoriteSearchRegression(out); }
       catch(error) { out.push({label:'F1286 Favorite search',fixtureError:String(error)}); }
       try { await personalBackupRegression(out); }
@@ -4960,6 +5211,25 @@ server.listen(0, '127.0.0.1', () => {
     if (report.filter(r => r.checklistCodes && r.checklistCodes.count === 2).length !== 1) {
       bad++;
       console.log('   F1281 actual canonical checklist-link geometry fixture is missing');
+    }
+    if (report.filter(r => r.reportPresentation && r.reportPresentation.menus > 0).length !== 1) {
+      bad++;
+      console.log('   F1336 F1342-F1349 FIXTURE missing actual shared presentation and submenu geometry');
+    }
+    if (WIDTH === 402 && Number(SCALE) === 1.2
+        && !report.some(r => r.releaseLayout && r.releaseLayout.cardReadabilityMutation === true)) {
+      bad++;
+      console.log('   F1335 FIXTURE missing the live constrained-title mutation at 402px/120%');
+    }
+    for (const surface of ['distance', 'rank', 'plan-numeric', 'plan-unknown']) {
+      if (report.filter(r => r.queuePresentation === surface).length !== 1) {
+        bad++;
+        console.log('   F1350-F1352 FIXTURE missing actual ' + surface + ' geometry');
+      }
+    }
+    if (WIDTH === 393 && Number(SCALE) === 1 && !report.some(r => r.queueTouchMutation === true)) {
+      bad++;
+      console.log('   F1351 FIXTURE missing standard-phone distance-choice mutation');
     }
     if (report.filter(r => r.settingsHelp && r.settingsHelp.topics === 18).length !== 1) {
       bad++;

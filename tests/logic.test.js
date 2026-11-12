@@ -33,6 +33,8 @@ test('F1246 missing rank coverage cannot manufacture local climb targets or a pe
   const result=BL.rankClimbGoals(rows,rows[3]);
   assert.equal(result.localAvailable,false);
   assert.deepEqual(result.stops.map(stop=>stop.rank),[1,5]);
+  assert.equal(result.stops[0].known,true);
+  assert.equal(result.stops[0].cost,3,'tie the complete known leader group without inventing the incomplete #2 group');
   assert.equal(result.tieCount,null);
   assert.equal(BL.rankClimbGoals(rows.slice(0,3),rows[1]).tieCount,null);
   assert.equal(BL.rankClimbGoals(rows,null),null);
@@ -41,8 +43,40 @@ test('F1246 a known standing beyond returned rows retains only covered goals',()
   const rows=[{rank:1,species:10},{rank:2,species:9},{rank:3,species:8}];
   const result=BL.rankClimbGoals(rows,{rank:6001,species:7});
   assert.equal(result.localAvailable,false);
-  assert.deepEqual(result.stops.map(stop=>[stop.rank,stop.cost]),[[1,4],[6001,0]]);
+  assert.deepEqual(result.stops.map(stop=>[stop.rank,stop.cost]),[[1,4],[2,2],[6001,0]]);
   assert.equal(result.tieCount,null);
+});
+test('F1352 complete and gapped snapshots retain useful short steps and intermediate tied milestones',()=>{
+  const rows=Array.from({length:5000},(_,i)=>({rank:Math.floor(i/8)*8+1,species:701-Math.floor(i/8)}));
+  const own=rows[3064];
+  assert.deepEqual(own,{rank:3065,species:318});
+  for(const gapped of [false,true]){
+    const sample=gapped?rows.slice(0,100).concat(rows.slice(101)):rows;
+    const result=BL.rankClimbGoals(sample,own);
+    for(const [rank,cost] of [[3057,1],[3049,2],[3025,5],[2993,9],[1993,134],[993,259],[497,321]]){
+      const stop=result.stops.find(stop=>stop.rank===rank);
+      assert.equal(stop?.cost,cost,JSON.stringify({gapped,rank,stops:result.stops}));
+      if(gapped&&rank>101)assert.equal(stop.known,true);
+    }
+    assert.equal(result.localAvailable,!gapped);
+    assert.equal(new Set(result.stops.map(stop=>stop.rank)).size,result.stops.length);
+  }
+  const missingGroup=rows.filter(row=>row.rank!==3057);
+  assert.equal(BL.rankClimbGoals(missingGroup,own).stops.some(stop=>stop.rank===3057),false,
+    'no unreturned tie group may be invented');
+  const truncated=rows.slice(0,3058);
+  assert.equal(BL.rankClimbGoals(truncated,own).stops.some(stop=>stop.known&&stop.rank===3057),false,
+    'a truncated group cannot pass the independent-boundary proof');
+  const gapped=rows.slice(0,100).concat(rows.slice(101));
+  for(const sample of [
+    gapped.map((row,i)=>i===3056?{...row,species:320}:row),
+    [...gapped,{rank:3057,species:319}],
+    [...gapped,{rank:3057,species:null}],
+    gapped.map(row=>row.rank===3065?{...row,rank:3066}:row)
+  ]){
+    assert.equal(BL.rankClimbGoals(sample,own).stops.some(stop=>stop.rank===3057),false,
+      'conflicting scores, repeated groups or a missing boundary cannot establish the known goal');
+  }
 });
 const TRAVEL = JSON.parse(fs.readFileSync(
   path.join(__dirname, '..', 'www', 'travel-zones.json'), 'utf8'));

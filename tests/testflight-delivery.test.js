@@ -56,7 +56,7 @@ async function deliveryFixture(failArchive, failNative = false, options = {}) {
   const separateSourceRoot = !!options.separateSourceRoot;
   if (separateSourceRoot) env.TESTFLIGHT_SOURCE_ROOT = root;
   let authorizations = 0;
-  let uploaded = false, processingReads = 0, dependencyPatched = false;
+  let uploaded = !!options.alreadyUploaded, processingReads = 0, dependencyPatched = false;
   const spawnSync = (program, args, options) => {
     calls.push({ program, args });
     for (const name of ['ASC_PRIVATE_KEY', 'IOS_DISTRIBUTION_P12_PASSWORD',
@@ -137,6 +137,7 @@ async function deliveryFixture(failArchive, failNative = false, options = {}) {
     if (name === path.join(root, 'capacitor.config.json')) return { appId: 'com.example.bird' };
     if (name === './testflight-source.js') return {
       captured: sourceGate.captured,
+      sourceBuildNumber: async () => '538.1',
       authorize: async current => {
         calls.push({ program: 'authorizeSource', args: [] });
         authorizations++;
@@ -203,6 +204,17 @@ test('F1059 archive failure cannot upload and still removes the keychain, privat
   assert.equal(result.report.processingState, 'NOT_UPLOADED');
   assert.match(result.report.error, /xcodebuild failed/);
   assert.ok(result.calls.some(call => call.program === 'security' && call.args[0] === 'delete-keychain'));
+});
+
+test('F1337 a duplicate delivery consumer neither signs nor uploads an existing source build', async () => {
+  const result = await deliveryFixture(false, false, { alreadyUploaded: true });
+  assert.equal(result.report.number, '538.1');
+  assert.equal(result.report.deliveryState, 'ALREADY_UPLOADED');
+  assert.equal(result.report.buildId, 'build-id');
+  assert.equal(result.report.signatureVerified, false, 'a skipped run did not verify a new signed IPA');
+  assert.equal(result.calls.some(call => call.program === 'xcodebuild'
+    || call.program === 'xcrun'), false, 'no second signing, validation or upload side effect');
+  assert.equal(result.calls.filter(call => call.program === 'authorizeSource').length, 1);
 });
 
 test('F1313 separate current delivery tools authorize the exact source before validation and again before upload', async () => {

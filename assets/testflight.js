@@ -94,6 +94,7 @@ async function waitForBuild(api, appId, number, version, {
       if (i + 1 < attempts) await sleep(30000);
       continue;
     }
+
     const state = build?.attributes?.processingState || 'NOT_YET_VISIBLE';
     progress({ buildId: build?.id || null, processingState: state });
     if (state === 'VALID') return build;
@@ -106,6 +107,14 @@ async function waitForBuild(api, appId, number, version, {
     if (i + 1 < attempts) await sleep(30000);
   }
   throw new Error('Apple processing is not verified after 30 minutes; inspect the uploaded build, do not assume availability');
+}
+
+async function uploadIfMissing(api, appId, number, version, authorize, upload) {
+  const authorization = await authorize();
+  const existing = await api.build(appId, number, version);
+  if (existing) return { authorization, existing, uploaded: false };
+  await upload();
+  return { authorization, existing: null, uploaded: true };
 }
 
 function configureAppSigning(root, profile, identity, bundleId) {
@@ -266,12 +275,10 @@ async function deliver() {
   const sourceGate = require('./testflight-source.js');
   sourceGate.captured(env);
   if (!env.GH_TOKEN) throw new Error('Existing workflow authorization is required');
-  const number = buildNumber(env.GITHUB_RUN_NUMBER, env.GITHUB_RUN_ATTEMPT);
+  const number = await sourceGate.sourceBuildNumber(env);
   const api = client(env);
   const appId = await api.app(bundleId);
-  if (await api.build(appId, number, version)) {
-    throw new Error('This Apple build number already exists; rerun the workflow for a new run attempt');
-  }
+  const existing = await api.build(appId, number, version);
   const reportPath = path.join(root, 'testflight-status.json');
   const report = {
     version, number, bundleId, appId, commit: env.TESTFLIGHT_SOURCE_SHA,
@@ -282,6 +289,15 @@ async function deliver() {
   };
   const save = () => fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
   save();
+  if (existing) {
+    report.sourceAuthorization = await sourceGate.authorize(env);
+    report.deliveryState = 'ALREADY_UPLOADED';
+    report.buildId = existing.id;
+    report.processingState = existing.attributes.processingState;
+    save();
+    console.log(`Apple already has source build ${version} (${number}); no upload repeated.`);
+    return;
+  }
   const work = signingDirectory(env);
   fs.mkdirSync(work, { mode: 0o700 });
   const keychain = path.join(work, 'signing.keychain-db');
@@ -377,11 +393,13 @@ async function deliver() {
     const auth = ['--apiKey', env.ASC_KEY_ID, '--apiIssuer', env.ASC_ISSUER_ID];
     run('xcrun', ['altool', '--validate-app', '--type', 'ios', '--file', ipa, ...auth],
       { cwd: work, stdio: 'inherit' });
-    report.sourceAuthorization = await sourceGate.authorize(env);
-    save();
-    run('xcrun', ['altool', '--upload-app', '--type', 'ios', '--file', ipa, ...auth],
-      { cwd: work, stdio: 'inherit' });
-    report.processingState = 'UPLOADED';
+    const delivery = await uploadIfMissing(api, appId, number, version,
+      () => sourceGate.authorize(env),
+      async () => run('xcrun', ['altool', '--upload-app', '--type', 'ios', '--file', ipa, ...auth],
+        { cwd: work, stdio: 'inherit' }));
+    report.sourceAuthorization = delivery.authorization;
+    report.deliveryState = delivery.uploaded ? 'UPLOADED' : 'ALREADY_UPLOADED';
+    report.processingState = delivery.uploaded ? 'UPLOADED' : delivery.existing.attributes.processingState;
     save();
     const build = await waitForBuild(api, appId, number, version, {
       progress: state => { Object.assign(report, state); save(); },
@@ -426,7 +444,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildNumber, token, client, waitForBuild, configureAppSigning, archiveArgs, exportOptions, sourceRun,
+  buildNumber, token, client, waitForBuild, uploadIfMissing, configureAppSigning, archiveArgs, exportOptions, sourceRun,
   commandEnv, betaSummary,
   signingDirectory,
   deliver,

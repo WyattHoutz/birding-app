@@ -30,20 +30,25 @@ test('F1330 request-work ETA revises for completion, unequal service, queue expa
     'the existing limiter spacing participates without changing its policy');
 });
 
-test('F1330 unknown/overrun/cancellation cannot masquerade as zero remaining or train failed work', () => {
+test('F1340 active latency revises remaining work; unknown phases and cancellation never imply zero', () => {
   let now = 0;
   const estimate = prefetch.createEstimate({ rangeMs: [4000, 8000], paceMs: 4000, clock: () => now });
   const request = estimate.begin();
   estimate.start(request);
   now = 4001;
-  assert.equal(estimate.read({ pending: 1 }), null, 'an overdue active request has no supported countdown');
+  assert.deepEqual(estimate.read({ pending: 1 }), { minMs: 4001, maxMs: 8002, prior: false },
+    'live service duration revises the projection instead of permanently suppressing it');
+  now = 8000;
+  assert.equal(estimate.read({ pending: 1 }).maxMs, 16000, 'slower work revises upward, not a fixed countdown');
   estimate.end(request, null);
-  assert.equal(estimate.read({ pending: 9 }), null, 'only unrelated work remains; future source demand is unknown');
+  assert.deepEqual(estimate.read({ pending: 9 }), { phase: 'source-checks' },
+    'only unrelated work remains; name the unknown source phase without inventing a duration');
   const next = estimate.begin();
   assert.equal(estimate.read({}).maxMs, 4000, 'unusable service measurements do not inflate the pace');
   estimate.end(next, null);
-  assert.equal(estimate.read({}), null, 'exhausted prior with unknown future work is not zero');
-  assert.equal(estimate.read({ pending: 2 }), null, 'unrelated requests cannot turn an unknown source into a known plan');
+  assert.deepEqual(estimate.read({}), { phase: 'source-checks' }, 'exhausted prior is not zero');
+  assert.deepEqual(estimate.read({ pending: 2 }), { phase: 'source-checks' },
+    'unrelated requests cannot turn an unknown source into a known plan');
   estimate.begin();
   assert.equal(estimate.read({ pending: 2 }).minMs, 8000, 'newly discovered work restores a live forecast');
   assert.deepEqual(estimate.read({ settled: true }), { minMs: 0, maxMs: 0, prior: false });
