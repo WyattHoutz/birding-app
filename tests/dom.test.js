@@ -986,6 +986,102 @@ async function initialResourceFixture(options = {}) {
   return { app, A, base, release, reject };
 }
 
+test('F1338 actual setup resource requests revise the retained ETA through shared and discovered work', async () => {
+  const rows = busyResourceFixtureRows();
+  let releaseHistory;
+  const { app, A, base, release } = await initialResourceFixture({ fetch: url => {
+    if (/ref\/hotspot\//.test(url)) return [
+      { locId: 'L131001', locName: 'Synthetic public patch', lat: 47.6, lng: -122.3 },
+    ];
+    if (/product\/lists\/US-/.test(url)) return rows.filter(row => row.subId.startsWith('S131000'));
+    if (/product\/lists\/L131001/.test(url)) return new Promise(resolve => {
+      releaseHistory = () => resolve(rows);
+    });
+    if (/product\/checklist\/view\//.test(url)) return busyResourceDetail(rows, url);
+    return [];
+  } });
+  let pending;
+  try {
+    const store = app.window.localStorage, work = { current: () => true };
+    store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
+    store.setItem('bc_setup_step_v1', 'loading');
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), work);
+    for (const key of Object.keys(tasks))
+      if (!['sightings', 'busy'].includes(key)) tasks[key].acquire = () => ({ state: 'ready', value: {} });
+    pending = A.startSetupPrefetch(tasks);
+    const estimate = work.setupEstimate = A.setupPrefetchEstimate();
+    let admissions = 0, completions = 0;
+    const begin = estimate.begin, end = estimate.end;
+    estimate.begin = () => { admissions++; return begin(); };
+    estimate.end = (...args) => { completions++; return end(...args); };
+    A.openSetupSheet();
+    const node = app.$('setupActivityEstimate');
+    await waitFor(() => releaseHistory, 'actual discovered Busy history reaches transport');
+    assert.ok(admissions > 0, 'resource-owned requests must reach the acquisition estimator');
+    assert.ok(completions > 0, 'actual resource completion must revise outstanding work');
+    assert.match(node.textContent, /^Est: \d+m\d{2}s\.$/,
+      'known pending resource work must not be hidden behind calculating');
+    const held = node.textContent, before = admissions;
+    const joined = tasks.busy.acquire(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(admissions, before, 'a shared resource join cannot invent request work');
+    releaseHistory(); releaseHistory = null;
+    await joined;
+    assert.ok(completions > before, 'discovered detail work must also settle through the estimator');
+    assert.equal(node.textContent, 'Est: calculating...',
+      'unprofiled held enrichment is distinct from known owned request work');
+    assert.notEqual(node.textContent, held, 'the display must change when real request work drains');
+    assert.equal(app.$('setupActivityEstimate'), node, 'updates retain the summary node');
+    const requests = app.state.fetches.length;
+    await tasks.busy.acquire(false);
+    assert.equal(admissions, completions, 'all admitted logical work has settled');
+    assert.equal(app.state.fetches.length, requests, 'healthy resource reuse makes no extra requests');
+    release(base);
+    await pending;
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    if (releaseHistory) releaseHistory();
+    release(base);
+    if (pending) await pending;
+    app.window.close();
+  }
+});
+
+test('F1338 setup Rank Discoveries observes identity, sightings and public-directory requests', async () => {
+  const species = 'Synthetic estimate bird', code = 'etaestimate', calls = [], tickets = [];
+  const app = await setupOwnedSeenApp(['stable'], { fetch: url => {
+    calls.push(url);
+    if (/product\/spplist/.test(url)) return [code];
+    if (/ref\/taxonomy/.test(url)) return [{ speciesCode: code, comName: species }];
+    return [];
+  } });
+  try {
+    const A = app.window.__app;
+    const observer = {
+      begin: () => { const ticket = {}; tickets.push(ticket); return ticket; },
+      start: ticket => { assert.ok(tickets.includes(ticket)); },
+      end: ticket => { assert.ok(tickets.includes(ticket)); ticket.done = true; },
+    };
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(),
+      { current: () => true, sectionId: 'setupSheet', setupEstimate: observer });
+    const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      rank: i + 1, name: 'Synthetic observer ' + i, recent: species + ' (' + date + ')',
+    }));
+    const before = calls.length;
+    const result = await tasks.cascades.acquire(false, {
+      rankings: { boards: { spp: { rows } } }, sightings: { cv: { merged: [] } },
+    });
+    assert.equal(result.state, 'ready');
+    const requests = calls.slice(before).filter(url => /api\.ebird\.org/.test(url));
+    for (const path of ['product/spplist/', 'ref/taxonomy/', '/recent/' + code, 'ref/hotspot/'])
+      assert.ok(requests.some(url => url.includes(path)), 'exercise actual ' + path + ' acquisition');
+    assert.equal(tickets.length, requests.length, 'every uncached setup discovery request is observed');
+    assert.ok(tickets.every(ticket => ticket.done), 'all discovery request work settles');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
 test('F1310 actual Busy completes while Recent enrichment is held, without reacquiring base observations', async t => {
   const { app, A, base, release } = await initialResourceFixture();
   try {

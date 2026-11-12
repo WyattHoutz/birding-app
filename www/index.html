@@ -5526,7 +5526,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '1.189.0';
+      var APP_VERSION = '1.189.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -23498,7 +23498,7 @@
                  : '<span class="spcode">' + esc(code || '') + '</span>';
       }
 
-      function loadSpeciesIndex(region, requireGeographicEvidence) {
+      function loadSpeciesIndex(region, requireGeographicEvidence, work) {
         var key = speciesCacheKey(region), edition = taxonomyEdition(), referenceEpoch = _taxonomyReferenceEpoch;
         var profile = bcProfile();
         try {
@@ -23524,14 +23524,15 @@
   // belongs on the lane that yields to anything the reader is actually
   // waiting for. **A cache-warming call must never outrank a content call**
   // — the same reasoning `ebirdBg` exists for.
-  return ebird('product/spplist/' + encodeURIComponent(region), true).then(function (codes) {
+  return ebird('product/spplist/' + encodeURIComponent(region), true, false, false, work).then(function (codes) {
           var all = (codes || []).filter(Boolean);
           if (!all.length) return [];
           var chunks = [];
           for (var i = 0; i < all.length; i += SPECIES_CHUNK) chunks.push(all.slice(i, i + SPECIES_CHUNK));
           var rows = [], failed = false;
           return pool(chunks, 3, function (ch) {
-            return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')), true)
+            return ebird('ref/taxonomy/ebird?fmt=json&locale=en&species=' + encodeURIComponent(ch.join(',')),
+              true, false, false, work)
               .then(function (list) {
                 if (profile !== bcProfile() || edition !== taxonomyEdition() || referenceEpoch !== _taxonomyReferenceEpoch) {
                   throw new Error('Taxonomy reference changed; retry the regional index.');
@@ -31313,7 +31314,7 @@
             var rows = values.rankings.boards.spp.rows;
             var cascades = BL.tickCascades(rows, parseRecentTick);
             var merged = values.sightings.cv && values.sightings.cv.merged || [];
-            return cascadeSpots(cascades, merged, null, work.current, retry).then(function (result) {
+            return cascadeSpots(cascades, merged, null, work.current, retry, sourceWork('cascades')).then(function (result) {
               if (result.sourceFailed) throw new Error('Rank discovery sightings are incomplete.');
               return cascadePublicHotspots(result, work, work.current);
             }).then(function (result) {
@@ -31533,7 +31534,8 @@
               operationId: 'setup-' + (_setupPrefetch ? _setupPrefetch.id : 0), attrs: event });
           },
           work: function (context) {
-            return { label: 'Initial resource', sectionId: 'setupSheet', current: context.current };
+            return { label: 'Initial resource', sectionId: 'setupSheet', current: context.current,
+              setupEstimate: work.setupEstimate };
           },
           promote: promoteSetupPrefetchWork
         });
@@ -48881,7 +48883,7 @@
       // Each resolved species then costs ONE species-scoped state feed, which
       // is not collapsed to one observation per species and so turns a name
       // into somewhere to stand. The lane typically holds 2-3 species.
-      function cascadeSpots(cascades, merged, onProgress, isCurrent, force) {
+      function cascadeSpots(cascades, merged, onProgress, isCurrent, force, work) {
         var list = cascades || [];
         var sourceFailed = false, edition = taxonomyEdition();
         function current() { return (!isCurrent || isCurrent()) && edition === taxonomyEdition(); }
@@ -48947,7 +48949,7 @@
             // filtering out its own subject.
             return ebird('data/obs/' + encodeURIComponent(region) + '/recent/' +
                 encodeURIComponent(c.code) + '?back=30&detail=full&includeProvisional=true',
-                false, !!force, !!force)
+                false, !!force, !!force, work)
               .then(function (obs) {
                 c.recent = (obs || []).slice().sort(function (a, b) {
                   return String(b.obsDt).localeCompare(String(a.obsDt));
@@ -48973,7 +48975,7 @@
         }
         var knownWork = acquire(known);
         var seed = missing ? Promise.resolve().then(function () {
-          return loadSpeciesIndex(region);
+          return loadSpeciesIndex(region, false, work);
         }).then(function (rows) {
           if (!current()) { sourceFailed = true; return []; }
           (rows || []).forEach(function (r) { add(r.name, r.code); });
