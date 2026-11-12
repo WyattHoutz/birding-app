@@ -4437,17 +4437,34 @@ const AUDIT = `<script>
       if(sameLine && Math.abs(dateText.bottom-observerText.bottom)>1)
         throw new Error('F1341 same-line date and observer text baselines staggered: '
           +JSON.stringify(result.checklistCodes.baselines));
-      if(sameLine) {
-        var oldAlignment=document.createElement('style');
+      var witnessWidth=window.frameElement.style.width;
+      var witnessScale=document.documentElement.style.getPropertyValue('--s');
+      var oldAlignment=document.createElement('style');
+      try {
+        // Keep the 44px targets on the text line; wrapping can mask the old defect.
+        window.frameElement.style.width='1200px';
+        document.documentElement.style.setProperty('--s','1');
+        var controlDate=textBox(checklist.querySelector('.ckdate'));
+        var controlObserver=textBox(checklist.querySelector('.ckwho'));
+        if(Math.abs(controlDate.bottom-controlObserver.bottom)>1)
+          throw new Error('F1341 same-line baseline control staggered');
         oldAlignment.textContent='.cklcards-sm .cksummary .ckmeta > span.ckwho {'
           +'overflow:hidden!important;vertical-align:bottom!important;}';
         document.head.appendChild(oldAlignment);
         var mutantDate=textBox(checklist.querySelector('.ckdate'));
         var mutantObserver=textBox(checklist.querySelector('.ckwho'));
-        oldAlignment.remove();
         if(Math.abs(mutantDate.bottom-mutantObserver.bottom)<=1)
           throw new Error('F1341 old-alignment mutation survived');
         result.checklistCodes.alignmentMutationKilled=true;
+        result.checklistCodes.alignmentWitness={
+          control:Math.abs(controlDate.bottom-controlObserver.bottom),
+          mutant:Math.abs(mutantDate.bottom-mutantObserver.bottom)
+        };
+      } finally {
+        oldAlignment.remove();
+        window.frameElement.style.width=witnessWidth;
+        if(witnessScale)document.documentElement.style.setProperty('--s',witnessScale);
+        else document.documentElement.style.removeProperty('--s');
       }
       out.push(result);
       var event=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
@@ -5208,7 +5225,8 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F1280 actual Favorite multiselection geometry fixture is missing');
     }
-    if (report.filter(r => r.checklistCodes && r.checklistCodes.count === 2).length !== 1) {
+    if (report.filter(r => r.checklistCodes && r.checklistCodes.count === 2
+        && r.checklistCodes.alignmentMutationKilled === true).length !== 1) {
       bad++;
       console.log('   F1281 actual canonical checklist-link geometry fixture is missing');
     }
