@@ -68,7 +68,7 @@ module.exports = ({
     }
   });
 
-  test('F1096 setup feedback retains successful native candidates and local approval errors without saving Home', async () => {
+  test('F1096 setup feedback retains successful native candidates and region failure status without saving Home', async () => {
     const app = await boot({ sample: false, home: false,
       storage: { bc_setup_step_v1: 'home' }, fetch: () => [] });
     app.window.Capacitor = { Plugins: { Geolocation: {
@@ -85,9 +85,17 @@ module.exports = ({
       assertFeedbackOwner(app, app.$('setupHomeHere'));
       assert.equal(app.window.__app.getHome(), null);
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-      await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent),
+      await waitFor(() => app.$('setupRegionStatus')?.dataset.regionPhase === 'failed',
         'failed region lookup retains the approved draft');
-      assertFeedbackOwner(app, app.$('setupHomeApprove'));
+      const status = app.$('setupRegionStatus');
+      assert.ok(app.$('setupSheetActions').contains(status));
+      assert.equal(status.getAttribute('role'), 'status');
+      assert.match(status.textContent, /Home selection is retained/);
+      assert.equal(app.$('setupNext').disabled, true);
+      assert.equal(app.$('setupBack').disabled, false);
+      const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+      assert.equal(draft.approved, true);
+      assert.equal(!!draft.region, false);
       assert.equal(app.window.__app.getHome(), null);
     } finally { app.window.close(); }
   });

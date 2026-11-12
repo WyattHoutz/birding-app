@@ -970,7 +970,7 @@ module.exports = function registerMigrationSetupControls({
         'region was inferred before Home approval');
       app.click(app.$('setupHomeApprove'));
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-      await waitFor(() => app.$('setupNext'), 'Home-derived pair confirmation');
+      await waitFor(() => app.$('setupNext') && !app.$('setupNext').disabled, 'Home-derived pair confirmation');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
       assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupNext');
       assert.equal(A.getReportSlug(), '', 'suggestion accepted itself');
@@ -1094,7 +1094,7 @@ module.exports = function registerMigrationSetupControls({
     } finally { app.window.close(); }
   });
 
-  test('F1084 F1179 failed Home region lookup announces focused actionable recovery without a guessed region', async () => {
+  test('F1084 F1179 failed Home region lookup announces read-only usable region recovery without a guessed region', async () => {
     let failed = true;
     const app = await boot({ report: null, home: false, sample: false,
       storage: { bc_setup_step_v1: 'home' },
@@ -1109,17 +1109,21 @@ module.exports = function registerMigrationSetupControls({
       await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed'
         && !app.$('appSheet').hidden, 'coordinate review');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-      await waitFor(() => /Retry the region lookup/.test(app.$('setupActionStatus').textContent), 'lookup failure');
-      assert.equal(app.$('setupActionStatus').getAttribute('role'), 'alert');
-      assert.equal(app.document.activeElement, app.$('setupActionStatus'));
-      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
-      assert.equal(app.$('setupNext'), null);
+      await waitFor(() => app.$('setupRegionStatus')?.dataset.regionPhase === 'failed', 'lookup failure');
+      const status = app.$('setupRegionStatus');
+      assert.equal(status.getAttribute('role'), 'status');
+      assert.match(status.textContent, /Home selection is retained/);
+      assert.notEqual(app.document.activeElement, status, 'read-only feedback must not steal focus');
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+      assert.equal(app.$('setupNext').disabled, true);
+      assert.equal(app.$('setupBack').disabled, false);
       assert.equal(A.getReportSlug(), '');
       assert.equal(A.getHome(), null);
       failed = false;
+      app.click(app.$('setupBack'));
       app.click(app.$('setupHomeApprove'));
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-      await waitFor(() => app.$('setupNext'), 'retried matching region');
+      await waitFor(() => app.$('setupNext') && !app.$('setupNext').disabled, 'retried matching region');
       assert.equal(A.getReportSlug(), '', 'retry selected a region before confirmation');
       app.click(app.$('setupBack'));
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
@@ -1186,7 +1190,8 @@ module.exports = function registerMigrationSetupControls({
           && !app.$('appSheet').hidden, value + ' review');
         assert.equal(A.getHome(), null, 'reviewing the automatic result cannot save Home');
         app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-        await waitFor(() => app.$('setupNext'), value + ' continues to pair confirmation');
+        await waitFor(() => app.$('setupNext') && !app.$('setupNext').disabled,
+          value + ' continues to verified pair confirmation');
         assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
         assert.match(app.$('setupHomeSuggested').textContent, /Washington/);
         assert.equal(A.getHome(), null, 'validation must not save Home');
