@@ -3598,7 +3598,9 @@ test('F1210 F1211 F1212 Watch matches Year furniture and Year refresh delegates 
       code: 'amerob', alpha: 'AMRO', identifierLine: true, sub: '<a data-href="https://ebird.org/checklist/S1">Today</a>' });
     const latin = card.querySelector('.spsci'), line = card.querySelector('.spidline');
     assert.equal(latin.nextElementSibling, line);
-    assert.ok(line.querySelector('.spalpha').compareDocumentPosition(line.querySelector('a')) & 4);
+    assert.equal(latin.querySelector('.spcodes-inline').textContent, 'AMRO / AMEROB');
+    assert.ok(latin.compareDocumentPosition(line.querySelector('a')) & 4);
+    assert.equal(line.querySelector('.spcode, .spalpha'), null, 'details must not duplicate identifiers');
     assert.equal(card.querySelector('.meta').textContent.trim(), '');
     app.window.localStorage.setItem(A.PERSONAL_PERIOD_KEY, 'all');
     A.updateMyYear();
@@ -32359,9 +32361,10 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
     'the mega card did not open Stakeout bird');
   assert.equal(app.$('spLookup').value, 'Sharp-tailed Sandpiper');
   const card = app.document.querySelector('#spLookupResults > li');
-  assert.deepEqual([...card.querySelectorAll(':scope > .bcbody .spcode, :scope > .bcbody .spalpha')]
-    .map((el) => el.textContent), ['shtsan', 'SPTS'],
+  assert.equal(card.querySelector('.spsci, .bcsci').firstChild.textContent.trim(), 'Calidris acuminata');
+  assert.equal(card.querySelector('.spcodes-inline').textContent, 'SPTS / SHTSAN',
     'Stakeout omitted the four-letter bird code');
+  assert.equal(card.querySelectorAll('.spcodes-inline').length, 1, 'identifiers must not be duplicated');
   assert.match(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity').textContent,
     /Mega rarity.*ABA Code 3, 4 or 5/s);
   assert.equal(app.$('spLookupEvidenceDetails').querySelector('.megareports'), null,
@@ -37171,10 +37174,14 @@ test('F545 ungrouped Twitches keeps count, age, and one media mark', async () =>
     'hydration appended a second copy of the media evidence');
   assert.equal(media[0].textContent,
     app.window.BirdLogic.recordIcons({ evidence: 'PAV' }));
-  assert.equal(media[0].parentElement, row.querySelector('.rarewhere'),
+  const facts = row.querySelector('.rarewhere > .reportfacts');
+  assert.equal(media[0].parentElement, facts,
     'the media mark left the details sentence');
-  assert.equal(row.querySelector('.rarewhere').lastElementChild, media[0],
-    'the media mark is not the final inline fact');
+  const source = facts.querySelector('.rbalink');
+  assert.equal(media[0].nextElementSibling, source,
+    'only the actual source may follow the inline media mark');
+  assert.equal(facts.lastElementChild, source || media[0]);
+  assert.equal(media[0].previousElementSibling.className, 'reportid');
   assert.doesNotMatch(row.querySelector('.rareflags')?.textContent || '', /📷|🔊|🎥/,
     'the media mark still leads the details sentence');
   app.window.close();
@@ -37300,7 +37307,7 @@ test('F507-F508 medium cards always show the selected metric first and link each
   app.window.close();
 });
 
-test('F494 Twitches evidence leads with time and ends with one combined-comments action', async () => {
+test('F494 F1345 Twitches checklist facts lead with time and retain one combined-comments action', async () => {
   const app = await boot({
     fetch(url) {
       if (/product\/checklist\/view\/S-NOTE/.test(url)) {
@@ -37326,16 +37333,21 @@ test('F494 Twitches evidence leads with time and ends with one combined-comments
   A.refresh();
   await waitFor(() => doc.querySelector('#results .rarewhere'), 'Twitches evidence');
   const evidence = doc.querySelector('#results .rarewhere');
-  assert.ok(evidence.lastElementChild.classList.contains('when'),
-    'date/time is not the final evidence fact');
-  assert.equal(evidence.lastElementChild.textContent, '9/23 9:49a',
+  const place = evidence.querySelector(':scope > .reportplace');
+  const facts = evidence.querySelector(':scope > .reportfacts');
+  assert.equal(place.nextElementSibling, facts);
+  assert.ok(facts.firstElementChild.classList.contains('when'),
+    'date/time is not the first checklist fact below place/map');
+  assert.equal(facts.firstElementChild.textContent, '9/23 9:49a',
     'the evidence timestamp is not the compact M/D h:mma/p form');
   assert.doesNotMatch(evidence.textContent, /\u00b7/,
     'the shared evidence sentence still contains faint bullet separators');
-  assert.ok(evidence.querySelector(':scope > strong.rareloc'),
-    'the hotspot is not inline and bold');
-  assert.equal(evidence.querySelector('br'), null, 'the hotspot is forced onto another line');
-  const evidenceParts = [...evidence.children];
+  const hotspot = place.querySelector('a.hslink');
+  assert.equal(hotspot?.textContent, 'Bold Hotspot');
+  assert.match(app.window.getComputedStyle(hotspot).fontWeight, /^(?:bold|[7-9]00)$/,
+    'the navigable hotspot is not bold in the place/map block');
+  assert.equal(evidence.querySelector('br'), null, 'block separation must not introduce manual fact breaks');
+  const evidenceParts = [place, ...facts.children];
   const evidenceStyle = evidenceParts.map((part) => {
     const style = app.window.getComputedStyle(part);
     return [style.fontFamily, style.fontSize, style.lineHeight].join('|');
@@ -38502,8 +38514,10 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   assert.equal(heroCard.querySelector('.thumb').dataset.bird,
     'Semipalmated Sandpiper',
   'the peep card does not use one of its possible birds as the representative image');
+  assert.match(heroCard.querySelector('.spsci > .spcodes-inline').textContent, /\bPEEP\b/,
+    'the peep identifier must follow its published scientific name');
   assert.match(heroCard.querySelector(':scope > .meta').textContent,
-    /peep.*24 possible birds.*Representative candidate: Semipalmated Sandpiper/s,
+    /24 possible birds.*Representative candidate: Semipalmated Sandpiper/s,
   'the peep card does not identify its set and representative image honestly');
   assert.match(HTML,
     /\.spuhpanel\s*\{[^}]*border:\s*0[^}]*padding:\s*0[^}]*background:\s*transparent/,
@@ -45800,7 +45814,7 @@ test('QR controls open an accessible sheet for only the existing eBird pages', a
   }], [{ speciesCode: 'baleag', comName: 'Bald Eagle' }],
   { lat: 47.66, lng: -122.12, n: 100, nc: 20 }, false);
   const stakeHs = doc.getElementById('stakeHsResults');
-  assert.ok(stakeHs.querySelector('.hscardhead > [data-qr-kind="hotspot"][data-qr-id="L128530"]'),
+  assert.ok(stakeHs.querySelector('.hscardhead > .stakeHsHeadingActions > [data-qr-kind="hotspot"][data-qr-id="L128530"]'),
     'F845 hotspot QR must share the hotspot-name header');
   assert.equal(stakeHs.querySelectorAll('[data-qr-kind="hotspot"]').length, 1);
   assert.equal(stakeHs.querySelector('[data-qr-kind="checklist"]'), null,
@@ -58763,7 +58777,7 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   const intro = card.querySelector('.meta');
   assert.ok(intro.querySelector('.maplink'), 'Open in Maps is not in the top description');
   assert.match(intro.querySelector('.extlink')?.textContent || '', /Open eBird hotspot/i);
-  assert.ok(card.querySelector('.hscardhead > [data-qr-kind="hotspot"][data-qr-id="L128530"]'),
+  assert.ok(card.querySelector('.hscardhead > .stakeHsHeadingActions > [data-qr-kind="hotspot"][data-qr-id="L128530"]'),
     'the hotspot QR action must sit beside its title');
   assert.equal(intro.querySelector('.qrbtn'), null);
   const favorite = intro.querySelector('.stakeHsFav');
