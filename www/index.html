@@ -4010,11 +4010,11 @@
     @media (max-width: 360px) {
       #setupSheet[data-setup-step="loading"] { padding-left: 8px; padding-right: 8px; }
     }
-    .prefetch-list { list-style: none; padding: 0; display: grid; gap: 2px; margin-top: 8px; margin-bottom: 8px; }
-    .prefetch-row { display: grid; grid-template-columns: 26px minmax(0, 1fr);
-      gap: 8px; align-items: center; font-size: calc(17px * var(--s));
+    .prefetch-list { list-style: none; padding: 0; display: grid; gap: 3px; margin-top: 8px; margin-bottom: 8px; }
+    .prefetch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr);
+      gap: 8px; align-items: center; font-size: calc(19px * var(--s));
       font-weight: 600; line-height: 1.2; }
-    .prefetch-name { padding: 2px 8px; border: 2px solid var(--muted);
+    .prefetch-name { padding: 4px 8px; border: 2px solid var(--muted);
       border-radius: var(--btn-radius); background: var(--card); color: var(--ink); }
     .prefetch-row[data-state="ready"] .prefetch-name {
       background: var(--band); border-color: var(--accent);
@@ -4023,7 +4023,7 @@
       background: color-mix(in srgb, var(--band) 45%, var(--card)); border-style: dashed;
     }
     .prefetch-icon { display: grid; place-items: center; width: 32px; height: 32px; }
-    .prefetch-row .prefetch-icon { width: 26px; height: 26px; }
+    .prefetch-row .prefetch-icon { width: 32px; height: 32px; }
     .prefetch-icon svg { width: 100%; height: 100%; }
     .prefetch-detail, .prefetch-dependencies {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -5539,7 +5539,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.0.0';
+      var APP_VERSION = '2.1.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -31906,7 +31906,7 @@
         var elapsed = $('setupPrefetchElapsed');
         if (elapsed) {
           var seconds = Math.max(0, Math.floor((Date.now() - entry.started) / 1000));
-          elapsed.textContent = 'Elap: ' + seconds + 's.';
+          elapsed.textContent = 'Elap: ' + SetupPrefetch.formatDuration(seconds * 1000) + '.';
           elapsed.setAttribute('aria-label', 'Elapsed time: ' + seconds
             + (seconds === 1 ? ' second' : ' seconds'));
         }

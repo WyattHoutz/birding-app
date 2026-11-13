@@ -565,7 +565,7 @@ test('F1249 F1252 F1263 F1300 setup work survives Close with duration guidance a
     assert.ok(app.$('setupPrefetchCount').contains(app.$('setupPrefetchElapsed')),
       'F1355 elapsed belongs beside the estimate in the single summary');
     assert.equal(app.$('setupActivityEstimate').getAttribute('aria-live'), 'off');
-    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est: 3–5m\. Elap: \d+s\.$/);
+    assert.match(app.$('setupPrefetchCount').textContent, /^\d+ of \d+ done\. Est: 3–5m\. Elap: \d+m\d{2}s\.$/);
     const note = app.$('setupPrefetchActivity');
     assert.ok(list.compareDocumentPosition(note) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
       'useful loading guidance belongs below the unified list');
@@ -1173,13 +1173,13 @@ test('F1353 invalid or ambiguous region evidence stays an unsaved draft without 
   }
 });
 
-test('F1355 preload Elap stays beside Est and advances across stalls and reopening without new acquisition', async () => {
+test('F1355 F1357 preload Elap formats minutes and seconds across stalls and reopening without new acquisition', async () => {
   const app = await setupOwnedSeenApp(['stable']);
   let release;
   try {
-    const W = app.window, A = W.__app, store = W.localStorage, now = W.Date.now.bind(W.Date);
+    const W = app.window, A = W.__app, store = W.localStorage, now = W.Date.now();
     let offset = 0, calls = 0;
-    W.Date.now = () => now() + offset;
+    W.Date.now = () => now + offset;
     store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
     store.setItem('bc_setup_step_v1', 'loading');
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
@@ -1195,20 +1195,22 @@ test('F1355 preload Elap stays beside Est and advances across stalls and reopeni
     await waitFor(() => release, 'owned preload is held');
     const elapsed = app.$('setupPrefetchElapsed'), estimate = app.$('setupActivityEstimate');
     assert.ok(elapsed, 'the current preload must display elapsed time');
-    assert.match(elapsed.textContent, /^Elap: \d+s\.$/);
+    assert.equal(elapsed.textContent, 'Elap: 0m00s.');
     assert.equal(elapsed.parentElement, estimate.parentElement);
     assert.equal(elapsed.getAttribute('aria-live'), 'off');
     assert.match(elapsed.getAttribute('aria-label'), /^Elapsed time:/);
-    offset += 125000;
-    await new Promise(resolve => setTimeout(resolve, 1100));
-    assert.ok(Number(elapsed.textContent.match(/\d+/)[0]) >= 125, 'elapsed advances despite held work');
+    for (const [seconds, text] of [[59, '0m59s'], [60, '1m00s'], [70, '1m10s'],
+      [125, '2m05s'], [3601, '60m01s']]) {
+      offset = seconds * 1000;
+      await waitFor(() => elapsed.textContent === 'Elap: ' + text + '.', 'elapsed ' + text);
+      assert.equal(elapsed.getAttribute('aria-label'), 'Elapsed time: ' + seconds + ' seconds');
+    }
     assert.equal(app.$('setupActivityEstimate'), estimate);
     const before = calls;
     app.click(app.$('setupSheetClose'));
     offset += 60000;
     A.openSetupSheet();
-    assert.match(app.$('setupPrefetchElapsed').textContent, /^Elap: \d+s\.$/);
-    assert.ok(Number(app.$('setupPrefetchElapsed').textContent.match(/\d+/)[0]) >= 185,
+    assert.equal(app.$('setupPrefetchElapsed').textContent, 'Elap: 61m01s.',
       'reopening retains actual run age, not visit age');
     assert.equal(calls, before);
     const firstRelease = release;
@@ -1223,7 +1225,7 @@ test('F1355 preload Elap stays beside Est and advances across stalls and reopeni
     const next = A.startSetupPrefetch(tasks);
     A.openSetupSheet();
     await waitFor(() => release, 'a new owned preload run');
-    assert.ok(Number(app.$('setupPrefetchElapsed').textContent.match(/\d+/)[0]) < 2,
+    assert.equal(app.$('setupPrefetchElapsed').textContent, 'Elap: 0m00s.',
       'a new run must not inherit canceled run age');
     firstRelease({ state: 'ready', value: {} });
     release({ state: 'ready', value: {} });

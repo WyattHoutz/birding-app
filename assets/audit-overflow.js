@@ -3743,13 +3743,13 @@ const AUDIT = `<script>
         throw new Error('F1332 needs one done/total counter and remaining estimate without the former visit timer');
       var elapsed=document.getElementById('setupPrefetchElapsed');
       if(!elapsed || elapsed.parentElement!==estimate.parentElement
-          || !/^Elap: \\d+s\\.$/.test(elapsed.textContent)
+          || !/^Elap: \\d+m\\d{2}s\\.$/.test(elapsed.textContent)
           || elapsed.getAttribute('aria-live')!=='off')
         throw new Error('F1355 needs retained inline Elap beside Est');
       var savedEstimate=estimate.textContent;
       var savedElapsed=elapsed.textContent;
       estimate.textContent='Est: 40m07s.';
-      elapsed.textContent='Elap: 99999s.';
+      elapsed.textContent='Elap: 1666m39s.';
       var savedFont=count.style.fontFamily;
       var estimateGeometry=['', 'Arial, sans-serif'].map(function(font){
         count.style.fontFamily=font;
@@ -3785,15 +3785,57 @@ const AUDIT = `<script>
           return style.position!=='absolute'||style.clipPath==='none';
         });
       }))throw new Error('F1331 source rows must show only their full name and distinct status icon');
+      function readableSetupRows() {
+        return sourceRows.map(function(row){
+          var name=row.querySelector('.prefetch-name'),style=getComputedStyle(name);
+          var icon=row.querySelector('.prefetch-icon').getBoundingClientRect();
+          if(parseFloat(style.fontSize)<19*Number('${SCALE}')-.5)
+            throw new Error('F1356 larger source labels missing');
+          if(icon.width<31.5||icon.height<31.5)
+            throw new Error('F1356 larger status icons missing');
+          if(parseFloat(style.paddingTop)<4||parseFloat(style.paddingBottom)<4)
+            throw new Error('F1356 source box padding missing');
+          return {fontSize:style.fontSize,paddingTop:style.paddingTop,icon:icon.width,
+            height:name.getBoundingClientRect().height};
+        });
+      }
+      var sourceSizing=readableSetupRows(),sizeMutations=[];
+      var mutant=document.createElement('style');document.head.appendChild(mutant);
+      try {
+        [
+          ['labels','.prefetch-row{font-size:calc(17px * var(--s))!important}', 'larger source labels'],
+          ['icons','.prefetch-row .prefetch-icon{width:26px!important;height:26px!important}', 'larger status icons'],
+          ['padding','.prefetch-name{padding-top:2px!important;padding-bottom:2px!important}', 'source box padding']
+        ].forEach(function(control){
+          mutant.textContent=control[1];
+          var failure=null;
+          try { readableSetupRows(); } catch(error) { failure=error.message; }
+          if(!failure||failure.indexOf(control[2])<0)
+            throw new Error('F1356 geometry mutation survived: '+control[0]);
+          sizeMutations.push(control[0]);
+        });
+      } finally { mutant.remove(); }
+      readableSetupRows();
+      var previousScroll=body.scrollTop;
+      body.scrollTop=body.scrollHeight;
+      var lastSource=sourceRows[sourceRows.length-1].getBoundingClientRect();
+      var bodyBox=body.getBoundingClientRect();
+      var closeBox=document.getElementById('setupSheetClose').getBoundingClientRect();
+      var continueBox=continuation.getBoundingClientRect();
+      if(lastSource.bottom>bodyBox.bottom+1||lastSource.bottom<bodyBox.top
+          ||closeBox.top<0||closeBox.bottom>innerHeight
+          ||continueBox.top<0||continueBox.bottom>innerHeight)
+        throw new Error('F1356 all sources and sheet actions must remain reachable');
+      body.scrollTop=previousScroll;
       var compactFit=null;
-      if(innerWidth>=402&&Number('${SCALE}')<=1.2){
+      if(innerWidth>=393&&Number('${SCALE}')<=1){
         var sheet=document.getElementById('setupSheet');
         var oldTop=sheet.style.paddingTop,oldBottom=sheet.style.paddingBottom;
         sheet.style.paddingTop='62px';sheet.style.paddingBottom='34px';
         compactFit={clientHeight:body.clientHeight,scrollHeight:body.scrollHeight,
           simulatedTop:62,simulatedBottom:34};
         if(body.scrollHeight>body.clientHeight+1||labelGeometry.some(function(label){return label.lines!==1;}))
-          throw new Error('F1331 compact checks must fit without scrolling at normal/120% text');
+          throw new Error('F1356 compact checks must fit without scrolling at normal text');
         sheet.style.paddingTop=oldTop;sheet.style.paddingBottom=oldBottom;
       }
       if(!guidance || body.querySelectorAll('.setupduration').length!==1
@@ -3807,6 +3849,7 @@ const AUDIT = `<script>
         estimate:estimate.textContent,
         estimateGeometry:estimateGeometry,
         labelGeometry:labelGeometry,
+        sourceSizing:sourceSizing,sizeMutations:sizeMutations,
         compactFit:compactFit,
         total:Object.keys(tasks).length,
         finished:states.filter(function(item){
