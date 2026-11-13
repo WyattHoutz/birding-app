@@ -31512,7 +31512,7 @@
             });
           } },
           foy: { depends: ['personal'], acquire: function (retry) {
-            return ensureFoy(retry, work.current, null, !!retry, sourceWork('foy')).then(function (result) {
+            return ensureFoy(retry, work.current, null, false, sourceWork('foy')).then(function (result) {
               return verified(result, result && result.saved && !result.error,
                 result && result.error || 'Annual-first history could not be saved.');
             });
@@ -31523,7 +31523,7 @@
           } },
           mass: { depends: ['sightings'], acquire: function (retry) {
             return loadMassFlockAlertSource(retry, scope, null, {
-              ownerWork: sourceWork('mass'), current: work.current, allowBrowser: !!retry
+              ownerWork: sourceWork('mass'), current: work.current, allowBrowser: false
             })
               .then(function (result) { return retained('mass', result); });
           } },
@@ -43586,7 +43586,10 @@
         };
       }
       function loadFoy(force) {
-        force = force === true || !!(force && force.type === 'click') || takeForce();
+        var failureKey = bcProfile() + '|' + foyKey(foyContext());
+        var failure = _foyFailures[failureKey];
+        force = force === true || !!(force && force.type === 'click'
+          && failure && failure.privacy === _identityGeneration) || takeForce();
         var scope = activeScope(), navigation = _navGeneration;
         var privacy = _identityGeneration, cancellation = _workCancelGeneration;
         function current() {
@@ -43594,8 +43597,7 @@
             && privacy === _identityGeneration && cancellation === _workCancelGeneration
             && !_scrubbedPendingReload;
         }
-        var failureKey = bcProfile() + '|' + foyKey(foyContext());
-        var failure = _foyFailures[failureKey], inFlight = _foyLoads[failureKey];
+        var inFlight = _foyLoads[failureKey];
         if (!force && failure && failure.privacy === privacy
             && !(inFlight && inFlight.current())) {
           renderFoy(failure.result);
