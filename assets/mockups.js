@@ -892,6 +892,46 @@ SETUP_REVIEW_SHOTS.push(...[false, true].map(lower => ({
 
 const REVIEW_SHOTS = [
   ...SETUP_REVIEW_SHOTS,
+  {
+    id: 'f1358-foy-recovery', title: 'F1358 annual-first failure with exact eBird recovery',
+    at: 'foyBtn', host: 'foyResults', freshApp: true, fullPage: true, minControls: 1,
+    prep: `
+      A.cancelStalledWork();
+      A.renderFoy({error:'Annual-first refresh failed: Timed out: the loaded eBird page did not verify the requested region, year and First Observed evidence. Try “View on eBird”.'});
+      var host = document.getElementById('foyResults'), sec = host.closest('section');
+      A.showSection(sec.id, {load:false});
+      var link = host.querySelector('a');
+      if (!link || link.href !== A.firstYearUrl(A.foyContext().region))
+        throw new Error('Missing exact annual-first recovery link');
+      var note = document.createElement('p');
+      note.textContent = 'REPRESENTATIVE STUB DATA - controlled annual-first source failure.';
+      host.prepend(note);
+      host.dataset.mockData = 'true';
+      sec.dataset.mockReady = 'true'; sec.dataset.mockAt = 'foyBtn';
+      return true;`
+  },
+  {
+    id: 'f1358-source-coverage', title: 'F1358 specific limited Mass coverage and failed annual-first source',
+    at: 'surgeBtn', host: 'surgeResults', freshApp: true, fullPage: true, minControls: 1,
+    prep: `
+      A.cancelStalledWork();
+      A.renderSurge([],[],[],[],[],{
+        mega:'ok',birdcast:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',
+        favorites:'ok',ppte:'ok',foy:'failed',mass:'partial',pendingSources:{},
+        foyError:'Annual-first refresh failed: eBird needs website access (ANUBIS).',
+        massCoverage:'Current-month high counts; 7 arrivals unverified (missing, capped or unsurveyed history); 1 location could not be resolved safely.',
+        suppressNotifications:true
+      });
+      var host = document.getElementById('surgeResults'), sec = host.closest('section');
+      A.showSection(sec.id,{load:false});
+      host.querySelector('.surgesources').open = true;
+      var note = document.createElement('p');
+      note.textContent = 'REPRESENTATIVE STUB DATA - controlled source coverage, not live flock evidence.';
+      host.prepend(note);
+      host.dataset.mockData = 'true';
+      sec.dataset.mockReady = 'true'; sec.dataset.mockAt = 'surgeBtn';
+      return true;`
+  },
   ...['current', 'older', 'recent'].map(state => ({
     id: 'f1213-migration-' + state, title: 'Migration sentences - ' + state,
     at: state === 'recent' ? undefined : 'surgeBtn',

@@ -9136,6 +9136,57 @@ function stakeoutSurfaceText(app) {
   ].map((id) => app.$(id)?.textContent || '').join(' ');
 }
 
+function adjacentFirstYearHtml() {
+  const source = new JSDOM(FIRST_YEAR_HTML);
+  const doc = source.window.document;
+  const annual = [...doc.querySelectorAll('.BirdList-controls a')]
+    .find(anchor => /This Year/.test(anchor.textContent));
+  annual.innerHTML = '<span class="StatsIcon-stat">4</span>'
+    + '<span class="StatsIcon-label">This Year</span>'
+    + '<span class="StatsIcon-secondary">2026</span>';
+  doc.querySelectorAll('.Species-sci').forEach(node => node.remove());
+  const html = doc.documentElement.outerHTML;
+  source.window.close();
+  return html;
+}
+
+test('F1358 adjacent annual spans qualify through the actual parser and direct acquisition without relaxing source proof', async () => {
+  let body = adjacentFirstYearHtml();
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
+  try {
+    const A = app.window.__app, year = new Date().getFullYear();
+    assert.match(body, /<\/span><span class="StatsIcon-label">This Year<\/span><span/);
+    const good = await A.firstYearFetch('US-WA', () => true, null, false);
+    assert.equal(A.firstYearSourceMatches(good, 'US-WA', year), true);
+    assert.equal(good.rows.length, 4);
+    assert.equal(good.validation.missingScientificNameRows, 4);
+    assert.equal(A.firstYearSourceMatches(A.parseFirstYearBirdList(FIRST_YEAR_HTML), 'US-WA', year), true);
+    for (const change of [
+      doc => doc.querySelector('.StatsIcon-secondary').textContent = '2025',
+      doc => doc.querySelector('.StatsIcon-secondary').remove(),
+      doc => doc.querySelector('.StatsIcon-label').closest('a').remove(),
+      doc => doc.querySelector('.StatsIcon-label').closest('a').after(
+        doc.querySelector('.StatsIcon-label').closest('a').cloneNode(true)),
+      doc => [...doc.querySelectorAll('.BirdList-controls a')].find(a => a.textContent === 'First Observed').after(
+        [...doc.querySelectorAll('.BirdList-controls a')].find(a => a.textContent === 'First Observed').cloneNode(true)),
+      doc => [...doc.querySelectorAll('.BirdList-controls a')].find(a => a.textContent === 'First Observed').textContent = 'Last Observed',
+      doc => doc.querySelectorAll('.BirdList-controls a').forEach(a => a.href = a.href.replace('US-WA', 'US-HI')),
+      doc => doc.querySelectorAll('.BirdList-controls a').forEach(a => a.href = a.href.replace('ebird.org', 'example.org')),
+      doc => doc.querySelectorAll('.BirdList-controls a').forEach(a => a.href = a.href.replace('rank=lrec', 'rank=hc')),
+      doc => doc.querySelector('time[datetime]').setAttribute('datetime', '2025-05-19'),
+      doc => doc.querySelector('.Species-common').remove(),
+      doc => doc.querySelector('h3').textContent = 'Native and Naturalized (5)',
+    ]) {
+      const source = new JSDOM(adjacentFirstYearHtml());
+      change(source.window.document);
+      body = source.window.document.documentElement.outerHTML;
+      source.window.close();
+      await assert.rejects(A.firstYearFetch('US-WA', () => true, null, false));
+      assert.equal(A.firstYearRead('US-WA', year), null);
+    }
+  } finally { app.window.close(); }
+});
+
 test('F815 annual-first acquisition verifies returned region, year and selected observation meaning before caching', async () => {
   let body = FIRST_YEAR_HTML;
   const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
@@ -9171,7 +9222,7 @@ test('F815 annual-first acquisition verifies returned region, year and selected 
   }
 });
 
-test('F815 rendered annual-first recovery rejects wrong region, year and Last Observed before accepting the same page', async () => {
+test('F815/F1358 rendered annual-first recovery rejects wrong region, year and Last Observed before accepting adjacent spans', async () => {
   const app = await boot({sample:false, fetch:url =>
     /\/bird-list\?/.test(url) ? '<html>anubis_challenge</html>' : []});
   await app.window.__app.refreshRecentBirdGen(false);
@@ -9189,13 +9240,7 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     FIRST_YEAR_HTML.replace('This Year 2026', 'This Year 2025'),
     FIRST_YEAR_HTML.replace('First Observed', 'Last Observed'),
     FIRST_YEAR_HTML.replaceAll('aria-current="true"', ''),
-    (() => {
-      const source = new JSDOM(FIRST_YEAR_HTML);
-      source.window.document.querySelectorAll('.Species-sci').forEach(node => node.remove());
-      const html = '<!doctype html>' + source.window.document.documentElement.outerHTML;
-      source.window.close();
-      return html;
-    })(),
+    adjacentFirstYearHtml(),
   ];
   let browser, opened, injections = 0;
   const receipts = [];
@@ -9243,6 +9288,9 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     assert.equal(incomplete.pageShape.validation.missingNameRows, 1);
     assert.equal(incomplete.pageShape.validation.countMatches, true,
       'the summary distinguishes identity failure from a row-count mismatch');
+    for (const key of ['regionMatches','yearMatches','annualFirst','rowYearsMatch']) {
+      assert.equal(incomplete.pageShape[key], true, 'native diagnostic identifies the proved ' + key);
+    }
     assert.equal(JSON.stringify(incomplete.pageShape).includes('Chordeiles minor'), false,
       'diagnostic shape contains no species or account text');
     assert.equal(page.source.kind, 'annual-first');
@@ -9255,6 +9303,8 @@ test('F815 rendered annual-first recovery rejects wrong region, year and Last Ob
     assert.equal(app.state.fetches.slice(sourceFetchStart).some(url => /historic|\/recent\//.test(url)), false);
     assert.ok(sourceMessages.some(message => /browser session/.test(message)),
       'rendered recovery must report its real source phase to the requesting surface');
+    assert.ok(sourceMessages.some(message => /does not match.*First Observed/.test(message)),
+      'wrong-source sampling must not masquerade as ordinary browser-session loading');
   } finally {
     if (browser) browser.window.close();
     app.window.close();
@@ -9277,6 +9327,146 @@ function foySourceFixture(publishedAgoHours, addBird = false) {
       .replace('<ol class="BirdList-list-list">', '<ol class="BirdList-list-list">' + row);
   }
   return body;
+}
+
+test('F1358 personal refresh preserves settled FOY failure, joins in-flight work and permits explicit refresh', async () => {
+  let body = '<html>anubis_challenge</html>', releaseFirst;
+  const app = await boot({sample:false, fetch:url => {
+    if (/\/bird-list\?yr=cur&rank=lrec/.test(url)) return body;
+    if (/\/lifelist\//.test(url)) return ownedPersonalListFixture({codes:['amerob']});
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    A.applyCapturedIdentity({status:'ok', displayName:'Sample Observer'});
+    await seedSeen(app, ['amerob']);
+    const first = await A.ensureFoy(true, () => true, null, false);
+    A.renderFoy(first);
+    A.showSection(app.$('foyResults').closest('section').id, {load:false});
+    const reads = () => app.state.fetches.filter(url => /\/bird-list\?yr=cur&rank=lrec/.test(url)).length;
+    const before = reads(), failureText = app.$('foyStatus').textContent;
+    const status = app.$('foyStatus'), writes = [];
+    const text = Object.getOwnPropertyDescriptor(app.window.Node.prototype, 'textContent');
+    Object.defineProperty(status, 'textContent', {
+      get() {return text.get.call(this);},
+      set(value) {writes.push(value); text.set.call(this, value);},
+      configurable:true,
+    });
+    assert.equal((await A.ensureFoy(false, () => true, null, false)).error, first.error);
+    await A.preparePersonalList(A.activeScope(), true, null, {allowBrowser:false});
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(reads(), before, 'successful personal refresh must not restart failed hidden FOY capture');
+    assert.equal(app.$('foyStatus').textContent, failureText);
+    assert.equal(writes.some(value => /Checking|browser session/.test(value)), false,
+      'unrelated personal refresh cannot replace a terminal failure with loading feedback');
+    assert.ok(app.$('foyResults').querySelector('a'), 'failed FOY needs an actionable eBird recovery link');
+    assert.equal(app.$('foyResults').querySelector('a').href, A.firstYearUrl(A.foyContext().region));
+    assert.match(app.$('foyResults').textContent, /View on eBird.*First Observed/);
+    assert.equal(A.foyHistoryRead(), null);
+    body = new Promise(resolve => {releaseFirst = resolve;});
+    const pending = A.ensureFoy(true, () => true, null, false);
+    assert.equal(A.ensureFoy(false, () => true, null, false), pending,
+      'a legitimate in-flight reader joins before consulting the settled failure');
+    await waitFor(() => reads() > before, 'one explicit FOY recovery read');
+    releaseFirst(adjacentFirstYearHtml());
+    assert.equal((await pending).saved, true);
+    body = '<html>anubis_challenge</html>';
+    const failedAgain = await A.ensureFoy(true, () => true, null, false);
+    A.renderFoy(failedAgain);
+    const saved = JSON.stringify(A.foyHistoryRead());
+    await A.loadFoy(false);
+    assert.match(app.$('foyStatus').textContent, /refresh failed/);
+    assert.equal(JSON.stringify(A.foyHistoryRead()), saved, 'failure preserves last-good history');
+    body = adjacentFirstYearHtml();
+    const count = reads();
+    app.$('foyBtn').click();
+    await waitFor(() => reads() === count + 1 && !app.$('foyBtn').disabled, 'actual explicit FOY refresh');
+    assert.doesNotMatch(app.$('foyStatus').textContent, /refresh failed/);
+    assert.equal(app.$('foyResults').querySelector('a').textContent.includes('View on eBird'), false);
+    assert.deepEqual(app.state.errors, []);
+  } finally { releaseFirst?.(adjacentFirstYearHtml()); app.window.close(); }
+});
+
+for (const source of ['foy', 'mass']) {
+  for (const navigate of [false, true]) {
+    test('F1358 automatic full-refresh source Retry owns native ' + source
+      + (navigate ? ' cancellation' : ' recovery without refreshing other sources'), async () => {
+      const app = await boot({sample:false, fetch:url => {
+        if (/bird-list\?/.test(url)) return '<html>anubis_challenge</html>';
+        if (/ref\/hotspot\//.test(url)) return f821Hotspots().map(row => ({
+          ...row, lat:46.7064, lng:-123.972
+        }));
+        return [];
+      }});
+      const handlers = {}, removed = [], opened = [];
+      let browser, injected, closed = 0;
+      try {
+        const A = app.window.__app;
+        await seedSeen(app, []);
+        A.setCountySeed({'US-WA':{'US-WA-061':{
+          name:'Synthetic county', bounds:{minX:-122.4,maxX:-122,minY:47.5,maxY:48}
+        }}});
+        A.LOADERS.surgeBtn.reachability = false;
+        A.showSection('sec-surgeBtn', {load:false});
+        app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+          addListener(name, fn) {handlers[name] = fn; return {remove(){removed.push(name);}};},
+          openWebView(options) {
+            opened.push(options.url);
+            browser = new JSDOM(source === 'foy' ? adjacentFirstYearHtml() : f821Page([{count:4000}]),
+              {url:options.url, runScripts:'outside-only'});
+            browser.window.mobileApp = {postMessage(message) {
+              handlers.messageFromWebview({id:'f1358-owned',detail:message.detail});
+            }};
+            setTimeout(() => handlers.browserPageLoaded({id:'f1358-owned'}), 0);
+            return Promise.resolve({id:'f1358-owned'});
+          },
+          hide(){}, show(){},
+          close(){closed++; return Promise.resolve();},
+          executeScript({code}) {injected = code; return Promise.resolve();},
+        }}};
+        await A.loadSurge('f1358-automatic-full', false, {fullRefresh:true});
+        assert.equal(opened.length, 0, 'automatic full refresh must remain noninterrupting');
+        assert.equal(app.$('surgeResults').dataset[source === 'foy' ? 'sourceFoy' : 'sourceMass'], 'failed');
+        const unrelated = () => app.state.fetches.filter(url => !/bird-list\?|ref\/hotspot\/|\/historic\//.test(url)).length;
+        const beforeUnrelated = unrelated();
+        const pageReads = () => app.state.fetches.filter(url =>
+          source === 'foy' ? /rank=lrec/.test(url) : /rank=hc/.test(url)).length;
+        const beforePages = pageReads();
+        const retry = A.retrySurgeSources([source]);
+        await waitFor(() => injected, 'owned injected native ' + source + ' retry');
+        await A.retrySurgeSources([source, source]);
+        assert.equal(opened.length, 1);
+        assert.equal(pageReads(), beforePages + 1);
+        handlers.messageFromWebview({id:'f1358-unrelated',detail:{
+          __ebird:true,kind:source === 'foy' ? 'firstYear' : 'massHighCount',ok:true,data:{rows:[]}
+        }});
+        assert.match(app.$('surgeResults').querySelector('[data-source-status="' + source + '"]').textContent, /Loading/);
+        if (navigate) app.click(app.$('navBack'));
+        browser.window.eval(injected);
+        await retry;
+        assert.equal(closed, 1);
+        assert.equal(removed.length, 4);
+        assert.equal(unrelated(), beforeUnrelated, 'source Retry cannot refresh unrelated acquisition');
+        if (navigate) {
+          if (source === 'foy') assert.equal(A.foyHistoryRead(), null, 'obsolete capture cannot persist FOY');
+          else assert.equal(A.loadSurgeRetained()?.mass?.source, undefined, 'obsolete capture cannot persist Mass');
+        } else {
+          const line = app.$('surgeResults').querySelector('[data-source-status="' + source + '"]');
+          assert.doesNotMatch(line.textContent, /Loading/);
+          if (source === 'foy') {
+            assert.equal(A.foyHistoryRead().knownCodes.length, 4);
+            assert.match(line.textContent, /Loaded/);
+          } else {
+            assert.match(line.textContent, /Partially loaded.*1 arrivals unverified/,
+              JSON.stringify(A.loadSurgeRetained().mass));
+            assert.ok(line.querySelector('[data-source-retry="mass"]'));
+            assert.equal(A.loadSurgeRetained().mass.rows[0].found, null);
+          }
+        }
+        assert.deepEqual(app.state.errors, []);
+      } finally { browser?.window.close(); app.window.close(); }
+    });
+  }
 }
 
 test('F815 FOY saves a silent baseline, discovers once, acknowledges and retains dated last-good evidence', async () => {
@@ -19877,7 +20067,7 @@ test('F941 terminal PPTE partials settle without claiming complete coverage', as
   } finally { app.window.close(); }
 });
 
-test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with technical diagnostics only in logs', async () => {
+test('F1046/F1035/F1358 Bird Gen keeps useful alerts with coverage in source status and technical diagnostics out of the feed', async () => {
   const app = await boot();
   try {
     const A = app.window.__app;
@@ -19900,9 +20090,16 @@ test('F1046/F1035 Bird Gen keeps useful alerts and truthful loaded progress with
       assert.equal(box.querySelector('[data-surge-visible-count]').textContent, '5 alerts');
       assert.equal(box.querySelector('[data-ppte-coverage], [data-twitch-tracking], [data-surge-retained], [data-surge-retention-warning]'), null,
         'technical coverage paragraphs must not return to the feed');
-      assert.doesNotMatch(box.textContent,
+      const feed = box.cloneNode(true);
+      feed.querySelector('.surgesourceprogress').remove();
+      assert.doesNotMatch(feed.textContent,
         /Unavailable RBA|failure details|ANUBIS|retained high-count|feeds failed|capped coverage|Earlier results retained|could not be saved/,
-        'technical source warnings belong only in debug logs');
+        'technical source warnings cannot become feed paragraphs');
+      if (box.dataset.sourceMass === 'partial') {
+        assert.match(box.querySelector('[data-source-status="mass"]').textContent,
+          /retained high-count coverage is incomplete/,
+          'Mass limitations remain inspectable in the matching source-status row');
+      }
     }
     A.renderSurge([], [], [], needs, [], states);
     assertCompact();
@@ -30993,6 +31190,8 @@ test('F1303 actual Mass Retry clears Loading after a held acquisition reaches a 
     assert.match(massLine().textContent, /Partially loaded/,
       'the terminal partial acquisition must clear its rendered pending state');
     assert.equal(app.$('surgeResults').dataset.sourceMass, 'partial');
+    assert.match(massLine().textContent, /arrivals unverified.*locations could not be resolved safely|locations could not be resolved safely.*arrivals unverified/,
+      'the actual Mass source warning must distinguish missing arrival and unresolved-location coverage');
     assert.doesNotMatch(massLine().textContent, /Loading/);
     assert.ok(massLine().querySelector('[data-source-retry="mass"]'),
       'limited evidence must retain a retry affordance, not become full success');

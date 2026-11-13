@@ -5539,7 +5539,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.1.0';
+      var APP_VERSION = '2.1.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -31512,7 +31512,7 @@
             });
           } },
           foy: { depends: ['personal'], acquire: function (retry) {
-            return ensureFoy(retry, work.current, null, false, sourceWork('foy')).then(function (result) {
+            return ensureFoy(retry, work.current, null, !!retry, sourceWork('foy')).then(function (result) {
               return verified(result, result && result.saved && !result.error,
                 result && result.error || 'Annual-first history could not be saved.');
             });
@@ -31523,7 +31523,7 @@
           } },
           mass: { depends: ['sightings'], acquire: function (retry) {
             return loadMassFlockAlertSource(retry, scope, null, {
-              ownerWork: sourceWork('mass'), current: work.current, allowBrowser: false
+              ownerWork: sourceWork('mass'), current: work.current, allowBrowser: !!retry
             })
               .then(function (result) { return retained('mass', result); });
           } },
@@ -33360,6 +33360,11 @@
           'var attempt=' + Math.max(0, Number(attempt) || 0) + ';' +
           'var shape=(attempt===0||attempt===19||attempt===59||attempt===119)' +
           '?{onPage:onPage,sourceMatches:owned,' +
+          'regionMatches:!!(R.source&&R.source.region===want.toUpperCase()),' +
+          'yearMatches:!!(R.source&&R.source.year===' + (Number(expectYear) || new Date().getFullYear()) + '),' +
+          'annualFirst:!!(R.source&&R.source.kind==="annual-first"),' +
+          'rowYearsMatch:R.rows.every(function(r){return !r.date||r.date.slice(0,4)===' +
+            JSON.stringify(String(Number(expectYear) || new Date().getFullYear())) + ';}),' +
           'htmlChars:H.length,items:document.querySelectorAll("li").length,' +
           'birdItems:document.querySelectorAll("li.BirdList-list-list-item").length,' +
           'countable:document.querySelectorAll("li.BirdList-list-list-item.countable").length,' +
@@ -33466,6 +33471,7 @@
           var id = null, done = false, revealed = false, timer = null, revealTimer = null;
           var injectTimer = null, handles = [], pendingEvents = [], registrations = [];
           var massShapeLast = '', sourceShapeLast = '', massMalformedSamples = 0, sampleCount = 0;
+          var firstYearSourceRejected = false;
           var ownedUrl = opts.url;
           var identityRecoveryUsed = false;
           var revealDeadlineReached = false;
@@ -33707,7 +33713,8 @@
                     'selectionMatches', 'accepted', 'onPage', 'sourceMatches', 'htmlChars',
                     'mismatchCategory', 'route', 'finalSourceAvailable', 'finalSourceProvenance',
                     'finalOriginMatches', 'finalPathMatches', 'finalSelectionMatches',
-                    'items', 'birdItems', 'countable', 'declared', 'rows'].forEach(function (key) {
+                    'items', 'birdItems', 'countable', 'declared', 'rows',
+                    'regionMatches', 'yearMatches', 'annualFirst', 'rowYearsMatch'].forEach(function (key) {
                     var value = d.pageShape[key];
                     if (typeof value === 'boolean' || Number.isInteger(value)
                         && value >= 0 && value <= 100000) safeShape[key] = value;
@@ -33748,6 +33755,11 @@
               }
               if (d.kind === 'rank' && d.sourceFragment) {
                 rankSnapshotSave(d.sourceFragment, 'rendered-dom', d.data && d.data.metric);
+              }
+              if (opts.kind === 'firstYear' && !d.ok && d.parseStatus === 'wrong-source') {
+                firstYearSourceRejected = true;
+                if (opts.onStatus) opts.onStatus(
+                  'The loaded eBird page does not match the requested region, year or First Observed evidence; checking the same page again…');
               }
               if (d.kind === 'rank' && !d.ok && d.parseStatus === 'wrong-source') {
                 finish(new Error('The browser returned a different leaderboard scope, period or metric.'));
@@ -33843,7 +33855,9 @@
             }
             timer = setTimeout(function () {
               trace('timeout', 'no usable bridge message', 'warn');
-              finish(new Error('Timed out waiting for eBird — try “View on eBird”.'));
+              finish(new Error(firstYearSourceRejected
+                ? 'Timed out: the loaded eBird page did not verify the requested region, year and First Observed evidence. Try “View on eBird”.'
+                : 'Timed out waiting for eBird — try “View on eBird”.'));
             }, opts.timeout || 120000);
           }).catch(function (e) {
             traceWindowState(e && e.data && e.data.windowState, 'open failure');
@@ -43016,7 +43030,8 @@
                   || url.searchParams.get('yr') !== 'cur') return;
               region = decodeURIComponent(match[1]).toUpperCase();
             } catch (e) { return; }
-            var text = clean(anchor), year = /\bThis Year\s+(\d{4})$/.exec(text);
+            var text = Array.from(anchor.childNodes).map(clean).filter(Boolean).join(' ');
+            var year = /\bThis Year\s+(\d{4})$/.exec(text);
             if (year) annual.push({ region: region, year: Number(year[1]) });
             if (text === 'First Observed' || text === 'Last Observed') {
               ordering.push({ region: region, order: text, rank: url.searchParams.get('rank'),
@@ -43298,6 +43313,7 @@
       }
       var FOY_NS = 'ebird_foy_v1:';
       var _foyLoads = Object.create(null), _foyHistoryProblems = Object.create(null);
+      var _foyFailures = Object.create(null);
       function foyContext() {
         var scope = activeScope();
         return {
@@ -43384,10 +43400,15 @@
             && (!alive || alive());
         }
         function cancelled() { return queueCancelledError({ label: 'Annual firsts' }); }
+        if (_foyLoads[key] && _foyLoads[key].current()) return _foyLoads[key].promise;
+        var failure = _foyFailures[key];
+        if (!force && failure && failure.privacy === privacy) {
+          return Promise.resolve(failure.result);
+        }
         if (!force && previous && previous.readDate === todayStr()) {
           return Promise.resolve({ record: previous, snapshot: previous.snapshot, saved: true });
         }
-        if (_foyLoads[key] && _foyLoads[key].current()) return _foyLoads[key].promise;
+        delete _foyFailures[key];
         var work = { current: current, promise: null };
         _foyLoads[key] = work;
         var cache = firstYearRead(ctx.region, ctx.year);
@@ -43439,10 +43460,12 @@
         }).catch(function (error) {
           if (!current() || error.queueCancelled) throw cancelled();
           dbg('warn', 'Annual-first source failed: ' + error.message);
-          return {
+          var result = {
             snapshot: previous && previous.snapshot, record: previous, saved: !!previous,
             retained: !!previous, error: 'Annual-first refresh failed: ' + error.message
           };
+          _foyFailures[key] = { privacy: privacy, result: result };
+          return result;
         }).finally(function () {
           if (_foyLoads[key] === work) delete _foyLoads[key];
         });
@@ -43456,8 +43479,13 @@
         var cancellation = _workCancelGeneration;
         var section = box.closest('section');
         var value = result && result.snapshot;
+        var recovery = result && result.error
+          ? '<div class="hint"><a href="' + esc(firstYearUrl(ctx.region))
+            + '" target="_blank" rel="noopener">View on eBird · '
+            + esc(ctx.label) + ' · ' + ctx.year + ' First Observed</a>'
+            + ' · then use Refresh annual firsts to retry.</div>' : '';
         if (!firstYearSourceMatches(value, ctx.region, ctx.year)) {
-          box.innerHTML = '';
+          box.innerHTML = recovery;
           setSectionNote(section, '');
           status.hidden = false;
           status.textContent = result && result.error
@@ -43480,7 +43508,7 @@
             ? new Date(value.source.updatedAt).toLocaleString() : 'time unknown')
           + ' · read: ' + esc(new Date(value.readAt).toLocaleString()) + '</div>';
         if (result.error) html += '<div class="hint" role="status">' + esc(result.error)
-          + (result.retained ? ' Dated last-good evidence retained.' : '') + '</div>';
+          + (result.retained ? ' Dated last-good evidence retained.' : '') + '</div>' + recovery;
         if (result.initial || result.repaired) html += '<div class="hint">'
           + (result.repaired ? 'Saved history repaired. ' : '')
           + (result.saved ? 'Initial baseline saved without announcing old birds.'
@@ -43558,13 +43586,20 @@
         };
       }
       function loadFoy(force) {
-        force = force === true || takeForce();
+        force = force === true || !!(force && force.type === 'click') || takeForce();
         var scope = activeScope(), navigation = _navGeneration;
         var privacy = _identityGeneration, cancellation = _workCancelGeneration;
         function current() {
           return scopeCurrent(scope) && navigation === _navGeneration
             && privacy === _identityGeneration && cancellation === _workCancelGeneration
             && !_scrubbedPendingReload;
+        }
+        var failureKey = bcProfile() + '|' + foyKey(foyContext());
+        var failure = _foyFailures[failureKey], inFlight = _foyLoads[failureKey];
+        if (!force && failure && failure.privacy === privacy
+            && !(inFlight && inFlight.current())) {
+          renderFoy(failure.result);
+          return Promise.resolve(failure.result);
         }
         var old = foyHistoryRead(), button = $('foyBtn');
         if (old) renderFoy({ snapshot: old.snapshot, record: old, saved: true, retained: true });
@@ -44959,7 +44994,7 @@
         groups.total = keys.length - groups.skipped.length;
         return groups;
       }
-      function surgeSourceProgress(states, pendingSources, outcome) {
+      function surgeSourceProgress(states, pendingSources, outcome, sourceState) {
         var groups = surgeSourceSummary(states, pendingSources);
         var limited = groups.incomplete.filter(function (key) { return states[key] === 'partial'; });
         var loaded = groups.loaded.length + limited.length, total = groups.total;
@@ -44991,7 +45026,11 @@
                 ? [_birdcastSnapshot.forecastError, _birdcastSnapshot.countError,
                     _birdcastSnapshot.migrantsError].filter(Boolean).join('; ')
                 : key === 'ppte' && states[key] === 'partial'
-                  ? 'Some source evidence could not be acquired, qualified or saved.' : '';
+                  ? 'Some source evidence could not be acquired, qualified or saved.'
+                  : key === 'mass' && states[key] === 'partial' && sourceState
+                    ? sourceState.massCoverage || ''
+                    : key === 'foy' && states[key] === 'failed' && sourceState
+                      ? sourceState.foyError || '' : '';
               var kinds = Object.keys(SURGE_CATEGORY_SOURCES).filter(function (kind) {
                 return SURGE_CATEGORY_SOURCES[kind].indexOf(key) >= 0;
               }).sort(function (a, b) { return SURGE_KINDS[a].priority - SURGE_KINDS[b].priority; });
@@ -47603,7 +47642,7 @@
           diagnostics.push(sourceState.ppteCoverage);
         }
         var sourceProgress = surgeSourceProgress(sourceStates, sourceState && sourceState.pendingSources,
-          sourceState && sourceState.outcome);
+          sourceState && sourceState.outcome, sourceState);
         var coverage = sourceState && sourceState.massCoverage;
         if (coverage) diagnostics.push(coverage);
         if (sourceState && sourceState.retainedAt) diagnostics.push('Earlier results retained from '
@@ -48743,7 +48782,7 @@
               retentionFailed: retentionFailed,
               twitchRows: surgeModel.observed.twitchRows || [],
               cascadeRetained: !!surgeModel.cascades.retainedAt,
-              foyRows: foySource.rows
+              foyRows: foySource.rows, foyError: foySource.error
             }),
             surgeModel.observed.patches,
             surgeModel.favorite.rows,
@@ -48924,11 +48963,12 @@
         });
         var pFoy = sourceTask(readySource, 'foy', function (retry) {
           if (!current()) throw queueCancelledError({ label: 'Bird Gen annual firsts' });
-          return ensureFoy(force || retry, current, null, false);
+          return ensureFoy(force || retry, current, null, !!retry);
         }, function (result) {
           if (current()) {
             foySource = {
               state: result.error || !result.saved ? 'failed' : 'ok',
+              error: result.error || '',
               rows: result.record ? result.record.pendingRows : []
             };
             paintSurgeModel();
@@ -48945,7 +48985,8 @@
           if (!current()) return { state: 'cancelled', rows: [] };
           return loadMassFlockAlertSource(force || retry, loadScope, function (result) {
             publishSource('mass', result);
-          }, fullRefresh ? { section: 'menuPanel', current: current, allowBrowser: !autoload } : deepHistory === true);
+          }, { section: fullRefresh ? 'menuPanel' : 'sec-surgeBtn',
+            current: current, allowBrowser: !!retry || !autoload });
         });
         var pPpte = sourceTask(countySource, 'ppte', function (retry) {
           if (!current()) return { state: 'cancelled', rows: [] };
