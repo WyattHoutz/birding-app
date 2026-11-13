@@ -45028,6 +45028,7 @@
                 : key === 'ppte' && states[key] === 'partial'
                   ? 'Some source evidence could not be acquired, qualified or saved.'
                   : key === 'mass' && states[key] === 'partial' && sourceState
+                    && sourceState.massSource && sourceState.massSource.source === 'highCountPage'
                     ? sourceState.massCoverage || ''
                     : key === 'foy' && states[key] === 'failed' && sourceState
                       ? sourceState.foyError || '' : '';

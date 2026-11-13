@@ -920,6 +920,7 @@ const REVIEW_SHOTS = [
         favorites:'ok',ppte:'ok',foy:'failed',mass:'partial',pendingSources:{},
         foyError:'Annual-first refresh failed: eBird needs website access (ANUBIS).',
         massCoverage:'Current-month high counts; 7 arrivals unverified (missing, capped or unsurveyed history); 1 location could not be resolved safely.',
+        massSource:{source:'highCountPage'},
         suppressNotifications:true
       });
       var host = document.getElementById('surgeResults'), sec = host.closest('section');

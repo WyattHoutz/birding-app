@@ -20081,7 +20081,8 @@ test('F1046/F1035/F1358 Bird Gen keeps useful alerts with coverage in source sta
     const states = { mega: 'ok', birdcast: 'ok', observations: 'ok', leaderboard: 'failed',
       hotspots: 'ok', favorites: 'ok', mass: 'partial', foy: 'ok', ppte: 'partial',
       ppteCoverage: 'Unavailable RBA feeds: US-WA-061. RBA failure details: cold, direct, ANUBIS.',
-      massCoverage: 'F1035 retained high-count coverage is incomplete.',
+      massCoverage: 'Current-month high counts; 7 arrivals unverified (missing, capped or unsurveyed history); 1 locations could not be resolved safely.',
+      massSource: {source:'highCountPage'},
       retainedAt: Date.now() - 600000, retentionFailed: true };
     const box = app.$('surgeResults');
     function assertCompact() {
@@ -20097,7 +20098,7 @@ test('F1046/F1035/F1358 Bird Gen keeps useful alerts with coverage in source sta
         'technical source warnings cannot become feed paragraphs');
       if (box.dataset.sourceMass === 'partial') {
         assert.match(box.querySelector('[data-source-status="mass"]').textContent,
-          /retained high-count coverage is incomplete/,
+          /7 arrivals unverified.*1 locations could not be resolved safely/,
           'Mass limitations remain inspectable in the matching source-status row');
       }
     }
@@ -20112,7 +20113,7 @@ test('F1046/F1035/F1358 Bird Gen keeps useful alerts with coverage in source sta
     assert.equal(box.dataset.sourceLeaderboard, 'failed');
     assertSurgeDiagnostic(app, /Top 100 leaderboard failed/);
     assertSurgeDiagnostic(app, /Unavailable RBA feeds: US-WA-061.*ANUBIS/);
-    assertSurgeDiagnostic(app, /F1035 retained high-count coverage is incomplete/);
+    assertSurgeDiagnostic(app, /7 arrivals unverified.*1 locations could not be resolved safely/);
     assertSurgeDiagnostic(app, /Earlier results retained from/,
       'retained source dates must remain in debug logs');
     assertSurgeDiagnostic(app, /could not be saved.*after the app restarts/,
@@ -20122,7 +20123,7 @@ test('F1046/F1035/F1358 Bird Gen keeps useful alerts with coverage in source sta
     assert.equal(app.window.__dbg.buf.filter(row => row.msg.startsWith('Bird Gen source diagnostics: ')).length,
       logged, 'unchanged presentation must not flood the debug log');
     await openBirdGenHelp(app);
-    assert.doesNotMatch(app.$('appSheet').textContent, /F1035 retained high-count|Unavailable RBA|ANUBIS/,
+    assert.doesNotMatch(app.$('appSheet').textContent, /7 arrivals unverified|Unavailable RBA|ANUBIS/,
       'technical coverage belongs in debug logs, not feed help');
     A.renderSurge([], [], [], needs, [], { ...states, mega: 'loading' });
     assertCompact();
