@@ -3955,15 +3955,15 @@ const AUDIT = `<script>
     var inline=baseline(who)-baseline(sp);
     if(old===null)who.removeAttribute('style');else who.setAttribute('style',old);
     var result=scan('(F1368 shared observer baseline)');
-    result.batchGeometry={actual:actual,inlineControl:inline,
+    result.batchGeometry={actual:actual,inlineControl:inline,controlDelta:actual-inline,
       visible:probe.getBoundingClientRect().height,hidden:document.getElementById('settingsPanel').hidden,
       who:who.getBoundingClientRect().toJSON(),display:getComputedStyle(who).display};
     out.push(result);
-    if(Math.abs(actual)>.5)throw new Error('F1368 baseline raised: '+JSON.stringify(result.batchGeometry));
+    if(Math.abs(actual-inline)>.5)throw new Error('F1368 baseline differs from normal inline flow: '+JSON.stringify(result.batchGeometry));
     who.style.cssText='display:inline-block!important;overflow:hidden!important;white-space:nowrap!important';
     var mutant=baseline(who)-baseline(sp);
     if(old===null)who.removeAttribute('style');else who.setAttribute('style',old);
-    if(Math.abs(mutant)<=.5)throw new Error('F1368 hidden-overflow atomic-inline mutation survived');
+    if(Math.abs(mutant-inline)<=.5)throw new Error('F1368 hidden-overflow atomic-inline mutation survived');
     result.batchGeometry.mutant=mutant;
     probe.remove();
     ['account','app','backup','advanced'].forEach(function(category){
