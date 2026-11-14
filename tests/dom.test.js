@@ -1311,8 +1311,8 @@ test('F1260 partial initial attempts automatically advance with an honest result
     await waitFor(() => release, 'actual held source');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'loading');
     assert.match(app.$('setupPrefetchActivity').textContent, /Setup continues automatically/);
-    assert.match(app.$('setupSheetBody').querySelector('.setupduration').textContent,
-      /startup baseline; extra sources load when opened/);
+    assert.match(app.$('setupDeferredSources').textContent,
+      /load when opened.*deferred sources are not counted as loaded/);
     const busy = app.$('setupPrefetchRows').querySelector('[data-source="busy"]');
     assert.equal(busy.dataset.state, 'loading',
       'F1269 terminal partial/failure children cannot hide the current Busy acquisition');
