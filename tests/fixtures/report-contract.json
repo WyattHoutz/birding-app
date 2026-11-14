@@ -48,9 +48,10 @@
       "at": "surgeBtn",
       "label": "🔔 Bird Gen",
       "report": "## 🔔 Bird Gen — Talk and news",
+      "reportSub": "Talk and news",
       "map": null,
       "why": "the only section whose contents expire in hours, so it leads the report; deliberately mapless — it is normally 0-3 rows with direct hotspot links, and another static-map generator works against the repo-size brake",
-      "sub": "Talk and news"
+      "sub": "News and discoveries"
     },
     {
       "at": "wxBtn",

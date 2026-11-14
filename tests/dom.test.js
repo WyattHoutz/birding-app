@@ -16150,12 +16150,13 @@ test('F1280 F1296 wizard multiselect commits verified Favorites before acquisiti
     };
     store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
     app.click(app.$('setupFavoriteContinue'));
-    await waitFor(() => acquired, 'initial favorite acquisition after Continue');
-    assert.deepEqual(constructed, [acquired], 'one source construction sees verified committed choices');
-    assert.deepEqual(acquired.slice(0, 3), [...saved, concurrent]);
-    assert.equal(acquired[3].locId, 'L128001');
-    assert.equal(acquired.length, 4, 'deselected draft hotspot is not committed');
-    assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), acquired);
+    await waitFor(() => constructed.length, 'initial baseline construction after Continue');
+    const committed = JSON.parse(JSON.stringify(A.getFavs()));
+    assert.deepEqual(constructed, [committed], 'one baseline construction sees verified committed choices');
+    assert.equal(acquired, undefined, 'Favorites acquisition remains on demand');
+    assert.deepEqual(committed.slice(0, 3), [...saved, concurrent]);
+    assert.equal(committed[3].locId, 'L128001');
+    assert.equal(committed.length, 4, 'deselected draft hotspot is not committed');
     await waitFor(() => A.setupPrefetchEngine().settled(), 'owned initial acquisition settles');
     store.setItem('bc_setup_step_v1', 'favorites');
     A.renderSetupSheet();
@@ -19030,7 +19031,7 @@ test('F805 independent news paints immediately without waiting for unknown perso
   assert.equal(A.personalListEvidence().state,'unavailable');
   const before = app.state.fetches.length;
   A.showSection('sec-surgeBtn');
-  assert.ok(app.$('surgeResults').querySelector('[role="progressbar"]'),
+  assert.match(app.$('surgeResults').textContent, /Loading Bird Gen/,
     'unknown personal history delayed the independent news shell');
   assert.equal(app.state.fetches.length,before,'the shell precedes source acquisition');
   app.window.close();
@@ -25006,7 +25007,8 @@ test('F1345 live checklist projection cannot turn absent duration into zero or u
     host.innerHTML=A.birdReportListCard({code:'amerob',name:'American Robin',subId,
       dateStr:recentObsStamp()},{rare:true});
     await A.hydrateChecklistEvidence(host);
-    assert.doesNotMatch(host.textContent,/9h|Wrong checklist/);
+    assert.equal(host.querySelector('.ckduration')?.textContent || '', '');
+    assert.doesNotMatch(host.textContent,/Wrong checklist/);
     assert.equal(host.querySelector('.reportid a').getAttribute('href'),'https://ebird.org/checklist/'+subId);
   }finally{app.window.close();}
 });
@@ -29719,7 +29721,7 @@ test('F1030 F1033 menu group headings are larger and Recent shares their effecti
   } finally { app.window.close(); }
 });
 
-test('F987 Bird Gen keeps its labelled feed button and the Talk and news destination heading', async () => {
+test('F987 Bird Gen keeps its labelled feed button and the News and discoveries destination heading', async () => {
   const app = await boot();
   const tile = app.$('recentBirdGenOpen');
   assert.equal(tile.textContent, 'Full feed');
@@ -29736,12 +29738,12 @@ test('F987 Bird Gen keeps its labelled feed button and the Talk and news destina
 
   const section = app.$('sec-surgeBtn');
   assert.equal(section.querySelector('h2').childNodes[0].textContent.trim(),
-    'Talk and news');
+    'News and discoveries');
   assert.equal(section.querySelector('.sechint'), null,
     'the old subtitle still sits between the title and controls');
   const results = app.$('surgeResults');
-  assert.ok(results.firstElementChild.classList.contains('surgefeedhead'),
-    'the feed count does not immediately follow the section header');
+  assert.equal(results.querySelector('.surgefeedhead'), null,
+    'the redundant feed-count heading must stay removed');
   assert.equal(results.querySelector('.surgeintro'), null,
     'the explanatory paragraph is still visible above the feed');
   assert.equal(results.querySelector('.surgesortrow, [data-surge-sort]'), null,
@@ -29752,7 +29754,9 @@ test('F987 Bird Gen keeps its labelled feed button and the Talk and news destina
   assert.ok(help, 'the moved explanation has no info-button destination');
   await openBirdGenHelp(app);
   const sheet = app.document.querySelector('#appSheet');
-  assert.match(sheet.textContent, /newest observation or event.*Mass flocks.*Favorite Patch birds.*Hotspots unusually busy/s);
+  assert.match(sheet.textContent, /newest observation or event/);
+  for (const kind of ['mass', 'favorite', 'hotspot'])
+    assert.ok(sheet.querySelector('#alert-doc-' + kind), kind + ' keeps its detailed help');
   assert.doesNotMatch(sheet.textContent, /Buzz.*order/);
   assert.match(sheet.textContent, /Mega snapshot/i,
     'the dynamic source context was not moved into the info sheet');
@@ -33488,17 +33492,13 @@ test('F302 Bird Gen info lists every category and reopens at the top', async () 
   const sheet = app.document.querySelector('#appSheet');
   const panel = sheet.querySelector('.sheet');
   const body = sheet.querySelector('.sheetbody');
-  for (const label of [
-    'ABA Code 3+ megas', 'Celebrity Birds', 'Species drawing a crowd',
-    'Species cascading through the leaderboard', 'Hotspots unusually busy',
-    'High-yield top patches',
-  ]) {
-    const literal = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    assert.match(body.textContent, new RegExp(literal),
-      `the Bird Gen info sheet is missing ${label}`);
+  for (const kind of Object.keys(app.window.BirdInfoDialogs.alertKinds)) {
+    const heading = body.querySelector('#alert-doc-' + kind);
+    assert.ok(heading, `the Bird Gen info sheet is missing ${kind}`);
+    assert.equal(heading.textContent, app.window.BirdInfoDialogs.alertKinds[kind].word);
   }
   assert.match(body.textContent,
-    /Celebrity Birds[\s\S]*4 or more independent sightings/i,
+    /CELEBRITY[\s\S]*4 or more independent sightings/i,
     'the CELEBRITY explanation does not state its four-sighting gate');
   assert.doesNotMatch(body.textContent, /Closest first/i,
     'the CELEBRITY explanation still promises a sort the unified feed does not use');
@@ -36732,7 +36732,7 @@ test('F1284 actual Settings Info preserves live errors and warnings with ordered
     const sheet = app.$('appSheet');
     assert.ok(sheet, 'standard Settings help sheet must open');
     assert.equal(sheet.dataset.infoId, 'settings-help');
-    const headings = [...sheet.querySelectorAll('h3')].map(node => node.textContent);
+    const headings = [...sheet.querySelectorAll('h3[id^="settings-help-"]')].map(node => node.textContent);
     assert.deepEqual(headings.slice(0, 5), ['Display','Report menu badges','Nemesis birds menu badge','Theme','Maps app']);
     assert.ok(headings.includes('Advanced / Debug'));
     assert.match(sheet.textContent, /Scales text, photos, tap targets, spacing and contrast together/);
@@ -36873,11 +36873,11 @@ test('F559: exact My List names missing identity and reads without API checklist
   missingKey.window.close();
 });
 
-test('F561: hydrated observer metadata has an effective width bound', () => {
+test('F561: hydrated observer metadata wraps within its available width without baseline clipping', () => {
   const ChecklistCards = require(path.join(WWW, 'cards-checklist.js'));
   assert.match(ChecklistCards.css,
-    /\.ckmeta > span\.ckwho \{[\s\S]*display: inline-block;[\s\S]*max-width: min\(100%, 18em\);[\s\S]*text-overflow: ellipsis;/,
-    'the stronger metadata selector must make observer clipping effective');
+    /\.ckmeta > span\.ckwho \{[^}]*display: inline;[^}]*overflow: visible;[^}]*overflow-wrap: anywhere;/,
+    'the stronger metadata selector must retain readable inline observer wrapping');
 });
 
 
@@ -50282,7 +50282,7 @@ test('F757 original menu titles/subtitles have no added cold-scan warning', asyn
   assert.ok(feedButton);
   assert.doesNotMatch(feedButton.textContent, /Cold scan|30s\+|several minutes/);
   assert.equal(feedButton.hasAttribute('aria-describedby'), false);
-  assert.equal(app.$('surgeResults').closest('section').querySelector('h2').textContent.trim().startsWith('Talk and news'), true);
+  assert.equal(app.$('surgeResults').closest('section').querySelector('h2').textContent.trim().startsWith('News and discoveries'), true);
   for (const [at, subtitle] of [
     ['excBtn', 'Hotspot excursions'],
   ]) {
@@ -66494,7 +66494,7 @@ test('F1350 F345 Day trip owns a known-request generation estimate across cold p
   }
   assert.ifError(loadingError);
   assert.equal(app.$('dayTripEstimate').hidden, false);
-  assert.match(app.$('dayTripEstimate').textContent, /Plan generation: about \d+m\d{2}s remaining for known requests/);
+  assert.match(app.$('dayTripEstimate').textContent, /Plan generation: about (?:\d+m\d{2}|\d+)s remaining for known requests/);
   assert.match(app.$('dayTripEstimate').textContent, /further phases may add work/);
   assert.doesNotMatch(app.$('dayTripEstimate').textContent, /3[–-]5m|arrival|drive time/i);
   await new Promise((resolve) => setTimeout(resolve, 25));
@@ -68014,9 +68014,9 @@ test('F356 live and cached eBird cost follows the request owner after navigation
 
 require('./migration-setup-controls.cjs')({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
-  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml,
+  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml, surgeSourceRoot,
 });
 const { preparedKeyNative } = require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });
 require('./release172-controls.cjs')({
-  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative
+  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot
 });

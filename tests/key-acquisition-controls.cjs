@@ -492,7 +492,10 @@ module.exports = function registerKeyAcquisitionControls({ test, assert, boot, w
         if (outcome === 'profile') app.window.localStorage.setItem(A.BC_PROFILE_PTR, 'Other synthetic profile');
         if (outcome === 'manual') app.window.localStorage.setItem('ebird_api_key', 'NEW_SYNTHETIC_MANUAL');
         if (outcome === 'back') app.click(app.$('setupBack'));
-        if (outcome === 'session') app.click(app.$('ebirdSignOut'));
+        if (outcome === 'session') {
+          app.window.confirm = () => true;
+          app.click(app.$('ebirdSignOut'));
+        }
         release(outcome === 'reject' ? { __status: 403 } : { code: 'US-WA' });
         await new Promise(resolve => setTimeout(resolve, 30));
         assert.equal(app.window.localStorage.getItem('ebird_api_key'),

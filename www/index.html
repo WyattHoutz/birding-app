@@ -2525,6 +2525,7 @@
     .sheetbody :focus-visible { outline: 3px solid var(--safe-blue); outline-offset: 3px; }
     #personalListBackup .row > label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
     #personalListBackup .row > button { flex: 1 1 180px; min-height: 44px; }
+    #personalBackupExportFile { min-height: 44px; }
     #personalListBackup select, #personalBackupImport { min-height: 44px; }
     #personalListBackup > summary { min-height: 44px; box-sizing: border-box; padding: 10px 0; }
     #personalListBackup input[type="checkbox"] { width: auto; flex: 0 0 auto; }
@@ -4910,13 +4911,13 @@
           Cornell Lab of Ornithology, and stores everything only on your device.</p>
       </div>
 
-      <section id="aboutBirdChaser" class="settingsabout" aria-labelledby="aboutBirdChaserHeading">
+      <div id="aboutBirdChaser" class="settingsabout" role="region" aria-labelledby="aboutBirdChaserHeading">
         <h3 id="aboutBirdChaserHeading">About Bird Chaser</h3>
         <p id="aboutVersion">Bird Chaser</p>
         <p>&copy; <span id="aboutCopyrightYear"></span> Wyatt Houtz. Third-party data and photographs retain their own credits and licences.</p>
         <p><a href="https://birdchaser.app/" target="_blank" rel="noopener">Website: birdchaser.app</a></p>
         <p><a href="https://birdchaser.app/support/" target="_blank" rel="noopener">Contact and support</a></p>
-      </section>
+      </div>
 
     </section>
   </main>
@@ -48760,7 +48761,10 @@
               .indexOf(value) >= 0 ? value : 'unknown';
           }
           var owned = current(), box = owned && $('surgeResults');
-          var row = box && box.querySelector('[data-source-status="' + key + '"]');
+          var sourceDialog = $('appSheet');
+          var sourceStatus = sourceDialog && !sourceDialog.hidden
+            && sourceDialog.dataset.infoId === 'bird-gen-feed' && $('birdGenSourceStatus');
+          var row = owned && sourceStatus && sourceStatus.querySelector('[data-source-status="' + key + '"]');
           dbg('net', 'Bird Gen retry trace: load ' + generation + '; attempt ' + attempt
             + '; source ' + key + '; phase ' + phase + '; result ' + state(result && result.state)
             + '; current ' + owned + '; pending ' + !!pendingSources[key]

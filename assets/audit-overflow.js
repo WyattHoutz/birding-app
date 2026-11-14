@@ -3742,7 +3742,7 @@ const AUDIT = `<script>
       document.getElementById('personalListBackup').open=false;
     }
   }
-  async function mixedSetupRegression(out) {
+  async function mixedSetupRegression(out, baseline) {
     var A=window.__app, step=localStorage.getItem('bc_setup_step_v1');
     var dismissed=localStorage.getItem('bc_setup_dismissed_v1'), release, pending;
     var verified='bc_api_verified_v1:'+A.bcProfile(), savedVerified=localStorage.getItem(verified);
@@ -3759,11 +3759,12 @@ const AUDIT = `<script>
       A.getReportSeen();
       localStorage.setItem(verified,localStorage.getItem('ebird_api_key'));
       localStorage.setItem('bc_setup_step_v1','loading');
-      var tasks=A.acquireInitialDatasetTasks(A.activeScope(),{current:function(){return true;}});
+      var tasks=A.acquireInitialDatasetTasks(A.activeScope(),{current:function(){return true;}},baseline);
+      var pendingKey=baseline?'birdcast':'busy';
       Object.keys(tasks).forEach(function(key){
         tasks[key].acquire=function(){
-          if(key==='busy')return new Promise(function(resolve){release=resolve;});
-          return {state:key==='rankings'||key==='mass'?'failed':'ready',value:{}};
+          if(key===pendingKey)return new Promise(function(resolve){release=resolve;});
+          return {state:key==='rankings'||key==='mass'||baseline&&key==='patches'?'failed':'ready',value:{}};
         };
       });
       pending=A.startSetupPrefetch(tasks);
@@ -3774,7 +3775,7 @@ const AUDIT = `<script>
       var body=document.getElementById('setupSheetBody');
       var continuation=document.getElementById('setupContinueAvailable');
       if(body.dataset.setupStep!=='loading'||!continuation)throw new Error('F1270 actual mixed loading component missing');
-      var result=scan('(F1269/F1270 mixed initial checks)');
+      var result=scan(baseline?'(F1364 default baseline checks)':'(F1269/F1270 full-catalog stress checks)');
       var sourceRows=Array.from(document.querySelectorAll('#setupPrefetchRows > [data-source]'));
       var headings=Array.from(document.querySelectorAll('#setupPrefetchRows .prefetch-group'));
       if(headings.length || /Independent checks|Dependent checks/.test(body.textContent))
@@ -3883,14 +3884,15 @@ const AUDIT = `<script>
         throw new Error('F1356 all sources and sheet actions must remain reachable');
       body.scrollTop=previousScroll;
       var compactFit=null;
-      if(innerWidth>=393&&Number('${SCALE}')<=1){
+      if(baseline&&innerWidth>=393&&Number('${SCALE}')<=1){
         var sheet=document.getElementById('setupSheet');
         var oldTop=sheet.style.paddingTop,oldBottom=sheet.style.paddingBottom;
         sheet.style.paddingTop='62px';sheet.style.paddingBottom='34px';
         compactFit={clientHeight:body.clientHeight,scrollHeight:body.scrollHeight,
           simulatedTop:62,simulatedBottom:34};
         if(body.scrollHeight>body.clientHeight+1||labelGeometry.some(function(label){return label.lines!==1;}))
-          throw new Error('F1356 compact checks must fit without scrolling at normal text');
+          throw new Error('F1356 compact checks must fit without scrolling at normal text: '
+            + JSON.stringify({fit:compactFit,labels:labelGeometry.filter(function(label){return label.lines!==1;})}));
         sheet.style.paddingTop=oldTop;sheet.style.paddingBottom=oldBottom;
       }
       if(!guidance || body.querySelectorAll('.setupduration').length!==1
@@ -3911,7 +3913,8 @@ const AUDIT = `<script>
           return ['ready','partial','failed','blocked','notApplicable','cancelled'].includes(item.state);
         }).length,
         ready:states.filter(function(item){return item.state==='ready';}).length,
-        activity:sourceRows.find(function(row){return row.dataset.source==='busy';}).textContent,
+        activity:sourceRows.find(function(row){return row.dataset.source===pendingKey;}).textContent,
+        baseline:!!baseline,
         width:box.width,height:box.height,right:box.right};
       out.push(result);
       release({state:'ready',value:{}});
@@ -3921,6 +3924,10 @@ const AUDIT = `<script>
         throw new Error('F1301 complete setup with partial initial data must expose Review setup');
       out.push(scan('(F1301 completed setup with partial initial data)'));
     } finally {
+      if(A.setupPrefetchEngine()){
+        localStorage.setItem('bc_setup_step_v1','loading');
+        A.showSetupPrefetch();
+      }
       var continuation=document.getElementById('setupContinueAvailable');
       if(continuation)continuation.click();
       if(release)release({state:'ready',value:{}});
@@ -5000,7 +5007,7 @@ const AUDIT = `<script>
       catch(error) { out.push({label:'F1286 Favorite search',fixtureError:String(error)}); }
       try { await personalBackupRegression(out); }
       catch(error) { out.push({label:'F1266 personal backup',fixtureError:String(error)}); }
-      try { await mixedSetupRegression(out); }
+      try { await mixedSetupRegression(out,false); await mixedSetupRegression(out,true); }
       catch(error) { out.push({label:'F1269/F1270 mixed setup',fixtureError:String(error)}); }
       try { await setupAcquisitionRegression(out); }
       catch (error) { out.push({label:'(F1067/F1068 regression)',fixtureError:String(error)}); }
@@ -5498,7 +5505,9 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F1284 organized Settings Info geometry fixture is missing');
     }
-    if (report.filter(r => r.mixedSetup).length !== 1 || report.filter(r => r.sourceIcons).length !== 1) {
+    if (report.filter(r => r.mixedSetup).length !== 2
+        || !report.some(r => r.mixedSetup && r.mixedSetup.baseline)
+        || report.filter(r => r.sourceIcons).length !== 1) {
       bad++;
       console.log('   F1269/F1270/F1271 FIXTURE missing mixed setup or expanded source icons');
     }

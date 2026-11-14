@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 module.exports = function registerMigrationSetupControls({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
-  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml
+  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml, surgeSourceRoot
 }) {
   function baselineSensitive(app) {
     const A = app.window.__app, now = new app.window.Date();
@@ -200,16 +200,16 @@ module.exports = function registerMigrationSetupControls({
         leaderboard: 'ok', hotspots: 'failed', favorites: 'ok', mass: 'partial',
         ppte: 'partial', foy: 'ok' };
       A.renderSurge([], [], [], [], [], states);
-      assert.match(app.$('surgeResults').querySelector('.surgesourcemeter').textContent, /1 failed/);
+      assert.match(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent, /1 failed/);
       assert.equal(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]')
         .closest('.surgecategory').dataset.categoryState, 'limited');
       A.renderSurge([], [], [], [], [], { ...states, hotspots: 'ok' });
       const box = app.$('surgeResults');
-      assert.match(box.querySelector('.surgesourcemeter').textContent, /8 of 8 loaded.*2 with limited coverage/);
-      assert.doesNotMatch(box.querySelector('.surgesourcemeter').textContent, /failed/);
+      assert.match(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent, /8 of 8 loaded.*2 with limited coverage/);
+      assert.doesNotMatch(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent, /failed/);
       assert.equal(box.dataset.sourcePpte, 'partial', 'retained union does not uncap RBA coverage');
       assert.equal(box.dataset.sourcesComplete, 'false');
-      assert.equal(box.querySelector('[data-source-retry="hotspots"]'), null);
+      assert.equal(surgeSourceRoot(app).querySelector('[data-source-retry="hotspots"]'), null);
       for (const mass of ['ok', 'loading', 'failed']) {
         A.renderSurge([], [], [], [], [], { ...states, hotspots: 'ok', mass });
         const sensitive = app.$('surgeResults').querySelector('[data-count-kind="sensitive"]');
@@ -874,7 +874,7 @@ module.exports = function registerMigrationSetupControls({
         mass: 'partial', ppte: 'loading', hotspots: 'failed', observations: 'ok',
         pendingSources: { mass: false, ppte: true, hotspots: false, observations: false }
       });
-      const status = app.$('surgeResults').querySelector('.surgesources');
+      const status = surgeSourceRoot(app).querySelector('.surgesources');
       assert.match(status.textContent, /Mass flock feeds: Partially loaded/);
       assert.match(status.textContent, /Patagonia[^:]*: Loading/);
       assert.match(status.textContent, /Hotspot activity feeds: Failed/);
@@ -882,7 +882,7 @@ module.exports = function registerMigrationSetupControls({
       assert.match(limited.textContent, /⚠/);
       assert.match(limited.getAttribute('aria-label'), /Partially loaded/);
       assert.equal(limited.closest('.surgecategory').dataset.categoryState, 'limited');
-      assert.ok(app.$('surgeResults').querySelector('[data-source-retry="mass"]'));
+      assert.ok(surgeSourceRoot(app).querySelector('[data-source-retry="mass"]'));
       assert.equal(A.surgeSourceSummary({ mass: 'partial' }, { mass: true }).pending[0], 'mass');
     } finally { app.window.close(); }
   });

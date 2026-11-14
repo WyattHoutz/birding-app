@@ -1,7 +1,7 @@
 'use strict';
 
 module.exports = ({
-  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative
+  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot
 }) => {
   const complete = {
     observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
@@ -34,8 +34,8 @@ module.exports = ({
         assert.ok(retry && retry !== tag);
         assert.equal(retry.dataset.sourceRetry, kind);
       }
-      assert.match(root.querySelector('.surgesources').textContent, /Mass flock feeds: Partially loaded/);
-      assert.match(root.querySelector('.surgesources').textContent, /Mega[^:]*: Failed/i);
+      assert.match(surgeSourceRoot(app).querySelector('.surgesources').textContent, /Mass flock feeds: Partially loaded/);
+      assert.match(surgeSourceRoot(app).querySelector('.surgesources').textContent, /Mega[^:]*: Failed/i);
     } finally { app.window.close(); }
   });
 
@@ -320,7 +320,7 @@ module.exports = ({
   test('F1101 only genuinely pending sources retain the visual loading track', async () => {
     const app = await boot({ sample: false });
     try {
-      const A = app.window.__app, root = app.$('surgeResults');
+      const A = app.window.__app, root = surgeSourceRoot(app);
       for (const state of ['ok', 'partial', 'failed', 'stale', 'notLoaded', 'notApplicable']) {
         A.renderSurge([], [], [], [], [], { ...complete, mass: state, pendingSources: {} });
         assert.equal(root.querySelector('.surgesourcemeter .track'), null, state);
@@ -334,7 +334,7 @@ module.exports = ({
       });
       assert.ok(root.querySelector('.surgesourcemeter .track'));
       assert.equal(root.querySelector('.surgesourcemeter').getAttribute('role'), 'progressbar');
-      assert.match(root.querySelector('[data-count-kind="mass"]').textContent, /⌛/);
+      assert.match(app.$('surgeResults').querySelector('[data-count-kind="mass"]').textContent, /⌛/);
     } finally { app.window.close(); }
   });
 
@@ -346,7 +346,7 @@ module.exports = ({
         const A = app.window.__app;
         A.showSection('sec-surgeBtn', { load: false });
         Promise.resolve(A.loadSurge()).catch(() => {});
-        const root = app.$('surgeResults');
+        const root = surgeSourceRoot(app);
         await waitFor(() => root.querySelector('.surgesourcemeter .track'), 'owned active Bird Gen meter');
         if (cancel === 'reader') A.cancelStalledWork();
         else A.showMenu();
