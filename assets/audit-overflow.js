@@ -3978,7 +3978,9 @@ const AUDIT = `<script>
     aboutEntry.scrollIntoView();
     if(aboutEntry.getBoundingClientRect().height<44
         ||aboutEntry.parentElement.lastElementChild!==aboutEntry)
-      throw new Error('F1370 About entry must be reachable at the bottom of Contents');
+      throw new Error('F1370 About entry must be reachable at the bottom of Contents: '
+        +JSON.stringify({height:aboutEntry.getBoundingClientRect().height,
+          last:aboutEntry.parentElement.lastElementChild.id}));
     out.push(scan('(F1370 main-menu About entry)'));
     aboutEntry.click();
     if(document.activeElement.id!=='aboutBirdChaserHeading'
