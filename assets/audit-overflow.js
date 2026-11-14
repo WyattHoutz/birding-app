@@ -3999,10 +3999,22 @@ const AUDIT = `<script>
         ||about.closest('[data-settings-category]')
         ||!about.textContent.includes('Wyatt Houtz'))
       throw new Error('F1370 About must remain visible outside Settings categories');
-    about.querySelectorAll('a').forEach(function(link){
+    function verifyAboutLink(link,control){
       link.focus();
-      if(document.activeElement!==link||link.getBoundingClientRect().height<44)
-        throw new Error('F1370 About links need keyboard access and a 44px touch target');
+      var box=link.getBoundingClientRect(),style=getComputedStyle(link);
+      if(document.activeElement!==link||box.height<44)
+        throw new Error('F1370 About links need keyboard access and a 44px touch target: '
+          +JSON.stringify({control:control,href:link.getAttribute('href'),
+            focused:document.activeElement===link,height:box.height,
+            font:style.font,lineHeight:style.lineHeight}));
+    }
+    about.querySelectorAll('a').forEach(function(link){
+      verifyAboutLink(link,'platform');
+      var previousLineHeight=link.style.lineHeight;
+      try{
+        link.style.lineHeight='16px';
+        verifyAboutLink(link,'compact line metrics');
+      }finally{link.style.lineHeight=previousLineHeight;}
     });
     out.push(scan('(F1370 Settings About)'));
     A.showSection('sec-surgeBtn',{load:false});
