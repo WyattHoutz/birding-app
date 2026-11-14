@@ -1104,12 +1104,13 @@ test('F506 release mockups require the full Stakeout card with Notes off and on'
     source.indexOf('function mockPhoto'));
   assert.doesNotMatch(mockStyle, /stakeoutSpeciesCard|bchero|stakeoutPlaceDetails/,
     'release fixtures must not restyle the production species/checklist cards');
+  assert.doesNotMatch(mockStyle, /#spLookupMap\s*\{/,
+    'release fixtures must preserve the production map container sizing');
   assert.match(postWorkflow,
     /for VARIANT in iphone-11 iphone-17-pro iphone-17-pro-large iphone-17-pro-max-magnification/,
     'post-release must verify every required device variant');
   assert.doesNotMatch(indexSource, /stakeoutSpeciesCard-compact/,
     'the removed top-level Compact Stakeout card is still shipped');
-  assert.match(indexSource, /#spLookupMap \{ aspect-ratio: 16 \/ 7; \}/);
 });
 
 test('F931/F933 release galleries include production PPTE and complete alert-key states', () => {
