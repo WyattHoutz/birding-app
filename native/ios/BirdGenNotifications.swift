@@ -495,11 +495,15 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
     }
 
     fileprivate func disable(_ profile: String) async throws -> [String: Any] {
-        backgroundWork?.cancel()
+        let pending = backgroundWork
+        pending?.cancel()
         var store = try configurations()
         let previous = store.profiles.removeValue(forKey: profile)
         if store.activeProfile == profile { store.activeProfile = nil }
         try saveConfigurations(store)
+        // Drain cancellation before removing files/notifications: an awaited
+        // delivery can otherwise complete after the cleanup it raced.
+        if let pending { await pending.value }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskIdentifier)
         await cancelNotifications()
         if let previous { try clearFiles(previous) }

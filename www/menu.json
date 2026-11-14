@@ -6,7 +6,7 @@
   {"at":"hotBtn","icon":"👥","title":"Busy Patches","sectionTitle":"Busy Patches","subtitle":"Hotspots with recent surges","needs":"county","group":"Patches - Go birding"},
   {"at":"favResults","icon":"⭐","title":"Favorite patches","subtitle":"Saved hotspots","needs":"geo","group":"Patches - Go birding"},
   {"at":"tripBtn","icon":"🧭","title":"Trip planner","subtitle":"","needs":"geo","group":"Patches - Go birding","enabled":false},
-  {"at":"surgeBtn","icon":"🔔","title":"Bird Gen","subtitle":"Talk and news","needs":"geo","group":"Bird alerts"},
+  {"at":"surgeBtn","icon":"🔔","title":"Bird Gen","subtitle":"News and discoveries","needs":"geo","group":"Bird alerts"},
   {"at":"refreshBtn","icon":"🚨","title":"Twitches","subtitle":"Rare Bird Alerts (RBA)","needs":"geo","group":"Bird alerts"},
   {"at":"abaBtn","icon":"🦤","title":"Mega rarities","subtitle":"ABA Code 3+ alert","needs":"geo","group":"Bird alerts"},
   {"at":"easyBtn","icon":"🎯","title":"Target Birds","sectionTitle":"🎯 Target Birds","subtitle":"Recent birds you still need","needs":"county","group":"Bird alerts"},

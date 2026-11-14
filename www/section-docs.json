@@ -53,9 +53,9 @@
     },
     "surgeBtn": {
       "introduction": "Bird Gen brings together birding news from several kinds of reports. Use it to spot noteworthy birds, busy patches, migration news and discoveries relevant to your selected area.",
-      "report": "## 🔔 Bird Gen — Talk and news",
+      "report": "## 🔔 Bird Gen — News and discoveries",
       "reportNote": "The archived Markdown report below still presents separate crowd, cascade and hotspot tables. Chronology-first ordering, CELEBRITY and TOP PATCH describe the Bird Chaser app, whose current UI is the product.",
-      "summary": "Talk and news from current bird reports, migration evidence, personal discoveries and public patches. Category explanations below describe why each alert qualifies.",
+      "summary": "News and discoveries from current bird reports, migration evidence, personal discoveries and public patches. Category explanations below describe why each alert qualifies.",
       "inputs": [
         "the region's ABA Code 3+ snapshot, refreshed lazily after the initial render frame and priority observation requests are queued",
         "county recent + notable feeds",

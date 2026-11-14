@@ -9,6 +9,22 @@ const notifications = require('../www/birdgen-notifications.js');
 const logic = require('../www/logic.js');
 const { install } = require('../native/ios/install-full-report-bridge.js');
 
+test('F1366 native disable revokes credentials before draining work and cleaning personal state', () => {
+  const swift=fs.readFileSync(path.join(__dirname,'..','native','ios','BirdGenNotifications.swift'),'utf8');
+  const disable=swift.slice(swift.indexOf('fileprivate func disable('),swift.indexOf('fileprivate func status('));
+  assert.match(disable,/let pending = backgroundWork/);
+  assert.match(disable,/pending\?\.cancel\(\)/);
+  const order=['store.profiles.removeValue(forKey: profile)','saveConfigurations(store)',
+    'await pending.value','cancelNotifications()','clearFiles(previous)','return try await status(profile)'];
+  let prior=-1;
+  for(const operation of order) {
+    const position=disable.indexOf(operation);
+    assert.ok(position>prior,'native logout must order '+operation+' after previous cleanup boundary');
+    prior=position;
+  }
+  assert.doesNotMatch(disable,/profiles\.removeAll|removePersistentDomain/,'unrelated native profiles survive');
+});
+
 const now = new Date(2030, 5, 10, 12).getTime();
 const profile = {
   home: { lat: 47.66, lng: -122.12 }, chaseMaxMi: 35,

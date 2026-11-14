@@ -3,9 +3,29 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const prefetch = require('../www/setup-prefetch.js');
 
-test('F1330 remaining duration uses compact minutes and zero-padded seconds, rounded up', () => {
-  assert.deepEqual([4000, 59000, 60000, 70000, 2407000, 1].map(prefetch.formatDuration),
-    ['0m04s', '0m59s', '1m00s', '1m10s', '40m07s', '0m01s']);
+test('F1363 remaining duration uses seconds below a minute, preserving rounding and minute boundaries', () => {
+  assert.deepEqual([0, 4000, 59000, 59999, 60000, 70000, 2407000, 1].map(prefetch.formatDuration),
+    ['0s', '4s', '59s', '1m00s', '1m00s', '1m10s', '40m07s', '1s']);
+});
+
+test('F1362 completion evidence preserves successful timestamps through recovery and joins', async () => {
+  let now=0, finish;
+  const engine=prefetch.create({
+    fast:{acquire:()=>({state:'ready'})},
+    slow:{acquire:()=>new Promise(resolve=>{finish=resolve;})},
+    failed:{acquire:retry=>({state:retry?'ready':'failed'})}
+  },()=>true,null,null,{clock:()=>now});
+  const pending=engine.run();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(engine.completedAt(['fast']),0);
+  assert.equal(engine.completedAt(['slow']),null);
+  now=80; finish({state:'ready'}); await pending;
+  assert.equal(engine.completedAt(['slow']),80);
+  assert.equal(engine.completedAt(['fast','slow']),80);
+  now=150; await engine.run(true);
+  assert.equal(engine.completedAt(['fast']),0,'reuse cannot move the original completion');
+  assert.equal(engine.completedAt(['slow']),80);
+  assert.equal(engine.completedAt(['failed']),150,'genuine recovery gets its new completion');
 });
 
 test('F1330 request-work ETA revises for completion, unequal service, queue expansion and one retry hold', () => {

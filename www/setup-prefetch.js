@@ -250,6 +250,12 @@
       complete: complete,
       settled: settled,
       group: groupState,
+      completedAt: function (keys) {
+        if (['queued', 'loading'].indexOf(groupState(keys)) >= 0) return null;
+        return Math.max.apply(null, keys.map(function (key) {
+          return latestTiming[key] ? latestTiming[key].ended_at_ms : 0;
+        }));
+      },
       timings: function () {
         return journal.map(function (row) { return Object.assign({}, row); });
       },
@@ -661,7 +667,8 @@
   }
   function formatDuration(ms) {
     var seconds = Math.ceil(ms / 1000);
-    return Math.floor(seconds / 60) + 'm' + String(seconds % 60).padStart(2, '0') + 's';
+    return seconds < 60 ? seconds + 's'
+      : Math.floor(seconds / 60) + 'm' + String(seconds % 60).padStart(2, '0') + 's';
   }
   function createEstimate(options) {
     var clock = options.clock || Date.now, changed = options.changed || function () {};

@@ -78,6 +78,8 @@ const BOOTSTRAP = `<script>
     return /^Are you sure you want to close setup\\?/.test(message) || nativeConfirm.call(window,message);
   };
   try {
+    if (${process.env.AUDIT_FOCUS === 'logout'} && sessionStorage.getItem('logout-reload-probe')==='pending')
+      throw new Error('Preserve the post-logout state instead of reseeding fixtures.');
     localStorage.setItem('ebird_api_key', 'AUDITKEY');
     localStorage.setItem('ebird_home_lat', '47.75');
     localStorage.setItem('ebird_home_lng', '-122.16');
@@ -311,7 +313,7 @@ const AUDIT = `<script>
         if (!activity || activity.getAttribute('role') !== 'status'
             || activity.dataset.setupPending !== 'true'
             || !/Setup continues automatically/.test(activity.textContent)
-            || !/Close keeps checks running/.test(activity.textContent)
+            || !/Close keeps this run/.test(activity.textContent)
             || !/Continue with available data stops pending checks/.test(activity.textContent))
           throw new Error('F1260 initial checks need announced automatic continuation');
       }
@@ -1283,8 +1285,57 @@ const AUDIT = `<script>
     };
   }
   async function run() {
+    if (${process.env.AUDIT_FOCUS === 'logout'}) {
+      var logoutOut=[];
+      try {
+        var LA=window.__app;
+        if(sessionStorage.getItem('logout-reload-probe')==='pending') {
+          for(var attempt=0;attempt<100 && document.getElementById('setupSheet').hidden;attempt++)
+            await new Promise(function(resolve){setTimeout(resolve,10);});
+          if(document.getElementById('setupSheet').hidden
+              || document.getElementById('setupSheetBody').dataset.setupStep!=='account'
+              || localStorage.getItem('ebird_api_key') || LA.getHome() || LA.getDisplayName())
+            throw new Error('F1366 actual browser reload did not open a clean account step');
+          if(localStorage.getItem('bc_ref:logout-neutral')!=='public'
+              || localStorage.getItem('bcp:2:ebird_api_key')!=='OTHER-AUDIT-KEY')
+            throw new Error('F1366 actual reload lost unrelated or neutral data');
+          var verified=scan('(F1366 actual automatic reload)');
+          verified.logoutReload=true;logoutOut.push(verified);
+          return finish(logoutOut);
+        }
+        LA.applyCapturedIdentity({status:'ok',displayName:'Synthetic logout observer'});
+        localStorage.setItem('bc_setup_step_v1','loading');
+        localStorage.setItem('bc_ref:logout-neutral','public');
+        localStorage.setItem('bcp:2:ebird_api_key','OTHER-AUDIT-KEY');
+        window.Capacitor={Plugins:{
+          CapgoInAppBrowser:{clearAllBrowsingData:function(){return Promise.resolve();}},
+          BirdGenNotifications:{disable:function(){return Promise.resolve({enabled:false,active:false});}}
+        }};
+        window.confirm=function(){return true;};
+        sessionStorage.setItem('logout-reload-probe','pending');
+        LA.showSection('settingsPanel',{load:false});
+        LA.showSettingsCategory('account');
+        document.getElementById('ebirdSignOut').click();
+        var completed=await LA.logoutActiveProfile();
+        if(!completed)throw new Error(document.getElementById('settingsLogoutStatus').textContent);
+        setTimeout(function(){
+          finish([{label:'F1366 automatic reload',fixtureError:'Successful Logout did not navigate the browser.'}]);
+        },2500);
+        return;
+      } catch(error) {
+        logoutOut.push({label:'F1366 automatic reload',fixtureError:error.message});
+        return finish(logoutOut);
+      }
+    }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'batch'}) {
+      try { await batchRegression(out); } catch (error) {
+        out.push({label:'batch geometry',fixtureError:error.message});
+      }
+      finish(out);
+      return;
+    }
     if (${!!process.env.AUDIT_DIAGNOSTICS}) setInterval(function () {
       var request = new XMLHttpRequest();
       request.open('POST', '/__audit-diagnostics', true);
@@ -2420,8 +2471,9 @@ const AUDIT = `<script>
       await A.toggleSectionDoc(document.getElementById('sec-surgeBtn'));
       var infoBody = document.querySelector('#appSheet .sheetbody');
       var technical = infoBody.querySelector('details.doctechnical');
-      if (!infoBody.firstElementChild.classList.contains('docintro') || !technical || technical.open)
-        throw new Error('F1151 information must introduce the menu before closed technical details');
+      if (infoBody.firstElementChild.textContent!=='Alert-type key'
+          || !infoBody.querySelector('.docintro') || !technical || technical.open)
+        throw new Error('F1359 key and plain-language introduction must precede closed technical details');
       technical.querySelector('summary').click();
       if (!technical.open) throw new Error('F1151 native technical disclosure did not open');
       out.push(scan('(F1151 open technical information)'));
@@ -2945,7 +2997,7 @@ const AUDIT = `<script>
     }
     var beforeBirdGen = birdGenCalls();
     A.showSection('sec-surgeBtn');
-    var shell = document.querySelector('#surgeResults .surgesourceprogress');
+    var shell = document.querySelector('#surgeResults [data-surge-loading]');
     requestAnimationFrame(function () {
       var rect = shell && shell.getBoundingClientRect();
       var firstFrame = !!(rect && rect.width > 0 && rect.height > 0
@@ -3659,7 +3711,10 @@ const AUDIT = `<script>
       A.setFavs([{id:'L126601',locId:'L126601',locName:'Representative other-region patch',
         lat:43.1,lng:-75.2,region:'US-NY'}]);
       document.getElementById('brandSettings').click();
+      A.showSettingsCategory('backup');
       document.getElementById('personalListBackup').open = true;
+      document.getElementById('personalBackupAdvanced').open = true;
+      document.getElementById('personalBackupRestore').open = true;
       document.getElementById('personalBackupWatch').checked = false;
       document.getElementById('personalBackupExport').click();
       document.getElementById('personalBackupReview').click();
@@ -3743,7 +3798,7 @@ const AUDIT = `<script>
         throw new Error('F1332 needs one done/total counter and remaining estimate without the former visit timer');
       var elapsed=document.getElementById('setupPrefetchElapsed');
       if(!elapsed || elapsed.parentElement!==estimate.parentElement
-          || !/^Elap: \\d+m\\d{2}s\\.$/.test(elapsed.textContent)
+          || !/^Elap: (?:\\d+m\\d{2}|\\d+)s\\.$/.test(elapsed.textContent)
           || elapsed.getAttribute('aria-live')!=='off')
         throw new Error('F1355 needs retained inline Elap beside Est');
       var savedEstimate=estimate.textContent;
@@ -3879,17 +3934,105 @@ const AUDIT = `<script>
       A.getReportSeen();
     }
   }
+  async function batchRegression(out) {
+    var A=window.__app;
+    A.showSection('settingsPanel',{load:false});
+    var probe=document.createElement('div');
+    probe.innerHTML=ChecklistCards.list('small',[
+      ChecklistCards.small({date:'Nov 13',who:'Observer Name',sp:12}),
+      ChecklistCards.small({date:'Nov 13',who:'LongObserver'.repeat(40),sp:12})
+    ]);
+    document.getElementById('settingsPanel').appendChild(probe);
+    function baseline(node) {
+      var marker=document.createElement('i');
+      marker.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0';
+      node.appendChild(marker);
+      var y=marker.getBoundingClientRect().top;marker.remove();return y;
+    }
+    var row=probe.querySelector('.cklcard'), who=row.querySelector('.ckwho'), sp=row.querySelector('.cksp');
+    var actual=baseline(who)-baseline(sp), old=who.getAttribute('style');
+    who.style.cssText='display:inline!important;overflow:visible!important;white-space:normal!important';
+    var inline=baseline(who)-baseline(sp);
+    if(old===null)who.removeAttribute('style');else who.setAttribute('style',old);
+    var result=scan('(F1368 shared observer baseline)');
+    result.batchGeometry={actual:actual,inlineControl:inline,
+      visible:probe.getBoundingClientRect().height,hidden:document.getElementById('settingsPanel').hidden,
+      who:who.getBoundingClientRect().toJSON(),display:getComputedStyle(who).display};
+    out.push(result);
+    if(Math.abs(actual)>.5)throw new Error('F1368 baseline raised: '+JSON.stringify(result.batchGeometry));
+    who.style.cssText='display:inline-block!important;overflow:hidden!important;white-space:nowrap!important';
+    var mutant=baseline(who)-baseline(sp);
+    if(old===null)who.removeAttribute('style');else who.setAttribute('style',old);
+    if(Math.abs(mutant)<=.5)throw new Error('F1368 hidden-overflow atomic-inline mutation survived');
+    result.batchGeometry.mutant=mutant;
+    probe.remove();
+    ['account','app','backup','advanced'].forEach(function(category){
+      A.showSettingsCategory(category);
+      var section=document.getElementById('settingsCategory-'+category);
+      if(category==='advanced')section.querySelectorAll('details').forEach(function(details){details.open=true;});
+      var checked=scan('(F1274 '+category+')');checked.batchCategory=category;out.push(checked);
+    });
+    A.showSettingsCategory('');
+    A.showMenu();
+    var aboutEntry=document.getElementById('menuAbout');
+    aboutEntry.scrollIntoView();
+    if(aboutEntry.getBoundingClientRect().height<44
+        ||aboutEntry.parentElement.lastElementChild!==aboutEntry)
+      throw new Error('F1370 About entry must be reachable at the bottom of Contents');
+    out.push(scan('(F1370 main-menu About entry)'));
+    aboutEntry.click();
+    if(document.activeElement.id!=='aboutBirdChaserHeading'
+        ||document.getElementById('settingsPanel').hidden)
+      throw new Error('F1370 About entry must open and focus the actual section');
+    var about=document.getElementById('aboutBirdChaser');
+    about.scrollIntoView();
+    if(about.getBoundingClientRect().height<=0
+        ||about.closest('[data-settings-category]')
+        ||!about.textContent.includes('Wyatt Houtz'))
+      throw new Error('F1370 About must remain visible outside Settings categories');
+    about.querySelectorAll('a').forEach(function(link){
+      link.focus();
+      if(document.activeElement!==link||link.getBoundingClientRect().height<44)
+        throw new Error('F1370 About links need keyboard access and a 44px touch target');
+    });
+    out.push(scan('(F1370 Settings About)'));
+    A.showSection('sec-surgeBtn',{load:false});
+    A.renderSurge([],[],[],[],[],{mega:'failed',mass:'partial',suppressNotifications:true});
+    A.showInfoSheet('bird-gen-feed',{});
+    var body=document.querySelector('#appSheet .sheetbody');
+    if(body.querySelectorAll('[data-alert-key-kind]').length!==Object.keys(BirdInfoDialogs.alertKinds).length)
+      throw new Error('F1359 incomplete alert key');
+    body.querySelectorAll('[data-alert-key-kind]').forEach(function(row){
+      var link=row.querySelector('a'),icon=row.querySelector('.alertkeyicon');
+      if(Math.abs(icon.getBoundingClientRect().height-2*parseFloat(getComputedStyle(link).lineHeight))>.5)
+        throw new Error('F1359 key icon must span two text lines');
+    });
+    var sources=body.querySelector('.surgesources');
+    if(!sources||sources.open)throw new Error('F1359 source disclosure must start closed');
+    out.push(scan('(F1359 linked alert key and contents)'));
+    var link=body.querySelector('[data-alert-key-kind="ppte"] a');
+    link.click();
+    if(document.activeElement.id!=='alert-doc-ppte')throw new Error('F1359 linked detail lost focus');
+    var heading=document.activeElement.getBoundingClientRect(), header=document.querySelector('#appSheet .sheethead').getBoundingClientRect();
+    if(heading.top<header.bottom-.5)throw new Error('F1359 destination '+heading.top
+      +' is hidden behind sticky header '+header.bottom+', margin '+document.activeElement.style.scrollMarginTop);
+    sources.open=true;sources.scrollIntoView();
+    out.push(scan('(F1359 expanded source recovery)'));
+    A.hideSheet();
+  }
   function sourceIconRegression(out) {
     var A=window.__app;
     A.showSection('sec-surgeBtn',{load:false});
     A.renderSurge([],[],[],[],[],{birdcast:'partial',mega:'failed',mass:'partial',ppte:'partial',suppressNotifications:true});
-    var sources=document.querySelector('#surgeResults .surgesources');
+    A.showInfoSheet('bird-gen-feed',{});
+    var sources=document.querySelector('#birdGenSourceStatus .surgesources');
     if(!sources)throw new Error('F1271 actual mixed source list missing');
     sources.open=true;
     var result=scan('(F1271 expanded canonical source icons)');
     result.sourceIcons=sources.querySelectorAll('[data-source-kind]').length;
     out.push(result);
     sources.open=false;
+    A.hideSheet();
   }
   async function setupAcquisitionRegression(out) {
     var A = window.__app, scope = A.activeScope(), owner = A.personalListOwner(scope);
@@ -4206,6 +4349,8 @@ const AUDIT = `<script>
       record('Home manual choices');
       document.getElementById('setupSheetClose').click();
       A.showSection('settingsPanel');
+      A.showSettingsCategory('account');
+      document.getElementById('settingsHomeEditor').open=true;
       document.getElementById('homeCurrentLocation').click();
       await until(function () { return !document.getElementById('homeDeviceSave').hidden; },
         'missing Settings approval');
@@ -4302,6 +4447,8 @@ const AUDIT = `<script>
       document.getElementById('appSheet').querySelector('.sheetclose').click();
       document.getElementById('setupSheetClose').click();
       A.showSection('settingsPanel');
+      A.showSettingsCategory('advanced');
+      document.getElementById('settingsAccountAdvanced').open=true;
       out.push(scan('(F1284 Settings controls)'));
       document.getElementById('keyApplicationInfo').focus();
       document.getElementById('keyApplicationInfo').click();
@@ -4827,6 +4974,7 @@ const AUDIT = `<script>
     }
   }
   async function finish(out) {
+    if (!${['batch','logout'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -4872,6 +5020,11 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await refreshHitRegression(out); }
       catch (error) { out.push({label:'(F1140 regression)',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { await batchRegression(out); }
+      catch (error) { out.push({label:'F1274 F1359-F1368 geometry',fixtureError:String(error)}); }
+    }
     }
     try {
       var x = new XMLHttpRequest();
@@ -5206,6 +5359,20 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'logout') {
+      console.log(JSON.stringify(report));
+      const valid=report.length===1 && report[0].logoutReload===true && !report[0].fixtureError;
+      process.exit(valid?0:1);
+    }
+    if (process.env.AUDIT_FOCUS === 'batch') {
+      const failures = report.filter(r => r.fixtureError || r.over > .5 || r.docScrollW > WIDTH + .5);
+      console.log(JSON.stringify(report.map(r => ({label:r.label,over:r.over,
+        geometry:r.batchGeometry,category:r.batchCategory,fixtureError:r.fixtureError,
+        items:r.items,clipped:r.clipped,midword:r.midword})), null, 2));
+      if (!report.some(r => r.batchGeometry) || report.filter(r => r.batchCategory).length !== 4
+          || failures.length) process.exit(1);
+      process.exit(0);
+    }
     for (const surface of ['setup','main']) {
       for (const state of ['pending','fallback','saved']) {
         if (!report.some(r => r.setupAcquisition
@@ -5332,6 +5499,12 @@ server.listen(0, '127.0.0.1', () => {
     if (report.filter(r => r.mixedSetup).length !== 1 || report.filter(r => r.sourceIcons).length !== 1) {
       bad++;
       console.log('   F1269/F1270/F1271 FIXTURE missing mixed setup or expanded source icons');
+    }
+    if (report.filter(r => r.batchGeometry).length !== 1
+        || ['account','app','backup','advanced'].some(category =>
+          report.filter(r => r.batchCategory === category).length !== 1)) {
+      bad++;
+      console.log('   F1274/F1368 required category and baseline controls are missing');
     }
     report.forEach((r) => {
       if (r.fixtureError) {

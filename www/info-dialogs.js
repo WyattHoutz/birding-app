@@ -26,54 +26,67 @@
 
   var ALERT_KINDS = {
     twitch: {
+      keyDescription: 'New unseen rarity nearby. Rare Bird Alerts (RBA)',
       priority: -1, word: 'TWITCH', glyph: '🚨', name: 'New unseen rarities',
       description: 'An unseen, non-WATCH rarity newly appearing today inside the saved chase area after a successful baseline. Explicit Refresh can also recover a never-alerted opportunity with a usable in-range report in the past 24 hours, even when feed history already knows it or includes earlier reports; recovery is not proof of a new arrival. Initial baselines stay silent and previously alerted species are not re-announced. Verified unseen membership, review, source coverage and chase-distance checks still apply. Counts are known independent reports at the displayed walkable locality, not individual birds or an exhaustive total. Opens Twitches.'
     },
     mega: {
+      keyDescription: 'Mega-rarities. Qualifying ABA Code 3+ rarity.',
       priority: 0, word: 'MEGA', glyph: '🦤', name: 'Mega rarities',
       description: 'ABA Code 3+ rarities with qualifying new-locality or nearby-unseen evidence.'
     },
     migration: {
+      keyDescription: 'Migration forecasts, movement and arrivals.',
       priority: 1, word: 'MIGRATION', glyph: '🌙', name: 'Migration news',
       description: 'County migration forecasts, heavy overnight movement, observed arrivals or expected departures. Expected movement is not a confirmed sighting.'
     },
     sensitive: {
+      keyDescription: 'Sensitive species reported in your region with exact dates and places withheld.',
       priority: 11, word: 'SENSITIVE', glyph: '!', name: 'Sensitive species this month',
       description: 'Public regional species membership for the stated calendar month. Exact observation dates and locations are withheld by eBird. This is not a located chase opportunity.'
     },
     mass: {
+      keyDescription: 'Large flocks at verified public hotspots.',
       priority: 2, word: 'MASS FLOCK', glyph: '🪶', name: 'Mass flocks',
       description: 'Large recent counts at verified public hotspots, qualifying as nearby unseen news or an evidence-backed new report.'
     },
     need: {
+      keyDescription: 'Locally notable birds with repeated sightings.',
       priority: 3, word: 'CELEBRITY', glyph: '🎯', name: 'Celebrity birds',
       description: 'Locally notable birds with multiple qualifying sightings within chase distance, whether already seen or not.'
     },
     crowd: {
+      keyDescription: 'Birds attracting unusually many observers.',
       priority: 4, word: 'CROWD', glyph: '🐦', name: 'Species drawing a crowd',
       description: 'Non-rarities attracting unusually many distinct observers at one place, relative to that species and place.'
     },
     cascade: {
+      keyDescription: 'Birds newly added by several leaderboard birders.',
       priority: 5, word: 'CASCADE', glyph: '🏆', name: 'Leaderboard cascades',
       description: 'At least five distinct Top 100 birders added the same species in the past seven calendar days, with the latest addition within three days. Distant destinations need public sighting evidence within three days; leaderboard interest does not prove independent reporting parties.'
     },
     favorite: {
+      keyDescription: 'Birds you need at your saved hotspots.',
       priority: 6, word: 'FAVORITE PATCH', glyph: '★', name: 'Favorite Patch birds',
       description: 'Fresh birds missing from your selected personal list, reported at one of your saved patches.'
     },
     hotspot: {
+      keyDescription: 'Hotspots busier than their own usual baseline.',
       priority: 7, word: 'BUSY PATCH', glyph: '📍', name: 'Unusually busy patches',
       description: 'At least five independent parties in 36 hours and at least four times the place’s own historical daily baseline. No lower-multiplier crowd exception; without a baseline there is no alert. The multiplier compares recent parties with historical observers per day, not equal-length windows. This signal is species-blind.'
     },
     patch: {
+      keyDescription: 'High-yield hotspots within your chase distance.',
       priority: 8, word: 'TOP PATCH', glyph: '🥇', name: 'High-yield top patches',
       description: 'The highest-yield destinations from the complete current chase view, compared with that view’s median patch score.'
     },
     foy: {
+      keyDescription: 'Newly learned first of the year birds in your regional reports.',
       priority: 9, word: 'FOY', glyph: '📅', name: 'First-of-year reports',
       description: 'Newly learned first regional reports this year. These can describe earlier dates and do not establish current presence.'
     },
     ppte: {
+      keyDescription: 'A Patagonia Picnic Table Effect: Additional rarities discovered by birders chasing a celebrity bird at the same site.',
       priority: 10, word: 'PATAGONIA',
       glyph: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h18M8 8 4 21M16 8l4 13M1 15h22"/></svg>',
       name: 'Patagonia picnic table effect',
@@ -87,10 +100,10 @@
         return ALERT_KINDS[a].priority - ALERT_KINDS[b].priority;
       }).map(function (kind) {
         var meta = ALERT_KINDS[kind];
-        return '<li data-alert-key-kind="' + defaultEscape(kind) + '"><b>'
-          + '<span aria-hidden="true">' + meta.glyph + '</span> '
-          + defaultEscape(meta.word) + ' — ' + defaultEscape(meta.name)
-          + '</b><br>' + defaultEscape(meta.description) + '</li>';
+        return '<li data-alert-key-kind="' + defaultEscape(kind) + '"><a href="#alert-doc-'
+          + kind + '" class="alertkeylink"><span class="alertkeyicon" aria-hidden="true">'
+          + meta.glyph + '</span><span><b>' + defaultEscape(meta.word)
+          + ':</b> ' + defaultEscape(meta.keyDescription) + '</span></a></li>';
       }).join('') + '</ul>';
   }
 
@@ -269,7 +282,7 @@
     };
     docs.feed = {
       title: '🔔 Bird Gen',
-      body: alertTypeKey() + '<p>One feed sorts every active alert by <b>newest observation or event '
+      body: '<p>One feed sorts every active alert by <b>newest observation or event '
         + 'date/time first</b>, including newly loaded sources. Category priority '
         + 'and stable bird/place/checklist identity break equal-time ties. Missing '
         + 'or invalid dates sort last; a date without a time is labelled honestly. '
@@ -321,14 +334,13 @@
         + 'counts describe reporting activity, not bird abundance or chase odds. '
         + 'Late submissions and review can revise them, and they do not show how '
         + 'well a hotspot was searched.</p>'
-        + '<h3>' + docs.mega.title + '</h3>' + docs.mega.body
-        + '<h3>' + docs.mass.title + '</h3>' + docs.mass.body
-        + '<h3>' + docs.favorite.title + '</h3>' + docs.favorite.body
-        + '<h3>' + docs.celebrity.title + '</h3>' + docs.celebrity.body
-        + '<h3>' + docs.crowd.title + '</h3>' + docs.crowd.body
-        + '<h3>' + docs.cascade.title + '</h3>' + docs.cascade.body
-        + '<h3>' + docs.busy.title + '</h3>' + docs.busy.body
-        + '<h3>' + docs.patch.title + '</h3>' + docs.patch.body
+        + Object.keys(ALERT_KINDS).sort(function (a, b) {
+          return ALERT_KINDS[a].priority - ALERT_KINDS[b].priority;
+        }).map(function (kind) {
+          var doc = docs[{ need: 'celebrity', hotspot: 'busy' }[kind] || kind];
+          return '<h3 id="alert-doc-' + kind + '">' + defaultEscape(ALERT_KINDS[kind].word)
+            + '</h3>' + (doc ? doc.body : '<p>' + defaultEscape(ALERT_KINDS[kind].description) + '</p>');
+        }).join('')
     };
     return docs;
   }
@@ -382,7 +394,8 @@
     return {
       title: docs.feed.title,
       subtitle: 'How Bird Gen works',
-      bodyHtml: (context && context.sectionDoc
+      bodyHtml: alertTypeKey() + '<section id="birdGenSourceStatus" aria-label="Source status"></section>'
+        + (context && context.sectionDoc
         ? renderSectionDocHtml(context.sectionDoc, context.contextHtml || '', deps && deps.escapeHtml)
         : '<p class="docintro">'
         + 'Bird Gen combines different kinds of birding news, each identified by a category. '
@@ -705,6 +718,11 @@
   };
 
   var EXCLUDED = {
+    'logout-profile': {
+      surface: 'confirmation',
+      name: 'Log out of the active eBird profile',
+      reason: 'Privacy-first confirmation before deleting active-profile personal data and clearing its login session.'
+    },
     'personal-lists-replace': {
       surface: 'confirmation',
       name: 'Replace selected personal lists',

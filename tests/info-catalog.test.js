@@ -57,14 +57,15 @@ test('F1151 every enabled menu and shared help leads with plain language before 
       assert.ok(sample.title, id + ' success is conveyed in the title');
     } else if (['setup-home-confirmed', 'setup-home-replace'].includes(id)) {
       assert.equal(first.id, 'setupConfirmationMap', id + ' map first');
-    } else assert.equal(first.className, 'docintro', id);
+    } else if (id === 'bird-gen-feed') assert.equal(first.textContent, 'Alert-type key');
+    else assert.equal(first.className, 'docintro', id);
     dom.window.close();
   }
   const live = INFO.render('bird-gen-feed', {
     sectionDoc: SECTION_DOCS.surgeBtn, contextHtml: '<p class="livewarning">Partial feed</p>',
   }, { BirdLogic: BL });
   const dom = new JSDOM(live.bodyHtml);
-  assert.equal(dom.window.document.body.children[1].className, 'livewarning');
+  assert.equal(dom.window.document.querySelector('.docintro').nextElementSibling.className, 'livewarning');
   dom.window.close();
 });
 
@@ -191,8 +192,9 @@ test('F933 Bird Gen alert key describes every registered category, including ina
       const row = rows.find((item) => item.dataset.alertKeyKind === kind);
       assert.ok(meta.name && meta.description, `${kind} needs a full name and description`);
       assert.ok(row.querySelector('b').textContent.includes(meta.word), `${kind} tag missing`);
-      assert.ok(row.querySelector('b').textContent.includes(meta.name), `${kind} name missing`);
-      assert.ok(row.textContent.includes(meta.description), `${kind} explanation missing`);
+      assert.ok(row.textContent.includes(meta.keyDescription), `${kind} short explanation missing`);
+      assert.ok(dom.window.document.querySelector(row.querySelector('a').getAttribute('href')),
+        `${kind} needs an actual detailed destination`);
     }
     for (const kind of ['migration', 'foy']) {
       assert.ok(rows.some((row) => row.dataset.alertKeyKind === kind), `${kind} was omitted`);
