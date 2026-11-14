@@ -1329,6 +1329,12 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'forward'}) {
+      out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture,
+        ${JSON.stringify(process.env.AUDIT_FORWARD_MUTATION || '')}));
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'batch'}) {
       try { await batchRegression(out); } catch (error) {
         out.push({label:'batch geometry',fixtureError:error.message});
@@ -4994,8 +5000,9 @@ const AUDIT = `<script>
       if (cached === null) localStorage.removeItem(key); else localStorage.setItem(key,cached);
     }
   }
+  const forwardLayout = ${require('./forward-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -5045,6 +5052,9 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await batchRegression(out); }
       catch (error) { out.push({label:'F1274 F1359-F1368 geometry',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
     }
     }
     try {
@@ -5380,6 +5390,11 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'forward') {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.length === 3 && report.every(r => r.forwardGeometry
+        && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'logout') {
       console.log(JSON.stringify(report));
       const valid=report.length===1 && report[0].logoutReload===true && !report[0].fixtureError;

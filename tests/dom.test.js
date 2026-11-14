@@ -4487,7 +4487,7 @@ test('F1232 F1234 production Busy cards show multiplier scores and inline map ra
   } finally { app.window.close(); }
 });
 
-test('F1235 Busy rare-species links retain ordinary bird-link emphasis and Stakeout navigation', async () => {
+test('F1235 F1374 Busy rare-species links match surrounding text and retain Stakeout navigation', async () => {
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app;
@@ -4503,8 +4503,8 @@ test('F1235 Busy rare-species links retain ordinary bird-link emphasis and Stake
     const style = app.window.getComputedStyle(link);
     assert.equal(style.fontWeight, '700');
     assert.equal(style.textDecoration, 'none');
-    assert.notEqual(style.fontSize, app.window.getComputedStyle(link.closest('.busypatchreason')).fontSize,
-      'the species name must not inherit the smaller reason text');
+    assert.equal(style.fontSize, app.window.getComputedStyle(link.closest('.busypatchreason')).fontSize,
+      'the species name must match the surrounding Rare reports text');
     link.click();
     assert.equal(app.$('spLookupBtn').closest('section').hidden, false);
   } finally { app.window.close(); }
