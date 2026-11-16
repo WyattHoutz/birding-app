@@ -201,8 +201,8 @@ module.exports = function registerMigrationSetupControls({
         ppte: 'partial', foy: 'ok' };
       A.renderSurge([], [], [], [], [], states);
       assert.match(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent, /1 failed/);
-      assert.equal(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]')
-        .closest('.surgecategory').dataset.categoryState, 'limited');
+      assert.equal(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]'), null,
+        'nonfatal Mass coverage alone cannot manufacture a Sensitive loading error');
       A.renderSurge([], [], [], [], [], { ...states, hotspots: 'ok' });
       const box = app.$('surgeResults');
       assert.match(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent, /8 of 8 loaded.*2 with limited coverage/);

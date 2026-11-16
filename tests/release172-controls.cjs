@@ -23,18 +23,21 @@ module.exports = ({
     const app = await boot({ sample: false });
     try {
       app.window.__app.renderSurge([], [], [], [], [], {
-        ...complete, mass: 'partial', mega: 'failed', pendingSources: {}
+        ...complete, mass: 'partial', mega: 'failed', pendingSources: {},
+        massSource: { loadingErrors: [{ stage: 'history', reason: 'Synthetic history denial' }] }
       });
       const root = app.$('surgeResults');
       for (const kind of ['mass', 'mega']) {
         const tag = root.querySelector(`[data-count-kind="${kind}"]`);
+        assert.ok(tag, 'a genuine source loading error keeps its category visible');
         assert.doesNotMatch(tag.textContent, /source failed|loaded with limited coverage|incomplete/i);
         assert.match(tag.textContent, /[⚠△]/);
         const retry = tag.closest('.surgecategory').querySelector('[data-source-retry]');
         assert.ok(retry && retry !== tag);
         assert.equal(retry.dataset.sourceRetry, kind);
       }
-      assert.match(surgeSourceRoot(app).querySelector('.surgesources').textContent, /Mass flock feeds: Partially loaded/);
+      assert.match(surgeSourceRoot(app).querySelector('.surgesources').textContent,
+        /Mass flock feeds: Loading error; usable results retained.*history.*Synthetic history denial/);
       assert.match(surgeSourceRoot(app).querySelector('.surgesources').textContent, /Mega[^:]*: Failed/i);
     } finally { app.window.close(); }
   });

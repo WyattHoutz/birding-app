@@ -23435,22 +23435,30 @@ test('F1376 production Patagonia consolidation preserves qualifications, unions 
   const app = await boot({sample:false,fetch:()=>[]});
   try {
     const A=app.window.__app, now=chronologyNow(); app.window.Date.now=()=>now;
-    const day=recentObsStamp(1).slice(0,10), today=recentObsStamp(0).slice(0,10);
+    const day=recentObsStamp(2).slice(0,10), secondDay=recentObsStamp(1).slice(0,10),
+      today=recentObsStamp(0).slice(0,10);
     const earlier=ppteFixture(day,now);
     const later=earlier.slice(0,4).map((row,i)=>({...row,obsId:'F1376-'+i,subId:'S'+(137600+i),
-      dateStr:today+' 07:02',ppteRarity:{...row.ppteRarity,observedAt:today}}));
-    const evidence=earlier.concat(later), events=A.ppteEvents(evidence);
+      dateStr:secondDay+' 07:02',ppteRarity:{...row.ppteRarity,observedAt:secondDay}}));
+    const solo={...earlier[1],obsId:'F1376-solo',subId:'S137699',observer:'Later solo reporter',
+      dateStr:today+' 07:02',ppteRarity:{...earlier[1].ppteRarity,observedAt:today}};
+    const evidence=earlier.concat(later,solo), events=A.ppteEvents(evidence);
     assert.equal(events.length,1,'consecutive qualification days must become one ongoing event');
-    assert.deepEqual(Array.from(events[0].qualifications,q=>q.day),[day,today]);
+    assert.deepEqual(Array.from(events[0].qualifications,q=>q.day),[day,secondDay]);
     assert.deepEqual(Array.from(events[0].qualifications,q=>Array.from(q.species,b=>[b.code,b.reports])),
       [[['swaspa',2],['verfly',3]],[['swaspa',2],['verfly',2]]]);
     assert.equal(events[0].species.find(b=>b.code==='verfly').reports,5);
     assert.equal(events[0].species.find(b=>b.code==='swaspa').reports,4);
+    assert.equal(events[0].latest,solo.dateStr,'later solo evidence still advances recency');
+    assert.equal(events[0].species.find(b=>b.code===solo.code).checklists,5,
+      'solo-day checklists cannot inflate the union of qualification days');
+    assert.equal(events[0].species.find(b=>b.code===solo.code).reportingNames,3,
+      'solo-day observers cannot inflate qualification support');
     const aliases=[{...events[0],id:'z-alias'},{...events[0],id:'a-alias'}];
     for(const input of [aliases,aliases.slice().reverse()])assert.equal(A.consolidatePpteEvents(input)[0].id,'a-alias',
       'equivalent same-day retained inputs need a deterministic representative');
     const raw=[{...events[0],qualifications:undefined,day},
-      {...events[0],id:events[0].id.replace(day,today),qualifications:undefined,day:today}];
+      {...events[0],id:events[0].id.replace(day,secondDay),qualifications:undefined,day:secondDay}];
     A.renderEventFeed('ppte',{state:'ok',rows:raw});
     assert.equal(app.$('ppteResults').querySelectorAll('[data-ppte-event]').length,1);
     const paint=rows=>A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:rows,suppressNotifications:true});

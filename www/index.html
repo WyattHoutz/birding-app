@@ -12537,8 +12537,13 @@
                 previous.anchorCode = event.anchorCode;
               }
             }
+            var qualificationDays = new Set(previous.qualifications.map(function (qualification) {
+              return qualification.day;
+            }));
             previous.species = previous.species.map(function (bird) {
-              var reports = previous.evidenceRows.filter(function (row) { return row.code === bird.code; });
+              var reports = previous.evidenceRows.filter(function (row) {
+                return row.code === bird.code && qualificationDays.has(row.dateStr.slice(0, 10));
+              });
               var checklists = new Set(), names = new Set();
               reports.forEach(function (row) {
                 if (/^S\d+$/.test(row.subId || '')) checklists.add(row.subId);
