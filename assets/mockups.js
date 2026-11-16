@@ -890,8 +890,81 @@ SETUP_REVIEW_SHOTS.push(...[false, true].map(lower => ({
     ${preparePersonalFixture.toString()}, ${lower});`
 })));
 
+function assertBirdGenRecoveryLayout(document, host) {
+  const width = document.documentElement.clientWidth;
+  const elements = [host, ...host.querySelectorAll('p,h2,h3,button,li,[data-ppte-event],.surgecount,.surge-leading-tag')];
+  for (const element of elements) {
+    const rect = element.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+    if (rect.left < -0.5 || rect.right > width + 0.5
+        || element.clientWidth && element.scrollWidth > element.clientWidth + 1) {
+      throw new Error('Bird Gen recovery layout overflow: ' + element.tagName + '.' + element.className
+        + ' left=' + rect.left + ' right=' + rect.right + ' viewport=' + width);
+    }
+  }
+}
+
 const REVIEW_SHOTS = [
   ...SETUP_REVIEW_SHOTS,
+  {
+    id:'f1191-source-health',title:'Loading errors separate from nonfatal coverage',
+    at:'surgeBtn',host:'appSheet',freshApp:true,fullPage:true,minControls:1,
+    expects:['#birdGenSourceStatus [data-sensitive-source-status]'],
+    prep:`
+      A.cancelStalledWork();
+      var sec=document.getElementById('surgeBtn').closest('section');
+      A.showSection(sec.id,{load:false});
+      var month=A.todayStr().slice(0,7);
+      A.renderSurge([],[],[],[],[],{
+        mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',favorites:'notApplicable',
+        mass:'partial',ppte:'partial',foy:'ok',pendingSources:{},suppressNotifications:true,
+        massSource:{source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
+          sourceRegion:A.activeScope().effectiveRegion,sourceMonth:month,acquiredAt:document.defaultView.Date.now(),
+          inventoryComplete:true,loadingErrors:[]},
+        massCoverage:'One public location unresolved; nine arrivals unverified because history is unsurveyed.',
+        ppteSource:{loadingErrors:[{stage:'acquisition',region:'US-WA-033',reason:'ANUBIS'},
+          {stage:'qualification',region:'US-WA-061',reason:'Independent rarity qualification unavailable'}]}
+      });
+      A.showInfoSheet('bird-gen-feed',{});
+      var host=document.getElementById('appSheet');
+      host.querySelector('.surgesources').open=true;
+      var note=document.createElement('p');note.textContent='REPRESENTATIVE STUB DATA - controlled source outcomes.';
+      document.getElementById('birdGenSourceStatus').prepend(note);
+      host.querySelector('a[href="#birdGenSourceStatus"]').click();
+      var source=document.getElementById('birdGenSourceStatus'),viewport=host.querySelector('.sheet');
+      if(viewport)viewport.scrollTop+=source.getBoundingClientRect().top-viewport.getBoundingClientRect().top-85;
+      (${assertBirdGenRecoveryLayout.toString()})(document,host);
+      host.dataset.mockData='true';sec.dataset.mockReady='true';sec.dataset.mockAt='surgeBtn';return true;`
+  },
+  ...['dedicated','full','recent'].map(surface=>({
+    id:'f1376-'+surface,title:'Consolidated Patagonia episode - '+surface,
+    at:surface==='dedicated'?'ppteBtn':surface==='full'?'surgeBtn':undefined,
+    menuState:surface==='recent',host:surface==='dedicated'?'ppteResults':surface==='full'?'surgeResults':'recentBirdGenRows',
+    freshApp:true,fullPage:true,minControls:1,
+    prep:`
+      A.cancelStalledWork();var day=A.todayStr(),prior=new Date(day+'T12:00:00Z');prior.setUTCDate(prior.getUTCDate()-1);
+      var yesterday=prior.toISOString().slice(0,10),rows=[];
+      ['verfly','swaspa'].forEach(function(code,bird){[yesterday,day].forEach(function(date){
+        [0,1].forEach(function(person){rows.push({kind:'Rarity',code:code,
+          name:bird?'Swamp Sparrow':'Vermilion Flycatcher',obsId:code+date+person,
+          subId:'S'+(137600+rows.length),observer:'Sample reporter '+person,
+          dateStr:date+' 0'+(7+person)+':02',locId:'L137600',loc:'Example public wetlands',lat:47.7,lon:-122.3,
+          ppteSourceRegion:'US-WA',ppteRarity:{code:code,region:'US-WA',observedAt:date,at:document.defaultView.Date.now()}});});});});
+      prior.setUTCDate(prior.getUTCDate()-1);rows.push(Object.assign({},rows[0],
+        {obsId:'support',subId:'S137699',observer:'Sample reporter 3',dateStr:prior.toISOString().slice(0,10)+' 08:00'}));
+      var events=A.ppteEvents(rows,{hotspots:[{locId:'L137600',locName:'Example public wetlands',lat:47.7,lng:-122.3}]});
+      if(events.length!==1||events[0].qualifications.length!==2)throw new Error('Consolidated fixture must have two qualification days: '+JSON.stringify(events));
+      var surface=${JSON.stringify(surface)},at=surface==='dedicated'?'ppteBtn':'surgeBtn';
+      var sec=document.getElementById(at).closest('section');A.showSection(sec.id,{load:false});
+      if(surface==='dedicated')A.renderEventFeed('ppte',{state:'ok',rows:events});
+      else A.renderSurge([],[],[],[],[],{mega:'ok',mass:'notApplicable',observations:'ok',leaderboard:'ok',
+        hotspots:'ok',favorites:'notApplicable',foy:'ok',pendingSources:{},ppte:'ok',ppteRows:events,suppressNotifications:true});
+      if(surface==='recent')A.showMenu();
+      var host=document.getElementById(surface==='dedicated'?'ppteResults':surface==='full'?'surgeResults':'recentBirdGenRows');
+      var note=document.createElement('p');note.textContent='REPRESENTATIVE STUB DATA - one episode, two qualification days.';host.prepend(note);
+      (${assertBirdGenRecoveryLayout.toString()})(document,host);
+      host.dataset.mockData='true';sec.dataset.mockReady='true';sec.dataset.mockAt=at;return true;`
+  })),
   {
     id: 'f1358-foy-recovery', title: 'F1358 annual-first failure with exact eBird recovery',
     at: 'foyBtn', host: 'foyResults', freshApp: true, fullPage: true, minControls: 1,

@@ -6388,7 +6388,7 @@ test('F1046/F1050 source states keep unknown and failed category tags truthful a
     assert.match(hotspot.getAttribute('aria-label'), /loading, results not complete/);
     const cascade = box.querySelector('[data-count-kind="cascade"]');
     assert.match(cascade.textContent, /⚠/);
-    assert.match(cascade.getAttribute('aria-label'), /source failed/);
+    assert.match(cascade.getAttribute('aria-label'), /unresolved loading error/);
     assert.equal(cascade.parentElement.querySelector('[data-source-retry]').dataset.sourceRetry, 'leaderboard',
       'the successful observation dependency must not be retried');
     assert.equal(cascade.querySelector('button'), null, 'filter and retry must not be nested');
@@ -6547,7 +6547,7 @@ test('F1046 PPTE failed-region retry preserves successful region caches and fres
     assert.deepEqual(Array.from(first.failedRegions),['US-WA-033']);
     assert.ok(first.rows.length > 0,'successful sibling regions must retain useful events');
     let before = app.state.fetches.length;
-    const repeated = await A.loadPpteAlertSource(true,() => true,null,first.failedRegions);
+    const repeated = await A.loadPpteAlertSource(true,() => true,null,first.failedRegions,first);
     assert.equal(repeated.state,'partial');
     const retried = app.state.fetches.slice(before).filter(url => /alert\/rba\//.test(url));
     assert.equal(retried.length,1);
@@ -6559,7 +6559,7 @@ test('F1046 PPTE failed-region retry preserves successful region caches and fres
       'retaining alerts must not retain a previous attempt’s failure checklist');
     assert.equal(merged.rows.length,first.rows.length);
     failed = false; before = app.state.fetches.length;
-    const recovered = await A.loadPpteAlertSource(true,() => true,null,repeated.failedRegions);
+    const recovered = await A.loadPpteAlertSource(true,() => true,null,repeated.failedRegions,repeated);
     assert.equal(recovered.state,'ok');
     assert.deepEqual(Array.from(recovered.failedRegions),[]);
     assert.equal(app.state.fetches.slice(before).filter(url => /alert\/rba\//.test(url)).length,1);
@@ -9822,6 +9822,65 @@ function foySourceFixture(publishedAgoHours, addBird = false) {
   return body;
 }
 
+for (const cancel of [false, true]) test('F1373 deliberate FOY menu opening recovers retained failure once'
+  + (cancel ? ' with owned cancellation' : ' without expanding generic callbacks'), async () => {
+  const app = await boot({sample:false,fetch:url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : []});
+  let browser, injected, closed = 0, opened = 0;
+  const handlers = {}, removed = [];
+  try {
+    const A = app.window.__app;
+    const failed = await A.ensureFoy(true, () => true, null, false);
+    assert.match(failed.error,/ANUBIS/);
+    app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn){handlers[name]=fn;return {remove(){removed.push(name);}};},
+      openWebView(options){opened++;
+        browser = new JSDOM(adjacentFirstYearHtml(),{url:options.url,runScripts:'outside-only'});
+        browser.window.mobileApp = {postMessage(message){handlers.messageFromWebview({id:'f1373',detail:message.detail});}};
+        setTimeout(() => handlers.browserPageLoaded({id:'f1373'}),0);
+        return Promise.resolve({id:'f1373'});
+      }, hide(){},show(){},executeScript({code}){injected=code;return Promise.resolve();},
+      close(){closed++;return Promise.resolve();}
+    }}};
+    const passive=A.loadFoy(false);
+    await waitFor(()=>opened || !app.$('foyBtn').disabled,'passive FOY settles without browser');
+    assert.equal(opened,0,'generic autoload must retain the settled failure');
+    await passive;
+    A.showMenu();A.showSection('sec-foyBtn');
+    await waitFor(()=>opened || !app.$('foyBtn').disabled,'generic section activation settles');
+    assert.equal(opened,0,'programmatic section activation cannot authorize a recovery browser');
+    A.showMenu();
+    const link = [...app.$('menuList').querySelectorAll('.toclink')]
+      .find(node => node.dataset.sec === 'sec-foyBtn');
+    assert.ok(link,'test must drive the actual FOY menu link');
+    app.click(link);
+    await waitFor(() => injected || !app.$('foyBtn').disabled,'deliberate opening settles or starts capture');
+    assert.ok(injected,'deliberate menu opening must start one recovery after a retained failure');
+    const joining = A.loadFoy(false);
+    assert.equal(opened,1,'generic callbacks must join rather than create another browser');
+    if (cancel) app.click(app.$('navBack'));
+    else {
+      handlers.messageFromWebview({id:'unowned',detail:{__ebird:true,kind:'firstYear',ok:true,data:{rows:[]}}});
+      assert.equal(A.foyHistoryRead(),null,'foreign capture cannot publish');
+    }
+    browser.window.eval(injected);
+    await joining;
+    await waitFor(() => closed === 1,'owned browser cleanup');
+    assert.equal(removed.length,4);
+    if (cancel) assert.equal(A.foyHistoryRead(),null,'navigation cancellation cannot save');
+    else {
+      assert.ok(A.foyHistoryRead()?.knownCodes.length);
+      assert.doesNotMatch(app.$('foyStatus').textContent,/failed/);
+      const reads=app.state.fetches.length;
+      A.showMenu(); app.click([...app.$('menuList').querySelectorAll('.toclink')]
+        .find(node=>node.dataset.sec==='sec-foyBtn'));
+      await A.loadFoy(false);
+      assert.equal(opened,1,'healthy same-day evidence is reused on reopen');
+      assert.equal(app.state.fetches.length,reads);
+    }
+    assert.deepEqual(app.state.errors,[]);
+  } finally {browser?.window.close();app.window.close();}
+});
+
 test('F1358 personal refresh preserves settled FOY failure, joins in-flight work and permits explicit refresh', async () => {
   let body = '<html>anubis_challenge</html>', releaseFirst;
   const app = await boot({sample:false, fetch:url => {
@@ -9950,7 +10009,7 @@ for (const source of ['foy', 'mass']) {
             assert.equal(A.foyHistoryRead().knownCodes.length, 4);
             assert.match(line.textContent, /Loaded/);
           } else {
-            assert.match(line.textContent, /Partially loaded.*1 arrivals unverified/,
+            assert.match(line.textContent, /Loaded.*1 arrivals unverified/,
               JSON.stringify(A.loadSurgeRetained().mass));
             assert.ok(line.querySelector('[data-source-retry="mass"]'));
             assert.equal(A.loadSurgeRetained().mass.rows[0].found, null);
@@ -23372,6 +23431,58 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10), acquiredAt = Date.now
   ]);
 }
 
+test('F1376 production Patagonia consolidation preserves qualifications, unions and distinct episodes on every surface', async () => {
+  const app = await boot({sample:false,fetch:()=>[]});
+  try {
+    const A=app.window.__app, now=chronologyNow(); app.window.Date.now=()=>now;
+    const day=recentObsStamp(1).slice(0,10), today=recentObsStamp(0).slice(0,10);
+    const earlier=ppteFixture(day,now);
+    const later=earlier.slice(0,4).map((row,i)=>({...row,obsId:'F1376-'+i,subId:'S'+(137600+i),
+      dateStr:today+' 07:02',ppteRarity:{...row.ppteRarity,observedAt:today}}));
+    const evidence=earlier.concat(later), events=A.ppteEvents(evidence);
+    assert.equal(events.length,1,'consecutive qualification days must become one ongoing event');
+    assert.deepEqual(Array.from(events[0].qualifications,q=>q.day),[day,today]);
+    assert.deepEqual(Array.from(events[0].qualifications,q=>Array.from(q.species,b=>[b.code,b.reports])),
+      [[['swaspa',2],['verfly',3]],[['swaspa',2],['verfly',2]]]);
+    assert.equal(events[0].species.find(b=>b.code==='verfly').reports,5);
+    assert.equal(events[0].species.find(b=>b.code==='swaspa').reports,4);
+    const aliases=[{...events[0],id:'z-alias'},{...events[0],id:'a-alias'}];
+    for(const input of [aliases,aliases.slice().reverse()])assert.equal(A.consolidatePpteEvents(input)[0].id,'a-alias',
+      'equivalent same-day retained inputs need a deterministic representative');
+    const raw=[{...events[0],qualifications:undefined,day},
+      {...events[0],id:events[0].id.replace(day,today),qualifications:undefined,day:today}];
+    A.renderEventFeed('ppte',{state:'ok',rows:raw});
+    assert.equal(app.$('ppteResults').querySelectorAll('[data-ppte-event]').length,1);
+    const paint=rows=>A.renderSurge([],[],[],[],[],{ppte:'ok',ppteRows:rows,suppressNotifications:true});
+    paint(raw);
+    assert.equal(app.$('surgeFeed').querySelectorAll('[data-ppte-event]').length,1);
+    assert.equal(app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="ppte"]').length,1);
+    assert.equal(surgeEvidence(app.$('surgeFeed').querySelector('[data-ppte-event]'))
+      .querySelectorAll('.ppte-evidence time').length,2);
+    assert.ok(app.$('recentBirdGenRows').querySelector('button[aria-label*="full"]'));
+    await A.saveSurgeRetainedPart('ppte',{state:'ok',rows:raw,evidenceRows:evidence});
+    const retained=A.loadSurgeRetained().ppte;
+    assert.equal(retained.rows.length,1,'retained evidence must use the same producer');
+    const fresh={state:'partial',rows:A.ppteEvents(later),evidenceRows:later};
+    const merged=A.mergeEventFeedResult('ppte',retained,fresh);
+    assert.equal(merged.rows.length,1);
+    assert.equal(merged.rows[0].species.find(b=>b.code==='verfly').reports,5,'overlap cannot inflate reports');
+    paint(merged.rows);paint(merged.rows);
+    assert.equal(app.$('recentBirdGenRows').children.length,1,'incremental repaint/reopen cannot duplicate');
+    const third=earlier.filter(r=>r.code==='swaspa').map((r,i)=>({...r,code:'reshaw',name:'Red-shouldered Hawk',
+      obsId:'F1376-third-'+i,ppteRarity:{...r.ppteRarity,code:'reshaw'}}));
+    assert.equal(A.ppteEvents(evidence.concat(third)).length,2,'a meaningfully richer bird group stays distinct');
+    const other=evidence.map(r=>({...r,locId:'L1376002',obsId:r.obsId+'-other',lat:r.lat+1}));
+    assert.equal(A.ppteEvents(evidence.concat(other)).length,2,'distinct sites cannot collapse');
+    const separate={...events[0],day:recentObsStamp(4).slice(0,10),qualifications:undefined};
+    assert.equal(A.consolidatePpteEvents([separate,events[0]]).length,2,'a qualification gap starts an independent episode');
+    const distinct=Array.from({length:5},(_,i)=>({...events[0],siteKey:'site-'+i,id:'site-'+i+'|'+day}));
+    paint(raw.concat(distinct));
+    assert.equal(app.$('recentBirdGenRows').children.length,5,'consolidation occurs before the five-row cap');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
 test('controlled chronology acquisitions remain usable when host time is later', async () => {
   const app = await boot();
   try {
@@ -23509,7 +23620,7 @@ test('F943/F1019 PPTE feed keeps chronology while preserving actual distance and
   try {
     const A = app.window.__app, event = A.ppteEvents(ppteFixture())[0];
     function at(id, lat, latest) {
-      return { ...event, id, latest, publicHotspot: null,
+      return { ...event, id, siteKey:id, latest, publicHotspot: null,
         evidenceRows: event.evidenceRows.map(row => ({ ...row, lat, lon: lat == null ? null : -122 })) };
     }
     const near = at('near', 47.05, recentObsStamp(2));
@@ -30701,6 +30812,260 @@ function f1142Source(app, at, codes = []) {
     sensitiveRows:codes.map(code => ({code,name:names[code],region:A.activeScope().effectiveRegion}))};
 }
 
+test('F1191 loading warnings exclude coverage limits but preserve mixed-source errors and zero-alert Sensitive attribution', async () => {
+  const app=await boot();
+  try {
+    const A=app.window.__app, clock=f1142Clock(app);
+    const source={...f1142Source(app,clock.now),inventoryComplete:true,loadingErrors:[],
+      coverage:'One unresolved location; nine arrivals unverified',state:'partial'};
+    const category=kind=>app.$('surgeResults').querySelector('[data-count-kind="'+kind+'"]');
+    const paint=(mass,ppte)=>A.renderSurge([],[],[],[],[],{mega:'notApplicable',mass:mass.state,massSource:mass,
+      massCoverage:mass.coverage,ppte:ppte?.state||'notApplicable',ppteSource:ppte,suppressNotifications:true});
+    paint(source);
+    assert.equal(category('mass'),null,'a nonfatal limit alone must not create an error category');
+    assert.equal(category('sensitive'),null,'healthy zero-alert monthly inventory has no error warning');
+    let root=surgeSourceRoot(app);
+    assert.match(root.querySelector('[data-source-status="mass"]').textContent,/Loaded/);
+    assert.match(root.querySelector('[data-sensitive-source-status]').textContent,/Monthly inventory loaded/);
+    assert.match(root.querySelector('[data-source-coverage]').textContent,/arrivals unverified/);
+    assert.equal(root.querySelector('[data-source-retry="mass"]').textContent,'Refresh');
+    const ppte={state:'partial',loadingErrors:[{stage:'acquisition',region:'US-WA-033',reason:'ANUBIS'}]};
+    paint(source,ppte);
+    assert.ok(category('ppte'),'mixed-source acquisition failure needs a visible category warning');
+    assert.match(category('ppte').getAttribute('aria-label'),/unresolved loading error/);
+    assert.match(surgeSourceRoot(app).querySelector('[data-source-status="ppte"]').textContent,/US-WA-033: acquisition.*ANUBIS/);
+    assert.match(surgeSourceRoot(app).querySelector('.surgesourcemeter').textContent,/Finished with loading errors.*1 loading error/);
+    assert.equal(category('sensitive'),null,'Patagonia failure cannot contaminate Sensitive');
+    for(const invalid of [{...source,sourceOwner:'foreign'},{...source,sourceMonth:'2000-01'},
+      {...source,acquiredAt:clock.now-86400000},{state:'ok'}]){
+      paint(invalid);
+      assert.doesNotMatch(surgeSourceRoot(app).querySelector('[data-sensitive-source-status]').textContent,/Monthly inventory loaded/,
+        'foreign, stale or absent inventory cannot establish independently healthy monthly acquisition');
+    }
+    paint({...source,state:'failed',sensitiveSource:source,loadingErrors:[{stage:'directory',reason:'Directory unavailable'}]});
+    assert.ok(category('mass'),'directory failure needs a Mass warning');
+    assert.match(category('mass').getAttribute('aria-label'),/unresolved loading error/);
+    assert.equal(category('sensitive'),null,'successful inventory survives a later Mass-only directory failure');
+    paint({state:'failed',loadingErrors:[{stage:'acquisition',reason:'Website access required (ANUBIS)'}]});
+    assert.ok(category('sensitive'),'failed monthly acquisition must remain visible with zero alerts');
+    assert.match(category('sensitive').getAttribute('aria-label'),/unresolved loading error/);
+    assert.match(app.$('surgeResults').querySelector('[data-sensitive-coverage]').textContent,/0 alerts available.*failed/);
+    paint({state:'loading'},null);
+    assert.ok(category('sensitive'),'pending monthly inventory must be visible');
+    assert.match(category('sensitive').getAttribute('aria-label'),/loading/);
+    assert.doesNotMatch(category('sensitive').textContent,/⚠/,'pending is not a terminal error');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1188 actual Mass history failure retries only failed history and retains the acquired inventory', async () => {
+  let failing=true;
+  const app=await boot({sample:false,fetch:url=>{
+    if (/bird-list/.test(url)) return f821Page([{code:'margod',name:'Marbled Godwit',count:600}]);
+    if (/ref\/hotspot\//.test(url)) return f821Hotspots().map(row=>({...row,lat:46.7064,lng:-123.972}));
+    if (/\/historic\//.test(url)) return failing ? {__status:403} : [];
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    await seedSeen(app,[]);
+    const first=await A.loadMassFlockAlertSource(true,A.activeScope());
+    assert.ok(first.rows.length,'control needs an actual distant flock requiring arrival history');
+    assert.equal(first.loadingErrors.length,1);
+    assert.equal(first.loadingErrors[0].stage,'history');
+    const pages=()=>app.state.fetches.filter(url=>/bird-list/.test(url)).length;
+    const directories=()=>app.state.fetches.filter(url=>/ref\/hotspot\//.test(url)).length;
+    const before=[pages(),directories()];
+    failing=false; A.fgWindowReset();A.fgSchedReset(Date.now());
+    const recovered=await A.loadMassFlockAlertSource(true,A.activeScope(),null,{retrySource:first});
+    assert.deepEqual(Array.from(recovered.loadingErrors),[],'successful targeted recovery clears only real errors');
+    assert.deepEqual([pages(),directories()],before,'healthy page and directory cannot be refetched for a history error');
+    assert.equal(recovered.acquiredAt,first.acquiredAt,'history recovery cannot refresh inventory age');
+    assert.equal(recovered.state,'partial','unsurveyed history remains a nonfatal coverage limit');
+    assert.equal(recovered.rows[0].found,null,'unknown coverage cannot manufacture arrival');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1188 directory recovery reuses owned inventory and rejects stale-owner reuse', async () => {
+  let failing=true;
+  const app=await boot({sample:false,fetch:url=>{
+    if (/bird-list/.test(url)) return f821Page([{count:4000}]);
+    if (/ref\/hotspot\//.test(url)) return failing ? {__status:403} : f821Hotspots();
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    const first=await A.loadMassFlockAlertSource(true,A.activeScope());
+    assert.equal(first.loadingErrors[0].stage,'directory');
+    assert.ok(first.inventoryRows.length);
+    const pages=()=>app.state.fetches.filter(url=>/bird-list/.test(url)).length;
+    const before=pages(); failing=false;A.fgWindowReset();A.fgSchedReset(Date.now());
+    const recovered=await A.loadMassFlockAlertSource(true,A.activeScope(),null,{retrySource:first});
+    assert.equal(pages(),before,'directory retry cannot repeat a successfully acquired page');
+    assert.equal(recovered.acquiredAt,first.acquiredAt);
+    assert.equal(recovered.loadingErrors.length,0);
+    A.fgWindowReset();A.fgSchedReset(Date.now());
+    await A.loadMassFlockAlertSource(true,A.activeScope(),null,{retrySource:{...first,
+      sensitiveSource:{...first.sensitiveSource,sourceOwner:'foreign'}}});
+    assert.equal(pages(),before+1,'foreign inventory must not be reused');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1189 actual Patagonia retry retains healthy regions and distinguishes acquisition from qualification', async () => {
+  let mode='county-access';
+  const rows=ppteFixture(), sourceRows=rows.map(row=>{
+    const date=new Date(row.dateStr.replace(' ','T'));
+    return {code:row.code,name:row.name,subId:row.subId,
+      when:`${date.toLocaleString('en-US',{month:'short'})} ${date.getDate()}, ${date.getFullYear()} ${row.dateStr.slice(11)}`,
+      lat:row.lat,lng:row.lon,place:row.loc,observer:row.observer,count:row.count};
+  });
+  const app=await boot({sample:false,fetch:url=>{
+    if (/alert\/rba\//.test(url)) return mode==='county-access' && /US-WA-\d/.test(url)
+      ? '<html>anubis_challenge</html>' : megaAlertHtml(sourceRows);
+    if (/recent\/notable/.test(url)) return mode==='qualification' && /US-WA-033/.test(url)
+      ? {__status:403} : ppteNotableFixture();
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    A.setCountySeed({'US-WA':{'US-WA-033':{name:'Synthetic A'},'US-WA-061':{name:'Synthetic B'}}});
+    const mixed=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(mixed.state,'partial');
+    assert.ok(mixed.rows.length,'healthy regional evidence must remain available');
+    assert.deepEqual(Array.from(mixed.loadingErrors,e=>[e.region,e.stage,e.reason]),
+      [['US-WA-033','acquisition','ANUBIS'],['US-WA-061','acquisition','ANUBIS']]);
+    const requests=app.state.fetches.length;
+    mode='ok'; A.fgWindowReset();A.fgSchedReset(Date.now());
+    const recovered=await A.loadPpteAlertSource(true,()=>true,null,mixed.failedRegions,mixed);
+    assert.equal(recovered.state,'ok');
+    assert.equal(recovered.loadingErrors.length,0);
+    const retry=app.state.fetches.slice(requests);
+    assert.equal(retry.some(url=>/alert\/rba\/US-WA\?|data\/obs\/US-WA\/recent/.test(url)),false,
+      'county recovery cannot refetch or requalify a healthy state source');
+    mode='qualification';A.fgWindowReset();A.fgSchedReset(Date.now());
+    const unqualified=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(unqualified.loadingErrors.filter(e=>e.stage==='qualification').length,1);
+    assert.equal(unqualified.loadingErrors.filter(e=>e.stage==='acquisition').length,0);
+    const pages=app.state.fetches.filter(url=>/alert\/rba/.test(url)).length;
+    mode='ok';A.fgWindowReset();A.fgSchedReset(Date.now());
+    const qualified=await A.loadPpteAlertSource(true,()=>true,null,unqualified.failedRegions,unqualified);
+    assert.equal(qualified.loadingErrors.length,0);
+    assert.equal(app.state.fetches.filter(url=>/alert\/rba/.test(url)).length,pages,
+      'qualification recovery must reuse the successful page');
+    const beforeForeign=app.state.fetches.length;
+    A.fgWindowReset();A.fgSchedReset(Date.now());
+    await A.loadPpteAlertSource(true,()=>true,null,unqualified.failedRegions,{...unqualified,sourceOwner:'foreign'});
+    assert.ok(app.state.fetches.slice(beforeForeign).some(url=>/alert\/rba\/US-WA\?/.test(url)),
+      'foreign retry metadata cannot suppress a forced current-region acquisition');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+for (const cancel of [false,true]) test('F1189 explicit county browser recovery owns capture and cancellation '+cancel,async()=>{
+  const app=await boot({sample:false,fetch:url=>/alert\/rba\//.test(url)?'<html>anubis_challenge</html>':[]});
+  const handlers={},removed=[];let browser,injected,opened=0,closed=0,alive=true;
+  try {
+    const A=app.window.__app;
+    A.setCountyView('US-WA-033');
+    const failed=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(failed.loadingErrors[0].reason,'ANUBIS');
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn){handlers[name]=fn;return{remove(){removed.push(name);}};},
+      openWebView(options){opened++;
+        assert.match(options.url,/alert\/rba\/US-WA-033\?/);
+        browser=new JSDOM(megaAlertHtml([{code:'sabgul',name:"Sabine's Gull",subId:'S118911',
+          when:recentObsStamp(1),lat:47.7,lng:-122.2,place:'Synthetic Public Site',count:1}]),
+          {url:options.url,runScripts:'outside-only'});
+        browser.window.mobileApp={postMessage(message){handlers.messageFromWebview({id:'county',detail:message.detail});}};
+        setTimeout(()=>handlers.browserPageLoaded({id:'county'}),0);
+        return Promise.resolve({id:'county'});
+      },hide(){},show(){},executeScript({code}){injected=code;return Promise.resolve();},
+      close(){closed++;return Promise.resolve();}
+    }}};
+    A.fgWindowReset();A.fgSchedReset(Date.now());
+    const retry=A.loadPpteAlertSource(true,()=>alive,null,failed.failedRegions,failed);
+    await waitFor(()=>injected,'explicit county recovery injection');
+    if(cancel)alive=false;
+    browser.window.eval(injected);
+    const result=await retry;
+    assert.equal(opened,1);assert.equal(closed,1);assert.equal(removed.length,4);
+    if(cancel){
+      assert.equal(result.state,'cancelled');
+      assert.equal(Object.keys(app.window.localStorage).some(key=>key.startsWith('ebird_rba_retained_v1:')),false);
+    }else{
+      assert.equal(result.loadingErrors.length,0,'successful managed fallback clears the acquisition failure');
+      assert.equal(result.evidenceRows.length,1);
+      assert.equal(result.sourceDiagnostics[0].acquisition,'managed');
+    }
+    assert.deepEqual(app.state.errors,[]);
+  }finally{browser?.window.close();app.window.close();}
+});
+
+test('F1189 persistence-only recovery preserves acquisition age and repairs cached health without network work', async () => {
+  const app=await boot({sample:false,fetch:url=>/alert\/rba\//.test(url)
+    ? megaAlertHtml([{code:'sabgul',name:"Sabine's Gull",subId:'S118900',when:recentObsStamp(1),
+      place:'Synthetic Public Site',lat:47.7,lng:-122.2,count:1}]) : []});
+  const proto=app.window.Storage.prototype, set=proto.setItem;
+  try {
+    const A=app.window.__app;
+    A.setCountySeed({'US-WA':{}});
+    proto.setItem=function(key,value){
+      if(key.includes('ebird_rba_retained_v1:')) throw new app.window.DOMException('Synthetic full store','QuotaExceededError');
+      return set.call(this,key,value);
+    };
+    const first=await A.loadPpteAlertSource(true,()=>true);
+    assert.equal(first.loadingErrors[0].stage,'persistence');
+    const at=first.evidenceRows[0].__rbaAcquiredAt, requests=app.state.fetches.length;
+    proto.setItem=set;
+    app.window.Date.now=()=>at+1000;
+    const recovered=await A.loadPpteAlertSource(true,()=>true,null,first.failedRegions,first);
+    assert.equal(recovered.loadingErrors.length,0);
+    assert.equal(recovered.evidenceRows[0].__rbaAcquiredAt,at,'saving cannot redate acquisition');
+    const key=Object.keys(app.window.localStorage).find(key=>key.startsWith('ebird_rba_retained_v1:'));
+    assert.ok(key,'successful retry must have a durable retained write');
+    const stored=await A.zcGet(key);
+    assert.equal(stored.rows[0].__rbaAcquiredAt,at,'the actual stored report must retain its acquisition date');
+    assert.equal(app.state.fetches.length,requests,'storage-only recovery cannot acquire or requalify');
+    const cached=await A.stateRbaRecords(false,null,'US-WA',false);
+    assert.equal(cached.retentionSaved,true,'warm source cannot resurrect an already repaired persistence error');
+    assert.equal(cached.rows[0].__rbaAcquiredAt,at);
+    assert.deepEqual(app.state.errors,[]);
+  } finally {proto.setItem=set;app.window.close();}
+});
+
+test('F1190 Sensitive storage error agrees across source and category and recovers without acquiring a page',async()=>{
+  const app=await boot({sample:false,fetch:()=>[]});
+  const proto=app.window.Storage.prototype,set=proto.setItem;
+  try{
+    const A=app.window.__app,clock=f1142Clock(app);
+    A.birdGenSensitiveJournal(f1142Source(app,clock.now-1,['grgowl']),clock.now-1);
+    const inventory=f1142Source(app,clock.now,['grgowl','loeowl']);
+    proto.setItem=function(key,value){
+      if(key.includes('bc_sensitive_v1:'))throw new app.window.DOMException('Synthetic denial','SecurityError');
+      return set.call(this,key,value);
+    };
+    A.birdGenSensitiveJournal(inventory,clock.now);
+    const source={...inventory,sensitiveSource:inventory,loadingErrors:[]};
+    const paint=()=>A.renderSurge([],[],[],[],[],{mass:'ok',massSource:source,suppressNotifications:true});
+    paint();
+    assert.ok(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]'),'history persistence failure needs a visible warning');
+    assert.match(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]').getAttribute('aria-label'),/unresolved loading error/);
+    assert.match(surgeSourceRoot(app).querySelector('[data-sensitive-source-status]').textContent,/not saved/);
+    assert.equal(surgeSourceRoot(app).querySelector('[data-source-retry="mass"]').textContent,'Retry');
+    const before=app.state.fetches.length;proto.setItem=set;
+    await A.loadMassFlockAlertSource(true,A.activeScope(),null,{retrySource:source});
+    assert.equal(app.state.fetches.length,before,'Sensitive persistence recovery must reuse owned fresh monthly evidence');
+    paint();
+    assert.doesNotMatch(app.$('surgeResults').querySelector('[data-count-kind="sensitive"]').getAttribute('aria-label'),/unresolved loading error/);
+    assert.match(surgeSourceRoot(app).querySelector('[data-sensitive-source-status]').textContent,/Monthly inventory loaded/);
+    assert.equal(surgeSourceRoot(app).querySelector('[data-source-retry="mass"]'),null);
+    assert.equal(A.birdGenSensitiveRows().length,1);
+    assert.deepEqual(app.state.errors,[]);
+  }finally{proto.setItem=set;app.window.close();}
+});
+
 test('F1113 Sensitive availability explains shared Mass coverage without changing selection or retry', async () => {
   const app = await boot();
   try {
@@ -30714,12 +31079,11 @@ test('F1113 Sensitive availability explains shared Mass coverage without changin
       });
       assert.ok(app.$('surgeFeed').querySelector('[data-alert-kind="sensitive"]'));
       const note = app.$('surgeResults').querySelector('[data-sensitive-coverage]');
-      if (state === 'ok') assert.equal(note,null);
+      if (state !== 'failed') assert.equal(note,null,'healthy monthly inventory is independent of Mass-only progress and limits');
       else {
         assert.ok(note,'available Sensitive alerts must explain the shared-source warning');
         assert.match(note.textContent,/1 alert available; shared Mass flock source/);
-        assert.match(note.textContent,state === 'partial' ? /limited coverage/
-          : state === 'loading' ? /still loading/ : /failed/);
+        assert.match(note.textContent,/failed/);
         assert.match(note.textContent,/checkmark.*selected filter/i);
         const category = app.$('surgeResults').querySelector('[data-count-kind="sensitive"]');
         const selected = category.getAttribute('aria-pressed') === 'true';
@@ -31152,11 +31516,11 @@ test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores catego
     const event = A.ppteEvents(ppteFixture(undefined, now))[0];
     assert.ok(event);
     const ppte = [
-      { ...event, id: 'F1019-NEW', latest: stamp(1), publicHotspot: null,
+      { ...event, id: 'F1019-NEW', siteKey: 'F1019-NEW', latest: stamp(1), publicHotspot: null,
         evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 48, lon: -122 })) },
-      { ...event, id: 'F1019-TIE', latest: stamp(1), publicHotspot: null,
+      { ...event, id: 'F1019-TIE', siteKey: 'F1019-TIE', latest: stamp(1), publicHotspot: null,
         evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 48, lon: -122 })) },
-      { ...event, id: 'F1019-OLD', latest: stamp(20), publicHotspot: null,
+      { ...event, id: 'F1019-OLD', siteKey: 'F1019-OLD', latest: stamp(20), publicHotspot: null,
         evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: 47.05, lon: -122 })) },
     ];
     A.useFoundAnchor({ lat: 47, lng: -122 }, 'Synthetic origin');
@@ -31186,8 +31550,8 @@ test('F1019 mixed Bird Gen chronology precedes preview bounds and ignores catego
       assert.match(app.$('surgeFeed').textContent, /Sharp-tailed/);
     }
     A.renderSurge([], [], [], [], [], { mega: 'notApplicable', ppte: 'ok', ppteRows: [
-      { ...event, id: 'F1019-FUTURE', latest: stamp(-10) },
-      { ...event, id: 'F1019-OUTSIDE-WINDOW', latest: stamp(25 * 60) },
+      { ...event, id: 'F1019-FUTURE', siteKey: 'F1019-FUTURE', latest: stamp(-10) },
+      { ...event, id: 'F1019-OUTSIDE-WINDOW', siteKey: 'F1019-OUTSIDE-WINDOW', latest: stamp(25 * 60) },
     ] });
     assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="ppte"]').length, 2,
       'the time-window controls must exist in the full feed before preview filtering');
@@ -31684,10 +32048,10 @@ test('F1303 actual Mass Retry clears Loading after a held acquisition reaches a 
     } } });
     await A.loadSurge('f1303-controlled', false);
     const massLine = () => surgeSourceRoot(app).querySelector('[data-source-status="mass"]');
-    await waitFor(() => /Partially loaded/.test(massLine()?.textContent || '')
+    await waitFor(() => /Loaded/.test(massLine()?.textContent || '')
       && massLine().querySelector('[data-source-retry="mass"]'),
     'actual terminal Mass state before manual Retry', 30000);
-    assert.match(massLine().textContent, /Partially loaded/);
+    assert.match(massLine().textContent, /Loaded/);
     const initial = A.loadSurgeRetained().mass;
     const oldCards = [...app.$('surgeFeed').querySelectorAll('[data-alert-kind="mass"]')]
       .map(card => card.dataset.alertKind + ':' + card.textContent);
@@ -31715,14 +32079,15 @@ test('F1303 actual Mass Retry clears Loading after a held acquisition reaches a 
     releaseHistory([]);
     await waitFor(() => verdicts() > beforeVerdicts, 'actual terminal partial acquisition verdict', 30000);
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert.match(massLine().textContent, /Partially loaded/,
+    assert.match(massLine().textContent, /Loaded/,
       'the terminal partial acquisition must clear its rendered pending state');
     assert.equal(app.$('surgeResults').dataset.sourceMass, 'partial');
     assert.match(massLine().textContent, /arrivals unverified.*locations could not be resolved safely|locations could not be resolved safely.*arrivals unverified/,
       'the actual Mass source warning must distinguish missing arrival and unresolved-location coverage');
     assert.doesNotMatch(massLine().textContent, /Loading/);
     assert.ok(massLine().querySelector('[data-source-retry="mass"]'),
-      'limited evidence must retain a retry affordance, not become full success');
+      'limited evidence must retain deliberate Refresh, not claim exhaustive coverage');
+    assert.equal(massLine().querySelector('[data-source-retry="mass"]').textContent,'Refresh');
     await new Promise(resolve => app.window.requestAnimationFrame(resolve));
     const traces = app.window.__dbg.buf.map(row => row.msg)
       .filter(message => message.startsWith('Bird Gen retry trace:'));

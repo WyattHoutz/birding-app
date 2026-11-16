@@ -2790,6 +2790,15 @@
     html[data-display="high-visibility"] .surgefeed > li > .name > .surgekindwrap {
       grid-column: 2; grid-row: 3; margin: 0 16px 0 0;
     }
+    html[data-display="high-visibility"] .surgefeed > li[data-alert-kind="ppte"] .surge-leading-tag {
+      grid-column: 1 / -1; grid-row: 3; justify-self: start;
+      box-sizing: border-box; max-width: calc(100% - 32px);
+      margin: 0 16px 10px; white-space: normal; overflow-wrap: anywhere;
+    }
+    html[data-display="high-visibility"] .surgefeed > li[data-alert-kind="ppte"] > .name > .ntext > .sub,
+    html[data-display="high-visibility"] .surgefeed > li[data-alert-kind="ppte"] > .name > .surgekindwrap {
+      grid-row: 4;
+    }
     html[data-display="high-visibility"] .surgefeed > li > .surgeexplain {
       margin-top: 14px; padding: 0 16px;
     }
@@ -5571,7 +5580,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.2.1';
+      var APP_VERSION = '2.2.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -12482,7 +12491,8 @@
               return p ? 'point:' + p.lat + ',' + p.lon : 'id:' + row.locId;
             }).sort();
             events.push({
-              id: anchors[0] + '|' + day, day: day, latest: evidence[0].dateStr,
+              id: anchors[0] + '|' + day, siteKey: group.map(function (site) { return site.key; }).join('|'),
+              day: day, latest: evidence[0].dateStr,
               loc: pub ? pub.locName : names[0] || 'Personal reported location',
               species: species, evidenceRows: evidence,
               anchorCode: anchorsWithInterest[0].code,
@@ -12491,9 +12501,55 @@
             });
           });
         });
-        return events.sort(function (a, b) {
+        return consolidatePpteEvents(events).sort(function (a, b) {
           return b.latest.localeCompare(a.latest) || a.id.localeCompare(b.id);
         });
+      }
+      function consolidatePpteEvents(events) {
+        var groups = Object.create(null), out = [];
+        (events || []).slice().sort(function (a, b) {
+          return a.day.localeCompare(b.day) || String(a.id).localeCompare(String(b.id));
+        })
+          .forEach(function (event) {
+            var site = event.siteKey || String(event.id).replace(/\|\d{4}-\d{2}-\d{2}$/, '');
+            var key = site + '::' + event.species.map(function (bird) { return bird.code; }).sort().join(',');
+            var previous = groups[key];
+            var qualifications = event.qualifications || [{ day: event.day, species: event.species }];
+            var last = previous && previous.qualifications[previous.qualifications.length - 1].day;
+            // Only consecutive qualification days of the same site/taxa form one ongoing episode.
+            if (!previous || Date.parse(event.day) - Date.parse(last) > 86400000) {
+              previous = Object.assign({}, event, { qualifications: qualifications.slice(),
+                evidenceRows: mergeRarityRecords(event.evidenceRows || [], []) });
+              groups[key] = previous;
+              out.push(previous);
+            } else {
+              qualifications.forEach(function (qualification) {
+                if (!previous.qualifications.some(function (old) { return old.day === qualification.day; })) {
+                  previous.qualifications.push(qualification);
+                }
+              });
+              previous.qualifications.sort(function (a, b) { return a.day.localeCompare(b.day); });
+              previous.evidenceRows = mergeRarityRecords(previous.evidenceRows, event.evidenceRows || []);
+              if (event.latest > previous.latest) previous.latest = event.latest;
+              if (event.publicHotspot) previous.publicHotspot = event.publicHotspot;
+              if (event.anchorSightings > previous.anchorSightings) {
+                previous.anchorSightings = event.anchorSightings;
+                previous.anchorCode = event.anchorCode;
+              }
+            }
+            previous.species = previous.species.map(function (bird) {
+              var reports = previous.evidenceRows.filter(function (row) { return row.code === bird.code; });
+              var checklists = new Set(), names = new Set();
+              reports.forEach(function (row) {
+                if (/^S\d+$/.test(row.subId || '')) checklists.add(row.subId);
+                var name = String(row.observer || '').trim().replace(/\s+/g, ' ').toLowerCase();
+                if (name) names.add(name);
+              });
+              return Object.assign({}, bird, reports.length ? { reports: reports.length,
+                checklists: checklists.size, reportingNames: names.size } : {});
+            });
+          });
+        return out;
       }
       var _stateRbaCache = {};
       var _stateRbaInflight = {};
@@ -12504,7 +12560,7 @@
       function rbaRetainedKey(region) {
         return RBA_RETAINED_NS + activeScope().cacheIdentity + '|' + getAbaSid() + '|' + region;
       }
-      function rbaBackfill(rows, region, acquired, current, key) {
+      function rbaBackfill(rows, region, acquired, current, key, preserveAcquisition) {
         var previous = _rbaRetainedWrites[key] || Promise.resolve();
         var operation = previous.catch(function (error) {
           dbg('warn', 'Previous RBA retained write failed: ' + netErr(error));
@@ -12523,9 +12579,10 @@
           (rows || []).forEach(function (row) {
             var id = rarityRowId(row);
             if (!id) return;
-            currentKeys[id] = true;
+            if (!preserveAcquisition || !row.__rbaRetained) currentKeys[id] = true;
             byKey[id] = Object.assign({}, row, {
-              __rbaRetained: false, __rbaAcquiredAt: now, __rbaRegion: region
+              __rbaRetained: preserveAcquisition ? !!row.__rbaRetained : false,
+              __rbaAcquiredAt: preserveAcquisition ? row.__rbaAcquiredAt : now, __rbaRegion: region
             });
           });
           function eligible(row) {
@@ -12643,7 +12700,7 @@
         });
         return order.map(function (key) { return byPlace[key]; });
       }
-      function stateRbaRecords(force, onStatus, regionOverride, allowBrowser) {
+      function stateRbaRecords(force, onStatus, regionOverride, allowBrowser, ownerCurrent) {
         var report = getReport() || {};
         var region = String(regionOverride || report.stateCode || '');
         if (!/^US-[A-Z]{2}(?:-\d{3})?$/.test(region)) {
@@ -12656,7 +12713,7 @@
             if (!pendingRba.forcedContinuation) {
               function acquireLatestRba() {
                 if (!current()) throw queueCancelledError(null, 'State RBA scope changed');
-                return stateRbaRecords(force, onStatus, regionOverride, allowBrowser);
+                return stateRbaRecords(force, onStatus, regionOverride, allowBrowser, ownerCurrent);
               }
               pendingRba.forcedContinuation = pendingRba.then(acquireLatestRba, acquireLatestRba);
             }
@@ -12705,7 +12762,7 @@
           + '?sortBy=obsDt&o=desc';
         function current() {
           var active = getReport() || {};
-          return scopeCurrent(scope) && getAbaSid() === startSid
+          return (!ownerCurrent || ownerCurrent()) && scopeCurrent(scope) && getAbaSid() === startSid
             && active.slug === currentSlug && active.stateCode === report.stateCode;
         }
         function read(html) {
@@ -12756,15 +12813,35 @@
         return run;
       }
 
-      function loadPpteAlertSource(force, current, onResult, retryRegions) {
+      function loadPpteAlertSource(force, current, onResult, retryRegions, previous) {
         var scope = activeScope(), parent = String(getReport().stateCode || '');
+        var owner = surgeRetainedContext();
+        var retrying = Array.isArray(retryRegions) && previous && previous.sourceOwner === owner;
         if (!/^US-[A-Z]{2}$/.test(parent)) return Promise.resolve({ state: 'notApplicable', rows: [] });
         var selected = getCountyView();
         var regions = selected ? [selected] : [parent].concat(countyCodes());
         regions = regions.filter(function (region, index) { return regions.indexOf(region) === index; });
         return Promise.all(regions.map(function (region) {
-          var refresh = retryRegions ? retryRegions.indexOf(region) >= 0 : force;
-          return stateRbaRecords(refresh, null, region, false).then(function (source) {
+          var old = retrying && previous.regionSources && previous.regionSources[region];
+          if (old && retryRegions.indexOf(region) < 0) return Promise.resolve(old);
+          var refresh = retrying ? retryRegions.indexOf(region) >= 0 : force;
+          var qualificationOnly = old && old.complete && old.qualificationFailed;
+          var persistenceOnly = old && old.complete && !old.qualificationFailed
+            && old.retentionSaved === false;
+          if (persistenceOnly) return rbaBackfill(old.rows, region, true, current,
+            rbaRetainedKey(region), true).then(function (saved) {
+              var cached = _stateRbaCache[rbaRetainedKey(region)];
+              if (cached && cached.rows.length === old.rows.length && cached.rows.every(function (row) {
+                return old.rows.some(function (prior) {
+                  return rarityRowId(row) === rarityRowId(prior)
+                    && row.__rbaAcquiredAt === prior.__rbaAcquiredAt;
+                });
+              })) cached.retentionSaved = saved.retentionSaved;
+              return Object.assign({}, old, { retentionSaved: saved.retentionSaved });
+            });
+          var sourceRead = qualificationOnly ? Promise.resolve(old)
+            : stateRbaRecords(refresh, null, region, !!retrying && refresh, current);
+          return sourceRead.then(function (source) {
             if (!current() || !source.rows.length) return source;
             var work = navWork('Patagonia rarity qualification');
             work.current = current;
@@ -12773,19 +12850,34 @@
               false, refresh, refresh, work).then(function (notable) {
                 if (!Array.isArray(notable)) throw new Error('Notable qualification did not return observations');
                 return Object.assign({}, source, {
+                  qualificationFailed: false,
                   rows: ppteQualifiedRows(source.rows, notable, region, Date.now()),
                   capped: source.capped || notable.length >= 1000
                 });
               }).catch(function (error) {
                 if (error && error.queueCancelled) throw error;
                 dbg('warn', 'Patagonia rarity qualification unavailable for ' + region + ': ' + netErr(error));
-                return Object.assign({}, source, { complete: false, qualificationFailed: true,
+                return Object.assign({}, source, { qualificationFailed: true,
                   rows: ppteQualifiedRows(source.rows, [], region, Date.now()) });
               });
           });
         })).then(function (sources) {
           if (!current()) return { state: 'cancelled', rows: [] };
-          var failed = regions.filter(function (region, i) { return !sources[i].complete; });
+          var failed = regions.filter(function (region, i) {
+            return !sources[i].complete || sources[i].qualificationFailed
+              || sources[i].retentionSaved === false;
+          });
+          var errors = [], regionSources = {};
+          sources.forEach(function (source, i) {
+            var region = regions[i], d = source.diagnostics || {};
+            regionSources[region] = source;
+            if (!source.complete) errors.push({ stage: 'acquisition', region: region,
+              reason: d.directPage && d.directPage !== 'OPEN' ? d.directPage : d.directFailure || 'unavailable' });
+            if (source.qualificationFailed) errors.push({ stage: 'qualification', region: region,
+              reason: 'Independent rarity qualification unavailable' });
+            if (source.retentionSaved === false) errors.push({ stage: 'persistence', region: region,
+              reason: 'RBA evidence could not be saved on this device' });
+          });
           var capped = sources.some(function (source) { return source.capped; });
           var retainedCount = sources.reduce(function (n, source) { return n + (source.retainedRows || 0); }, 0);
           var backfillCapped = sources.some(function (source) { return source.backfillCapped; });
@@ -12795,9 +12887,10 @@
           })), []);
           evidence = rarityFilterRecords(evidence, anchorPoint(), { year: 'all', distance: 'region' });
           var result = {
+            sourceOwner: owner, regionSources: regionSources, loadingErrors: errors,
             failedRegions: failed,
             capped: capped, retainedRows: retainedCount, backfillCapped: backfillCapped,
-            state: failed.length === regions.length ? 'failed'
+            state: sources.every(function (source) { return !source.complete || source.qualificationFailed; }) ? 'failed'
               : failed.length || retentionFailed ? 'partial' : 'ok',
             rows: ppteEvents(evidence), evidenceRows: evidence,
             sourceDiagnostics: sources.map(function (source) { return source.diagnostics || null; }),
@@ -12805,7 +12898,7 @@
               + (sources.some(function (source) { return source.qualificationFailed; })
                 ? 'Independent rarity qualification unavailable; unqualified participants withheld. ' : '')
               + (failed.length ? 'RBA failure details: ' + sources.filter(function (source) {
-                return !source.complete && source.diagnostics;
+                return (!source.complete || source.qualificationFailed) && source.diagnostics;
               }).map(function (source) {
                 var d = source.diagnostics;
                 return d.region + ' (' + d.cache + ', ' + d.acquisition + ', '
@@ -43801,6 +43894,8 @@
         var failureKey = bcProfile() + '|' + foyKey(foyContext());
         var failure = _foyFailures[failureKey];
         force = force === true || !!(force && force.type === 'click'
+          && failure && failure.privacy === _identityGeneration)
+          || !!(force && force.userOpening === true
           && failure && failure.privacy === _identityGeneration) || takeForce();
         var scope = activeScope(), navigation = _navGeneration;
         var privacy = _identityGeneration, cancellation = _workCancelGeneration;
@@ -45051,6 +45146,10 @@
         _surgeRetainedWrites[storageKey] = write;
         return write;
       }
+      function surgePersistenceFailed(key) {
+        var part = {favorites:'favorite',leaderboard:'cascades',hotspots:'convergence'}[key] || key;
+        return !!_surgeRetentionFailures[surgeRetainedKey() + '||' + surgeRetainedContext() + '||' + part];
+      }
       function forgetSurgeRetained() {
         _surgeRetainedEpoch++;
         _surgeRetainedWrites = Object.create(null);
@@ -45230,16 +45329,58 @@
         groups.total = keys.length - groups.skipped.length;
         return groups;
       }
+      function surgeLoadingHealth(key, states, pendingSources, sourceState) {
+        sourceState = sourceState || {};
+        var source = key === 'mass' || key === 'sensitive' ? sourceState.massSource
+          : key === 'ppte' ? sourceState.ppteSource : null;
+        var state = states[key === 'sensitive' ? 'mass' : key];
+        var pending = !!(pendingSources && pendingSources[key === 'sensitive' ? 'mass' : key])
+          || state === 'loading' || state === 'notLoaded';
+        if (key === 'sensitive') {
+          var inventory = source && (source.sensitiveSource || source);
+          var month = birdcastIsoDate(birdcastLocalParts(new Date(), getReport())).slice(0, 7);
+          var owned = inventory && inventory.sourceOwner === surgeRetainedContext()
+            && inventory.sourceRegion === activeScope().effectiveRegion
+            && inventory.sourceMonth === month && inventory.acquiredAt > 0
+            && Date.now() >= inventory.acquiredAt && Date.now() - inventory.acquiredAt < CHASE_TTL_MS;
+          if (owned && (source.sensitiveSource || state !== 'failed')) {
+            return { pending:false, errors:sensitiveHistoryStatus()
+              ? [{stage:'persistence',reason:sensitiveHistoryStatus()}] : [],
+              limited:inventory.inventoryComplete !== true,
+              detail:sensitiveHistoryStatus() || (inventory.inventoryComplete === true
+                ? 'Monthly inventory loaded; Mass location and arrival limits do not apply.'
+                : 'Monthly inventory coverage is limited; new detections withheld.') };
+          }
+          if (sensitiveHistoryStatus()) return {pending:false,
+            errors:[{stage:'persistence',reason:sensitiveHistoryStatus()}], detail:sensitiveHistoryStatus()};
+        }
+        var errors = source && Array.isArray(source.loadingErrors) ? source.loadingErrors.slice()
+          : state === 'failed' ? [{ stage:'acquisition', reason:'Source acquisition failed' }] : [];
+        if (surgePersistenceFailed(key)) errors.push({stage:'persistence',reason:'Latest results could not be saved on this device'});
+        if (key !== 'mass' && key !== 'ppte' && key !== 'sensitive'
+            && state === 'partial') errors = [{ stage:'acquisition', reason:'Source incomplete' }];
+        return { pending:pending, errors:errors, limited:state === 'partial',
+          detail:errors.map(function (error) {
+            return (error.region ? error.region + ': ' : '') + error.stage + ' — ' + error.reason;
+          }).join('; ') };
+      }
       function surgeSourceProgress(states, pendingSources, outcome, sourceState) {
         var groups = surgeSourceSummary(states, pendingSources);
+        var unresolved = ['mass','ppte'].filter(function (key) {
+          var health = surgeLoadingHealth(key, states, pendingSources, sourceState);
+          return !health.pending && states[key] !== 'failed'
+            && (health.errors.length || key === 'mass' && sensitiveHistoryStatus());
+        });
         var limited = groups.incomplete.filter(function (key) { return states[key] === 'partial'; });
         var loaded = groups.loaded.length + limited.length, total = groups.total;
         var pct = total ? Math.round(loaded * 100 / total) : 0;
         var label = 'Bird Gen - ' + loaded + ' of ' + total + ' loaded';
         if (!groups.pending.length) {
           label += ' · ' + (outcome === 'cancelled' ? 'Cancelled' : outcome === 'failed' ? 'Failed'
-            : groups.failed.length ? loaded ? 'Finished with failures' : 'Failed' : 'Finished');
+            : groups.failed.length ? loaded ? 'Finished with failures' : 'Failed'
+              : unresolved.length ? 'Finished with loading errors' : 'Finished');
         }
+        if (unresolved.length) label += ' · ' + unresolved.length + ' loading error' + (unresolved.length === 1 ? '' : 's');
         if (limited.length) label += ' · ' + limited.length + ' with limited coverage';
         if (groups.incomplete.length > limited.length) {
           label += ' · ' + (groups.incomplete.length - limited.length) + ' incomplete';
@@ -45258,14 +45399,15 @@
           + '<details class="surgesources"><summary>Source status</summary><ul>'
           + ['failed', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
             return groups[group].map(function (key) {
-              var detail = key === 'birdcast' && states[key] === 'partial' && _birdcastSnapshot
+              var health = surgeLoadingHealth(key, states, pendingSources, sourceState);
+              var detail = (key === 'mass' || key === 'ppte') && health.errors.length ? health.detail
+                : key === 'birdcast' && states[key] === 'partial' && _birdcastSnapshot
                 ? [_birdcastSnapshot.forecastError, _birdcastSnapshot.countError,
                     _birdcastSnapshot.migrantsError].filter(Boolean).join('; ')
-                : key === 'ppte' && states[key] === 'partial'
-                  ? 'Some source evidence could not be acquired, qualified or saved.'
+                : key === 'ppte' ? health.detail
                   : key === 'mass' && states[key] === 'partial' && sourceState
                     && sourceState.massSource && sourceState.massSource.source === 'highCountPage'
-                    ? sourceState.massCoverage || ''
+                    ? health.detail
                     : key === 'foy' && states[key] === 'failed' && sourceState
                       ? sourceState.foyError || '' : '';
               var kinds = Object.keys(SURGE_CATEGORY_SOURCES).filter(function (kind) {
@@ -45278,18 +45420,33 @@
               }).join(' ');
               return '<li data-source-status="' + key + '"><span class="surgesourceicons" aria-hidden="true">'
                 + icons + '</span> ' + esc(SURGE_SOURCE_LABELS[key]) + ': '
-                + { failed: 'Failed',
-                  incomplete: states[key] === 'partial' ? 'Partially loaded'
+                + (health.errors.length && !health.pending && group !== 'failed' && group !== 'incomplete'
+                  ? 'Loading error; usable results retained' : { failed: 'Failed',
+                  incomplete: states[key] === 'partial' ? health.errors.length ? 'Loading error; usable results retained' : 'Loaded'
                     : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
                   pending: 'Loading',
-                  loaded: 'Loaded', skipped: 'Not applicable' }[group]
+                  loaded: 'Loaded', skipped: 'Not applicable' }[group])
                 + (kinds.length > 1 ? ' <small>Supports: ' + kinds.map(function (kind) {
                   return esc(SURGE_KINDS[kind].word);
                 }).join(', ') + '.</small>' : '')
+                + (key === 'mass' ? ' <small data-sensitive-source-status>Sensitive: '
+                  + esc((function () {
+                    var sensitive = surgeLoadingHealth('sensitive', states, pendingSources, sourceState);
+                    return sensitive.pending ? 'Loading monthly inventory'
+                      : sensitive.errors.length ? sensitive.detail : sensitive.detail
+                        || 'Monthly inventory not verified for this region/month; saved alerts retain their expiry.';
+                  })()) + '</small>' : '')
                 + (detail ? ' — ' + esc(detail) : '')
-                + (group === 'failed' || group === 'incomplete'
+                + (key === 'mass' && sourceState && sourceState.massSource
+                    && sourceState.massSource.source === 'highCountPage' && sourceState.massCoverage
+                  ? '<details data-source-coverage><summary>Coverage details</summary>'
+                    + esc(sourceState.massCoverage) + '</details>' : '')
+                + (group === 'failed' || group === 'incomplete' || health.errors.length && !health.pending
+                    || key === 'mass' && sensitiveHistoryStatus()
                   ? ' <button type="button" class="surgeretry" data-source-retry="' + key
-                    + '" aria-label="Retry only ' + esc(SURGE_SOURCE_LABELS[key]) + '">Retry</button>' : '')
+                    + '" aria-label="' + (health.errors.length || key === 'mass' && sensitiveHistoryStatus() ? 'Retry' : 'Refresh') + ' only '
+                    + esc(SURGE_SOURCE_LABELS[key]) + '">'
+                    + (health.errors.length || key === 'mass' && sensitiveHistoryStatus() ? 'Retry' : 'Refresh') + '</button>' : '')
                 + '</li>';
             }).join('');
           }).join('') + '</ul></details>'
@@ -45653,9 +45810,8 @@
         hotspot: ['hotspots'], patch: ['observations'], favorite: ['favorites'],
         mass: ['mass'], sensitive: ['mass'], ppte: ['ppte'], foy: ['foy']
       };
-      function surgeCountHtml(rows, states, pendingSources) {
+      function surgeCountHtml(rows, states, pendingSources, sourceState) {
         states = states || {};
-        var summary = surgeSourceSummary(states, pendingSources);
         var counts = {}, kinds = Object.keys(SURGE_KINDS).sort(function (a, b) {
           return SURGE_KINDS[a].priority - SURGE_KINDS[b].priority;
         });
@@ -45670,16 +45826,18 @@
         counts.foy = Object.keys(foyCodes).length;
         function status(kind) {
           var deps = SURGE_CATEGORY_SOURCES[kind];
+          if (kind === 'sensitive') deps = ['sensitive'];
+          var health = deps.map(function (key) {
+            return surgeLoadingHealth(key, states, pendingSources, sourceState);
+          });
           return {
-            loading: deps.some(function (key) { return summary.pending.indexOf(key) >= 0; }),
-            failed: deps.some(function (key) { return summary.failed.indexOf(key) >= 0; }),
-            limited: deps.some(function (key) {
-              return summary.incomplete.indexOf(key) >= 0 && states[key] === 'partial';
-            }) && deps.every(function (key) {
-              return summary.incomplete.indexOf(key) < 0 || states[key] === 'partial';
-            }),
-            retry: deps.filter(function (key) {
-              return summary.failed.indexOf(key) >= 0 || summary.incomplete.indexOf(key) >= 0;
+            loading: health.some(function (value) { return value.pending; }),
+            failed: health.some(function (value) { return value.errors.length > 0; }),
+            limited: health.some(function (value) { return value.limited; }),
+            retry: deps.filter(function (key, index) {
+              return health[index].errors.length > 0 && !health[index].pending;
+            }).map(function (key) {
+              return key === 'sensitive' ? 'mass' : key;
             })
           };
         }
@@ -45688,11 +45846,12 @@
           return counts[kind] > 0 || state.loading || state.retry.length;
         }
         var sensitiveState = status('sensitive');
-        var sensitiveNote = counts.sensitive && (sensitiveState.loading || sensitiveState.retry.length)
+        var sensitiveNote = (sensitiveState.loading || sensitiveState.retry.length)
+          && (counts.sensitive || states.mass && states.mass !== 'notApplicable')
           ? '<p class="hint" data-sensitive-coverage>Sensitive: ' + counts.sensitive
             + ' alert' + (counts.sensitive === 1 ? '' : 's') + ' available; shared Mass flock source '
             + (sensitiveState.loading ? 'is still loading' : sensitiveState.failed ? 'failed'
-              : sensitiveState.limited ? 'has limited coverage' : 'is incomplete')
+              : sensitiveState.limited ? 'has limited monthly coverage' : 'monthly inventory is loaded')
             + '. The checkmark marks the selected filter.</p>' : '';
         if (_surgeCategory && !visible(_surgeCategory)) _surgeCategory = '';
         return '<div class="surgecounts" aria-label="Alert counts by category">'
@@ -45708,7 +45867,7 @@
                 icon:kind === 'ppte' ? '' : SURGE_KINDS[kind].glyph,
                 iconHtml:kind === 'ppte' ? SURGE_KINDS[kind].glyph : '',
                 label:label, ariaLabel:accessibleLabel + (state.loading ? ', loading, results not complete' : '')
-                  + (state.failed ? ', source failed' : state.retry.length
+                  + (state.failed ? ', unresolved loading error' : state.retry.length
                     ? state.limited ? ', Partially loaded' : ', incomplete' : '')
                   + '. Filter alerts.',
                 pressed:_surgeCategory === kind})
@@ -46200,6 +46359,12 @@
         var baseCoverage = result.arrivalBaseCoverage || result.coverage;
         var baseState = result.arrivalBaseState || result.state;
         var candidates = result.rows.filter(function (flock) { return !massNews(flock).length; });
+        var retryErrors = result.loadingErrors || [];
+        var failedHistory = retryErrors.filter(function (error) { return error.stage === 'history'; });
+        if (result.retryFailedHistory) candidates = candidates.filter(function (flock) {
+          return failedHistory.some(function (error) { return error.locId === flock.locId; });
+        });
+        result.loadingErrors = retryErrors.filter(function (error) { return error.stage !== 'history'; });
         if (!candidates.length) {
           result.arrivalPending = false;
           result.state = baseState;
@@ -46237,7 +46402,9 @@
                 var path = 'data/obs/' + encodeURIComponent(flock.locId) + '/historic/'
                   + date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate()
                   + '?detail=full&cat=species&maxResults=1000';
-                if (!requests[path]) requests[path] = ebird(path, true, false, !!force, work);
+                var previousDays = result.arrivalDays[flock.locId] || {};
+                if (!requests[path]) requests[path] = result.retryFailedHistory && Array.isArray(previousDays[day])
+                  ? Promise.resolve(previousDays[day]) : ebird(path, true, false, !!force, work);
                 return requests[path].then(function (rows) {
                   if (!Array.isArray(rows)) throw new Error('Invalid Mass arrival history response');
                   days[day] = rows;
@@ -46264,6 +46431,9 @@
             }).catch(function (error) {
               if (error && error.queueCancelled) throw error;
               unknown++;
+              result.arrivalDays[flock.locId] = days;
+              result.loadingErrors.push({ stage: 'history', locId: flock.locId,
+                reason: 'Arrival-history request failed' });
               dbg('warn', 'Mass arrival evidence unavailable: ' + ((error && error.message) || error));
             }).then(function () {
               if (!workCurrent(work)) throw queueCancelledError(work);
@@ -46272,6 +46442,7 @@
           });
         }, Promise.resolve()).then(function () {
           result.arrivalPending = false;
+          delete result.retryFailedHistory;
           result.state = baseState === 'partial' || unknown
             || /could not|not covered/.test(baseCoverage) ? 'partial' : 'ok';
           result.coverage = baseCoverage + '; first-report checks: up to ' + ABA_HIST_BACK
@@ -46423,6 +46594,10 @@
           + '/bird-list?yr=curM&rank=hc&hs_sortBy=count&locale=en';
       }
       var _sensitiveHistoryStatus = '';
+      var _sensitiveHistoryOwner = '';
+      function sensitiveHistoryStatus() {
+        return _sensitiveHistoryOwner === surgeRetainedContext() ? _sensitiveHistoryStatus : '';
+      }
       var _sensitiveClock = null;
       function sensitiveJournalKey() {
         return 'bc_sensitive_v1:' + activeScope().effectiveRegion;
@@ -46430,6 +46605,8 @@
       function birdGenSensitiveJournal(source, now) {
         now = now instanceof Date ? now : new Date(now == null ? Date.now() : now);
         var scope = activeScope(), report = getReport();
+        if (_sensitiveHistoryOwner !== surgeRetainedContext()) _sensitiveHistoryStatus = '';
+        _sensitiveHistoryOwner = surgeRetainedContext();
         var key = sensitiveJournalKey(), raw, previous = null;
         try { raw = localStorage.getItem(key); }
         catch (error) {
@@ -47139,8 +47316,11 @@
       function mergeEventFeedResult(kind, previous, result) {
         if (!previous) return result;
         if (result.state === 'failed') {
-          return Object.assign({}, previous, { state: 'failed',
+          return Object.assign({}, previous, result, { state: 'failed',
+            rows: previous.rows, evidenceRows: previous.evidenceRows,
             failedRegions: result.failedRegions,
+            loadingErrors: result.loadingErrors,
+            sensitiveSource: result.sensitiveSource,
             coverage: result.coverage || previous.coverage || '',
             retainedAt: previous.retainedAt || Date.now() });
         }
@@ -47167,7 +47347,7 @@
 
       function renderEventFeed(kind, source) {
         var box = $(kind + 'Results'), status = $(kind + 'Status');
-        var rows = source.rows || [], events = {};
+        var rows = kind === 'ppte' ? consolidatePpteEvents(source.rows) : source.rows || [], events = {};
         if (kind === 'mass') {
           rows = raritySorted(rows, {
             date: function (row) { return surgeTimeValue(row.when) ? row.when : ''; },
@@ -47232,7 +47412,9 @@
               + esc(fmtEvidenceDateTime(row.latest)) + '<br>'
               + row.species.map(function (bird) {
                 return esc(bird.name) + ': ' + bird.reports + ' reports';
-              }).join('; ') + '<br><span class="hint">'
+              }).join('; ') + '<br>Qualified: ' + (row.qualifications || [{day:row.day}]).map(function (q) {
+                return esc(fmtDate(q.day));
+              }).join(', ') + '<br><span class="hint">'
               + 'The reporting sequence does not prove causation.</span>'
           });
         }).join('') || '<li class="hint">' + (state === 'failed'
@@ -47313,6 +47495,7 @@
         var diagnostics = {}, started = Date.now(), pageRows = 0;
         var directoryState = 'not needed', controller = null;
         var url = massHighCountPageUrl(scope.effectiveRegion);
+        var acquiredInventory = null, inventoryRows = null, inventoryCoverage = null;
         try {
           storeKeys(MASS_DAY_CACHE_NS).forEach(function (key) { localStorage.removeItem(key); });
         } catch (e) { dbg('warn', 'Mass flock old cache cleanup failed'); }
@@ -47379,6 +47562,41 @@
             }
             return Object.assign({}, retained, { state: value.state });
           }
+          var retrySource = options.retrySource;
+          var retryInventory = retrySource && retrySource.sensitiveSource;
+          if (force && retryInventory && retryInventory.sourceOwner === surgeRetainedContext()
+              && retryInventory.sourceRegion === scope.effectiveRegion
+              && now - retryInventory.acquiredAt >= 0 && now - retryInventory.acquiredAt < CHASE_TTL_MS
+              && sensitiveHistoryStatus() && !(retrySource.loadingErrors || []).length) {
+            birdGenSensitiveJournal(Object.assign({}, retryInventory, {acquired:true}), now);
+            return retrySource;
+          }
+          if (force && retryInventory && retryInventory.sourceOwner === surgeRetainedContext()
+              && retryInventory.sourceRegion === scope.effectiveRegion
+              && now - retryInventory.acquiredAt >= 0 && now - retryInventory.acquiredAt < CHASE_TTL_MS
+              && retrySource.loadingErrors && retrySource.loadingErrors.length
+              && retrySource.loadingErrors.every(function (error) { return error.stage === 'directory'; })
+              && Array.isArray(retrySource.inventoryRows) && retrySource.rowCoverage) {
+            acquiredInventory = retryInventory;
+            inventoryRows = retrySource.inventoryRows;
+            inventoryCoverage = retrySource.rowCoverage;
+            return qualifyInventory(inventoryRows, inventoryCoverage, retryInventory.acquiredAt)
+              .catch(acquisitionFailure);
+          }
+          if (force && retrySource && retrySource.sourceOwner === surgeRetainedContext()
+              && retrySource.sourceRegion === scope.effectiveRegion
+              && retrySource.acquiredAt > 0 && now - retrySource.acquiredAt >= 0
+              && now - retrySource.acquiredAt < CHASE_TTL_MS
+              && retrySource.rowCoverage && Array.isArray(retrySource.evidenceRows)
+              && retrySource.loadingErrors && retrySource.loadingErrors.length
+              && retrySource.loadingErrors.every(function (error) { return error.stage === 'history'; })) {
+            var recovery = Object.assign({}, retrySource, { retryFailedHistory: true });
+            recovery.rows = retrySource.rows.map(function (row) { return Object.assign({}, row); });
+            recovery.arrivalDays = Object.assign({}, retrySource.arrivalDays);
+            return enrichMassArrivals(recovery, work, onProgress, false).then(function (result) {
+              return finish(result);
+            });
+          }
           return acquire();
         });
         function acquire() {
@@ -47425,6 +47643,12 @@
           if (!workCurrent(work)) throw queueCancelledError(work);
           var rowCoverage = massHighCountCoverage(rows, rows.rowCoverage, scope.effectiveRegion);
           var acquiredAt = Date.now();
+          inventoryRows = rows; inventoryCoverage = rowCoverage;
+          acquiredInventory = { source:'highCountPage', sourceOwner:surgeRetainedContext(),
+            sourceRegion:scope.effectiveRegion, sourceMonth:rowCoverage.sourceMonth,
+            acquiredAt:acquiredAt, inventoryComplete:rowCoverage.rejected === 0,
+            state:rowCoverage.sourceMonth && !rowCoverage.rejected ? 'ok' : 'partial',
+            loadingErrors:[], sensitiveRows:rowCoverage.sensitiveRows };
           pageRows = rowCoverage.total;
           diagnostics.unusableHighCountRows = rowCoverage.rejected;
           var unverifiedSensitivePeriod = rowCoverage.sensitiveRows.length && !rowCoverage.sourceMonth;
@@ -47447,13 +47671,18 @@
               dbg('warn', 'Bird Gen Mass rejected row: ' + JSON.stringify(error));
             });
           }
+          return qualifyInventory(rows, rowCoverage, acquiredAt);
+        }).catch(acquisitionFailure);
+        }
+        function qualifyInventory(rows, rowCoverage, acquiredAt) {
+          var unverifiedSensitivePeriod = rowCoverage.sensitiveRows.length && !rowCoverage.sourceMonth;
           var now = Date.now();
           rows = rows.filter(function (row) {
             return row.howMany >= MASS_ALERT_COUNT
               && surgeTimeValue(row.obsDt) >= now - MASS_WINDOW_DAYS * 86400000;
           });
           directoryState = rows.length ? 'loading' : 'not needed';
-          return (rows.length ? loadHotspotIndex(scope.parentRegion, work, false)
+          return (rows.length ? loadHotspotIndex(scope.parentRegion, work, !!options.retrySource)
             : Promise.resolve([])).then(function (hotspots) {
             if (!workCurrent(work)) throw queueCancelledError(work);
             if (rows.length) directoryState = 'loaded';
@@ -47477,6 +47706,8 @@
               sourceOwner: surgeRetainedContext(),
               sourceRegion: scope.effectiveRegion,
               sourceMonth: rowCoverage.sourceMonth,
+              inventoryComplete: rowCoverage.rejected === 0,
+              sensitiveSource: acquiredInventory, loadingErrors: [],
               sensitiveRows: rowCoverage.sensitiveRows,
               acquiredAt: acquiredAt,
               includeProvisional: true,
@@ -47501,7 +47732,8 @@
               return finish(enriched);
             });
           });
-        }).catch(function (error) {
+        }
+        function acquisitionFailure(error) {
           var cancelled = !!(error && error.queueCancelled)
             || !!(controller && controller.signal.aborted && !workCurrent(work));
           if (directoryState === 'loading') directoryState = 'failed';
@@ -47509,12 +47741,19 @@
             dbg('warn', 'Bird gen mass source: ' + ((error && error.message) || error));
           }
           return finish({ state: 'failed', rows: [], diagnostics: diagnostics,
+            sensitiveSource: acquiredInventory,
+            sourceOwner: surgeRetainedContext(), sourceRegion: scope.effectiveRegion,
+            acquiredAt: acquiredInventory && acquiredInventory.acquiredAt,
+            inventoryRows: inventoryRows, rowCoverage: inventoryCoverage,
+            loadingErrors: cancelled ? [] : [{ stage: directoryState === 'failed' ? 'directory' : 'acquisition',
+              reason: directoryState === 'failed' ? 'Public-hotspot directory failed'
+                : error && error.websiteKind ? 'Website access required (' + error.websiteKind + ')'
+                  : 'High-count page acquisition failed' }],
             coverage: cancelled ? 'Search cancelled'
               : ['ANUBIS', 'LOGIN'].indexOf(error && error.websiteKind) >= 0
                 ? 'High-count page needs website access (' + error.websiteKind + ').'
                 : 'High-count page or public-location source failed'
           }, cancelled);
-        });
         }
       }
 
@@ -47863,8 +48102,8 @@
             return row.kind !== 'migration' || row.migrationLevel === 'High';
           });
         var diagnostics = [surgeSourceWarning(sourceStates)];
-        if (_sensitiveHistoryStatus) diagnostics.push(_sensitiveHistoryStatus);
-        var ppteRows = sourceState && sourceState.ppteRows || [];
+        if (sensitiveHistoryStatus()) diagnostics.push(sensitiveHistoryStatus());
+        var ppteRows = consolidatePpteEvents(sourceState && sourceState.ppteRows || []);
         var twitchRows = sourceState && sourceState.twitchRows || [];
         if (_twitchTracking.key === twitchJournalKey() && _twitchTracking.status) {
           diagnostics.push(_twitchTracking.status);
@@ -47915,7 +48154,7 @@
               || sourceState && sourceState.pendingSources && sourceState.pendingSources[key];
           });
           box.innerHTML = surgeControls()
-            + surgeCountHtml([], sourceStates, sourceState && sourceState.pendingSources)
+            + surgeCountHtml([], sourceStates, sourceState && sourceState.pendingSources, sourceState)
             + (sourcesLoading
             ? '<div class="status" role="status" data-surge-loading>Loading Bird Gen sources\u2026 Available alerts appear as checks finish.</div>'
             : surgeSourcesComplete(sourceStates)
@@ -47984,8 +48223,10 @@
               + ' separate recent sightings at this site, followed by another corroborated rarity. '
               + 'Both have recent reports; the reporting sequence does not prove causation.',
             noteHeader: ppteChaseLabel(event),
-            extra: '<span class="ppte-evidence">Qualified <time datetime="' + esc(event.day)
-              + '">' + esc(fmtDate(event.day)) + '</time>'
+            extra: '<span class="ppte-evidence">Qualified ' + (event.qualifications || [{day:event.day}])
+              .map(function (qualification) {
+                return '<time datetime="' + esc(qualification.day) + '">' + esc(fmtDate(qualification.day)) + '</time>';
+              }).join(', ')
               + (eventDistance == null ? '' : ' &middot; <span data-ppte-distance-text>'
                 + esc(surgeDistanceText(eventDistance)) + ' away</span>') + ': '
               + event.species.map(function (bird) {
@@ -48382,7 +48623,7 @@
           megaAge: mega ? megaAge(mega.at) : ''
         }, esc);
         var html = surgeControls()
-          + surgeCountHtml(rows, sourceStates, sourceState && sourceState.pendingSources)
+          + surgeCountHtml(rows, sourceStates, sourceState && sourceState.pendingSources, sourceState)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'
           + ' data-unified-alert-feed="true">'
           + rows.map(function (row) { return surgeAlertCard(row, order++); }).join('')
@@ -48852,6 +49093,9 @@
           if (!current()) return Promise.resolve({ state: 'cancelled' });
           var summary = surgeSourceSummary(attemptStates, pendingSources);
           var eligible = summary.failed.concat(summary.incomplete);
+          ['mass','ppte'].forEach(function (key) {
+            if (surgePersistenceFailed(key) || key === 'mass' && sensitiveHistoryStatus()) eligible.push(key);
+          });
           return Promise.all((keys || eligible).filter(function (key, index, selected) {
             return selected.indexOf(key) === index && eligible.indexOf(key) >= 0 && sourceTasks[key];
           }).map(function (key) { return sourceTasks[key](true); }));
@@ -49013,6 +49257,7 @@
               outcome: terminalOutcome,
               suppressNotifications: terminalOutcome === 'cancelled',
               ppteRows: surgeModel.ppte.rows, ppteCoverage: surgeModel.ppte.coverage,
+              ppteSource: surgeModel.ppte,
               retainedAt: retainedDates.length ? Math.min.apply(Math, retainedDates) : 0,
               retentionFailed: retentionFailed,
               twitchRows: surgeModel.observed.twitchRows || [],
@@ -49218,16 +49463,24 @@
         });
         var pMass = sourceTask(readySource, 'mass', function (retry) {
           if (!current()) return { state: 'cancelled', rows: [] };
+          if (retry && surgePersistenceFailed('mass') && !(surgeModel.mass.loadingErrors || []).length
+              && !sensitiveHistoryStatus()) return saveSurgeRetainedPart('mass',surgeModel.mass).then(function () {
+                return surgeModel.mass;
+              });
           return loadMassFlockAlertSource(force || retry, loadScope, function (result) {
             publishSource('mass', result);
           }, { section: fullRefresh ? 'menuPanel' : 'sec-surgeBtn',
-            current: current, allowBrowser: !!retry || !autoload });
+            current: current, allowBrowser: !!retry || !autoload,
+            retrySource: retry ? surgeModel.mass : null });
         });
         var pPpte = sourceTask(countySource, 'ppte', function (retry) {
           if (!current()) return { state: 'cancelled', rows: [] };
+          if (retry && surgePersistenceFailed('ppte') && !(surgeModel.ppte.loadingErrors || []).length) {
+            return saveSurgeRetainedPart('ppte',surgeModel.ppte).then(function () { return surgeModel.ppte; });
+          }
           return loadPpteAlertSource(force || retry, current, function (result) {
             publishSource('ppte', result);
-          }, retry ? surgeModel.ppte.failedRegions : null);
+          }, retry ? surgeModel.ppte.failedRegions : null, retry ? surgeModel.ppte : null);
         });
         var rr = rankPrimaryRegion();
         var pCascades = sourceTask(countySource, 'leaderboard', function (retry) {
@@ -52960,7 +53213,7 @@
           } else if (button.closest('.menuShortcut')) {
             event.preventDefault();
             event.stopImmediatePropagation();
-            showSection(button.dataset.sec);
+            showSection(button.dataset.sec, { userNavigation: true });
           }
         }, true);
       }
@@ -53050,7 +53303,9 @@
             }
             a.appendChild(extras);
           }
-          (function (targetId) { a.addEventListener('click', function () { showSection(targetId); }); })(sec.id);
+          (function (targetId) { a.addEventListener('click', function () {
+            showSection(targetId, { userNavigation: true });
+          }); })(sec.id);
           li.appendChild(a); list.appendChild(li);
           });
           if (group === 'Stakeouts') renderJargonTip(list);
@@ -53242,6 +53497,8 @@
               hotspots: model.convergence ? 'stale' : 'notLoaded',
               favorites: model.favorite ? 'stale' : 'notLoaded',
               mass: model.mass ? 'stale' : 'notLoaded',
+              massSource: model.mass, massCoverage: model.mass && model.mass.coverage,
+              ppteSource: model.ppte,
               ppte: model.ppte ? 'stale' : 'notLoaded',
               foy: model.foy ? 'stale' : 'notLoaded',
               ppteRows: model.ppte && model.ppte.rows, foyRows: model.foy && model.foy.rows,
@@ -53852,7 +54109,12 @@
         // keeps naming whichever mode you were in last.
         syncModePick(id);
         restoreSectionScroll(options.scrollY);
-        if (options.load !== false) autoLoad(target);
+        if (options.load !== false) {
+          if (options.userNavigation === true && fromId !== id && target && target._at === 'foyBtn') {
+            _autoLoaded[id] = true;
+            loadFoy({ userOpening: true });
+          } else autoLoad(target);
+        }
         refreshVisibleMaps();
         auditOverflow(id);
         auditEvent('navigation.open', {
@@ -57110,7 +57372,7 @@
           else loadQuickOuting(origin);
           return;
         }
-        showSection(val);
+        showSection(val, { userNavigation: true });
       }
       // Delegated, so adding a mode is one row of the table above.
       document.addEventListener('click', function (ev) {
@@ -57324,7 +57586,7 @@
         if (sec) {
           ev.preventDefault();
           var sid = sec.getAttribute('data-sec') || '';
-          if (sid && $(sid)) showSection(sid);
+          if (sid && $(sid)) showSection(sid, { userNavigation: true });
           return;
         }
         // Per-lane help. Four lanes with four different rules used to sit under
@@ -58061,6 +58323,7 @@
         foyContext: foyContext, foyKey: foyKey, foyHistoryRead: foyHistoryRead,
         foyPendingRows: foyPendingRows, ensureFoy: ensureFoy,
         renderFoy: renderFoy, loadFoy: loadFoy,
+        consolidatePpteEvents: consolidatePpteEvents, surgeLoadingHealth: surgeLoadingHealth,
         appendFoySurgeReasons: appendFoySurgeReasons,
         countySeenEvidenceReady: countySeenEvidenceReady,
         ensureCountySeenEvidence: ensureCountySeenEvidence,

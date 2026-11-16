@@ -42,7 +42,7 @@
     },
     sensitive: {
       keyDescription: 'Sensitive species reported in your region with exact dates and places withheld.',
-      priority: 11, word: 'SENSITIVE', glyph: '!', name: 'Sensitive species this month',
+      priority: 11, word: 'SENSITIVE', glyph: '🛡', name: 'Sensitive species this month',
       description: 'Public regional species membership for the stated calendar month. Exact observation dates and locations are withheld by eBird. This is not a located chase opportunity.'
     },
     mass: {

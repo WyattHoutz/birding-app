@@ -875,14 +875,12 @@ module.exports = function registerMigrationSetupControls({
         pendingSources: { mass: false, ppte: true, hotspots: false, observations: false }
       });
       const status = surgeSourceRoot(app).querySelector('.surgesources');
-      assert.match(status.textContent, /Mass flock feeds: Partially loaded/);
+      assert.match(status.textContent, /Mass flock feeds: Loaded/);
       assert.match(status.textContent, /Patagonia[^:]*: Loading/);
       assert.match(status.textContent, /Hotspot activity feeds: Failed/);
       const limited = app.$('surgeResults').querySelector('[data-count-kind="mass"]');
-      assert.match(limited.textContent, /⚠/);
-      assert.match(limited.getAttribute('aria-label'), /Partially loaded/);
-      assert.equal(limited.closest('.surgecategory').dataset.categoryState, 'limited');
-      assert.ok(surgeSourceRoot(app).querySelector('[data-source-retry="mass"]'));
+      assert.equal(limited, null, 'nonfatal partial coverage cannot create a zero-alert error category');
+      assert.equal(surgeSourceRoot(app).querySelector('[data-source-retry="mass"]').textContent, 'Refresh');
       assert.equal(A.surgeSourceSummary({ mass: 'partial' }, { mass: true }).pending[0], 'mass');
     } finally { app.window.close(); }
   });
