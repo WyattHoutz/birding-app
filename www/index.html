@@ -1645,6 +1645,28 @@
     #spLookupMap:empty, #stakeHsMap:empty, #destMap:empty, #excMap:empty, #tripMap:empty, #hotMap:empty, #coldMap:empty, #cklMap:empty, #closeMap:empty, #quickMap:empty, #favMap:empty { display: none; }
     .leaflet-container { font: inherit; background: #e8ecea; }
     .leaflet-container a { color: var(--accent); }
+    .embedded-map { isolation: isolate; }
+    .embedded-map.map, #destMap.embedded-map, #excMap.embedded-map,
+    #tripMap.embedded-map, #hotMap.embedded-map, #coldMap.embedded-map,
+    #cklMap.embedded-map, #quickMap.embedded-map, #spLookupMap.embedded-map,
+    #stakeHsMap.embedded-map, #favMap.embedded-map,
+    #setupHomeMap.embedded-map, #setupConfirmationMap.embedded-map {
+      height: auto; min-height: 0; aspect-ratio: auto; overflow: hidden;
+    }
+    .embedded-map { width: 100%; margin: 6px 0 10px; }
+    .embedded-map:empty { display: none; }
+    .mapcanvas { width: 100%; aspect-ratio: 8 / 5;
+      border-radius: 12px; overflow: hidden; background: #e8ecea; }
+    #spLookupMap .mapcanvas { aspect-ratio: 8 / 7; }
+    .mapcanvas > svg.map { height: 100%; margin: 0; border: 0; }
+    .mapcredits { padding: 5px 2px; color: var(--muted);
+      background: var(--card); font-size: calc(14px * var(--s));
+      line-height: 1.5; overflow-wrap: anywhere; }
+    .mapcredits a { color: var(--link); display: inline; min-height: 0; }
+    .mapcredits .leaflet-control-attribution { float: none; position: static;
+      margin: 0; padding: 0; background: transparent; font: inherit; z-index: auto; }
+    .regionlocation { display: flex; width: 100%; margin-bottom: 10px; }
+    .regionlocation .sortbtn { flex: 1; min-height: 44px; font-size: calc(14px * var(--s)); }
     .birdcast-alert {
       display: grid; grid-template-columns: calc(72px * var(--s)) minmax(0, 1fr); gap: 12px;
       align-items: center; margin: 4px 0 12px; padding: 13px;
@@ -4159,6 +4181,8 @@
               aria-label="Close region chooser">Close</button>
     </div>
     <div class="regionchooser-search">
+      <div id="regionChooserLocation"></div>
+      <p id="regionChooserLocationStatus" class="hint" role="status"></p>
       <label for="regionChooserSearch">Search all regions</label>
       <input id="regionChooserSearch" type="search" autocomplete="off"
              placeholder="Name or region code">
@@ -4970,6 +4994,7 @@
       Bird data from <a href="https://ebird.org" target="_blank" rel="noopener">eBird</a>,
       © Cornell Lab of Ornithology · weather &amp; tides from NOAA ·
       <button type="button" id="attribMore" class="linkish">all data sources</button>
+      <div>Interactive maps powered by <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>.</div>
       <div class="attrib-dim">Not affiliated with or endorsed by the Cornell Lab of Ornithology.</div>
     </div>
     <div id="ver">Bird Chaser · tap 5× for 🐞 debug</div>
@@ -5602,7 +5627,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.4.0';
+      var APP_VERSION = '2.5.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -16516,9 +16541,9 @@
         results.setAttribute('data-patch-context', patchContextKey('today'));
         hosts.st.textContent = ranked.length + ' top hotspot' + (ranked.length === 1 ? '' : 's')
           + ' with an unseen bird · from ' + data.label
-          + ' · best first, not nearest · ' + SCOUT_BACK_D + '-day Find feeds within '
+          + ' · best first, not nearest · ' + SCOUT_BACK_D + '-day local feeds within '
           + Math.round(radius) + ' mi';
-        $('destStatus').textContent = hosts.st.textContent;
+        $('destStatus').textContent = '';
       }
       function renderScout(data, partial, hosts) {
         // `hosts` (owner: "automatically do scouting") lets the SAME renderer
@@ -16767,6 +16792,7 @@
           else open.insertBefore(box, open.firstChild);
         }
         box.hidden = false;
+        box.querySelector('.scoutinlineclose').hidden = quickOrigin !== 'find';
         box.querySelector('.scoutinplace').textContent = place.label || 'there';
         var hosts = { host: box.querySelector('.scoutinbody'),
                       st: box.querySelector('.scoutinstatus'),
@@ -19840,7 +19866,8 @@
             }
             if (!feeds.length) {
               feedsStarted();
-              return { t: Date.now(), profile: profile, cv: null, rarity: true };
+              return { t: Date.now(), profile: profile, cv: null, rarity: true,
+                capabilityUnavailable: profile.isRarityTracker === true };
             }
             var work = ownerWork ? Object.assign({}, ownerWork) : cancellableWork('Twitch rarity feeds');
             work.current = current;
@@ -20912,19 +20939,29 @@
         if (!el) return;
         points = (points || []).filter(function (p) { return p && isFinite(p.lat) && isFinite(p.lng); });
         var h = (home && isFinite(home.lat) && isFinite(home.lng)) ? home : null;
-        if (typeof L === 'undefined' || !L || !L.map) { setSVG(el, mapSVG(points, h, connect)); return; }
+        el.classList.add('embedded-map');
         if (!el.id) el.id = 'lmap-' + (renderMap._n = (renderMap._n || 0) + 1);
         if (_leafletMaps[el.id]) { try { _leafletMaps[el.id].remove(); } catch (e) {} delete _leafletMaps[el.id]; }
         el.innerHTML = '';
         if (!points.length && !h) return;
+        var canvas = document.createElement('div');
+        canvas.className = 'mapcanvas';
+        el.appendChild(canvas);
+        if (typeof L === 'undefined' || !L || !L.map) { setSVG(canvas, mapSVG(points, h, connect)); return; }
         var map;
-        try { map = L.map(el, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }); }
-        catch (e) { dbg('error', 'leaflet init: ' + (e && e.message || e)); setSVG(el, mapSVG(points, h, connect)); return; }
+        try { map = L.map(canvas, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }); }
+        catch (e) { dbg('error', 'leaflet init: ' + (e && e.message || e)); setSVG(canvas, mapSVG(points, h, connect)); return; }
         _leafletMaps[el.id] = map;
+        map.attributionControl.setPrefix(false);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
         }).addTo(map);
+        var credits = document.createElement('div');
+        credits.className = 'mapcredits';
+        credits.setAttribute('aria-label', 'Map attribution');
+        el.appendChild(credits);
+        credits.appendChild(map.attributionControl.getContainer());
         var latlngs = [];
         if (connect) {
           var seq = [];
@@ -35672,11 +35709,10 @@
             ? '<b>Estimated unpublished rank</b><span>Based on your verified personal '
               + esc(rankNum(ownSpecies)) + '-species current-year total against the published rows. '
               + 'Private accounts are not listed by name, so this is an estimate, not an official eBird rank.</span>'
-            : '<b>No published standing returned</b><span>Your saved eBird name is available, '
-              + 'but this source did not return a matching ' + esc(metricLabel.toLowerCase()) + ' standing. '
+            : '<b>No published standing returned</b><span>No matching ' + esc(metricLabel.toLowerCase()) + ' row in the returned board. '
               + (ownSpecies === 0 ? 'Your verified selected-area current-year list contains zero species. ' : '')
-              + 'A missing row is not a rank of zero. You can load the signed-in leaderboard '
-              + 'or verify the saved name.</span>';
+              + 'A missing row is not a rank of zero. Checklist totals require their own verified count. '
+              + 'Open the signed-in board for more coverage; fetch your name only if it changed.</span>';
           card.innerHTML =
             '<div class="rankyou"><div class="rankbig' + (estimate ? '' : ' dim') + '">' + rankText + '</div>' +
             '<div class="rankwho"><b>' + esc(label) + '</b><span>'
@@ -45516,6 +45552,7 @@
         var unavailable = [];
         Object.keys(SURGE_SOURCE_LABELS).forEach(function (key) {
           var state = states[key], label = SURGE_SOURCE_LABELS[key];
+          if (state === 'unavailable') unavailable.push(label + ' unavailable for this listing area; no supported regional feed');
           if (state === 'notableOnly') {
             unavailable.push(label + ' checked notable sightings only; other observations retained');
           }
@@ -45551,11 +45588,12 @@
         var keys = Object.keys(states).filter(function (key) {
           return Object.prototype.hasOwnProperty.call(SURGE_SOURCE_LABELS, key);
         });
-        var groups = { loaded: [], failed: [], incomplete: [], pending: [], skipped: [] };
+        var groups = { loaded: [], failed: [], incomplete: [], pending: [], skipped: [], unavailable: [] };
         keys.forEach(function (key) {
           var pending = pendingSources ? pendingSources[key] === true
             : states[key] === 'loading' || states[key] === 'notLoaded';
           groups[pending ? 'pending' : states[key] === 'ok' ? 'loaded'
+            : states[key] === 'unavailable' ? 'unavailable'
             : states[key] === 'notApplicable' ? 'skipped'
             : states[key] === 'failed' ? 'failed' : 'incomplete'].push(key);
         });
@@ -45592,7 +45630,7 @@
         if (surgePersistenceFailed(key)) errors.push({stage:'persistence',reason:'Latest results could not be saved on this device'});
         if (key !== 'mass' && key !== 'ppte' && key !== 'sensitive'
             && state === 'partial') errors = [{ stage:'acquisition', reason:'Source incomplete' }];
-        return { pending:pending, errors:errors, limited:state === 'partial',
+        return { pending:pending, errors:errors, limited:state === 'partial', unavailable:state === 'unavailable',
           detail:errors.map(function (error) {
             return (error.region ? error.region + ': ' : '') + error.stage + ' — ' + error.reason;
           }).join('; ') };
@@ -45615,6 +45653,7 @@
         }
         if (unresolved.length) label += ' · ' + unresolved.length + ' loading error' + (unresolved.length === 1 ? '' : 's');
         if (limited.length) label += ' · ' + limited.length + ' with limited coverage';
+        if (groups.unavailable.length) label += ' · ' + groups.unavailable.length + ' unavailable';
         if (groups.incomplete.length > limited.length) {
           label += ' · ' + (groups.incomplete.length - limited.length) + ' incomplete';
         }
@@ -45630,7 +45669,7 @@
             ? '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>' : '')
           + '<div class="label">' + esc(label) + '</div></div>'
           + '<details class="surgesources"><summary>Source status</summary><ul>'
-          + ['failed', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
+          + ['failed', 'unavailable', 'incomplete', 'pending', 'loaded', 'skipped'].map(function (group) {
             return groups[group].map(function (key) {
               var health = surgeLoadingHealth(key, states, pendingSources, sourceState);
               var detail = (key === 'mass' || key === 'ppte') && health.errors.length ? health.detail
@@ -45658,7 +45697,8 @@
                   incomplete: states[key] === 'partial' ? health.errors.length ? 'Loading error; usable results retained' : 'Loaded'
                     : states[key] === 'stale' ? 'Saved evidence; not refreshed' : 'Incomplete',
                   pending: 'Loading',
-                  loaded: 'Loaded', skipped: 'Not applicable' }[group])
+                  loaded: 'Loaded', skipped: 'Not applicable',
+                  unavailable: 'Unavailable for this listing area; no supported regional feed' }[group])
                 + (kinds.length > 1 ? ' <small>Supports: ' + kinds.map(function (kind) {
                   return esc(SURGE_KINDS[kind].word);
                 }).join(', ') + '.</small>' : '')
@@ -46067,6 +46107,7 @@
             loading: health.some(function (value) { return value.pending; }),
             failed: health.some(function (value) { return value.errors.length > 0; }),
             limited: health.some(function (value) { return value.limited; }),
+            unavailable: health.some(function (value) { return value.unavailable; }),
             retry: deps.filter(function (key, index) {
               return health[index].errors.length > 0 && !health[index].pending;
             }).map(function (key) {
@@ -46076,7 +46117,7 @@
         }
         function visible(kind) {
           var state = status(kind);
-          return counts[kind] > 0 || state.loading || state.retry.length;
+          return counts[kind] > 0 || state.loading || state.retry.length || state.unavailable;
         }
         var sensitiveState = status('sensitive');
         var sensitiveNote = (sensitiveState.loading || sensitiveState.retry.length)
@@ -46092,9 +46133,11 @@
             var state = status(kind);
             var label = (state.loading ? '⌛ ' : '') + counts[kind]
               + (state.retry.length ? ' ⚠' : '');
+            if (state.unavailable) label = (counts[kind] ? counts[kind] + ' retained · ' : '') + 'Unavailable';
             var accessibleLabel = counts[kind] + ' ' + SURGE_KINDS[kind].word;
             return '<span class="surgecategory" data-category-state="'
               + (state.loading ? 'loading' : state.failed ? 'failed'
+                : state.unavailable ? 'unavailable'
                 : state.retry.length ? state.limited ? 'limited' : 'incomplete' : 'loaded') + '">'
               + ToggleControls.pressed({cls:'surgecount',data:{'count-kind':kind},
                 icon:kind === 'ppte' ? '' : SURGE_KINDS[kind].glyph,
@@ -46102,6 +46145,7 @@
                 label:label, ariaLabel:accessibleLabel + (state.loading ? ', loading, results not complete' : '')
                   + (state.failed ? ', unresolved loading error' : state.retry.length
                     ? state.limited ? ', Partially loaded' : ', incomplete' : '')
+                  + (state.unavailable ? ', unavailable for this listing area; no supported regional feed' : '')
                   + '. Filter alerts.',
                 pressed:_surgeCategory === kind})
               + (state.retry.length ? '<button type="button" class="surgeretry"'
@@ -48879,6 +48923,9 @@
       }
 
       function surgeObservedResult(res, now, recoverNeverAlerted) {
+        if (res && res.capabilityUnavailable === true && !res.cv) return {
+          state: 'unavailable', merged: [], events: [], needs: [], patches: [], twitchRows: []
+        };
         if (!res || !res.cv) throw new Error('recent/notable feeds returned no chase view');
         var merged = checklistPartyRows(res.cv.merged || []);
         var rareCodes = merged.filter(function (r) {
@@ -49515,8 +49562,8 @@
         _surgeRepaint = paintSurgeModel;
         function paintObserved(observed) {
           if (!current()) return observed;
-          if (observed.state === 'failed' && surgeModel && surgeModel.observed) {
-            observed = Object.assign({}, surgeModel.observed, { state: 'failed' });
+          if ((observed.state === 'failed' || observed.state === 'unavailable') && surgeModel && surgeModel.observed) {
+            observed = Object.assign({}, surgeModel.observed, { state: observed.state });
           } else if (observed.state === 'partial' && surgeModel && surgeModel.observed) {
             var freshKeys = {};
             observed.merged.forEach(function (row) { freshKeys[BL.obsDedupKey(row)] = true; });
@@ -49715,7 +49762,7 @@
             publishSource('ppte', result);
           }, retry ? surgeModel.ppte.failedRegions : null, retry ? surgeModel.ppte : null);
         });
-        var rr = rankPrimaryRegion();
+        var rr = Object.assign({}, rankPrimaryRegion(), { max: 500, rowLimit: 500 });
         var pCascades = sourceTask(countySource, 'leaderboard', function (retry) {
           if (!current()) {
             return { state: 'cancelled', rows: [] };
@@ -52949,7 +52996,7 @@
         var speciesText = countText(species), checklistText = countText(checklists);
         var rankText = me && me.rank != null ? '#' + rankNum(me.rank)
           : _headerStandingPending === scope.cacheIdentity ? 'Loading'
-          : entry ? 'Not listed' : 'n/a';
+          : entry ? 'No rank' : 'n/a';
         var rankLabel = me && me.rank != null ? 'Species rank ' + rankText
           : entry ? 'Not in the returned species leaderboard' : 'Species rank ' + rankText;
         el.hidden = false;
@@ -52963,10 +53010,11 @@
           + esc(speciesText + ' species · ' + context + ' — open My ' + personalBasisLabel())
           + '"><span>' + esc(speciesText) + '</span><small>sp.</small></button>'
           + '<button type="button" class="hdrcount" id="hdrChecklistJump" aria-label="'
-          + esc(checklistText + ' checklists · ' + context + ' — open My ' + personalBasisLabel())
-          + '"><span>' + esc(checklistText) + '</span><small>cl.</small></button></span>';
+          + esc((checklistText === 'n/a' ? 'Checklist total unavailable' : checklistText + ' checklists') + ' · ' + context + ' — open My ' + personalBasisLabel())
+          + '" title="' + esc(checklistText === 'n/a' ? 'Checklist total unavailable; no matched published count' : checklistText + ' checklists')
+          + '"><span>' + esc(checklistText === 'n/a' ? '—' : checklistText) + '</span><small>cl.</small></button></span>';
         el.setAttribute('aria-label', (name ? name + ', ' : '') + context + ', ' + rankLabel
-          + ', ' + speciesText + ' species, ' + checklistText + ' checklists');
+          + ', ' + speciesText + ' species, ' + (checklistText === 'n/a' ? 'checklist total unavailable' : checklistText + ' checklists'));
         var jump = $('hdrRankJump');
         if (jump) jump.addEventListener('click', function (event) {
           event.preventDefault();
@@ -53203,6 +53251,7 @@
         return /^aba$/i.test(code) ? 'ABA Area' : /^lower48$/i.test(code) ? 'Lower 48' : code;
       }
       function renderMenuIdentity() {
+        if (_regionLocation && $('regionChooser') && !$('regionChooser').hidden) applyRegionChooserFilter();
         var el = $('menuIdentity');
         if (el) el.innerHTML = menuIdentityHtml();
         // F200: the scope control is painted at the BOTTOM, from the same
@@ -55757,11 +55806,110 @@
         button.className = 'regionchoice secondary';
         button.textContent = row.label;
         button.dataset.regionChoice = row.value;
+        button.dataset.searchText = [row.label, row.code, row.value].join(' ').toLowerCase();
         if (current) button.setAttribute('aria-current', 'true');
         button.addEventListener('click', function () {
           selectRegionChoice(button.dataset.regionChoice);
         });
         return button;
+      }
+      var _regionLocation = { mode: 'all', code: '', message: '' };
+      var _regionLocationGeneration = 0;
+      function regionLocationOwner(mode) {
+        return JSON.stringify([bcProfile(), identityRevision(), getReportSlug(),
+          mode === 'home' ? getHome() : null]);
+      }
+      function regionChoiceContains(row, code) {
+        code = String(code || '').toUpperCase();
+        if (!EBIRD_REGION_RE.test(code)) return false;
+        if (row.value === 'aba' || row.value === 'lower48') {
+          return window.AbaRegions.regions.some(function (region) {
+            return (code === region.code || code.indexOf(region.code + '-') === 0)
+              && (row.value === 'aba' || /^US-/.test(region.code)
+                && region.code !== 'US-AK' && region.code !== 'US-HI');
+          });
+        }
+        var parent = String(row.code || '').toUpperCase();
+        return !!parent && EBIRD_REGION_RE.test(parent)
+          && (code === parent || code.indexOf(parent + '-') === 0);
+      }
+      function applyRegionChooserFilter() {
+        var state = _regionLocation, rows = regionChoiceRows(), byValue = {};
+        if (state.mode !== 'all' && state.owner !== regionLocationOwner(state.mode)) {
+          ++_regionLocationGeneration;
+          state.code = '';
+          state.needsHome = false;
+          state.message = 'Profile, listing area or saved Home changed. Choose Here or Home again, or All regions.';
+        }
+        rows.forEach(function (row) { byValue[row.value] = row; });
+        var q = String($('regionChooserSearch').value || '').trim().toLowerCase();
+        var visible = {};
+        [].slice.call($('regionChooserBody').querySelectorAll('.regionchoice')).forEach(function (button) {
+          var row = byValue[button.dataset.regionChoice];
+          button.hidden = !row || state.mode !== 'all' && !regionChoiceContains(row, state.code)
+            || !!q && button.dataset.searchText.indexOf(q) < 0;
+          if (!button.hidden) visible[row.value] = true;
+        });
+        $('regionChooserLocationStatus').textContent = state.message;
+        if (state.needsHome) {
+          var setup = document.createElement('button');
+          setup.type = 'button'; setup.className = 'secondary'; setup.textContent = 'Set Home';
+          setup.addEventListener('click', function () { closeRegionChooser(); showSettings(true); });
+          $('regionChooserLocationStatus').appendChild(setup);
+        }
+        $('regionChooserSearchStatus').textContent = Object.keys(visible).length
+          ? state.mode === 'all' ? '' : Object.keys(visible).length + ' supported matching regions. All regions restores the catalog.'
+          : state.mode === 'all' ? 'No matching regions.'
+            : 'No verified matching regions. Choose All regions to browse the catalog.';
+        $('regionChooserBody').scrollTop = 0;
+      }
+      function chooseRegionLocation(mode) {
+        var generation = ++_regionLocationGeneration, profile = bcProfile(), revision = identityRevision();
+        var slug = getReportSlug(), home = JSON.stringify(getHome());
+        _regionLocation = { mode: mode, code: '', owner: regionLocationOwner(mode),
+          message: mode === 'all' ? '' : 'Resolving ' + mode + '…' };
+        renderRegionLocationControls();
+        applyRegionChooserFilter();
+        if (mode === 'all') return Promise.resolve();
+        function current() {
+          return generation === _regionLocationGeneration && !$('regionChooser').hidden
+            && profile === bcProfile() && revision === identityRevision()
+            && slug === getReportSlug() && (mode !== 'home' || home === JSON.stringify(getHome()));
+        }
+        var point = mode === 'home' ? getHome() : null;
+        if (mode === 'home' && !point) {
+          _regionLocation.needsHome = true;
+          _regionLocation.message = 'No saved Home for this profile and area. Set Home in Settings, or choose All regions.';
+          applyRegionChooserFilter();
+          return Promise.resolve();
+        }
+        return (point ? Promise.resolve(point) : getDeviceLocation()).then(function (location) {
+          if (!current()) return null;
+          return deriveRegionCode(location.lat, location.lng);
+        }).then(function (result) {
+          if (!current()) return;
+          _regionLocation.code = result.code;
+          _regionLocation.message = (mode === 'home' ? 'Saved Home' : 'Device location requested now (may be cached up to 5 minutes)')
+            + ' · ' + result.label + '. Verified supported regions only; other major-region and offshore membership is unresolved.';
+          applyRegionChooserFilter();
+        }).catch(function (error) {
+          if (!current()) return;
+          _regionLocation.code = '';
+          _regionLocation.message = 'Could not resolve ' + mode + ': ' + (error && error.message || 'Location unavailable.')
+            + ' Choose All regions to continue.';
+          applyRegionChooserFilter();
+        });
+      }
+      function renderRegionLocationControls() {
+        var host = $('regionChooserLocation');
+        host.innerHTML = window.ToggleControls.group({ label: 'Filter regions by location', cls: 'regionlocation',
+          options: ['all', 'here', 'home'].map(function (mode) {
+            return { label: mode === 'all' ? 'All regions' : mode === 'here' ? 'Here' : 'Home',
+              pressed: _regionLocation.mode === mode, data: { 'region-location': mode } };
+          }) });
+        [].slice.call(host.querySelectorAll('button')).forEach(function (button) {
+          button.addEventListener('click', function () { chooseRegionLocation(button.dataset.regionLocation); });
+        });
       }
       function renderRegionChooser() {
         var rows = regionChoiceRows(), current = getReportSlug();
@@ -55798,18 +55946,10 @@
         var search = $('regionChooserSearch');
         if (search) {
           search.value = '';
-          search.oninput = function () {
-            var q = String(search.value || '').trim().toLowerCase();
-            var visible = 0;
-            [].slice.call($('regionChooserBody').querySelectorAll('#regionChooserAll .regionchoice, #regionChooserBroader .regionchoice')).forEach(function (button) {
-              button.hidden = !!q && button.dataset.searchText.indexOf(q) < 0;
-              if (!button.hidden) visible++;
-            });
-            $('regionChooserSearchStatus').textContent = visible ? '' : 'No matching regions.';
-            $('regionChooserBody').scrollTop = 0;
-          };
+          search.oninput = applyRegionChooserFilter;
         }
-        $('regionChooserSearchStatus').textContent = '';
+        renderRegionLocationControls();
+        applyRegionChooserFilter();
       }
       function sizeRegionChooser() {
         var chooser = $('regionChooser');
@@ -55826,6 +55966,8 @@
       var _regionChooserReturnFocus = null;
       function openRegionChooser() {
         if ($('regionChooser').hidden) _regionChooserReturnFocus = document.activeElement;
+        ++_regionLocationGeneration;
+        _regionLocation = { mode: 'all', code: '', message: '' };
         renderRegionChooser();
         var chooser = $('regionChooser');
         chooser.hidden = false;
@@ -55849,6 +55991,7 @@
             if (row && value !== current) host.appendChild(regionChoiceButton(row, false));
           });
           if (!host.children.length) host.textContent = 'No recent regions yet.';
+          applyRegionChooserFilter();
         }).catch(function (error) {
           dbg('warn', 'Cached recent region recovery failed: ' + error.message);
         });
@@ -55856,6 +55999,7 @@
       function closeRegionChooser() {
         var chooser = $('regionChooser');
         if (!chooser || chooser.hidden) return;
+        ++_regionLocationGeneration;
         chooser.hidden = true;
         var previous = _regionChooserReturnFocus;
         if (!$('setupSheet').hidden && setupStep() === 'region') {

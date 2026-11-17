@@ -1330,6 +1330,11 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'maps'}) {
+      out.push.apply(out, await mapLayout(scan, ${JSON.stringify(process.env.AUDIT_MAP_MUTATION || '')}));
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'forward'}) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture,
         ${JSON.stringify(process.env.AUDIT_FORWARD_MUTATION || '')}));
@@ -4328,8 +4333,9 @@ const AUDIT = `<script>
         'F1173 selected Home map is not visible without another click');
       require(confirmation.querySelector('[data-setup-confirm-map]').href.indexOf('47.6')>=0,
         'F1173 Open Maps link does not target the selected Home');
-      require(document.getElementById('setupConfirmationMap').querySelector('.leaflet-control-attribution')
-        .getBoundingClientRect().height<=60,'F1173 attribution obscures the selected-point map');
+      require(document.getElementById('setupConfirmationMap').querySelector('.mapcredits')
+        .getBoundingClientRect().top>=document.getElementById('setupConfirmationMap').querySelector('.mapcanvas')
+        .getBoundingClientRect().bottom-.5,'F1173 attribution obscures the selected-point map');
       confirmation.querySelectorAll('.setupconfirmation button').forEach(function(button) {
         var rect=button.getBoundingClientRect();
         require(rect.top>=confirmation.querySelector('.sheethead').getBoundingClientRect().bottom-1
@@ -5038,8 +5044,9 @@ const AUDIT = `<script>
     }
   }
   const forwardLayout = ${require('./forward-layout').toString()};
+  const mapLayout = ${require('./map-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -5092,6 +5099,7 @@ const AUDIT = `<script>
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
+      out.push.apply(out, await mapLayout(scan, ''));
     }
     }
     try {
@@ -5427,6 +5435,12 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'maps') {
+      console.log(JSON.stringify(report.map(r=>({label:r.label,mapGeometry:r.mapGeometry,
+        fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
+      process.exit(report.length===1 && report[0].mapGeometry && !report[0].fixtureError
+        && report[0].over<=.5 && report[0].docScrollW<=WIDTH+.5 ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'forward') {
       console.log(JSON.stringify(report, null, 2));
       process.exit(report.length === 3 && report.every(r => r.forwardGeometry
@@ -5461,6 +5475,10 @@ server.listen(0, '127.0.0.1', () => {
           console.log('   F1079/F1080 FIXTURE missing ' + state);
         }
       }
+    }
+    if (!report.some(r => r.mapGeometry)) {
+      bad++;
+      console.log('   F1392-F1395 FIXTURE missing actual maps, attribution and chooser hit-testing');
     }
     if (!report.some((r) => r.approvedRelease)) {
       bad++;

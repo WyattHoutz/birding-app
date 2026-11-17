@@ -29,7 +29,8 @@ async function forwardLayout(scan, notableFixture, mutation) {
     }]);
     await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
     await paint();
-    const map = document.getElementById('spLookupMap');
+    const host = document.getElementById('spLookupMap');
+    const map = host.querySelector('.mapcanvas') || host;
     if (mutation === 'map') map.style.aspectRatio = '16 / 7';
     const actual = map.getBoundingClientRect();
     const previous = map.style.aspectRatio;
@@ -38,7 +39,7 @@ async function forwardLayout(scan, notableFixture, mutation) {
     map.style.aspectRatio = previous;
     const measurements = {width: actual.width, height: actual.height,
       controlWidth: control.width, controlHeight: control.height,
-      pins: map.querySelectorAll('[data-pin-place], .pinbubble, .leaflet-marker-icon').length};
+      pins: host.querySelectorAll('[data-pin-place], .pinbubble, .leaflet-marker-icon').length};
     check(measurements.pins > 0, 'F1371 actual populated map missing', measurements);
     check(actual.width > 0 && Math.abs(actual.width - control.width) <= 1
       && actual.height / control.height >= 1.95 && actual.height / control.height <= 2.05,

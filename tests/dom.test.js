@@ -9518,8 +9518,9 @@ const arr = (x, f) => Array.from(x || [], f);
 const localFiles = requestInterceptor((request) => {
   try {
     const rel = decodeURIComponent(new URL(request.url).pathname).replace(/^\//, '');
-    const file = path.join(WWW, rel);
-    if (file.startsWith(WWW) && fs.existsSync(file) && fs.statSync(file).isFile()) {
+    const file = wwwFixture(rel);
+    if ((file.startsWith(WWW + path.sep) || file.startsWith(DEFAULT_WWW + path.sep))
+        && fs.existsSync(file) && fs.statSync(file).isFile()) {
       return new Response(fs.readFileSync(file), {
         headers: { 'Content-Type': MIME[path.extname(file)] || 'text/plain' },
       });
@@ -29645,7 +29646,7 @@ test('quick outing scans exactly one circle — the anchor you picked', async ()
  * repo, so the two can never give different answers.
  */
 const DOCS = JSON.parse(
-  fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs;
+  fs.readFileSync(wwwFixture('section-docs.json'), 'utf8')).docs;
 
 test('every section in the contract is documented', () => {
   const missing = CONTRACT.menu.map((m) => m.at).filter((at) => !DOCS[at]);
@@ -63831,6 +63832,216 @@ test('F722 a county switch immediately replaces the parent standing with labelle
   assert.match(app.$('hdrId').getAttribute('aria-label') || '', /King.*Species rank Loading/i,
     'the compact pending text does not name its scope accessibly');
   app.window.close();
+});
+
+test('F1389 header separates verified zero species, absent published rank and unknown checklists', async()=>{
+  const app=await boot({storage:{ebird_display_name:'Synthetic owner'}}),A=app.window.__app;
+  try {
+    await seedSeen(app,[],[]);
+    const owner=A.personalListOwner(), period=String(new Date().getFullYear());
+    A.rankCachePut('f1389',{region:'US-WA',period,metric:'spp',profile:owner.profile,
+      ownerRevision:owner.identityRevision,rows:[{rank:1,name:'Synthetic leader',species:10}],me:null});
+    A.headerIdentityRefresh();
+    assert.match(app.$('hdrId').textContent,/No rank/);
+    assert.match(app.$('hdrSpeciesJump').textContent,/0sp\./);
+    assert.match(app.$('hdrChecklistJump').textContent,/—cl\./);
+    assert.match(app.$('hdrChecklistJump').getAttribute('aria-label'),/Checklist total unavailable/);
+    assert.match(app.$('hdrId').getAttribute('aria-label'),/Not in the returned species leaderboard/);
+    A.setCountyView('US-WA-033');
+    assert.doesNotMatch(app.$('hdrId').textContent,/No rank/,'no acquired board in the new exact scope');
+  }finally{app.window.close();}
+});
+
+test('F1390 aggregate unavailable observation capability is not a failed or successful empty acquisition', async()=>{
+  for(const slug of ['aba','lower48','wa']) {
+    const app=await boot({report:slug,sample:false,fetch:url=>/api\.ebird/.test(url)?[]:null});
+    try {
+      const A=app.window.__app, result=await A.getChaseRarity(false);
+      const observed=A.surgeObservedResult(result,Date.now());
+      assert.equal(observed.state,slug==='wa'?'ok':'unavailable');
+      assert.throws(()=>A.surgeObservedResult({cv:null},Date.now()),/no chase view/);
+      A.renderSurge([],[],[],[],[],{observations:observed.state,mega:'notApplicable',
+        birdcast:'notApplicable',leaderboard:'ok',hotspots:'notApplicable',favorites:'notApplicable',
+        mass:'notApplicable',ppte:'notApplicable'},[],[],[]);
+      if(slug!=='wa') {
+        assert.equal(app.$('surgeResults').dataset.sourcesComplete,'false');
+        const status=surgeSourceRoot(app).querySelector('[data-source-status="observations"]');
+        assert.match(status.textContent,/Unavailable for this listing area/);
+        assert.equal(status.querySelector('[data-source-retry]'),null);
+        assert.ok(app.document.querySelector('[data-category-state="unavailable"]'));
+        assert.equal(app.state.fetches.some(url=>/data\/obs\/US\//.test(url)),false);
+      }
+    }finally{app.window.close();}
+  }
+});
+
+test('F1391 actual aggregate Home, Here and temporary Find keep one summary and preserve close behavior', async()=>{
+  for(const slug of ['aba','lower48','wa']) {
+    const app=await boot({report:slug,sample:false,location:{lat:47.7,lng:-122.1},fetch:url=>/api\.ebird/.test(url)?[]:null});
+    try {
+      const A=app.window.__app;await seedSeen(app,['amerob'],['American Robin']);
+      const home=JSON.stringify(A.getHome());app.open(/Today.s patches/);
+      if(slug!=='wa'){
+        await waitFor(()=>app.document.querySelector('.scoutinstatus')?.textContent.includes('top hotspots'),'Home local result');
+        assert.equal(app.document.querySelector('.scoutinlineclose').hidden,true);
+        assert.equal(app.$('destStatus').textContent,'');
+        assert.doesNotMatch(app.document.querySelector('.scoutinstatus').textContent,/Find feeds/);
+      }else assert.equal(app.document.querySelector('.scoutinlineclose'),null,'ordinary in-area Home needs no Find presentation');
+      A.useFoundAnchor({lat:47.7,lng:-122.1},'Synthetic Find');
+      await A.autoScoutForAnchor({lat:47.7,lng:-122.1,label:'Synthetic Find',regionMatch:true});
+      const close=app.document.querySelector('.scoutinlineclose');
+      assert.equal(close.hidden,false);app.click(close);
+      await waitFor(()=>!app.document.querySelector('.scoutinlineclose')||app.document.querySelector('.scoutinlineclose').hidden,
+        'restored Home is not another Find');
+      await A.loadDestinations();
+      assert.equal(JSON.stringify(A.getHome()),home);
+      app.click(app.document.querySelector('#sec-destBtn [data-anchor="here"]'));
+      await waitFor(()=>app.document.querySelector('#sec-destBtn [data-anchor="here"]').getAttribute('aria-pressed')==='true'
+        && A.anchorPoint()?.label==='your location'
+        && (slug==='wa'||app.document.querySelector('.scoutinstatus')?.textContent.includes('top hotspots')),'actual Here result');
+      await A.loadDestinations();
+      assert.ok(!app.document.querySelector('.scoutinlineclose')||app.document.querySelector('.scoutinlineclose').hidden);
+    }finally{app.window.close();}
+  }
+});
+
+test('F1392 actual chooser filters every group by owned Home and combines search with verified overlap', async()=>{
+  const cases=[['Washington','US',['aba','lower48','wa']],['Alaska','US',['aba','region:US-AK']],
+    ['Hawaii','US',['aba','hi']],['British Columbia','CA',['aba','region:CA-BC']],
+    ['England','GB',[]],['Puerto Rico','US',[]]];
+  for(const [state,country,expected] of cases) {
+    const app=await boot({sample:false,fetch:url=>/photon/.test(url)?{features:[{properties:{state,countrycode:country}}]}:null});
+    try {
+      const A=app.window.__app,home=JSON.stringify(A.getHome());A.openRegionChooser();
+      assert.equal(app.state.locations.length,0,'opening never requests GPS');
+      app.click(app.document.querySelector('[data-region-location="home"]'));
+      await waitFor(()=>!/Resolving/.test(app.$('regionChooserLocationStatus').textContent),'Home membership settles');
+      const choices=()=>arr(app.$('regionChooserBody').querySelectorAll('.regionchoice'),b=>!b.hidden?b.dataset.regionChoice:null).filter(Boolean);
+      assert.deepEqual([...new Set(choices())].sort(),expected.sort(),state);
+      const search=app.$('regionChooserSearch');search.value='US-WA';search.dispatchEvent(new app.window.Event('input'));
+      assert.ok(choices().every(value=>value==='wa'),'Current and Recent must not leak');
+      app.click(app.document.querySelector('[data-region-location="all"]'));
+      search.value='';search.dispatchEvent(new app.window.Event('input'));
+      assert.ok(new Set(choices()).size>=65);
+      assert.equal(JSON.stringify(A.getHome()),home);assert.equal(A.getReportSlug(),'wa');
+      app.click(app.$('regionChooserClose'));A.openRegionChooser();
+      assert.equal(app.document.querySelector('[data-region-location="all"]').getAttribute('aria-pressed'),'true');
+    }finally{app.window.close();}
+  }
+});
+
+test('F1392 Here failure never substitutes Home; late Home resolution cannot replace All', async()=>{
+  const denied=Object.assign(new Error('Synthetic permission denied'),{code:1});
+  const app=await boot({sample:false,location:denied});
+  try {
+    const A=app.window.__app;A.openRegionChooser();
+    app.click(app.document.querySelector('[data-region-location="here"]'));
+    await waitFor(()=>/Could not resolve here/.test(app.$('regionChooserLocationStatus').textContent),'denied Here');
+    assert.match(app.$('regionChooserLocationStatus').textContent,/Location is off/);
+    assert.equal(arr(app.$('regionChooserBody').querySelectorAll('.regionchoice'),b=>!b.hidden).filter(Boolean).length,0);
+    let release;app.state.runtimeFetch=url=>/photon/.test(url)?new Promise(r=>{release=r;}):null;
+    app.click(app.document.querySelector('[data-region-location="home"]'));
+    await waitFor(()=>release,'pending owned resolution');
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    release({features:[{properties:{state:'Hawaii',countrycode:'US'}}]});
+    await new Promise(r=>setTimeout(r,25));
+    assert.equal(app.$('regionChooserLocationStatus').textContent,'');
+    assert.ok(app.$('regionChooserAll').querySelectorAll('button:not([hidden])').length>=65);
+  }finally{app.window.close();}
+});
+
+test('F1392 successful Here is explicit, leaves Home untouched and invalidates on listing-area change', async()=>{
+  const app=await boot({sample:false,location:{lat:64,lng:-150},fetch:url=>/photon/.test(url)
+    ?{features:[{properties:{state:'Alaska',countrycode:'US'}}]}:null});
+  try{
+    const A=app.window.__app,home=JSON.stringify(A.getHome());A.openRegionChooser();
+    app.click(app.document.querySelector('[data-region-location="here"]'));
+    await waitFor(()=>/Device location requested now/.test(app.$('regionChooserLocationStatus').textContent),'explicit Here result');
+    assert.equal(app.state.locations.length,1);
+    const visible=()=>[...new Set(arr(app.$('regionChooserBody').querySelectorAll('.regionchoice'),b=>!b.hidden?b.dataset.regionChoice:null).filter(Boolean))].sort();
+    assert.deepEqual(visible(),['aba','region:US-AK']);assert.equal(JSON.stringify(A.getHome()),home);
+    A.setActiveReport('hi');
+    assert.deepEqual(visible(),[],'resolved membership must not cross area ownership');
+    assert.match(app.$('regionChooserLocationStatus').textContent,/changed/);
+  }finally{app.window.close();}
+});
+
+test('F1392 missing Home offers setup; unresolved and ambiguous locations never invent memberships', async()=>{
+  const missing=await boot({home:false,sample:false});
+  try{
+    missing.window.__app.openRegionChooser();missing.click(missing.document.querySelector('[data-region-location="home"]'));
+    assert.match(missing.$('regionChooserLocationStatus').textContent,/No saved Home/);
+    await missing.window.__app.recoverCachedRecentRegions();
+    await new Promise(r=>setTimeout(r,25));
+    const button=missing.$('regionChooserLocationStatus').querySelector('button');assert.equal(button.textContent,'Set Home');
+    missing.click(button);assert.equal(missing.$('regionChooser').hidden,true);assert.equal(missing.$('settingsPanel').hidden,false);
+  }finally{missing.window.close();}
+  for(const payload of [{features:[]},{features:[{properties:{state:'Washington',countrycode:'US'}},
+    {properties:{state:'Oregon',countrycode:'US'}}]}]){
+    const app=await boot({sample:false,fetch:url=>/photon/.test(url)?payload:null});
+    try{
+      app.window.__app.openRegionChooser();app.click(app.document.querySelector('[data-region-location="home"]'));
+      await waitFor(()=>/Could not resolve home/.test(app.$('regionChooserLocationStatus').textContent),'unresolved membership');
+      assert.equal(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length,0);
+      app.click(app.document.querySelector('[data-region-location="all"]'));
+      assert.ok(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length>=65);
+    }finally{app.window.close();}
+  }
+});
+
+test('F1392 resolved Home membership invalidates when Home changes and late area results are rejected', async()=>{
+  let release;
+  const app=await boot({sample:false,fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
+  try{
+    const A=app.window.__app;A.openRegionChooser();app.click(app.document.querySelector('[data-region-location="home"]'));
+    await waitFor(()=>/Saved Home/.test(app.$('regionChooserLocationStatus').textContent),'Home membership');
+    app.window.localStorage.setItem(A.homeKey('lat'),'45');A.renderMenuIdentity();
+    assert.equal(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length,0);
+    assert.match(app.$('regionChooserLocationStatus').textContent,/changed/);
+    app.state.runtimeFetch=url=>/photon/.test(url)?new Promise(r=>{release=r;}):null;
+    app.click(app.document.querySelector('[data-region-location="home"]'));
+    await waitFor(()=>release,'second pending membership');A.setActiveReport('hi');
+    release({features:[{properties:{state:'Washington',countrycode:'US'}}]});
+    await new Promise(r=>setTimeout(r,25));
+    assert.equal(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length,0);
+    assert.doesNotMatch(app.$('regionChooserLocationStatus').textContent,/Saved Home ·/);
+  }finally{app.window.close();}
+});
+
+test('F1390 actual aggregate Bird Gen background consumer bounds board acquisition independently of manual Top 100', async()=>{
+  for(const slug of ['aba','lower48']){
+    const app=await boot({report:slug,sample:false,fetch:url=>/top100/.test(url)?dualRankFixture('spp',
+      [{rank:1,name:'Synthetic leader',species:10}],slug,String(new Date().getFullYear())):/api\.ebird/.test(url)?[]:null});
+    try{
+      const A=app.window.__app;await seedSeen(app,[],[]);app.state.fetches.length=0;
+      const loading=A.loadSurge(false);
+      await waitFor(()=>app.state.fetches.some(url=>/top100/.test(url)),'actual Bird Gen board request');
+      for(const value of app.state.fetches.filter(url=>/top100/.test(url))){
+        const url=new URL(value);assert.equal(url.searchParams.get('maxResults'),'500');
+        assert.equal(url.searchParams.get('region'),slug==='aba'?'ABA Area':'USA Lower 48');
+      }
+      assert.equal(A.rankScopeOptions()[0].max,10000,'manual adaptive source registry remains unchanged');
+      A.cancelStalledWork();await loading;
+    }finally{app.window.close();}
+  }
+});
+
+test('F1392 offline resolution and profile changes clear matches without exposing another Home', async()=>{
+  const app=await boot({sample:false,fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
+  try{
+    const A=app.window.__app;A.openRegionChooser();app.click(app.document.querySelector('[data-region-location="home"]'));
+    await waitFor(()=>/Saved Home/.test(app.$('regionChooserLocationStatus').textContent),'owned Home result');
+    app.window.localStorage.setItem(A.BC_PROFILE_PTR,'2');A.renderMenuIdentity();
+    assert.equal(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length,0);
+    assert.match(app.$('regionChooserLocationStatus').textContent,/changed/);
+    app.window.localStorage.setItem(A.BC_PROFILE_PTR,'');A.renderMenuIdentity();
+    app.state.runtimeFetch=url=>/photon/.test(url)?Promise.reject(new Error('Synthetic offline lookup')):null;
+    app.click(app.document.querySelector('[data-region-location="home"]'));
+    await waitFor(()=>/Could not resolve home/.test(app.$('regionChooserLocationStatus').textContent),'offline lookup');
+    assert.equal(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length,0);
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    assert.ok(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])').length>=65);
+  }finally{app.window.close();}
 });
 
 test('F1382 aggregate weather uses approved Home and rejects a late previous-area forecast', async()=>{

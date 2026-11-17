@@ -297,9 +297,12 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
             await backStyle('#appSheet', '[data-setup-confirm-back]');
             await click('[data-setup-confirm-back]');
             assert.ok(await evaluate(() => {
-              const map = document.getElementById('setupHomeMap'), box = map.getBoundingClientRect();
-              return map.children.length && box.width > 100
-                && box.height >= 18 * parseFloat(getComputedStyle(map).fontSize) - 1;
+              const map = document.getElementById('setupHomeMap');
+              const canvas = map.querySelector('.mapcanvas'), credits = map.querySelector('.mapcredits');
+              if (!canvas || !credits) return false;
+              const box = canvas.getBoundingClientRect();
+              return box.width > 100 && Math.abs(box.width / box.height - 8 / 5) < .025
+                && credits.getBoundingClientRect().top >= box.bottom - .5;
             }));
             await evaluate(() => {
               const draft = JSON.parse(localStorage.getItem('bc_setup_home_draft_v1'));

@@ -1243,12 +1243,13 @@ module.exports = function registerMigrationSetupControls({
     try {
       const A = app.window.__app, before = JSON.stringify(A.getHome());
       A.openSetupSheet();
-      assert.ok(app.$('setupHomeMap').querySelector('svg'), 'saved Home map is visible on entry');
+      assert.ok(app.$('setupHomeMap').querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'),
+        'saved Home map is visible on entry');
       app.click(app.$('setupHomeApprove'));
       assert.ok(app.$('appSheet') && !app.$('appSheet').hidden, 'saved Home needs the same result review');
       assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-confirmed');
       assert.match(app.$('appSheet').textContent, /Saved synthetic Home/);
-      assert.ok(app.$('setupConfirmationMap').querySelector('svg'));
+      assert.ok(app.$('setupConfirmationMap').querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'));
       assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, 0);
       assert.equal(JSON.stringify(A.getHome()), before);
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
@@ -1276,7 +1277,7 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupStepTitle').parentElement.nextElementSibling, app.$('setupHomeMapPreview'));
       assert.equal(app.$('setupHomeMapPreview').tagName, 'DIV');
       assert.equal(app.$('setupHomeMapPreview').hidden, false);
-      assert.ok(app.$('setupHomeMap').querySelector('svg'));
+      assert.ok(app.$('setupHomeMap').querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'));
       assert.equal(app.$('setupHomeCandidate').hidden, true);
       assert.equal(app.$('setupHomeCandidate').textContent, '');
       assert.equal(app.$('setupHomePlace').value, '47.60000, -122.30000');
