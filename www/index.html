@@ -3263,6 +3263,11 @@
     .rankclimb-stop.current .rankclimb-rank { color:#fff; background:#222; }
     .rankclimb-stop.wide .rankclimb-rank { font-size:calc(16px * var(--s)); }
     .rankclimb-cost { font-size:calc(18px * var(--s)); font-weight:850; }
+    .rankclimb-detail { min-width:0; padding:6px 0; }
+    .rankclimb-label { display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:calc(14px * var(--s)); font-weight:800; }
+    .rankclimb-label svg { width:calc(28px * var(--s)); height:calc(32px * var(--s)); flex-shrink:0; color:var(--safe-blue); }
+    .rankclimb-unavailable .rankclimb-rank { color:var(--ink); background:transparent; border:1px dashed var(--ink); }
+    .rankclimb-unavailable .rankclimb-cost { font-size:calc(14px * var(--s)); }
     .rankclimb-trophy { font-size:calc(18px * var(--s)); }
     .rankclimb-arrow { display:flex; justify-content:center; width:calc(80px * var(--s)); color:var(--safe-blue); }
     .rankclimb-arrow svg { display:block; width:calc(28px * var(--s)); height:calc(18px * var(--s)); }
@@ -3920,8 +3925,16 @@
       max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
       max(16px, env(safe-area-inset-left)); }
     .fullscreen-sheet[hidden] { display: none; }
-    #regionChooser { z-index: 130; }
-    #regionChooser .sheethead { top: max(16px, env(safe-area-inset-top)); }
+    #regionChooser { z-index: 130; display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden;
+      top: var(--region-viewport-top, 0px); bottom: auto;
+      height: var(--region-viewport-height, 100dvh); box-sizing: border-box; }
+    #regionChooser[hidden] { display: none; }
+    #regionChooser .sheethead { position: static; }
+    .regionchooser-search { padding: 10px 0; }
+    .regionchooser-search label { display: block; }
+    #regionChooserBody { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+    #regionChooserBody > .sheetsection:first-child { margin-top: 0; }
     .sheethead { display: flex; align-items: center; justify-content: space-between;
       gap: 12px; position: sticky; top: 0; z-index: 2; background: var(--bg);
       padding-bottom: 10px; border-bottom: 1px solid var(--line); }
@@ -4145,6 +4158,12 @@
       <button id="regionChooserClose" class="secondary" type="button"
               aria-label="Close region chooser">Close</button>
     </div>
+    <div class="regionchooser-search">
+      <label for="regionChooserSearch">Search all regions</label>
+      <input id="regionChooserSearch" type="search" autocomplete="off"
+             placeholder="Name or region code">
+    </div>
+    <div id="regionChooserBody" tabindex="0" aria-label="Region choices">
     <section class="sheetsection">
       <h3>Current region</h3>
       <div id="regionChooserCurrent" class="regionchoices"></div>
@@ -4154,13 +4173,16 @@
       <div id="regionChooserRecent" class="regionchoices"></div>
     </section>
     <section class="sheetsection">
-      <h3>All regions</h3>
-      <p id="regionChooserCatalogHint" class="hint"></p>
-      <label for="regionChooserSearch">Search all regions</label>
-      <input id="regionChooserSearch" type="search" autocomplete="off"
-             placeholder="Name or region code">
-      <div id="regionChooserAll" class="regionchoices"></div>
+      <h3>Broader Regions</h3>
+      <div id="regionChooserBroader" class="regionchoices"></div>
     </section>
+    <section class="sheetsection">
+      <h3>States, provinces and territories</h3>
+      <p id="regionChooserCatalogHint" class="hint"></p>
+      <div id="regionChooserAll" class="regionchoices"></div>
+      <p id="regionChooserSearchStatus" class="hint" role="status"></p>
+    </section>
+    </div>
   </div>
 
   <div id="setupSheet" class="fullscreen-sheet" role="dialog" aria-modal="true"
@@ -5580,7 +5602,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.3.0';
+      var APP_VERSION = '2.4.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -21122,6 +21144,17 @@
             function inHomeRegion(feature) {
               var properties = feature.properties || {};
               var country = String(properties.countrycode || properties.country || '').toLowerCase();
+              if (report.isRarityTracker && !options.unscoped) {
+                var countryId = /^(us|usa|united states|united states of america)$/.test(country) ? 'US'
+                  : /^(ca|canada)$/.test(country) ? 'CA'
+                  : /^(pm|saint pierre and miquelon|saint-pierre and miquelon)$/.test(country) ? 'PM' : '';
+                var state = String(properties.state || '').trim().toLowerCase();
+                return !!countryId && window.AbaRegions.regions.some(function (region) {
+                  return region.code.split('-')[0] === countryId
+                    && (region.code === 'PM' || region.label.toLowerCase() === state)
+                    && homeRegionContains(region.code);
+                });
+              }
               var countryMatches = country === countryCode
                 || (countryName && country === countryName.toLowerCase())
                 || (countryCode === 'us' && /^(usa|united states of america)$/.test(country));
@@ -25462,6 +25495,16 @@
       function loadDestinations() {
         if (!personalTargetsReady('destBtn')) return Promise.resolve(false);
         if (!getKey()) { $('destStatus').textContent = 'Add your eBird API key in Settings first.'; showSettings(true); return; }
+        if (getReport().isRarityTracker) {
+          var localAnchor = anchorPoint();
+          if (!localAnchor) {
+            showHomeRequired($('destStatus'), 'Set Home or choose Here/Find for a bounded nearby scan.', false);
+            return Promise.resolve(false);
+          }
+          return autoScoutForAnchor(Object.assign({}, localAnchor, {
+            label: localAnchor.label || 'your approved local anchor'
+          }));
+        }
         if (quickOrigin === 'find' && quickFound) return autoScoutForAnchor(quickFound);
         var btn = $('destBtn'), st = $('destStatus'), scope = activeScope();
         var work = navWork("Today's patches direct scan", 'sec-destBtn');
@@ -30939,6 +30982,13 @@
       function homeRegionContains(code) {
         var region = getReportSlug() && String(getRegion() || '').toUpperCase();
         code = String(code || '').toUpperCase();
+        if (region === 'ABA' || region === 'LOWER48') {
+          return EBIRD_REGION_RE.test(code) && window.AbaRegions.regions.some(function (row) {
+            var contains = code === row.code || code.indexOf(row.code + '-') === 0;
+            return contains && (region === 'ABA'
+              || /^US-/.test(row.code) && row.code !== 'US-AK' && row.code !== 'US-HI');
+          });
+        }
         return !!(region && code && EBIRD_REGION_RE.test(code)
           && (region === code || region.indexOf(code + '-') === 0));
       }
@@ -34487,10 +34537,33 @@
             .localeCompare(String(c[a].data && c[a].data.readAt || c[a].date || ''));
         });
         keys.slice(80).forEach(function (key) { delete c[key]; });
-        var stored = false;
+        var stored = false, details = {};
         try {
           var payload = JSON.stringify(c);
-          stored = storeWithReclaim(RANK_CACHE_KEY, payload);
+          stored = storeWithReclaim(RANK_CACHE_KEY, payload, details);
+          if (!stored && isQuotaExceeded({ name: details.initialError })
+              && (!details.retryAttempted || isQuotaExceeded({ name: details.retryError }))) {
+            var keep = keys.slice(0, 80);
+            while (!stored && keep.length > 1) {
+              keep = keep.slice(0, Math.max(1, Math.floor(keep.length / 2)));
+              var smaller = {};
+              keep.forEach(function (key) { smaller[key] = c[key]; });
+              payload = JSON.stringify(smaller);
+              try {
+                localStorage.setItem(RANK_CACHE_KEY, payload);
+                stored = localStorage.getItem(RANK_CACHE_KEY) === payload;
+                if (!stored) {
+                  dbg('warn', 'Leaderboard cache read-back did not match.');
+                  break;
+                }
+                dbg('warn', 'Leaderboard cache retained the current board and '
+                  + (keep.length - 1) + ' recent boards after storage pressure; '
+                  + (keys.length - keep.length) + ' older board snapshots expired.');
+              } catch (error) {
+                if (!isQuotaExceeded(error)) throw error;
+              }
+            }
+          }
           if (stored && localStorage.getItem(RANK_CACHE_KEY) !== payload) {
             stored = false;
             dbg('warn', 'Leaderboard cache read-back did not match.');
@@ -35487,27 +35560,56 @@
         var climb = BL.rankClimbGoals(rows, own);
         var nextGoal = climb.stops.filter(function (stop) { return stop.cost > 0; })
           .sort(function (a, b) { return a.cost - b.cost; })[0];
+        var labels = {};
+        [1, 2, 3, 10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
+          if (own.rank <= cutoff) return;
+          var target = climb.stops.filter(function (stop) {
+            return !stop.current && (cutoff <= 3 ? stop.rank === cutoff : stop.rank <= cutoff);
+          }).sort(function (a, b) { return a.cost - b.cost; })[0];
+          if (target) (labels[target.rank] || (labels[target.rank] = [])).push(cutoff);
+        });
+        var displayStops = climb.stops.slice();
+        [1, 2, 3].forEach(function (rank) {
+          if (own.rank > rank && !displayStops.some(function (stop) { return stop.rank === rank; })) {
+            displayStops.push({ rank: rank, unavailable: true });
+            labels[rank] = [rank];
+          }
+        });
+        displayStops.sort(function (a, b) { return a.rank - b.rank; });
+        function milestoneHTML(cutoff) {
+          var label = cutoff === 1 ? 'Gold' : cutoff === 2 ? 'Silver' : cutoff === 3 ? 'Bronze'
+            : 'Top ' + rankNum(cutoff);
+          var shape = cutoff <= 3
+            ? '<path d="M6 1H14L18 10L11 14Z M18 1H26L21 14L14 10Z" fill="currentColor"/><circle cx="16" cy="21" r="10" fill="none" stroke="currentColor" stroke-width="2"/>'
+            : '<path d="M2 2H30V17Q29 25 16 31Q3 25 2 17Z" fill="none" stroke="currentColor" stroke-width="2"/>';
+          return '<span class="rankclimb-label"><svg viewBox="0 0 32 34" aria-hidden="true">' + shape
+            + '<text x="16" y="24" text-anchor="middle" fill="currentColor" font-size="'
+            + (cutoff >= 1000 ? '8' : cutoff >= 100 ? '10' : '12') + '" font-weight="800">'
+            + cutoff + '</text></svg>' + esc(label) + '</span>';
+        }
         var html = coverage + '<section class="rankclimb" aria-label="Species rank-climb goals">'
           + '<h3>Your ladder</h3>'
-          + (nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next known goal' : 'Next step')
+          + (nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next verified score goal' : 'Next step')
             + ':</strong> +' + esc(rankNum(nextGoal.cost)) + ' species to '
             + (nextGoal.win ? 'exceed the leading score' : 'tie the ' + esc(rankNum(nextGoal.total))
               + '-species group at #' + esc(rankNum(nextGoal.rank)))
             + ' in this snapshot. This is a score goal, not a promise of attainable birds or a future rank.</p>' : '')
           + '<ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
-          + climb.stops.map(function (stop, i) {
+          + displayStops.map(function (stop, i) {
             return '<li class="rankclimb-stop' + (stop.win ? ' win' : '') + (stop.current ? ' current' : '')
+              + (stop.unavailable ? ' rankclimb-unavailable' : '')
               + (stop.rank >= 1000 ? ' wide' : '') + '"><div class="rankclimb-head">'
               + '<span class="rankclimb-rank">' + (stop.rank === 1 ? '<span class="rankclimb-trophy" aria-hidden="true">🏆</span> ' : '')
-              + '#' + esc(rankNum(stop.rank)) + '</span><span class="rankclimb-cost">'
-              + (stop.current ? 'You are here' : '+' + esc(rankNum(stop.cost)) + ' species'
-                + (stop.known ? ' · known group' : '')) + '</span></div>'
-              + (i < climb.stops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
+              + '#' + esc(rankNum(stop.rank)) + '</span><div class="rankclimb-detail">'
+              + (labels[stop.rank] || []).map(milestoneHTML).join('') + '<span class="rankclimb-cost">'
+              + (stop.current ? 'You are here' : stop.unavailable ? 'Score unknown'
+                : '+' + esc(rankNum(stop.cost)) + ' species') + '</span></div></div>'
+              + (i < displayStops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
                 + '<svg viewBox="0 0 24 28" preserveAspectRatio="none"><path d="M12 1L1 12H8V27H16V12H23Z" fill="currentColor"/></svg></div>' : '')
               + '</li>';
           }).join('') + '</ol><p class="hint">Snapshot goals assume unchanged totals; ties can skip rank positions.'
           + (climb.missingMilestones.length ? ' Some top-board milestones are unavailable in returned coverage.' : '')
-          + (!climb.localAvailable ? ' Exact next-rank coverage is incomplete; any known-group goals are labelled.' : '') + '</p></section>';
+          + (!climb.localAvailable ? ' Exact next-rank coverage is incomplete. Shown score goals use verified score groups; intervening ranks may be missing.' : '') + '</p></section>';
         if (index < 0) return html + unavailable
           + 'your standing is known, but your row is outside the returned competitor table.</p>';
         if (!contiguous) return html + unavailable
@@ -35570,11 +35672,15 @@
             ? '<b>Estimated unpublished rank</b><span>Based on your verified personal '
               + esc(rankNum(ownSpecies)) + '-species current-year total against the published rows. '
               + 'Private accounts are not listed by name, so this is an estimate, not an official eBird rank.</span>'
-            : '<b>Fetch your eBird identity</b><span>Top 100 needs your account name to match a published row. '
-              + 'Import eBird data if the account is private or you also need your current-year species total.</span>';
+            : '<b>No published standing returned</b><span>Your saved eBird name is available, '
+              + 'but this source did not return a matching ' + esc(metricLabel.toLowerCase()) + ' standing. '
+              + (ownSpecies === 0 ? 'Your verified selected-area current-year list contains zero species. ' : '')
+              + 'A missing row is not a rank of zero. You can load the signed-in leaderboard '
+              + 'or verify the saved name.</span>';
           card.innerHTML =
             '<div class="rankyou"><div class="rankbig' + (estimate ? '' : ' dim') + '">' + rankText + '</div>' +
-            '<div class="rankwho"><b>' + esc(label) + '</b><span>' + year + '</span></div></div>' +
+            '<div class="rankwho"><b>' + esc(label) + '</b><span>'
+              + esc(period === 'AAAA' ? 'All time' : period) + '</span></div></div>' +
             '<div class="rankrecent">' + reason
             + '<div class="row"><button type="button" class="secondary" id="rankFetchNameBtn">Fetch my name</button>'
             + '<button type="button" class="secondary" id="rankImportDataBtn">Import eBird data\u2026</button></div>'
@@ -35584,13 +35690,17 @@
         var rankFetch = card.querySelector('#rankFetchNameBtn');
         if (rankFetch) rankFetch.addEventListener('click', function () {
           var status = card.querySelector('#rankIdentityStatus');
+          var startProfile = bcProfile(), startReport = getReportSlug(), startPeriod = personalBoardPeriod();
           rankFetch.disabled = true;
           if (status) status.textContent = ' Opening your signed-in eBird profile\u2026';
           fetchIdentityFromBirdList(function (message) {
             if (status) status.textContent = ' ' + message;
           }).then(function (result) {
-            if (result && result.applied) loadRankings();
-            else if (status) status.textContent = ' eBird did not return a usable account name.';
+            if (!card.isConnected || startProfile !== bcProfile() || startReport !== getReportSlug()
+                || startPeriod !== personalBoardPeriod()) return;
+            if (result && (result.applied || result.status === 'already-set')) loadRankings();
+            else if (status) status.textContent = ' ' + (result && result.status === 'superseded'
+              ? 'The account changed during this read; nothing was applied.' : identityResultMessage(result));
           }).catch(function (e) {
             if (status) status.textContent = ' '
               + ((e && e.message) || 'Could not read the signed-in eBird account.');
@@ -50209,39 +50319,50 @@
           return { id: curated, why: '' };
         });
       }
-      function loadTides() {
+      function loadTides(current) {
+        current = current || function () { return true; };
         var el = $('wxTides'); if (!el) return;
         el.innerHTML = '<div class="wxline dim2">Loading tides…</div>';
         resolveTideStation().then(function (st) {
+          if (!current()) return;
           if (!st || !st.id) { el.innerHTML = ''; return; }
           var n = new Date(), d8 = '' + n.getFullYear() + ('0' + (n.getMonth() + 1)).slice(-2) + ('0' + n.getDate()).slice(-2);
           var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=' + d8 + '&end_date=' + d8 +
             '&station=' + encodeURIComponent(st.id) + '&product=predictions&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json';
-          return wxGet(url).then(function (data) { renderTides((data && data.predictions) || [], st); });
-        }).catch(function (e) { el.innerHTML = '<div class="wxline dim2">Tides unavailable — ' + esc(e.message || 'error') + '</div>'; });
+          return wxGet(url).then(function (data) { if (current()) renderTides((data && data.predictions) || [], st); });
+        }).catch(function (e) { if (current()) el.innerHTML = '<div class="wxline dim2">Tides unavailable — ' + esc(e.message || 'error') + '</div>'; });
       }
+      var _conditionsGeneration = 0;
       function loadConditions() {
         // Weather, tides and sun/moon are all "where am I" questions, so a
         // placeholder region centroid is not an acceptable stand-in for a home.
         var home = requireOwnedHome('wxStatus',
           'Set Home before loading weather, tides and sun times.', true);
         if (!home) return;
+        var scope = activeScope(), generation = ++_conditionsGeneration;
+        function current() {
+          var saved = getHome();
+          return generation === _conditionsGeneration && scopeCurrent(scope)
+            && saved && saved.lat === home.lat && saved.lng === home.lng;
+        }
         var btn = $('wxBtn'), st = $('wxStatus');
         btn.disabled = true; st.textContent = 'Loading conditions…';
         renderSunMoon(home);
-        loadTides();
-        wxGet('https://api.weather.gov/points/' + home.lat.toFixed(4) + ',' + home.lng.toFixed(4))
+        loadTides(current);
+        return wxGet('https://api.weather.gov/points/' + home.lat.toFixed(4) + ',' + home.lng.toFixed(4))
           .then(function (p) {
+            if (!current()) return null;
             var url = p && p.properties && p.properties.forecast;
             if (!url) throw new Error('no NOAA forecast grid for this location (US only).');
             return wxGet(url);
           })
           .then(function (f) {
+            if (!current()) return;
             renderForecast((f && f.properties && f.properties.periods || []).slice(0, 4));
             st.textContent = 'Updated ' + nowTime();
           })
-          .catch(function (e) { $('wxForecast').innerHTML = ''; st.textContent = wxErr(e); })
-          .finally(function () { btn.disabled = false; });
+          .catch(function (e) { if (current()) { $('wxForecast').innerHTML = ''; st.textContent = wxErr(e); } })
+          .finally(function () { if (generation === _conditionsGeneration) btn.disabled = false; });
       }
 
       function updateCsvStatus() {
@@ -50771,7 +50892,78 @@
         if (at === 'myYearBody') return personalPeriod() === 'all' ? 'Your exact personal life list' : 'Your exact personal current-year list';
         var item = MENU.find(function (m) { return m.at === at; });
         if (!item) throw new Error('Missing menu definition: ' + at);
+        var capability = aggregateMenuCapability(item);
+        if (capability) return capability.label;
         return item.dynamicSubtitle === 'leaderboard-scope' ? rankMenuHeading() : item.subtitle;
+      }
+
+      function aggregateMenuCapability(item) {
+        if (!getReport().isRarityTracker || !item) return null;
+        var supported = {
+          destBtn: 'Nearby your Home, Here or Find anchor; not area-wide',
+          favResults: 'Your saved places; reports belong to each hotspot',
+          refreshBtn: 'Selected-area rarity reports, not a complete sightings feed',
+          abaBtn: 'Verified alert coverage; not a complete area-wide feed',
+          wxBtn: 'At your approved Home; NOAA forecasts are US only'
+        };
+        if (supported[item.at]) return { available: true, label: supported[item.at] };
+        var unavailable = {
+          excBtn: 'Day-trip reachability and matching county feeds',
+          quickBtn: 'A matching local candidate set',
+          coldBtn: 'Matching county history and baselines',
+          hotBtn: 'Matching county checklists and historical coverage',
+          tripBtn: 'Matching local trip-planning data',
+          surgeBtn: 'Matching local discovery sources and baselines',
+          easyBtn: 'Matching county target and seasonal evidence',
+          allUnseenBtn: 'Matching county observation coverage',
+          ppteBtn: 'Matching county checklist evidence',
+          massBtn: 'Matching local flock acquisition coverage',
+          foyBtn: 'Matching regional annual-first history',
+          lastNewBtn: 'An aggregate-area newest-tick species index',
+          patchBtn: 'Matching county leaderboard hotspots',
+          cklBtn: 'Matching county complete-checklist coverage',
+          bcBody: 'Matching regional migration baselines',
+          todBtn: 'Matching county time-of-day evidence',
+          iconicBtn: 'An area-matched, bounded hotspot directory',
+          convoyBtn: 'Matching county checklist sequences',
+          recentBtn: 'Matching county checklist acquisition'
+        };
+        if (unavailable[item.at]) return {
+          available: false, label: 'Unavailable for this broader region',
+          reason: unavailable[item.at] + ' are not configured for ' + getReport().label + '.'
+        };
+        if (item.needs === 'county' || item.needs === 'geo') {
+          throw new Error('Unreviewed broader-region capability: ' + item.at);
+        }
+        return null;
+      }
+
+      function renderAggregateCapability(sec) {
+        var notice = sec.querySelector('[data-aggregate-capability]');
+        var capability = aggregateMenuCapability(MENU.find(function (item) { return item.at === sec._at; }));
+        [].forEach.call(sec.children, function (child) {
+          if (child.hasAttribute('data-capability-hidden')) {
+            child.hidden = false;
+            child.removeAttribute('data-capability-hidden');
+          }
+        });
+        if (notice) notice.remove();
+        if (!capability || capability.available) return false;
+        [].forEach.call(sec.children, function (child) {
+          if (!child.hidden && !/^H[12]$/.test(child.tagName)) {
+            child.hidden = true;
+            child.setAttribute('data-capability-hidden', '');
+          }
+        });
+        notice = document.createElement('div');
+        notice.setAttribute('data-aggregate-capability', '');
+        notice.innerHTML = '<p><strong>Unavailable for ' + esc(getReport().label) + '</strong></p><p>'
+          + esc(capability.reason) + ' No US-wide or annual substitute has been loaded.</p>'
+          + '<p>Choose an ordinary region for this tool. Your saved broader-region Home and lists stay with that region.</p>'
+          + '<button type="button" class="secondary">Choose region</button>';
+        notice.querySelector('button').addEventListener('click', openRegionChooser);
+        sec.appendChild(notice);
+        return true;
       }
 
       // F201. THE ORDER AND THE GROUPS ARE AUTHORED, not inherited.
@@ -50798,8 +50990,6 @@
         if (!getReportSlug()) {
           return m.at === 'settingsPanel' || m.at === 'helpBody';
         }
-        if (m.needs === 'county') return !getReport().isRarityTracker;
-        if (m.needs === 'geo') return !getReport().isRarityTracker;
         return true;
       }
       // First time a section is opened, load its content automatically (no button
@@ -50896,6 +51086,15 @@
           el.removeAttribute('data-patch-context');
         });
       }
+      function showLoaderHomeRequired(section, spec) {
+        if (!spec.needsHome || getHome()) return false;
+        var status = section.querySelector('.status');
+        showHomeRequired(status, spec.homeDetail ? spec.homeDetail()
+          : 'Set Home before this section can rank or load nearby results.', false,
+          spec.homeButton ? spec.homeButton() : null);
+        if (status) status.setAttribute('aria-busy', 'false');
+        return true;
+      }
       function applyScopeTransitionPending(scope) {
         if (!scope || typeof LOADERS !== 'object') return;
         if ($('reportingRows')) {
@@ -50914,6 +51113,7 @@
           var status = scopeTransitionStatus(at, section);
           clearScopeTransitionSection(section, status);
           if (!status) return;
+          if (showLoaderHomeRequired(section, spec)) return;
           status.textContent = 'Loading ' + scope.label + ' ' + noun + '…';
           status.setAttribute('aria-busy', 'true');
         });
@@ -50982,6 +51182,7 @@
       }
       function autoLoad(sec) {
         if (_appUnloading || !window.document || !sec || sec._enabled === false || _autoLoaded[sec.id]) return;
+        if (renderAggregateCapability(sec)) return;
         var spec = sec._loader;
         if (!spec || !spec.fn) return;
         // Release mockups paint deterministic fixtures into the real result
@@ -50993,16 +51194,9 @@
           return;
         }
         try {
-          if (spec.needsHome && !getHome()) {
-            showHomeRequired(sec.querySelector('.status'),
-              spec.homeDetail
-                ? spec.homeDetail()
-                : 'Set Home before this section can rank or load nearby results.',
-              false,
-              spec.homeButton ? spec.homeButton() : null);
-            return;
-          }
-          if (spec.reachability && !spec.stagedPerformance) {
+          if (showLoaderHomeRequired(sec, spec)) return;
+          if (spec.reachability && !spec.stagedPerformance
+              && !(getReport().isRarityTracker && sec._at === 'wxBtn')) {
             return ensureRegionReachability(chaseMaxMi(), navWork('Home reachability'))
               .then(function (result) {
                 if (_appUnloading || !window.document
@@ -51021,7 +51215,8 @@
               return autoLoad(sec);
             });
           }
-          if ((spec.needsCountyScope || sec._needs === 'county')
+          if (!(getReport().isRarityTracker && sec._at === 'destBtn')
+              && (spec.needsCountyScope || sec._needs === 'county')
               && getReport().custom && !getCountyView() && !hasCounties()) {
             return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi())
               .then(function (counties) {
@@ -53001,7 +53196,7 @@
           }
         } catch (e) { code = ''; }
         if (!code) { try { code = getRegion() || ''; } catch (e) { code = ''; } }
-        return code || 'Region';
+        return /^aba$/i.test(code) ? 'ABA Area' : /^lower48$/i.test(code) ? 'Lower 48' : code || 'Region';
       }
       function renderMenuIdentity() {
         var el = $('menuIdentity');
@@ -53074,7 +53269,7 @@
         dbg('net', 'rank not cached for today — fetching it here rather than '
           + 'waiting for you to open Top 100');
         _rankLazyInflight[owner] = fetchRankPair(
-          rr, personalBoardPeriod(), getDisplayName())
+          Object.assign({}, rr, { max: 500, rowLimit: 500 }), personalBoardPeriod(), getDisplayName())
           .then(function (pair) {
             if (pair.failures.spp) throw new Error(pair.failures.spp);
             if (!scopeCurrent(scope)) return false;
@@ -55571,10 +55766,12 @@
         var currentHost = $('regionChooserCurrent');
         var recentHost = $('regionChooserRecent');
         var allHost = $('regionChooserAll');
-        if (!currentHost || !recentHost || !allHost) return;
+        var broaderHost = $('regionChooserBroader');
+        if (!currentHost || !recentHost || !allHost || !broaderHost) return;
         currentHost.innerHTML = '';
         recentHost.innerHTML = '';
         allHost.innerHTML = '';
+        broaderHost.innerHTML = '';
         if (current && byValue[current]) {
           currentHost.appendChild(regionChoiceButton(byValue[current], true));
         } else {
@@ -55588,8 +55785,8 @@
         if (!recentHost.children.length) recentHost.textContent = 'No recent regions yet.';
         rows.forEach(function (row) {
           var button = regionChoiceButton(row, row.value === current);
-          button.dataset.searchText = row.label.toLowerCase();
-          allHost.appendChild(button);
+          button.dataset.searchText = [row.label, row.code, row.value].join(' ').toLowerCase();
+          (row.value === 'aba' || row.value === 'lower48' ? broaderHost : allHost).appendChild(button);
         });
         var hint = $('regionChooserCatalogHint');
         if (hint) hint.textContent = 'All 65 ABA jurisdictions are available offline. '
@@ -55599,11 +55796,28 @@
           search.value = '';
           search.oninput = function () {
             var q = String(search.value || '').trim().toLowerCase();
-            [].slice.call(allHost.querySelectorAll('.regionchoice')).forEach(function (button) {
+            var visible = 0;
+            [].slice.call($('regionChooserBody').querySelectorAll('#regionChooserAll .regionchoice, #regionChooserBroader .regionchoice')).forEach(function (button) {
               button.hidden = !!q && button.dataset.searchText.indexOf(q) < 0;
+              if (!button.hidden) visible++;
             });
+            $('regionChooserSearchStatus').textContent = visible ? '' : 'No matching regions.';
+            $('regionChooserBody').scrollTop = 0;
           };
         }
+        $('regionChooserSearchStatus').textContent = '';
+      }
+      function sizeRegionChooser() {
+        var chooser = $('regionChooser');
+        if (!chooser || chooser.hidden) return;
+        var viewport = window.visualViewport;
+        chooser.style.setProperty('--region-viewport-top', (viewport ? viewport.offsetTop : 0) + 'px');
+        chooser.style.setProperty('--region-viewport-height', (viewport ? viewport.height : window.innerHeight) + 'px');
+      }
+      window.addEventListener('resize', sizeRegionChooser);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', sizeRegionChooser);
+        window.visualViewport.addEventListener('scroll', sizeRegionChooser);
       }
       var _regionChooserReturnFocus = null;
       function openRegionChooser() {
@@ -55611,7 +55825,9 @@
         renderRegionChooser();
         var chooser = $('regionChooser');
         chooser.hidden = false;
+        sizeRegionChooser();
         chooser.scrollTop = 0;
+        $('regionChooserBody').scrollTop = 0;
         $('regionChooserClose').focus({ preventScroll: true });
         var generation = ++_recentRegionGeneration, profile = bcProfile(), revision = identityRevision();
         recoverCachedRecentRegions().then(function (values) {

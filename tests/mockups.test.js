@@ -148,7 +148,7 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-input-'));
     await new Promise(resolve => mockups.server.listen(0, '127.0.0.1', resolve));
     const chrome = spawn(mockups.CHROME, [
-      '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+      '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars', '--enable-automation',
       '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0',
       '--user-data-dir=' + profile, 'about:blank'
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -180,6 +180,11 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
       }
       c = mockups.cdp(endpoint);
       await c.ready;
+      const commandLine = await c.send('Browser.getBrowserCommandLine');
+      assert.ok(commandLine.arguments.includes('--enable-automation'),
+        'the input proof must use the explicit automation launch contract');
+      assert.ok(commandLine.arguments.includes('--user-data-dir=' + profile),
+        'the input proof must own the exact launched profile');
       assert.equal(endpointFaults, 2, 'real Chrome startup must survive a locked and partial endpoint');
       const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
       const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });

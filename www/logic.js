@@ -4644,8 +4644,10 @@
     }
     if (prefix.length && prefix[0].rank === 1) {
       add(prefix[0].species + 1, true);
-      [10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
-        if (own.rank > cutoff && prefix.length >= cutoff) add(prefix[cutoff - 1].species, false);
+      [2, 3, 10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
+        if (own.rank > cutoff && prefix.length >= cutoff && (cutoff > 3 || ownIndex >= 0)) {
+          add(prefix[cutoff - 1].species, false);
+        }
       });
     }
     if (ownIndex >= 0) {
@@ -4686,7 +4688,7 @@
     [1, 2, 5].forEach(function (gain) {
       addKnown(groups.find(function (group) { return group.total === own.species + gain; }));
     });
-    [10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
+    [2, 3, 10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
       if (own.rank > cutoff) addKnown(groups.find(function (group) {
         return group.rank <= cutoff && cutoff < group.rank + group.count;
       }));
@@ -4699,7 +4701,7 @@
       .sort(function (a, b) { return a.rank - b.rank; });
     result.push({rank: own.rank, total: own.species, cost: 0, current: true});
     return {stops: result, localAvailable: ownIndex >= 0,
-      missingMilestones: [1,10,100,500,1000,2000,3000,5000].filter(function (rank) {
+      missingMilestones: [1,2,3,10,100,500,1000,2000,3000,5000].filter(function (rank) {
         return own.rank > rank && (!prefix.length || prefix[0].rank !== 1 || prefix.length < rank)
           && !groups.some(function (group) { return group.rank <= rank && rank < group.rank + group.count; });
       }),

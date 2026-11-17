@@ -10583,8 +10583,9 @@ test('F1246 ladder uses regional annual totals, complete ties and independent me
     paint('US-WA');
     const stops=()=>arr(app.document.querySelectorAll('.rankclimb-stop'),
       stop=>stop.querySelector('.rankclimb-rank').textContent.trim());
-    assert.deepEqual(stops(),['🏆 #1','#10','#99','#173','#183','#187','#197']);
-    assert.equal(app.document.querySelectorAll('.rankclimb-arrow').length,6);
+    assert.deepEqual(stops(),['🏆 #1','#2','#3','#10','#99','#173','#183','#187','#197']);
+    assert.equal(app.document.querySelectorAll('.rankclimb-arrow').length,8);
+    assert.match(app.document.querySelector('.rankclimb').textContent,/Gold.*Silver.*Bronze.*Top 10.*Top 100/);
     const last=app.document.querySelector('.rankclimb-stop.current');
     assert.equal(last.querySelector('.rankclimb-cost').textContent,'You are here');
     assert.equal(last.querySelector('.rankclimb-arrow'),null,'no arrow below the current rank');
@@ -17956,7 +17957,7 @@ test('F318: runtime county discovery loads references only and persists All/coun
   app.window.close();
 });
 
-test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
+test('F676 F1382 aggregate menus retain destinations with honest per-tool capabilities', async () => {
   function ids(app) {
     return [...app.document.querySelectorAll('#menuList .toclink')]
       .map((node) => node.getAttribute('data-at'));
@@ -17971,8 +17972,16 @@ test('F676 only ABA and Lower 48 use the reduced menu contract', async () => {
   for (const slug of ['lower48', 'aba']) {
     const aggregate = await boot({ report: slug });
     const shown = ids(aggregate);
-    assert.ok(shown.length < standard.length, slug + ' remains an intentional reduced menu');
-    assert.equal(shown.includes('easyBtn'), false);
+    assert.deepEqual(shown,standard,slug + ' preserves authored destination order');
+    assert.match(aggregate.document.querySelector('[data-at="easyBtn"] .tilesub').textContent,/Unavailable/);
+    assert.match(aggregate.document.querySelector('[data-at="destBtn"] .tilesub').textContent,/Nearby.*not area-wide/);
+    assert.equal(aggregate.window.__app.scopeCode(),slug==='aba'?'ABA Area':'Lower 48');
+    const before=aggregate.state.fetches.length;
+    aggregate.open(/Busy Patches/);
+    await waitFor(()=>aggregate.document.querySelector('[data-aggregate-capability]'),'the capability explanation');
+    assert.match(aggregate.document.querySelector('[data-aggregate-capability]').textContent,/county checklists.*Choose an ordinary region/);
+    assert.ok(aggregate.$('hotBtn').closest('[hidden]'),'unsupported acquisition controls stay hidden');
+    assert.equal(aggregate.state.fetches.slice(before).some(url=>/data\/obs\/US\//.test(url)),false);
     aggregate.window.close();
   }
 
@@ -19115,8 +19124,9 @@ test('F1352 actual ladder distinguishes a cheapest exact step from an independen
     assert.match(app.document.querySelector('.rankclimb').textContent,/#2,993.*\+9 species/);
     board.rows=rows.slice(0,100).concat(rows.slice(101));
     A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
-    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next known goal: \+1 species.*#3,057/);
+    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next verified score goal: \+1 species.*#3,057/);
     assert.match(app.document.querySelector('.rankclimb').textContent,/Exact next-rank coverage is incomplete/);
+    assert.doesNotMatch(app.document.querySelector('.rankclimb').textContent,/known.group/i);
   } finally {app.window.close();}
 });
 
@@ -63817,6 +63827,192 @@ test('F722 a county switch immediately replaces the parent standing with labelle
   assert.match(app.$('hdrId').getAttribute('aria-label') || '', /King.*Species rank Loading/i,
     'the compact pending text does not name its scope accessibly');
   app.window.close();
+});
+
+test('F1382 aggregate weather uses approved Home and rejects a late previous-area forecast', async()=>{
+  let release;
+  const app=await boot({report:'aba',sample:false,fetch:url=>{
+    if(/api.weather.gov\/points/.test(url))return new Promise(resolve=>{release=resolve;});
+    if(/api\.ebird/.test(url))return [];
+    return null;
+  }});
+  try{
+    const A=app.window.__app;
+    app.open(/Twitch weather/);
+    await waitFor(()=>release,'Home weather point lookup');
+    assert.ok(app.state.fetches.some(url=>/points\/47.7500,-122.1600/.test(url)));
+    A.setActiveReport('lower48');
+    app.open(/Twitch weather/);
+    await waitFor(()=>app.$('wxStatus').querySelector('.sethome-inline'),'missing owned Home action');
+    const before=app.$('wxStatus').textContent;
+    release({properties:{forecast:'https://api.weather.gov/gridpoints/SYNTHETIC/forecast'}});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(app.$('wxStatus').textContent,before);
+    assert.equal(app.state.fetches.some(url=>/SYNTHETIC/.test(url)),false,'late point lookup must not launch another area\'s forecast');
+  }finally{if(release)release({});app.window.close();}
+});
+
+test('F1382 aggregate Today uses only three bounded local feeds and preserves selected-area Home', async()=>{
+  for(const slug of ['aba','lower48']){
+    const app=await boot({report:slug,sample:false,fetch:url=>/api\.ebird/.test(url)?[]:null});
+    try{
+      const A=app.window.__app;
+      await seedSeen(app,['amerob'],['American Robin']);
+      const home=JSON.stringify(A.getHome()),before=app.state.fetches.length;
+      app.open(/Today.s patches/);
+      await waitFor(()=>app.state.fetches.slice(before).filter(url=>/geo\/recent|ref\/hotspot\/geo/.test(url)).length===3,
+        'the bounded local acquisition');
+      const requests=app.state.fetches.slice(before).filter(url=>/api\.ebird/.test(url));
+      assert.equal(requests.filter(url=>/geo\/recent|ref\/hotspot\/geo/.test(url)).length,3);
+      assert.equal(requests.some(url=>/data\/obs\/US\/|ref\/hotspot\/US\b/.test(url)),false,'no whole-US fallback');
+      for(const url of requests.filter(url=>/geo\/recent|ref\/hotspot\/geo/.test(url))){
+        const q=new URL(url).searchParams;
+        assert.equal(q.get('lat'),'47.75');assert.equal(q.get('lng'),'-122.16');
+        assert.ok(Number(q.get('dist'))>0&&Number(q.get('dist'))<=50);
+      }
+      assert.equal(A.getReportSlug(),slug);assert.equal(JSON.stringify(A.getHome()),home);
+      assert.match(app.document.querySelector('.scoutinline').textContent,/Around home/);
+    }finally{app.window.close();}
+  }
+});
+
+test('F1383 header acquisition stays bounded for each aggregate area, period and metric', async()=>{
+  for(const slug of ['aba','lower48'])for(const selected of ['current','all']){
+    const period=selected==='all'?'AAAA':String(new Date().getFullYear());
+    const app=await boot({report:slug,sample:false,storage:{ebird_display_name:'Synthetic owner',ebird_personal_period_v1:selected},
+      fetch:url=>/top100/.test(url)?dualRankFixture(new URL(url).searchParams.get('rankedBy'),
+        [{rank:1,name:'Synthetic leader',species:10,checklists:20}],slug,period):[]});
+    try{
+      await waitFor(()=>app.state.fetches.filter(url=>/top100/.test(url)).length>=2,'both bounded aggregate metrics');
+      const urls=app.state.fetches.filter(url=>/top100/.test(url)).map(url=>new URL(url));
+      assert.deepEqual(urls.map(url=>url.searchParams.get('rankedBy')).sort(),['cl','spp']);
+      for(const url of urls){
+        assert.equal(url.searchParams.get('maxResults'),'500');
+        assert.equal(url.searchParams.get('year'),period);
+        assert.equal(url.searchParams.get('region'),slug==='aba'?'ABA Area':'USA Lower 48');
+      }
+    }finally{app.window.close();}
+  }
+});
+
+test('F1387 actual unchanged-identity action refreshes standings instead of reporting a false error', async()=>{
+  const app=await boot({sample:false,storage:{ebird_display_name:'Synthetic owner'}}),A=app.window.__app;
+  const handlers={};
+  try{
+    A.applyCapturedIdentity({status:'ok',displayName:'Synthetic owner',evidence:'profile-heading',profileId:'synthetic-owner'});
+    const period=String(new Date().getFullYear());
+    const board={region:'US-WA',period,metric:'spp',rows:[{rank:1,name:'Synthetic leader',species:100}]};
+    A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic owner');
+    const standing=app.document.querySelector('.rankcard');
+    assert.match(standing.textContent,/No published standing returned/);
+    assert.doesNotMatch(standing.textContent,/Fetch your eBird identity/i);
+    assert.match(standing.textContent,/missing row is not a rank of zero/i);
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn){handlers[name]=fn;return{remove(){}};},
+      openWebView(){return Promise.resolve({id:'f1387-browser'});},hide(){},show(){},close(){},
+      executeScript(){setTimeout(()=>handlers.messageFromWebview({id:'f1387-browser',detail:{__ebird:true,
+        kind:'identity',ok:true,data:{status:'ok',displayName:'Synthetic owner',evidence:'profile-heading',profileId:'synthetic-owner'}}}),0);
+        return Promise.resolve();}
+    }}};
+    const old=app.$('rankFetchNameBtn');app.click(old);
+    await waitFor(()=>handlers.browserPageLoaded,'identity browser listener');
+    handlers.browserPageLoaded({id:'f1387-browser'});
+    await waitFor(()=>!old.isConnected||!old.disabled,'identity completion');
+    assert.equal(app.$('rankBtn').disabled,true,'an unchanged verified identity must start the actual board reload: '
+      +(app.$('rankIdentityStatus')?.textContent||''));
+    assert.match(app.$('rankStatus').textContent,/Loading the leaderboard/);
+    assert.doesNotMatch(app.$('rankResults').textContent,/did not return a usable account name/);
+  }finally{app.window.close();}
+});
+
+test('F1386 broader choices have a dedicated scroll body, code search and reopen reset', async()=>{
+  const app=await boot();
+  try {
+    const A=app.window.__app;
+    A.openRegionChooser();
+    const body=app.$('regionChooserBody'), search=app.$('regionChooserSearch');
+    assert.deepEqual(arr(app.$('regionChooserBroader').querySelectorAll('button'),b=>b.dataset.regionChoice),['aba','lower48']);
+    assert.equal(body.contains(search),false,'the keyboard search must not scroll with the choices');
+    body.scrollTop=800;
+    search.value='US-MI';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(body.scrollTop,0);
+    assert.deepEqual(arr(app.$('regionChooserAll').querySelectorAll('button'),b=>b.hidden?null:b.textContent).filter(Boolean).length,1);
+    search.value='unmatched synthetic region';search.dispatchEvent(new app.window.Event('input'));
+    assert.match(app.$('regionChooserSearchStatus').textContent,/No matching/);
+    app.click(app.$('regionChooserClose'));A.openRegionChooser();
+    assert.equal(search.value,'');assert.equal(body.scrollTop,0);
+    assert.equal(app.$('regionChooserSearchStatus').textContent,'');
+  } finally {app.window.close();}
+});
+
+test('F1385 approved aggregate Home candidates use verified jurisdictions without copying another Home', async()=>{
+  const cases=[['Washington','US',true,true],['Alaska','US',true,false],['Hawaii','US',true,false],
+    ['British Columbia','CA',true,false],['Saint Pierre and Miquelon','PM',true,false],
+    ['England','GB',false,false],['Unknown state','US',false,false]];
+  for(const [state,country,aba,lower48] of cases) for(const [slug,allowed] of [['aba',aba],['lower48',lower48]]) {
+    const app=await boot({report:slug,home:false,sample:false,location:{lat:40,lng:-100},
+      fetch:url=>/photon/.test(url)?{features:[{properties:{state,countrycode:country},
+        geometry:{coordinates:[-100,40]}}]}:null});
+    try {
+      const A=app.window.__app;
+      const manual=await A.geocodePlace('Synthetic public place',{home:true});
+      assert.equal(manual.regionMatch,allowed,slug+' manual '+state);
+      app.open(/Settings/);app.click(app.$('homeCurrentLocation'));
+      await waitFor(()=>!app.$('homeCurrentLocation').disabled,slug+' reverse lookup');
+      assert.equal(A.getHome(),null,'a device candidate must not save without approval');
+      assert.equal(app.$('homeDeviceSave').hidden,!allowed,slug+' device '+state);
+      assert.equal(app.$('homeOutsideSave').hidden,allowed);
+      if(allowed){
+        app.click(app.$('homeDeviceSave'));
+        assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())),{lat:40,lng:-100});
+        A.setActiveReport(slug==='aba'?'lower48':'aba');
+        assert.equal(A.getHome(),null,'the other aggregate area must not inherit Home');
+        A.setActiveReport(slug);
+        assert.equal(A.getHome().lat,40,'the approved region restores its owned Home');
+      }
+    } finally {app.window.close();}
+  }
+});
+
+test('F1388 quota pressure expires older boards but persists the complete current board and personal data', async()=>{
+  const app=await boot({storage:{ebird_display_name:'Synthetic owner'}}),W=app.window,A=W.__app;
+  const original=W.Storage.prototype.setItem;
+  const period=String(new Date().getFullYear()), owner=A.personalListOwner();
+  const board=i=>({region:i%2?'CA-BC':'US-WA',period:i%3?period:'AAAA',metric:i%2?'cl':'spp',
+    profile:owner.profile,ownerRevision:owner.identityRevision,readAt:new Date(2026,0,i+1).toISOString(),
+    rows:Array.from({length:15},(_,j)=>({rank:j+1,species:100-j,name:'Synthetic birder '+j})),
+    me:{rank:20,species:50,name:'Synthetic owner'}});
+  try {
+    for(let i=0;i<8;i++)A.rankCachePut('older-'+i,board(i));
+    const personalKeys=['ebird_seen','ebird_watch','ebird_home_lat','ebird_display_name'];
+    const before=Object.fromEntries(personalKeys.map(key=>[key,W.localStorage.getItem(key)]));
+    let attempts=0;
+    const current={...board(9),region:'US-WA',period,metric:'spp',me:{rank:27,species:50,name:'Synthetic owner'}};
+    const key=A.rankCacheOwnerKey({region:'US-WA',metric:'spp',max:500},period,'Synthetic owner');
+    W.Storage.prototype.setItem=function(k,v){
+      if(k===A.bcReal(A.RANK_CACHE_KEY)){
+        attempts++;
+        if(Object.keys(JSON.parse(v)).length>2)throw new W.DOMException('Synthetic quota','QuotaExceededError');
+      }
+      return original.call(this,k,v);
+    };
+    assert.equal(A.rankCachePut(key,current),true);
+    assert.ok(attempts>=3&&attempts<=9,'quota recovery must be bounded');
+    const durable=JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY));
+    assert.equal(Object.keys(durable).length,2);
+    assert.ok(durable[key],'the current board must be the first retained entry');
+    assert.deepEqual(durable[key].data,current,'retention must not truncate the current board');
+    assert.deepEqual(Object.fromEntries(personalKeys.map(k=>[k,W.localStorage.getItem(k)])),before);
+    assert.ok(W.__dbg.buf.some(row=>/older board snapshots expired/.test(row.msg)));
+    W.Storage.prototype.setItem=original;
+    const restored=await boot({storage:{ebird_display_name:'Synthetic owner',
+      [A.RANK_CACHE_KEY]:JSON.stringify(durable)}});
+    try {
+      const R=restored.window.__app;
+      assert.deepEqual(JSON.parse(JSON.stringify(R.rankCacheEntries()[key].data)),current);
+      assert.equal((await R.fetchRank({region:'US-WA',metric:'spp',max:500},period,'Synthetic owner',false)).me.rank,27);
+    } finally {restored.window.close();}
+  } finally {W.Storage.prototype.setItem=original;W.close();}
 });
 
 test('F929 an acquired standing survives failed persistence and later becomes durable', async () => {
