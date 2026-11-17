@@ -5121,10 +5121,10 @@ const AUDIT = `<script>
     finish([{label:'(audit script failure)',fixtureError:String(message)}]);
   }
   window.addEventListener('error', function (event) {
-    scriptFailure(event.message + ' at ' + event.lineno + ':' + event.colno);
+    scriptFailure(event.error && event.error.stack || event.message + ' at ' + event.lineno + ':' + event.colno);
   });
   window.addEventListener('unhandledrejection', function (event) {
-    scriptFailure(event.reason && event.reason.message || event.reason);
+    scriptFailure(event.reason && (event.reason.stack || event.reason.message) || event.reason);
   });
   document.addEventListener('DOMContentLoaded', function () { auditStage('DOMContentLoaded'); });
   window.addEventListener('load', function () {

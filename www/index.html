@@ -20949,7 +20949,8 @@
         el.appendChild(canvas);
         if (typeof L === 'undefined' || !L || !L.map) { setSVG(canvas, mapSVG(points, h, connect)); return; }
         var map;
-        try { map = L.map(canvas, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }); }
+        try { map = L.map(canvas, { zoomControl: true, attributionControl: true,
+          zoomAnimation: false, scrollWheelZoom: false }); }
         catch (e) { dbg('error', 'leaflet init: ' + (e && e.message || e)); setSVG(canvas, mapSVG(points, h, connect)); return; }
         _leafletMaps[el.id] = map;
         map.attributionControl.setPrefix(false);
@@ -20991,6 +20992,7 @@
           latlngs.push([p.lat, p.lng]);
         });
         function fit() {
+          if (_leafletMaps[el.id] !== map || canvas.parentNode !== el || !canvas.isConnected) return;
           try {
             map.invalidateSize();
             if (latlngs.length === 1) map.setView(latlngs[0], 12);

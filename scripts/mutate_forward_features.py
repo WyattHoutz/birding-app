@@ -10,6 +10,9 @@ import tempfile
 
 APP = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ("removed maps still receive delayed size work",
+     "if (_leafletMaps[el.id] !== map || canvas.parentNode !== el || !canvas.isConnected) return;",
+     "if (false) return;", "F1393 delayed map fitting"),
     ("absent standing becomes an ambiguous label", "entry ? 'No rank' : 'n/a'",
      "entry ? 'Not listed' : 'n/a'", "F1389 header separates"),
     ("unknown checklist count becomes a fabricated zero", "? '—' : checklistText",

@@ -12,16 +12,41 @@ async function mapLayout(scan, mutation) {
     homeKeys=['lat','lng'].map(part=>[A.homeKey(part),localStorage.getItem(A.homeKey(part))]);
     A.resetTransientAnchor();
     localStorage.setItem(A.homeKey('lat'),'46.4');localStorage.setItem(A.homeKey('lng'),'-120.4');
+    const recentRow={subId:'S1395AUDIT',isoObsDate:A.todayStr()+' 09:00',numSpecies:12,
+      loc:{locId:'L1395AUDIT',name:'Representative public patch',isHotspot:true,latitude:46.5,longitude:-120.5}};
     window.fetch=(url,init)=>/api\.ebird\.org/.test(String(url))?Promise.resolve({ok:true,status:200,
-      headers:{get:()=>null},json:()=>Promise.resolve(/product\/lists\//.test(String(url))?[{
-        subId:'S1395AUDIT',isoObsDate:A.todayStr()+' 09:00',numSpecies:12,
-        loc:{locId:'L1395AUDIT',name:'Representative public patch',isHotspot:true,latitude:46.5,longitude:-120.5}
-      }]:[])}):savedFetch(url,init);
+      headers:{get:()=>null},json:()=>Promise.resolve(/product\/lists\//.test(String(url))?[recentRow]:[])}):savedFetch(url,init);
     A.showSection('sec-destBtn',{load:false});
     const target=document.getElementById('destMap');
-    A.renderDestinations([{locId:'L1393AUDIT',locName:'Representative map patch',lat:46.5,lng:-120.5,
-      score:1,dist:10,species:[{code:'verfly',name:'Vermilion Flycatcher'}]}],
-      target,document.getElementById('destResults'),true);
+    const destinations=[{locId:'L1393AUDIT',locName:'Representative map patch',lat:46.5,lng:-120.5,
+      score:1,dist:10,species:[{code:'verfly',name:'Vermilion Flycatcher'}]}];
+    const create=window.L.map;
+    let replacedMap;
+    try {
+      window.L.map=function(...args){
+        if(mutation==='zoom-lifecycle')args[1]=Object.assign({},args[1],{zoomAnimation:true});
+        replacedMap=create.apply(this,args);return replacedMap;
+      };
+      A.renderDestinations(destinations,target,document.getElementById('destResults'),true);
+    }finally{window.L.map=create;}
+    await paint();
+    const zoom=replacedMap.getZoom();
+    const zoomState={animated:replacedMap._zoomAnimated};
+    if(zoomState.animated){
+      await new Promise(resolve=>{
+        replacedMap.once('zoomanim',()=>setTimeout(()=>{
+          zoomState.activeAtRemoval=replacedMap._animatingZoom;
+          A.renderDestinations(destinations,target,document.getElementById('destResults'),true);
+          resolve();
+        },0));
+        replacedMap.zoomIn(1,{animate:true});
+      });
+    }else{
+      replacedMap.zoomIn(1,{animate:true});
+      A.renderDestinations(destinations,target,document.getElementById('destResults'),true);
+    }
+    check(replacedMap.getZoom()===zoom+1,'F1393 interactive zoom stopped working',{});
+    await new Promise(resolve=>setTimeout(resolve,300));
     await paint();
     const canvas=target.querySelector('.mapcanvas');
     check(canvas&&canvas.querySelector('.leaflet-marker-icon'),'F1393 actual Leaflet map required',{});
@@ -68,10 +93,20 @@ async function mapLayout(scan, mutation) {
       maps.push({id,...r});
     }
     A.showSection(document.getElementById('recentMap').closest('section').id,{load:false});
+    A.clearChaseCache();
+    window.BirdLogic.planConvoyFeeds(A.getReport()).forEach(feed=>{
+      A.seedEbirdCache(window.BirdLogic.requestUrl(feed),[recentRow]);
+    });
+    await A.recentChecklistFilter('all','all');
     A.loadRecentChecklists();
-    for(let i=0;i<200&&!document.querySelector('#recentMap .mapcanvas');i++)await new Promise(r=>setTimeout(r,25));
+    const ownRow=()=>document.querySelector('#recentResults [data-recent-sub="S1395AUDIT"]');
+    for(let i=0;i<200&&!ownRow();i++)await new Promise(r=>setTimeout(r,25));
     const recent=document.querySelector('#recentMap .mapcanvas');
-    check(recent&&document.querySelector('#recentResults [data-recent-sub]'),'F1395 populated Recent loader did not render',{});
+    check(recent&&ownRow(),'F1395 populated Recent loader did not render',{
+      status:document.getElementById('recentStatus').textContent,
+      result:document.getElementById('recentResults').textContent.slice(0,250),
+      profile:A.bcProfile(),area:A.getReportSlug(),county:A.getCountyView(),
+      sourceRows:document.querySelectorAll('#recentResults [data-recent-sub]').length});
     if(mutation==='sizing')recent.style.aspectRatio='auto';
     const recentBox=box(recent);
     check(recentBox.width>0&&Math.abs(recentBox.width/recentBox.height-8/5)<.025,
@@ -82,7 +117,7 @@ async function mapLayout(scan, mutation) {
     finally{window.L=savedL;}
     const fallback=document.querySelector('#recentMap .mapcanvas svg'), fallbackBox=fallback&&box(fallback);
     check(fallbackBox&&fallbackBox.height>0,'F1395 SVG fallback collapsed',fallbackBox);
-    out.push(Object.assign(scan('F1392-F1395 actual maps and chooser'),{mapGeometry:{sampled,choices,escaped,filters,mapBox,creditBox,maps,recentBox,fallbackBox}}));
+    out.push(Object.assign(scan('F1392-F1395 actual maps and chooser'),{mapGeometry:{zoomState,sampled,choices,escaped,filters,mapBox,creditBox,maps,recentBox,fallbackBox}}));
   }catch(error){out.push({label:'F1392-F1395 map geometry',fixtureError:error.message});}
   finally{
     window.fetch=savedFetch;

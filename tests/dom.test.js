@@ -63834,6 +63834,39 @@ test('F722 a county switch immediately replaces the parent standing with labelle
   app.window.close();
 });
 
+test('F1393 delayed map fitting never touches a removed or detached Leaflet canvas', async()=>{
+  const app=await boot(), A=app.window.__app, maps=[];
+  try {
+    const L=app.window.L, create=L.map;
+    L.map=function(...args){
+      const map=create.apply(this,args), invalidate=map.invalidateSize;
+      const record={removed:false,staleFits:0,activeFits:0};
+      map.on('unload',()=>{record.removed=true;});
+      map.invalidateSize=function(...values){
+        if(record.removed){record.staleFits++;return this;}
+        record.activeFits++;
+        return invalidate.apply(this,values);
+      };
+      maps.push(record);
+      return map;
+    };
+    const host=app.$('destMap'), list=app.$('destResults');
+    A.renderDestinations([],host,list,true);
+    A.renderDestinations([],host,list,true);
+    assert.equal(maps.length,2,'both renders must create real Leaflet maps');
+    await new Promise(resolve=>setTimeout(resolve,130));
+    assert.equal(maps[0].removed,true);
+    assert.equal(maps[0].staleFits,0,'the replaced map still received delayed size work');
+    assert.ok(maps[1].activeFits>=2,'the current map still needs its delayed visible-size fit');
+    A.renderDestinations([],host,list,true);
+    const canvas=host.querySelector('.mapcanvas'), detached=maps[2];
+    host.removeChild(canvas);
+    const fits=detached.activeFits;
+    await new Promise(resolve=>setTimeout(resolve,130));
+    assert.equal(detached.activeFits,fits,'a detached canvas still received delayed size work');
+  }finally{app.window.close();}
+});
+
 test('F1389 header separates verified zero species, absent published rank and unknown checklists', async()=>{
   const app=await boot({storage:{ebird_display_name:'Synthetic owner'}}),A=app.window.__app;
   try {
