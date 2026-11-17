@@ -5580,7 +5580,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.2.2';
+      var APP_VERSION = '2.3.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9408,12 +9408,18 @@
         _progressHolds[id] = { label: label || 'Background work', work: work };
         fgProgressSync();
         var released = false;
-        return function () {
+        function release() {
           if (released) return;
           released = true;
           delete _progressHolds[id];
           fgProgressSync();
+        }
+        release.update = function (nextLabel) {
+          if (released || !_progressHolds[id] || !workCurrent(work)) return;
+          _progressHolds[id].label = nextLabel;
+          fgProgressSync();
         };
+        return release;
       }
       // A fetch job, said out loud. `src` is a county label, "Geo50km", or
       // "Sp:<code>" — none of which is a sentence, and all of which were the
@@ -15551,10 +15557,82 @@
           });
       }
 
-      // Raw eBird rows -> the record shape buildAllUnseen expects. Distance is
-      // the NEAREST anchor (home or work), matching Closest spots rather than
-      // the report's home-only global distMi: this section exists to answer
-      // "can I get there", and work is where half the chases start from.
+      function stakeoutRowFacts(row, detail, code) {
+        if (!row || !detail || String(detail.subId || detail.subID || '') !== String(row.subId || '')
+            || !row.subId) return row;
+        var loc = detail.locId || detail.loc && detail.loc.locId;
+        if (loc && row.locId && loc !== row.locId) return row;
+        var out = Object.assign({}, row);
+        ['userDisplayName', 'numSpecies', 'durationHrs', 'groupId'].forEach(function (key) {
+          var value = detail[key];
+          if ((out[key] == null || out[key] === '') && value != null && value !== '') out[key] = value;
+        });
+        var ob = (detail.obs || []).find(function (item) { return item.speciesCode === code; });
+        if (ob) {
+          var media = ob.mediaCounts || {};
+          out.evidence = Array.from(new Set(String(out.evidence || '')
+            + Object.keys(media).filter(function (key) { return media[key]; }).join(''))).join('');
+          if (ob.comments || detail.comments) out.hasComments = true;
+        }
+        return out;
+      }
+      function retainStakeoutChecklistFacts(sub, detail) {
+        var entry = _spLookupEvidence;
+        if (!entry || !stakeoutEvidenceCurrent(entry)) return;
+        entry.stateRows = entry.stateRows.map(function (row) {
+          return row.subId === sub ? stakeoutRowFacts(row, detail, entry.code) : row;
+        });
+        (_spLookupGroup.places || []).forEach(function (place) {
+          (place.checklists || []).forEach(function (row) {
+            if (row.subId !== sub) return;
+            var facts = stakeoutRowFacts({ subId: sub, locId: row.locId,
+              userDisplayName: row.observer, numSpecies: row.numSpecies,
+              durationHrs: row.durationHrs, evidence: row.evidence,
+              hasComments: row.hasComments }, detail, entry.code);
+            row.observer = facts.userDisplayName;
+            ['numSpecies', 'durationHrs', 'evidence', 'hasComments'].forEach(function (key) {
+              row[key] = facts[key];
+            });
+          });
+        });
+      }
+      function reuseStakeoutChecklistFacts(rows, code) {
+        var now = Date.now(), summaries = Object.create(null);
+        var available = Object.keys(_ebCache).filter(function (path) {
+          var hit = _ebCache[path];
+          return /^product\/lists\//.test(path) && hit.settled && workCurrent(hit.work)
+            && hit.t <= now && now - hit.t < EB_CACHE_MS;
+        });
+        return Promise.all(available.map(function (path) { return _ebCache[path].p; }))
+          .then(function (feeds) {
+            feeds.forEach(function (feed) {
+              if (!Array.isArray(feed)) return;
+              feed.forEach(function (row) {
+                var sub = row && (row.subId || row.subID);
+                if (sub) summaries[sub] = row;
+              });
+            });
+            return Promise.all((rows || []).map(function (row) {
+              if (!row || !row.subId) return row;
+              var enriched = stakeoutRowFacts(row, summaries[row.subId], code);
+              var memory = _availableChecklistViews[row.subId];
+              if (memory && now - memory.at < EB_CACHE_MS) {
+                return stakeoutRowFacts(enriched, memory.value, code);
+              }
+              var cached = cklEntry(CKL_NS + row.subId);
+              if (!BL.checklistCacheFresh(cached, todayStr())) return enriched;
+              var decoded = typeof cached.v === 'string' ? unpackJson(cached.v) : Promise.resolve(cached.v);
+              return decoded.then(function (detail) {
+                if (!checklistIdentityMatches(detail, row.subId)) {
+                  forgetChecklistView(row.subId);
+                  return enriched;
+                }
+                return stakeoutRowFacts(enriched, detail, code);
+              });
+            }));
+          });
+      }
+      // Distance uses the nearest home/work anchor, like Closest spots.
       function speciesLookupRecords(rows, anchors) {
         return (rows || []).filter(Boolean).map(function (r) {
           var lat = r.lat != null && isFinite(r.lat) ? +r.lat : null;
@@ -15574,8 +15652,10 @@
             reviewState: BL.reviewState(r),
             location_private: !!r.locationPrivate,
             sub2: r.subnational2Code || '',
-            evidence: r.evidence || '',
-            hasComments: !!(r.hasComments || r.has_comments),
+            evidence: r.evidence || Object.keys(r.mediaCounts || {}).filter(function (key) {
+              return r.mediaCounts[key];
+            }).join(''),
+            hasComments: !!(r.hasComments || r.has_comments || r.comments),
             __stateRba: !!r.__stateRba,
             __notable: !!r.__notable,
             durationHrs: r.durationHrs,
@@ -16132,9 +16212,11 @@
           });
         }
         var sightings = (refresh || mega ? Promise.resolve(null)
-          : readSpeciesLookupSnapshot(snapshotKey, snapshotContext, code)).then(function (snapshot) {
+          : readSpeciesLookupSnapshot(snapshotKey, snapshotContext, code)).then(async function (snapshot) {
           if (!current()) return null;
           if (snapshot) {
+            snapshot.rows = await reuseStakeoutChecklistFacts(snapshot.rows, code);
+            if (!current()) return null;
             restoredSnapshot = snapshot;
             var currentMemo = _ebCache[ebirdObservationPath(sourcePath)];
             reusedSnapshot = Date.now() < snapshot.expiresAt
@@ -16163,10 +16245,11 @@
           startSupportingEvidence();
           return request;
         });
-        return sightings.then(function (rows) {
+        return sightings.then(async function (rows) {
           if (!current()) return;
           if (!Array.isArray(rows)) throw new Error('Sightings response could not be verified.');
-          var currentRows = rows;
+          var currentRows = await reuseStakeoutChecklistFacts(rows, code);
+          if (!current()) return;
           if (refresh && currentRows.every(function (row) { return row && row.speciesCode === code; })) {
             seedEbirdCache(sourcePath, currentRows);
             sourceDeadline = _ebCache[ebirdObservationPath(sourcePath)].t + EB_CACHE_MS;
@@ -17928,10 +18011,12 @@
                 if (!ob) return;
                 matches.push({
                   subId: sub,
+                  locId: d.locId || d.loc && d.loc.locId || row.locId,
                   obsDt: (d && d.obsDt) || row.obsDt || row.isoObsDate || '',
                   userDisplayName: (d && d.userDisplayName) || row.userDisplayName || '',
                   groupId: (d && d.groupId) || '',
                   durationHrs: d && d.durationHrs,
+                  numSpecies: d.numSpecies != null ? d.numSpecies : row.numSpecies,
                   ob: ob
                 });
               }).catch(function (error) { failure = error; });
@@ -17961,16 +18046,21 @@
             if (list) {
               var existing = {};
               [].forEach.call(list.querySelectorAll('[data-ev-sub]'), function (row) {
-                existing[row.getAttribute('data-ev-sub')] = 1;
+                existing[row.getAttribute('data-ev-sub')] = row;
               });
-              var added = 0;
+              var added = 0, refreshed = [];
               allMatches.forEach(function (match) {
-                if (existing[match.subId]) return;
+                retainStakeoutChecklistFacts(match.subId, Object.assign({}, match, { obs: [match.ob] }));
+                if (existing[match.subId]) {
+                  existing[match.subId].removeAttribute('data-ev-done');
+                  refreshed.push(hydrateChecklistEvidence(existing[match.subId]));
+                  return;
+                }
                 var holder = document.createElement('ul');
                 holder.innerHTML = stakeoutChecklistRow(match, place, bird, 0);
                 var row = holder.firstElementChild;
                 if (row) { list.appendChild(row); added++; }
-                existing[match.subId] = 1;
+                if (row) existing[match.subId] = row;
               });
               [].slice.call(list.children).sort(function (a, b) {
                 return String(b.getAttribute('data-ev-sort') || '')
@@ -17989,6 +18079,7 @@
             slot.setAttribute('data-done', '1');
             slot.removeAttribute('data-loading');
             hydrateStakeoutChecklistFacts(slot);
+            return Promise.all(refreshed || []);
           })
           .catch(function (error) {
             if (!current()) return;
@@ -27808,8 +27899,13 @@
         }
       }
       var _cklView = {};
+      var _availableChecklistViews = {};
       var _checklistParties = {};
       function rememberChecklistParty(sub, value) {
+        if (value) {
+          _availableChecklistViews[sub] = { value: value, at: Date.now() };
+          retainStakeoutChecklistFacts(sub, value);
+        }
         if (value && typeof value.groupId === 'string' && value.groupId.trim()
             && value.locId && /^\d{4}-\d{2}-\d{2}/.test(value.obsDt || '')) {
           _checklistParties[sub] = {
@@ -27879,6 +27975,7 @@
         if (sub) {
           if (!value) {
             delete _cklView[sub];
+            delete _availableChecklistViews[sub];
             delete _checklistParties[sub];
             return;
           }
@@ -28005,6 +28102,7 @@
       function forgetChecklistView(sub) {
         if (!sub) return;
         delete _cklView[sub];
+        delete _availableChecklistViews[sub];
         delete _checklistParties[sub];
         delete _ebCache['product/checklist/view/' + encodeURIComponent(sub)];
         try { localStorage.removeItem(CKL_NS + sub); } catch (e) {}
@@ -31931,7 +32029,7 @@
           initialProvider('busy-checklist-list', {}, function (inputs, context, params) {
             var path = busyRequestPath('product/lists/' + encodeURIComponent(params.code) + '?maxResults=1200',
               hotspotContextKey());
-            return ebird(path, false, params.force, params.force || context.mode === 'retryMissing',
+            return ebird(path, params.coverage === 'reference', params.force, params.force || context.mode === 'retryMissing',
               context.work).then(function (rows) {
               if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
               var evidence = busySourceEvidence('busy-checklist-list', path, rows);
@@ -37438,6 +37536,8 @@
           lng: r.coordinatesMissing ? null : (r.lon != null ? r.lon : r.lng),
           howMany: r.count,
           userDisplayName: r.observer || '',
+          numSpecies: r.numSpecies,
+          durationHrs: r.durationHrs,
           locationPrivate: r.location_private === true || r.locationPrivate === true
             ? true : (r.location_private === null || r.locationPrivate === null ? null : false),
           evidence: r.evidence || '',
@@ -41424,7 +41524,7 @@
         if (!state) return 'Checking current parties and matched reference history…';
         var text = (r.busy || []).length + ' busy patches'
           + (state.pending ? ' shown · updating' : '') + ' in ' + countyLabelStr();
-        if (state.pending) text += ' · checking references ' + state.checked + '/' + state.candidates;
+        if (state.pending) text += ' · ' + busyPatchPhase(state);
         if (state.provisional) text += ' · provisional activity; checking shared parties';
         if (state.pending && state.current && state.current.length) {
           text += ' · current estimates (usual/group evidence updating): '
@@ -41439,6 +41539,13 @@
         if (r.rarityState === 'pending') text += ' · checking rare-bird context';
         if (r.rarityState === 'failed') text += ' · rare-bird context unavailable';
         return text + ' · ' + hotCacheAge(state.cached ? state.cachedAt : state.at);
+      }
+      function busyPatchPhase(state) {
+        if (state.phase === 'parties') return 'checking shared-party evidence';
+        if (state.phase === 'saving') return 'saving completed activity';
+        if (state.phase === 'references') return 'checking matched references '
+          + state.checked + '/' + state.candidates;
+        return 'loading current county checklists';
       }
       function renderHot(r) {
         var el = $('hotResults'); if (!el) return;
@@ -41546,10 +41653,12 @@
         input.meta.forEach(function (h) {
           if (h.locId && isFinite(+h.lat) && isFinite(+h.lng)) meta[h.locId] = h;
         });
-        var state = { at: now, cachedAt: previousAt, checked: 0, candidates: 0, pending: true, partial: false };
+        var state = { at: now, cachedAt: previousAt, checked: 0, candidates: 0,
+          phase: 'current', pending: true, partial: false };
         var coverage = {}, all = [], scored = [];
         function paint() {
           if (!workCurrent(work)) return;
+          releaseProgress.update('Busy Patches: ' + busyPatchPhase(state));
           var r = _hotspotCache || { hot: [], cold: [], _busyOnly: true };
           var retained = previous.filter(function (old) {
             return !scored.some(function (fresh) { return fresh.locId === old.locId; });
@@ -41570,7 +41679,7 @@
               code: code, force: !!input.force, coverage: priority === 'current' ? 'current' : 'reference'
             }, priority)
             : ebird(busyRequestPath('product/lists/' + encodeURIComponent(code) + '?maxResults=1200', input.context),
-              false, !!input.force, !!input.force, work);
+              priority === 'reference', !!input.force, !!input.force, work);
           return read
             .then(function (rows) {
               if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
@@ -41639,6 +41748,7 @@
           var candidates = BL.busyPatchActivity(BL.normalizeChecklistRows(checklistPartyRows(all)), { now: now })
             .filter(function (h) { return h.observers >= 5 && meta[h.locId]; });
           state.candidates = candidates.length;
+          state.phase = 'references';
           state.unscored = candidates.length;
           state.current = candidates.map(function (h) {
             return { name: meta[h.locId].locName || h.name, observers: h.observers };
@@ -41667,6 +41777,8 @@
           }, Promise.resolve());
         }).then(function () {
           if (!workCurrent(work)) throw queueCancelledError(work);
+          state.phase = 'parties';
+          paint();
           var windows = [0, 7, 14, 21, 28].map(function (days) {
             var end = new Date(now); end.setDate(end.getDate() - days);
             return { end: +end, start: +end - 36 * 3600000 };
@@ -41686,6 +41798,7 @@
           });
         }).then(function () {
           if (!workCurrent(work)) return null;
+          state.phase = 'saving';
           state.pending = false;
           delete state.current;
           if (state.partial && previous.length) scored = previous;
@@ -52567,9 +52680,9 @@
         'Patches - Go birding',
         'Bird alerts',
         'Stakeouts',
+        'My Bird List',
         'Rankings',
         'Birding Insights',
-        'My Bird List',
         'Settings & Help',
       ];
       // Who you are, on the way in. Costs NOTHING.
@@ -53037,7 +53150,7 @@
       function menuShortcutKeys() {
         try {
           var raw = localStorage.getItem(MENU_SHORTCUTS_KEY);
-          if (raw === null) return ['destBtn', 'spLookupBtn', 'refreshBtn'];
+          if (raw === null) return ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn'];
           var keys = JSON.parse(raw);
           if (!Array.isArray(keys)) throw new Error('Invalid shortcuts');
           var valid = keys.filter(function (key, index) {
@@ -53048,7 +53161,7 @@
           return valid;
         } catch (e) {
           dbg('warn', 'Menu shortcuts: saved preferences unavailable; using defaults');
-          return ['destBtn', 'spLookupBtn', 'refreshBtn'];
+          return ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn'];
         }
       }
       function renderMenuShortcuts(list) {

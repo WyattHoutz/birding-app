@@ -1932,6 +1932,24 @@ const SHOTS = [
 ].concat(SECTION_SHOTS, EXTRA_SHOTS);
 
 REVIEW_SHOTS.push({
+  id: 'f1379-menu-preview',
+  title: 'Actual My Bird List ordering and four default shortcuts (focused review)',
+  prep: SHOTS.find(shot => shot.id === 'menu').prep.replace(/return true;\s*$/, `
+    localStorage.removeItem('bc_menu_shortcuts_v1');
+    A.showMenu();
+    var list = document.getElementById('menuList');
+    document.getElementById('recentBirdGen').hidden = true;
+    var omitted = false;
+    Array.from(list.children).forEach(node => {
+      if (node.classList.contains('tocgroup')) omitted =
+        ['Patches - Go birding', 'Bird alerts', 'Settings & Help'].includes(node.textContent);
+      node.hidden = omitted;
+    });
+    return true;
+  `)
+});
+
+REVIEW_SHOTS.push({
   id: 'f1130-menu-recommendation',
   title: 'Approved recommended menu organization',
   prep: SHOTS.find(shot => shot.id === 'menu').prep.replace(/return true;\s*$/, `

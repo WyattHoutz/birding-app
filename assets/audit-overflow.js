@@ -3949,6 +3949,32 @@ const AUDIT = `<script>
   }
   async function batchRegression(out) {
     var A=window.__app;
+    localStorage.removeItem('bc_menu_shortcuts_v1');
+    A.showMenu();
+    var menu=document.getElementById('menuList');
+    var pins=Array.from(menu.querySelectorAll('.menuShortcut .toclink'));
+    if(JSON.stringify(pins.map(function(button){return button.dataset.at;}))
+        !==JSON.stringify(['destBtn','stakeHsBtn','spLookupBtn','refreshBtn']))
+      throw new Error('F1380 fresh shortcut order differs from the approved destinations');
+    var heads=Array.from(menu.querySelectorAll(':scope > .tocgroup'))
+      .filter(function(node){return node.id!=='menuShortcutsTitle';});
+    var mine=heads.findIndex(function(node){return node.textContent==='My Bird List';});
+    if(mine<0||heads[mine+1].textContent!=='Rankings'
+        ||heads[mine].getBoundingClientRect().top>=heads[mine+1].getBoundingClientRect().top)
+      throw new Error('F1379 visible group order must match reading order');
+    pins.forEach(function(button,index){
+      button.focus();
+      var box=button.getBoundingClientRect();
+      if(document.activeElement!==button||box.width<44||box.height<44)
+        throw new Error('F1380 shortcut is not a readable keyboard/touch target: '+button.dataset.at);
+      if(index){
+        var previous=pins[index-1].getBoundingClientRect();
+        if(box.top<previous.top-.5||Math.abs(box.top-previous.top)<.5&&box.left<previous.left)
+          throw new Error('F1380 visual shortcut order differs from keyboard/DOM order');
+      }
+    });
+    pins[0].scrollIntoView();
+    out.push(scan('(F1379 F1380 actual menu order and shortcut geometry)'));
     A.showSection('settingsPanel',{load:false});
     var probe=document.createElement('div');
     probe.innerHTML=ChecklistCards.list('small',[

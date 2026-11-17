@@ -1041,7 +1041,7 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'birdspdetail', 'spuhdetail', 'spuhinfo',
       'stakeoutreports', 'meganearest',
       'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f1110-sensitive', 'f951-birdgen-all', 'f1102-foy-many',
-      'f1130-menu-recommendation', 'f1131-collapsed-menu'],
+      'f1379-menu-preview', 'f1130-menu-recommendation', 'f1131-collapsed-menu'],
     'focused review states stay available without inflating the release contract');
   for (const id of ['f1130-menu-recommendation', 'f1131-collapsed-menu']) {
     assert.ok(!mockups.SHOTS.some(shot => shot.id === id),

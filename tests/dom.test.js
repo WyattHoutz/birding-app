@@ -1944,9 +1944,13 @@ test('F1310 actual discovered Busy history and party resources share independent
     const currentMs = performance.now() - started;
     assert.match(app.$('hotStatus').textContent, /current estimates.*6 estimated parties/);
     assert.equal(A.currentBusySnapshot().busyState.pending, true);
+    assert.match(app.$('hotStatus').textContent, /checking matched references 0\/1/);
+    assert.match(app.$('loadBarText').textContent, /Busy Patches: checking matched references 0\/1/);
     assert.equal(A.currentBusySnapshot(true), null, 'current estimates are not completed reference evidence');
     releaseHistory();
     await waitFor(() => releaseDetail, 'discovered party detail resource');
+    assert.match(app.$('hotStatus').textContent, /checking shared-party evidence/);
+    assert.match(app.$('loadBarText').textContent, /Busy Patches: checking shared-party evidence/);
     const graphAcquisitions = () => A.auditLog().events().filter(row =>
       row.event === 'setup.resource' && row.attrs.event === 'acquire').length;
     const beforeShared = graphAcquisitions();
@@ -2096,6 +2100,59 @@ test('F1310 actual failed required party detail cannot certify Busy readiness an
       'party recovery cannot reacquire healthy source siblings');
     assert.deepEqual(app.state.errors, []);
   } finally { release(base); app.window.close(); }
+});
+
+test('F1377 matched Busy reference contention preserves demand while fresh foreground results precede history', async t => {
+  const rows = busyResourceFixtureRows(), results = [];
+  for (const mode of ['foreground-control', 'yielding-reference']) {
+    const starts = [];
+    const {app,A,base,release} = await initialResourceFixture({fetch:url => {
+      starts.push({url,at:performance.now()});
+      const value = /product\/lists\/L131001/.test(url) ? rows
+        : /product\/checklist\/view\//.test(url) ? busyResourceDetail(rows,url) : [];
+      return new Promise(resolve=>setTimeout(()=>resolve(value),/product\/lists\/L131001/.test(url)?250:25));
+    }});
+    try {
+      const currentPath='product/lists/US-WA-033?maxResults=1200';
+      A.seedEbirdCache(currentPath,rows.filter(row=>row.subId.startsWith('S131000')));
+      const now=Date.now(); A.fgSchedReset(now);
+      for(let i=0;i<16;i++) A.fgWindowPush(now-54000);
+      const before=starts.length, started=performance.now(), work={current:()=>true};
+      const input={codes:['US-WA-033'],home:A.getHome(),anchors:A.getAnchors(),
+        context:A.hotspotContextKey(),reportSlug:A.getReportSlug(),cacheKey:A.hotCacheKey(),
+        meta:[{locId:'L131001',locName:'Synthetic public patch',lat:47.6,lng:-122.3}],ownerWork:work};
+      if(mode==='foreground-control') input.resourceAccess=(provider,params)=>
+        provider==='busy-party-detail' ? A.checklistView(params.sub,true,work)
+          : A.ebird('product/lists/'+params.code+'?maxResults=1200',false,false,false,work);
+      const pending=A.startBusyPatches(input);
+      await waitFor(()=>mode==='foreground-control'
+        ? starts.some(row=>/product\/lists\/L131001/.test(row.url))
+        : A.fgState().queuedBg>0 && A.fgState().active===0,'matched reference admission');
+      assert.match(app.$('hotStatus').textContent,/checking matched references/);
+      const tap=performance.now();
+      await A.ebird('ref/hotspot/L1377FRESH/info',false,true,true,work);
+      const usefulMs=performance.now()-tap;
+      if(mode==='yielding-reference') {
+        assert.equal(starts.filter(row=>/product\/lists\/L131001/.test(row.url)).length,0,
+          'required references remain pending without occupying reserved foreground capacity');
+        assert.equal(A.currentBusySnapshot().busyState.pending,true);
+      }
+      const result=await pending;
+      assert.equal(result.busyState.partial,false);
+      const paths=starts.slice(before).map(row=>row.url).sort();
+      const ref=starts.find(row=>/product\/lists\/L131001/.test(row.url));
+      const fresh=starts.find(row=>/L1377FRESH/.test(row.url));
+      assert.equal(fresh.at<ref.at,mode==='yielding-reference');
+      const count=starts.length, at=result.busyState.at;
+      await A.startBusyPatches(input);
+      assert.equal(starts.length,count); assert.equal(A.currentBusySnapshot(true).busyState.at,at);
+      results.push({paths,busy:JSON.parse(JSON.stringify(result.busy)).map(({at,...row})=>row),
+        checked:result.busyState.checked,candidates:result.busyState.candidates});
+      t.diagnostic(JSON.stringify({mode,fixture:'matched warm current, cold references/parties; 16 prior starts; 250ms reference/25ms other transport',
+        usefulMs:Math.round(usefulMs),completeMs:Math.round(performance.now()-started),requests:paths.length,warmExtraRequests:0}));
+    } finally {release(base);app.window.close();}
+  }
+  assert.deepEqual(results[1],results[0]);
 });
 
 test('F1310 matched legacy and resource Busy runs preserve scores coverage and physical request inventory', async t => {
@@ -6281,7 +6338,7 @@ test('F1040/F1044/F1129 ordinary tiles stay frosted and Bird alerts uses the sel
       ['surgeBtn', 'refreshBtn', 'abaBtn', 'easyBtn', 'ppteBtn', 'massBtn', 'foyBtn']);
     assert.equal(app.document.querySelectorAll(ORIGINAL_MENU + '[data-at="easyBtn"]').length, 1);
     assert.equal(app.document.querySelector(ORIGINAL_MENU + '[data-at="activeBtn"]'), null);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
   } finally { app.window.close(); }
 });
 
@@ -8008,6 +8065,196 @@ test('F1018 actual history queue retains foreground capacity and useful paint at
     } finally { app.window.close(); }
   }
   console.log('F1018 controlled production boundaries: ' + JSON.stringify(measurements));
+});
+
+test('F1378 exact available checklist facts survive first paint, redraws, progressive rows and saved reopening without detail transport', async () => {
+  for (const packed of [false, true]) {
+    const stamp = recentObsStamp(1);
+    const rows = Array.from({length: 14}, (_, i) => ({
+      speciesCode: 'litsti', comName: 'Little Stint', subId: 'S1378-' + i,
+      obsDt: stamp, locId: 'L1378', locName: 'Synthetic private patch',
+      lat: 47.8, lng: -122.2, howMany: 1, locationPrivate: true
+    }));
+    const app = await boot({sample: false, fetch: url =>
+      /recent\/litsti/.test(url) ? rows : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : []});
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      for (let i = 0; i < 13; i++) {
+        const detail = {subId: i === 12 ? 'S-wrong' : rows[i].subId, locId: rows[i].locId,
+          userDisplayName: 'Synthetic cached observer ' + i, numSpecies: 17, durationHrs: 0.5,
+          obs: [{speciesCode: 'litsti', mediaCounts: {P: 1}, comments: 'Synthetic bird note'},
+            {speciesCode: 'other', mediaCounts: {A: 1}, comments: 'Unrelated species note'}]};
+        store.setItem('bc_ckl2:' + rows[i].subId, JSON.stringify({d: A.todayStr(), o: stamp.slice(0,10),
+          m: true, v: packed ? await A.packJson(detail) : detail}));
+      }
+      const firstPaint=new Map();
+      const observer=new app.window.MutationObserver(()=>{
+        for(const node of app.$('spLookupRecent').querySelectorAll('.cklcard-sm[data-ev-sub]')){
+          if(!firstPaint.has(node.dataset.evSub))firstPaint.set(node.dataset.evSub,{
+            who:node.querySelector('.ckwho')?.textContent,
+            sp:node.querySelector('.cksp')?.textContent,
+            text:node.textContent,media:node.querySelector('.ckevid')?.textContent || ''});
+        }
+      });
+      observer.observe(app.$('spLookupRecent'),{childList:true,subtree:true});
+      await A.lookupSpecies('litsti', 'Little Stint');
+      observer.disconnect();
+      assert.ok(firstPaint.size,'observe actual first insertion, not merely post-hydration DOM');
+      for(const [sub,facts] of firstPaint){
+        const index=Number(sub.split('-')[1]);
+        if(index>=12)continue;
+        assert.equal(facts.who,'Synthetic cached observer '+index,'first inserted observer');
+        assert.equal(facts.sp,'17 sp','first inserted species total');
+        assert.match(facts.text,/30m/,'first inserted duration');
+        assert.match(facts.media,/📷/,'first inserted target-species photo evidence');
+      }
+      A.setSpeciesLookupWithinChase(false);
+      const check = () => {
+        const nodes = [...app.$('spLookupRecent').querySelectorAll('.cklcard-sm[data-ev-sub]')];
+        assert.ok(nodes.length);
+        for (const node of nodes) {
+          const index = Number(node.dataset.evSub.split('-')[1]);
+          if (index >= 12) {
+            assert.equal(node.querySelector('.ckwho'), null, 'missing/mismatched facts stay unknown');
+            assert.equal(node.querySelector('.cksp'), null);
+          } else {
+            assert.equal(node.querySelector('.ckwho')?.textContent, 'Synthetic cached observer ' + index);
+            assert.equal(node.querySelector('.cksp')?.textContent, '17 sp');
+            assert.match(node.textContent, /30m/);
+            assert.match(node.querySelector('.ckevid')?.textContent || '', /📷/);
+            assert.doesNotMatch(node.querySelector('.ckevid')?.textContent || '', /🔊/);
+          }
+          assert.ok(node.querySelector('.privateflag'));
+        }
+      };
+      check();
+      for (const grouped of [false, true]) for (const sort of ['dist', 'date']) {
+        A.setSpeciesLookupGrouped(grouped); A.setSpeciesLookupSort(sort); check();
+        while (app.$('spLookupRecent').querySelector('.stakeoutChecklistMore')) {
+          app.$('spLookupRecent').querySelector('.stakeoutChecklistMore').click(); check();
+        }
+      }
+      await A.lookupSpecies('litsti', 'Little Stint'); check();
+      assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 0);
+      assert.deepEqual(app.state.errors, []);
+    } finally {app.window.close();}
+  }
+});
+
+test('F1378 reuses acquired summaries and retains facts learned by actual hydration', async () => {
+  const row = {speciesCode:'litsti',comName:'Little Stint',subId:'S1378-summary',locId:'L1378',
+    locName:'Synthetic patch',locationPrivate:true,lat:47.8,lng:-122.2,obsDt:recentObsStamp(1),howMany:1};
+  const app = await boot({sample:false, fetch:url => /recent\/litsti/.test(url) ? [row]
+    : /product\/lists\/US-WA\?/.test(url) ? [{subId:row.subId,locId:row.locId,
+      userDisplayName:'Synthetic summary observer',numSpecies:23}]
+    : /product\/checklist\/view\//.test(url) ? {subId:row.subId,locId:row.locId,
+      userDisplayName:'Synthetic summary observer',numSpecies:23,durationHrs:0.5,
+      obs:[{speciesCode:'litsti',mediaCounts:{P:1},comments:'Synthetic exact bird note'}]}
+    : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : []});
+  try {
+    const A=app.window.__app;
+    await A.ebird('product/lists/US-WA?maxResults=1200');
+    await A.lookupSpecies('litsti','Little Stint');
+    let node=app.$('spLookupRecent').querySelector('[data-ev-sub="'+row.subId+'"]');
+    assert.equal(node.querySelector('.ckwho')?.textContent,'Synthetic summary observer');
+    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.doesNotMatch(node.textContent,/30m/);
+    await A.hydrateChecklistEvidence(node);
+    A.setSpeciesLookupGrouped(false); A.setSpeciesLookupSort('dist');
+    node=app.$('spLookupRecent').querySelector('[data-ev-sub="'+row.subId+'"]');
+    assert.match(node.textContent,/30m/);
+    assert.match(node.querySelector('.ckevid')?.textContent || '',/📷/);
+    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.equal(app.state.fetches.filter(url=>/product\/checklist\/view\//.test(url)).length,1,
+      'explicit visible-row hydration is shared; redraw must not reacquire it');
+  } finally {app.window.close();}
+});
+
+test('F1378 stale, wrong-location and wrong-submission cached metadata cannot supply attribution', async () => {
+  const rows=Array.from({length:14},(_,i)=>({speciesCode:'litsti',comName:'Little Stint',
+    subId:'S1378-invalid-'+i,locId:'L1378',locName:'Synthetic private patch',locationPrivate:true,
+    lat:47.8,lng:-122.2,obsDt:recentObsStamp(1),howMany:1}));
+  const app=await boot({sample:false,fetch:url=>/recent\/litsti/.test(url)?rows
+    :/product\/lists\/US-WA\?/.test(url)?[{subId:rows[0].subId,userDisplayName:'Expired summary'},
+      {subId:'S-unrelated',userDisplayName:'Unrelated summary'}]
+    :/alert\/rba\//.test(url)?otherStateMegaAlertHtml():[]});
+  try{
+    const A=app.window.__app, clock=app.window.Date.now;
+    await A.ebird('product/lists/US-WA?maxResults=1200');
+    app.window.Date.now=()=>clock()+31*60000;
+    for(let i=0;i<3;i++)app.window.localStorage.setItem('bc_ckl2:'+rows[i].subId,JSON.stringify({
+      d:i===0?'2000-01-01':A.todayStr(),o:recentObsStamp(1).slice(0,10),m:true,
+      v:{subId:i===2?'S-unrelated':rows[i].subId,locId:i===1?'L-wrong':'L1378',
+        userDisplayName:'Must not attribute',numSpecies:99,durationHrs:9,obs:[]}}));
+    await A.lookupSpecies('litsti','Little Stint');
+    A.setSpeciesLookupGrouped(false);
+    const nodes=app.$('spLookupRecent').querySelectorAll('.cklcard-sm[data-ev-sub]');
+    assert.ok(nodes.length,'negative metadata controls must render actual checklist rows');
+    for(const node of nodes){
+      assert.equal(node.querySelector('.ckwho'),null);
+      assert.equal(node.querySelector('.cksp'),null);
+      assert.ok(node.querySelector('.privateflag'));
+    }
+    assert.equal(app.state.fetches.filter(url=>/product\/checklist\/view\//.test(url)).length,0);
+  }finally{app.window.close();}
+});
+
+test('F1378 bounded older-history species verification preserves the matched checklist species total', async () => {
+  const sub='S1378-history', stamp=recentObsStamp(2);
+  const app=await boot({sample:false,fetch:url=>/product\/lists\/L1378\?maxResults=12/.test(url)
+    ?[{subId:sub,locId:'L1378',isoObsDate:stamp,userDisplayName:'Synthetic summary',numSpecies:19}]:[]});
+  try{
+    const A=app.window.__app;
+    A.seedChecklistView(sub,{subId:sub,locId:'L1378',obsDt:stamp,numSpecies:23,
+      userDisplayName:'Synthetic verified observer',durationHrs:0.5,
+      obs:[{speciesCode:'litsti',howMany:1}]});
+    const host=app.document.createElement('div');
+    host.innerHTML='<div class="stakeoutPlaceDetails"><ul class="stakeoutPlaceChecklists"></ul>'
+      +'<div class="stakeoutPlaceHistory" data-loc="L1378" data-code="litsti" '
+      +'data-place="Synthetic patch" data-lat="47.8" data-lng="-122.2"></div></div>';
+    app.$('spLookupRecent').appendChild(host);
+    await A.loadStakeoutPlaceHistory(host.querySelector('.stakeoutPlaceHistory'),{code:'litsti'});
+    const node=host.querySelector('[data-ev-sub="'+sub+'"]');
+    assert.ok(node,'the target species must be verified before projecting a summary');
+    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.match(node.textContent,/Synthetic verified observer/);
+    assert.match(node.textContent,/30m/);
+    assert.equal(app.state.fetches.filter(url=>/product\/lists\/L1378/.test(url)).length,1);
+    const list=host.querySelector('.stakeoutPlaceChecklists');
+    list.innerHTML=app.window.ChecklistCards.small({durationPending:true,data:{
+      'ev-sub':sub,'ev-code':'litsti','ev-inline':'1','ev-done':'1'}});
+    const existing=list.firstElementChild, slot=host.querySelector('.stakeoutPlaceHistory');
+    slot.removeAttribute('data-done');
+    await A.loadStakeoutPlaceHistory(slot,{code:'litsti'});
+    assert.equal(list.children.length,1,'an existing match must not be duplicated');
+    assert.equal(list.firstElementChild,existing,'retain the existing checklist node');
+    assert.equal(existing.querySelector('.cksp')?.textContent,'23 sp');
+    assert.match(existing.textContent,/Synthetic verified observer/);
+    assert.match(existing.textContent,/30m/);
+    assert.equal(app.state.fetches.filter(url=>/product\/lists\/L1378/.test(url)).length,1);
+    assert.equal(app.state.fetches.filter(url=>/product\/checklist\/view\//.test(url)).length,0,
+      'reconciling an already verified history match must reuse its exact cached detail');
+  }finally{app.window.close();}
+});
+
+test('F1378 RBA-shaped Stakeout projection preserves supplied facts without changing source identity', async () => {
+  const app=await boot({sample:false,key:null});
+  try{
+    const A=app.window.__app;
+    const source={code:'litsti',name:'Little Stint',subId:'S1378-rba',locId:'L1378',
+      loc:'Synthetic private patch',lat:47.8,lon:-122.2,location_private:true,
+      dateStr:recentObsStamp(1),observer:'Synthetic observer',numSpecies:17,durationHrs:0.5,
+      count:null,evidence:'P',hasComments:true};
+    const [row]=A.stakeoutRarityEvidenceRows([source],'litsti','Little Stint');
+    const [record]=A.speciesLookupRecords([row],A.getAnchors());
+    assert.equal(record.observer,source.observer);assert.equal(record.numSpecies,17);
+    assert.equal(record.durationHrs,0.5);assert.equal(record.count,null);
+    assert.equal(record.subId,source.subId);assert.equal(record.locId,source.locId);
+    assert.equal(record.location_private,true);assert.equal(record.evidence,'P');
+    assert.equal(record.hasComments,true);
+    const [unknown]=A.speciesLookupRecords([{speciesCode:'litsti',subId:'S-unknown'}],[]);
+    assert.equal(unknown.numSpecies,undefined);assert.equal(unknown.durationHrs,undefined);
+  }finally{app.window.close();}
 });
 
 test('F1023 authorized private and public summary observers paint before details and through progressive rendering', async () => {
@@ -25231,11 +25478,11 @@ function shortcutMenu(app, button, keyboard = false) {
   assert.equal(app.$('menuShortcutPopup').hidden, false);
 }
 
-test('F1228 F1229 defaults omit My Year List and put Twitches last without changing custom shortcuts', async () => {
+test('F1380 F1228 F1229 defaults put Stakeout Patches second and Twitches last without changing custom shortcuts', async () => {
   const app = await boot();
   try {
     const A = app.window.__app, list = app.$('menuList');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.match(app.$('menuShortcutsHint').textContent, /Long press a menu item to edit shortcuts/);
     assert.equal(list.querySelector('.menuPin, #menuEditFavorites'), null);
     const originals = [...list.querySelectorAll(':scope > li:not(.menuShortcut) > .toclink')];
@@ -25262,7 +25509,7 @@ test('F1228 F1229 defaults omit My Year List and put Twitches last without chang
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn', 'surgeBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn', 'surgeBtn']);
     assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
@@ -25271,14 +25518,14 @@ test('F1228 F1229 defaults omit My Year List and put Twitches last without chang
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
     assert.equal(bird.querySelector('.tileicon'), icons[originals.indexOf(bird)]);
     for (let i = 0; i < 3; i++) A.showMenu();
     assert.equal(app.document.querySelectorAll('#menuShortcutPopup').length, 1);
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn'], 'repaints must not duplicate shortcuts');
-    for (const at of ['destBtn', 'spLookupBtn']) {
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn'], 'repaints must not duplicate shortcuts');
+    for (const at of ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']) {
       for (const selector of ['#menuList .menuShortcut .toclink[data-at="' + at + '"]',
         ORIGINAL_MENU + '[data-at="' + at + '"]']) {
         app.document.querySelector(selector).click();
@@ -25320,7 +25567,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
   }
   const app = await boot({ storage: { [SHORTCUT_KEY]: '{invalid' } });
   try {
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'), /saved preferences unavailable/);
   } finally { app.window.close(); }
 });
@@ -48926,8 +49173,7 @@ test('F1130 the complete menu uses the approved groups, membership and ordering'
   const headings = kids.filter((k) => k.classList.contains('tocgroup') && k.id !== 'menuShortcutsTitle')
     .map((k) => k.textContent.trim());
   assert.deepEqual(headings, ['Patches - Go birding', 'Bird alerts',
-    'Stakeouts', 'Rankings', 'Birding Insights',
-    'My Bird List', 'Settings & Help']);
+    'Stakeouts', 'My Bird List', 'Rankings', 'Birding Insights', 'Settings & Help']);
 
   function labelsUnder(heading) {
     const headIdx = kids.findIndex((k) => k.classList.contains('tocgroup')
@@ -52462,19 +52708,8 @@ test('unseen place rows carry the media mark, like every other list', async () =
     + '"X", and a reader could not tell which');
 });
 
-// "in main menu, move go birding section above rare birds."
-//
-// The MENU array already listed Go birding first. MENU_GROUPS is the array that
-// actually decides the order, and it disagreed — two orderings for one menu,
-// the same shape as every heading that disagreed with its own rows.
-// "in main menu, move go birding section above rare birds." — and then,
-// later, the owner authored the whole arrangement tile by tile and put the
-// rare-bird news FIRST, which supersedes it.
-//
-// So the assertion is no longer about WHICH group leads. It is about the
-// property that request actually exposed: MENU_GROUPS and the MENU array must
-// agree, because two orderings for one menu is how the original bug happened.
-test('there is ONE menu ordering, not two', () => {
+// F1379 changes presentation only; the canonical report/JSON contract stays put.
+test('F1379 presentation groups cover the canonical menu without reordering its parity contract', () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const m = /var MENU_GROUPS = \[([^\]]+)\]/.exec(HTML);
   assert.ok(m, 'the group order is a named array');
@@ -52485,10 +52720,12 @@ test('there is ONE menu ordering, not two', () => {
   for (const item of JSON.parse(fs.readFileSync(wwwFixture('menu.json'), 'utf8'))) {
     if (!used.includes(item.group)) used.push(item.group);
   }
-  assert.deepEqual(used, groups,
-    'every group the MENU rows name appears in MENU_GROUPS, in the same order '
-    + '— a group missing here simply does not render, and a different order '
-    + 'means the menu has two minds about itself');
+  assert.deepEqual([...used].sort(), [...groups].sort(),
+    'every canonical group appears exactly once in the display order');
+  const expected = used.filter(group => group !== 'My Bird List');
+  expected.splice(expected.indexOf('Rankings'), 0, 'My Bird List');
+  assert.deepEqual(groups, expected,
+    'only My Bird List moves, immediately before Rankings; canonical MENU stays unchanged');
 });
 
 
