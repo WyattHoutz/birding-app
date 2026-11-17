@@ -63840,7 +63840,9 @@ test('F1382 aggregate weather uses approved Home and rejects a late previous-are
     const A=app.window.__app;
     app.open(/Twitch weather/);
     await waitFor(()=>release,'Home weather point lookup');
-    assert.ok(app.state.fetches.some(url=>/points\/47.7500,-122.1600/.test(url)));
+    const home=A.getHome();
+    assert.ok(app.state.fetches.some(url=>/api.weather.gov\/points/.test(url)&&new URL(url).pathname===
+      '/points/'+home.lat.toFixed(4)+','+home.lng.toFixed(4)));
     A.setActiveReport('lower48');
     app.open(/Twitch weather/);
     await waitFor(()=>app.$('wxStatus').querySelector('.sethome-inline'),'missing owned Home action');
