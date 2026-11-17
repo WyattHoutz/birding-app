@@ -19185,7 +19185,8 @@ test('F805/F812 selected period owns header metrics, personal screen and navigat
   app.window.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify(wrongOwner));
   A.headerIdentityRefresh();
   assert.equal(app.$('hdrRankJump'),null,'another identity revision cannot supply standing');
-  assert.equal(app.$('hdrChecklistJump').textContent,'n/acl.');
+  assert.equal(app.$('hdrChecklistJump').textContent,'—cl.');
+  assert.match(app.$('hdrChecklistJump').getAttribute('aria-label'),/Checklist total unavailable/);
   assert.equal(app.$('hdrSpeciesJump').textContent,'2sp.','personal total survives independently unavailable boards');
   app.window.localStorage.setItem(A.RANK_CACHE_KEY,originalRankCache);
   A.headerIdentityRefresh();
@@ -65672,7 +65673,8 @@ test('F994 Today Find ranks bounded top hotspots from the chosen place and resto
     assert.ok(inline);
     assert.equal(inline.querySelector('.farplaces'), null, 'Today must not substitute a full directory');
     assert.match(inline.textContent, /top hotspots.*best first, not nearest/);
-    assert.match(app.$('destStatus').textContent, /from Everett/);
+    assert.match(app.$('sec-destBtn').querySelector('.scoutinstatus').textContent, /from Everett/);
+    assert.equal(app.$('destStatus').textContent, '', 'Find has one local summary, not a duplicate outer status');
     assert.equal(JSON.stringify(A.getHome()), home, 'Find must not rewrite saved Home');
     const findFeeds = app.state.fetches.slice(before).filter(url =>
       /geo\/recent|ref\/hotspot\/geo/.test(url) && new URL(url).searchParams.get('lat') === '48');
@@ -65682,8 +65684,9 @@ test('F994 Today Find ranks bounded top hotspots from the chosen place and resto
     await originalRank;
     assert.equal(app.$('destResults').querySelectorAll('.hscard').length, app.window.BirdLogic.CONST.TOP_DEST,
       'late Home results must not overwrite the ranked Find');
-    assert.match(app.$('destStatus').textContent, /from Everett/,
+    assert.match(app.$('sec-destBtn').querySelector('.scoutinstatus').textContent, /from Everett/,
       'late Home progress must not overwrite Find status');
+    assert.equal(app.$('destStatus').textContent, '', 'late Home progress must not recreate a duplicate summary');
     await A.loadDestinations();
     assert.equal(app.$('destResults').querySelectorAll('.hscard').length, app.window.BirdLogic.CONST.TOP_DEST,
       'refresh must remain on ranked Find, not silently return to the Home pool');

@@ -923,7 +923,8 @@ module.exports = function registerMigrationSetupControls({
       assert.match(app.$('appSheet').textContent, /47\.60000, -122\.30000/);
       const confirmationMap = app.$('setupConfirmationMap');
       assert.equal(confirmationMap.closest('details'), null, 'F1173 map is not behind another click');
-      assert.ok(confirmationMap.querySelector('svg'), 'F1173 selected-point map renders immediately');
+      assert.ok(confirmationMap.querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'),
+        'F1173 selected-point map renders immediately inside its owned canvas');
       const previews = [];
       app.window.open = url => { previews.push(url); };
       const mapLink = app.$('appSheet').querySelector('[data-setup-confirm-map]');
@@ -949,8 +950,8 @@ module.exports = function registerMigrationSetupControls({
       assert.ok(app.$('setupHomeMap').childNodes.length, 'F1177 candidate map is immediately visible');
       assert.equal(app.$('setupHomeMap').closest('details'), null);
       assert.equal(app.$('setupHomeMap').getAttribute('aria-label'), 'Home candidate map');
-      assert.equal(app.$('setupHomeMap').querySelector('svg') !== null, true,
-        'the existing renderer provides its offline fallback when Leaflet is unavailable');
+      assert.ok(app.$('setupHomeMap').querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'),
+        'the selected Home remains visible through the shared map renderer');
       assert.equal(app.$('setupHomePreview').tagName, 'A');
       assert.equal(app.$('setupSheet').querySelector('.setupprimary').id, 'setupHomeApprove',
         'F1158 reviewing the acquired candidate replaces the location action');
