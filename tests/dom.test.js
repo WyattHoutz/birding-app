@@ -10801,7 +10801,11 @@ test('F883 valid leaderboard ties do not masquerade as missing coverage', async 
     board.rows=cutoffRows;board.me=cutoffRows[104];
     A.renderRankPair(pair,'US-WA','2026','Owner');
     panel=app.document.querySelector('.ranknearby');
-    assert.match(panel.querySelector('.rankclimb').textContent,/#99\+6 species/);
+    const tiedStop=[...panel.querySelectorAll('.rankclimb-stop')]
+      .find(stop=>stop.querySelector('.rankclimb-rank').textContent==='#99');
+    assert.ok(tiedStop,'the complete tie at rank 99 supplies the Top 100 milestone');
+    assert.equal(tiedStop.querySelector('.rankclimb-cost').textContent,'+6 species');
+    assert.match(tiedStop.querySelector('.rankclimb-label').textContent,/Top 100/);
     assert.equal(panel.querySelector('.rankclimb-stop.current').textContent,'#105You are here');
   }finally{app.window.close();}
 });
@@ -15695,7 +15699,7 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   assert.ok(sel, 'the Contents header carries a region picker');
   assert.ok(app.$('navRegion'), 'so does the section navbar, so you can switch without going back');
   assert.equal(sel.value, 'wa', 'the picker opens on the remembered report');
-  const waLinks = app.links().length;
+  const waLinks = app.links().map(link=>link.getAttribute('data-at'));
   const waHome = app.window.localStorage.getItem('ebird_home_lat:wa');
   assert.equal(waHome, '47.75', 'a home saved before per-region homes migrates to the active region');
 
@@ -15704,13 +15708,10 @@ test('region nav: switching region rewrites the menu, the home and the storage',
   assert.equal(app.window.localStorage.getItem('ebird_report'), 'lower48',
     'the choice is persisted, so the app reopens on it');
   assert.equal(app.$('navRegion').value, 'lower48', 'both pickers stay in sync');
-  assert.ok(app.links().length < waLinks,
-    'a rarity tracker has no counties and no home: its report emits fewer sections, ' +
-    'so the menu must shrink instead of listing dead ends');
-  assert.ok(!app.links().some((a) => /Convoys|BirdCast|On passage/.test(a.textContent)),
-    'county-only sections disappear for a report that has no counties');
-  assert.ok(!app.links().some((a) => /Bird Gen/i.test(a.textContent)),
-    'Bird gen disappears when its observation and scoped-mega sources do not apply');
+  assert.deepEqual(app.links().map(link=>link.getAttribute('data-at')),waLinks,
+    'broader regions retain the authored destinations and navigation order');
+  assert.match(app.document.querySelector('[data-at="convoyBtn"] .tilesub').textContent,/Unavailable/);
+  assert.equal(A.getHome(),null,'a different region cannot inherit Washington Home');
   assert.ok(app.links().some((a) => /Top 100/.test(a.textContent)),
     'sections the rarity report does emit stay');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors while switching region');
@@ -17975,7 +17976,10 @@ test('F676 F1382 aggregate menus retain destinations with honest per-tool capabi
     assert.deepEqual(shown,standard,slug + ' preserves authored destination order');
     assert.match(aggregate.document.querySelector('[data-at="easyBtn"] .tilesub').textContent,/Unavailable/);
     assert.match(aggregate.document.querySelector('[data-at="destBtn"] .tilesub').textContent,/Nearby.*not area-wide/);
-    assert.equal(aggregate.window.__app.scopeCode(),slug==='aba'?'ABA Area':'Lower 48');
+    assert.equal(aggregate.window.__app.scopeCode(),slug,'machine scope stays separate from display');
+    const label=slug==='aba'?'ABA Area':'Lower 48';
+    assert.equal(aggregate.$('hdrScope').textContent,label);
+    assert.ok(aggregate.document.querySelector('.scopewhere').textContent.includes(label));
     const before=aggregate.state.fetches.length;
     aggregate.open(/Busy Patches/);
     await waitFor(()=>aggregate.document.querySelector('[data-aggregate-capability]'),'the capability explanation');
@@ -61333,7 +61337,7 @@ test('the region and county pickers show the code the top bar displays', async (
 
   A.scopeOpen();          // builds and binds the pickers
   app.click(app.$('menuRegion'));
-  const opts = [...app.$('regionChooserAll').querySelectorAll('.regionchoice')]
+  const opts = [...doc.querySelectorAll('#regionChooserAll .regionchoice, #regionChooserBroader .regionchoice')]
     .map((o) => o.textContent);
   app.click(app.$('regionChooserClose'));
   const wa = opts.find((t) => t.startsWith('Washington'));

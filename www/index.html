@@ -52996,7 +52996,7 @@
         var code = scopeCode();
         if (!code || code === 'Region') { el.hidden = true; return; }
         el.hidden = false;
-        el.textContent = /^aba$/i.test(code) ? 'ABA Area' : code;
+        el.textContent = scopeDisplayCode();
         var period = $('hdrPeriod');
         period.hidden = false;
         period.textContent = personalPeriod() === 'all' ? 'All Time' : String(new Date().getFullYear());
@@ -53151,7 +53151,7 @@
           + (personalPeriod() === 'all') + '" style="min-height:44px">All time'
           + (personalPeriod() === 'all' ? ' ✓' : '') + '</button></div></fieldset>'
           + '<details class="scopepick" id="menuScope">'
-          + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeCode())
+          + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeDisplayCode())
           +   '</span><span class="scopechange">Change</span></summary>'
           + '<div class="scopebody">'
           +   '<span class="regionpick"><label id="menuRegionLabel" for="menuRegion">Region</label>'
@@ -53196,7 +53196,11 @@
           }
         } catch (e) { code = ''; }
         if (!code) { try { code = getRegion() || ''; } catch (e) { code = ''; } }
-        return /^aba$/i.test(code) ? 'ABA Area' : /^lower48$/i.test(code) ? 'Lower 48' : code || 'Region';
+        return code || 'Region';
+      }
+      function scopeDisplayCode() {
+        var code = scopeCode();
+        return /^aba$/i.test(code) ? 'ABA Area' : /^lower48$/i.test(code) ? 'Lower 48' : code;
       }
       function renderMenuIdentity() {
         var el = $('menuIdentity');
