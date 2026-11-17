@@ -11,4 +11,12 @@ function withFixtureClock(scope, at, run) {
   finally { scope.Date = RealDate; }
 }
 
-module.exports = { withFixtureClock };
+function advancingFixtureDate(RealDate, at) {
+  const offset = at - RealDate.now();
+  return class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [RealDate.now() + offset])); }
+    static now() { return RealDate.now() + offset; }
+  };
+}
+
+module.exports = { withFixtureClock, advancingFixtureDate };

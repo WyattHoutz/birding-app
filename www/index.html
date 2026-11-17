@@ -10726,13 +10726,16 @@
       }
       // Common names do NOT match in GBIF's backbone taxonomy - "White Wagtail"
       // resolves to nothing - so the scientific name is required, not preferred.
+      var _gbifHistoryInflight = {};
       function gbifHistory(sci, stateName, country) {
         var t = String(sci || '').trim();
         if (!t || !stateName) return Promise.resolve(null);
         var ck = t + '|' + stateName;
         var c = gbifCache();
         if (c[ck] && (Date.now() - (c[ck].at || 0)) < GBIF_TTL_MS) return Promise.resolve(c[ck].v);
-        return gbifJson('https://api.gbif.org/v1/species/match?name=' + encodeURIComponent(t))
+        var pendingKey = JSON.stringify([t, stateName, country || 'US']);
+        if (_gbifHistoryInflight[pendingKey]) return _gbifHistoryInflight[pendingKey];
+        var pending = gbifJson('https://api.gbif.org/v1/species/match?name=' + encodeURIComponent(t))
           .then(function (m) {
             var k = m && m.usageKey;
             if (!k) return null;
@@ -10767,7 +10770,9 @@
             cc[ck] = { at: Date.now(), v: v };
             saveGbifCache();
             return v;
-          });
+          }).finally(function () { delete _gbifHistoryInflight[pendingKey]; });
+        _gbifHistoryInflight[pendingKey] = pending;
+        return pending;
       }
       // The snapshot's last year, measured rather than hard-coded. Without it a
       // card reading "1,085 records, 1972–2023" implies the bird stopped

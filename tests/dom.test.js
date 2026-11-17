@@ -23,8 +23,10 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
+const { advancingFixtureDate } = require('../assets/fixture-clock');
 
 const DEFAULT_TEST_TIMEOUT_MS = 120000;
+const MIGRATION_FIXTURE_AT = Date.UTC(2026, 8, 28, 19);
 function formatObsStamp(d) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
@@ -2750,6 +2752,7 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
 test('F1292 a complete actual prefetch makes zero provider requests through Contents and normal Bird Gen refresh', {
   timeout: 180000,
 }, async () => {
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
   const alert = '<script>window.__NUXT__=(function(a,b){return {state:{env:{'
     + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
     + '"FIXTURE_PUBLIC_KEY"));</script>';
@@ -2765,7 +2768,7 @@ test('F1292 a complete actual prefetch makes zero provider requests through Cont
     code: 'mallar3', name: 'Mallard', subId: 'S1292001', when: recentObsStamp(1),
     lat: 47.6, lng: -122.3, place: 'Synthetic public patch', count: 1, observer: 'Synthetic observer'
   }]);
-  const app = await setupOwnedSeenApp(['stable'], { fetch: url => {
+  const app = await setupOwnedSeenApp(['stable'], { Date, fetch: url => {
     if (/^https:\/\/alert\.birdcast\.org\/\?/.test(url)) return alert;
     if (/alert\.birdcast\.org\/api\//.test(url)) return forecast;
     if (/dashboard\.birdcast\.org\/region\//.test(url)) return dashboard;
@@ -4639,7 +4642,8 @@ test('F1256 category filters show icons and counts while retaining accessible na
 });
 
 test('F1257 full and Recent Bird Gen retain only structured High migration and leave dedicated levels unchanged', async () => {
-  const app = await boot({ sample: false });
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
+  const app = await boot({ sample: false, Date });
   try {
     const A = app.window.__app, now = new Date();
     const local = A.birdcastLocalParts(now, A.getReport());
@@ -6946,6 +6950,7 @@ test(`F1319 ${action === 'latest' ? 'internal force' : action} replaces an obsol
 }
 
 test('F1011 internal full refresh retains forced acquisition through the optional tail', async () => {
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
   let full = false, failingFavorite = true, releaseMass;
   const work = [];
   let heldMass = new Promise(resolve => { releaseMass = () => resolve(f821Page([])); });
@@ -6953,7 +6958,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
     obsDt: formatObsStamp(new Date(Date.now() - 600000)), locId: 'LF1011NEW',
     locName: 'Example public patch', lat: 47.75, lng: -122.16, subId: 'SF1011NEW',
     howMany: 1, obsReviewed: false, obsValid: true };
-  const app = await boot({ sample: false, storage: { ebird_favs: JSON.stringify([
+  const app = await boot({ sample: false, Date, storage: { ebird_favs: JSON.stringify([
     { id: 'f1011', locId: 'LF1011KEEP', locName: 'Retained public marsh', region: 'US-WA' },
   ]) }, fetch(url) {
     if (/bird-list/.test(url)) return heldMass;
@@ -8100,6 +8105,11 @@ test('F1381 Busy and Current geometry fixtures render off-season and restore the
       assert.equal(scope.Date,WinterDate,'a failing fixture must restore the real outer clock too');
     });
     assert.equal(scope.Date,RealDate);
+    const AdvancingDate=advancingFixtureDate(RealDate,season), started=AdvancingDate.now();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    assert.ok(AdvancingDate.now()>started,'asynchronous fixtures retain real elapsed scheduler time');
+    assert.ok(new AdvancingDate().getTime()>started,'constructed fixture dates advance too');
+    assert.equal(scope.Date,RealDate,'creating a dated fixture must not change the outer clock');
   }finally{app.window.close();}
 });
 
@@ -9607,7 +9617,7 @@ function seedOwnedSnapshot(app,codes,model) {
     return code;
   }));
   app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify({
-    owner,source:A.personalListUrl(owner),readAt:new Date().toISOString(),readDate:A.todayStr(),
+    owner,source:A.personalListUrl(owner),readAt:new app.window.Date().toISOString(),readDate:A.todayStr(),
     codes:codes.slice(),rows:codes.map(code => ({code,name:model.byCode[code].name})),
     declaredCount:roots.size,coverage:codes.length?'complete':'empty',
     unresolved:0,paginated:false,
@@ -9733,6 +9743,7 @@ function boot(opts = {}) {
     pretendToBeVisual: true,
     virtualConsole,
     beforeParse(window) {
+      if (opts.Date) window.Date = opts.Date;
       window.confirm = message => /^Are you sure you want to close setup\?/.test(message);
       if (opts.indexedDB) window.indexedDB = opts.indexedDB;
       if (opts.key !== null) window.localStorage.setItem('ebird_api_key', opts.key || 'TESTKEY');
@@ -25679,11 +25690,11 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
       filter.value = value;
       filter.dispatchEvent(new app.window.Event('input', { bubbles: true }));
     }
-    query('Stakeout patch');
+    query('Iconic');
     assert.equal(app.$('menuShortcutsTitle').hidden, true, 'a filter without matching pins must hide the heading and hint');
     assert.equal(app.document.querySelector('.menuShortcutShelf').hidden, true, 'a filter without matching pins must hide the shelf');
     assert.ok([...app.document.querySelectorAll(ORIGINAL_MENU)].some(button =>
-      !button.closest('li').hidden && /Stakeout/.test(menuToolLabel(button))));
+      !button.closest('li').hidden && /Iconic/.test(menuToolLabel(button))));
     query('Twitches');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.equal(app.document.querySelector('.menuShortcutShelf').hidden, false);
@@ -25692,7 +25703,7 @@ test('F1039 retained filtering hides empty shortcut groups and restores only mat
     query('');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual([...app.document.querySelectorAll('.menuShortcut:not([hidden]) .toclink')]
-      .map(button => button.dataset.at), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+      .map(button => button.dataset.at), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null, 'filtering must not rewrite saved preferences');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -25727,7 +25738,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn']);
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
       && row.msg === 'Menu shortcuts: preferences could not be saved'));
@@ -25766,7 +25777,7 @@ test('F1031 held touch is cancelable and never navigates on release; Escape rest
     assert.equal(app.$('menuShortcutAction').dataset.action, 'remove');
     button.click();
     assert.equal(app.$('menuPanel').hidden, false, 'the hold-release click must not navigate');
-    assert.deepEqual(shortcutIds(app), ['destBtn', 'spLookupBtn', 'refreshBtn'], 'holding never silently changes pins');
+    assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn'], 'holding never silently changes pins');
     app.$('menuShortcutAction').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.$('menuShortcutPopup').hidden, true);
     assert.equal(app.document.activeElement, button);
@@ -25788,6 +25799,9 @@ test('F987/F992/F1133 Recent Bird Gen preserves destinations and jargon follows 
   assert.equal(authored.find((m) => m.at === 'activeBtn').enabled, false,
     'the disabled weekly section is preserved, not enabled by the reorder');
   const later = authored.filter((m) => !['Buzz', 'Bird alerts', 'Patches - Go birding'].includes(m.group));
+  const presentation = later.filter(m => m.group !== 'My Bird List');
+  presentation.splice(presentation.findIndex(m => m.group === 'Rankings'), 0,
+    ...later.filter(m => m.group === 'My Bird List'));
   function verify() {
     const groups = [];
     for (const li of app.$('menuList').children) {
@@ -25807,8 +25821,8 @@ test('F987/F992/F1133 Recent Bird Gen preserves destinations and jargon follows 
       ] },
     ]);
     assert.deepEqual(groups.slice(2).flatMap((g) => g.ids),
-      later.filter((m) => A.menuApplies(m)).map((m) => m.at),
-      'later groups retain their authored order and applicability');
+      presentation.filter((m) => A.menuApplies(m)).map((m) => m.at),
+      'later groups retain membership and applicability with only the approved My Bird List move');
     const links = [...app.document.querySelectorAll(ORIGINAL_MENU)];
     assert.deepEqual(links.filter((a) => a.closest('li').classList.contains('birdgen-tile'))
       .map((a) => a.dataset.at), []);
@@ -25818,7 +25832,7 @@ test('F987/F992/F1133 Recent Bird Gen preserves destinations and jargon follows 
     assert.equal(app.$('recentBirdGenOpen').textContent, 'Full feed');
     assert.equal(app.$('recentBirdGenOpen').getAttribute('aria-label'), 'Open full Bird Gen feed');
     const jargon = app.$('menuList').querySelector('.jargontip');
-    assert.equal(jargon.nextElementSibling.textContent, 'Rankings');
+    assert.equal(jargon.nextElementSibling.textContent, 'My Bird List');
     assert.equal(jargon.previousElementSibling.querySelector('.toclink').dataset.at,
       groups.find(group => group.name === 'Stakeouts').ids.at(-1),
       'jargon follows the complete Stakeouts group');
@@ -27592,7 +27606,8 @@ test('due back soon shows what is coming, soonest first, and what you need', asy
 });
 
 test('F637/F642 opening Migration loads due-back data without a refresh tap', async () => {
-  const app = await boot();
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
+  const app = await boot({ Date });
   const A = app.window.__app;
   const now = new Date();
   function mmdd(offset) {
@@ -41180,7 +41195,7 @@ test('F501-F510 Stakeout always shows details, merges history, and keeps Notes i
   const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
     HTML.indexOf('function hydrateStakeoutPlaceHistories('));
   assert.doesNotMatch(history, /Repeat independent reports|Same eBird group \/ convoy/);
-  assert.match(history, /existing\[row\.getAttribute\('data-ev-sub'\)\] = 1/);
+  assert.match(history, /existing\[row\.getAttribute\('data-ev-sub'\)\] = row/);
   assert.match(history, /localeCompare\(String\(a\.getAttribute\('data-ev-sort'/);
   assert.match(history, /list\.appendChild\(row\)/,
     'matching history is not merged into the current checklist list');
@@ -45475,6 +45490,7 @@ test('F601 Bird Gen BirdCast alert uses saved Home, then the region default Home
 });
 
 test('F1249 F607/F629 BirdCast persists a shared warm snapshot and renders separate qualifying Bird Gen alerts', async () => {
+  const Date = advancingFixtureDate(globalThis.Date, globalThis.Date.UTC(2026, 8, 28, 17));
   const daytime = new Date('2026-09-28T17:00:00Z');
   const nuxt = '<script>window.__NUXT__=(function(a,b,c){return {state:{env:{'
     + 'birdcastApiUrl:a,birdcastApiKey:b}}}("https:\\u002F\\u002Fexample.test\\u002F",'
@@ -45503,6 +45519,7 @@ test('F1249 F607/F629 BirdCast persists a shared warm snapshot and renders separ
   };
   let birdcastCalls = 0;
   const app = await boot({
+    Date,
     report: 'wa',
     fetch(url) {
       if (/https:\/\/(?:alert|dashboard)\.birdcast\.org/.test(String(url))) birdcastCalls++;
@@ -48559,9 +48576,16 @@ test('F304 retries lazy GBIF history when detail=full supplies the scientific na
   assert.equal(matchCalls, 0,
     'GBIF does not guess from a common name while the scientific name is unavailable');
   resolveState();
-  await waitFor(() => matchCalls === 1, 'GBIF retry after scientific-name enrichment');
+  await waitFor(() => matchCalls >= 1, 'GBIF retry after scientific-name enrichment').catch(error => {
+    const state = A.megaViewState(), entry = state.view?.bySpecies.f304bird;
+    error.message += '\n' + JSON.stringify({ active: state.active,
+      sci: entry?.sci, rows: entry?.stateRows, requests: app.state.fetches,
+      debug: app.window.__dbg.buf.slice(-12).map(row => row.msg) });
+    throw error;
+  });
   await waitFor(() => /State records/.test(stakeoutSurfaceText(app)),
     'the lazy history publication');
+  assert.equal(matchCalls, 1, 'both evidence owners must join one complete GBIF history acquisition');
   assert.match(stakeoutSurfaceText(app), /No Washington record/);
   app.window.close();
 });
@@ -50684,7 +50708,8 @@ test('F1122 forecast selection finds the current night without accepting a wrong
 });
 
 test('F1121 F1135 F1213 full and Recent Bird Gen keep inline tonight and verified last-night sentences', async () => {
-  const app = await boot();
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
+  const app = await boot({ Date });
   try {
     const A = app.window.__app, now = new Date();
     const local = A.birdcastLocalParts(now, A.getReport());
@@ -50724,7 +50749,8 @@ test('F1121 F1135 F1213 full and Recent Bird Gen keep inline tonight and verifie
 });
 
 test('F1135 saved migration counts do not become last-night totals and missing counts stay unavailable', async () => {
-  const app = await boot();
+  const Date = advancingFixtureDate(globalThis.Date, MIGRATION_FIXTURE_AT);
+  const app = await boot({ Date });
   try {
     const A = app.window.__app, now = new Date();
     const local = A.birdcastLocalParts(now, A.getReport());
@@ -56772,7 +56798,7 @@ test('F475/F992/F1133 the main menu keeps one cached rotating jargon tip after S
   while (heading && !heading.classList.contains('tocgroup')) heading = heading.previousElementSibling;
   assert.equal(heading?.textContent, 'Stakeouts');
   assert.equal(tip.previousElementSibling.querySelector('.toclink')?.dataset.at, 'stakeHsBtn');
-  assert.equal(tip.nextElementSibling.textContent, 'Rankings');
+  assert.equal(tip.nextElementSibling.textContent, 'My Bird List');
   assert.equal(tip.querySelector('.jargonlabel').textContent, 'Birder Jargon');
   const entry = tip.querySelector(':scope > p.jargonentry');
   assert.ok(entry, 'the term and definition are not one wrapping dictionary paragraph');
