@@ -8067,6 +8067,42 @@ test('F1018 actual history queue retains foreground capacity and useful paint at
   console.log('F1018 controlled production boundaries: ' + JSON.stringify(measurements));
 });
 
+test('F1381 Busy and Current geometry fixtures render off-season and restore their scoped clock', async () => {
+  const {withFixtureClock}=require('../assets/fixture-clock');
+  const app=await boot({sample:false,key:null});
+  try {
+    const A=app.window.__app, scope=app.window, RealDate=scope.Date;
+    const winter=Date.UTC(2026,10,16,19), season=Date.UTC(2026,8,15,19);
+    withFixtureClock(scope,winter,()=>{
+      assert.equal(A.birdcastSeason(new scope.Date(),A.getReport()).active,false);
+      const WinterDate=scope.Date;
+      withFixtureClock(scope,season,()=>{
+        const parts=A.birdcastLocalParts(new scope.Date(),A.getReport());
+        const date=new scope.Date(scope.Date.UTC(parts.year,parts.month-1,parts.day))
+          .toISOString().slice(0,10);
+        A.setBirdcastSnapshot({forecast:{level:'High',date},fetchedAt:season,
+          forecastFetchedAt:season,sourceScope:A.getReportSlug()});
+        A.renderSurge([],[],[0,1,2].map(index=>({loc:'Synthetic alignment patch '+index,
+          locId:'LF1381-'+index,observers:24-index*2,baseline:1,ratio:24-index*2,
+          latest:new scope.Date(season-(index+1)*3600000).toISOString(),lat:47.7,lng:-122.2})),
+          [],[],{mega:'notApplicable',observations:'ok',hotspots:'ok',
+            twitchRows:[],suppressNotifications:true,deferPhotos:true});
+        A.showMenu();A.updateRecentBirdGen();
+        const rows=[...app.$('recentBirdGenRows').children];
+        assert.equal(rows.length,4,'all three actual Busy rows and the actual forecast must render');
+        assert.ok(rows.some(row=>row.querySelector('.recent-birdgen-time')?.textContent==='Current'));
+        assert.equal(rows.filter(row=>row.dataset.recentKind==='hotspot').length,3);
+      });
+      assert.equal(scope.Date,WinterDate);
+      assert.equal(A.birdcastSeason(new scope.Date(),A.getReport()).active,false);
+      assert.throws(()=>withFixtureClock(scope,season,()=>{throw new Error('fixture failure');}),
+        /fixture failure/);
+      assert.equal(scope.Date,WinterDate,'a failing fixture must restore the real outer clock too');
+    });
+    assert.equal(scope.Date,RealDate);
+  }finally{app.window.close();}
+});
+
 test('F1378 exact available checklist facts survive first paint, redraws, progressive rows and saved reopening without detail transport', async () => {
   for (const packed of [false, true]) {
     const stamp = recentObsStamp(1);

@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
+const { withFixtureClock } = require('./fixture-clock');
 
 const WWW = process.env.BIRDCHASER_WWW || path.join(__dirname, '..', 'www');
 const WIDTH = +(process.argv[2] || 390);
@@ -1135,7 +1136,7 @@ const AUDIT = `<script>
         }),
         shortcuts: Array.from(menuList.querySelectorAll('.menuShortcut .toclink')).map(function (button) {
           return button.dataset.at;
-        }).join(',') === 'destBtn,spLookupBtn,refreshBtn',
+        }).join(',') === 'destBtn,stakeHsBtn,spLookupBtn,refreshBtn',
         frosted: ['light', 'dark'].every(function (theme) {
           var originalTheme = window.__app.getTheme();
           window.__app.setTheme(theme);
@@ -1159,7 +1160,7 @@ const AUDIT = `<script>
         })(),
         jargonBetween: !!jargon && menuList.querySelectorAll('.jargontip').length === 1
           && jargon.previousElementSibling.querySelector('[data-at="stakeHsBtn"]') !== null
-          && jargon.nextElementSibling.textContent.trim() === 'Rankings'
+          && jargon.nextElementSibling.textContent.trim() === 'My Bird List'
       };
       window.__menuFirstGroupMargin = getComputedStyle(menuList.querySelector('.tocgroup')).marginTop;
     }
@@ -1609,6 +1610,7 @@ const AUDIT = `<script>
             scanMetricFallback('(F1246 Checklists metric sans-serif fallback)');
           }
           if (id === 'sec-surgeBtn') {
+            (${withFixtureClock.toString()})(window, Date.UTC(2026,8,15,19), function () {
             var now = new Date(), pad = function (n) { return String(n).padStart(2, '0'); };
             var stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1)
               + '-' + pad(now.getDate()) + ' 00:01';
@@ -1638,6 +1640,11 @@ const AUDIT = `<script>
             massToggle.click();
             out.push(scan('(F849 selected Mass Flock)'));
             massToggle.click();
+            });
+          }
+          if (id === 'sec-bcBody') {
+            A.renderBirdcast(new Date('2026-09-15T19:00:00Z'),
+              {forecast:{level:'High'},count:null});
           }
           var s = scan(id);
           s.atMs = at;
@@ -2079,6 +2086,7 @@ const AUDIT = `<script>
               font:getComputedStyle(yieldNote).fontSize,scale:headingScale,
               lines:Array.from(yieldRange.getClientRects()).map(function(rect){return rect.toJSON();})}));
       out.push(scan('(F1311 TOP PATCH high-yield context)'));
+      (${withFixtureClock.toString()})(window, Date.UTC(2026,8,15,19), function () {
       var alignmentNow=new Date(), alignmentLocal=A.birdcastLocalParts(alignmentNow,A.getReport());
       var alignmentDate=new Date(Date.UTC(alignmentLocal.year,alignmentLocal.month-1,alignmentLocal.day))
         .toISOString().slice(0,10);
@@ -2090,7 +2098,7 @@ const AUDIT = `<script>
         'Washington Park Arboretum and Foster Island Wildlife Viewing Area'
       ].map(function(name,index){
         return {loc:name,locId:'LF1258ALIGN'+index,observers:24-index*2,
-          baseline:1,ratio:24-index*2,latest:previewStamp((index+1)*60),
+          baseline:1,ratio:24-index*2,latest:new Date(Date.now()-(index+1)*3600000).toISOString(),
           lat:47.7,lng:-122.2};
       }),[],[],{mega:'notApplicable',observations:'ok',hotspots:'ok',
         twitchRows:[],suppressNotifications:true,deferPhotos:true});
@@ -2126,6 +2134,7 @@ const AUDIT = `<script>
         return measured;
       });
       out.push(alignmentScan);
+      });
       A.renderSurge([],[],[],[],[],{
         mega:'notApplicable',observations:'ok',suppressNotifications:true,
         twitchRows:[{code:'verfly',name:'Vermilion Flycatcher',firstAt:previewNow-60000,
@@ -2308,6 +2317,7 @@ const AUDIT = `<script>
       var compactScan=scan('(F1086 compact preview height)');
       compactScan.previewHeight={compact:compactHeight,withFormerSub:oldHeight};
       out.push(compactScan);
+      (${withFixtureClock.toString()})(window, Date.UTC(2026,8,15,19), function () {
       var migrationNow=new Date(), migrationLocal=A.birdcastLocalParts(migrationNow,A.getReport());
       function migrationDay(offset) {
         return new Date(Date.UTC(migrationLocal.year,migrationLocal.month-1,
@@ -2364,6 +2374,7 @@ const AUDIT = `<script>
         A.showMenu();
         migrationCopyFits(document.querySelector('#recentBirdGenRows [data-recent-kind="migration"]'),fixture.state);
         out.push(scan('(F1135 '+fixture.state+' '+fixture.level+' Recent migration copy)'));
+      });
       });
       categoryFeed.replaceChildren.apply(categoryFeed,savedFeed);
       if(sensitiveSaved===null) localStorage.removeItem(A.sensitiveJournalKey());
