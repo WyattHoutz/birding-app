@@ -61349,9 +61349,9 @@ test('the region and county pickers show the code the top bar displays', async (
   // 'aba' for the two rarity trackers - slugs, not eBird codes - so an
   // unguarded print rendered "Lower 48  lower48", which is a field dump
   // wearing the costume of a reference. Caught before shipping.
-  const l48 = opts.find((t) => t.startsWith('Lower 48'));
+  const l48 = opts.find((t) => t.startsWith('USA Lower 48'));
   assert.ok(l48 && !/lower48/.test(l48), 'a slug is never shown as a code: ' + l48);
-  assert.equal(l48, 'Lower 48',
+  assert.equal(l48, 'USA Lower 48',
     'the region picker adds a redundant rarities suffix to Lower 48');
   const aba = opts.find((t) => t.startsWith('ABA Area'));
   assert.ok(aba && !/\baba\b/.test(aba), 'the ABA slug is not shown either: ' + aba);
