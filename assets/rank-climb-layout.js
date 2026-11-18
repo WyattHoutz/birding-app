@@ -83,6 +83,43 @@ async function rankClimbLayout(scan, mutation) {
       color:getComputedStyle(svg).color}));
     check(colors.every(item=>item.background==='rgb(0, 114, 178)' && item.color==='rgb(255, 255, 255)'),
       'uniform numbered milestone colors',colors);
+    const palette = [], html = document.documentElement, theme = html.getAttribute('data-theme');
+    const luminance = color => {
+      const rgb = color.match(/^rgb\((\d+), (\d+), (\d+)\)$/);
+      check(!!rgb,'opaque milestone colors',color);
+      const values = rgb.slice(1).map(value=>{
+        const channel = Number(value)/255;
+        return channel<=.04045?channel/12.92:Math.pow((channel+.055)/1.055,2.4);
+      });
+      return values[0]*.2126+values[1]*.7152+values[2]*.0722;
+    };
+    const contrast = (foreground,background) => {
+      const a = luminance(foreground), b = luminance(background);
+      return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    };
+    try {
+      for (const mode of ['light','dark']) {
+        html.setAttribute('data-theme',mode);
+        const heads = Array.from(root.querySelectorAll('.rankclimb-stop.milestone .rankclimb-head'));
+        if (mode==='dark' && mutation==='theme-text') heads.forEach(head=>{head.style.color='var(--ink)';});
+        if (mode==='dark' && mutation==='theme-badge') heads.forEach(head=>{
+          head.style.setProperty('--safe-blue','var(--dark-safe-blue)');
+        });
+        const milestones = heads.map(head=>{
+          const badge = head.querySelector('.rankclimb-rank'), cost = head.querySelector('.rankclimb-cost');
+          const fill = getComputedStyle(badge).backgroundColor, ink = getComputedStyle(badge).color;
+          return {fill,ink,badgeContrast:contrast(ink,fill),
+            costContrast:contrast(getComputedStyle(cost).color,getComputedStyle(head).backgroundColor)};
+        });
+        palette.push({mode,milestones});
+        check(milestones.every(item=>item.fill==='rgb(0, 114, 178)' && item.ink==='rgb(255, 255, 255)'
+          && item.badgeContrast>=4.5 && item.costContrast>=4.5),'readable milestone theme colors',palette);
+      }
+    } finally {
+      if (theme===null) html.removeAttribute('data-theme');
+      else html.setAttribute('data-theme',theme);
+    }
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     stage('decoration');
     const decoration = laurels.map(svg=>{
       const [top,number] = svg.querySelectorAll('text');
@@ -140,7 +177,7 @@ async function rankClimbLayout(scan, mutation) {
     const result = scan(label);
     check(result.releaseLayout.latestBirdIcons===true && result.releaseLayout.rankColumns.length===2,
       'shared Top 100 icon fixture',result.releaseLayout);
-    results.push(Object.assign(result,{rankClimbGeometry:{scale,spacing,text,colors,decoration,arrows}}));
+    results.push(Object.assign(result,{rankClimbGeometry:{scale,spacing,text,colors,palette,decoration,arrows}}));
     stage('done');
   }
   try {

@@ -371,7 +371,8 @@
       --s: 1;
       --bg: #f6f7f5;
       --card: #ffffff;
-      --ink: #16211b;
+      --ink-base: #16211b;
+      --ink: var(--ink-base);
       --muted: #5c6b63;
       --accent: #0f7a52;
       /* The deep end of the header gradient. A VARIABLE because it is an
@@ -385,7 +386,8 @@
          "up" arrows and the verified pill stayed dark blue on a dark card
          while `--link` beside them switched to sky blue. Naming the concept
          once fixes the legibility and makes a theme a swap rather than a hunt. */
-      --safe-blue: #0072B2;
+      --safe-blue-base: #0072B2;
+      --safe-blue: var(--safe-blue-base);
       --link: var(--safe-blue);
       --accent-ink: #ffffff;
       --line: #e4e8e4;
@@ -3288,8 +3290,9 @@
     .rankclimb-stop.win .rankclimb-rank { color:#222; background:#E69F00; }
     .rankclimb-stop.podium-2 .rankclimb-rank { color:#23303A; background:#DCE3EA; }
     .rankclimb-stop.podium-3 .rankclimb-rank { color:#362719; background:#F2D8BF; }
-    .rankclimb-stop.milestone .rankclimb-head { background:#D8ECF8; border-color:#94BDDA; }
-    .rankclimb-stop.milestone .rankclimb-rank { color:#fff; background:#0072B2; }
+    .rankclimb-stop.milestone .rankclimb-head { --safe-blue:var(--safe-blue-base); color:var(--ink-base);
+                      background:#D8ECF8; border-color:#94BDDA; }
+    .rankclimb-stop.milestone .rankclimb-rank { color:#fff; background:var(--safe-blue); }
     .rankclimb-stop.current .rankclimb-head { border:2px solid var(--ink); background:color-mix(in srgb,var(--ink) 6%,transparent); }
     .rankclimb-stop.current .rankclimb-rank { color:#fff; background:#222; }
     .rankclimb-stop.three-digit .rankclimb-rank { font-size:calc(20px * var(--s)); }
