@@ -114,12 +114,23 @@ async function rankClimbLayout(scan, mutation) {
         palette.push({mode,milestones});
         check(milestones.every(item=>item.fill==='rgb(0, 114, 178)' && item.ink==='rgb(255, 255, 255)'
           && item.badgeContrast>=4.5 && item.costContrast>=4.5),'readable milestone theme colors',palette);
+        if (mode==='dark' && mutation==='rank-theme') root
+          .querySelectorAll('.rankclimb-stop:not(.milestone):not(.current) .rankclimb-rank').forEach(badge=>{
+            if (getComputedStyle(badge).color==='rgb(255, 255, 255)')
+              badge.style.background='var(--dark-safe-blue)';
+          });
+        const badges = Array.from(root.querySelectorAll('.rankclimb-rank'))
+          .filter(badge=>!badge.closest('.rankclimb-unavailable')).map(badge=>({
+            rank:badge.textContent.trim(),
+            contrast:contrast(getComputedStyle(badge).color,getComputedStyle(badge).backgroundColor)}));
+        check(badges.every(badge=>badge.contrast>=4.5),'readable rank badge theme contrast',{mode,badges});
+        palette.at(-1).badges = badges;
       }
     } finally {
       if (theme===null) html.removeAttribute('data-theme');
       else html.setAttribute('data-theme',theme);
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     }
-    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     stage('decoration');
     const decoration = laurels.map(svg=>{
       const [top,number] = svg.querySelectorAll('text');
