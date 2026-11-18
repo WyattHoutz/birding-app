@@ -48,10 +48,11 @@ async function rankClimbLayout(scan, mutation) {
     if (mutation==='color') laurels.forEach(svg=>{svg.parentElement.style.background='#E69F00';});
     if (mutation==='arrows') root.querySelectorAll('.rankclimb-arrow svg')
       .forEach(svg=>{svg.style.width='13px';svg.style.height='7px';});
-    if (mutation==='numeral-low' || mutation==='numeral-crowding') laurels.forEach(svg=>{
+    if (['numeral-low','numeral-crowding','numeral-small'].includes(mutation)) laurels.forEach(svg=>{
       const number = svg.querySelectorAll('text')[1];
+      if (mutation==='numeral-small' && number.hasAttribute('textLength')) return;
       if (mutation==='numeral-low') number.setAttribute('y','44');
-      else number.style.fontSize='26px';
+      else number.style.fontSize=mutation==='numeral-small'?'12px':'26px';
     });
     if (mutation) await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     stage('spacing');
@@ -113,12 +114,19 @@ async function rankClimbLayout(scan, mutation) {
           point.x*matrix.b+point.y*matrix.d+matrix.f)-stroke));
       });
       const center = new DOMPoint(38,28).matrixTransform(svg.getScreenCTM());
+      const numberScale = Math.hypot(number.getScreenCTM().c,number.getScreenCTM().d);
+      const topScale = Math.hypot(top.getScreenCTM().c,top.getScreenCTM().d);
       return {label:svg.getAttribute('aria-label'),gapAt66:Math.min(...gaps)*66/box.width,
         centerAt66:((rect.top+rect.bottom)/2-center.y)*66/box.width,
-        numberHeight:rect.height,topHeight:top.getBoundingClientRect().height};
+        numberHeight:rect.height,topHeight:top.getBoundingClientRect().height,
+        numberFont:parseFloat(getComputedStyle(number).fontSize),
+        topFont:parseFloat(getComputedStyle(top).fontSize),
+        numberScale,topScale};
     });
     check(decoration.every(item=>item.gapAt66>=3 && Math.abs(item.centerAt66)<=1.5
-      && item.numberHeight>=item.topHeight*2.1),'large centered numerals clear actual artwork',decoration);
+      && item.numberFont*item.numberScale>=item.topFont*item.topScale*2.2
+      && item.numberHeight>item.topHeight),
+      'large centered numerals clear actual artwork',decoration);
     stage('arrows');
     const arrows = Array.from(root.querySelectorAll('.rankclimb-arrow svg')).map(svg=>{
       const box = svg.getBoundingClientRect();
