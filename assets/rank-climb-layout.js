@@ -11,18 +11,21 @@ async function rankClimbLayout(scan, mutation) {
   const rows = Array.from({length:5001}, (_,i) => ({rank:i+1,species:6001-i,
     profileId:i===5000?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'}));
   const board = {region:'US-WA',period,metric:'spp',rows,me:rows[5000]};
+  const recent = ['Common Ringed Plover','American Golden-Plover'].map(name=>
+    name+' ('+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+')');
   const paint = async () => {
     if (typeof auditStage==='function') auditStage('F1398 paint cancel '+board.rows.length+' '+Math.round(performance.now()));
     A.cancelStalledWork();
     if (typeof auditStage==='function') auditStage('F1398 paint show '+Math.round(performance.now()));
     A.showSection('sec-rankBtn',{load:false});
     if (typeof auditStage==='function') auditStage('F1398 paint render '+Math.round(performance.now()));
+    board.rows.slice(0,2).forEach((row,index)=>{row.recent=recent[index];});
     A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic birder');
     if (typeof auditStage==='function') auditStage('F1398 paint clear '+Math.round(performance.now()));
     const species = document.querySelector('[data-rank-metric="spp"]');
     if (species && species.getAttribute('aria-pressed')!=='true') species.click();
-    // Keep complete goal evidence without sweeping the unrelated 5,001-row board.
-    document.getElementById('rankResults').replaceChildren();
+    // Keep complete goal evidence and the two real rows required by the shared icon audit.
+    Array.from(document.querySelectorAll('#rankResults .rankrow')).slice(2).forEach(row=>row.remove());
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   };
   async function measure(label) {
@@ -126,7 +129,10 @@ async function rankClimbLayout(scan, mutation) {
     check(root.scrollWidth<=root.clientWidth+1,'contained ladder',{scroll:root.scrollWidth,client:root.clientWidth});
     if (A.getDisplayProfile()==='standard') check(text.every(item=>item.oneLine),'compact standard text',text);
     stage('scan');
-    results.push(Object.assign(scan(label),{rankClimbGeometry:{scale,spacing,text,colors,decoration,arrows}}));
+    const result = scan(label);
+    check(result.releaseLayout.latestBirdIcons===true && result.releaseLayout.rankColumns.length===2,
+      'shared Top 100 icon fixture',result.releaseLayout);
+    results.push(Object.assign(result,{rankClimbGeometry:{scale,spacing,text,colors,decoration,arrows}}));
     stage('done');
   }
   try {
