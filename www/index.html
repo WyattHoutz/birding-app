@@ -3965,6 +3965,8 @@
     .sheetsection h3 { margin-bottom: 8px; }
     .regionchoices { display: grid; gap: 8px; }
     .regionchoice { width: 100%; min-height: 48px; text-align: left; }
+    #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
+    #regionChooserUnsupportedList li { margin-bottom: 8px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
     .setupstate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
       padding: 12px 0; border-bottom: 1px solid var(--line); }
@@ -4197,8 +4199,13 @@
       <div id="regionChooserRecent" class="regionchoices"></div>
     </section>
     <section class="sheetsection">
-      <h3>Broader Regions</h3>
+      <h3>Major Regions</h3>
       <div id="regionChooserBroader" class="regionchoices"></div>
+      <details id="regionChooserUnsupported">
+        <summary>33 more Major Regions — not supported yet</summary>
+        <p class="hint">Names observed in eBird. Region identifiers, data sources and location membership are not yet verified; these entries cannot be selected.</p>
+        <ul id="regionChooserUnsupportedList"></ul>
+      </details>
     </section>
     <section class="sheetsection">
       <h3>States, provinces and territories</h3>
@@ -5627,7 +5634,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.5.0';
+      var APP_VERSION = '2.6.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -55802,13 +55809,24 @@
         try { localStorage.setItem(RECENT_REGIONS_KEY, JSON.stringify(values.slice(0, 6))); }
         catch (e) {}
       }
+      var UNSUPPORTED_MAJOR_REGIONS = [
+        'World', 'Western Hemisphere', 'Eastern Hemisphere', 'North America',
+        'Central America', 'South America', 'West Indies', 'Caribbean',
+        'ABA Continental', 'AOU Area', 'Latin America and Caribbean', 'Africa',
+        'Africa (ABA)', 'Southern Africa', 'Eurasia', 'Western Palearctic',
+        'Europe', 'Asia', 'Middle East', 'OSME Region', 'Australasia',
+        'Australasia (ABA)', 'Australia and Territories', 'South Polar',
+        'Atlantic/Arctic Oceans', 'Indian Ocean', 'Pacific Ocean',
+        'Island of Hispaniola', 'Island of New Guinea', 'Island of Borneo',
+        'Malaysia (Borneo)', 'Malaysia (Peninsula)', 'Mainland Portugal'
+      ];
       function regionChoiceButton(row, current) {
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'regionchoice secondary';
-        button.textContent = row.label;
+        button.textContent = row.value === 'lower48' ? 'USA Lower 48' : row.label;
         button.dataset.regionChoice = row.value;
-        button.dataset.searchText = [row.label, row.code, row.value].join(' ').toLowerCase();
+        button.dataset.searchText = [button.textContent, row.label, row.code, row.value].join(' ').toLowerCase();
         if (current) button.setAttribute('aria-current', 'true');
         button.addEventListener('click', function () {
           selectRegionChoice(button.dataset.regionChoice);
@@ -55852,6 +55870,13 @@
             || !!q && button.dataset.searchText.indexOf(q) < 0;
           if (!button.hidden) visible[row.value] = true;
         });
+        var unsupported = $('regionChooserUnsupported'), unsupportedMatches = 0;
+        [].slice.call($('regionChooserUnsupportedList').children).forEach(function (item) {
+          item.hidden = state.mode !== 'all' || !!q && item.textContent.toLowerCase().indexOf(q) < 0;
+          if (!item.hidden) unsupportedMatches++;
+        });
+        unsupported.hidden = !unsupportedMatches;
+        if (q && unsupportedMatches) unsupported.open = true;
         $('regionChooserLocationStatus').textContent = state.message;
         if (state.needsHome) {
           var setup = document.createElement('button');
@@ -55861,7 +55886,8 @@
         }
         $('regionChooserSearchStatus').textContent = Object.keys(visible).length
           ? state.mode === 'all' ? '' : Object.keys(visible).length + ' supported matching regions. All regions restores the catalog.'
-          : state.mode === 'all' ? 'No matching regions.'
+          : state.mode === 'all' ? unsupportedMatches
+            ? unsupportedMatches + ' observed Major Regions match; not supported yet.' : 'No matching regions.'
             : 'No verified matching regions. Choose All regions to browse the catalog.';
         $('regionChooserBody').scrollTop = 0;
       }
@@ -55926,6 +55952,14 @@
         recentHost.innerHTML = '';
         allHost.innerHTML = '';
         broaderHost.innerHTML = '';
+        $('regionChooserUnsupported').open = false;
+        var unsupportedList = $('regionChooserUnsupportedList');
+        unsupportedList.innerHTML = '';
+        UNSUPPORTED_MAJOR_REGIONS.forEach(function (label) {
+          var item = document.createElement('li');
+          item.textContent = label;
+          unsupportedList.appendChild(item);
+        });
         if (current && byValue[current]) {
           currentHost.appendChild(regionChoiceButton(byValue[current], true));
         } else {
@@ -55939,7 +55973,6 @@
         if (!recentHost.children.length) recentHost.textContent = 'No recent regions yet.';
         rows.forEach(function (row) {
           var button = regionChoiceButton(row, row.value === current);
-          button.dataset.searchText = [row.label, row.code, row.value].join(' ').toLowerCase();
           (row.value === 'aba' || row.value === 'lower48' ? broaderHost : allHost).appendChild(button);
         });
         var hint = $('regionChooserCatalogHint');
@@ -55948,7 +55981,10 @@
         var search = $('regionChooserSearch');
         if (search) {
           search.value = '';
-          search.oninput = applyRegionChooserFilter;
+          search.oninput = function () {
+            if (!search.value.trim()) $('regionChooserUnsupported').open = false;
+            applyRegionChooserFilter();
+          };
         }
         renderRegionLocationControls();
         applyRegionChooserFilter();

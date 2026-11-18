@@ -1448,6 +1448,20 @@ const AUDIT = `<script>
       viewportHeight: window.innerHeight
     };
     out.push(chooserScan);
+    var majorSearch = document.getElementById('regionChooserSearch');
+    majorSearch.value = 'Australasia';
+    majorSearch.dispatchEvent(new Event('input'));
+    var unsupportedMajor = document.getElementById('regionChooserUnsupported');
+    var majorItems = Array.from(document.getElementById('regionChooserUnsupportedList').children)
+      .filter(function (item) { return !item.hidden; });
+    if (unsupportedMajor.hidden || !unsupportedMajor.open || majorItems.length !== 2)
+      throw new Error('F1397 search lost distinct unsupported Major Regions');
+    unsupportedMajor.scrollIntoView({block:'start'});
+    var majorSummary = unsupportedMajor.querySelector('summary').getBoundingClientRect();
+    var majorClose = document.getElementById('regionChooserClose').getBoundingClientRect();
+    if (majorSummary.height < 43.5 || majorClose.top < 0 || majorClose.bottom > window.innerHeight)
+      throw new Error('F1397 unsupported-region disclosure or Close lost its usable target');
+    out.push(scan('(F1397 searched unsupported Major Regions)'));
     document.getElementById('regionChooserClose').click();
     out.push(scan('(contents menu)'));
     var savedShortcuts = localStorage.getItem('bc_menu_shortcuts_v1');

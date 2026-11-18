@@ -64176,6 +64176,49 @@ test('F1387 actual unchanged-identity action refreshes standings instead of repo
   }finally{app.window.close();}
 });
 
+test('F1397 Major Regions expose searchable unsupported names without selectable fake IDs', async()=>{
+  const app=await boot();
+  try {
+    const A=app.window.__app;
+    A.openRegionChooser();
+    const major=app.$('regionChooserBroader'), details=app.$('regionChooserUnsupported');
+    assert.equal(major.previousElementSibling.textContent,'Major Regions');
+    assert.equal(major.querySelector('[data-region-choice="lower48"]').textContent,'USA Lower 48');
+    const items=[...app.$('regionChooserUnsupportedList').children];
+    assert.equal(items.length,33);
+    assert.equal(new Set(items.map(item=>item.textContent)).size,33);
+    for(const label of ['World','Caribbean','West Indies','Africa','Africa (ABA)','Australasia','Australasia (ABA)','OSME Region','Malaysia (Borneo)','Mainland Portugal']) {
+      assert.ok(items.some(item=>item.textContent===label),label);
+    }
+    assert.equal(details.querySelectorAll('button,a,[data-region-choice]').length,0);
+    assert.match(details.textContent,/cannot be selected/);
+    assert.equal(details.open,false);
+    const initial=A.getReportSlug(), calls=app.state.fetches.length;
+    const search=app.$('regionChooserSearch');
+    search.value='Australasia';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(details.open,true);
+    assert.deepEqual(items.filter(item=>!item.hidden).map(item=>item.textContent),['Australasia','Australasia (ABA)']);
+    assert.match(app.$('regionChooserSearchStatus').textContent,/2 observed Major Regions match; not supported/);
+    app.click(items.find(item=>item.textContent==='Australasia'));
+    assert.equal(A.getReportSlug(),initial);
+    assert.equal(app.state.fetches.length,calls,'browsing unsupported names cannot acquire data');
+    search.value='USA Lower 48';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(major.querySelector('[data-region-choice="lower48"]').hidden,false);
+    search.value='lower48';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(major.querySelector('[data-region-choice="lower48"]').hidden,false,'old alias still works');
+    app.click(app.document.querySelector('[data-region-location="home"]'));
+    assert.equal(details.hidden,true,'unverified membership must not appear as a match');
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    search.value='';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(details.hidden,false);
+    assert.equal(details.open,false);
+    assert.equal(items.filter(item=>!item.hidden).length,33);
+    app.click(app.$('regionChooserClose'));A.openRegionChooser();
+    assert.equal(details.open,false);
+    assert.equal(app.$('regionChooserSearchStatus').textContent,'');
+  }finally{app.window.close();}
+});
+
 test('F1386 broader choices have a dedicated scroll body, code search and reopen reset', async()=>{
   const app=await boot();
   try {
