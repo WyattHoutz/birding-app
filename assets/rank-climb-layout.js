@@ -8,8 +8,11 @@ async function rankClimbLayout(scan, mutation) {
     if (!ok) throw new Error('F1398 '+message+': '+JSON.stringify(value));
   };
   const period = String(new Date().getFullYear());
-  const rows = Array.from({length:5001}, (_,i) => ({rank:i+1,species:6001-i,
-    profileId:i===5000?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'}));
+  const rows = Array.from({length:5001}, (_,i) => {
+    const rank = i>=1974 && i<2000 ? 1975 : i>=2964 && i<3000 ? 2965 : i+1;
+    return {rank,species:6002-rank,
+      profileId:i===5000?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'};
+  });
   const board = {region:'US-WA',period,metric:'spp',rows,me:rows[5000]};
   const recent = ['Common Ringed Plover','American Golden-Plover'].map(name=>
     name+' ('+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+')');
@@ -45,6 +48,8 @@ async function rankClimbLayout(scan, mutation) {
     }
     if (mutation==='rank-size') root.querySelectorAll('.three-digit .rankclimb-rank')
       .forEach(badge=>{badge.style.fontSize='calc(25px * var(--s))';});
+    if (mutation==='right-inset') root.querySelectorAll('.rankclimb-rank')
+      .forEach(badge=>{badge.style.flexBasis='calc(132px * var(--s))';});
     if (mutation==='color') laurels.forEach(svg=>{svg.parentElement.style.background='#E69F00';});
     if (mutation==='arrows') root.querySelectorAll('.rankclimb-arrow svg')
       .forEach(svg=>{svg.style.width='13px';svg.style.height='7px';});
@@ -73,12 +78,18 @@ async function rankClimbLayout(scan, mutation) {
       const box = node.getBoundingClientRect(), parent = node.parentElement.getBoundingClientRect();
       const range = document.createRange();range.selectNodeContents(node);
       const rects = Array.from(range.getClientRects());
-      return {text:node.textContent,scroll:node.scrollWidth,client:node.clientWidth,
+      const rank = node.classList.contains('rankclimb-number');
+      return {text:node.textContent,scroll:node.scrollWidth,client:node.clientWidth,rank,
+        rightInset:parent.right-Math.max(...rects.map(rect=>rect.right)),
+        paddingRight:parseFloat(getComputedStyle(node.parentElement).paddingRight),
         contained:rects.every(rect=>rect.left>=parent.left-.5 && rect.right<=parent.right+.5
           && rect.left>=-.5 && rect.right<=innerWidth+.5),
         oneLine:box.height<=parseFloat(getComputedStyle(node).lineHeight)+1};
     });
     check(text.every(item=>item.contained && item.scroll<=item.client+1),'whole rank/count text',text);
+    check(text.filter(item=>item.rank).every(item=>Number.isFinite(item.rightInset)
+      && item.rightInset>=2*item.paddingRight-.5),
+      'F1406 visible rank right inset',text.filter(item=>item.rank));
     const colors = laurels.map(svg=>({background:getComputedStyle(svg.parentElement).backgroundColor,
       color:getComputedStyle(svg).color}));
     check(colors.every(item=>item.background==='rgb(0, 114, 178)' && item.color==='rgb(255, 255, 255)'),

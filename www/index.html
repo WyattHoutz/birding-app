@@ -3278,7 +3278,7 @@
                       min-height:36px; border:1px solid var(--line); border-radius:10px;
                       background:linear-gradient(90deg,rgba(0,114,178,.14),rgba(0,114,178,.04)); }
     .rankclimb-rank { display:grid; grid-template-columns:calc(60px * var(--s)) minmax(0,1fr);
-                      flex:0 0 calc(132px * var(--s)); align-items:center; gap:calc(10px * var(--s));
+                      flex:0 0 calc(140px * var(--s)); align-items:center; gap:calc(10px * var(--s));
                       padding:calc(4px * var(--s)) calc(6px * var(--s)); box-sizing:border-box; min-height:36px;
                       border-radius:9px; white-space:nowrap; color:#fff; background:var(--safe-blue-base);
                       font-weight:900; font-size:calc(25px * var(--s)); line-height:1.15;
@@ -3303,7 +3303,7 @@
     .rankclimb-label svg { width:calc(28px * var(--s)); height:calc(32px * var(--s)); flex-shrink:0; color:var(--safe-blue); }
     .rankclimb-unavailable .rankclimb-rank { color:var(--ink); background:transparent; border:1px dashed var(--ink); }
     .rankclimb-unavailable .rankclimb-cost { font-size:calc(14px * var(--s)); }
-    .rankclimb-arrow { display:flex; justify-content:center; width:calc(132px * var(--s)); color:var(--safe-blue); }
+    .rankclimb-arrow { display:flex; justify-content:center; width:calc(140px * var(--s)); color:var(--safe-blue); }
     .rankclimb-arrow svg { display:block; width:calc(28px * var(--s)); height:calc(18px * var(--s)); }
     .ranknearby-title { margin:20px 0 6px; font-size:calc(16px * var(--s)); font-weight:850; }
     @media(max-width:360px) {
@@ -5643,7 +5643,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.7.0';
+      var APP_VERSION = '2.7.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -35597,8 +35597,19 @@
             + '<button type="button" class="secondary" ' + (verified ? 'data-rank-account>Load signed-in leaderboard' : 'data-rank-verify>Verify my eBird profile') + '</button>'
             + '<span role="status"></span>';
         }
-        var index = rows.indexOf(me);
-        var windowRows = index < 0 ? [] : rows.slice(Math.max(0, index - 5), index + 6);
+        var displayRows = rows.slice();
+        var index = displayRows.indexOf(me);
+        if (index >= 0) {
+          var firstTie = displayRows.findIndex(function (row) {
+            return row.rank === me.rank && row.species === me.species;
+          });
+          if (firstTie < index) {
+            displayRows.splice(index, 1);
+            displayRows.splice(firstTie, 0, me);
+            index = firstTie;
+          }
+        }
+        var windowRows = index < 0 ? [] : displayRows.slice(Math.max(0, index - 5), index + 6);
         var rankCounts = {};
         rows.forEach(function (row) {
           rankCounts[row.rank] = (rankCounts[row.rank] || 0) + 1;

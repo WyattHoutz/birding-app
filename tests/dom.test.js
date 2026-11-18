@@ -10901,6 +10901,53 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
   }finally{app.window.close();}
 });
 
+test('F1407 nearby display puts You first in your tie without changing source ranks or coverage', async () => {
+  const app=await boot();
+  try{
+    const A=app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'owner'}));
+    function paint(scores,ownerIndex,omitted=[]){
+      const rows=scores.map((species,i)=>({rank:scores.indexOf(species)+1,species,
+        profileId:i===ownerIndex?'owner':'other'+i,name:'Synthetic birder '+i}))
+        .filter((row,i)=>!omitted.includes(i));
+      const before=JSON.stringify(rows);
+      const board={region:'US-WA',period:'2026',metric:'spp',rows,
+        me:rows.find(row=>row.profileId==='owner')};
+      A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA','2026','Owner');
+      assert.equal(board.rows,rows,'display ordering does not replace the source array');
+      assert.equal(JSON.stringify(rows),before,'source ordering, scores and ranks are unchanged');
+      const panel=app.document.querySelector('.ranknearby');
+      const table=panel.querySelector('table[aria-label="Five birders above and below you"]');
+      return {panel,table,display:table?arr(table.querySelectorAll('tbody tr'),tr=>
+        ({rank:tr.cells[0].textContent,name:tr.cells[1].textContent,
+          species:Number(tr.cells[2].textContent),gap:tr.cells[3].textContent,
+          mine:tr.hasAttribute('aria-current')})):[]};
+    }
+    const scores=[325,324,323,322,321,...Array(21).fill(320),319,318,317,316,315];
+    const late=paint(scores,15);
+    assert.deepEqual(late.display.slice(0,5).map(row=>row.species),[325,324,323,322,321],
+      'higher-scoring group stays visible above You instead of five tied peers');
+    assert.deepEqual(late.display[5],{rank:'#6',name:'You',species:320,gap:'—',mine:true});
+    assert.deepEqual(late.display.slice(6).map(row=>row.name),
+      [5,6,7,8,9].map(i=>'Synthetic birder '+i),'other tied peers keep their source order');
+    assert.ok(late.display.slice(6).every(row=>row.rank==='#6'&&row.species===320&&row.gap==='0'));
+    assert.equal(late.display.filter(row=>row.mine).length,1);
+    assert.doesNotMatch(late.panel.textContent,/Fewer than five higher|Lower neighbors may be truncated/);
+    const alreadyFirst=paint(scores,5);
+    assert.equal(alreadyFirst.display[5].name,'You','already-first ties remain stable');
+    const top=paint([...Array(21).fill(320),319,318],15);
+    assert.equal(top.display[0].name,'You');
+    assert.match(top.panel.textContent,/Fewer than five higher/,'hint uses the display position');
+    assert.doesNotMatch(top.panel.textContent,/Lower neighbors may be truncated/);
+    const bottom=paint([325,324,323,322,321,320,320],6);
+    assert.deepEqual(bottom.display.slice(-2).map(row=>row.name),['You','Synthetic birder 5']);
+    assert.match(bottom.panel.textContent,/Lower neighbors may be truncated/);
+    const gap=paint(scores,15,[2]);
+    assert.equal(gap.table,null,'missing higher-score source rows are not presented as complete coverage');
+    assert.match(gap.panel.textContent,/gaps around your row/);
+  }finally{app.window.close();}
+});
+
 test('F883 valid leaderboard ties do not masquerade as missing coverage', async () => {
   const app=await boot();
   try{
