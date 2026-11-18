@@ -5634,7 +5634,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.6.1';
+      var APP_VERSION = '2.6.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -43920,6 +43920,7 @@
               || value.year !== ctx.year
               || !firstYearSourceMatches(value.snapshot, ctx.region, ctx.year)
               || !Array.isArray(value.pendingRows)
+              || (value.discoveryRows !== undefined && !Array.isArray(value.discoveryRows))
               || value.readDate !== value.snapshot.day
               || value.readAt !== value.snapshot.readAt
               || new Date(value.readAt).toISOString() !== value.readAt
@@ -43927,6 +43928,7 @@
               || value.publishedAt !== value.snapshot.source.updatedAt) {
             throw new Error('Saved annual-first history has the wrong owner or shape.');
           }
+          if (value.discoveryRows === undefined) value.discoveryRows = value.pendingRows.slice();
           var evidence = BL.foyEvidence(value.snapshot.rows, {
             day: todayStr(), readAt: new Date().toISOString(),
             publishedAt: value.publishedAt
@@ -43934,7 +43936,7 @@
           if (evidence.baselineState !== 'ready'
               || value.snapshot.rows.some(function (row) {
                 return value.knownCodes.indexOf(row.code) < 0;
-              }) || value.pendingRows.some(function (row) {
+              }) || value.pendingRows.concat(value.discoveryRows).some(function (row) {
                 return !row || !evidence.dated.some(function (dated) {
                   return dated.code === row.code && dated.date === row.date;
                 }) || !row.previousReadDate || row.date < row.previousReadDate;
@@ -44016,21 +44018,28 @@
           var evidence = BL.foyEvidence(snapshot.rows, {
             day: snapshot.day, readAt: snapshot.readAt, publishedAt: snapshot.source.updatedAt
           }, previous);
-          var pending = (previous ? previous.pendingRows : []).filter(function (row) {
-            return evidence.dated.some(function (dated) {
-              return dated.code === row.code && dated.date === row.date;
+          function retained(rows) {
+            return rows.filter(function (row) {
+              return evidence.dated.some(function (dated) {
+                return dated.code === row.code && dated.date === row.date;
+              });
             });
-          });
+          }
+          var pending = retained(previous ? previous.pendingRows : []);
+          var discoveries = retained(previous ? previous.discoveryRows : []);
           evidence.newRows.forEach(function (row) {
-            pending.push(Object.assign({}, row, {
+            var discovery = Object.assign({}, row, {
               previousReadDate: previous.readDate, learnedAt: snapshot.readAt
-            }));
+            });
+            pending.push(discovery);
+            discoveries.push(discovery);
           });
           var record = {
             schema: 1, profile: ctx.profile, revision: ctx.revision,
             region: ctx.region, year: ctx.year, readDate: snapshot.day,
             readAt: snapshot.readAt, publishedAt: snapshot.source.updatedAt,
-            knownCodes: evidence.knownCodes, pendingRows: pending, snapshot: snapshot
+            knownCodes: evidence.knownCodes, pendingRows: pending,
+            discoveryRows: discoveries, snapshot: snapshot
           };
           var repaired = !!_foyHistoryProblems[foyKey(ctx)];
           var saved = foyHistoryWrite(ctx, record);
@@ -49738,7 +49747,7 @@
             foySource = {
               state: result.error || !result.saved ? 'failed' : 'ok',
               error: result.error || '',
-              rows: result.record ? result.record.pendingRows : []
+              rows: result.record ? result.record.discoveryRows : []
             };
             paintSurgeModel();
           }

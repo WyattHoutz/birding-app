@@ -10454,6 +10454,60 @@ test('F815 FOY history is annual, exact-owner scoped and corruption never announ
   } finally { app.window.close(); }
 });
 
+test('F1400 FOY migrates only existing discoveries and validates retained evidence independently of unread state', async () => {
+  let body = foySourceFixture(2);
+  const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
+  const A = app.window.__app, nativeSet = app.window.Storage.prototype.setItem;
+  try {
+    const baseline = await A.ensureFoy(true);
+    assert.deepEqual(arr(baseline.record.discoveryRows), [], 'initial inventory stays silent');
+    body = foySourceFixture(1, true);
+    await A.ensureFoy(true);
+    const key = A.bcReal(A.foyKey(A.foyContext()));
+    const legacy = JSON.parse(app.window.localStorage.getItem(key));
+    delete legacy.discoveryRows;
+    app.window.localStorage.setItem(key, JSON.stringify(legacy));
+    assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird'],
+      'legacy unread evidence remains eligible without replaying the inventory');
+    app.window.Storage.prototype.setItem = function (key, value) {
+      if (key.includes('ebird_foy_v1:')) throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
+      return nativeSet.call(this, key, value);
+    };
+    await A.loadFoy();
+    assert.match(app.$('foyStatus').textContent, /Read acknowledgement could not be saved/);
+    assert.equal(A.foyPendingRows().length, 1, 'failed acknowledgement cannot erase unread evidence');
+    assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird']);
+    app.window.Storage.prototype.setItem = nativeSet;
+    await A.loadFoy();
+    const acknowledged = JSON.parse(app.window.localStorage.getItem(key));
+    assert.deepEqual(acknowledged.pendingRows, []);
+    assert.deepEqual(acknowledged.discoveryRows.map(row => row.code), ['newbird'],
+      'acknowledgement must persist the migrated discovery separately');
+    await A.ensureFoy(true);
+    assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird']);
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null, 'repeat acquisition cannot resurrect unread news');
+    for (const invalid of [null, {}, [{...acknowledged.discoveryRows[0], code:'foreign'}],
+      [{...acknowledged.discoveryRows[0], previousReadDate:'2999-01-01'}]]) {
+      app.window.localStorage.setItem(key, JSON.stringify({...acknowledged, discoveryRows:invalid}));
+      assert.equal(A.foyHistoryRead(), null, 'malformed retained evidence cannot bypass unread validation');
+    }
+    app.window.localStorage.setItem(key, JSON.stringify({...legacy, pendingRows:[]}));
+    const quiet = await A.ensureFoy(true);
+    assert.equal(quiet.initial, false, 'an acknowledged legacy baseline must not be discarded');
+    assert.deepEqual(arr(quiet.record.discoveryRows), [], 'erased legacy discoveries cannot be reconstructed');
+    assert.deepEqual(arr(quiet.record.pendingRows), []);
+    app.window.localStorage.setItem(key, JSON.stringify(acknowledged));
+    body = foySourceFixture(0);
+    const removed = await A.ensureFoy(true);
+    assert.deepEqual(arr(removed.record.discoveryRows), [],
+      'a discovery removed from the verified annual source must not persist');
+    assert.deepEqual(arr(removed.record.pendingRows), []);
+  } finally {
+    app.window.Storage.prototype.setItem = nativeSet;
+    app.window.close();
+  }
+});
+
 test('F815 unsaved FOY baseline disables new alerts and privacy cancellation blocks late persistence', async () => {
   let body = foySourceFixture(2);
   const app = await boot({sample:false, fetch:url => /\/bird-list\?/.test(url) ? body : []});
@@ -11343,7 +11397,7 @@ test('F815 background annual-first failure cannot steal another source browser r
   } finally { app.window.close(); }
 });
 
-test('F815 live Bird Gen acquires FOY after primary startup and owns its pending lifecycle', async () => {
+test('F815 live Bird Gen acquires FOY after primary startup; F1400 retains alerts after acknowledgement', async () => {
   let releaseFirst;
   const app = await boot({sample:false, fetch(url) {
     if (/\/bird-list\?yr=cur&rank=lrec/.test(url)) {
@@ -11397,6 +11451,21 @@ test('F815 live Bird Gen acquires FOY after primary startup and owns its pending
     assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1,
       'the live source must publish one discovered annual-first bird into Bird Gen');
     assert.match(app.$('surgeResults').textContent, /New Annual Bird/);
+    app.click(app.$('navBack'));
+    app.open(/FOY Ticks/);
+    await waitFor(() => A.foyPendingRows().length === 0 && !app.$('foyBtn').disabled,
+      'FOY inventory acknowledges the unread discovery');
+    assert.match(app.$('foyResults').textContent, /New Annual Bird/);
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null);
+    app.click(app.$('navBack'));
+    app.open(/Bird Gen/);
+    await waitFor(() => A.performanceReport({sectionId:'sec-surgeBtn'})
+      .samples[3]?.outcome === 'ok', 'Bird Gen reopening after FOY acknowledgement');
+    assert.equal(app.$('surgeResults').dataset.sourceFoy, 'ok');
+    assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1,
+      'reading the inventory must not erase the eligible Bird Gen discovery');
+    assert.equal(annualRequests(), 2, 'retained discovery must not require another acquisition');
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null, 'Bird Gen must not restore unread state');
   } finally { app.window.close(); }
 });
 
