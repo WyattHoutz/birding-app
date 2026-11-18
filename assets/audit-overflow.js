@@ -1335,6 +1335,12 @@ const AUDIT = `<script>
       finish(out);
       return;
     }
+    if (${process.env.AUDIT_FOCUS === 'rank-climb'}) {
+      try { out.push(...await rankClimbLayout(scan, ${JSON.stringify(process.env.AUDIT_RANK_MUTATION || '')})); }
+      catch(error) { out.push({label:'F1398 actual rank ladder',fixtureError:String(error)}); }
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'forward'}) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture,
         ${JSON.stringify(process.env.AUDIT_FORWARD_MUTATION || '')}));
@@ -5058,9 +5064,10 @@ const AUDIT = `<script>
     }
   }
   const forwardLayout = ${require('./forward-layout').toString()};
+  const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -5080,6 +5087,8 @@ const AUDIT = `<script>
       catch(error) { out.push({label:'F1336 F1342-F1349 shared presentation',fixtureError:String(error)}); }
       try { await queuePresentationRegression(out); }
       catch(error) { out.push({label:'F1350-F1352 actual presentation',fixtureError:String(error)}); }
+      try { out.push(...await rankClimbLayout(scan)); }
+      catch(error) { out.push({label:'F1398 actual rank ladder',fixtureError:String(error)}); }
       try { await favoriteSearchRegression(out); }
       catch(error) { out.push({label:'F1286 Favorite search',fixtureError:String(error)}); }
       try { await personalBackupRegression(out); }
@@ -5449,6 +5458,11 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'rank-climb') {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.length === 4 && report.every(r => r.rankClimbGeometry
+        && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'maps') {
       console.log(JSON.stringify(report.map(r=>({label:r.label,mapGeometry:r.mapGeometry,
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));

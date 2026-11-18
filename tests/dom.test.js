@@ -10611,6 +10611,76 @@ test('F815 FOY overlaps add one visible reason while distinct flock events survi
   } finally { app.window.close(); }
 });
 
+test('F1398 actual ladder puts approved cups and laurels beside unchanged rank goals', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY, JSON.stringify({profileId:'owner'}));
+    const period = String(new app.window.Date().getFullYear());
+    const rows = Array.from({length:5001}, (_,i) => ({rank:i+1,species:6001-i,
+      profileId:i===5000?'owner':'synthetic'+i,name:'Synthetic birder'}));
+    const board = {region:'US-WA',period,metric:'spp',rows,me:rows[5000]};
+    const paint = () => A.renderRankPair({boards:{spp:board},failures:{},stale:{}},
+      'US-WA',period,'Synthetic birder');
+    paint();
+    const ladder = () => app.document.querySelector('.rankclimb');
+    const stops = () => [...ladder().querySelectorAll('.rankclimb-stop')];
+    const rank = stop => stop.querySelector('.rankclimb-number').textContent;
+    assert.equal(ladder().querySelectorAll('.rankclimb-rank .rankclimb-laurel').length,7,
+      'all seven numbered milestone laurels belong inside their actual rank badge');
+    assert.equal(ladder().querySelectorAll('.rankclimb-rank .rankclimb-cup').length,3);
+    assert.equal(ladder().querySelectorAll('.rankclimb-detail .rankclimb-label').length,0,
+      'single milestones must not duplicate labels above species costs');
+    for (const cutoff of [10,100,500,1000,2000,3000,5000]) {
+      const svg = ladder().querySelector('svg[aria-label="Top '+cutoff.toLocaleString('en-US')+' milestone"]');
+      assert.ok(svg);
+      assert.equal(svg.querySelector('circle'),null,'no white circle behind the artwork');
+      assert.equal(svg.querySelector('text').textContent,'Top');
+      assert.equal(svg.querySelectorAll('text')[1].textContent,cutoff.toLocaleString('en-US'));
+      const stop = svg.closest('.rankclimb-stop');
+      assert.equal(rank(stop),'#'+cutoff.toLocaleString('en-US'));
+      assert.equal(stop.querySelector('.rankclimb-cost').textContent,'+'+(5001-cutoff).toLocaleString('en-US')+' species');
+    }
+    for (const [i,stop] of stops().slice(0,3).entries()) {
+      assert.equal(rank(stop),'#'+(i+1));
+      assert.equal(stop.querySelector('.rankclimb-cup').getAttribute('aria-hidden'),'true');
+      assert.doesNotMatch(stop.textContent,/Gold|Silver|Bronze/);
+    }
+    const current = ladder().querySelector('.current');
+    assert.equal(rank(current),'#5,001');
+    assert.equal(current.querySelector('.rankclimb-cost').textContent,'You are here');
+    assert.equal(current.querySelector('svg'),null);
+    assert.equal(ladder().querySelectorAll('.rankclimb-arrow').length,stops().length-1);
+    assert.ok([...ladder().querySelectorAll('.rankclimb-arrow svg')]
+      .every(svg=>svg.getAttribute('preserveAspectRatio')==='none'));
+
+    board.rows = [{rank:8,species:300,name:'Known target',profileId:'target'},
+      {rank:20,species:200,name:'Synthetic birder',profileId:'owner'}];
+    board.me = board.rows[1];paint();
+    assert.equal(ladder().querySelectorAll('.rankclimb-unavailable').length,3);
+    assert.ok([...ladder().querySelectorAll('.rankclimb-unavailable')]
+      .every(stop=>stop.querySelector('.rankclimb-cost').textContent==='Score unknown'));
+    assert.doesNotMatch(ladder().querySelector('.rankclimb-unavailable').textContent,/\+0 species/);
+
+    board.rows = Array.from({length:5001},(_,i)=>({rank:i<483?i+1:i<5000?484:5001,
+      species:i<483?6001-i:i<5000?1000:999,
+      profileId:i===5000?'owner':'tied'+i,name:'Synthetic birder'}));
+    board.me = board.rows[5000];paint();
+    const grouped = stops().find(stop=>rank(stop)==='#484');
+    assert.ok(grouped);
+    assert.equal(grouped.querySelector('.rankclimb-cost').textContent,'+1 species');
+    assert.deepEqual([...grouped.querySelectorAll('.rankclimb-detail .rankclimb-label')]
+      .map(label=>label.textContent.replace(/\s+/g,' ').trim()),
+    ['500Top 500','1000Top 1,000','2000Top 2,000','3000Top 3,000','5000Top 5,000'],
+    'unapproved F1399 grouped presentation and complete tied goal remain unchanged');
+    assert.doesNotMatch(ladder().textContent,/Some top-board milestones are unavailable/);
+    board.rows = board.rows.slice(0,500);paint();
+    assert.match(ladder().textContent,/Some top-board milestones are unavailable/,
+      'truncated coverage must not acquire complete-tie semantics');
+  } finally { app.window.close(); }
+});
+
+
 test('F1246 ladder uses regional annual totals, complete ties and independent metric standings', async () => {
   const app=await boot({sample:false});
   try{
@@ -10637,10 +10707,12 @@ test('F1246 ladder uses regional annual totals, complete ties and independent me
     };
     paint('US-WA');
     const stops=()=>arr(app.document.querySelectorAll('.rankclimb-stop'),
-      stop=>stop.querySelector('.rankclimb-rank').textContent.trim());
-    assert.deepEqual(stops(),['🏆 #1','#2','#3','#10','#99','#173','#183','#187','#197']);
+      stop=>stop.querySelector('.rankclimb-number').textContent.trim());
+    assert.deepEqual(stops(),['#1','#2','#3','#10','#99','#173','#183','#187','#197']);
     assert.equal(app.document.querySelectorAll('.rankclimb-arrow').length,8);
-    assert.match(app.document.querySelector('.rankclimb').textContent,/Gold.*Silver.*Bronze.*Top 10.*Top 100/);
+    assert.equal(app.document.querySelectorAll('.rankclimb-rank .rankclimb-cup').length,3);
+    assert.deepEqual(arr(app.document.querySelectorAll('.rankclimb-laurel'),
+      svg=>svg.getAttribute('aria-label')),['Top 10 milestone','Top 100 milestone']);
     const last=app.document.querySelector('.rankclimb-stop.current');
     assert.equal(last.querySelector('.rankclimb-cost').textContent,'You are here');
     assert.equal(last.querySelector('.rankclimb-arrow'),null,'no arrow below the current rank');
@@ -10857,10 +10929,10 @@ test('F883 valid leaderboard ties do not masquerade as missing coverage', async 
     A.renderRankPair(pair,'US-WA','2026','Owner');
     panel=app.document.querySelector('.ranknearby');
     const tiedStop=[...panel.querySelectorAll('.rankclimb-stop')]
-      .find(stop=>stop.querySelector('.rankclimb-rank').textContent==='#99');
+      .find(stop=>stop.querySelector('.rankclimb-number').textContent==='#99');
     assert.ok(tiedStop,'the complete tie at rank 99 supplies the Top 100 milestone');
     assert.equal(tiedStop.querySelector('.rankclimb-cost').textContent,'+6 species');
-    assert.match(tiedStop.querySelector('.rankclimb-label').textContent,/Top 100/);
+    assert.ok(tiedStop.querySelector('.rankclimb-rank svg[aria-label="Top 100 milestone"]'));
     assert.equal(panel.querySelector('.rankclimb-stop.current').textContent,'#105You are here');
   }finally{app.window.close();}
 });

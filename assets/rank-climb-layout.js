@@ -1,0 +1,164 @@
+'use strict';
+
+async function rankClimbLayout(scan, mutation) {
+  const A = window.__app, results = [];
+  const identity = localStorage.getItem(A.IDENTITY_META_KEY);
+  const armSamples = new Map();
+  const check = (ok, message, value) => {
+    if (!ok) throw new Error('F1398 '+message+': '+JSON.stringify(value));
+  };
+  const period = String(new Date().getFullYear());
+  const rows = Array.from({length:5001}, (_,i) => ({rank:i+1,species:6001-i,
+    profileId:i===5000?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'}));
+  const board = {region:'US-WA',period,metric:'spp',rows,me:rows[5000]};
+  const paint = async () => {
+    if (typeof auditStage==='function') auditStage('F1398 paint cancel '+board.rows.length+' '+Math.round(performance.now()));
+    A.cancelStalledWork();
+    if (typeof auditStage==='function') auditStage('F1398 paint show '+Math.round(performance.now()));
+    A.showSection('sec-rankBtn',{load:false});
+    if (typeof auditStage==='function') auditStage('F1398 paint render '+Math.round(performance.now()));
+    A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic birder');
+    if (typeof auditStage==='function') auditStage('F1398 paint clear '+Math.round(performance.now()));
+    const species = document.querySelector('[data-rank-metric="spp"]');
+    if (species && species.getAttribute('aria-pressed')!=='true') species.click();
+    // Keep complete goal evidence without sweeping the unrelated 5,001-row board.
+    document.getElementById('rankResults').replaceChildren();
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  };
+  async function measure(label) {
+    const stage = name => {
+      if (typeof auditStage==='function') auditStage(label+' '+name+' '+Math.round(performance.now()));
+    };
+    stage('start');
+    const scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s'));
+    const root = document.querySelector('.rankclimb');
+    const icons = Array.from(root.querySelectorAll('.rankclimb-rank > svg'));
+    const laurels = icons.filter(svg=>svg.classList.contains('rankclimb-laurel'));
+    if (mutation==='crowding') {
+      icons.forEach(svg=>{
+        svg.parentElement.style.columnGap='0px';
+        if (svg.classList.contains('rankclimb-laurel')) svg.style.width='calc(66px * var(--s))';
+      });
+    }
+    if (mutation==='rank-size') root.querySelectorAll('.three-digit .rankclimb-rank')
+      .forEach(badge=>{badge.style.fontSize='calc(25px * var(--s))';});
+    if (mutation==='color') laurels.forEach(svg=>{svg.parentElement.style.background='#E69F00';});
+    if (mutation==='arrows') root.querySelectorAll('.rankclimb-arrow svg')
+      .forEach(svg=>{svg.style.width='13px';svg.style.height='7px';});
+    if (mutation==='numeral-low' || mutation==='numeral-crowding') laurels.forEach(svg=>{
+      const number = svg.querySelectorAll('text')[1];
+      if (mutation==='numeral-low') number.setAttribute('y','44');
+      else number.style.fontSize='26px';
+    });
+    if (mutation) await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    stage('spacing');
+    const spacing = icons.map(svg=>{
+      const box = svg.getBoundingClientRect(), badge = svg.parentElement.getBoundingClientRect();
+      const number = svg.parentElement.querySelector('.rankclimb-number').getBoundingClientRect();
+      return {center:box.left+box.width/2,rankLeft:number.left,gap:number.left-box.right,
+        left:box.left-badge.left,top:box.top-badge.top,bottom:badge.bottom-box.bottom};
+    });
+    check(spacing.every(item=>item.gap>=14*scale && item.left>=10*scale
+      && item.top>=3.9*scale && item.bottom>=3.9*scale),'icon padding',spacing);
+    check(!spacing.length || Math.max(...spacing.map(item=>item.center))
+      -Math.min(...spacing.map(item=>item.center))<=.5,'aligned icon centers',spacing);
+    check(!spacing.length || Math.max(...spacing.map(item=>item.rankLeft))
+      -Math.min(...spacing.map(item=>item.rankLeft))<=.5,'aligned actual ranks',spacing);
+    stage('text');
+    const text = Array.from(root.querySelectorAll('.rankclimb-number,.rankclimb-cost')).map(node=>{
+      const box = node.getBoundingClientRect(), parent = node.parentElement.getBoundingClientRect();
+      const range = document.createRange();range.selectNodeContents(node);
+      const rects = Array.from(range.getClientRects());
+      return {text:node.textContent,scroll:node.scrollWidth,client:node.clientWidth,
+        contained:rects.every(rect=>rect.left>=parent.left-.5 && rect.right<=parent.right+.5
+          && rect.left>=-.5 && rect.right<=innerWidth+.5),
+        oneLine:box.height<=parseFloat(getComputedStyle(node).lineHeight)+1};
+    });
+    check(text.every(item=>item.contained && item.scroll<=item.client+1),'whole rank/count text',text);
+    const colors = laurels.map(svg=>({background:getComputedStyle(svg.parentElement).backgroundColor,
+      color:getComputedStyle(svg).color}));
+    check(colors.every(item=>item.background==='rgb(0, 114, 178)' && item.color==='rgb(255, 255, 255)'),
+      'uniform numbered milestone colors',colors);
+    stage('decoration');
+    const decoration = laurels.map(svg=>{
+      const [top,number] = svg.querySelectorAll('text');
+      const rect = number.getBoundingClientRect(), box = svg.getBoundingClientRect();
+      const gaps = [];
+      function gap(x,y) {
+        return Math.hypot(Math.max(rect.left-x,0,x-rect.right),Math.max(rect.top-y,0,y-rect.bottom));
+      }
+      svg.querySelectorAll('ellipse').forEach(leaf=>{
+        const bounds = leaf.getBoundingClientRect();
+        const stroke = parseFloat(getComputedStyle(leaf).strokeWidth)*leaf.getScreenCTM().a/2;
+        gaps.push(Math.hypot(Math.max(rect.left-bounds.right,0,bounds.left-rect.right),
+          Math.max(rect.top-bounds.bottom,0,bounds.top-rect.bottom))-stroke);
+      });
+      svg.querySelectorAll('[data-laurel-arm]').forEach(arm=>{
+        const matrix = arm.getScreenCTM(), stroke = parseFloat(getComputedStyle(arm).strokeWidth)*matrix.a/2;
+        check([matrix.a,matrix.b,matrix.c,matrix.d,matrix.e,matrix.f].every(Number.isFinite),
+          'finite laurel transform',{});
+        const key = arm.getAttribute('d');
+        let samples = armSamples.get(key);
+        if (!samples) {
+          const length = arm.getTotalLength();
+          check(Number.isFinite(length) && length>0 && length<1000,'finite laurel arm',length);
+          samples = [];
+          for (let distance=0;distance<=length;distance+=.25) samples.push(arm.getPointAtLength(distance));
+          armSamples.set(key,samples);
+        }
+        samples.forEach(point=>gaps.push(gap(point.x*matrix.a+point.y*matrix.c+matrix.e,
+          point.x*matrix.b+point.y*matrix.d+matrix.f)-stroke));
+      });
+      const center = new DOMPoint(38,28).matrixTransform(svg.getScreenCTM());
+      return {label:svg.getAttribute('aria-label'),gapAt66:Math.min(...gaps)*66/box.width,
+        centerAt66:((rect.top+rect.bottom)/2-center.y)*66/box.width,
+        numberHeight:rect.height,topHeight:top.getBoundingClientRect().height};
+    });
+    check(decoration.every(item=>item.gapAt66>=3 && Math.abs(item.centerAt66)<=1.5
+      && item.numberHeight>=item.topHeight*2.1),'large centered numerals clear actual artwork',decoration);
+    stage('arrows');
+    const arrows = Array.from(root.querySelectorAll('.rankclimb-arrow svg')).map(svg=>{
+      const box = svg.getBoundingClientRect();
+      return {width:box.width,height:box.height,aspect:svg.getAttribute('preserveAspectRatio')};
+    });
+    check(arrows.every(item=>Math.abs(item.width-28*scale)<.1
+      && Math.abs(item.height-18*scale)<.1 && item.aspect==='none'),'original ladder arrows',arrows);
+    check(root.scrollWidth<=root.clientWidth+1,'contained ladder',{scroll:root.scrollWidth,client:root.clientWidth});
+    if (A.getDisplayProfile()==='standard') check(text.every(item=>item.oneLine),'compact standard text',text);
+    stage('scan');
+    results.push(Object.assign(scan(label),{rankClimbGeometry:{scale,spacing,text,colors,decoration,arrows}}));
+    stage('done');
+  }
+  try {
+    localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'synthetic-owner'}));
+    await paint();
+    check(document.querySelectorAll('.rankclimb-rank .rankclimb-laurel').length===7,
+      'all seven actual milestones',{});
+    await measure('F1398 complete four-digit ladder');
+    board.rows = [{rank:8,species:300,name:'Known target',profileId:'target'},
+      {rank:20,species:200,name:'Synthetic birder',profileId:'synthetic-owner'}];
+    board.me = board.rows[1];await paint();
+    check(document.querySelectorAll('.rankclimb-unavailable').length===3,'unknown podium scores',{});
+    await measure('F1398 unknown-score ladder');
+    board.rows = Array.from({length:5001},(_,i)=>({rank:i<483?i+1:i<5000?484:5001,
+      species:i<483?6001-i:i<5000?1000:999,
+      profileId:i===5000?'synthetic-owner':'tied-'+i,name:'Synthetic birder'}));
+    board.me = board.rows[5000];await paint();
+    check(document.querySelectorAll('.rankclimb-detail .rankclimb-label').length===5,
+      'unchanged complete shared-tie milestones',{});
+    await measure('F1398 preserved complete shared-tie ladder');
+    board.rows = board.rows.slice(0,500);await paint();
+    check(document.querySelector('.rankclimb').textContent.includes('Some top-board milestones are unavailable'),
+      'truncated shared targets remain coverage-limited',{});
+    await measure('F1398 preserved truncated shared-target ladder');
+  } finally {
+    if (typeof auditStage==='function') auditStage('F1398 restore');
+    if (identity===null) localStorage.removeItem(A.IDENTITY_META_KEY);
+    else localStorage.setItem(A.IDENTITY_META_KEY,identity);
+    A.showMenu();
+    if (typeof auditStage==='function') auditStage('F1398 restored');
+  }
+  return results;
+}
+
+module.exports = rankClimbLayout;
