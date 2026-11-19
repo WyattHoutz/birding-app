@@ -2818,7 +2818,7 @@ test('F1292 a complete actual prefetch makes zero provider requests through Cont
           .map(([key, entry]) => [key, entry.data.readAt])),
       };
     }
-    const sourceTimes = await acquisitionTimes();
+    let sourceTimes = await acquisitionTimes();
     A.openSetupSheet();
     await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'verified complete summary');
     app.click(app.$('setupContinue'));
@@ -2844,6 +2844,21 @@ test('F1292 a complete actual prefetch makes zero provider requests through Cont
       A.showSection(section.id, { load: false });
       app.click(section.querySelector('.refreshbtn'));
       await A.LOADERS[at].fn();
+      if (at === 'rankBtn') {
+        const reads = providerCalls().slice(headingBefore).map(url => new URL(url));
+        assert.equal(reads.length, 1, 'opening Top 100 only expands the prefetched Species board');
+        assert.equal(reads[0].pathname, '/top100');
+        assert.equal(reads[0].searchParams.get('rankedBy'), 'spp');
+        assert.equal(reads[0].searchParams.get('maxResults'), '5000');
+        const expanded = await acquisitionTimes();
+        assert.deepEqual({...expanded, rankings: sourceTimes.rankings}, sourceTimes,
+          'Top 100 expansion does not renew unrelated acquisition times');
+        for (const [key, readAt] of Object.entries(sourceTimes.rankings)) {
+          assert.equal(expanded.rankings[key], readAt, 'first-page cache remains untouched: ' + key);
+        }
+        sourceTimes = expanded;
+        continue;
+      }
       assert.equal(providerCalls().length, headingBefore,
         at + ': ordinary heading cannot force valid prefetched source evidence: '
         + JSON.stringify(providerCalls().slice(headingBefore)));
@@ -24025,6 +24040,35 @@ test('F900 Clear rejects late nearby evidence without hiding coverage failures',
   }finally{app.window.close();}
 });
 
+test('F1409 Stakeout Patch keeps its loading alert through the first checklist paint and clears it on observation failure', async () => {
+  let rejectObservations;
+  const observations = new Promise((resolve, reject) => { rejectObservations = reject; });
+  const app = await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-stakeHsBtn',{load:false});
+    A.seedEbirdCache('product/lists/L1409?maxResults='+A.STAKE_HS_LISTS,
+      [{subId:'S1409001',isoObsDate:recentObsStamp(),numSpecies:2}]);
+    A.seedEbirdCache('data/obs/L1409/recent?back=30&detail=full&maxResults=10000',
+      observations);
+    const loading = A.stakeHsOpen('L1409','Synthetic <Bay>');
+    const status = app.$('stakeHsStatus');
+    assert.match(status.textContent,/Loading hotspot data.*Synthetic <Bay>/s);
+    assert.equal(status.querySelector('bay'),null);
+    assert.equal(status.getAttribute('role'),'status');
+    const progress = status.querySelector('progress');
+    assert.ok(progress,'the hotspot request has the shared progress notice');
+    assert.equal(progress.hasAttribute('value'),false,'unknown progress is indeterminate');
+    await loading;
+    assert.ok(app.$('stakeHsResults').querySelector('[data-ev-sub="S1409001"]'));
+    assert.equal(status.querySelector('progress'),progress,'observations are still pending');
+    rejectObservations(new Error('Synthetic observations failure'));
+    await waitFor(()=>/Bird reports unavailable/.test(status.textContent),'observation failure status');
+    assert.equal(status.querySelector('progress'),null);
+    assert.ok(app.$('stakeHsResults').querySelector('[data-ev-sub="S1409001"]'));
+  } finally {app.window.close();}
+});
+
 test('F896 real Clear controls invalidate pending Bird/Patch responses without deleting saved data', async () => {
   const bird=f890Deferred(), patch=f890Deferred();
   const f=f890EvidenceFixture();
@@ -24064,6 +24108,7 @@ test('F896 real Clear controls invalidate pending Bird/Patch responses without d
     assert.equal(app.$('stakeHs').value,'');
     assert.equal(app.$('stakeHsResults').innerHTML,'');
     assert.match(app.$('stakeHsStatus').textContent,/Pick a place/);
+    assert.equal(app.$('stakeHsStatus').querySelector('progress'),null);
     assert.equal(app.$('stakeHsRefresh').disabled,true);
     A.seedEbirdCache('product/lists/L896?maxResults='+A.STAKE_HS_LISTS,
       [{subId:'S896-DONE',isoObsDate:recentObsStamp(),numSpecies:2}]);
@@ -24081,6 +24126,7 @@ test('F896 real Clear controls invalidate pending Bird/Patch responses without d
     await A.stakeHsOpen('L896-FAIL','Failed patch');
     assert.match(app.$('stakeHsStatus').textContent,/browser preview is blocked by CORS/,
       'the real rejected Patch request renders the browser-mode network error');
+    assert.equal(app.$('stakeHsStatus').querySelector('progress'),null);
     for (const prefix of ['spLookup','stakeHs']) {
       app.click(app.$(prefix+'Clear'));
       assert.doesNotMatch(app.$(prefix+'Status').textContent,/Synthetic .* failure|blocked by CORS/);
@@ -33788,9 +33834,9 @@ test('F302/F954 Bird Gen renders one always-visible news card with facts below i
   const facts = surgeEvidence(mega).querySelector('.surgefacts').textContent.replace(/\s+/g, ' ').trim();
   assert.match(facts, /^NABO x1 - \d{1,2}\/\d{1,2} \d{1,2}:\d{2}[ap] - S123456789$/i,
     'the extra facts must retain ALPHA, count, compact date and supporting checklist ID');
-  assert.match(mega.querySelector('.surgealerttitle').textContent,/^Mega rarity Nazca Booby at Smith Island/);
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/^Mega rarity Nazca Booby · most recent(?: in chase area)? at Smith Island/);
   assert.equal(app.document.querySelector('[data-alert-kind="need"] .surgealerttitle').textContent,
-    'Celebrity bird American Golden-Plover at Boe Road');
+    'Celebrity bird American Golden-Plover · most recent in chase area at Boe Road');
   for (const [kind,prefix] of [['crowd','Crowding to see '],['cascade','Leaderboard lit up by ']]) {
     assert.equal(app.document.querySelector('[data-alert-kind="'+kind+'"] .surgealerttitle')
       .firstChild.textContent,prefix);
@@ -34578,7 +34624,7 @@ test('F954 removes the superseded F459 inline rarity tags without removing categ
       'Bird Gen brought back the ambiguous icon-only R marker');
   }
   const mega = app.$('surgeFeed').querySelector('[data-alert-kind="mega"]');
-  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby at Smith Island/);
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby · most recent(?: in chase area)? at Smith Island/);
   assert.equal(mega.querySelector('.surgebadge').textContent.trim(),'MEGA');
   const rare = app.$('surgeFeed').querySelector('[data-alert-kind="cascade"]');
   assert.equal(rare.querySelector('.surgebadge').textContent.trim(),'CASCADE');
@@ -38780,7 +38826,7 @@ test('Happening now paints from the notable feeds, not after 40 species calls', 
   assert.match(src, /generation !== _surgeLoadGeneration/,
     'an older partial paint can overwrite the later complete paint');
   assert.match(src,
-    /var pObservedStarted = afterPaint\.then\(function \(\) \{ return chaseRarityStarted\(\); \}\)/,
+    /var pObservedStarted = aggregate \? pObserved : afterPaint\.then\(function \(\) \{ return chaseRarityStarted\(\); \}\)/,
     'Bird Gen has no signal for when its priority observation requests are queued');
   assert.match(src,
     /var countySource = surgeReadySources\(\s*Promise\.all\(\[pCountyScope, pCachedSources, pObservedStarted\]\)/,
@@ -56332,7 +56378,7 @@ test('F523/F849 Bird Gen defaults to every qualifying alert without an unseen fi
   const identifier = surgeEvidence(mega).querySelector('.surgefacts');
   assert.ok(identifier, 'the Bird Gen row does not carry the identifier and facts');
   assert.match(identifier.textContent, /^NABO x1 - /);
-  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby at Ocean Shores Jetty/);
+  assert.match(mega.querySelector('.surgealerttitle').textContent,/Nazca Booby · most recent(?: in chase area)? at Ocean Shores Jetty/);
   assert.equal(identifier.textContent.includes('Ocean Shores Jetty'),false,
     'the headline place must not repeat in observation facts');
   assert.equal(mega.querySelector('.ntext > .spcode'), null,
@@ -59759,7 +59805,9 @@ test('mega newness follows a four-mile species locality instead of hotspot ids o
   reportSeed.codes = reportSeed.codes.filter((code) => code !== 'ruff');
   reportSeed.names = reportSeed.names.filter((name) => name !== 'Ruff');
   const rows = Object.fromEntries(app.window.__app.megaLane([
-    { name: 'home', lat: 47.75, lng: -122.16 },
+    // Both Ruff localities are outside the chase radius so this tests discovery
+    // ordering within one priority tier; F1401 covers competing local evidence.
+    { name: 'home', lat: 47.5, lng: -122.16 },
   ]).all.map((row) => [row.code, row]));
   assert.equal(rows.whiwag.found, null,
     'nearby Neah Bay hotspot labels falsely make one continuing wagtail new');
@@ -64518,20 +64566,16 @@ test('F1392 resolved Home membership invalidates when Home changes and late area
   }finally{app.window.close();}
 });
 
-test('F1390 actual aggregate Bird Gen background consumer bounds board acquisition independently of manual Top 100', async()=>{
+test('F1390 aggregate Bird Gen does not acquire unavailable leaderboard evidence independently of manual Top 100', async()=>{
   for(const slug of ['aba','lower48']){
     const app=await boot({report:slug,sample:false,fetch:url=>/top100/.test(url)?dualRankFixture('spp',
       [{rank:1,name:'Synthetic leader',species:10}],slug,String(new Date().getFullYear())):/api\.ebird/.test(url)?[]:null});
     try{
       const A=app.window.__app;await seedSeen(app,[],[]);app.state.fetches.length=0;
-      const loading=A.loadSurge(false);
-      await waitFor(()=>app.state.fetches.some(url=>/top100/.test(url)),'actual Bird Gen board request');
-      for(const value of app.state.fetches.filter(url=>/top100/.test(url))){
-        const url=new URL(value);assert.equal(url.searchParams.get('maxResults'),'500');
-        assert.equal(url.searchParams.get('region'),slug==='aba'?'ABA Area':'USA Lower 48');
-      }
+      await A.loadSurge(false);
+      assert.equal(app.state.fetches.some(url=>/top100/.test(url)),false,
+        'partial aggregate Bird Gen must not fetch unavailable leaderboard evidence');
       assert.equal(A.rankScopeOptions()[0].max,10000,'manual adaptive source registry remains unchanged');
-      A.cancelStalledWork();await loading;
     }finally{app.window.close();}
   }
 });

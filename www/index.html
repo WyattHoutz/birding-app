@@ -2170,12 +2170,12 @@
     .spLookupControlBar .sortpick > .sortbtn { padding: 0 4px; }
     .spLookupRecent > h3, .spLookupDetailsContent > h3 { margin: 14px 0 6px; }
     .spLookupDetailsContent[hidden], .spLookupRecent:empty { display: none; }
-    #spLookupStatus.splookuploading { padding: 12px; border: 2px solid var(--safe-blue);
+    .status.splookuploading { padding: 12px; border: 2px solid var(--safe-blue);
       border-radius: var(--btn-radius); background: var(--card); overflow-wrap: anywhere; }
-    #spLookupStatus.splookuploading strong { display: block; font-size: calc(18px * var(--s)); }
-    #spLookupStatus.splookuploading progress { display: block; width: 100%; margin: 8px 0;
+    .status.splookuploading strong { display: block; font-size: calc(18px * var(--s)); }
+    .status.splookuploading progress { display: block; width: 100%; margin: 8px 0;
       accent-color: var(--safe-blue); }
-    #spLookupStatus.splookuploading p { margin: 6px 0 0; }
+    .status.splookuploading p { margin: 6px 0 0; }
     #spLookupDistanceOffer button { min-width: 44px; min-height: 44px; }
     .spLookupIconicSection .hscard-md .hsdist {
       font-size: calc(27px * var(--s)); font-weight: 900; color: var(--ink); }
@@ -4274,7 +4274,7 @@
         <button id="stakeHsHere" class="secondary" type="button">📍 Here</button>
       </div>
       <ul id="stakeHsFound" class="obs picklist"></ul>
-      <div id="stakeHsStatus" class="status">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
+      <div id="stakeHsStatus" class="status" role="status" aria-live="polite">Pick a place and see what eBird's hotspot page buries: who actually birds it, what it holds that nowhere else does, and which of its birds you still need.</div>
       <div id="stakeHsResults"></div>
     </section>
 
@@ -17427,15 +17427,13 @@
             + (BL.speciesFeedRegion(getReport()) || getObsRegion()) + ' in the last '
             + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
         } else if (_spLookupLoading) {
-          st.innerHTML = '<strong>Loading hotspot data</strong>'
-            + '<progress aria-label="Loading hotspot data"></progress><p>'
-            + esc('Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
-              + ' (last ' + SP_LOOKUP_BACK + ' days)…') + '</p><p>'
-            + (_spLookupShowingSaved ? 'Saved results from ' + esc(speciesLookupSavedAge())
+          st.innerHTML = stakeoutLoadingHtml(
+            'Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
+              + ' (last ' + SP_LOOKUP_BACK + ' days)…',
+            _spLookupShowingSaved ? 'Saved results from ' + speciesLookupSavedAge()
                 + ' remain visible while updating.'
               : (g.places || []).length ? 'Earlier results remain visible while updating.'
-              : 'Waiting for hotspots and supporting checklist reports.')
-            + '</p>';
+              : 'Waiting for hotspots and supporting checklist reports.');
         } else {
           lookupSummary = g.name + ' · ' + (g.nPlaces || 0) + ' place'
             + (g.nPlaces === 1 ? '' : 's')
@@ -42581,6 +42579,17 @@
         return stakeHsOpen(locId, name || locId);
       }
 
+      function stakeoutLoadingHtml(message, detail) {
+        return '<strong>Loading hotspot data</strong>'
+          + '<progress aria-label="Loading hotspot data"></progress><p>'
+          + esc(message) + '</p><p>' + esc(detail) + '</p>';
+      }
+
+      function stakeHsStatusText(status, text) {
+        status.classList.remove('splookuploading');
+        status.textContent = text;
+      }
+
       function stakeHsSearch() {
         var q = ($('stakeHs') || {}).value || '';
         var out = $('stakeHsFound'), st = $('stakeHsStatus');
@@ -42588,9 +42597,9 @@
         var generation = ++_stakeHsGeneration;
         q = q.trim().toLowerCase();
         out.innerHTML = '';
-        if (q.length < 3) { st.textContent = 'Type at least three letters of a hotspot name.'; return; }
+        if (q.length < 3) { stakeHsStatusText(st, 'Type at least three letters of a hotspot name.'); return; }
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
-        st.textContent = 'Searching hotspots\u2026';
+        stakeHsStatusText(st, 'Searching hotspots\u2026');
         loadHotspotIndex(getObsRegion()).then(function (rows) {
           if (generation !== _stakeHsGeneration) return;
           var hits = (rows || []).filter(function (h) {
@@ -42614,7 +42623,7 @@
         out.innerHTML = '';
         if ($('stakeHsResults')) $('stakeHsResults').innerHTML = '';
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
-        st.textContent = 'Finding hotspots near you\u2026';
+        stakeHsStatusText(st, 'Finding hotspots near you\u2026');
         getDeviceLocation().then(function (here) {
           return loadHotspotIndex(getObsRegion()).then(function (rows) {
             if (generation !== _stakeHsGeneration) return;
@@ -42662,9 +42671,9 @@
         $('stakeHs').focus({ preventScroll: true });
         if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = true;
         if ($('stakeHsStatus')) {
-          $('stakeHsStatus').textContent = 'Pick a place and see what eBird\u2019s hotspot '
+          stakeHsStatusText($('stakeHsStatus'), 'Pick a place and see what eBird\u2019s hotspot '
             + 'page buries: who actually birds it, what it holds that nowhere else '
-            + 'does, and which of its birds you still need.';
+            + 'does, and which of its birds you still need.');
         }
       }
 
@@ -42749,8 +42758,11 @@
         if ($('stakeHsClear')) $('stakeHsClear').hidden = false;
         $('stakeHsFound').innerHTML = '';
         box.innerHTML = '';
-        st.textContent = 'Reading ' + (name || 'this hotspot') + '\u2026';
         var lastGood = _stakeHsLastGood[locId], nearbyStarted = false, primaryReady = false;
+        st.classList.add('splookuploading');
+        st.innerHTML = stakeoutLoadingHtml('Reading ' + (name || 'this hotspot') + '\u2026',
+          lastGood ? 'Earlier results remain visible while updating.'
+            : 'Waiting for recent checklists and bird reports.');
         var previousNearby = lastGood && lastGood.nearby;
         var state = {
           lists: lastGood ? lastGood.lists.slice() : [],
@@ -42844,8 +42856,11 @@
             _stakeHsRows = state.lists;
             paint();
             if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = false;
-            st.textContent = state.lists.length + ' recent checklist'
-              + (state.lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime();
+            function settleStatus(note) {
+              stakeHsStatusText(st, state.lists.length + ' recent checklist'
+                + (state.lists.length === 1 ? '' : 's') + ' \u00b7 ' + nowTime()
+                + (note ? ' \u00b7 ' + note : ''));
+            }
 
             ebird('data/obs/' + encodeURIComponent(locId)
                   + '/recent?back=' + STAKE_HS_BACK + '&detail=full&maxResults=10000',
@@ -42862,6 +42877,7 @@
                 }
                 state.obs = owned.concat(rbaObs);
                 state.obsState = 'loaded';
+                settleStatus();
                 paint();
                 return supplementStakeHs(locId, state, function () {
                   return generation === _stakeHsGeneration;
@@ -42869,6 +42885,7 @@
               }).catch(function (e) {
                 if (generation !== _stakeHsGeneration) return;
                 state.obsState = 'error';
+                settleStatus('Bird reports unavailable');
                 dbg('warn', 'Stakeout hotspot species feed: '
                   + ((e && e.message) || e));
                 paint();
@@ -42901,7 +42918,7 @@
               primaryReady = true;
               if (lastGood) paint();
               if ($('stakeHsRefresh')) $('stakeHsRefresh').disabled = false;
-              st.textContent = netErr(e);
+              stakeHsStatusText(st, netErr(e));
             }
           });
       }
@@ -44094,8 +44111,9 @@
         function cancelled() { return queueCancelledError({ label: 'Annual firsts' }); }
         if (_foyLoads[key] && _foyLoads[key].current()) return _foyLoads[key].promise;
         var failure = _foyFailures[key];
-        if (!force && allowBrowser !== true && failure && failure.privacy === privacy) {
-          return Promise.resolve(failure.result);
+        if (!force && failure && failure.privacy === privacy) {
+          if (allowBrowser !== true) return Promise.resolve(failure.result);
+          force = true;
         }
         if (!force && previous && previous.readDate === todayStr()) {
           return Promise.resolve({ record: previous, snapshot: previous.snapshot, saved: true });
@@ -46138,8 +46156,7 @@
           if (codeKey) aliases.push('code:' + codeKey);
           if (nameKey) aliases.push('name:' + nameKey);
           if (!aliases.length) { out.push(row); return; }
-          var reason = { kind: row.kind, why: row.why + (row.locationScoped && row.where
-            ? ' · ' + row.where + ' · ' + esc(fmtDate(row.when)) : '') };
+          var reason = { kind: row.kind, why: row.why };
           var hit = null;
           aliases.some(function (key) {
             if (!bySpecies[key]) return false;
@@ -48682,6 +48699,7 @@
         });
         megaRows.forEach(function (m) {
           var outside = m.mi != null && m.mi > chaseMaxMi();
+          var local = m._fresh && m.mi != null && isFinite(m.mi) && !outside;
           var why = (m.news || []).map(function (tag) {
             return surgeMegaNewsLabel(tag, m);
           }).filter(Boolean).join(' · ');
@@ -48692,8 +48710,8 @@
           rows.push({
             kind: 'mega',
             locationScoped: true,
-            locationLocal: m._fresh && m.mi != null && isFinite(m.mi) && m.mi <= chaseMaxMi(),
-            placeConnector: ' · most recent at ',
+            locationLocal: local,
+            placeConnector: local ? ' · most recent in chase area at ' : ' · most recent at ',
             speciesKey: m.code,
             speciesNameKey: m.name,
             icon: photoSlot(m.name, m.code),
@@ -49943,7 +49961,7 @@
         var pFoy = sourceTask(readySource, 'foy', function (retry) {
           if (!current()) throw queueCancelledError({ label: 'Bird Gen annual firsts' });
           if (aggregate) return { state: 'unavailable', rows: [] };
-          return ensureFoy(force || retry || explicitFoyRecovery, current, null, !!retry || explicitFoyRecovery);
+          return ensureFoy(force || retry, current, null, !!retry || explicitFoyRecovery);
         }, function (result) {
           if (aggregate) return foySource = result;
           if (current()) {

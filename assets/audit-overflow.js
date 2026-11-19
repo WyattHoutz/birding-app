@@ -3341,6 +3341,22 @@ const AUDIT = `<script>
           + JSON.stringify({go:go.toJSON(), clear:clear.toJSON(), input:input.toJSON()}));
       out.push(scan('(F896 ' + prefix + ' inline Clear)'));
     }
+    var settlePatchLoad;
+    A.seedEbirdCache('product/lists/L1409-AUDIT?maxResults=' + A.STAKE_HS_LISTS,
+      new Promise(function (resolve) { settlePatchLoad = resolve; }));
+    var patchLoad = A.stakeHsOpen('L1409-AUDIT', 'Synthetic public hotspot awaiting checklist and bird reports');
+    try {
+      var loadingStatus = document.getElementById('stakeHsStatus');
+      var progress = loadingStatus.querySelector('progress:not([value])');
+      require(progress && progress.getBoundingClientRect().width > 0
+        && progress.getBoundingClientRect().right <= window.innerWidth,
+        'F1409 loading progress must be visible and contained');
+      out.push(scan('(F1409 Stakeout Patch loading notice)'));
+    } finally {
+      document.getElementById('stakeHsClear').click();
+      settlePatchLoad([]);
+      await patchLoad;
+    }
     var readingResult = scan('(F891 production reading retention)');
     readingResult.stakeoutReading = true;
     readingResult.measurements = measurements;

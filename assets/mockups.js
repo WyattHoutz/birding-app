@@ -1720,7 +1720,7 @@ const REVIEW_SHOTS = [
              return !title.firstChild || title.firstChild.textContent !== 'Mega rarity ';
            })) throw new Error('F963 Mega headlines must begin with Mega rarity');
            if (host.querySelector('[data-alert-kind="need"] .surgealerttitle').textContent
-               !== 'Celebrity bird American Golden-Plover at Example public mudflats') {
+               !== 'Celebrity bird American Golden-Plover · most recent in chase area at Example public mudflats') {
              throw new Error('F954 Celebrity headlines must retain the requested prefix and place');
            }
            [['crowd','Crowding to see '],['cascade','Leaderboard lit up by ']].forEach(function(entry) {
@@ -3411,7 +3411,7 @@ const BOOTSTRAP = `
       var megaFacts = megaEvidence && megaEvidence.querySelector('.surgefacts');
       if (!megaFacts || megaFacts.textContent.replace(/\\s+/g, ' ').trim()
           !== 'NABO x1 - 9/1 5:50p - S388997009'
-          || !/Nazca Booby at Smith Island/.test(mega.querySelector('.surgealerttitle').textContent)) {
+          || !/Nazca Booby · most recent(?: in chase area)? at Smith Island/.test(mega.querySelector('.surgealerttitle').textContent)) {
         throw new Error('Bird Gen MEGA fact line drifted from the approved markup: '
           + (megaFacts ? megaFacts.textContent.replace(/\\s+/g, ' ').trim() : 'missing')
           + ' HTML=' + (megaFacts ? megaFacts.innerHTML : 'missing'));
