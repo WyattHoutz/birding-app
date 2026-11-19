@@ -7538,7 +7538,6 @@ test('F991 compact cards retain evidence behind category buttons and preserve es
     const fixture = app.document.createElement('div');
     for (const [kind, extra, expected] of [
       ['need', 'Outside your chase area', /Outside chase area/],
-      ['foy', 'Annual first report', /Annual first - not current presence/],
       ['mass', 'One reported high count', /Single report - flock may have moved/],
       ['migration', 'Expected migration', /Forecast - not a sighting/],
     ]) {
@@ -10939,6 +10938,8 @@ test('F1410/F1411 grouped FOY card ranks cached rarity, opens the annual list an
     assert.equal(card.querySelectorAll('.thumb[data-bird]').length,2);
     assert.equal(card.querySelector('.surgekindtile').textContent,'🐣');
     assert.equal(card.querySelector('.surgeage').textContent,'Today');
+    assert.match(surgeEvidence(card).textContent,/not proof of current presence or rarity/);
+    assert.equal(card.querySelector('.surge-essential'),null,'the reviewed FOY card stays quiet');
     assert.deepEqual(firsts.map(row=>row.code),['amepip','comgra','saggro','solsan','norwat']);
     assert.equal(app.state.fetches.length,before,'preview ranking is cache-only');
     const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="foy"]');
@@ -11104,6 +11105,9 @@ test('F857 acquisition retains 500 returned Species rows while explicit Top 100 
     assert.equal(panel.querySelectorAll('[aria-label="Five birders above and below you"] tbody tr').length,11);
     assert.match(panel.textContent,/500 rows returned/);
     assert.match(panel.querySelector('[aria-current="true"]').textContent,/#182You819/);
+    await waitFor(()=>app.state.fetches.some(url=>/top100/.test(url)
+      && new URL(url).searchParams.get('maxResults')==='5000'),
+      'background Species expansion started after the first usable board');
     const requests=app.state.fetches.filter(url=>/top100/.test(url));
     assert.equal(requests.filter(url=>new URL(url).searchParams.get('maxResults')==='5000').length,1);
     assert.equal(requests.filter(url=>new URL(url).searchParams.get('maxResults')==='500').length,2);
@@ -11313,8 +11317,12 @@ test('F858/F869 metric switching uses independent boards and always exposes hone
     assert.match(app.document.querySelector('.ranknearby').textContent,/no matched user standing/);
     delete pair.boards.cl;
     pair.failures.cl = 'Offline';
+    pair.coverage = 'Partial coverage: Checklists unavailable (Offline)';
     A.renderRankPair(pair,'US-WA','2026','Owner');
-    assert.match(app.$('rankResults').textContent,/Checklists board unavailable.*Offline/);
+    assert.match(app.$('rankResults').textContent,/Checklists board unavailable.*source coverage/);
+    assert.match(app.document.querySelector('.rankcoverage').textContent,/Offline/);
+    assert.equal((app.$('sec-rankBtn').textContent.match(/Offline/g)||[]).length,1,
+      'the detailed metric failure appears only in source coverage');
     assert.doesNotMatch(app.$('rankResults').textContent,/Species only/);
   } finally { app.window.close(); }
 });

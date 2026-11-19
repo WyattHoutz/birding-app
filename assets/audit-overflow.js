@@ -5160,12 +5160,16 @@ const AUDIT = `<script>
       catch(error) { out.push({label:'F1350-F1352 actual presentation',fixtureError:String(error)}); }
       try { out.push(...await rankClimbLayout(scan)); }
       catch(error) { out.push({label:'F1398 actual rank ladder',fixtureError:String(error)}); }
+      auditStage('F1286 Favorite search');
       try { await favoriteSearchRegression(out); }
       catch(error) { out.push({label:'F1286 Favorite search',fixtureError:String(error)}); }
+      auditStage('F1266 personal backup');
       try { await personalBackupRegression(out); }
       catch(error) { out.push({label:'F1266 personal backup',fixtureError:String(error)}); }
+      auditStage('F1269/F1270 mixed setup');
       try { await mixedSetupRegression(out,false); await mixedSetupRegression(out,true); }
       catch(error) { out.push({label:'F1269/F1270 mixed setup',fixtureError:String(error)}); }
+      auditStage('F1067/F1068 setup acquisition');
       try { await setupAcquisitionRegression(out); }
       catch (error) { out.push({label:'(F1067/F1068 regression)',fixtureError:String(error)}); }
     }
