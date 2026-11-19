@@ -48,9 +48,18 @@ async function nextReleaseLayout(scan, mutation) {
     if (mutation==='busy-icon') tile.innerHTML='📍';
     check(tile.querySelectorAll('.busyPatchLogo .surgehotspotpeople > span').length===9,
       'Busy Patch alert must reuse the nine-party menu glyph');
-    const box=tile.getBoundingClientRect(), glyph=tile.querySelector('.busyPatchLogo').getBoundingClientRect();
+    const logo=tile.querySelector('.busyPatchLogo');
+    if (mutation==='busy-overflow') logo.querySelector('.surgehotspotthumb').style.width='200%';
+    const box=tile.getBoundingClientRect(), glyph=logo.getBoundingClientRect();
     check(glyph.width>0 && glyph.left>=box.left-.5 && glyph.right<=box.right+.5,
       'Busy Patch glyph must fit its existing tile');
+    for (const part of logo.querySelectorAll('*')) {
+      const rect=part.getBoundingClientRect();
+      check(rect.left>=glyph.left-.5 && rect.right<=glyph.right+.5
+        && rect.top>=glyph.top-.5 && rect.bottom<=glyph.bottom+.5,
+        'Busy Patch glyph descendants must fit the logo: '+part.className
+          +' '+JSON.stringify({logo:glyph.toJSON(),part:rect.toJSON(),font:getComputedStyle(part).fontSize}));
+    }
     holder.remove();
     return {groups:9};
   });

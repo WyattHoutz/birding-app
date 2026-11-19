@@ -2696,6 +2696,8 @@
                        font-size: calc(18px * var(--s)); font-weight: 800; line-height: 1.4; }
     .busyPatchLogo { display: inline-flex; width: 1em; height: 1em; vertical-align: middle; }
     .busyPatchLogo > .surgehotspotthumb { width: 100%; height: 100%; margin: 0; border-radius: 4px; font-size: inherit; }
+    .surgefeed .surgekindtile .busyPatchLogo { width: 1.2em; height: 1.2em; }
+    .surgefeed .surgekindtile .busyPatchLogo > .surgehotspotthumb { width: 100%; height: 100%; }
     .busyPatchLogo .surgehotspotpeople { font-size: .28em; }
     #hotResults .busypatch { gap: 12px; align-items: center; padding: 14px 0; }
     #hotResults .busypatch > .name > .ntext { font-size: min(calc(19px * var(--s)), 30px); }
@@ -5651,7 +5653,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.10.0';
+      var APP_VERSION = '2.10.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
