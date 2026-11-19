@@ -33802,7 +33802,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
   const expected = {
     mega: ['MEGA', '🦤'], migration: ['MIGRATION', '🌙'],
     need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
-    cascade: ['CASCADE', '🏆'], hotspot: ['BUSY PATCH', '📍'],
+    cascade: ['CASCADE', '🏆'], hotspot: ['BUSY PATCH', '👥'.repeat(9)],
   };
   const glyphs = Object.values(expected).map((x) => x[1]);
   const borderStyles = [];
@@ -33816,6 +33816,8 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     assert.equal(row.querySelector(':scope > .name > .ntext').firstElementChild, badge,
       `${kind} category badge must precede the headline`);
     assert.equal(tile.textContent.trim(), expected[kind][1], `${kind} lost its right-edge lane glyph`);
+    if (kind === 'hotspot') assert.ok(tile.querySelector('.busyPatchLogo'),
+      'Busy Patch reuses the actual menu glyph, not a row of unrelated emoji');
     glyphs.forEach((glyph) => assert.ok(!badge.textContent.includes(glyph),
       `${kind} duplicates its category glyph inside the name tag`));
     borderStyles.push(app.window.getComputedStyle(tile).borderTopStyle);
