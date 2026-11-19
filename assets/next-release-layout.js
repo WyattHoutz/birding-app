@@ -64,7 +64,9 @@ async function nextReleaseLayout(scan, mutation) {
           +'<h5 id="Geometry Birder '+i+'" class="u-margin-none">Geometry Birder '+i+'</h5>'
           +['checklist','species'].map(kind=>'<div class="StatsIcon StatsIcon--highlight '
             +((kind==='checklist')===(metric==='cl')?'':'StatsIcon--muted')+'">'
-            +'<svg class="Icon Icon--'+kind+'"></svg><div class="StatsIcon-stat-count">'+(6000-i)+'</div></div>').join('')).join('');
+            +'<svg class="Icon Icon--'+kind+'"></svg><div class="StatsIcon-stat-count">'+(6000-i)+'</div></div>').join('')
+          +(i<2 ? '<span class="ResultsStats-details-detail">Ruff ('
+          +new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+')</span>' : '')).join('');
     }
     function response(metric) {return {ok:true,status:200,text:async()=>page(metric)};}
     async function until(predicate,label) {
