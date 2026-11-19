@@ -5553,7 +5553,7 @@ server.listen(0, '127.0.0.1', () => {
     if (process.env.AUDIT_FOCUS === 'next-release') {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
-      process.exit(report.length===3 && report.every(r=>r.nextReleaseGeometry
+      process.exit(report.length===5 && report.every(r=>r.nextReleaseGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {

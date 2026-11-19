@@ -38,6 +38,58 @@ async function nextReleaseLayout(scan, mutation) {
     check(!recent.querySelector('.surgekindtile'),'Home must omit the large right icon');
     return {members:5,additional:3,home:true};
   });
+  await record('F1418/F1419 compact FOY and full-view fallback', async () => {
+    A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[{
+      code:'amepip',name:'American Pipit',date:A.todayStr(),
+      locId:'LFOYVIEW',locName:'Example Public Park'
+    }],suppressNotifications:true});
+    const source=document.querySelector('#surgeFeed [data-alert-kind="foy"]');
+    const headline=source.querySelector('.surgealerttitle').innerHTML;
+    A.showMenu();
+    await paint();
+    const recent=document.querySelector('#recentBirdGenRows [data-recent-kind="foy"]');
+    check(recent.querySelector('.surgealerttitle').textContent==='First of the year American Pipit.',
+      'compact FOY must omit its location without changing the bird headline');
+    check(!recent.querySelector('.hslink,template,.surgekindwrap'),'compact FOY must remain abbreviated');
+    check(source.querySelector('.surgealerttitle .hslink').dataset.loc==='LFOYVIEW',
+      'full FOY must keep its independent public hotspot link');
+    const definition=A.recentBirdGenViews.foy;
+    try {
+      delete A.recentBirdGenViews.foy;
+      A.updateRecentBirdGen();
+      await paint();
+      const fallback=document.querySelector('#recentBirdGenRows [data-recent-view="full"]');
+      const card=fallback && fallback.querySelector('.surgefeed > [data-alert-kind="foy"]');
+      if (mutation==='fallback-compact') card.parentElement.classList.remove('surgefeed');
+      check(card && card.querySelector('.surgealerttitle').innerHTML===headline,
+        'missing Recent definition must render the full FOY headline');
+      check(card.querySelector('template[data-surge-evidence]') && card.querySelector('.surgekindwrap'),
+        'full fallback must retain evidence and its full icon/age');
+      const high=document.documentElement.dataset.display==='high-visibility';
+      const photo=card.querySelector(':scope > .name > .thumb').getBoundingClientRect();
+      const width=card.clientWidth;
+      check(high ? Math.abs(photo.width-width)<2 : photo.width>42,
+        'full fallback must use full-card photo sizing, not compact styles: '
+          +JSON.stringify({high,photo:photo.toJSON(),width,
+            display:getComputedStyle(card.querySelector(':scope > .name')).display,
+            className:document.documentElement.className,
+            mode:document.documentElement.dataset.display}));
+      const action=card.querySelector('.surgekindtile');
+      action.scrollIntoView({block:'center'});
+      await paint();
+      const rect=action.getBoundingClientRect();
+      const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+      check(hit && action.contains(hit),'full fallback action must be visible and hit-testable');
+      action.click();
+      check(!document.getElementById('sec-foyBtn').hidden,'full fallback must open the annual FOY list');
+      return {compactLocationOmitted:true,fullFallback:true,fullPhotoWidth:photo.width};
+    } finally {
+      A.recentBirdGenViews.foy=definition;
+      A.updateRecentBirdGen();
+      A.showSection('sec-surgeBtn',{load:false});
+      window.scrollTo(0,0);
+    }
+  });
   await record('F1413 Busy Patch menu glyph', async () => {
     const holder=document.createElement('ul'); holder.className='obs card-sm surgefeed';
     holder.innerHTML=A.surgeAlertCard({kind:'hotspot',name:'Example Public Park',
@@ -62,6 +114,35 @@ async function nextReleaseLayout(scan, mutation) {
     }
     holder.remove();
     return {groups:9};
+  });
+  await record('F1422 Stakeout search row and heading refresh', async () => {
+    A.showSection('sec-spLookupBtn',{load:false});
+    const input=document.getElementById('spLookup'), row=input.parentElement;
+    const controls=[input,document.getElementById('spLookupBtn'),
+      document.getElementById('spCodesBtn'),document.getElementById('spLookupClear')];
+    const refresh=document.getElementById('spLookupRefresh');
+    if(mutation==='stakeout-wrap') {
+      row.style.flexWrap='wrap'; input.style.minWidth='100%';
+    }
+    if(mutation==='stakeout-refresh') row.appendChild(refresh);
+    row.scrollIntoView({block:'center'});
+    await paint();
+    const rects=controls.map(control=>control.getBoundingClientRect());
+    check(controls.every(control=>control.parentElement===row)
+      && row.children.length===4,'Stakeout lookup must contain only Search, Go, Codes and Clear');
+    check(rects.every(rect=>Math.abs(rect.top-rects[0].top)<1
+      && rect.width>=43.9 && rect.height>=43.9
+      && rect.left>=0 && rect.right<=window.innerWidth),
+      'Stakeout controls must fit one row with 44px targets: '+JSON.stringify(rects.map(rect=>rect.toJSON())));
+    controls.forEach((control,index)=>{
+      const rect=rects[index], hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+      check(hit && control.contains(hit),'Stakeout search controls must be hit-testable');
+    });
+    check(refresh.matches('#sec-spLookupBtn > h2 > .refreshbtn')
+      && refresh.previousElementSibling.matches('.docbtn'),
+      'Stakeout Refresh must sit immediately after Info, not below the search');
+    window.scrollTo(0,0);
+    return {singleRow:true,controls:4,inputWidth:rects[0].width,headingRefresh:true};
   });
   await record('F1414 visible usable first board before pending sources', async () => {
     const fetch=window.fetch, cache=localStorage.getItem(A.RANK_CACHE_KEY);

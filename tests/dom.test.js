@@ -5294,13 +5294,23 @@ test('F1315 cold selected-bird sightings cannot queue behind unanswered supporti
   } finally { app.window.close(); }
 });
 
-test('F1315 actual Stakeout restores saved reports before acquisition and preserves the original freshness deadline', async () => {
+test('F1315/F1422/F1423 actual Stakeout restores saved reports and keeps heading refresh with its original freshness deadline', async () => {
   const app = await boot({ sample: false });
   let release;
   try {
     const A = app.window.__app, originalFetch = app.window.fetch;
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
     A.showSection('sec-spLookupBtn', { load: false });
+    const controls = app.$('spLookup').parentElement;
+    assert.deepEqual([...controls.children].map(element => element.id),
+      ['spLookup', 'spLookupBtn', 'spCodesBtn', 'spLookupClear']);
+    assert.equal(app.$('spLookup').getAttribute('aria-label'), 'Search for birds and spuhs');
+    const headingRefresh = app.$('spLookupRefresh');
+    assert.ok(headingRefresh.matches('#sec-spLookupBtn > h2 > .refreshbtn'));
+    assert.ok(headingRefresh.previousElementSibling.matches('.docbtn'));
+    assert.equal(headingRefresh.getAttribute('aria-label'), 'Reload Stakeout Birds');
+    assert.equal(headingRefresh.textContent, app.document.querySelector('#sec-foyBtn .refreshbtn').textContent);
+    assert.equal(headingRefresh.disabled, true);
     let calls = 0, mode = 'held';
     const response = rows => ({ ok: true, status: 200, json: () => Promise.resolve(rows) });
     const rows = [{
@@ -5336,12 +5346,23 @@ test('F1315 actual Stakeout restores saved reports before acquisition and preser
       .find(name => name.startsWith('bc_stakeout_bird_v1:'));
     assert.ok(key, 'a successful selected source must be retained for later entry');
     const saved = store.getItem(key);
+    const now = app.window.Date.now;
+    app.window.Date.now = () => now() + 120000;
     A.clearSpeciesLookup();
     const reopened = A.lookupSpecies('verfly', 'Vermilion Flycatcher');
     await reopened;
     assert.equal(calls, 1, 'fresh saved evidence must not hide an extra background request');
     assert.match(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
-    assert.match(status.textContent, /Saved results from less than a minute ago/);
+    assert.equal(status.hidden, true, 'saved success does not occupy a second status above the bird');
+    assert.doesNotMatch(status.textContent, /Saved results from/);
+    const savedHeading = app.$('spLookupDetailMain').querySelector(':scope > h3');
+    assert.equal(savedHeading.textContent, 'Saved results');
+    const savedAge = savedHeading.nextElementSibling;
+    assert.ok(savedAge.matches('.splookupsaved'));
+    assert.match(savedAge.textContent, /Saved results from 2 minutes ago/);
+    assert.equal(savedAge.getAttribute('role'), 'status');
+    assert.equal(savedAge.getAttribute('aria-live'), 'polite');
+    assert.ok(savedAge.nextElementSibling.matches('.splookupsummary'));
     assert.equal(status.querySelector('progress'), null);
     assert.equal(store.getItem(key), saved, 'reusing saved evidence must not renew timestamps');
 
@@ -10961,6 +10982,135 @@ test('F1410/F1411 grouped FOY card ranks cached rarity, opens the annual list an
   } finally {app.window.close();}
 });
 
+test('F1418 Recent FOY omits only its location while the full card keeps evidence and destinations', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app, today = A.todayStr();
+    for (const location of [
+      {locId:'LFOY1418',locName:'Example Public Park'},
+      {locId:'LPRIVATE1418',locName:'Private annual-first place',isPrivate:true},
+      {}
+    ]) {
+      A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[{
+        code:'amepip',name:'American Pipit',date:today,...location
+      }],suppressNotifications:true});
+      const full = app.$('surgeFeed').querySelector('[data-alert-kind="foy"]');
+      const before = full.innerHTML, fetches = app.state.fetches.length;
+      const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="foy"]');
+      assert.equal(recent.querySelector('.surgealerttitle').textContent,
+        'First of the year American Pipit.');
+      assert.equal(recent.querySelector('.hslink,[data-foy-location],template,.surgekindwrap'),null);
+      assert.equal(recent.querySelector('.recent-birdgen-time').textContent,'Today');
+      assert.equal(recent.querySelector('.thumb[data-bird]').dataset.bird,'American Pipit');
+      if (location.locName) assert.ok(surgeEvidence(full).textContent.includes(location.locName));
+      if (location.locId && !location.isPrivate) {
+        assert.match(full.querySelector('.surgealerttitle').textContent,/ at Example Public Park\.$/);
+        app.click(full.querySelector('.surgealerttitle .hslink'));
+        assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+      }
+      A.showMenu();
+      app.click(recent.querySelector('button[aria-label="Open full FOY alert"]'));
+      assert.equal(app.$('sec-foyBtn').hidden,false);
+      A.updateRecentBirdGen();
+      assert.equal(full.innerHTML,before,'rendering the compact view must not mutate the full card');
+      assert.equal(app.state.fetches.slice(fetches).filter(url=>/first-year/.test(url)).length,0,
+        'view selection must not introduce FOY acquisition');
+    }
+  } finally {app.window.close();}
+});
+
+test('F1419 all alert kinds have independent compact views and working full-view fallback', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[{
+      code:'amepip',name:'American Pipit',date:A.todayStr()
+    }],suppressNotifications:true});
+    const feed = app.$('surgeFeed'), holder = app.document.createElement('div');
+    const place = '<span class="hslink" data-loc="LVIEW1419" data-locname="Example Public Park">Example Public Park</span>';
+    const cases = {
+      twitch: {name:'American Pipit',where:place,expected:'American Pipit at Example Public Park'},
+      mega: {name:'American Pipit',namePrefix:'Mega rarity ',where:place,expected:'Mega rarity American Pipit'},
+      migration: {name:'High migration forecast tonight.',expected:'High migration forecast tonight.'},
+      sensitive: {name:'Protected bird reported in Washington region.',expected:'Protected bird reported in Washington region.'},
+      mass: {name:'Flock of American Pipit',where:'Example Public Park',expected:'Flock of American Pipit'},
+      need: {name:'American Pipit',namePrefix:'Celebrity bird ',where:place,expected:'Celebrity bird American Pipit'},
+      crowd: {name:'American Pipit',namePrefix:'Crowding to see ',where:place,expected:'Crowding to see American Pipit'},
+      cascade: {name:'American Pipit',namePrefix:'Leaderboard lit up by ',where:place,expected:'Leaderboard lit up by American Pipit'},
+      favorite: {name:'American Pipit',where:place,expected:'American Pipit at Example Public Park'},
+      hotspot: {name:'High traffic at '+place,expected:'Example Public Park'},
+      patch: {name:'High-yield patch at '+place,expected:'Example Public Park'},
+      foy: {name:'First of the year American Pipit<span data-foy-location> at '+place+'</span>.',
+        expected:'First of the year American Pipit.'},
+      ppte: {name:'<span class="splink" data-sp="amepip" data-spname="American Pipit">American Pipit</span> with another rarity at '+place,
+        expected:'American Pipit with another rarity at Example Public Park'}
+    };
+    for (const kind of Object.keys(app.window.BirdInfoDialogs.alertKinds)) {
+      const {expected,...content} = cases[kind];
+      holder.innerHTML = A.surgeAlertCard({kind,...content,code:'amepip',
+        when:formatObsStamp(new Date(Date.now()-60000)),time:Date.now(),unreviewed:true,
+        why:'Representative qualification',extra:'Retained supporting evidence.',
+        data:{hsloc:'LVIEW1419',hslocname:'Example Public Park'}},0);
+      const source = holder.firstElementChild, before = source.outerHTML;
+      const full = A.birdGenAlertView(source,'full');
+      assert.equal(full.view,'full',kind);
+      assert.equal(full.row.outerHTML,before,kind+' full view must preserve all content');
+      const compact = A.birdGenAlertView(source,'recent');
+      assert.equal(compact.view,'recent',kind+' must use its explicit Recent definition');
+      assert.equal(compact.row.querySelector('.surgekindwrap,template,.sub'),null,kind);
+      assert.equal(compact.row.querySelector('.surgealerttitle').textContent,expected,kind);
+      assert.ok(compact.row.querySelector('.recent-birdgen-time'),kind);
+      assert.equal(source.outerHTML,before,kind+' compact rendering must not mutate the full view');
+      const definition = A.recentBirdGenViews[kind];
+      delete A.recentBirdGenViews[kind];
+      try {
+        feed.replaceChildren(source);
+        A.updateRecentBirdGen();
+        const fallback = app.$('recentBirdGenRows').querySelector('[data-recent-kind="'+kind+'"]');
+        assert.equal(fallback.dataset.recentView,'full',kind);
+        const card = fallback.querySelector('.surgefeed > [data-alert-kind="'+kind+'"]');
+        assert.ok(card,kind+' must use the full card family/styling');
+        assert.equal(card.querySelector('.surgealerttitle').textContent,
+          source.querySelector('.surgealerttitle').textContent,kind);
+        const routes = node => [...node.querySelectorAll('.surgealerttitle .splink,.surgealerttitle .hslink')]
+          .map(link=>[link.textContent,link.dataset.sp,link.dataset.loc]);
+        assert.deepEqual(routes(card),routes(source),kind+' must preserve the exact bird/place destinations');
+        assert.equal(card.querySelector('template[data-surge-evidence]').innerHTML,
+          source.querySelector('template[data-surge-evidence]').innerHTML,kind);
+        assert.equal(card.querySelector('.sub').textContent,source.querySelector('.sub').textContent,kind);
+        assert.ok(card.querySelector('.surgekindwrap'),kind+' must keep the full icon and age');
+        app.click(card.querySelector('[data-surge-details]'));
+        if (kind === 'foy') assert.equal(app.$('sec-foyBtn').hidden,false);
+        else {
+          assert.match(app.$('sheetTitle').textContent,/alert details/);
+          assert.match(app.document.querySelector('#appSheet .sheetbody').textContent,/Retained supporting evidence/);
+          app.document.querySelector('#appSheet .sheetclose').click();
+        }
+        if (kind !== 'ppte') {
+          app.click(card.querySelector(':scope > .name'));
+          assert.equal(app.$(kind === 'foy' ? 'sec-foyBtn' : kind === 'twitch'
+            ? 'sec-refreshBtn' : kind === 'migration' ? 'sec-bcBody' : 'sec-stakeHsBtn').hidden,false,kind);
+        } else {
+          const bird = card.querySelector('.splink');
+          assert.equal(bird.tabIndex,0);
+          bird.dispatchEvent(new app.window.KeyboardEvent('keydown',{
+            key:'Enter',bubbles:true,cancelable:true
+          }));
+          assert.equal(app.$('sec-spLookupBtn').hidden,false);
+          const hotspot = card.querySelector('.hslink');
+          assert.equal(hotspot.tabIndex,0);
+          hotspot.dispatchEvent(new app.window.KeyboardEvent('keydown',{
+            key:'Enter',bubbles:true,cancelable:true
+          }));
+          assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+          assert.equal(app.$('stakeHs').value,'Example Public Park');
+        }
+      } finally {A.recentBirdGenViews[kind] = definition;}
+    }
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
 test('F1411 FOY time ties require a precise observation from the actual annual-first date', async () => {
   const app=await boot({sample:false});
   try {
@@ -12522,10 +12672,10 @@ for (const retained of ['none', 'archive', 'snapshot', 'both']) {
       await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
         'actual RBA/notable evidence arrives');
       const card = app.$('spLookupResults');
-      assert.equal(card.querySelector('.surgebirdtag-mega'), null,
+      assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null,
         'retained detail is not authoritative Mega membership');
-      assert.equal(card.querySelector('.surgebirdtag-rare')?.textContent, 'RARE',
-        'verified rarity evidence must retain its visible identity label');
+      assert.equal(card.querySelector('.surgebirdtag'), null,
+        'F1421 keeps rarity evidence out of the species title');
       assert.ok(app.$('spLookupEvidenceDetails').querySelector(
         '.stakeoutrarity[data-kind="rare"]'));
       assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`),
@@ -12562,8 +12712,8 @@ test('F1012 Stakeout fresh empty Mega selection overrides retained index detail'
     await A.lookupSpecies(row.speciesCode, row.comName);
     await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
       'current RBA evidence arrives');
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega'), null);
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-rare')?.textContent, 'RARE');
+    assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null);
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
     assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`));
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -12589,8 +12739,10 @@ for (const cachedFailure of [false, true]) {
       }
       app.click(app.document.querySelector('#abaResults .megajump'));
       await settleMegaEntry(app, row.speciesCode);
-      assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega')?.textContent, 'MEGA');
-      assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-rare'), null);
+      assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'));
+      assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'), null);
+      assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag'), null,
+        'F1421 removes title badges without removing genuine Mega evidence');
       assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`));
       assert.deepEqual(app.state.errors, []);
     } finally {
@@ -12621,9 +12773,9 @@ for (const scope of ['current', 'different account', 'different region']) {
       await A.lookupSpecies(row.speciesCode, row.comName);
       await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
         'independent RBA evidence arrives');
-      assert.equal(!!app.$('spLookupResults').querySelector('.surgebirdtag-mega'),
+      assert.equal(!!app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'),
         scope === 'current', 'classification must follow source and account/region ownership');
-      assert.equal(!!app.$('spLookupResults').querySelector('.surgebirdtag-rare'),
+      assert.equal(!!app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'),
         scope !== 'current');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -12649,8 +12801,8 @@ test('F1012 Stakeout failed legacy-cache acquisition retains reports without inv
     await settleMegaEntry(app, row.speciesCode);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega'), null);
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-rare')?.textContent, 'RARE');
+    assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null);
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
     assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`));
     assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), saved,
       'a failed acquisition must not rewrite an old cache as verified membership');
@@ -12673,15 +12825,15 @@ test('F1012 Stakeout repaint retires membership after a successful empty Mega ac
     await A.lookupSpecies(row.speciesCode, row.comName);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
-    assert.ok(app.$('spLookupResults').querySelector('.surgebirdtag-mega'));
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'));
     html = otherStateMegaAlertHtml('SN1012');
     await A.loadAbaAlert();
     assert.equal(A.megaViewState().view.rawRows.length, 0);
     const fetchCount = app.state.fetches.length;
     A.renderSpeciesLookup();
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega'), null,
+    assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null,
       'the same mounted Stakeout must not retain revoked selected membership');
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-rare')?.textContent, 'RARE');
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
     assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`));
     assert.equal(app.state.fetches.length, fetchCount, 'classification repaint is local');
     assert.deepEqual(app.state.errors, []);
@@ -12701,8 +12853,8 @@ test('F1012 Stakeout does not borrow a different-account current Mega view', asy
     await A.lookupSpecies(row.speciesCode, row.comName);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega'), null);
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-rare')?.textContent, 'RARE');
+    assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null);
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
     assert.equal(A.abaArchiveFor('US-WA', row.speciesCode).length, 1);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -12725,6 +12877,7 @@ test('F1012 Stakeout ordinary retained reports do not invent either rarity label
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
     assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag'), null);
+    assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity'), null);
     for (const sub of [row.subId, older.subId]) {
       assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${sub}"]`));
     }
@@ -12752,7 +12905,7 @@ test('F1012 Stakeout newer verified lazy membership supersedes an older ' + (new
     await A.lookupSpecies(row.speciesCode, row.comName);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega')?.textContent, newerHasBird ? 'MEGA' : undefined,
+    assert.equal(!!app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), newerHasBird,
       'an older mounted index cannot overrule newer verified membership');
     assert.deepEqual(app.state.errors, []);
   } finally {
@@ -12782,7 +12935,7 @@ test('F1012 Stakeout complete selected view outranks its same-acquisition lossy 
     await A.lookupSpecies(row.speciesCode, row.comName);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
-    assert.equal(app.$('spLookupResults').querySelector('.surgebirdtag-mega')?.textContent, 'MEGA');
+    assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'));
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
@@ -42803,7 +42956,7 @@ test('F456 Stakeout checklist facts are viewport-lazy and use the shared small t
     'Stakeout checklist rows stopped using the shared small-checklist template');
 });
 
-test('F378 Stakeout toggles the selected species through the shared watchlist without refetching', async () => {
+test('F378/F1420/F1421 Stakeout watch action replaces redundant header labels without refetching', async () => {
   const app = await boot({
     storage: { ebird_watchlist_v1: '[]' },
     fetch(url) {
@@ -42838,13 +42991,15 @@ test('F378 Stakeout toggles the selected species through the shared watchlist wi
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.equal(button.getAttribute('aria-label'), 'Remove Watch for Semipalmated Sandpiper');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
-  assert.match(app.$('spLookupResults').textContent, /on your watchlist for verification/i);
+  assert.doesNotMatch(app.$('spLookupResults').textContent, /on your watchlist for verification/i);
+  assert.equal(app.$('spLookupResults').querySelector('.watchflag'), null);
   assert.doesNotMatch(app.$('spLookupResults').textContent, /not on your year list/i);
 
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
   assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i,
     'removing the hold did not reveal the underlying seen tick');
   const after = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;

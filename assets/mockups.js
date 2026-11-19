@@ -1888,6 +1888,117 @@ REVIEW_SHOTS.push({
   `
 });
 
+const foyLocationPrep = foyGroupBase.prep.replace(/return true;\s*$/, '') + `
+  A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[{
+    code:'amepip',name:'American Pipit',date:today,
+    locId:'LFOYREVIEW',locName:'Example Public Park'
+  }],deferPhotos:true,suppressNotifications:true});
+  await FIX.fillFixturePhotos(host,document);
+  host.setAttribute('data-mock-data','true');
+  var notice=document.createElement('p'); notice.className='mocklabel';
+  notice.textContent='REPRESENTATIVE STUB DATA — single annual first, not a current sighting';
+  host.prepend(notice);
+`;
+REVIEW_SHOTS.push({
+  ...foyGroupBase, id:'f1418-foy-full',
+  title:'Full Bird Gen — FOY keeps its public location',
+  prep:foyLocationPrep + `
+    var title=host.querySelector('[data-alert-kind="foy"] .surgealerttitle');
+    if (!title.textContent.includes('at Example Public Park') || !title.querySelector('.hslink'))
+      throw new Error('Full FOY must retain its independent public hotspot link');
+    return true;
+  `
+}, {
+  id:'f1418-foy-home',freshApp:true,host:'recentBirdGen',scrollTo:'#recentBirdGen',
+  title:'Recent Bird Gen — FOY without the location',
+  prep:foyLocationPrep + `
+    A.showMenu();
+    var recent=document.getElementById('recentBirdGen');
+    recent.setAttribute('data-mock-data','true');
+    recent.prepend(notice.cloneNode(true));
+    var title=recent.querySelector('[data-recent-kind="foy"] .surgealerttitle');
+    if (title.textContent!=='First of the year American Pipit.' || title.querySelector('.hslink'))
+      throw new Error('Recent FOY must omit the location without changing the bird headline');
+    return true;
+  `
+});
+
+const foyHomeView = REVIEW_SHOTS.find(shot => shot.id === 'f1418-foy-home');
+REVIEW_SHOTS.push({
+  ...foyHomeView,id:'f1419-full-fallback',
+  title:'Recent Bird Gen — full alert when no compact view is defined',
+  prep:foyHomeView.prep.replace(/return true;\s*$/, `
+    delete A.recentBirdGenViews.foy;
+    A.updateRecentBirdGen();
+    var full=recent.querySelector('[data-recent-view="full"] .surgefeed [data-alert-kind="foy"]');
+    if (!full || !full.querySelector('.surgekindwrap') || !full.querySelector('template[data-surge-evidence]')
+        || !full.querySelector('.surgealerttitle').textContent.includes('at Example Public Park'))
+      throw new Error('Undefined Recent view must retain the full card and its evidence');
+    return true;
+  `)
+});
+
+REVIEW_SHOTS.push({
+  id:'f1420-stakeout-watched',at:'spLookupBtn',freshApp:true,
+  title:'Stakeout bird - watch action without redundant header labels',
+  host:'sec-spLookupBtn',scrollTo:'#spLookupResults',prepTimeoutMs:45000,
+  expects:['#spLookupResults .spLookupWatchlist[aria-pressed="true"]',
+    '#spLookupEvidenceDetails .stakeoutrarity[data-kind="mega"]'],
+  prep:`FIX.before('spLookupBtn',A,document);
+    var sec=document.getElementById('spLookupBtn').closest('section');
+    A.showSection(sec.id);
+    await FIX.prepareStakeoutSpts(A,document,sec,false);
+    A.setWatchlist([{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
+    A.renderSpeciesLookup();
+    var card=document.getElementById('spLookupResults');
+    if(card.querySelector('.bcname .surgebirdtag,.bcname .watchflag')
+        || /on your watchlist for verification/i.test(card.textContent)
+        || card.querySelector('.spLookupWatchlist').textContent!=='Remove Watch')
+      throw new Error('F1420/F1421 Stakeout header still duplicates the watch action');
+    return true;`
+});
+
+const stakeoutHeaderReview = REVIEW_SHOTS.find(shot => shot.id === 'f1420-stakeout-watched');
+const stakeoutControlsPrep = stakeoutHeaderReview.prep.replace(/return true;\s*$/, `
+  var appNow=document.defaultView.Date.now;
+  document.defaultView.Date.now=function(){return appNow()+120000;};
+  A.clearSpeciesLookup();
+  await FIX.prepareStakeoutSpts(A,document,sec,false,true);
+  A.renderSpeciesLookup();
+  var input=document.getElementById('spLookup');
+  var controls=[input,document.getElementById('spLookupBtn'),
+    document.getElementById('spCodesBtn'),document.getElementById('spLookupClear')];
+  var rects=controls.map(function(control){return control.getBoundingClientRect();});
+  if(controls.some(function(control){return control.parentNode!==input.parentNode;})
+      || rects.some(function(rect){return Math.abs(rect.top-rects[0].top)>1
+        || rect.width<43.9 || rect.height<43.9
+        || rect.left<0 || rect.right>document.defaultView.innerWidth;}))
+    throw new Error('F1422 search controls must fit one row with 44px targets: '
+      +JSON.stringify(rects.map(function(rect){return {x:rect.x,y:rect.y,width:rect.width,height:rect.height};})));
+  var refresh=document.getElementById('spLookupRefresh');
+  var info=sec.querySelector('h2 .docbtn');
+  if(!refresh.matches('h2 > .refreshbtn') || refresh.previousElementSibling!==info)
+    throw new Error('F1422 selected-bird Refresh must sit immediately after Info');
+  var saved=document.querySelector('#spLookupDetailMain > h3');
+  if(saved.textContent!=='Saved results'
+      || !saved.nextElementSibling.matches('.splookupsaved')
+      || !/Saved results from 2 minutes ago/.test(saved.nextElementSibling.textContent)
+      || /Saved results from/.test(document.getElementById('spLookupStatus').textContent))
+    throw new Error('F1423 saved timestamp must follow its heading, not precede the bird: '
+      +JSON.stringify({heading:saved.textContent,next:saved.nextElementSibling.outerHTML,
+        status:document.getElementById('spLookupStatus').textContent}));
+  return true;
+`);
+REVIEW_SHOTS.push({
+  ...stakeoutHeaderReview,id:'f1422-stakeout-controls',scrollTo:'',
+  title:'Stakeout Birds - one search row and heading Refresh',
+  prep:stakeoutControlsPrep
+}, {
+  ...stakeoutHeaderReview,id:'f1423-stakeout-saved',scrollTo:'#spLookupDetailMain',
+  title:'Stakeout Birds - timestamp below Saved results',
+  prep:stakeoutControlsPrep
+});
+
 const SHOTS = [
   { id: 'menu', title: 'Contents menu', freshApp: true,
     prep: REVIEW_SHOTS.find(shot => shot.id === 'f951-birdgen-all').prep.replace(
@@ -2619,8 +2730,10 @@ const BOOTSTRAP = `
       });
     };
     try {
-      A.seedEbirdCache(A.speciesLookupPath(region, code, A.SP_LOOKUP_BACK),
-        sightingRows);
+      if (!options.reuseSaved) {
+        A.seedEbirdCache(A.speciesLookupPath(region, code, A.SP_LOOKUP_BACK),
+          sightingRows);
+      }
       if (options.primeChecklistDetails && options.rows) {
         await Promise.all(options.rows.map(function (row) {
           return A.checklistView(row.subId, false);
@@ -4261,7 +4374,7 @@ const BOOTSTRAP = `
     sec.dataset.mockAt = 'spLookupBtn';
     sec.dataset.mockReady = 'true';
   }
-  async function prepareStakeoutSpts(A, document, sec, detailsOn) {
+  async function prepareStakeoutSpts(A, document, sec, detailsOn, reuseSaved) {
     ensureMockStyle(document);
     if (A.fgCancelAll) A.fgCancelAll('Starting deterministic Stakeout fixture');
     if (A.fgProgressReset) A.fgProgressReset();
@@ -4389,6 +4502,7 @@ const BOOTSTRAP = `
         name: 'Sharp-tailed Sandpiper',
         rows: rows,
         detailsOn: !!detailsOn,
+        reuseSaved: !!reuseSaved,
         iconic: true
       });
     var results = document.getElementById('spLookupResults');

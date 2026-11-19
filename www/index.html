@@ -1580,9 +1580,12 @@
     .row.stakeHsActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
     #spCodesBtn, #spLookupRefresh { min-height: 44px; min-width: max-content;
                   white-space: nowrap; overflow-wrap: normal; }
-    .spLookupActions { flex-wrap: nowrap; }
-    .spLookupActions > #spLookup { flex: 1 1 auto; width: auto; min-width: 0; }
-    .row.spLookupActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; }
+    .spLookupActions { flex-wrap: nowrap; gap: 4px; align-items: stretch; }
+    .spLookupActions > #spLookup { flex: 1 1 auto; width: auto; height: auto;
+      min-width: 44px; min-height: 44px; }
+    .row.spLookupActions > button { flex: 0 0 auto; min-width: 44px; min-height: 44px;
+      padding-inline: 4px; font-size: calc(14px * var(--s)); white-space: nowrap; }
+    #spLookupRefresh { min-width: 44px; min-height: 44px; }
     .spLookupSecondaryActions { column-gap: 6px; }
     .spLookupSecondaryActions > button {
       min-height: 30px; padding: 0 10px; }
@@ -2608,31 +2611,33 @@
     }
     .recent-birdgen .hint { margin: 6px 0 0; }
     .recent-birdgen-list.obs.card-sm > li { padding: 3px 0; border: 0; }
-    .recent-birdgen-list.obs.card-sm > li > .name {
+    .recent-birdgen-full > .surgefeed { margin: 0; }
+    .recent-birdgen-list.obs.card-sm > li:not(.recent-birdgen-full) > .name {
       display: grid; grid-template-columns: 42px minmax(0, 1fr) max-content;
       align-items: start; column-gap: 10px; min-height: 44px; cursor: pointer; }
-    .recent-birdgen-list.obs.card-sm > li > .name > .thumb {
+    .recent-birdgen-list.obs.card-sm > li:not(.recent-birdgen-full) > .name > .thumb {
       width: 42px; height: 42px; }
     .recent-birdgen-list.obs.card-sm > li[data-recent-kind="hotspot"] > .name {
       grid-template-columns: max-content minmax(0, 1fr) max-content; }
-    .recent-birdgen-list.obs.card-sm > li > .name > .surgehotspotthumb {
+    .recent-birdgen-list.obs.card-sm > li:not(.recent-birdgen-full) > .name > .surgehotspotthumb {
       width: max-content; min-width: calc(48px * var(--s)); height: calc(48px * var(--s));
       grid-row: 1; align-items: flex-end; }
     html:not([data-display="high-visibility"]) .surgefeed .surgehotspotthumb > .surgehotspotpeople,
-    .recent-birdgen-list .surgehotspotthumb > .surgehotspotpeople { position: absolute; inset: 0; }
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .surgehotspotthumb > .surgehotspotpeople { position: absolute; inset: 0; }
     html:not([data-display="high-visibility"]) .surgefeed .surgehotspotmult,
-    .recent-birdgen-list .surgehotspotmult {
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .surgehotspotmult {
       position: relative; left: auto; right: auto; bottom: auto; flex: 0 0 auto; min-width: 100%; }
     .recent-birdgen-list [data-recent-kind="hotspot"] .recent-birdgen-time {
       grid-column: 3; grid-row: 1; justify-self: end; padding-top: 0; text-align: right; }
-    .recent-birdgen-list.obs.card-sm > li > .name > .ppte-bird-composite {
+    .recent-birdgen-list.obs.card-sm > li:not(.recent-birdgen-full) > .name > .ppte-bird-composite {
       width: 42px; height: 42px; }
-    .recent-birdgen-list .surgealerttitle { font-size: calc(16px * var(--s)); line-height: 1.3; }
-    .recent-birdgen-list .ntext { min-width: 0; }
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .surgealerttitle { font-size: calc(16px * var(--s)); line-height: 1.3; }
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .ntext { min-width: 0; }
     .recent-birdgen-list .recent-patch-yield {
       display: block; margin-top: 4px; font-size: calc(13px * var(--s));
       line-height: 1.35; overflow-wrap: anywhere; color: var(--muted); }
-    .recent-birdgen-list .surgealerttitle, .recent-birdgen-list .hslink {
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .surgealerttitle,
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .hslink {
       white-space: normal; overflow-wrap: anywhere; }
     .recent-birdgen-list .recent-birdgen-time {
       width: auto; min-width: 0; margin: 0; padding-top: 4px; text-align: right;
@@ -2642,7 +2647,7 @@
       border: 0; border-radius: var(--btn-radius-flat); background: transparent; box-shadow: none; }
     .recent-birdgen-list button.recent-birdgen-time:focus-visible {
       outline: 2px solid var(--safe-blue); outline-offset: 2px; }
-    .recent-birdgen-list .surgebadge {
+    .recent-birdgen-list > li:not(.recent-birdgen-full) .surgebadge {
       vertical-align: 1px; display: inline-block; box-sizing: border-box;
       max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
     .recent-birdgen-list .name:focus-visible {
@@ -4290,12 +4295,12 @@
       <h2>🦉 Stakeout Birds <span class="dim" id="spLookupRegionLabel"></span></h2>
       <div class="row spLookupActions">
         <input id="spLookup" type="search"
-               placeholder="Search for birds and spuhs…" autocomplete="off" />
+               placeholder="Search" aria-label="Search for birds and spuhs" autocomplete="off" />
         <button id="spLookupBtn" class="secondary">Go</button>
+        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">Codes</button>
         <button id="spLookupClear" class="secondary" type="button">Clear</button>
       </div>
       <div class="row">
-        <button id="spCodesBtn" class="secondary" type="button" aria-expanded="false">Codes</button>
         <button id="spLookupRefresh" class="secondary" type="button" disabled>Refresh</button>
       </div>
       <div class="row" id="spCodesSortRow" hidden>
@@ -5653,7 +5658,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.10.1';
+      var APP_VERSION = '2.11.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -17460,10 +17465,6 @@
             + ' · ' + nowTime();
           st.textContent = '';
           st.hidden = true;
-          if (_spLookupShowingSaved) {
-            st.textContent = 'Saved results from ' + speciesLookupSavedAge() + '.';
-            st.hidden = false;
-          }
         }
         var placesHtml = !recentChanged || (_spLookupLoading && !(g.places || []).length) ? ''
           : (noNearbyEvidence
@@ -17473,13 +17474,10 @@
             : (_spLookupGrouped
               ? spLookupPlacesHtml(g.places, g)
               : spLookupFlatChecklistsHtml(g.places, g)));
-        var identityTags = surgeBirdTag({
-            kind: evidence && evidence.rarityKind,
-            rare: !!(evidence && evidence.rarityKind === 'rare')
-          })
-          + (seenIt === true ? '✅' : seenIt === false ? needTag(g.code, g.name) : '')
+        var identityTags = (seenIt === true ? '✅'
+          : seenIt === false && !watched ? needTag(g.code, g.name) : '')
           + (g.anyUnconfirmed && !watched ? ' ⚠️' : '');
-        var yearStatus = watched ? 'on your watchlist for verification'
+        var yearStatus = watched ? ''
           : seenIt === true ? 'already on your ' + personalBasisLabel()
           : seenIt === false ? 'not on your ' + personalBasisLabel()
           : 'personal history unknown for your ' + personalBasisLabel();
@@ -17522,7 +17520,10 @@
         var detailMain = $('spLookupDetailMain');
         var detailChanged = updateStakeoutHtml(detailMain, (lookupSummary
             ? '<h3>' + (_spLookupShowingSaved ? 'Saved results' : 'Current results')
-              + '</h3><p class="status splookupsummary">'
+              + '</h3>' + (_spLookupShowingSaved
+                ? '<p class="status splookupsaved" role="status" aria-live="polite">Saved results from '
+                  + esc(speciesLookupSavedAge()) + '.</p>' : '')
+              + '<p class="status splookupsummary">'
               + esc(lookupSummary) + '</p>'
             : '') + sightingsFailure);
         var evidenceHost = $('spLookupEvidenceDetails');
@@ -46420,8 +46421,8 @@
         });
       }
 
-      function wireSurgeHeadlines() {
-        var feed = $('surgeFeed');
+      function wireSurgeHeadlines(feed) {
+        feed = feed || $('surgeFeed');
         if (!feed) return;
         [].forEach.call(feed.children, function (row) {
           if (row.getAttribute('data-alert-kind') === 'ppte') return;
@@ -46528,7 +46529,19 @@
             }
           });
         });
-        if (box) [].forEach.call(box.querySelectorAll('[data-surge-details]'), function (button) {
+        if (box) wireSurgeEvidence(box);
+        if (box) [].forEach.call(box.querySelectorAll('[data-count-kind]'), function (button) {
+          button.addEventListener('click', function () {
+            var kind = button.getAttribute('data-count-kind');
+            _surgeCategory = _surgeCategory === kind ? '' : kind;
+            applySurgeCategory();
+          });
+        });
+        applySurgeCategory();
+      }
+
+      function wireSurgeEvidence(box) {
+        [].forEach.call(box.querySelectorAll('[data-surge-details]'), function (button) {
           button.addEventListener('click', function (event) {
             event.stopPropagation();
             var row = button.closest('[data-alert-kind]');
@@ -46542,15 +46555,7 @@
               'Report evidence and qualification', evidence.innerHTML);
           });
         });
-        if (box) [].forEach.call(box.querySelectorAll('[data-alert-kind="ppte"]'), wirePpteHeadlineLinks);
-        if (box) [].forEach.call(box.querySelectorAll('[data-count-kind]'), function (button) {
-          button.addEventListener('click', function () {
-            var kind = button.getAttribute('data-count-kind');
-            _surgeCategory = _surgeCategory === kind ? '' : kind;
-            applySurgeCategory();
-          });
-        });
-        applySurgeCategory();
+        [].forEach.call(box.querySelectorAll('[data-alert-kind="ppte"]'), wirePpteHeadlineLinks);
       }
 
       function surgePlaceTile() {
@@ -49223,7 +49228,8 @@
         rows.push({kind:'foy', when:precise ? first.observedAt : first.date, time:time,
           ageTime:time, ageLabel:precise ? '' : first.ageDays ? first.ageDays + 'd ago' : 'Today',
           foyMembers:members, icon:birdGenBirdThumbnail(members, 2),
-          name:'First of the year ' + headline + (place ? ' at ' + place : '') + '.',
+          name:'First of the year ' + headline
+            + (place ? '<span data-foy-location> at ' + place + '</span>' : '') + '.',
           why:'Regional annual firsts, not proof of current presence or rarity.',
           noteHeader:'Regional annual firsts, not proof of current presence or rarity',
           omitWhen:true, extra:'Open FOY Ticks for the full annual list, newest first.'
@@ -52883,6 +52889,16 @@
       function addSectionRefresh(sec) {
         var h2 = sec.querySelector('h2');
         if (!h2 || sec.querySelector('.refreshbtn')) return;
+        if (sec._at === 'spLookupBtn') {
+          var selectedRefresh = $('spLookupRefresh'), previous = selectedRefresh.parentNode;
+          selectedRefresh.className = 'refreshbtn';
+          selectedRefresh.textContent = '\u21BB';
+          selectedRefresh.setAttribute('aria-label', 'Reload ' + splitLabel(sec._label).text);
+          h2.appendChild(selectedRefresh);
+          if (!previous.childElementCount) previous.remove();
+          sec.classList.add('compacthead');
+          return;
+        }
         var row = null;
         var loadRows = [];
         // The mode switch is a `.row` too, and it is the FIRST one — so a
@@ -54024,6 +54040,113 @@
           refreshFullBirdGen(true);
         } else if (!root.hidden) refreshRecentBirdGen(false);
       }
+      var RECENT_BIRD_GEN_VIEWS = {
+        twitch: { headline: 'bird-place', linkedActions: true },
+        mega: { headline: 'bird' },
+        migration: { headline: 'unchanged' },
+        sensitive: { headline: 'bird' },
+        mass: { headline: 'bird' },
+        need: { headline: 'bird' },
+        crowd: { headline: 'bird' },
+        cascade: { headline: 'bird' },
+        favorite: { headline: 'bird-place' },
+        hotspot: { headline: 'place' },
+        patch: { headline: 'place', yieldNote: true },
+        foy: { headline: 'bird', omitLocation: true, linkedActions: true },
+        ppte: { headline: 'unchanged', linkedActions: true }
+      };
+
+      function birdGenAlertView(source, view) {
+        if (view !== 'full' && view !== 'recent') throw new Error('Unknown Bird Gen alert view: ' + view);
+        var kind = source.getAttribute('data-alert-kind');
+        var definition = view === 'recent'
+          && Object.prototype.hasOwnProperty.call(RECENT_BIRD_GEN_VIEWS, kind)
+          && RECENT_BIRD_GEN_VIEWS[kind];
+        var row = source.cloneNode(true);
+        row.hidden = false;
+        row.removeAttribute('id');
+        [].forEach.call(row.querySelectorAll('[id]'), function (node) { node.removeAttribute('id'); });
+        if (!definition) return { row: row, view: 'full' };
+        var title = row.querySelector('.surgealerttitle');
+        var age = row.querySelector('.surgeage'), subject = title.querySelector('.surgebirdname');
+        var place = title.querySelector('.hslink');
+        [].slice.call(row.attributes).forEach(function (attr) {
+          if (attr.name.indexOf('data-') === 0) row.removeAttribute(attr.name);
+        });
+        row.setAttribute('data-recent-kind', kind);
+        if (subject && (definition.headline === 'bird' || definition.headline === 'bird-place')) {
+          var range = document.createRange();
+          range.setStart(title, 0);
+          range.setEndAfter(subject);
+          title.replaceChildren(range.cloneContents());
+          if (definition.headline === 'bird-place' && place) {
+            title.appendChild(document.createTextNode(' at '));
+            title.appendChild(place.cloneNode(true));
+          }
+        } else if (place && definition.headline === 'place') {
+          title.replaceChildren(place);
+        }
+        [].forEach.call(row.querySelectorAll('.surgekindwrap,template,.sub,.surgebirdtag'), function (node) {
+          node.remove();
+        });
+        if (definition.omitLocation) {
+          [].forEach.call(row.querySelectorAll('[data-foy-location]'), function (node) { node.remove(); });
+        }
+        if (definition.yieldNote && source.getAttribute('data-patch-yield')) {
+          var yieldNote = document.createElement('span');
+          yieldNote.className = 'recent-patch-yield';
+          yieldNote.textContent = source.getAttribute('data-patch-yield');
+          row.querySelector('.ntext').appendChild(yieldNote);
+        }
+        var label = source.getAttribute('data-surge-age-label');
+        if (!label) {
+          var parts = surgeAgeParts(Number(source.getAttribute('data-surge-age-time')
+            || source.getAttribute('data-surge-latest')));
+          age.textContent = parts.main + (parts.tail ? ' ' + parts.tail : '');
+        }
+        var split = age.textContent.trim().match(/^(.*?)\s+ago$/);
+        if (split) age.innerHTML = esc(split[1]) + ' <small>ago</small>';
+        age.classList.add('recent-birdgen-time');
+        var head = row.querySelector(':scope > .name');
+        head.appendChild(age);
+        if (definition.linkedActions) {
+          head.setAttribute('role', 'group');
+          head.removeAttribute('tabindex');
+          head.setAttribute('aria-label', SURGE_KINDS[kind].word + ' alert');
+          var action = document.createElement('button');
+          action.type = 'button';
+          action.className = 'surgeage recent-birdgen-time';
+          action.setAttribute('aria-label', 'Open full ' + SURGE_KINDS[kind].word + ' alert');
+          action.innerHTML = age.innerHTML;
+          age.replaceWith(action);
+          action.addEventListener('click', open);
+          if (kind === 'ppte') wirePpteHeadlineLinks(row);
+          else [].forEach.call(head.querySelectorAll('.splink,.hslink'), function (link) {
+            link.classList.add('stakeoutSourceAction');
+            link.setAttribute('role', 'link');
+            link.tabIndex = 0;
+          });
+        } else {
+          head.setAttribute('role', 'link');
+          head.tabIndex = 0;
+          [].forEach.call(head.querySelectorAll('a,button,[tabindex]'), function (node) { node.tabIndex = -1; });
+        }
+        function open(event) {
+          if (definition.linkedActions && event.currentTarget === head
+              && event.target.closest('a,button,[role="link"]')) return;
+          event.preventDefault();
+          event.stopPropagation();
+          var original = source.querySelector(':scope > .name');
+          if (original.getAttribute('role') === 'link') original.click();
+          else showSection($('surgeBtn').closest('section').id);
+        }
+        head.addEventListener('click', open);
+        head.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') open(event);
+        });
+        return { row: row, view: 'recent' };
+      }
+
       function updateRecentBirdGen() {
         var list = $('recentBirdGenRows');
         if (!list) return;
@@ -54035,85 +54158,22 @@
           }).slice(0, 5) : [];
         list.innerHTML = '';
         rows.forEach(function (source) {
-          var row = source.cloneNode(true), title = row.querySelector('.surgealerttitle');
-          var age = row.querySelector('.surgeage'), subject = title.querySelector('.surgebirdname');
-          var place = title.querySelector('.hslink');
-          var kind = row.getAttribute('data-alert-kind');
-          row.hidden = false;
-          row.removeAttribute('id');
-          [].slice.call(row.attributes).forEach(function (attr) {
-            if (attr.name.indexOf('data-') === 0) row.removeAttribute(attr.name);
-          });
-          row.setAttribute('data-recent-kind', kind);
-          [].forEach.call(row.querySelectorAll('[id]'), function (node) { node.removeAttribute('id'); });
-          if (subject) {
-            var range = document.createRange();
-            range.setStart(title, 0);
-            range.setEndAfter(subject);
-            title.replaceChildren(range.cloneContents());
-            if ((kind === 'favorite' || kind === 'twitch') && place) {
-              title.appendChild(document.createTextNode(' at '));
-              title.appendChild(place.cloneNode(true));
-            }
-          } else if (place && ['hotspot', 'patch'].indexOf(kind) >= 0) {
-            title.replaceChildren(place);
-          }
-          [].forEach.call(row.querySelectorAll('.surgekindwrap,template,.sub,.surgebirdtag'), function (node) {
-            node.remove();
-          });
-          if (kind === 'patch' && source.getAttribute('data-patch-yield')) {
-            var yieldNote = document.createElement('span');
-            yieldNote.className = 'recent-patch-yield';
-            yieldNote.textContent = source.getAttribute('data-patch-yield');
-            row.querySelector('.ntext').appendChild(yieldNote);
-          }
-          var label = source.getAttribute('data-surge-age-label');
-          if (!label) {
-            var parts = surgeAgeParts(Number(source.getAttribute('data-surge-age-time')
-              || source.getAttribute('data-surge-latest')));
-            age.textContent = parts.main + (parts.tail ? ' ' + parts.tail : '');
-          }
-          var split = age.textContent.trim().match(/^(.*?)\s+ago$/);
-          if (split) age.innerHTML = esc(split[1]) + ' <small>ago</small>';
-          age.classList.add('recent-birdgen-time');
-          var head = row.querySelector(':scope > .name');
-          head.appendChild(age);
-          if (kind === 'ppte' || kind === 'twitch' || kind === 'foy') {
-            head.setAttribute('role', 'group');
-            head.removeAttribute('tabindex');
-            head.setAttribute('aria-label', SURGE_KINDS[kind].word + ' alert');
-            var action = document.createElement('button');
-            action.type = 'button';
-            action.className = 'surgeage recent-birdgen-time';
-            action.setAttribute('aria-label', 'Open full ' + SURGE_KINDS[kind].word + ' alert');
-            action.innerHTML = age.innerHTML;
-            age.replaceWith(action);
-            action.addEventListener('click', open);
-            if (kind === 'ppte') wirePpteHeadlineLinks(row);
-            else [].forEach.call(head.querySelectorAll('.splink,.hslink'), function (link) {
-              link.classList.add('stakeoutSourceAction');
-              link.setAttribute('role', 'link');
-              link.tabIndex = 0;
-            });
+          var rendered = birdGenAlertView(source, 'recent'), row = rendered.row;
+          if (rendered.view === 'full') {
+            var wrapper = document.createElement('li'), full = document.createElement('ul');
+            wrapper.className = 'recent-birdgen-full';
+            wrapper.setAttribute('data-recent-kind', source.getAttribute('data-alert-kind'));
+            wrapper.setAttribute('data-recent-view', 'full');
+            full.className = 'obs card-sm surgefeed';
+            full.appendChild(row);
+            wrapper.appendChild(full);
+            list.appendChild(wrapper);
+            wireSurgeHeadlines(full);
+            wireSurgeEvidence(full);
           } else {
-            head.setAttribute('role', 'link');
-            head.tabIndex = 0;
-            [].forEach.call(head.querySelectorAll('a,button,[tabindex]'), function (node) { node.tabIndex = -1; });
+            row.setAttribute('data-recent-view', 'recent');
+            list.appendChild(row);
           }
-          function open(event) {
-            if ((kind === 'ppte' || kind === 'twitch' || kind === 'foy') && event.currentTarget === head
-                && event.target.closest('a,button,[role="link"]')) return;
-            event.preventDefault();
-            event.stopPropagation();
-            var original = source.querySelector(':scope > .name');
-            if (original.getAttribute('role') === 'link') original.click();
-            else showSection($('surgeBtn').closest('section').id);
-          }
-          head.addEventListener('click', open);
-          head.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' || event.key === ' ') open(event);
-          });
-          list.appendChild(row);
         });
         if (!rows.length) list.innerHTML = '<li class="hint" data-recent-birdgen-empty>'
           + 'No retained alerts from the past 24 hours. Use the refresh button to check all Bird Gen sources or Full feed to open the evidence.</li>';
@@ -59113,6 +59173,8 @@
         renderFoy: renderFoy, loadFoy: loadFoy,
         consolidatePpteEvents: consolidatePpteEvents, surgeLoadingHealth: surgeLoadingHealth,
         appendFoySurgeCard: appendFoySurgeCard,
+        birdGenAlertView: birdGenAlertView,
+        recentBirdGenViews: RECENT_BIRD_GEN_VIEWS,
         countySeenEvidenceReady: countySeenEvidenceReady,
         ensureCountySeenEvidence: ensureCountySeenEvidence,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,
