@@ -10117,6 +10117,48 @@ function foySourceFixture(publishedAgoHours, addBird = false) {
   return body;
 }
 
+test('F1402 actual Bird Gen Refresh recovers blocked annual-first acquisition without replacing the personal-list source', async () => {
+  let body=foySourceFixture(2),browser,injected,opened=0;
+  const handlers={};
+  const app=await boot({sample:false,fetch:url=>{
+    if(/rank=lrec/.test(url))return body;
+    if(/rank=hc/.test(url))return f821Page([{count:4000}]);
+    if(/ref\/hotspot\//.test(url))return f821Hotspots().map(row=>({...row,lat:46.7064,lng:-123.972}));
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    await seedSeen(app,[]);
+    await A.ensureFoy(true,()=>true,null,false);
+    assert.ok(A.foyHistoryRead(),'successful regional baseline is separate from personal-list completeness');
+    body='<html>anubis_challenge</html>';
+    A.setCountySeed({'US-WA':{'US-WA-061':{name:'Synthetic county',bounds:{minX:-122.4,maxX:-122,minY:47.5,maxY:48}}}});
+    A.LOADERS.surgeBtn.reachability=false;
+    A.showSection('sec-surgeBtn',{load:false});
+    await A.loadSurge('f1402-automatic',false,{fullRefresh:true});
+    assert.equal(app.$('surgeResults').dataset.sourceFoy,'failed');
+    assert.equal(A.personalListEvidence().complete,true);
+    const count=app.state.fetches.length;
+    assert.match((await A.ensureFoy(false,()=>true,null,false)).error,/ANUBIS/);
+    assert.equal(app.state.fetches.length,count,'passive callbacks must not loop on a website challenge');
+    app.window.Capacitor={Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn){handlers[name]=fn;return{remove(){}};},
+      openWebView(options){opened++;browser=new JSDOM(foySourceFixture(1,true),{url:options.url,runScripts:'outside-only'});
+        browser.window.mobileApp={postMessage(message){handlers.messageFromWebview({id:'f1402-owned',detail:message.detail});}};
+        setTimeout(()=>handlers.browserPageLoaded({id:'f1402-owned'}),0);return Promise.resolve({id:'f1402-owned'});},
+      hide(){},show(){},close(){return Promise.resolve();},executeScript({code}){injected=code;return Promise.resolve();}
+    }}};
+    app.click(app.$('surgeBtn'));
+    await waitFor(()=>injected,'explicit Bird Gen refresh owns annual-first recovery');
+    assert.equal(opened,1);
+    browser.window.eval(injected);
+    await waitFor(()=>app.$('surgeResults').dataset.sourceFoy==='ok','verified annual-first recovery publishes');
+    assert.equal(A.foyPendingRows().length,1);
+    assert.ok(app.document.querySelector('[data-alert-kind="foy"]'),'new regional discovery becomes an actual Bird Gen alert');
+    assert.equal(A.personalListEvidence().complete,true);
+  } finally {browser?.window.close();app.window.close();}
+});
+
 for (const cancel of [false, true]) test('F1373 deliberate FOY menu opening recovers retained failure once'
   + (cancel ? ' with owned cancellation' : ' without expanding generic callbacks'), async () => {
   const app = await boot({sample:false,fetch:url => /bird-list/.test(url) ? '<html>anubis_challenge</html>' : []});
@@ -10826,7 +10868,66 @@ test('F1246 pending regional totals coalesce rerenders and isolate region/day co
   }finally{app.window.close();}
 });
 
-test('F857 acquisition retains 500 returned Species rows without raising the request budget', async () => {
+test('F1405 Top 100 paints the first Species page before Checklists or expanded rows settle', async () => {
+  const rows = Array.from({length:500},(_,i)=>({rank:i+1,name:'Birder '+i,species:6000-i,checklists:10000-i}));
+  const requests = [], releases = [];
+  const app = await boot({sample:false,report:'lower48',storage:{ebird_personal_period_v1:'all'},fetch:url=>{
+    if (!/top100/.test(url)) return [];
+    const parsed = new URL(url); requests.push(parsed);
+    return new Promise(resolve=>releases.push({metric:parsed.searchParams.get('rankedBy'),
+      max:parsed.searchParams.get('maxResults'),resolve}));
+  }});
+  let pending;
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-rankBtn',{load:false});
+    pending = A.loadRankings();
+    await waitFor(()=>releases.some(row=>row.metric==='spp'&&row.max==='500'),'first 500');
+    releases.find(row=>row.metric==='spp'&&row.max==='500').resolve(dualRankFixture('spp',rows,'lower48','AAAA'));
+    await waitFor(()=>app.$('rankResults').querySelector('.rankrow'),'first page painted');
+    assert.match(app.$('rankStatus').textContent,/500 Species rows loaded; loading up to 5,000/);
+    assert.match(app.$('rankResults').textContent,/Birder 0/);
+    await waitFor(()=>releases.some(row=>row.metric==='cl'),'checklist first-page request');
+    releases.find(row=>row.metric==='cl').resolve(dualRankFixture('cl',rows,'lower48','AAAA'));
+    await waitFor(()=>releases.length===3,'background 5,000 request independent of own standing');
+    assert.deepEqual(requests.map(url=>[url.searchParams.get('rankedBy'),url.searchParams.get('maxResults')]).sort(),
+      [['cl','500'],['spp','500'],['spp','5000']]);
+    assert.ok(requests.every(url=>url.searchParams.get('year')==='AAAA'
+      &&url.searchParams.get('region')==='USA Lower 48'));
+    releases.find(row=>row.max==='5000').resolve({ok:false,status:503,text:async()=>''});
+    await pending;pending=null;
+    assert.match(app.$('rankStatus').textContent,/expansion failed; kept 500 rows/);
+    assert.match(app.$('rankResults').textContent,/Birder 0/);
+    assert.equal(app.$('rankBtn').disabled,false);
+  } finally {
+    releases.forEach(row=>row.resolve({ok:false,status:503,text:async()=>''}));
+    if (pending) await pending;
+    app.window.close();
+  }
+});
+
+test('F1405 wider cache is reused and hung initial aggregate reads settle without a success-shaped empty board', async () => {
+  const app=await boot({report:'lower48',sample:false});
+  try {
+    const A=app.window.__app, period=String(new Date().getFullYear());
+    const rr={region:'lower48',max:5000,rowLimit:5000};
+    const wide={region:'lower48',period,metric:'spp',profile:A.bcProfile(),ownerRevision:A.identityRevision(),
+      url:'https://ebird.org/top100?region=USA+Lower+48&year='+period+'&rankedBy=spp&maxResults=5000',
+      rows:Array.from({length:501},(_,i)=>({rank:i+1,name:'Wide '+i,species:6000-i}))};
+    A.rankCachePut(A.rankCacheOwnerKey(rr,period,''),wide);
+    const before=app.state.fetches.length;
+    const pair=await A.fetchRankPair({region:'lower48',max:500,rowLimit:500},period,'',false,null,['spp']);
+    assert.equal(pair.boards.spp.rows.length,501);
+    assert.equal(app.state.fetches.length,before);
+    const original=app.window.setTimeout;
+    app.window.setTimeout=(fn,ms,...args)=>original(fn,ms===20000?1:ms,...args);
+    await assert.rejects(A.fetchRank({region:'aba',max:500,rowLimit:500},period,'',false),/timed out/);
+    await assert.rejects(A.fetchRank({region:'aba',max:500,rowLimit:500},period,'',false),/timed out/);
+    assert.equal(app.state.fetches.filter(url=>/region=ABA/.test(url)).length,2,'a timed-out join must be released for retry');
+  } finally {app.window.close();}
+});
+
+test('F857 acquisition retains 500 returned Species rows while explicit Top 100 expands separately', async () => {
   const rows=Array.from({length:500},(_,i)=>({rank:i+1,name:i===181?'Owner':'Birder '+i,
     profileId:i===181?'owner':'other'+i,species:1000-i,checklists:1000-i}));
   const app=await boot({sample:false,storage:{ebird_display_name:'Owner',
@@ -10843,8 +10944,8 @@ test('F857 acquisition retains 500 returned Species rows without raising the req
     assert.match(panel.textContent,/500 rows returned/);
     assert.match(panel.querySelector('[aria-current="true"]').textContent,/#182You819/);
     const requests=app.state.fetches.filter(url=>/top100/.test(url));
-    assert.ok(requests.length>0 && requests.length<=2,'no prefix growth or neighbor-specific requests');
-    for(const url of requests) assert.equal(new URL(url).searchParams.get('maxResults'),'500');
+    assert.equal(requests.filter(url=>new URL(url).searchParams.get('maxResults')==='5000').length,1);
+    assert.equal(requests.filter(url=>new URL(url).searchParams.get('maxResults')==='500').length,2);
   }finally{app.window.close();}
 });
 
@@ -11019,7 +11120,7 @@ test('F883 Top 100 explicitly extends Species coverage for a verified rank above
     assert.equal(panel.querySelectorAll(
       'table[aria-label="Five birders above and below you"] tbody tr').length,11);
     assert.match(panel.querySelector('[aria-current]').textContent,/#620You581/);
-    assert.deepEqual(requests,[['spp',500],['cl',500],['spp',1000]]);
+    assert.deepEqual(requests,[['spp',500],['cl',500],['spp',5000]]);
   }finally{app.window.close();}
 });
 
@@ -11054,6 +11155,180 @@ test('F858/F869 metric switching uses independent boards and always exposes hone
     A.renderRankPair(pair,'US-WA','2026','Owner');
     assert.match(app.$('rankResults').textContent,/Checklists board unavailable.*Offline/);
     assert.doesNotMatch(app.$('rankResults').textContent,/Species only/);
+  } finally { app.window.close(); }
+});
+
+test('F1401 fresh local MEGA, Cascade and Crowd evidence survives newer distant reports and species merging', async () => {
+  const observation=(local,minutes,id)=>({speciesCode:'nazboo1',comName:'Nazca Booby',
+    obsDt:formatObsStamp(new Date(Date.now()-minutes*60000)),locId:local?'LNEAR':'LFAR',
+    locName:local?'Nearby Public Park':'Distant Public Marsh',subId:id,
+    lat:local?47.76:45.75,lng:-122.16,howMany:local?2:8});
+  const local=[observation(true,120,'SN1'),observation(true,60,'SN2')];
+  const far=[observation(false,20,'SF1'),observation(false,10,'SF2')];
+  const snapshot=rows=>JSON.stringify({membershipVersion:2,at:Date.now(),region:'US-WA',sid:'SN10489',rows});
+  const app=await boot({storage:{ebird_mega_snapshot_v1:snapshot(local.concat(far)),
+    ebird_aba_archive_v1:JSON.stringify({'US-WA':{'amecro|CONTROL':{
+      speciesCode:'amecro',obsDt:recentObsStamp(20),locName:'Control Public Park',locId:'LCONTROL',lat:47.7,lng:-122.2}}})}});
+  try {
+    const A=app.window.__app;
+    A.cancelStalledWork();
+    assert.equal(A.megaLane(A.getAnchors()).rows[0].locId,'LNEAR');
+    app.window.localStorage.setItem('ebird_mega_snapshot_v1',snapshot(far));
+    assert.equal(A.megaLane(A.getAnchors()).rows[0].locId,'LFAR','outside-only news remains available');
+    app.window.localStorage.setItem('ebird_mega_snapshot_v1',snapshot(local));
+    const cascade=recent=>({code:'nazboo1',species:'Nazca Booby',latest:recentObsStamp(0).slice(0,10),
+      earliest:recentObsStamp(0).slice(0,10),birders:Array.from({length:5},(_,i)=>({name:'Synthetic '+i,rank:i+1})),
+      publicHotspots:[{locId:'LNEAR',locName:'Nearby Public Park'},{locId:'LFAR',locName:'Distant Public Marsh'}],recent});
+    A.renderSurge([],[cascade(far)],[],[]);
+    let card=app.document.querySelector('[data-alert-kind="mega"]');
+    assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,'LNEAR');
+    assert.equal(card.dataset.surgeChecklist,'SN2');
+    assert.match(surgeEvidence(card).textContent,/x2/);
+    assert.match(surgeEvidence(card).textContent,/Distant Public Marsh/,'the separate outside reason keeps its own locality');
+    app.window.localStorage.removeItem('ebird_mega_snapshot_v1');
+    for (const [recent,expected] of [[local.concat(far),'LNEAR'],
+      [[{...local[0],obsDt:recentObsStamp(8)},...far],'LFAR'],
+      [[{...local[0],lat:null},...far],'LFAR'],[far,'LFAR']]) {
+      A.renderSurge([],[cascade(recent)],[],[]);
+      card=app.document.querySelector('[data-alert-kind="cascade"]');
+      assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,expected);
+      assert.match(card.querySelector('.surgealerttitle').textContent,/most recent/);
+      assert.equal(card.dataset.surgeChecklist,expected==='LNEAR'?'SN2':'SF2');
+    }
+    const input=[true,false].flatMap(near=>Array.from({length:4},(_,i)=>{
+      const r=observation(near,(near?120:10)+i,'SC'+near+i);
+      return {code:'syntheticcrowd',name:'Synthetic Crowd Bird',dateStr:r.obsDt,loc:r.locName,locId:r.locId,
+        subId:r.subId,lat:r.lat,lon:r.lng,distMi:near?1:140,observer:'Synthetic '+near+i,kind:'Recent'};
+    }));
+    const events=BL.surgeEvents(input,{now:Date.now(),seen:{}});
+    assert.equal(events.length,2);
+    A.renderSurge(events,[],[],[]);
+    card=app.document.querySelector('[data-alert-kind="crowd"]');
+    assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,'LNEAR');
+    assert.equal(card.dataset.surgeChecklist,'SCtrue0');
+  } finally {app.window.close();}
+});
+
+test('F1403 aggregate Bird Gen uses verified local evidence and owned TWITCH baselines in both personal periods', async () => {
+  for (const slug of ['lower48','aba']) for (const period of ['current','all']) {
+    let phase=1;
+    const stamp=formatObsStamp(new Date(Date.now()-60000));
+    const places=[['LUS','US','US-WA'],['LCA','CA','CA-BC'],['LHI','US','US-PR'],['LUNKNOWN','','']]
+      .map(([locId,countryCode,subnational1Code])=>({locId,countryCode,subnational1Code,
+        locName:'Public '+locId,lat:47.76,lng:-122.16}));
+    const observations=()=>places.map((h,i)=>({...h,speciesCode:['pacloo','amecro','houspa','eursta'][i],
+      comName:['Pacific Loon','American Crow','House Sparrow','European Starling'][i],
+      subId:'S'+h.locId,obsId:'O'+h.locId,obsDt:stamp,howMany:2,
+      obsReviewed:true,obsValid:true,userDisplayName:'Synthetic observer'})).concat(
+        phase===2?[{...places[0],speciesCode:'blksco2',comName:'Black Scoter',subId:'SNEW',obsId:'ONEW',
+          obsDt:stamp,howMany:3,obsReviewed:true,obsValid:true}]:[],
+        [{...places[0],speciesCode:'rebwoo',comName:'Red-bellied Woodpecker',subId:'SPRIVATE',
+          obsDt:stamp,locationPrivate:true},
+         {...places[0],speciesCode:'mallar3',comName:'Mallard',subId:'SOLD',obsDt:recentObsStamp(9)}]);
+    const app=await boot({report:slug,sample:false,storage:{ebird_personal_period_v1:period},fetch:url=>{
+      if(/ref\/hotspot\/geo/.test(url)) {
+        if(phase===3)throw new Error('Synthetic later directory outage');
+        return places;
+      }
+      if(/data\/obs\/geo\/recent/.test(url))return observations();
+      return [];
+    }});
+    try {
+      const A=app.window.__app;
+      await seedSeen(app,[],[],[{code:'blksco2',name:'Black Scoter'},
+        {code:'pacloo',name:'Pacific Loon'},{code:'amecro',name:'American Crow'}]);
+      const home=JSON.stringify(A.getHome()),before=app.state.fetches.length;
+      app.open(/Bird Gen/);
+      await waitFor(()=>app.$('surgeResults').dataset.sourceObservations==='ok'
+        && app.$('surgeResults').dataset.sourceFoy==='unavailable','aggregate local Bird Gen');
+      let box=app.$('surgeResults');
+      assert.match(box.querySelector('[data-birdgen-local-coverage]').textContent,/not area-wide coverage/);
+      const journalKey=Object.keys(app.window.localStorage).find(key=>key.startsWith('bc_twitch_v1:'));
+      assert.deepEqual(JSON.parse(app.window.localStorage.getItem(journalKey)).known.sort(),
+        slug==='aba'?['amecro','pacloo']:['pacloo'],'only proven aggregate members enter the baseline');
+      assert.equal(box.querySelectorAll('[data-alert-kind="twitch"]').length,0,'first read silently establishes a baseline');
+      for (const key of ['Mega','Leaderboard','Hotspots','Mass','Ppte','Birdcast','Foy'])
+        assert.equal(box.dataset['source'+key],'unavailable',key+' must not claim complete regional coverage');
+      const requests=app.state.fetches.slice(before).filter(url=>/api\.ebird/.test(url));
+      assert.equal(requests.length,3,'only two geographic observation feeds and their public directory');
+      for(const url of requests)assert.match(url,/data\/obs\/geo\/recent|ref\/hotspot\/geo/);
+      assert.ok(requests.every(url=>new URL(url).searchParams.get('lat')==='47.75'));
+      assert.equal(JSON.stringify(A.getHome()),home);
+      phase=2;
+      await A.loadSurge(null,false,{fullRefresh:true});
+      box=app.$('surgeResults');
+      assert.ok(box.querySelector('[data-alert-kind="twitch"][data-species-code="blksco2"]'),
+        JSON.stringify({journal:app.window.localStorage.getItem(journalKey),
+          debug:app.window.__dbg.buf.filter(row=>/TWITCH tracking|recent\/notable source/.test(row.msg)).slice(-4)}));
+      assert.match(box.querySelector('[data-alert-kind="twitch"][data-species-code="blksco2"]').textContent,/Black Scoter/);
+      assert.match(box.textContent,/Pacific Loon/);
+      assert.equal(/American Crow/.test(box.textContent),slug==='aba');
+      assert.doesNotMatch(box.textContent,/House Sparrow|European Starling|Red-bellied Woodpecker|Mallard/);
+      assert.equal(A.personalPeriod(),period==='all'?'all':'year:'+new Date().getFullYear());
+      assert.equal(A.getReportSlug(),slug);
+      phase=3;
+      await A.loadSurge(null,false,{fullRefresh:true});
+      assert.equal(box.dataset.sourceObservations,'failed');
+      assert.ok(box.querySelector('[data-alert-kind="twitch"][data-species-code="blksco2"]'),
+        'verified local alerts survive a later failed source refresh');
+      assert.deepEqual(app.state.errors,[]);
+    } finally {app.window.close();}
+  }
+});
+
+test('F1403 failed or superseded aggregate feeds cannot establish a TWITCH baseline', async () => {
+  let release;
+  const app=await boot({report:'lower48',sample:false,fetch:url=>{
+    if(/ref\/hotspot\/geo/.test(url))return new Promise(resolve=>{release=resolve;});
+    return [];
+  }});
+  try {
+    const A=app.window.__app;
+    A.showSection('sec-surgeBtn',{load:false});
+    const pending=A.loadSurge('f1403-held',false,{fullRefresh:true});
+    await waitFor(()=>release,'held aggregate directory');
+    A.setActiveReport('wa');
+    release([]);
+    assert.equal((await pending).state,'cancelled');
+    assert.equal(Object.keys(app.window.localStorage).some(key=>key.startsWith('bc_twitch_v1:')),false);
+    assert.equal(A.getReportSlug(),'wa');
+  } finally {if(release)release([]);app.window.close();}
+  const failed=await boot({report:'lower48',sample:false,fetch:url=>{
+    if(/ref\/hotspot\/geo/.test(url))throw new Error('Synthetic directory outage');
+    return [];
+  }});
+  try {
+    const A=failed.window.__app;
+    A.showSection('sec-surgeBtn',{load:false});
+    await A.loadSurge('f1403-failure');
+    assert.equal(failed.$('surgeResults').dataset.sourceObservations,'failed');
+    assert.equal(Object.keys(failed.window.localStorage).some(key=>key.startsWith('bc_twitch_v1:')),false);
+    assert.doesNotMatch(failed.$('surgeResults').textContent,/Nothing you need has been reported/);
+  } finally {failed.window.close();}
+});
+
+test('F1404 Quick Settings reuses recent choices, selection semantics and region-owned Home', async () => {
+  const app = await boot({sample:false,storage:{bc_recent_regions_v1:'["lower48","wa","hi","lower48","invalid"]'}});
+  try {
+    const A = app.window.__app;
+    const home = JSON.stringify(A.getHome());
+    A.showMenu(); A.renderMenuIdentity();
+    const choices = () => [...app.$('menuRecentRegions').querySelectorAll('button')];
+    assert.deepEqual(choices().map(button => button.dataset.regionChoice), ['wa','lower48','hi']);
+    assert.equal(choices()[0].getAttribute('aria-pressed'),'true');
+    assert.match(choices()[0].textContent,/✓/);
+    assert.equal(choices()[0].disabled,true);
+    app.click(choices()[1]);
+    assert.equal(A.getReportSlug(),'lower48');
+    assert.equal(A.getHome(),null,'a recent-region shortcut must not copy Washington Home');
+    A.renderMenuIdentity();
+    assert.deepEqual(choices().map(button => button.dataset.regionChoice), ['lower48','wa','hi']);
+    assert.equal(choices()[0].getAttribute('aria-current'),'true');
+    app.click(choices()[1]);
+    assert.equal(A.getReportSlug(),'wa');
+    assert.equal(JSON.stringify(A.getHome()),home);
+    A.renderMenuIdentity();
+    assert.equal(choices().filter(button => button.getAttribute('aria-pressed')==='true').length,1);
   } finally { app.window.close(); }
 });
 
@@ -21414,9 +21689,9 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
       hide(){},show(){},close(options){closes.push(options);return Promise.resolve();},
     }}};
     await A.loadRankings(true,true);
-    assert.equal(opens.length,2);
-    assert.equal(closes.length,2,'accepted public boards close automatically without account-menu markup');
-    assert.ok(opens.every(url=>new URL(url).searchParams.get('maxResults')==='500'));
+    assert.equal(opens.length,3);
+    assert.equal(closes.length,3,'both first pages and the explicit Species expansion close their owned windows');
+    assert.deepEqual(opens.map(url=>new URL(url).searchParams.get('maxResults')),['500','500','5000']);
     const panel = app.document.querySelector('.ranknearby');
     assert.ok(panel,'the accepted name-only session standing must produce a neighbor panel');
     assert.ok(panel.querySelector('.rankclimb[aria-label="Species rank-climb goals"]'));
@@ -21434,7 +21709,7 @@ test('F877 signed-in native capture parses region-suffixed links before owner-sc
     assert.equal(cached.profile,A.bcProfile());
     assert.equal(cached.ownerRevision,A.identityRevision());
     await A.loadRankings();
-    assert.equal(opens.length,2,'same-owner signed-in cache must avoid reopening both boards');
+    assert.equal(opens.length,3,'same-owner signed-in cache must avoid reopening boards or expansion');
     for (const [url,account,accepted] of [
       ['https://ebird.org/top100','Other account',true],
       ['https://untrusted.example/top100','Sample Observer',false],
@@ -21678,6 +21953,9 @@ test('F764 repeated refresh and scope changes cannot paint an obsolete leaderboa
   const base = FIX('top100-wa.html');
   const app = await boot({ fetch: (url) => {
     if (!/top100/.test(url)) return [];
+    if (new URL(url).searchParams.get('maxResults') === '5000') {
+      return {ok:false,status:503,text:async()=>''};
+    }
     if (new URL(url).searchParams.get('rankedBy') === 'cl') {
       return { ok: false, status: 400, text: async () => '' };
     }

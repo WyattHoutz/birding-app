@@ -3976,6 +3976,9 @@
     #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
     #regionChooserUnsupportedList li { margin-bottom: 8px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
+    .quickregions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+    .quickregions .regionchoice { width: auto; max-width: 100%; min-width: 0;
+      white-space: normal; overflow-wrap: anywhere; flex: 0 1 auto; }
     .setupstate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
       padding: 12px 0; border-bottom: 1px solid var(--line); }
     .setupstate strong { font-size: calc(16px * var(--s)); }
@@ -5642,7 +5645,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.8.0';
+      var APP_VERSION = '2.9.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -11858,6 +11861,9 @@
           var eligible = candidates.filter(freshNews);
           var choices = eligible.length ? eligible : candidates;
           choices.sort(function (a, b) {
+            var aLocal = a._fresh && a.mi != null && isFinite(a.mi) && a.mi <= chaseMaxMi();
+            var bLocal = b._fresh && b.mi != null && isFinite(b.mi) && b.mi <= chaseMaxMi();
+            if (aLocal !== bLocal) return aLocal ? -1 : 1;
             if (!!a.found !== !!b.found) return a.found ? -1 : 1;
             var d = String(b.obsDt || '').localeCompare(String(a.obsDt || ''));
             if (d) return d;
@@ -34717,7 +34723,15 @@
         function attempt(i) {
           if (!rankRequestCurrent(rr)) return Promise.reject(new Error('Leaderboard request was superseded by another account.'));
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
-          return fetchPublicHTML(urls[i], force).then(function (html) {
+          var controller = new AbortController(), timer;
+          var deadline = new Promise(function (resolve, reject) {
+            timer = setTimeout(function () {
+              controller.abort();
+              reject(new Error('Leaderboard source timed out after 20 seconds. Refresh to retry.'));
+            }, 20000);
+          });
+          return Promise.race([fetchPublicHTML(urls[i], force, controller.signal), deadline])
+            .finally(function () { clearTimeout(timer); }).then(function (html) {
             if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
             rankDiagnostic('http-received', { run: diagnosticId, requested: rr.max || 500,
               characters: String(html || '').length, attempt: i + 1,
@@ -35341,6 +35355,14 @@
         rr = ownedRankRequest(rr);
         var metric = rr.metric || 'spp';
         var url = rankingsUrl(rr.region, period, rr.max, metric);
+        if (!force && !rr.authenticated && metric === 'spp' && rr.max === 500) {
+          var wider = rankCacheGet(rankCacheOwnerKey(Object.assign({}, rr, {
+            max: 5000, rowLimit: 5000
+          }), period, name));
+          if (rankSourceMatches(wider, rr.region, period, metric)
+              && wider.profile === rr.ownerProfile && wider.ownerRevision === rr.ownerRevision
+              && rankRowsConsistent(wider, metric)) return Promise.resolve(wider);
+        }
         if (rr.authenticated) {
           var identity = getIdentityMeta();
           if (!identity || identity.source !== 'ebird-bird-list' || !identity.profileId) {
@@ -35375,10 +35397,11 @@
         }
         return fetchRank(rr, period, name, force);
       }
-      function fetchRankPair(rr, period, name, force, onStatus, metrics) {
+      function fetchRankPair(rr, period, name, force, onStatus, metrics, onBoard) {
         rr = ownedRankRequest(rr);
         metrics = metrics || ['spp', 'cl'];
-        var pair = { boards: {}, failures: {}, stale: {}, coverage: '' };
+        var pair = { boards: {}, failures: {}, stale: {}, pending: {}, coverage: '' };
+        metrics.forEach(function (metric) { pair.pending[metric] = true; });
         return metrics.reduce(function (work, metric) {
           return work.then(function () {
             if (!rankRequestCurrent(rr)) throw new Error('Account changed during leaderboard acquisition.');
@@ -35394,6 +35417,13 @@
                   pair.stale[metric] = retained.data.readAt || retained.date;
                 }
                 dbg('warn', 'rankings ' + metric + ': ' + pair.failures[metric]);
+              }).then(function () {
+                delete pair.pending[metric];
+                pair.coverage = Object.keys(pair.boards).map(function (key) {
+                  return (key === 'cl' ? 'Checklists' : 'Species') + ': '
+                    + pair.boards[key].rows.length + ' participant rows retained';
+                }).join('; ');
+                if (onBoard) onBoard(pair, metric);
               });
           });
         }, Promise.resolve()).then(function () {
@@ -35424,8 +35454,9 @@
         else {
           $('rankSummary').innerHTML = '';
           $('rankResults').innerHTML = '<p class="hint">' + esc(_rankMetric === 'cl' ? 'Checklists' : 'Species')
-            + ' board unavailable. ' + esc(pair.failures && pair.failures[_rankMetric] || 'No verified source.')
-            + ' Refresh to retry or select the other metric.</p>';
+            + (pair.pending && pair.pending[_rankMetric] ? ' board is loading. Other verified rows remain available.'
+              : ' board unavailable. ' + esc(pair.failures && pair.failures[_rankMetric] || 'No verified source.')
+                + ' Refresh to retry or select the other metric.') + '</p>';
         }
         {
           var nearby = document.createElement('div');
@@ -35499,6 +35530,7 @@
         var url = rankingsUrl(region, year, max);
         var name = getDisplayName();
         var owner = bcProfile();
+        var revision = identityRevision(), navigation = _navGeneration, cancellation = _workCancelGeneration;
         authenticated = authenticated === true;
         var btn = $('rankBtn'), st = $('rankStatus');
         var boardKey = region + '|' + year + '|' + name + '|' + owner;
@@ -35507,53 +35539,71 @@
         }
         var previous = $('rankResults').textContent;
         btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
-        // Background reads are the default; a browser is an explicit action.
-        var baseRequest = { key: rr.key, region: region, max: max, rowLimit: 500,
-          authenticated:!!authenticated };
-        return fetchRankPair(baseRequest, year, name, force, function (m) {
-          if (generation === _rankLoadGeneration && getRankScope().region === region && bcProfile() === owner) st.textContent = m;
-        }).then(function (pair) {
-            var species = pair.boards.spp, own = species && (species.sessionUser || species.me);
-            if (!own || !Number.isInteger(own.rank) || own.rank <= 500 || own.rank > 5000) return pair;
-            var ownerRow = (species.rows || []).some(function (row) {
-              return own.profileId && row.profileId === own.profileId
-                || row.rank === own.rank && row.species === own.species
-                  && String(row.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
-                    === String(own.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
-            });
-            if (ownerRow) return pair;
-            var extendedMax = Math.min(5000, Math.max(1000,
-              Math.ceil((own.rank + 10) / 500) * 500));
-            st.textContent = 'Loading nearby Species rows through rank ' + extendedMax + '…';
-            return fetchRankPair(Object.assign({}, baseRequest, {
-              max: extendedMax, rowLimit: extendedMax
-            }), year, name, force, function (m) {
-              if (generation === _rankLoadGeneration && getRankScope().region === region
-                  && bcProfile() === owner) st.textContent = m;
-            }, ['spp']).then(function (extended) {
-              if (extended.boards.spp) pair.boards.spp = extended.boards.spp;
-              else pair.extendedFailure = extended.failures.spp;
-              return pair;
-            });
+        var baseRequest = ownedRankRequest({ key: rr.key, region: region, max: max, rowLimit: 500,
+          authenticated:!!authenticated });
+        var expansion = null, phase = st.textContent, started = Date.now();
+        function current() {
+          return generation === _rankLoadGeneration && getRankScope().region === region
+            && bcProfile() === owner && identityRevision() === revision && getDisplayName() === name
+            && personalBoardPeriod() === year && navigation === _navGeneration
+            && cancellation === _workCancelGeneration && !_appUnloading;
+        }
+        function status(message) {
+          if (!current()) return;
+          phase = message;
+          st.textContent = phase + ' · ' + Math.floor((Date.now() - started) / 1000) + 's elapsed';
+        }
+        var timer = setInterval(function () { status(phase); }, 1000);
+        function paint(pair) {
+          if (!current()) return;
+          _rankPair = pair;
+          renderRankPair(pair, region, year, name);
+          $('rankResults').dataset.boardKey = boardKey;
+        }
+        status(phase);
+        return fetchRankPair(baseRequest, year, name, force, status,
+          [_rankMetric, _rankMetric === 'spp' ? 'cl' : 'spp'], function (pair, metric) {
+            if (!current()) return;
+            paint(pair);
+            var species = pair.boards.spp;
+            if (metric !== 'spp' || !species || pair.stale.spp || expansion) return;
+            if (!force && /[?&]maxResults=5000(?:&|$)/.test(species.url || '')) return;
+            status((force ? 'Refreshing · ' : '') + species.rows.length
+              + ' Species rows loaded; loading up to 5,000');
+            expansion = function () { return fetchRankPair(Object.assign({}, baseRequest, { max: 5000, rowLimit: 5000 }),
+              year, name, force, status, ['spp']).then(function (extended) {
+                if (!current()) return;
+                if (extended.boards.spp && !extended.failures.spp
+                    && extended.boards.spp.rows.length >= pair.boards.spp.rows.length) {
+                  pair.boards.spp = extended.boards.spp;
+                } else {
+                  pair.extendedFailure = extended.failures.spp || 'The expanded source returned fewer rows than the first page.';
+                }
+                paint(pair);
+              }); };
           }).then(function (pair) {
-            if (generation !== _rankLoadGeneration || getRankScope().region !== region || bcProfile() !== owner
-                || getDisplayName() !== name || personalBoardPeriod() !== year) return;
-            // Last line of defence before painting: the captured page bypasses
-            // fetchRank's check, and rendering the wrong board under the right
-            // heading is worse than showing nothing.
-            _rankPair = pair;
-            renderRankPair(pair, region, year, name);
-            $('rankResults').dataset.boardKey = boardKey;
-            st.textContent = Object.keys(pair.failures).length ? 'Could not refresh all leaderboard sources · ' + pair.coverage
-              : (force && previous === $('rankResults').textContent
-              ? 'Checked — leaderboard unchanged · ' : force ? 'Refreshed ' : 'Loaded ') + nowTime();
+            return Promise.resolve(current() && expansion ? expansion() : null).then(function () {
+              if (!current()) return;
+              var detail = pair.extendedFailure ? 'Species expansion failed; kept '
+                + pair.boards.spp.rows.length + ' rows. Refresh to retry: ' + pair.extendedFailure : '';
+              if (detail) pair.coverage += ' ' + detail;
+              paint(pair);
+              st.textContent = Object.keys(pair.failures).length ? 'Could not refresh all leaderboard sources · ' + pair.coverage
+                : detail || (force && previous === $('rankResults').textContent
+                  ? 'Checked — leaderboard unchanged · ' : force ? 'Refreshed ' : 'Loaded ')
+                    + nowTime() + ' · ' + (pair.boards.spp ? pair.boards.spp.rows.length : 0)
+                    + ' Species rows retained; requested up to 5,000.';
+            });
           })
           .catch(function (e) {
-            if (generation !== _rankLoadGeneration || getRankScope().region !== region) return;
+            if (!current()) return;
             st.innerHTML = 'Could not refresh leaderboard: ' + esc(e.message || 'Read failed.')
               + ' ' + extA(url, 'View on eBird');
           })
-          .finally(function () { if (generation === _rankLoadGeneration) btn.disabled = false; });
+          .finally(function () {
+            clearInterval(timer);
+            if (generation === _rankLoadGeneration) btn.disabled = false;
+          });
       }
 
       function rankNearbyHTML(data, region, period, name, stale) {
@@ -40890,7 +40940,7 @@
         var source = hotspot.subnational2Code || hotspot.subnational1Code || hotspot.countryCode || '';
         return source === region || source.indexOf(region + '-') === 0;
       }
-      function easyPublicObservations(rows, hotspots, scope, anchor, radius) {
+      function easyPublicObservations(rows, hotspots, scope, anchor, radius, partyEvidence) {
         var places = {};
         (hotspots || []).forEach(function (h) {
           if (!h || !h.locId || !h.locName || !BL.isPublicPlace(h.locName)
@@ -40918,6 +40968,9 @@
             locName: place.locName, lat: +place.lat, lng: +place.lng
           };
           ['howMany', 'obsValid', 'obsReviewed', 'exoticCategory'].forEach(function (key) {
+            if (Object.prototype.hasOwnProperty.call(o, key)) clean[key] = o[key];
+          });
+          if (partyEvidence) ['obsId', 'userDisplayName', 'groupId', 'numObservers'].forEach(function (key) {
             if (Object.prototype.hasOwnProperty.call(o, key)) clean[key] = o[key];
           });
           return clean;
@@ -44041,7 +44094,7 @@
         function cancelled() { return queueCancelledError({ label: 'Annual firsts' }); }
         if (_foyLoads[key] && _foyLoads[key].current()) return _foyLoads[key].promise;
         var failure = _foyFailures[key];
-        if (!force && failure && failure.privacy === privacy) {
+        if (!force && allowBrowser !== true && failure && failure.privacy === privacy) {
           return Promise.resolve(failure.result);
         }
         if (!force && previous && previous.readDate === todayStr()) {
@@ -45353,6 +45406,7 @@
         if (!cache || cache.context !== surgeRetainedContext() || !cache.parts) return null;
         var now = Date.now(), scope = activeScope(), model = {};
         Object.keys(cache.parts).forEach(function (key) {
+          if (getReport().isRarityTracker && key !== 'observed' && key !== 'favorite') return;
           var part = cache.parts[key];
           if (!part || !(part.at > 0) || part.at > now) return;
           var value = part.value;
@@ -45364,7 +45418,7 @@
               partial: value.state !== 'ok',
               rows: value.evidenceRows,
               cv: value.evidenceRows
-                ? computeChaseRows(chaseProfile(), getReportSlug(), value.evidenceRows, null)
+                ? computeChaseRows(birdGenObservationProfile(), getReportSlug(), value.evidenceRows, null)
                 : { merged: value.merged }
             }, now), { retainedAt: part.at });
           } else if (key === 'favorite') {
@@ -45512,7 +45566,7 @@
         var rr = rankPrimaryRegion();
         var anchor = anchorPoint() || {};
         return [
-          'cascade-5-7-3',
+          getReport().isRarityTracker ? 'aggregate-local-v1' : 'cascade-5-7-3',
           getRegion(),
           rr && rr.region || '',
           isFinite(Number(anchor.lat)) ? Number(anchor.lat).toFixed(5) : '',
@@ -46047,6 +46101,21 @@
 
       function mergeSurgeSpeciesRows(rows) {
         var out = [], bySpecies = {}, twitchSpecies = {};
+        function sourceExtra(row) {
+          return (row.extra || '') + (row.locationScoped && row.where
+            ? (row.extra ? ' · ' : '') + 'Observation at ' + row.where + ' · '
+              + esc(fmtDate(row.when)) + (row.checklistId ? ' · '
+                + checklistLink(row.checklistId, row.checklistId) : '') : '');
+        }
+        function observationView(row) {
+          return {
+            time: row.time, when: row.when, where: row.where,
+            checklistId: row.checklistId, distance: row.distance,
+            ageTime: row.ageTime, eventCount: row.eventCount,
+            locationScoped: row.locationScoped === true,
+            locationLocal: row.locationLocal === true, placeConnector: row.placeConnector
+          };
+        }
         (rows || []).forEach(function (row) {
           if (row.kind !== 'twitch') return;
           if (row.code) twitchSpecies['code:' + String(row.code).toLowerCase()] = true;
@@ -46069,7 +46138,8 @@
           if (codeKey) aliases.push('code:' + codeKey);
           if (nameKey) aliases.push('name:' + nameKey);
           if (!aliases.length) { out.push(row); return; }
-          var reason = { kind: row.kind, why: row.why };
+          var reason = { kind: row.kind, why: row.why + (row.locationScoped && row.where
+            ? ' · ' + row.where + ' · ' + esc(fmtDate(row.when)) : '') };
           var hit = null;
           aliases.some(function (key) {
             if (!bySpecies[key]) return false;
@@ -46078,12 +46148,9 @@
           });
           if (!hit) {
             row.reasons = [reason];
-            row._surgeExtras = row.extra ? [{ kind: row.kind, html: row.extra }] : [];
-            row._surgeLatestView = {
-              time: row.time, when: row.when, where: row.where,
-              checklistId: row.checklistId, distance: row.distance,
-              ageTime: row.ageTime, eventCount: row.eventCount
-            };
+            var initialExtra = sourceExtra(row);
+            row._surgeExtras = initialExtra ? [{ kind: row.kind, html: initialExtra }] : [];
+            row._surgeLatestView = observationView(row);
             row._surgeAliases = aliases;
             aliases.forEach(function (key) { bySpecies[key] = row; });
             out.push(row);
@@ -46095,19 +46162,20 @@
           if (!hit.reasons.some(function (r) {
             return r.kind === reason.kind && r.why === reason.why;
           })) hit.reasons.push(reason);
-          if (row.extra && !hit._surgeExtras.some(function (x) {
-            return x.kind === row.kind && x.html === row.extra;
-          })) hit._surgeExtras.push({ kind: row.kind, html: row.extra });
+          var extra = sourceExtra(row);
+          if (extra && !hit._surgeExtras.some(function (x) {
+            return x.kind === row.kind && x.html === extra;
+          })) hit._surgeExtras.push({ kind: row.kind, html: extra });
           // Category priority chooses the visible reason, not which source is
           // allowed to fill identity. A cached mega snapshot can lack the
           // four-letter code that the live notable row already resolved.
           var mergedAlpha = hit.alpha || row.alpha || '';
-          if (row.kind === 'twitch' || hit.kind !== 'twitch' && row.time > hit._surgeLatestView.time) {
-            hit._surgeLatestView = {
-              time: row.time, when: row.when, where: row.where,
-              checklistId: row.checklistId, distance: row.distance,
-              ageTime: row.ageTime, eventCount: row.eventCount
-            };
+          var latestView = hit._surgeLatestView;
+          var localChoice = row.locationScoped && latestView.locationScoped
+            && (row.locationLocal === true) !== latestView.locationLocal;
+          if (row.kind === 'twitch' || hit.kind !== 'twitch'
+              && (localChoice ? row.locationLocal === true : row.time > latestView.time)) {
+            hit._surgeLatestView = observationView(row);
           } else if (hit.kind !== 'twitch' && row.time === hit._surgeLatestView.time
               && row.checklistId
               && row.checklistId === hit._surgeLatestView.checklistId
@@ -46141,6 +46209,10 @@
           hit.distance = hit._surgeLatestView.distance;
           hit.ageTime = hit._surgeLatestView.ageTime;
           hit.eventCount = hit._surgeLatestView.eventCount;
+          hit.count = hit._surgeLatestView.eventCount;
+          hit.placeConnector = hit._surgeLatestView.placeConnector;
+          hit.locationScoped = hit._surgeLatestView.locationScoped;
+          hit.locationLocal = hit._surgeLatestView.locationLocal;
           hit.rare = mergedRare;
           hit.extra = hit._surgeExtras.map(function (x) {
             return '<div data-alert-evidence-kind="' + x.kind + '">' + x.html + '</div>';
@@ -48311,6 +48383,16 @@
       function surgeCascadePairs(cascades) {
         var now = new Date();
         var today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        function recentLocal(row) {
+          var age = today - Date.parse(String(row.obsDt || '').slice(0, 10));
+          return row._mi <= chaseMaxMi() && isFinite(age) && age >= 0
+            && age <= BL.CASCADE.MAX_AGE_DAYS * 86400000;
+        }
+        function prefer(row, previous) {
+          if (!previous) return true;
+          if (recentLocal(row) !== recentLocal(previous)) return recentLocal(row);
+          return String(row.obsDt || '').localeCompare(String(previous.obsDt || '')) > 0;
+        }
         return (cascades || []).map(function (c) {
           var home = getHome(), lim = chaseMaxMi(), best = null, latest = null, nearest = null;
           var publicSites = Object.create(null), publicBest = null, publicLatest = null;
@@ -48341,12 +48423,10 @@
             r = Object.assign({}, r, { _mi: d });
             if (publicSite) r.locName = publicSite.locName;
             if (!best || d < best._mi) { best = r; best._mi = d; }
-            if (!latest || String(r.obsDt || '').localeCompare(
-              String(latest.obsDt || '')) > 0) latest = r;
+            if (prefer(r, latest)) latest = r;
             if (publicSite) {
               if (!publicBest || d < publicBest._mi) publicBest = r;
-              if (!publicLatest || String(r.obsDt || '').localeCompare(
-                String(publicLatest.obsDt || '')) > 0) publicLatest = r;
+              if (prefer(r, publicLatest)) publicLatest = r;
             }
           });
           var omitted = !best;
@@ -48358,7 +48438,10 @@
             distanceBandWidthMi: 10
           });
           if (omitted) return null;
-          return { c: c, near: publicBest || best, latest: publicLatest || latest };
+          var chosen = publicLatest && recentLocal(publicLatest) ? publicLatest
+            : latest && recentLocal(latest) ? latest : publicLatest || latest;
+          return { c: c, near: publicBest || best, latest: chosen,
+            localRecent: !!(chosen && recentLocal(chosen)) };
         }).filter(Boolean);
       }
 
@@ -48385,6 +48468,17 @@
         return birdGenBirdThumbnail(event.species);
       }
 
+      function birdGenLocalCoverage() {
+        return getReport().isRarityTracker
+          ? '<div class="status" data-birdgen-local-coverage><b>Nearby alerts in '
+            + esc(getReport().label) + '</b> · from ' + esc(anchorLabel())
+            + '. Public-hotspot reports only, last 7 days, within ' + chaseMaxMi()
+            + ' mi (ordinary sightings sampled within '
+            + Math.min(chaseMaxMi(), 50 / 1.609344).toFixed(1)
+            + ' mi). This is not area-wide coverage. Regional MEGA, leaderboard, annual-first, '
+            + 'county, migration and flock alert sources are unavailable; saved-patch alerts use their own reports.</div>'
+          : '';
+      }
       function renderSurge(
           events, cascades, convergence, needs, merged, sourceState, topPatches,
           favoriteRows, massRows) {
@@ -48412,7 +48506,7 @@
           return !!(rareCodes[String(code || '').trim().toLowerCase()]
             || rareNames[String(name || '').trim().toLowerCase()]);
         }
-        var mega = megaLane(getAnchors());
+        var mega = getReport().isRarityTracker ? null : megaLane(getAnchors());
         var megaRows = (mega && mega.rows) || [];
         var megaCodes = {}, megaNames = {};
         ((mega && mega.all) || []).forEach(function (m) {
@@ -48445,7 +48539,7 @@
         var cascadePairs = surgeCascadePairs(cascades);
         var sourceStates = surgeSourceStates(mega, sourceState);
         var migrationNow = new Date();
-        var migrationRows = birdcastSurgeRows(migrationNow, _birdcastSnapshot)
+        var migrationRows = getReport().isRarityTracker ? [] : birdcastSurgeRows(migrationNow, _birdcastSnapshot)
           .concat(migrationSignificantRows(migrationNow, _birdcastSnapshot))
           .concat(birdGenSensitiveRows(migrationNow)).filter(function (row) {
             return row.kind !== 'migration' || row.migrationLevel === 'High';
@@ -48502,7 +48596,7 @@
             return sourceStates[key] === 'loading'
               || sourceState && sourceState.pendingSources && sourceState.pendingSources[key];
           });
-          box.innerHTML = surgeControls()
+          box.innerHTML = birdGenLocalCoverage() + surgeControls()
             + surgeCountHtml([], sourceStates, sourceState && sourceState.pendingSources, sourceState)
             + (sourcesLoading
             ? '<div class="status" role="status" data-surge-loading>Loading Bird Gen sources\u2026 Available alerts appear as checks finish.</div>'
@@ -48597,6 +48691,9 @@
           }
           rows.push({
             kind: 'mega',
+            locationScoped: true,
+            locationLocal: m._fresh && m.mi != null && isFinite(m.mi) && m.mi <= chaseMaxMi(),
+            placeConnector: ' · most recent at ',
             speciesKey: m.code,
             speciesNameKey: m.name,
             icon: photoSlot(m.name, m.code),
@@ -48631,6 +48728,8 @@
           var latestMi = e.latestDistMi == null ? e.distMi : e.latestDistMi;
           rows.push({
             kind: 'need',
+            locationScoped: true, locationLocal: latestMi != null && isFinite(latestMi) && latestMi <= chaseMaxMi(),
+            placeConnector: ' · most recent in chase area at ',
             speciesKey: e.code,
             speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
@@ -48661,6 +48760,8 @@
           var vs = e.ratio == null ? 'new here' : Math.round(e.ratio) + '× normal';
           rows.push({
             kind: 'crowd',
+            locationScoped: true, locationLocal: e.distMi != null && isFinite(e.distMi) && e.distMi <= chaseMaxMi(),
+            placeConnector: ' · most recent at ',
             speciesKey: e.code,
             speciesNameKey: e.name,
             icon: photoSlot(e.name, e.code),
@@ -48701,6 +48802,8 @@
           }
           rows.push({
             kind: 'cascade',
+            locationScoped: true, locationLocal: pair.localRecent,
+            placeConnector: pair.localRecent ? ' · most recent in chase area at ' : ' · most recent at ',
             speciesKey: c.code,
             speciesNameKey: c.species,
             icon: photoSlot(c.species, c.code || ''),
@@ -48971,7 +49074,7 @@
           count: rows.length,
           megaAge: mega ? megaAge(mega.at) : ''
         }, esc);
-        var html = surgeControls()
+        var html = birdGenLocalCoverage() + surgeControls()
           + surgeCountHtml(rows, sourceStates, sourceState && sourceState.pendingSources, sourceState)
           + '<ul id="surgeFeed" class="obs card-sm surgefeed"'
           + ' data-unified-alert-feed="true">'
@@ -49270,8 +49373,43 @@
           });
         };
       }
+      function birdGenObservationProfile() {
+        return getReport().isRarityTracker ? Object.assign({}, chaseProfile(), {
+          geoFeed: true, home: anchorPoint(), counties: [],
+          geoDistKm: Math.min(50, Math.ceil(chaseMaxMi() * 1.609344))
+        }) : chaseProfile();
+      }
+      function aggregateBirdGenObservations(force, current, sectionId) {
+        var scope = activeScope(), anchor = anchorPoint(), radius = chaseMaxMi();
+        var profile = birdGenObservationProfile();
+        var feeds = BL.planFeeds(profile, 7), rows = {}, states = {};
+        var work = navWork('Nearby Bird Gen observations', sectionId);
+        work.current = current;
+        var catalogKm = Math.max.apply(Math, feeds.map(function (feed) { return feed.params.dist; }));
+        var catalog = ebird('ref/hotspot/geo?lat=' + BL.round4(anchor.lat)
+          + '&lng=' + BL.round4(anchor.lng) + '&dist=' + catalogKm + '&fmt=json',
+          false, !!force, !!force, work);
+        return Promise.all([catalog].concat(feeds.map(function (feed) {
+          return ebird(BL.requestUrl(feed), false, false, !!force, work);
+        }))).then(function (results) {
+          if (!current() || !scopeCurrent(scope)) throw queueCancelledError(work);
+          if (!results.every(Array.isArray)) throw new Error('Nearby Bird Gen feeds returned an invalid source');
+          feeds.forEach(function (feed, index) {
+            rows[feed.file] = easyPublicObservations(results[index + 1], results[0],
+              scope, anchor, radius, true);
+            states[feed.file] = 'ok';
+          });
+          var cv = computeChaseRows(profile, getReportSlug(), rows, null);
+          cv.destinations = [];
+          return { profile: profile, rows: rows, cv: cv, feedStates: states,
+            feedComplete: true, partial: catalogKm + 0.01 < radius * 1.609344 };
+        });
+      }
       function loadSurge(performanceLoadId, deepHistory, options) {
         options = options || {};
+        var aggregate = getReport().isRarityTracker === true;
+        var explicitFoyRecovery = !!(performanceLoadId && performanceLoadId.type === 'click'
+          && performanceLoadId.currentTarget === $('surgeBtn'));
         var fullRefresh = options.fullRefresh === true;
         var refreshSources = fullRefresh && options.reuseFresh !== true;
         resetSurgeCategory();
@@ -49293,6 +49431,10 @@
         if (_surgeActiveLoad && _surgeActiveLoad.current()
             && (!deepHistory || _surgeActiveLoad.deepHistory)) {
           dbg('net', 'Joining the active Bird Gen source update');
+          if (explicitFoyRecovery && _surgeRetrySources) {
+            var retryOwnedSources = _surgeRetrySources;
+            return _surgeActiveLoad.settled.then(function () { return retryOwnedSources(['foy']); });
+          }
           if (fullRefresh) {
             if (_surgeActiveLoad.fullRefresh) return _surgeActiveLoad.settled;
             return _surgeActiveLoad.settled.then(function () {
@@ -49404,7 +49546,7 @@
                 if (retry) traceSourceRetry(key, retryAttempt, 'terminal', result);
                 if (!current()) return { state: 'cancelled' };
                 pendingSources[key] = false;
-                if (key === 'mega') attemptStates[key] = result && result.state === 'failed'
+                if (key === 'mega') attemptStates[key] = aggregate ? 'unavailable' : result && result.state === 'failed'
                   ? 'failed' : megaAlertSourceState(megaLane(getAnchors()));
                 else if (key === 'birdcast') {
                   if (result && result.state === 'failed') birdcastState = 'failed';
@@ -49489,7 +49631,7 @@
               _merged = surgeModel.observed.merged || [];
               paintSurgeModel();
             }
-            if (!autoload || !LOADERS.surgeBtn.reachability) return;
+            if (aggregate || !autoload || !LOADERS.surgeBtn.reachability) return;
             return ensureRegionReachability(chaseMaxMi(), navWork('Bird Gen reachability'))
               .then(function (result) {
               if (!current()) throw queueCancelledError({ label: 'Bird Gen reachability' });
@@ -49507,6 +49649,7 @@
           : hasCounties() ? 'ok' : 'notApplicable';
         var countyRetry = null;
         function resolveCountyAcquisition(refreshHotspots) {
+          if (aggregate) return Promise.resolve('notApplicable');
           return ensureCountyAcquisitionScope(anchorPoint(), chaseMaxMi(), refreshHotspots)
           .then(function (counties) {
             if (!current()) {
@@ -49536,7 +49679,7 @@
         var pCountyScope = afterPaint.then(resolveCountyAcquisition);
         var favoriteSource = { state: 'loading', rows: [] };
         var massSource = { state: 'loading', rows: [] };
-        var foySource = { state: 'loading', rows: foyPendingRows() };
+        var foySource = { state: 'loading', rows: aggregate ? [] : foyPendingRows() };
         var cachedCascades = null, cachedConvergence = null;
         var retained = loadSurgeRetained() || {};
         function publishSource(key, result) {
@@ -49673,6 +49816,8 @@
             if (!current()) throw queueCancelledError({ label: 'Bird Gen observations' });
             var work = fullRefresh ? navWork('Full Bird Gen observations', 'menuPanel') : null;
             if (work) work.current = current;
+            if (aggregate) return aggregateBirdGenObservations(!!fresh, current,
+              fullRefresh ? 'menuPanel' : 'sec-surgeBtn');
             return getChaseRarity(fresh === 'failed' ? 'failed' : fresh ? 'notable' : false,
               false, work, observationRetryFeeds);
           }).then(function (res) {
@@ -49723,12 +49868,12 @@
           pendingSources.hotspots = !!snapshot.result.busyState.pending;
           publishSource('convergence', cachedConvergence);
         };
-        if (currentBusySnapshot()) _surgeBusySnapshot({
+        if (!aggregate && currentBusySnapshot()) _surgeBusySnapshot({
           context: hotspotContextKey(), result: currentBusySnapshot()
         });
         paintSurgeModel();
         _surgeEarlyPaint = function (res) {
-          if (generation !== _surgeLoadGeneration) return;
+          if (aggregate || generation !== _surgeLoadGeneration) return;
           try {
             return paintObserved(surgeObservedResult(res, now));
           } catch (e) {
@@ -49736,7 +49881,7 @@
           }
         };
         var pCachedSources = pCountyScope.then(function (state) {
-          return force || state === 'cancelled' || state === 'failed'
+          return aggregate || force || state === 'cancelled' || state === 'failed'
             ? null : loadSurgeSourceCache();
         }).then(function (cache) {
               if (!current() || !cache) return cache;
@@ -49773,12 +49918,13 @@
           if (current()) performancePrimary(section, performanceLoadId, true);
           return result;
         });
-        var pObservedStarted = afterPaint.then(function () { return chaseRarityStarted(); });
+        var pObservedStarted = aggregate ? pObserved : afterPaint.then(function () { return chaseRarityStarted(); });
         var readySource = surgeReadySources(pObservedStarted, acquired);
         var countySource = surgeReadySources(
           Promise.all([pCountyScope, pCachedSources, pObservedStarted]), acquired);
         var pMega = sourceTask(readySource, 'mega', function (retry) {
           if (!current()) return false;
+          if (aggregate) return { state: 'unavailable' };
           var result = lazyRefreshMegaSnapshot(paintSurgeModel, refreshSources || retry, current,
             !!retry || fullRefresh && !autoload);
           paintSurgeModel();
@@ -49786,6 +49932,7 @@
         });
         var pBirdcast = sourceTask(readySource, 'birdcast', function (retry) {
           if (!current()) return null;
+          if (aggregate) { birdcastState = 'unavailable'; return { state: 'unavailable' }; }
           return loadBirdcastSnapshot(new Date(), refreshSources || retry).then(function (snapshot) {
             birdcastState = !snapshot ? 'notApplicable'
               : snapshot.forecastError || snapshot.countError || snapshot.migrantsError ? 'partial' : 'ok';
@@ -49795,8 +49942,10 @@
         });
         var pFoy = sourceTask(readySource, 'foy', function (retry) {
           if (!current()) throw queueCancelledError({ label: 'Bird Gen annual firsts' });
-          return ensureFoy(force || retry, current, null, !!retry);
+          if (aggregate) return { state: 'unavailable', rows: [] };
+          return ensureFoy(force || retry || explicitFoyRecovery, current, null, !!retry || explicitFoyRecovery);
         }, function (result) {
+          if (aggregate) return foySource = result;
           if (current()) {
             foySource = {
               state: result.error || !result.saved ? 'failed' : 'ok',
@@ -49815,6 +49964,7 @@
         });
         var pMass = sourceTask(readySource, 'mass', function (retry) {
           if (!current()) return { state: 'cancelled', rows: [] };
+          if (aggregate) return { state: 'unavailable', rows: [] };
           if (retry && surgePersistenceFailed('mass') && !(surgeModel.mass.loadingErrors || []).length
               && !sensitiveHistoryStatus()) return saveSurgeRetainedPart('mass',surgeModel.mass).then(function () {
                 return surgeModel.mass;
@@ -49827,6 +49977,7 @@
         });
         var pPpte = sourceTask(countySource, 'ppte', function (retry) {
           if (!current()) return { state: 'cancelled', rows: [] };
+          if (aggregate) return { state: 'unavailable', rows: [] };
           if (retry && surgePersistenceFailed('ppte') && !(surgeModel.ppte.loadingErrors || []).length) {
             return saveSurgeRetainedPart('ppte',surgeModel.ppte).then(function () { return surgeModel.ppte; });
           }
@@ -49839,6 +49990,7 @@
           if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
+          if (aggregate) return { state: 'unavailable', rows: [] };
           if (!retry && cachedCascades && cachedCascades.state === 'ok') {
             var cachedCcLo = (cachedCascades.rows || []).filter(isCascadeTraceTarget)[0];
             traceCascadeDecision('board', {
@@ -49912,6 +50064,7 @@
           if (!current()) {
             return { state: 'cancelled', rows: [] };
           }
+          if (aggregate) return { state: 'unavailable', rows: [] };
           if (countyState !== 'ok') return { state: countyState, rows: [] };
           _surgeHotspotRetry = function (path) {
             if (!current()) return null;
@@ -49987,6 +50140,7 @@
             }
           }
           var states = surgeSourceStates(megaLane(getAnchors()), {
+            mega: aggregate ? 'unavailable' : megaAlertSourceState(megaLane(getAnchors())),
             birdcast: birdcastState, observations: surgeModel.observed.state,
             leaderboard: surgeModel.cascades.state, hotspots: surgeModel.convergence.state,
             favorites: surgeModel.favorite.state, mass: surgeModel.mass.state,
@@ -51020,6 +51174,7 @@
         if (!getReport().isRarityTracker || !item) return null;
         var supported = {
           destBtn: 'Nearby your Home, Here or Find anchor; not area-wide',
+          surgeBtn: 'Nearby public-hotspot alerts; not area-wide; some alert sources unavailable',
           favResults: 'Your saved places; reports belong to each hotspot',
           refreshBtn: 'Selected-area rarity reports, not a complete sightings feed',
           abaBtn: 'Verified alert coverage; not a complete area-wide feed',
@@ -51032,7 +51187,6 @@
           coldBtn: 'Matching county history and baselines',
           hotBtn: 'Matching county checklists and historical coverage',
           tripBtn: 'Matching local trip-planning data',
-          surgeBtn: 'Matching local discovery sources and baselines',
           easyBtn: 'Matching county target and seasonal evidence',
           allUnseenBtn: 'Matching county observation coverage',
           ppteBtn: 'Matching county checklist evidence',
@@ -53291,6 +53445,7 @@
                 : '')
           + '</div>'
           + '</details>'
+          + '<div class="quickregions" id="menuRecentRegions" role="group" aria-label="Recent regions"></div>'
           + '<button type="button" class="quicksetting" id="menuHomeQuick">'
           + '<span class="quicksettingvalue">' + homeText.replace(/ · (Edit|Set)$/, '')
           + '</span><span class="quicksettingaction">' + (getHome() ? 'Edit' : 'Set')
@@ -53337,6 +53492,7 @@
         // lazy rank arrives, so binding only from renderMenuList leaves native
         // arrows over empty controls after that background repaint.
         bindRegionPickers();
+        renderQuickRecentRegions();
         var homeQuick = $('menuHomeQuick');
         if (homeQuick) homeQuick.addEventListener('click', openHomeSetup);
         var displayQuick = $('menuDisplayQuick');
@@ -55895,6 +56051,21 @@
           selectRegionChoice(button.dataset.regionChoice);
         });
         return button;
+      }
+      function renderQuickRecentRegions() {
+        var host = $('menuRecentRegions');
+        if (!host) return;
+        var current = getReportSlug(), choices = regionChoiceRows();
+        [current].concat(recentRegions()).filter(function (value, index, values) {
+          return values.indexOf(value) === index;
+        }).forEach(function (value) {
+          var row = choices.find(function (choice) { return choice.value === value; });
+          if (!row) return;
+          var selected = value === current, button = regionChoiceButton(row, selected);
+          button.setAttribute('aria-pressed', String(selected));
+          if (selected) { button.textContent += ' ✓'; button.disabled = true; }
+          host.appendChild(button);
+        });
       }
       var _regionLocation = { mode: 'all', code: '', message: '' };
       var _regionLocationGeneration = 0;

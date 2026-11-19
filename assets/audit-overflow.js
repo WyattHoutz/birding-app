@@ -2504,7 +2504,39 @@ const AUDIT = `<script>
       if (savedRanks == null) localStorage.removeItem(A.RANK_CACHE_KEY);
       else localStorage.setItem(A.RANK_CACHE_KEY, savedRanks);
       A.renderMenuIdentity();
+      var savedRecentRegions = localStorage.getItem('bc_recent_regions_v1');
+      localStorage.setItem('bc_recent_regions_v1', JSON.stringify([
+        'wa', 'region:CA-NL', 'region:US-MI', 'lower48'
+      ]));
+      A.showMenu(); A.renderMenuIdentity();
+      var recentRegionHost = document.getElementById('menuRecentRegions');
+      var recentRegionBox = recentRegionHost.getBoundingClientRect();
+      var recentRegionButtons = Array.from(recentRegionHost.querySelectorAll('button'));
+      if (recentRegionButtons.length < 4 || !recentRegionButtons.every(function (button) {
+        var rect = button.getBoundingClientRect();
+        return rect.width > 0 && rect.left >= recentRegionBox.left - 1
+          && rect.right <= recentRegionBox.right + 1
+          && button.scrollWidth <= button.clientWidth + 1;
+      })) throw new Error('F1404 recent-region choices are missing, clipped or outside Quick Settings');
+      out.push(scan('(F1404 production recent-region shortcuts)'));
+      if (savedRecentRegions == null) localStorage.removeItem('bc_recent_regions_v1');
+      else localStorage.setItem('bc_recent_regions_v1', savedRecentRegions);
+      A.renderMenuIdentity();
       A.showSection('sec-surgeBtn',{load:false});
+      var localStamp = A.todayStr() + ' 08:20';
+      A.renderSurge([], [{code:'pacloo', species:'Pacific Loon', latest:localStamp,
+        earliest:localStamp, birders:Array.from({length:5}, function (_, index) {
+          return {name:'Synthetic birder ' + index, rank:index + 1};
+        }), publicHotspots:[{locId:'LF1401LOCAL',locName:'Ocean Ave (Water St), Edmonds'}],
+        recent:[{locId:'LF1401LOCAL',locName:'Ocean Ave (Water St), Edmonds',
+          lat:A.getHome().lat,lng:A.getHome().lng,obsDt:localStamp,howMany:9,subId:'SF1401'}]
+      }], [], []);
+      var localAlert = document.querySelector('[data-alert-kind="cascade"][data-species-code="pacloo"]');
+      if (!localAlert || !/most recent in chase area at/.test(
+        localAlert.querySelector('.surgealerttitle').textContent)) {
+        throw new Error('F1401 production qualified local headline is missing');
+      }
+      out.push(scan('(F1401 production qualified local alert)'));
       A.renderSurge([], [], [], [], [], {
         mega:'notApplicable', observations:'ok', leaderboard:'notApplicable',
         hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
@@ -5123,6 +5155,22 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
+      try {
+        var aggregateApp = window.__app;
+        aggregateApp.setActiveReport('lower48');
+        aggregateApp.showSection('sec-surgeBtn',{load:false});
+        aggregateApp.renderSurge([], [], [], [], [], {
+          observations:'ok', favorites:'notApplicable', mega:'unavailable',
+          leaderboard:'unavailable', hotspots:'unavailable', mass:'unavailable',
+          ppte:'unavailable', birdcast:'unavailable', foy:'unavailable'
+        });
+        if (!document.querySelector('[data-birdgen-local-coverage]')) {
+          throw new Error('F1403 empty aggregate feed lost its visible coverage');
+        }
+        out.push(scan('(F1403 production aggregate local coverage)'));
+      } catch (error) {
+        out.push({label:'F1403 aggregate local coverage',fixtureError:String(error)});
+      }
     }
     }
     try {
