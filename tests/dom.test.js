@@ -22281,8 +22281,9 @@ test('F764 explicit Top 100 source refresh bypasses a warm cache and retains dat
     return html;
   } });
   app.open(/Top 100/);
-  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').textContent.includes('sally frandsen'),
-    'initial leaderboard');
+  await waitFor(() => !app.$('rankBtn').disabled && app.$('rankResults').textContent.includes('sally frandsen')
+    && /^(?:Loaded |Could not refresh all leaderboard sources\.)/.test(app.$('rankStatus').textContent),
+    'initial leaderboard acquisition settles before sampling source requests');
   const count = () => app.state.fetches.filter(url => /top100/.test(url)
     && new URL(url).searchParams.get('rankedBy') !== 'cl').length;
   const before = count();
@@ -35202,6 +35203,132 @@ test('F1429 Celebrity merges checked parent/form identities without losing the l
       assert.equal(parseInt(app.$('surgeResults').querySelector('[data-count-kind="need"] .presslabel').textContent,10),2,
         'the Celebrity filter count must agree with the merged feed');
     }
+  } finally {app.window.close();}
+});
+
+async function retainedCelebrityFixture() {
+  const database = new IDBFactory();
+  const producer = await boot({sample:false,indexedDB:database});
+  const taxa = [
+    {code:'gnatparent',name:'Blue-gray Gnatcatcher'},
+    {code:'gnateastern',name:'Blue-gray Gnatcatcher (Eastern)',category:'issf',reportAs:'gnatparent'},
+    {code:'distinctgnat',name:'Blue-gray Gnatcatcher (Synthetic distinct species)'},
+  ];
+  let storage, merged;
+  try {
+    await seedSeen(producer, [], null, taxa);
+    merged = taxa.flatMap((bird, index) => Array.from({length:4}, (_, party) => ({
+      code:bird.code,name:bird.name,kind:'Rarity',valid:true,
+      dateStr:formatObsStamp(new Date(Date.now() - (60 - index * 20 + party) * 60000)),
+      loc:'North Creek Park',locId:'LF1430',distMi:2,lat:47.75,lon:-122.16,
+      subId:'SF1430' + index + party,groupId:'GF1430' + index + party,count:1,
+      observer:'Synthetic observer ' + index + '-' + party,
+    })));
+    assert.equal(await producer.window.__app.saveSurgeRetainedPart('observed',
+      {state:'ok',merged}), true);
+    storage = Object.fromEntries(Object.keys(producer.window.localStorage)
+      .map(key => [key,producer.window.localStorage.getItem(key)]));
+  } finally { producer.window.close(); }
+  return {database,storage,merged,taxa};
+}
+
+for (const obsolete of [false,true]) {
+test('F1430 cold retained Home ' + (obsolete ? 'rejects obsolete scope on taxonomy restore'
+  : 'remerges Celebrity identities when canonical taxonomy restores after cancellation'), async () => {
+  const {database,storage} = await retainedCelebrityFixture();
+  const held = [];
+  let blocked = true;
+  const indexedDB = {open(name, version) {
+    if (name !== 'birding-taxonomy-v1' || !blocked) return database.open(name,version);
+    const pending = {};
+    held.push(() => {
+      const request = database.open(name,version);
+      request.onsuccess = () => {pending.result=request.result; pending.onsuccess();};
+      request.onerror = () => {pending.error=request.error; pending.onerror();};
+    });
+    return pending;
+  }};
+  const app = await boot({sample:false,storage,indexedDB});
+  try {
+    const A = app.window.__app;
+    const full = () => [...(app.$('surgeFeed')?.querySelectorAll('[data-alert-kind="need"]') || [])];
+    const recent = () => [...app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="need"]')];
+    await waitFor(() => recent().length === 3, 'retained Home before canonical taxonomy');
+    assert.equal(full().length,3,'unknown identities must not be guessed from similar names');
+    assert.ok(held.length,'canonical database restore must still be held');
+    A.cancelStalledWork();
+    await waitFor(() => !app.$('recentBirdGenRefresh').disabled,'cancelled automatic refresh');
+    if (obsolete) A.setActiveReport('hi');
+    const requests = app.state.fetches.length;
+    const obsoleteFull = app.$('surgeResults').innerHTML;
+    const obsoleteRecent = app.$('recentBirdGenRows').innerHTML;
+    const retained = Object.fromEntries(Object.keys(app.window.localStorage)
+      .filter(key => key.startsWith('ebird_surge_retained_v1:'))
+      .map(key => [key,app.window.localStorage.getItem(key)]));
+    blocked = false;
+    held.splice(0).forEach(release => release());
+    await waitFor(() => /Official edition 2026.0/.test(app.$('taxonomyStatus').textContent),
+      'checked canonical taxonomy restores');
+    if (obsolete) {
+      assert.equal(app.$('surgeResults').innerHTML,obsoleteFull,
+        'late global taxonomy readiness cannot resurrect a previous region feed');
+      assert.equal(app.$('recentBirdGenRows').innerHTML,obsoleteRecent,
+        'late global taxonomy readiness cannot replace current Home content');
+      return;
+    }
+    assert.equal(recent().length,2,'Home must remerge without navigation or an observation refresh');
+    assert.equal(full().length,2,'full feed must share the readiness remerge');
+    const bird = full().find(row => /Eastern/.test(row.querySelector('.surgealerttitle').textContent));
+    assert.ok(bird,'the newest coherent form report supplies the merged title');
+    assert.equal(Number(bird.dataset.surgeLatest),
+      Date.parse(A.loadSurgeRetained().observed.merged.find(row => row.subId === 'SF143010').dateStr.replace(' ','T')));
+    assert.ok(surgeEvidence(bird).querySelector('a[data-href$="SF143010"]'));
+    assert.ok(surgeEvidence(bird).querySelector('a[data-href$="SF143000"]'),
+      'the parent supporting checklist remains accessible');
+    assert.equal(parseInt(app.$('surgeResults').querySelector('[data-count-kind="need"] .presslabel').textContent,10),2);
+    assert.equal(app.state.fetches.length,requests,'taxonomy readiness cannot acquire new observations or photos');
+    assert.deepEqual(Object.fromEntries(Object.keys(retained)
+      .map(key => [key,app.window.localStorage.getItem(key)])),retained,
+    'a readiness repaint cannot advance retained source freshness');
+    A.showSection('sec-surgeBtn',{load:false});
+    A.showMenu();
+    assert.equal(recent().length,2,'full-feed navigation and return preserve the same identities');
+  } finally {app.window.close();}
+});
+}
+
+test('F1430 official edition readiness remerges the current full feed without notifications or source freshness changes', async () => {
+  const {database,storage} = await retainedCelebrityFixture();
+  delete storage.bc_taxonomy_v1;
+  const app = await boot({sample:false,storage,indexedDB:database,fetch:url =>
+    /ref\/taxonomy\/versions/.test(url) ? [{authorityVer:'2026.0',latest:true}] : null});
+  try {
+    const A = app.window.__app, bridge = notificationBridge(app);
+    await A.initBirdGenNotifications();
+    app.click(app.$('birdGenNotifyToggle'));
+    await waitFor(() => /On for this profile/.test(app.$('birdGenNotifyStatus').textContent),'notification control enabled');
+    const observed = A.loadSurgeRetained().observed;
+    A.renderSurge([],[],[],observed.needs,observed.merged,{
+      observations:'ok',leaderboard:'notApplicable',hotspots:'notApplicable',mega:'notApplicable'
+    });
+    await waitFor(() => bridge.syncs.some(sync => sync.events.some(event => /Celebrity/i.test(event.title))),
+      'ordinary full-feed render sends notification candidates');
+    app.click(app.$('surgeResults').querySelector('[data-count-kind="need"]'));
+    assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="need"]').length,3);
+    const notifications = bridge.syncs.length;
+    const requests = app.state.fetches.length;
+    const sourceState = app.$('surgeResults').getAttribute('data-source-observations');
+    assert.equal(sourceState,'ok','the control starts with a genuinely current observation source');
+    assert.equal(await A.checkTaxonomyEdition(false),true);
+    assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="need"]').length,2);
+    assert.equal(app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="need"]').length,2);
+    assert.equal(app.$('surgeResults').querySelector('[data-count-kind="need"]').getAttribute('aria-pressed'),'true',
+      'taxonomy readiness preserves the selected category');
+    assert.equal(app.$('surgeResults').getAttribute('data-source-observations'),sourceState);
+    await new Promise(resolve => setTimeout(resolve,30));
+    assert.equal(bridge.syncs.length,notifications,'a taxonomy-only repaint cannot publish notification candidates');
+    assert.deepEqual(app.state.fetches.slice(requests).map(url => new URL(url).pathname),
+      ['/v2/ref/taxonomy/versions'],'only the requested official edition check may acquire data');
   } finally {app.window.close();}
 });
 
