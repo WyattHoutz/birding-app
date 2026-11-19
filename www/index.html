@@ -2174,6 +2174,7 @@
                           gap: 8px; margin: 10px 0; }
     .spLookupControlBar .sortpick { flex: 0 0 auto; margin: 0; }
     .spLookupControlBar .sortpick > .sortbtn { padding: 0 4px; }
+    .stakeoutListMembership { display: block; }
     .spLookupRecent > h3, .spLookupDetailsContent > h3 { margin: 14px 0 6px; }
     .spLookupDetailsContent[hidden], .spLookupRecent:empty { display: none; }
     .status.splookuploading { padding: 12px; border: 2px solid var(--safe-blue);
@@ -7957,7 +7958,7 @@
         var loadKey = key + '|' + generation;
         function current() {
           return scopeCurrent(scope) && generation === _identityGeneration
-            && JSON.stringify(personalListOwner()) === JSON.stringify(owner);
+            && JSON.stringify(personalListOwner(scope)) === JSON.stringify(owner);
         }
         function read(page) {
           if (!current()) throw new Error('Personal-list request was superseded.');
@@ -8058,9 +8059,11 @@
           }
           delete _personalListErrors[key];
           updateTaxonomyImpact();
-          recomputePersonalChase(scope);
-          headerIdentityRefresh();
-          updateMyYear();
+          if (owner.period === personalPeriod()) {
+            recomputePersonalChase(scope);
+            headerIdentityRefresh();
+            updateMyYear();
+          }
           dbg('info', 'F840 personal refresh: saved=true, readbackMatches=true, renderRequested=true');
           return candidate;
         }).catch(function (error) {
@@ -16217,6 +16220,40 @@
         return attempt(0);
       }
 
+      function stakeoutPersonalListScopes(scope) {
+        return ['year:' + scope.year, 'all'].map(function (period) {
+          return Object.assign({}, scope, { targetPeriod: period });
+        });
+      }
+      function stakeoutPersonalListHtml(code, name) {
+        return stakeoutPersonalListScopes(activeScope()).map(function (scope) {
+          var evidence = personalListEvidence(scope, true);
+          var member = personalMembership(evidence, code, name);
+          var state = member === true ? 'on' : member === false ? 'off' : 'unknown';
+          var label = scope.targetPeriod === 'all' ? 'Life List' : scope.year + ' Year List';
+          var status = member === true ? 'On list' : member === false ? 'Not on list' : 'Membership unknown';
+          var note = member == null ? ' — unknown' : evidence.stale ? ' (saved)' : '';
+          if (evidence.failure) note += ' — refresh unavailable';
+          return '<span class="stakeoutListMembership" data-period="' + esc(scope.targetPeriod)
+            + '" data-region="' + esc(scope.effectiveRegion) + '" data-state="' + state + '">'
+            + '<span role="img" aria-label="' + status + '">'
+            + (member === true ? '☑' : '☐') + '</span> ' + esc(label) + ' — ' + esc(scope.label)
+            + esc(note) + '</span>';
+        }).join('');
+      }
+      function loadStakeoutPersonalLists(scope, current) {
+        if (!_taxonomyModel || !getDisplayName()) return;
+        stakeoutPersonalListScopes(scope).forEach(function (listScope) {
+          var evidence = personalListEvidence(listScope, true);
+          if (evidence.complete && !evidence.stale) return;
+          ensurePersonalList(listScope, false, null, { quiet: true, allowBrowser: false })
+            .catch(function (error) {
+              if (current()) dbg('warn', 'Stakeout regional list: ' + error.message);
+            }).finally(function () {
+              if (current()) renderSpeciesLookup();
+            });
+        });
+      }
       function refreshSpeciesLookup() {
         if (!_spLookupGroup || _spLookupLoading) return Promise.resolve();
         return lookupSpecies(_spLookupGroup.code, _spLookupGroup.name,
@@ -16289,6 +16326,7 @@
         function startSupportingEvidence() {
           // Admit primary sightings before independent taxonomy/rarity work,
           // including after the asynchronous saved-result read.
+          loadStakeoutPersonalLists(refreshScope, current);
           if (!refresh) renderSpuhStakeoutNav(code, name, generation, sourceSpuhCode);
           if (!refresh) hydrateStakeoutEvidence(_spLookupEvidence, generation);
           stateRbaRecords(false).then(function (result) {
@@ -17474,13 +17512,6 @@
             : (_spLookupGrouped
               ? spLookupPlacesHtml(g.places, g)
               : spLookupFlatChecklistsHtml(g.places, g)));
-        var identityTags = (seenIt === true ? '✅'
-          : seenIt === false && !watched ? needTag(g.code, g.name) : '')
-          + (g.anyUnconfirmed && !watched ? ' ⚠️' : '');
-        var yearStatus = watched ? ''
-          : seenIt === true ? 'already on your ' + personalBasisLabel()
-          : seenIt === false ? 'not on your ' + personalBasisLabel()
-          : 'personal history unknown for your ' + personalBasisLabel();
         out.className = 'cards card-lg stakeoutSpeciesCard stakeoutSpeciesCard-details';
         logBirdCodeRender('stakeout-birds', g.code);
         var cardChanged = updateStakeoutHtml(out, SpeciesCards.large({
@@ -17489,9 +17520,7 @@
             name: speciesLink(g.name, g.code),
             code: g.code,
             alpha: alphaFor(g.code),
-            distMi: noNearbyEvidence ? null : g.distMi,
-            tags: identityTags,
-            sub: yearStatus,
+            sub: stakeoutPersonalListHtml(g.code, g.name),
             below: '<div class="stakeoutSpeciesActions">'
               + qrButton('species', g.code)
               + stakeEbirdButton('species', g.code, g.name)
@@ -46162,6 +46191,22 @@
 
       function mergeSurgeSpeciesRows(rows) {
         var out = [], bySpecies = {}, twitchSpecies = {};
+        function speciesAliases(row) {
+          var aliases = [];
+          var code = String(row.speciesKey || row.code || '').trim().toLowerCase();
+          var name = String(row.speciesNameKey || '').trim().toLowerCase();
+          if (code) {
+            aliases.push('code:' + code);
+            var species = resolveSpecies(code);
+            if (species !== code) {
+              aliases.push('code:' + species);
+              var parent = _taxonomyModel && _taxonomyModel.byCode[species];
+              if (parent) aliases.push('name:' + parent.name.toLowerCase());
+            }
+          }
+          if (name) aliases.push('name:' + name);
+          return aliases;
+        }
         function sourceExtra(row) {
           return (row.extra || '') + (row.locationScoped && row.where
             ? (row.extra ? ' · ' : '') + 'Observation at ' + row.where + ' · '
@@ -46179,12 +46224,11 @@
         }
         (rows || []).forEach(function (row) {
           if (row.kind !== 'twitch') return;
-          if (row.code) twitchSpecies['code:' + String(row.code).toLowerCase()] = true;
-          if (row.speciesNameKey) twitchSpecies['name:' + String(row.speciesNameKey).toLowerCase()] = true;
+          speciesAliases(row).forEach(function (key) { twitchSpecies[key] = true; });
         });
         (rows || []).forEach(function (row) {
-          var joinsTwitch = twitchSpecies['code:' + String(row.speciesKey || row.code || '').toLowerCase()]
-            || twitchSpecies['name:' + String(row.speciesNameKey || '').toLowerCase()];
+          var aliases = speciesAliases(row);
+          var joinsTwitch = aliases.some(function (key) { return twitchSpecies[key]; });
           if (row.kind === 'hotspot' || row.kind === 'patch'
               || row.kind === 'favorite' && !joinsTwitch
               || row.kind === 'mass' && !joinsTwitch
@@ -46193,11 +46237,6 @@
             out.push(row);
             return;
           }
-          var aliases = [];
-          var codeKey = String(row.speciesKey || row.code || '').trim().toLowerCase();
-          var nameKey = String(row.speciesNameKey || '').trim().toLowerCase();
-          if (codeKey) aliases.push('code:' + codeKey);
-          if (nameKey) aliases.push('name:' + nameKey);
           if (!aliases.length) { out.push(row); return; }
           var reason = { kind: row.kind, why: row.why };
           var hit = null;

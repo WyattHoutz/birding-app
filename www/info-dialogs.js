@@ -52,7 +52,7 @@
     },
     need: {
       keyDescription: 'Locally notable birds with repeated sightings.',
-      priority: 3, word: 'CELEBRITY', glyph: '🎯', name: 'Celebrity birds',
+      priority: 3, word: 'CELEBRITY', glyph: '📸', name: 'Celebrity birds',
       description: 'Locally notable birds with multiple qualifying sightings within chase distance, whether already seen or not.'
     },
     crowd: {
@@ -134,7 +134,7 @@
           + '<b>Rare birds</b>: this feed keeps one compact row per bird.</p>'
       },
       celebrity: {
-        title: '🎯 Celebrity Birds',
+        title: '📸 Celebrity Birds',
         body: '<p>Birds <b>eBird flags as notable in this region</b>, with <b>' + BL.NEED_MIN_SIGHTINGS
           + ' or more independent sightings</b> and at least ' + BL.NEED_MIN_SIGHTINGS
           + ' distinguishable known reporting parties at one hotspot or adjacent '

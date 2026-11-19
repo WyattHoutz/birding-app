@@ -2925,6 +2925,7 @@ test('F1292 dedicated Year Reload always reacquires its exact valid same-day sou
   const app = await setupOwnedSeenApp(['stable']);
   try {
     const A = app.window.__app, originalFetch = app.window.fetch, reads = [];
+    installSpuhFixture(app);
     app.window.fetch = (url, options) => {
       if (!/\/lifelist\//.test(url)) return originalFetch(url, options);
       reads.push(String(url));
@@ -20259,11 +20260,11 @@ test('F805 Stakeout and cached target badges use current owned membership and re
   });
   const A = app.window.__app, storage = app.window.localStorage;
   await A.lookupSpecies('stable','Stable bird');
-  assert.match(app.$('spLookupResults').textContent,/personal history unknown/);
+  assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state, 'unknown');
   assert.equal(app.$('spLookupResults').querySelector('.needflag'),null);
   await A.preparePersonalList(A.activeScope(),true);
   A.renderSpeciesLookup();
-  assert.match(app.$('spLookupResults').textContent,/already on your .*Year List/);
+  assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state, 'on');
   const profile = A.chaseProfile(), rows = {'king-notable.json':[{
     speciesCode:'rename',comName:'New name',locId:'L1',locName:'Sample marsh',
     lat:47.7,lng:-122.2,obsDt:f801Day() + ' 08:00',subId:'SF805'
@@ -20284,7 +20285,7 @@ test('F805 Stakeout and cached target badges use current owned membership and re
   assert.equal(app.state.fetches.length,reads);
   storage.setItem(A.PERSONAL_PERIOD_KEY,'all');
   A.renderSpeciesLookup();
-  assert.match(app.$('spLookupResults').textContent,/personal history unknown.*Life List/);
+  assert.equal(app.$('spLookupResults').querySelector('[data-period="all"]').dataset.state, 'unknown');
   const lifeOwner = A.personalListOwner();
   storage.setItem(A.personalListKey(lifeOwner),JSON.stringify({
     ...annualSnapshot,owner:lifeOwner,source:A.personalListUrl(lifeOwner)
@@ -33962,7 +33963,7 @@ test('F274 renders one ranked small-card feed with every alert type and count', 
     'a non-qualifying migration placeholder returned or a loaded alert disappeared');
   const expected = {
     mega: ['MEGA', '🦤'], migration: ['MIGRATION', '🌙'],
-    need: ['CELEBRITY', '🎯'], crowd: ['CROWD', '🐦'],
+    need: ['CELEBRITY', '📸'], crowd: ['CROWD', '🐦'],
     cascade: ['CASCADE', '🏆'], hotspot: ['BUSY PATCH', '👥'.repeat(9)],
   };
   const glyphs = Object.values(expected).map((x) => x[1]);
@@ -35156,6 +35157,49 @@ test('F274 deduplicates a species to its strongest category and keeps every reas
   assert.equal(counts.cascade, undefined,
     'category counts promise a duplicate CASCADE row that dedupe removed');
   app.window.close();
+});
+
+test('F1429 Celebrity merges checked parent/form identities without losing the latest report or distinct species', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], null, [
+      {code:'gnatparent',name:'Blue-gray Gnatcatcher'},
+      {code:'gnateastern',name:'Blue-gray Gnatcatcher (Eastern)',category:'issf',reportAs:'gnatparent'},
+      {code:'gnatlocal',name:'Blue-gray Gnatcatcher (Synthetic local form)',category:'issf',reportAs:'gnateastern'},
+      {code:'distinctgnat',name:'Blue-gray Gnatcatcher (Synthetic distinct species)'},
+    ]);
+    for (const parentNewest of [false,true]) for (const reversed of [false,true]) {
+      const stamp = mins => {
+        const d=new Date(Date.now()-mins*60000),p=n=>String(n).padStart(2,'0');
+        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      };
+      const make = (code,name,minutes,id) => ({code,name,sightings:4,knownParties:4,nPlaces:1,
+        distMi:2,locName:'North Creek Park',locId:'LF1429',subId:id,count:1,
+        whenStr:stamp(minutes),latestStr:stamp(minutes),latest:Date.parse(stamp(minutes).replace(' ','T'))});
+      const parent=make('gnatparent','Blue-gray Gnatcatcher',parentNewest?5:60,'SPARENT');
+      const form=make('gnateastern','Blue-gray Gnatcatcher (Eastern)',parentNewest?60:5,'SFORM');
+      const local=make('gnatlocal','Blue-gray Gnatcatcher (Synthetic local form)',20,'SLOCAL');
+      const other=make('distinctgnat','Blue-gray Gnatcatcher (Synthetic distinct species)',30,'SOTHER');
+      const rows=[parent,form,local,other];
+      A.renderSurge([],[],[],reversed?rows.reverse():rows,[],{
+        mega:'notApplicable',observations:'ok',leaderboard:'notApplicable',hotspots:'notApplicable'});
+      const birds=[...app.$('surgeFeed').querySelectorAll('[data-alert-kind="need"]')];
+      assert.equal(birds.length,2,'one parent/form bird plus the unrelated checked species, in either source order');
+      const merged=birds.find(row=>!row.querySelector('.surgealerttitle').textContent.includes('Synthetic distinct species'));
+      const newest=parentNewest?parent:form;
+      assert.ok(merged.querySelector('.surgealerttitle').textContent.includes(newest.name));
+      assert.equal(merged.querySelector('.surgealerttitle .hslink').dataset.loc,'LF1429');
+      assert.equal(Number(merged.dataset.surgeLatest),newest.latest);
+      const evidence=surgeEvidence(merged);
+      assert.ok(evidence.querySelector(`.surgeabsolute a[data-href$="${newest.subId}"]`),
+        'the latest date must retain the checklist from its own observation');
+      for (const id of ['SPARENT','SFORM','SLOCAL']) assert.ok(
+        evidence.querySelector(`a[data-href$="${id}"]`),'supporting checklist '+id+' must remain accessible');
+      assert.equal(parseInt(app.$('surgeResults').querySelector('[data-count-kind="need"] .presslabel').textContent,10),2,
+        'the Celebrity filter count must agree with the merged feed');
+    }
+  } finally {app.window.close();}
 });
 
 test('F302 same-category dedupe keeps distinct accessible CROWD reasons', async () => {
@@ -42979,7 +43023,7 @@ test('F378/F1420/F1421 Stakeout watch action replaces redundant header labels wi
   assert.ok(button, 'the Stakeout species card has no watchlist action');
   assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
-  assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i);
+  assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state, 'on');
   const before = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
 
   app.click(button);
@@ -43000,12 +43044,152 @@ test('F378/F1420/F1421 Stakeout watch action replaces redundant header labels wi
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
   assert.equal(button.getAttribute('aria-pressed'), 'false');
-  assert.match(app.$('spLookupResults').textContent, /already on your \d{4} Year List/i,
+  assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state, 'on',
     'removing the hold did not reveal the underlying seen tick');
   const after = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
   assert.equal(after, before,
     'changing the watchlist repeated the Stakeout network lookup instead of repainting in place');
   app.window.close();
+});
+
+test('F1424/F1425 Stakeout headings stay plain without losing personal, watch or report evidence', async () => {
+  for (const membership of ['seen', 'unseen', 'unknown']) {
+    const name = 'Semipalmated Sandpiper', code = 'sem';
+    const app = await boot({ sample: false, fetch: url =>
+      /data\/obs\/.*\/recent\/sem(?:\?|$)/.test(url) ? [{
+        speciesCode: code, comName: name, locName: 'Synthetic nearby patch',
+        locId: 'L1424', lat: 47.7, lng: -122.2,
+        obsDt: recentObsStamp(), subId: 'S1424', obsValid: false, obsReviewed: false,
+      }] : null });
+    try {
+      const A = app.window.__app;
+      if (membership !== 'unknown') await seedSeen(app, membership === 'seen' ? [code] : [],
+        membership === 'seen' ? [name] : [], [{code, name}]);
+      installSpuhFixture(app);
+      await A.lookupSpecies(code, name);
+      assert.equal(A.isSpeciesSeen(code, name), membership === 'unknown' ? null : membership === 'seen');
+      const check = () => {
+        const card = app.$('spLookupResults');
+        assert.equal(card.querySelector('.bcname').textContent.trim(), name,
+          membership + ': no seen, unseen, unconfirmed, rarity or watch marker may trail the name');
+        assert.equal(card.querySelector('.spdist'), null,
+          membership + ': the selected bird must not have a standalone distance');
+        assert.ok(app.$('spLookupRecent').querySelector('[data-ev-sub="S1424"]'),
+          'omit the heading warning without discarding its unconfirmed report');
+      };
+      check();
+      assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state,
+        membership === 'seen' ? 'on' : membership === 'unseen' ? 'off' : 'unknown');
+      A.setWatchlist([{code, name}]); A.renderSpeciesLookup(); check();
+      assert.equal(app.$('spLookupResults').querySelector('.spLookupWatchlist').textContent, 'Remove Watch');
+      A.setWatchlist([]); A.renderSpeciesLookup(); check();
+      assert.equal(app.state.fetches.filter(url => /data\/obs\/.*\/recent\/sem(?:\?|$)/.test(url)).length, 1,
+        'presentation/watch repaints must not reacquire sightings');
+    } finally { app.window.close(); }
+  }
+});
+
+for (const lifeCodes of [['stable'], []]) {
+  test(`F1426 Stakeout independently verifies regional Year and Life membership (${lifeCodes.length ? 'both' : 'year only'})`, async () => {
+    const app = await setupOwnedSeenApp(['stable'], {fetch:()=>[]});
+    try {
+      const A = app.window.__app, originalFetch = app.window.fetch, reads = [];
+      app.window.fetch = (url, options) => {
+        if (/ebird\.org\/lifelist\//.test(url)) {
+          reads.push(String(url));
+          return Promise.resolve({ok:true,status:200,text:async()=>ownedPersonalListFixture({
+            period:'all',count:lifeCodes.length,codes:lifeCodes})});
+        }
+        return originalFetch(url, options);
+      };
+      await A.lookupSpecies('stable', 'Stable bird');
+      const indicators = () => [...app.$('spLookupResults').querySelectorAll('.stakeoutListMembership')];
+      await waitFor(() => indicators()[1]?.dataset.state === (lifeCodes.length ? 'on' : 'off'), 'independent Life source');
+      const check = () => {
+        const [year, life] = indicators();
+        assert.deepEqual([year.dataset.state,life.dataset.state], ['on',lifeCodes.length ? 'on' : 'off']);
+        for (const row of [year,life]) {
+          assert.equal(row.dataset.region,A.activeScope().effectiveRegion);
+          assert.ok(row.textContent.includes('List — ' + A.activeScope().label));
+          assert.equal(row.querySelector('[role="img"]').textContent, row.dataset.state === 'on' ? '☑' : '☐');
+        }
+        assert.equal(app.$('spLookupResults').querySelector('.bcname').textContent.trim(),'Stable bird');
+      };
+      check();
+      assert.equal(reads.length,1,'fresh Year evidence is reused; only the independent Life source is acquired');
+      assert.equal(reads[0],'https://ebird.org/lifelist/US-WA');
+      A.setWatchlist([{code:'stable',name:'Stable bird'}]); A.renderSpeciesLookup(); check();
+      assert.equal(app.$('spLookupResults').querySelector('.spLookupWatchlist').textContent,'Remove Watch');
+      assert.equal(reads.length,1,'watch repaint cannot reacquire or redefine official list membership');
+      A.setPersonalPeriod('all');
+      await A.lookupSpecies('stable','Stable bird'); check();
+      assert.equal(A.personalPeriod(),'all','dual indicators must not change the selected list period');
+      assert.equal(reads.length,1,'both exact owned sources remain reusable from either selected period');
+    } finally {app.window.close();}
+  });
+}
+
+for (const savedLife of [null,true,false]) {
+test(`F1426 failed Life refresh preserves ${savedLife == null ? 'unknown' : savedLife ? 'saved membership' : 'saved absence'}`, async () => {
+  const app = await setupOwnedSeenApp(['stable'], {fetch:()=>[]});
+  try {
+    const A=app.window.__app, originalFetch=app.window.fetch;
+    installSpuhFixture(app);
+    if(savedLife != null) {
+      const owner=A.personalListOwner(Object.assign({},A.activeScope(),{targetPeriod:'all'}));
+      const source=JSON.parse(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))));
+      const readAt=new Date(Date.now()-2*86400000).toISOString();
+      app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify({
+        ...source,owner,source:A.personalListUrl(owner),readAt,readDate:readAt.slice(0,10),
+        codes:savedLife?['stable']:[],rows:savedLife?source.rows:[],
+        declaredCount:savedLife?1:0,coverage:savedLife?'complete':'empty',
+      }));
+    }
+    app.window.fetch=(url,options)=>/ebird\.org\/lifelist\//.test(url)
+      ? Promise.resolve({ok:false,status:403,text:async()=>''}) : originalFetch(url,options);
+    await A.lookupSpecies('stable','Stable bird');
+    const life=()=>app.$('spLookupResults').querySelector('[data-period="all"]');
+    await waitFor(()=>life()?.textContent.includes('refresh unavailable'),'explicit independent Life failure');
+    assert.equal(life().dataset.state,savedLife == null?'unknown':savedLife?'on':'off');
+    assert.match(life().textContent,savedLife == null?/Life List — Washington — unknown/:/Life List — Washington \(saved\)/);
+    assert.equal(life().querySelector('[role="img"]').getAttribute('aria-label'),
+      savedLife == null?'Membership unknown':savedLife?'On list':'Not on list');
+    assert.equal(app.$('spLookupResults').querySelector('[data-period^="year:"]').dataset.state,'on');
+  } finally {app.window.close();}
+});
+}
+
+test('F1426 a late prior-region Life response cannot populate the selected county', async () => {
+  const app=await setupOwnedSeenApp(['stable'], {fetch:()=>[]});
+  let release,lifeStarted=false;
+  try {
+    const A=app.window.__app, originalFetch=app.window.fetch;
+    installSpuhFixture(app);
+    const oldScope=Object.assign({},A.activeScope(),{targetPeriod:'all'});
+    const held=new Promise(resolve=>{release=resolve;});
+    app.window.fetch=(url,options)=>{
+      if(String(url)==='https://ebird.org/lifelist/US-WA') {lifeStarted=true;return held;}
+      if(/ebird\.org\/lifelist\//.test(url)) return Promise.resolve({ok:true,status:200,
+        text:async()=>ownedPersonalListFixture({region:'US-WA-033',period:String(url).includes('?')?'year':'all',count:0,codes:[]})});
+      return originalFetch(url,options);
+    };
+    await A.lookupSpecies('stable','Stable bird');
+    await waitFor(()=>lifeStarted,'pending original-region Life source');
+    A.setCountyView('US-WA-033');
+    assert.equal(A.activeScope().effectiveRegion,'US-WA-033');
+    await A.lookupSpecies('stable','Stable bird');
+    await waitFor(()=>{
+      const rows=[...app.$('spLookupResults').querySelectorAll('.stakeoutListMembership')];
+      return rows.length===2 && rows.every(row=>row.dataset.state==='off');
+    },'exact county sources');
+    release({ok:true,status:200,text:async()=>ownedPersonalListFixture({period:'all'})});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    const rows=[...app.$('spLookupResults').querySelectorAll('.stakeoutListMembership')];
+    assert.equal(rows.length,2);
+    assert.ok(rows.every(row=>row.dataset.region==='US-WA-033' && row.dataset.state==='off'));
+    assert.equal(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner(oldScope)))),null,
+      'superseded response must not be persisted as current owned evidence');
+  } finally {if(release)release({ok:false,status:403,text:async()=>''});app.window.close();}
 });
 
 test('F528 Stakeout never offers Add to Watchlist for a genuinely unseen bird', async () => {
@@ -55426,7 +55610,7 @@ test('species lookup chase distance filters independently of Date and Distance',
   app.window.close();
 });
 
-test('F615 Stakeout mileage never substitutes distant regional evidence', async () => {
+test('F615/F1425 Stakeout distance filters retain regional evidence without a bird-card distance', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) {
@@ -55455,8 +55639,10 @@ test('F615 Stakeout mileage never substitutes distant regional evidence', async 
 
   app.click(app.$('spLookupStatewide'));
   assert.match(app.$('spLookupRecent').textContent, /Far regional report/);
-  assert.ok(app.$('spLookupResults').querySelector('.spdist'),
-    'All does not restore the regional nearest-report distance');
+  assert.equal(app.$('spLookupResults').querySelector('.spdist'), null,
+    'All must not restore the removed standalone bird-card distance');
+  assert.match(app.$('spLookupRecent').textContent, /\d+(?:\.\d+)?\s*mi/,
+    'the regional checklist/place evidence still needs its distance');
   app.window.close();
 });
 

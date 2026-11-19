@@ -3225,11 +3225,19 @@ const AUDIT = `<script>
       throw new Error('F1315 pending hotspot acquisition needs a visible contained loading status');
     out.push(scan('(F1315 actual hotspot acquisition pending)'));
     var watchAction=document.querySelector('#spLookupResults .spLookupWatchlist');
+    var plainHeading=document.querySelector('#spLookupResults .bcname').cloneNode(true);
+    plainHeading.querySelectorAll('.localeFallback,.taxonomyUnresolved').forEach(function(note){note.remove();});
     require(watchAction && watchAction.textContent==='Remove Watch'
       && watchAction.getAttribute('aria-pressed')==='true'
       && watchAction.getAttribute('aria-label')==='Remove Watch for Vermilion Flycatcher'
+      && plainHeading.textContent.trim()==='Vermilion Flycatcher'
+      && !document.querySelector('#spLookupResults .spdist')
       && !document.querySelector('#spLookupResults .watchflag,#spLookupResults .surgebirdtag'),
-      'F1421 Stakeout must show watch state through its action, not title badges');
+      'F1421 Stakeout must show watch state through its action, not title badges: '
+        + JSON.stringify({action:watchAction && watchAction.outerHTML,
+          heading:document.querySelector('#spLookupResults .bcname')?.textContent,
+          distance:!!document.querySelector('#spLookupResults .spdist'),
+          tag:document.querySelector('#spLookupResults .watchflag,#spLookupResults .surgebirdtag')?.outerHTML}));
     var watchedBird=scan('(F1421 Stakeout watch action)');
     watchedBird.stakeoutWatchAction=true;
     out.push(watchedBird);

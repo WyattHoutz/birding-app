@@ -93,12 +93,13 @@ async function decodeFixtureImage(img, src, resolveSource) {
   }
 }
 
-async function preparePersonalFixture(A, window, seen, taxa = []) {
+async function preparePersonalFixture(A, window, seen, taxa = [], includeLife = false) {
   const rows = new Map(seen.yearList.map(row => [row.code, {
     speciesCode: row.code, comName: row.name, sciName: '', category: 'species'
   }]));
   for (const row of taxa) rows.set(row.code, {
-    speciesCode: row.code, comName: row.name, sciName: row.sci || '', category: 'species',
+    speciesCode: row.code, comName: row.name, sciName: row.sci || '', category: row.category || 'species',
+    ...(row.reportAs ? {reportAs:row.reportAs} : {}),
     bandingCodes: row.alpha ? [row.alpha] : []
   });
   for (const [code, name, sci] of [
@@ -129,6 +130,8 @@ async function preparePersonalFixture(A, window, seen, taxa = []) {
     }))
   }));
   const url = A.personalListUrl(owner);
+  const lifeScope = Object.assign({}, A.activeScope(), {targetPeriod:'all'});
+  const lifeUrl = A.personalListUrl(A.personalListOwner(lifeScope));
   const html = '<!doctype html><html><head><title>Personal Life List - eBird</title>'
     + '<link rel="canonical" href="https://ebird.org/lifelist/US-WA"></head><body>'
     + '<header><button aria-label="Birder Sample Birder (fixture_login)">My Account</button></header>'
@@ -140,16 +143,23 @@ async function preparePersonalFixture(A, window, seen, taxa = []) {
   window.fetch = function (request, options) {
     return String(request) === url
       ? Promise.resolve({ ok: true, text: () => Promise.resolve(html) })
+      : includeLife && String(request) === lifeUrl
+      ? Promise.resolve({ ok: true, text: () => Promise.resolve(html.replace(
+        '<option value="year" selected>year</option>', '<option value="all" selected>all</option>')) })
       : originalFetch.call(window, request, options);
   };
   try {
     await A.ensurePersonalList(A.activeScope(), true);
+    if (includeLife) await A.ensurePersonalList(lifeScope, true, null, {allowBrowser:false});
   } finally {
     window.fetch = originalFetch;
   }
   const evidence = A.personalListEvidence();
   if (!evidence.complete || evidence.count !== seen.yearList.length) {
     throw new Error('Representative exact personal membership did not qualify');
+  }
+  if (includeLife && !A.personalListEvidence(lifeScope, true).complete) {
+    throw new Error('Representative independent Life membership did not qualify');
   }
 }
 
@@ -1951,14 +1961,55 @@ REVIEW_SHOTS.push({
     A.setWatchlist([{code:'shtsan',name:'Sharp-tailed Sandpiper'}]);
     A.renderSpeciesLookup();
     var card=document.getElementById('spLookupResults');
-    if(card.querySelector('.bcname .surgebirdtag,.bcname .watchflag')
+    var memberships=Array.from(card.querySelectorAll('.stakeoutListMembership'));
+    if(memberships.length!==2 || memberships.some(function(row){
+        return row.dataset.state!=='on' || row.dataset.region!==A.activeScope().effectiveRegion
+          || !row.textContent.includes('List — '+A.activeScope().label)
+          || row.querySelector('[role="img"]').textContent!=='☑';
+      })) throw new Error('F1426 representative bird must independently qualify on both regional lists');
+    if(card.querySelector('.bcname').textContent.trim()!=='Sharp-tailed Sandpiper'
+        || card.querySelector('.spdist')
         || /on your watchlist for verification/i.test(card.textContent)
         || card.querySelector('.spLookupWatchlist').textContent!=='Remove Watch')
-      throw new Error('F1420/F1421 Stakeout header still duplicates the watch action');
+      throw new Error('F1420/F1421/F1424/F1425 Stakeout needs a plain heading, no card distance and its watch action');
     return true;`
 });
 
 const stakeoutHeaderReview = REVIEW_SHOTS.find(shot => shot.id === 'f1420-stakeout-watched');
+REVIEW_SHOTS.push({
+  id:'f1428-celebrity-identity',at:'surgeBtn',freshApp:true,
+  title:'Celebrity - distinct camera icon and one species/form alert',
+  host:'surgeResults',scrollTo:'#surgeResults',
+  prep:`FIX.before('surgeBtn',A,document);
+    var window=document.defaultView;
+    A.showSection('sec-surgeBtn',{load:false});
+    await (${preparePersonalFixture.toString()})(A,window,window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()],[
+      {code:'gnatparent',name:'Blue-gray Gnatcatcher'},
+      {code:'gnateastern',name:'Blue-gray Gnatcatcher (Eastern)',category:'issf',reportAs:'gnatparent'}
+    ]);
+    var needs=[['gnatparent','Blue-gray Gnatcatcher',120,'SPARENT'],
+      ['gnateastern','Blue-gray Gnatcatcher (Eastern)',60,'SFORM']].map(function(bird){
+      var d=new Date(window.Date.now()-bird[2]*60000),p=function(n){return String(n).padStart(2,'0');};
+      var stamp=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+      return {code:bird[0],name:bird[1],sightings:4,knownParties:4,nPlaces:1,
+        distMi:2,locName:'North Creek Park',locId:'LF1428',subId:bird[3],count:1,
+        whenStr:stamp,latestStr:stamp,latest:d.getTime()};
+    });
+    A.renderSurge([],[],[],needs,[],{mega:'notApplicable',observations:'ok',
+      leaderboard:'notApplicable',hotspots:'notApplicable',foy:'notApplicable',foyRows:[],suppressNotifications:true});
+    var host=document.getElementById('surgeResults');
+    host.setAttribute('data-mock-data','true');
+    var section=document.getElementById('sec-surgeBtn');
+    section.setAttribute('data-mock-at','surgeBtn');
+    section.setAttribute('data-mock-ready','true');
+    var notice=document.createElement('p');notice.className='status';
+    notice.textContent='REPRESENTATIVE STUB DATA - one bird, species and Eastern form merged.';
+    host.prepend(notice);
+    var rows=host.querySelectorAll('[data-alert-kind="need"]');
+    if(rows.length!==1 || rows[0].querySelector('.surgekindtile').textContent!=='📸')
+      throw new Error('Celebrity preview must show one merged bird with the distinct camera glyph');
+    return true;`
+});
 const stakeoutControlsPrep = stakeoutHeaderReview.prep.replace(/return true;\s*$/, `
   var appNow=document.defaultView.Date.now;
   document.defaultView.Date.now=function(){return appNow()+120000;};
@@ -4384,6 +4435,12 @@ const BOOTSTRAP = `
     localStorage.setItem(A.homeKey('lat'), '47.76');
     localStorage.setItem(A.homeKey('lng'), '-122.14');
     localStorage.setItem(A.homeKey('place'), 'Woodinville, WA');
+    var personal = window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+    await preparePersonalFixture(A, window, {yearList: personal.yearList
+      .filter(function (bird) {return bird.code !== 'shtsan';})
+      .concat([{code:'shtsan',name:'Sharp-tailed Sandpiper'}])}, [{
+        code:'shtsan',name:'Sharp-tailed Sandpiper',sci:'Calidris acuminata',alpha:'SHTSAN'
+      }], true);
     A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy([
       { speciesCode: 'shtsan', comName: 'Sharp-tailed Sandpiper',
         sciName: 'Calidris acuminata', category: 'species',
