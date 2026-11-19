@@ -56,7 +56,8 @@ async function nextReleaseLayout(scan, mutation) {
   });
   await record('F1414 visible usable first board before pending sources', async () => {
     const fetch=window.fetch, cache=localStorage.getItem(A.RANK_CACHE_KEY);
-    const held=[]; let load;
+    const held=[]; let load, expansionFailed=false;
+    const failure=()=>({ok:false,status:503,text:async()=>''});
     function page(metric) {
       return '<link rel="canonical" href="https://ebird.org/top100?locInfo.regionCode=US-WA">'
         +'<select name="year"><option value="'+A.personalBoardPeriod()+'" selected="selected">Year</option></select>'
@@ -100,6 +101,7 @@ async function nextReleaseLayout(scan, mutation) {
         if (!/top100/.test(String(url))) return fetch.call(this,url,options);
         const query=new URL(url).searchParams, metric=query.get('rankedBy');
         if (metric==='spp' && query.get('maxResults')==='500') return Promise.resolve(response(metric));
+        if (expansionFailed && query.get('maxResults')==='5000') return Promise.resolve(failure());
         return new Promise(resolve=>held.push({metric,max:query.get('maxResults'),resolve}));
       };
       A.showSection('sec-rankBtn',{load:false});
@@ -109,7 +111,8 @@ async function nextReleaseLayout(scan, mutation) {
       held.find(r=>r.metric==='cl').resolve(response('cl'));
       await until(()=>held.some(r=>r.max==='5000'),'pending expansion source');
       await paint(); usable();
-      held.find(r=>r.max==='5000').resolve({ok:false,status:503,text:async()=>''});
+      expansionFailed=true;
+      held.find(r=>r.max==='5000').resolve(failure());
       await load; load=null;
       check(/expansion failed; kept 500 rows/.test(document.getElementById('rankStatus').textContent),
         'failed expansion must preserve the initial board and name its coverage');
