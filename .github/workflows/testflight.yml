@@ -52,7 +52,9 @@ jobs:
 
   testflight:
     needs: source
-    runs-on: macos-latest
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     timeout-minutes: 110
     steps:
       - name: Checkout delivery tools
@@ -69,6 +71,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Require Xcode 27 and iOS SDK 27
+        working-directory: source
+        run: python3 assets/testflight-profile.py toolchain
       - name: Install delivery-tool dependencies
         run: npm ci
       - name: Install exact-source native dependencies

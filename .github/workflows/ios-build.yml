@@ -36,13 +36,18 @@ jobs:
         run: node assets/ci-test-gate.js
 
   build:
-    runs-on: macos-latest
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     permissions:
       contents: read
       actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Require Xcode 27 and iOS SDK 27
+        run: python3 assets/testflight-profile.py toolchain
 
       - name: Set up Node
         uses: actions/setup-node@v4

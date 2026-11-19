@@ -38,9 +38,10 @@ function install(repoRoot) {
   const storyboardPath = path.join(appDir, 'Base.lproj', 'Main.storyboard');
   const notificationSource = path.join(root, 'native', 'ios', 'BirdGenNotifications.swift');
   const delegatePath = path.join(appDir, 'AppDelegate.swift');
+  const scenePath = path.join(appDir, 'SceneDelegate.swift');
   const plistPath = path.join(appDir, 'Info.plist');
 
-  for (const required of [source, notificationSource, projectPath, storyboardPath, delegatePath, plistPath]) {
+  for (const required of [source, notificationSource, projectPath, storyboardPath, delegatePath, scenePath, plistPath]) {
     if (!fs.existsSync(required)) throw new Error(`Missing required iOS file: ${required}`);
   }
   fs.copyFileSync(source, destination);
@@ -110,6 +111,24 @@ function install(repoRoot) {
     throw new Error('Main.storyboard does not instantiate the FullReport ViewController');
   }
   fs.writeFileSync(storyboardPath, storyboard);
+
+  let scene = fs.readFileSync(scenePath, 'utf8');
+  const baseController = 'window?.rootViewController = CAPBridgeViewController()';
+  const appSceneController = 'window?.rootViewController = ViewController()';
+  if (scene.includes(baseController)) {
+    scene = replaceOnce(scene, baseController, appSceneController, 'scene root controller');
+  }
+  if (!scene.includes(appSceneController)) {
+    throw new Error('SceneDelegate does not instantiate the plugin-registering ViewController');
+  }
+  for (const callback of [
+    'SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)',
+    'SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)',
+    'SceneDelegateProxy.shared.scene(scene, continue: userActivity)',
+  ]) {
+    if (!scene.includes(callback)) throw new Error(`Missing Capacitor scene forwarding: ${callback}`);
+  }
+  fs.writeFileSync(scenePath, scene);
 
   let delegate = fs.readFileSync(delegatePath, 'utf8').replace(/\r\n/g, '\n');
   const launch = /(func application\(_ application: UIApplication, didFinishLaunchingWithOptions[\s\S]*?-> Bool \{)([\s\S]*?)(\n    \})/g;

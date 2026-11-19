@@ -221,6 +221,17 @@ test('F979 installer adds the notification source to App compilation and registe
     const projectPath = path.join(ios, 'App', 'App.xcodeproj', 'project.pbxproj');
     const project = fs.readFileSync(projectPath, 'utf8');
     const delegate = fs.readFileSync(path.join(app, 'AppDelegate.swift'), 'utf8');
+    const scenePath = path.join(app, 'SceneDelegate.swift');
+    const scene = fs.readFileSync(scenePath, 'utf8');
+    assert.match(scene, /window\?\.rootViewController = ViewController\(\)/,
+      'F1396 scenes must create the app controller, not silently lose all registered native plugins');
+    assert.doesNotMatch(scene, /CAPBridgeViewController\(\)/);
+    for (const callback of [
+      'SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)',
+      'SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)',
+      'SceneDelegateProxy.shared.scene(scene, continue: userActivity)',
+    ]) assert.ok(scene.includes(callback),'F1396 preserves scene connection and deep-link forwarding');
+    assert.match(project,/SceneDelegate\.swift in Sources/);
     const plist = fs.readFileSync(path.join(app, 'Info.plist'), 'utf8');
     const source = fs.readFileSync(path.join(native, 'BirdGenNotifications.swift'), 'utf8');
     const identifier = /static let taskIdentifier = "([^"]+)"/.exec(source)[1];
@@ -238,6 +249,11 @@ test('F979 installer adds the notification source to App compilation and registe
     assert.equal(fs.readFileSync(path.join(app, 'AppDelegate.swift'), 'utf8'), delegate);
     assert.equal(fs.readFileSync(path.join(app, 'Info.plist'), 'utf8'), plist);
     assert.equal(fs.readFileSync(path.join(app, 'BirdGenNotifications.swift'), 'utf8'), source);
+    assert.equal(fs.readFileSync(scenePath, 'utf8'), scene);
+    fs.writeFileSync(scenePath, scene.replace('SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)', ''));
+    assert.throws(()=>install(root),/Missing Capacitor scene forwarding/);
+    fs.writeFileSync(scenePath, scene.replace('ViewController()', 'UnexpectedController()'));
+    assert.throws(()=>install(root),/SceneDelegate does not instantiate/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

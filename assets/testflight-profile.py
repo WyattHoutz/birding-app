@@ -4,6 +4,7 @@ import hashlib
 import json
 import plistlib
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ NATIVE_MARKERS = (
     b"BC_HIDDEN_WINDOW",
     b"BC_BIRDGEN_TRACE_V1",
     b"native-wall-and-system-uptime",
+    b"SceneDelegate",
 )
 LOCATION_USAGE_KEYS = (
     "NSLocationWhenInUseUsageDescription",
@@ -27,6 +29,39 @@ LOCATION_USAGE_KEYS = (
 def read(path):
     with open(path, "rb") as handle:
         return plistlib.load(handle)
+
+
+def verify_toolchain(xcode, sdk):
+    version = re.fullmatch(r"Xcode (\d+)(?:\.\d+)*\s+Build version ([A-Za-z0-9]+)", xcode.strip())
+    if not version or int(version[1]) < 27:
+        raise ValueError("Build requires Xcode 27 or later")
+    sdk_version = re.fullmatch(r"(\d+)(?:\.\d+)+", sdk.strip())
+    if not sdk_version or int(sdk_version[1]) < 27:
+        raise ValueError("Build requires iOS SDK 27 or later")
+    return {"xcode": xcode.splitlines()[0], "build": version[2], "iosSdk": sdk.strip()}
+
+
+def verify_sdk_scene(info):
+    sdk = info.get("DTSDKName")
+    match = re.fullmatch(r"iphoneos(\d+)(?:\.\d+)+", sdk) if isinstance(sdk, str) else None
+    if not match or int(match[1]) < 27 or info.get("DTPlatformName") != "iphoneos":
+        raise ValueError("Packaged app must be built with the iOS device SDK 27 or later")
+    xcode = info.get("DTXcode")
+    if not isinstance(xcode, str) or not re.fullmatch(r"\d{4}", xcode) or int(xcode) < 2700:
+        raise ValueError("Packaged app must be built with Xcode 27 or later")
+    if info.get("MinimumOSVersion") != "15.0":
+        raise ValueError("SDK upgrade must preserve the existing iOS 15.0 deployment target")
+    manifest = info.get("UIApplicationSceneManifest")
+    configurations = manifest.get("UISceneConfigurations") if isinstance(manifest, dict) else None
+    scenes = configurations.get("UIWindowSceneSessionRoleApplication") if isinstance(configurations, dict) else None
+    if (not isinstance(scenes, list) or len(scenes) != 1 or not isinstance(scenes[0], dict)
+            or manifest.get("UIApplicationSupportsMultipleScenes") is not False
+            or scenes[0].get("UISceneConfigurationName") != "Default Configuration"
+            or scenes[0].get("UISceneStoryboardFile") != "Main"
+            or not isinstance(scenes[0].get("UISceneDelegateClassName"), str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.SceneDelegate", scenes[0]["UISceneDelegateClassName"])):
+        raise ValueError("Packaged app must declare the single-window Capacitor scene lifecycle")
+    return {"iosSdk": sdk, "xcode": xcode, "minimumOs": "15.0", "sceneLifecycle": True}
 
 
 def verify_native(app):
@@ -52,7 +87,8 @@ def verify_native(app):
         raise ValueError("Location purpose strings must describe the same existing location use")
     if not (app / "public" / "birdgen-notifications.js").is_file():
         raise ValueError("App is missing the native notification JavaScript bridge")
-    return {"nativeMarkers": len(NATIVE_MARKERS), "backgroundFetch": True, "locationPurposeStrings": 2}
+    return {"nativeMarkers": len(NATIVE_MARKERS), "backgroundFetch": True, "locationPurposeStrings": 2,
+            **verify_sdk_scene(info)}
 
 
 def profile_info(profile, bundle_id):
@@ -107,7 +143,11 @@ def verify_app(info, profile, entitlements, bundle_id, version, number, uuid):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "configure-export":
+    if sys.argv[1] == "toolchain":
+        result = verify_toolchain(
+            subprocess.check_output(["xcodebuild", "-version"], text=True),
+            subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-version"], text=True))
+    elif sys.argv[1] == "configure-export":
         path = Path(sys.argv[2])
         info = read(path)
         info["ITSAppUsesNonExemptEncryption"] = False
@@ -121,5 +161,5 @@ if __name__ == "__main__":
     elif sys.argv[1] == "native":
         result = verify_native(sys.argv[2])
     else:
-        raise ValueError("Expected profile, verify or native command")
+        raise ValueError("Expected toolchain, configure-export, profile, verify or native command")
     print(json.dumps(result))

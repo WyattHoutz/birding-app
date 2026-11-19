@@ -1,6 +1,6 @@
 {
   "name": "birding-app",
-  "version": "2.7.1",
+  "version": "2.8.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -17,10 +17,10 @@
   "type": "commonjs",
   "dependencies": {
     "@capacitor/app-launcher": "^8.0.1",
-    "@capacitor/cli": "^8.4.2",
-    "@capacitor/core": "^8.4.2",
+    "@capacitor/cli": "~8.5.3",
+    "@capacitor/core": "~8.5.3",
     "@capacitor/geolocation": "^8.2.0",
-    "@capacitor/ios": "^8.4.2",
+    "@capacitor/ios": "~8.5.3",
     "@capgo/capacitor-inappbrowser": "^8.12.3"
   },
   "devDependencies": {

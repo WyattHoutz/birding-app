@@ -211,19 +211,29 @@ async function rankClimbLayout(scan, mutation) {
     board.rows = [{rank:8,species:300,name:'Known target',profileId:'target'},
       {rank:20,species:200,name:'Synthetic birder',profileId:'synthetic-owner'}];
     board.me = board.rows[1];await paint();
-    check(document.querySelectorAll('.rankclimb-unavailable').length===3,'unknown podium scores',{});
+    check(document.querySelectorAll('.rankclimb-unavailable[class*="podium-"]').length===3,'unknown podium scores',{});
     await measure('F1398 unknown-score ladder');
     board.rows = Array.from({length:5001},(_,i)=>({rank:i<483?i+1:i<5000?484:5001,
       species:i<483?6001-i:i<5000?1000:999,
       profileId:i===5000?'synthetic-owner':'tied-'+i,name:'Synthetic birder'}));
     board.me = board.rows[5000];await paint();
-    check(document.querySelectorAll('.rankclimb-detail .rankclimb-label').length===5,
-      'unchanged complete shared-tie milestones',{});
-    await measure('F1398 preserved complete shared-tie ladder');
+    const shared = Array.from(document.querySelectorAll('[data-rank-milestone]'))
+      .filter(stop=>Number(stop.dataset.rankMilestone)>=500);
+    check(shared.length===5 && shared.every(stop=>
+      stop.querySelector('.rankclimb-number').textContent==='#484'
+      && stop.querySelector('.rankclimb-cost').textContent==='+1 species'
+      && stop.querySelectorAll('.rankclimb-laurel').length===1),
+      'F1399 separate complete shared-tie milestones',{});
+    await measure('F1399 separate complete shared-tie ladder');
     board.rows = board.rows.slice(0,500);await paint();
     check(document.querySelector('.rankclimb').textContent.includes('Some top-board milestones are unavailable'),
       'truncated shared targets remain coverage-limited',{});
-    await measure('F1398 preserved truncated shared-target ladder');
+    check([1000,2000,3000,5000].every(cutoff=>{
+      const stop=document.querySelector('[data-rank-milestone="'+cutoff+'"]');
+      return stop && stop.querySelector('.rankclimb-number').textContent==='—'
+        && stop.querySelector('.rankclimb-cost').textContent==='Score not loaded';
+    }),'F1399 uncovered thresholds never invent minimums',{});
+    await measure('F1399 separate truncated shared-target ladder');
   } finally {
     if (typeof auditStage==='function') auditStage('F1398 restore');
     if (identity===null) localStorage.removeItem(A.IDENTITY_META_KEY);

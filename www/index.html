@@ -3299,9 +3299,8 @@
     .rankclimb-stop.wide .rankclimb-rank { font-size:calc(16px * var(--s)); }
     .rankclimb-cost { font-size:calc(18px * var(--s)); font-weight:850; line-height:1.3; }
     .rankclimb-detail { flex:1 1 calc(100px * var(--s)); min-width:0; padding:3px 0; }
-    .rankclimb-label { display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:calc(14px * var(--s)); font-weight:800; }
-    .rankclimb-label svg { width:calc(28px * var(--s)); height:calc(32px * var(--s)); flex-shrink:0; color:var(--safe-blue); }
-    .rankclimb-unavailable .rankclimb-rank { color:var(--ink); background:transparent; border:1px dashed var(--ink); }
+    .rankclimb-unavailable:not(.milestone) .rankclimb-rank { color:var(--ink); background:transparent;
+                      outline:1px dashed var(--ink); outline-offset:-1px; }
     .rankclimb-unavailable .rankclimb-cost { font-size:calc(14px * var(--s)); }
     .rankclimb-arrow { display:flex; justify-content:center; width:calc(140px * var(--s)); color:var(--safe-blue); }
     .rankclimb-arrow svg { display:block; width:calc(28px * var(--s)); height:calc(18px * var(--s)); }
@@ -5643,7 +5642,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.7.1';
+      var APP_VERSION = '2.8.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -35626,22 +35625,24 @@
         var climb = BL.rankClimbGoals(rows, own);
         var nextGoal = climb.stops.filter(function (stop) { return stop.cost > 0; })
           .sort(function (a, b) { return a.cost - b.cost; })[0];
-        var labels = {};
+        var represented = {};
+        var displayStops = [];
         [1, 2, 3, 10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
           if (own.rank <= cutoff) return;
-          var target = climb.stops.filter(function (stop) {
+          var target = climb.missingMilestones.indexOf(cutoff) < 0 && climb.stops.filter(function (stop) {
             return !stop.current && (cutoff <= 3 ? stop.rank === cutoff : stop.rank <= cutoff);
           }).sort(function (a, b) { return a.cost - b.cost; })[0];
-          if (target) (labels[target.rank] || (labels[target.rank] = [])).push(cutoff);
-        });
-        var displayStops = climb.stops.slice();
-        [1, 2, 3].forEach(function (rank) {
-          if (own.rank > rank && !displayStops.some(function (stop) { return stop.rank === rank; })) {
-            displayStops.push({ rank: rank, unavailable: true });
-            labels[rank] = [rank];
+          if (target) {
+            represented[target.rank] = true;
+            displayStops.push(Object.assign({}, target, { milestone: cutoff }));
+          } else {
+            displayStops.push({ rank: cutoff <= 3 ? cutoff : null, milestone: cutoff, unavailable: true });
           }
         });
-        displayStops.sort(function (a, b) { return a.rank - b.rank; });
+        climb.stops.forEach(function (stop) {
+          if (stop.current || !represented[stop.rank]) displayStops.push(stop);
+        });
+        displayStops.sort(function (a, b) { return (a.milestone || a.rank) - (b.milestone || b.rank); });
         function milestoneIcon(cutoff) {
           if (cutoff <= 3) {
             var colors = {
@@ -35682,17 +35683,6 @@
             + (cutoff >= 1000 ? '18' : '20') + 'px;font-family:Arial,Helvetica,sans-serif;font-weight:800;letter-spacing:normal">'
             + esc(rankNum(cutoff)) + '</text></svg>';
         }
-        function milestoneHTML(cutoff) {
-          var label = cutoff === 1 ? 'Gold' : cutoff === 2 ? 'Silver' : cutoff === 3 ? 'Bronze'
-            : 'Top ' + rankNum(cutoff);
-          var shape = cutoff <= 3
-            ? '<path d="M6 1H14L18 10L11 14Z M18 1H26L21 14L14 10Z" fill="currentColor"/><circle cx="16" cy="21" r="10" fill="none" stroke="currentColor" stroke-width="2"/>'
-            : '<path d="M2 2H30V17Q29 25 16 31Q3 25 2 17Z" fill="none" stroke="currentColor" stroke-width="2"/>';
-          return '<span class="rankclimb-label"><svg viewBox="0 0 32 34" aria-hidden="true">' + shape
-            + '<text x="16" y="24" text-anchor="middle" fill="currentColor" font-size="'
-            + (cutoff >= 1000 ? '8' : cutoff >= 100 ? '10' : '12') + '" font-weight="800">'
-            + cutoff + '</text></svg>' + esc(label) + '</span>';
-        }
         var html = coverage + '<section class="rankclimb" aria-label="Species rank-climb goals">'
           + '<h3>Your ladder</h3>'
           + (nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next verified score goal' : 'Next step')
@@ -35702,18 +35692,17 @@
             + ' in this snapshot. This is a score goal, not a promise of attainable birds or a future rank.</p>' : '')
           + '<ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
           + displayStops.map(function (stop, i) {
-            var milestones = labels[stop.rank] || [];
-            var badgeMilestone = stop.rank <= 3 ? stop.rank : milestones.length === 1 ? milestones[0] : null;
-            return '<li class="rankclimb-stop' + (stop.win ? ' win' : '') + (stop.current ? ' current' : '')
+            var badgeMilestone = stop.milestone;
+            return '<li' + (badgeMilestone ? ' data-rank-milestone="' + badgeMilestone + '"' : '')
+              + ' class="rankclimb-stop' + (stop.win ? ' win' : '') + (stop.current ? ' current' : '')
               + (stop.unavailable ? ' rankclimb-unavailable' : '')
-              + (stop.rank <= 3 ? ' podium-' + stop.rank : '')
+              + (stop.rank !== null && stop.rank <= 3 ? ' podium-' + stop.rank : '')
               + (badgeMilestone > 3 ? ' milestone' : '')
               + (stop.rank >= 1000 ? ' wide' : stop.rank >= 100 ? ' three-digit' : '') + '"><div class="rankclimb-head">'
               + '<span class="rankclimb-rank">' + (badgeMilestone ? milestoneIcon(badgeMilestone) : '')
-              + '<span class="rankclimb-number">#' + esc(rankNum(stop.rank)) + '</span></span><div class="rankclimb-detail">'
-              + milestones.filter(function (cutoff) { return cutoff !== badgeMilestone; }).map(milestoneHTML).join('')
+              + '<span class="rankclimb-number">' + (stop.rank === null ? '—' : '#' + esc(rankNum(stop.rank))) + '</span></span><div class="rankclimb-detail">'
               + '<span class="rankclimb-cost">'
-              + (stop.current ? 'You are here' : stop.unavailable ? 'Score unknown'
+              + (stop.current ? 'You are here' : stop.unavailable ? (badgeMilestone <= 3 ? 'Score unknown' : 'Score not loaded')
                 : '+' + esc(rankNum(stop.cost)) + ' species') + '</span></div></div>'
               + (i < displayStops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
                 + '<svg viewBox="0 0 24 28" preserveAspectRatio="none"><path d="M12 1L1 12H8V27H16V12H23Z" fill="currentColor"/></svg></div>' : '')

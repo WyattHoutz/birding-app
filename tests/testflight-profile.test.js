@@ -55,7 +55,7 @@ for key, value in [("application-identifier", "WRONG"), ("com.apple.developer.te
     rejects(lambda: guard.verify_app(info, profile, changed, "com.example.bird", "1.168.0", "538.1", uuid))
 rejects(lambda: guard.verify_app(info, profile, entitlements, "com.example.bird", "1.168.0", "538.1", "another-uuid"))
 markers = [b"FullReportPlugin", b"sharePersonalLists", b"BirdGenNotificationsPlugin", b"BirdGenNotificationService",
-           b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1", b"native-wall-and-system-uptime"]
+           b"BC_HIDDEN_WINDOW", b"BC_BIRDGEN_TRACE_V1", b"native-wall-and-system-uptime", b"SceneDelegate"]
 assert set(guard.NATIVE_MARKERS) == set(markers)
 usage_keys = ["NSLocationWhenInUseUsageDescription", "NSLocationAlwaysAndWhenInUseUsageDescription"]
 assert set(guard.LOCATION_USAGE_KEYS) == set(usage_keys)
@@ -68,6 +68,12 @@ with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
     executable = app / "App"
     executable.write_bytes(binary)
     native_info = {**info, "CFBundleExecutable": "App", "UIBackgroundModes": ["fetch"],
+                   "DTSDKName": "iphoneos27.2", "DTPlatformName": "iphoneos", "DTXcode": "2720",
+                   "MinimumOSVersion": "15.0",
+                   "UIApplicationSceneManifest": {"UIApplicationSupportsMultipleScenes": False,
+                     "UISceneConfigurations": {"UIWindowSceneSessionRoleApplication": [{
+                       "UISceneConfigurationName": "Default Configuration",
+                       "UISceneDelegateClassName": "App.SceneDelegate", "UISceneStoryboardFile": "Main"}]}},
                    "ITSAppUsesNonExemptEncryption": False,
                    **dict.fromkeys(usage_keys, "Find birding hotspots near you for a quick outing.")}
     def write_info(value):
@@ -89,8 +95,34 @@ with tempfile.TemporaryDirectory(prefix="bird-native-contract-") as temporary:
             if not valid:
                 assert message in result.stderr, result.stderr
     assert guard.verify_native(app) == {
-        "nativeMarkers": len(markers), "backgroundFetch": True, "locationPurposeStrings": 2}
+        "nativeMarkers": len(markers), "backgroundFetch": True, "locationPurposeStrings": 2,
+        "iosSdk": "iphoneos27.2", "xcode": "2720", "minimumOs": "15.0", "sceneLifecycle": True}
     check_commands(True)
+    for key, value, message in [
+        ("DTSDKName", "iphoneos26.5", "SDK 27"), ("DTSDKName", "iphonesimulator27.2", "SDK 27"),
+        ("DTSDKName", None, "SDK 27"), ("DTPlatformName", "iphonesimulator", "SDK 27"),
+        ("DTXcode", "2650", "Xcode 27"), ("DTXcode", 2720, "Xcode 27"),
+        ("MinimumOSVersion", "16.0", "deployment target"),
+        ("UIApplicationSceneManifest", {}, "scene lifecycle"),
+        ("UIApplicationSceneManifest", [], "scene lifecycle"),
+    ]:
+        changed = {**native_info, key: value}
+        if value is None:
+            del changed[key]
+        write_info(changed)
+        check_commands(False, message)
+    for key, value in [("UISceneDelegateClassName", "$(PRODUCT_MODULE_NAME).SceneDelegate"),
+                       ("UISceneDelegateClassName", "App.AppDelegate"), ("UISceneStoryboardFile", "Missing")]:
+        changed = copy.deepcopy(native_info)
+        changed["UIApplicationSceneManifest"]["UISceneConfigurations"]["UIWindowSceneSessionRoleApplication"][0][key] = value
+        write_info(changed)
+        check_commands(False, "scene lifecycle")
+    write_info(native_info)
+    assert guard.verify_toolchain("Xcode 27.2\\nBuild version 27B52\\n", "27.2\\n")["iosSdk"] == "27.2"
+    for xcode, sdk in [("Xcode 26.5\\nBuild version 26F10", "27.2"),
+                        ("Xcode 27.2\\nBuild version 27B52", "26.5"),
+                        ("unexpected", "27.2"), ("Xcode 27.2\\nBuild version 27B52", "unexpected")]:
+        rejects(lambda: guard.verify_toolchain(xcode, sdk))
     for value in [None, True, "false", 0]:
         changed = {k: v for k, v in native_info.items() if k != "ITSAppUsesNonExemptEncryption"}
         if value is not None:

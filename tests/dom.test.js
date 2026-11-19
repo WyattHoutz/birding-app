@@ -10611,7 +10611,7 @@ test('F815 FOY overlaps add one visible reason while distinct flock events survi
   } finally { app.window.close(); }
 });
 
-test('F1398 actual ladder puts approved cups and laurels beside unchanged rank goals', async () => {
+test('F1398/F1399 actual ladder gives each milestone its own approved badge and truthful rank goal', async () => {
   const app = await boot({sample:false});
   try {
     const A = app.window.__app;
@@ -10657,8 +10657,8 @@ test('F1398 actual ladder puts approved cups and laurels beside unchanged rank g
     board.rows = [{rank:8,species:300,name:'Known target',profileId:'target'},
       {rank:20,species:200,name:'Synthetic birder',profileId:'owner'}];
     board.me = board.rows[1];paint();
-    assert.equal(ladder().querySelectorAll('.rankclimb-unavailable').length,3);
-    assert.ok([...ladder().querySelectorAll('.rankclimb-unavailable')]
+    assert.equal(ladder().querySelectorAll('.rankclimb-unavailable').length,4);
+    assert.ok([...ladder().querySelectorAll('.rankclimb-unavailable[class*="podium-"]')]
       .every(stop=>stop.querySelector('.rankclimb-cost').textContent==='Score unknown'));
     assert.doesNotMatch(ladder().querySelector('.rankclimb-unavailable').textContent,/\+0 species/);
 
@@ -10666,17 +10666,27 @@ test('F1398 actual ladder puts approved cups and laurels beside unchanged rank g
       species:i<483?6001-i:i<5000?1000:999,
       profileId:i===5000?'owner':'tied'+i,name:'Synthetic birder'}));
     board.me = board.rows[5000];paint();
-    const grouped = stops().find(stop=>rank(stop)==='#484');
-    assert.ok(grouped);
-    assert.equal(grouped.querySelector('.rankclimb-cost').textContent,'+1 species');
-    assert.deepEqual([...grouped.querySelectorAll('.rankclimb-detail .rankclimb-label')]
-      .map(label=>label.textContent.replace(/\s+/g,' ').trim()),
-    ['500Top 500','1000Top 1,000','2000Top 2,000','3000Top 3,000','5000Top 5,000'],
-    'unapproved F1399 grouped presentation and complete tied goal remain unchanged');
+    const shared = stops().filter(stop=>rank(stop)==='#484');
+    assert.equal(shared.length,5,'F1399 shared targets must still have five separate milestone rows');
+    assert.deepEqual(shared.map(stop=>Number(stop.dataset.rankMilestone)),[500,1000,2000,3000,5000]);
+    for (const stop of shared) {
+      assert.equal(stop.querySelector('.rankclimb-cost').textContent,'+1 species');
+      assert.equal(stop.querySelectorAll('.rankclimb-laurel').length,1);
+    }
+    assert.equal(ladder().querySelectorAll('.rankclimb-label').length,0);
     assert.doesNotMatch(ladder().textContent,/Some top-board milestones are unavailable/);
     board.rows = board.rows.slice(0,500);paint();
     assert.match(ladder().textContent,/Some top-board milestones are unavailable/,
       'truncated coverage must not acquire complete-tie semantics');
+    const partial = [500,1000,2000,3000,5000].map(cutoff=>
+      ladder().querySelector('[data-rank-milestone="'+cutoff+'"]'));
+    assert.equal(new Set(partial).size,5,'F1399 partial coverage also needs distinct threshold rows');
+    assert.equal(rank(partial[0]),'#484');
+    assert.equal(partial[0].querySelector('.rankclimb-cost').textContent,'+1 species');
+    for (const stop of partial.slice(1)) {
+      assert.equal(rank(stop),'—','an uncovered cutoff must not borrow a sufficient higher rank');
+      assert.equal(stop.querySelector('.rankclimb-cost').textContent,'Score not loaded');
+    }
   } finally { app.window.close(); }
 });
 
