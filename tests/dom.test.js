@@ -62120,7 +62120,7 @@ test('the Contents grid cannot crush a tile label', () => {
     'and scores them by lines-per-word, which is what separates a split word from a tight wrap');
 });
 
-test('F391 Stakeout bird matches the compact hotspot search row and says Codes', async () => {
+test('F391/F1422 Stakeout keeps Search, Go, Codes and Clear on one compact row', async () => {
   const app = await boot();
   const input = app.$('spLookup');
   const codes = app.$('spCodesBtn');
@@ -62128,8 +62128,8 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
   const close = app.$('spLookupClear');
   assert.equal(input.parentElement, search.parentElement,
     'the Stakeout bird field and Go control do not share one compact search row');
-  assert.notEqual(input.parentElement, codes.parentElement,
-    'F896 moves Codes below the input/Go/Clear row to preserve narrow-screen space');
+  assert.equal(input.parentElement, codes.parentElement,
+    'the approved F1422 lookup keeps Codes beside Search, Go and Clear');
   assert.equal(search.textContent.trim(), 'Go',
     'Stakeout bird does not use the same short Go action as Stakeout hotspot');
   assert.ok(input.compareDocumentPosition(codes)
@@ -62148,8 +62148,8 @@ test('F391 Stakeout bird matches the compact hotspot search row and says Codes',
     /\.spLookupActions\s*\{[^}]*flex-wrap:\s*nowrap/,
     'the field-plus-Go row can wrap at ordinary phone widths');
   assert.match(HTML,
-    /\.spLookupActions\s*>\s*#spLookup\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/,
-    'the Stakeout bird field cannot shrink beside Go');
+    /\.spLookupActions\s*>\s*#spLookup\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*44px/,
+    'the Stakeout bird field must shrink without losing its minimum touch target');
 
   const audit = fs.readFileSync(
     path.join(WWW, '..', 'assets', 'audit-overflow.js'), 'utf8');

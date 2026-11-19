@@ -426,8 +426,7 @@ const AUDIT = `<script>
         }
       }
     }
-    // F391. Stakeout bird uses the same field-plus-Go row as Stakeout hotspot.
-    // Codes and Close live below it so they cannot squeeze the query field.
+    // F1422 retains Search, Go, Codes and Clear on one compact row.
     var controlRows = [];
     var searchInput = document.getElementById('spLookup');
     var searchBtn = document.getElementById('spLookupBtn');
@@ -3186,8 +3185,11 @@ const AUDIT = `<script>
     A.setCountyView('');
     A.showSection('sec-spLookupBtn');
     var refreshBird = document.getElementById('spLookupRefresh');
-    require(refreshBird && refreshBird.textContent === 'Refresh',
-      'F1057 selected-bird Refresh must be visibly labelled');
+    require(refreshBird && refreshBird.matches('#sec-spLookupBtn > h2 > .refreshbtn')
+      && refreshBird.textContent === '\u21bb'
+      && refreshBird.getAttribute('aria-label') === 'Reload Stakeout Birds'
+      && refreshBird.previousElementSibling.matches('.docbtn'),
+      'F1422 selected-bird Refresh must use the named heading icon beside Info');
     var refreshRect = refreshBird.getBoundingClientRect();
     require(refreshRect.width >= 44 && refreshRect.height >= 44
       && refreshRect.left >= 0 && refreshRect.right <= innerWidth,
@@ -3222,7 +3224,15 @@ const AUDIT = `<script>
         || pendingStatus.scrollWidth>pendingStatus.clientWidth+1)
       throw new Error('F1315 pending hotspot acquisition needs a visible contained loading status');
     out.push(scan('(F1315 actual hotspot acquisition pending)'));
-    out.push(watchTagCheck('#spLookupResults', '(F892 Stakeout large)'));
+    var watchAction=document.querySelector('#spLookupResults .spLookupWatchlist');
+    require(watchAction && watchAction.textContent==='Remove Watch'
+      && watchAction.getAttribute('aria-pressed')==='true'
+      && watchAction.getAttribute('aria-label')==='Remove Watch for Vermilion Flycatcher'
+      && !document.querySelector('#spLookupResults .watchflag,#spLookupResults .surgebirdtag'),
+      'F1421 Stakeout must show watch state through its action, not title badges');
+    var watchedBird=scan('(F1421 Stakeout watch action)');
+    watchedBird.stakeoutWatchAction=true;
+    out.push(watchedBird);
     var first = visible(host)[0], main = first.querySelector('.ckmain');
     var date = main.querySelector('.ckdate').getBoundingClientRect();
     var lead = main.querySelector('.cklead'), range = document.createRange();
@@ -5633,9 +5643,10 @@ server.listen(0, '127.0.0.1', () => {
       console.log('   F908 measurements ' + JSON.stringify(twitch.measurements));
     }
     if (!report.some((r) => r.stakeoutReading) || !report.some((r) => r.stakeoutHanging)
-        || !report.some((r) => r.nearbyPatch) || report.filter((r) => r.watchTag).length < 4) {
+        || !report.some((r) => r.nearbyPatch) || report.filter((r) => r.watchTag).length < 3
+        || !report.some((r) => r.stakeoutWatchAction)) {
       bad++;
-      console.log('   F891/F892 FIXTURE missing production scroll or WATCH coverage');
+      console.log('   F891/F892/F1421 FIXTURE missing production scroll, Twitch tags or Stakeout watch action');
     }
     if (!report.some((r) => r.birdGenFrame && r.birdGenFrame.visibleShell
         && r.birdGenFrame.noEarlyRequests)) {
