@@ -81,9 +81,9 @@
       description: 'The highest-yield destinations from the complete current chase view, compared with that view’s median patch score.'
     },
     foy: {
-      keyDescription: 'Newly learned first of the year birds in your regional reports.',
-      priority: 9, word: 'FOY', glyph: '📅', name: 'First-of-year reports',
-      description: 'Newly learned first regional reports this year. These can describe earlier dates and do not establish current presence.'
+      keyDescription: 'First-of-year birds in your region, grouped in one quiet card.',
+      priority: 9, word: 'FOY', glyph: '🐣', name: 'First-of-year reports',
+      description: 'Regional first observations this year, covering today and the previous two calendar days. Open the card for the full annual FOY Ticks list, newest first. A public place link opens Stakeout Patch separately. This is not evidence that the birds are still there.'
     },
     ppte: {
       keyDescription: 'A Patagonia Picnic Table Effect: Additional rarities discovered by birders chasing a celebrity bird at the same site.',

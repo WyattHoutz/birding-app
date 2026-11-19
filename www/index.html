@@ -635,8 +635,11 @@
     .quicksettingstitle { padding: 8px 12px 5px; color: var(--muted);
                           font-size: calc(12px * var(--s)); font-weight: 800;
                           text-transform: uppercase; letter-spacing: .04em; }
+    .quicksettings > fieldset { min-width: 0; }
     .quicksettings .scopepick { margin: 0; border: 0; border-radius: 0;
                                 border-top: 1px solid var(--line); background: transparent; }
+    .quicksettings .regionquickpick > .scopepick { border-top: 0; }
+    .quicksettings .regionquickpick > .scopepick > summary { padding-left: 0; padding-right: 0; }
     .quicksettings .scopepick[open] > summary { border-bottom: 1px solid var(--line); }
     .quicksetting { display: grid; grid-template-columns: minmax(0, 1fr) auto;
                     align-items: center; gap: 10px; width: 100%; min-height: 44px;
@@ -2545,7 +2548,9 @@
     .settingscategory { min-width: 0; }
     .settingsabout { margin-top: 24px; overflow-wrap: anywhere; }
     .settingsabout a { display: inline-block; min-height: 44px; box-sizing: border-box; padding: 12px 0; }
-    #menuAbout { min-height: 44px; margin-top: 12px; }
+    .menucopyright { margin: 12px 0 0; text-align: center; color: var(--muted);
+      font-size: calc(12px * var(--s)); }
+    .menucopyright a { display: inline-flex; align-items: center; min-height: 44px; }
     .sheetbody h3, .sheetbody h4, #birdGenSourceStatus { scroll-margin-top: 6rem; }
     .sheetbody :focus-visible { outline: 3px solid var(--safe-blue); outline-offset: 3px; }
     #personalListBackup .row > label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
@@ -3976,9 +3981,10 @@
     #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
     #regionChooserUnsupportedList li { margin-bottom: 8px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
-    .quickregions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
-    .quickregions .regionchoice { width: auto; max-width: 100%; min-width: 0;
-      white-space: normal; overflow-wrap: anywhere; flex: 0 1 auto; }
+    .quickregions { display: grid; grid-template-columns: minmax(0, 1fr);
+      gap: 8px; padding: 8px 0; }
+    .quickregions .regionchoice { width: 100%; max-width: 100%; min-width: 0;
+      box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
     .setupstate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
       padding: 12px 0; border-bottom: 1px solid var(--line); }
     .setupstate strong { font-size: calc(16px * var(--s)); }
@@ -5645,7 +5651,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.9.0';
+      var APP_VERSION = '2.10.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9662,6 +9668,7 @@
         return keep;
       }
       function fgCancelObsolete() {
+        cancelObsoleteRankReads();
         _fgWaiters = fgRejectQueued(_fgWaiters, function (job) {
           return !workCurrent(job.work);
         });
@@ -9709,6 +9716,7 @@
       function fgCancelAll(message) {
         if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');
         _workCancelGeneration++;
+        cancelObsoleteRankReads();
         _fgWaiters = fgRejectQueued(_fgWaiters, function () { return true; }, message);
         _fgBgWaiters = fgRejectQueued(_fgBgWaiters, function () { return true; }, message);
         if (_fgBgWake) { clearTimeout(_fgBgWake); _fgBgWake = null; }
@@ -34656,8 +34664,17 @@
         return urls;
       }
       var _rankFetchGeneration = {};
+      var _rankActiveReads = {};
+      function cancelObsoleteRankReads() {
+        Object.keys(_rankActiveReads || {}).forEach(function (key) {
+          var read = _rankActiveReads[key];
+          if (!rankRequestCurrent(read.request)) read.cancel();
+        });
+      }
       function ownedRankRequest(rr) {
         return Object.assign({}, rr, {
+          ownerScope: rr.ownerScope || activeScope().cacheIdentity,
+          ownerCancel: typeof rr.ownerCancel === 'number' ? rr.ownerCancel : _workCancelGeneration,
           ownerProfile: typeof rr.ownerProfile === 'string' ? rr.ownerProfile : bcProfile(),
           ownerRevision: typeof rr.ownerRevision === 'number' ? rr.ownerRevision : identityRevision(),
           ownerGeneration: typeof rr.ownerGeneration === 'number' ? rr.ownerGeneration : _identityGeneration
@@ -34665,7 +34682,9 @@
       }
       function rankRequestCurrent(rr) {
         return rr.ownerProfile === bcProfile() && rr.ownerRevision === identityRevision()
-          && rr.ownerGeneration === _identityGeneration;
+          && rr.ownerGeneration === _identityGeneration
+          && rr.ownerScope === activeScope().cacheIdentity && rr.ownerCancel === _workCancelGeneration
+          && (!rr.alive || rr.alive());
       }
       function rankCacheOwnerKey(rr, period, name) {
         var profile = typeof rr.ownerProfile === 'string' ? rr.ownerProfile : bcProfile();
@@ -34721,15 +34740,20 @@
         function attempt(i) {
           if (!rankRequestCurrent(rr)) return Promise.reject(new Error('Leaderboard request was superseded by another account.'));
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
-          var controller = new AbortController(), timer;
+          var controller = new AbortController(), timer, attemptStart = Date.now();
           var deadline = new Promise(function (resolve, reject) {
+            _rankActiveReads[diagnosticId] = {request:rr,cancel:function () {
+              controller.abort();
+              reject(queueCancelledError(null, 'Leaderboard request was superseded.'));
+            }};
             timer = setTimeout(function () {
               controller.abort();
-              reject(new Error('Leaderboard source timed out after 20 seconds. Refresh to retry.'));
+              reject(new Error('Leaderboard source timed out (20-second deadline; '
+                + Math.round((Date.now() - attemptStart) / 1000) + 's elapsed). Refresh to retry.'));
             }, 20000);
           });
           return Promise.race([fetchPublicHTML(urls[i], force, controller.signal), deadline])
-            .finally(function () { clearTimeout(timer); }).then(function (html) {
+            .finally(function () { clearTimeout(timer); delete _rankActiveReads[diagnosticId]; }).then(function (html) {
             if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
             rankDiagnostic('http-received', { run: diagnosticId, requested: rr.max || 500,
               characters: String(html || '').length, attempt: i + 1,
@@ -35421,7 +35445,7 @@
                   return (key === 'cl' ? 'Checklists' : 'Species') + ': '
                     + pair.boards[key].rows.length + ' participant rows retained';
                 }).join('; ');
-                if (onBoard) onBoard(pair, metric);
+                if (onBoard) return onBoard(pair, metric);
               });
           });
         }, Promise.resolve()).then(function () {
@@ -35453,8 +35477,7 @@
           $('rankSummary').innerHTML = '';
           $('rankResults').innerHTML = '<p class="hint">' + esc(_rankMetric === 'cl' ? 'Checklists' : 'Species')
             + (pair.pending && pair.pending[_rankMetric] ? ' board is loading. Other verified rows remain available.'
-              : ' board unavailable. ' + esc(pair.failures && pair.failures[_rankMetric] || 'No verified source.')
-                + ' Refresh to retry or select the other metric.') + '</p>';
+              : ' board unavailable. See source coverage below; refresh to retry or select the other metric.') + '</p>';
         }
         {
           var nearby = document.createElement('div');
@@ -35512,6 +35535,7 @@
       function loadRankings(explicit, authenticated) {
         var force = takeForce() || explicit === true;
         var generation = ++_rankLoadGeneration;
+        cancelObsoleteRankReads();
         // F152: the SCOPE, not the report's primary board. Everything
         // downstream — the URL, the cache key, the region check, the rank
         // history and the board history — is already keyed by region code, so
@@ -35538,7 +35562,7 @@
         var previous = $('rankResults').textContent;
         btn.disabled = true; st.textContent = force ? 'Refreshing the leaderboard…' : 'Loading the leaderboard…';
         var baseRequest = ownedRankRequest({ key: rr.key, region: region, max: max, rowLimit: 500,
-          authenticated:!!authenticated });
+          authenticated:!!authenticated, alive:current });
         var expansion = null, phase = st.textContent, started = Date.now();
         function current() {
           return generation === _rankLoadGeneration && getRankScope().region === region
@@ -35557,6 +35581,10 @@
           _rankPair = pair;
           renderRankPair(pair, region, year, name);
           $('rankResults').dataset.boardKey = boardKey;
+          if (pair.boards[_rankMetric]) {
+            btn.disabled = false;
+            st.setAttribute('aria-busy', 'false');
+          }
         }
         status(phase);
         return fetchRankPair(baseRequest, year, name, force, status,
@@ -35579,6 +35607,9 @@
                 }
                 paint(pair);
               }); };
+            return new Promise(function (resolve) {
+              requestAnimationFrame(function () { requestAnimationFrame(resolve); });
+            });
           }).then(function (pair) {
             return Promise.resolve(current() && expansion ? expansion() : null).then(function () {
               if (!current()) return;
@@ -35586,7 +35617,7 @@
                 + pair.boards.spp.rows.length + ' rows. Refresh to retry: ' + pair.extendedFailure : '';
               if (detail) pair.coverage += ' ' + detail;
               paint(pair);
-              st.textContent = Object.keys(pair.failures).length ? 'Could not refresh all leaderboard sources · ' + pair.coverage
+              st.textContent = Object.keys(pair.failures).length ? 'Could not refresh all leaderboard sources. See source coverage below.'
                 : detail || (force && previous === $('rankResults').textContent
                   ? 'Checked — leaderboard unchanged · ' : force ? 'Refreshed ' : 'Loaded ')
                     + nowTime() + ' · ' + (pair.boards.spp ? pair.boards.spp.rows.length : 0)
@@ -39586,7 +39617,7 @@
         }
         return rows;
       }
-      function birdGenBirdThumbnail(species) {
+      function birdGenBirdThumbnail(species, previewCount) {
         var used = Object.create(null);
         var birds = (species || []).filter(function (bird) {
           if (!bird) return false;
@@ -39603,14 +39634,16 @@
         var label = count + ' species: ' + birds.map(name).join(', ');
         if (count === 1) return photo(birds[0]).replace('<span ',
           '<span data-birdgen-total="1" role="img" aria-label="' + esc(label) + '" ');
-        var grid = count === 4;
+        var grid = count === 4 && !previewCount;
         return '<span class="thumb ' + (grid ? 'surgepatchthumb' : 'ppte-bird-composite')
           + '" role="img" data-birdgen-total="' + count + '" aria-label="' + esc(label) + '">'
           + (grid ? '<span class="surgepatchgrid" aria-hidden="true">' : '')
-          + birds.slice(0, grid ? 4 : 2).map(photo).join('')
+          + birds.slice(0, previewCount || (grid ? 4 : 2)).map(photo).join('')
           + (grid ? '</span>' : '')
-          + (count === 3 || count > 4
-            ? '<span class="ppte-extra-birds" aria-hidden="true">' + count + '</span>' : '')
+          + (previewCount ? count > previewCount
+            ? '<span class="ppte-extra-birds" aria-hidden="true">+' + (count - previewCount) + '</span>' : ''
+            : count === 3 || count > 4
+              ? '<span class="ppte-extra-birds" aria-hidden="true">' + count + '</span>' : '')
           + '</span>';
       }
       function migrationSignificantRows(now, snapshot) {
@@ -43056,7 +43089,11 @@
           obs.forEach(function (o) {
             var code = o && o.speciesCode;
             var sub = o && (o.subId || o.subID);
-            if (!code || !sub || isSeen(code, o.comName || code) !== false) return;
+            var taxon = code && _taxonomyModel && _taxonomyModel.edition === taxonomyEdition()
+              && _taxonomyModel.byCode[code];
+            if (!code || !sub || o.category === 'hybrid' || taxon && taxon.category === 'hybrid'
+                || !BL.countableTaxon(o.comName || taxon && taxon.comName || code)
+                || isSeen(code, o.comName || code) !== false) return;
             var label = alphaFor(code) || code;
             if (o.howMany != null && o.howMany !== '') label += ' ×' + o.howMany;
             var items = stakeTargetsBySub[sub] || (stakeTargetsBySub[sub] = []);
@@ -44095,6 +44132,9 @@
         var record = foyHistoryRead();
         return record ? record.pendingRows : [];
       }
+      function foySnapshotRows(record) {
+        return record ? record.snapshot.rows : [];
+      }
       function ensureFoy(force, alive, onStatus, allowBrowser, ownerWork) {
         var ctx = foyContext(), scope = activeScope();
         var privacy = _identityGeneration, navigation = _navGeneration;
@@ -44312,7 +44352,7 @@
         var scope = activeScope(), navigation = _navGeneration;
         var privacy = _identityGeneration, cancellation = _workCancelGeneration;
         function current() {
-          return scopeCurrent(scope) && navigation === _navGeneration
+          return !_appUnloading && !!window.document && scopeCurrent(scope) && navigation === _navGeneration
             && privacy === _identityGeneration && cancellation === _workCancelGeneration
             && !_scrubbedPendingReload;
         }
@@ -45646,7 +45686,7 @@
         hotspots: 'Hotspot activity feeds',
         favorites: 'Favorite patch feeds',
         mass: 'Mass flock feeds',
-        foy: 'Annual-first discovery list',
+        foy: 'Regional annual-first list',
         ppte: 'Patagonia picnic table effect RBA feeds'
       };
 
@@ -45979,8 +46019,10 @@
           ? { main: ageLabel, tail: '' } : surgeAgeParts(t);
         return '<span class="surgekindwrap">'
           + '<button type="button" class="surgekindtile surgekind-' + kind + '" data-surge-details'
-          + ' aria-label="Show ' + esc(k.word) + ' alert evidence and report details" title="Alert details">'
-          + k.glyph + '</button>'
+          + ' aria-label="' + (kind === 'foy' ? 'Open FOY Ticks' : 'Show '
+            + esc(k.word) + ' alert evidence and report details') + '" title="'
+          + (kind === 'foy' ? 'Open FOY Ticks' : 'Alert details') + '">'
+          + (kind === 'hotspot' ? menuGlyph('hotBtn') : k.glyph) + '</button>'
           + '<span class="surgeage">' + esc(age.main)
           + (age.tail ? '<small> ' + esc(age.tail) + '</small>' : '') + '</span>'
           + '</span>';
@@ -46056,8 +46098,7 @@
 
       function surgeAlertCard(a, order) {
         var place = surgeHeadlinePlace(a);
-        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte', 'sensitive'].indexOf(a.kind) < 0
-          && !(a.kind === 'foy' && a.foyMembers && a.foyMembers.length > 1);
+        var birdHeadline = ['migration', 'hotspot', 'patch', 'ppte', 'sensitive'].indexOf(a.kind) < 0;
         var headline = (a.namePrefix || '') + (birdHeadline
           ? '<span class="surgebirdname">' + a.name + '</span>' : a.name);
         var ageTime = a.ageTime == null ? a.time : a.ageTime;
@@ -46090,7 +46131,6 @@
             && /tonight|forecast|expected/i.test(headline.replace(/<[^>]*>/g, ''))) {
           warnings.push('Forecast - not a sighting');
         }
-        if (a.kind === 'foy') warnings.push('Annual first - not current presence');
         if (/single.observation|one reported high count/i.test(evidenceText.textContent)) {
           warnings.push('Single report - flock may have moved');
         }
@@ -46387,6 +46427,7 @@
           if (!head) return;
           var migration = row.getAttribute('data-alert-kind') === 'migration';
           var twitch = row.getAttribute('data-alert-kind') === 'twitch';
+          var foy = row.getAttribute('data-alert-kind') === 'foy';
           var locId = row.getAttribute('data-hsloc') || '';
           var locName = row.getAttribute('data-hslocname') || '';
           if (row.getAttribute('data-alert-kind') === 'mass' && !locId) return;
@@ -46394,17 +46435,18 @@
           var speciesName = row.getAttribute('data-species-name') || code;
           var megaView = row.getAttribute('data-mega-view') || '';
           var place = !!locId;
-          if (!migration && !place && !code && !speciesName) return;
+          if (!migration && !foy && !place && !code && !speciesName) return;
           head.classList.add('surgeheadline');
           head.setAttribute('role', 'link');
           head.tabIndex = 0;
-          head.setAttribute('aria-label', twitch ? 'Open Twitches' : migration
+          head.setAttribute('aria-label', foy ? 'Open FOY Ticks' : twitch ? 'Open Twitches' : migration
             ? 'Open Nightly Migration'
             : place
             ? 'Open ' + locName + ' in Stakeout hotspot'
             : 'Open ' + speciesName + ' in Stakeout bird');
           function open() {
-            if (twitch) showSection('sec-refreshBtn');
+            if (foy) showSection('sec-foyBtn');
+            else if (twitch) showSection('sec-refreshBtn');
             else if (migration) showSection('sec-bcBody');
             else if (place) openStakeHotspot(locId, locName || locId);
             else if (code) openStakeSpecies(code, speciesName || code,
@@ -46488,6 +46530,10 @@
           button.addEventListener('click', function (event) {
             event.stopPropagation();
             var row = button.closest('[data-alert-kind]');
+            if (row.getAttribute('data-alert-kind') === 'foy') {
+              showSection('sec-foyBtn');
+              return;
+            }
             var evidence = row.querySelector('template[data-surge-evidence]');
             showExcludedSheet('birdgen-alert-evidence',
               SURGE_KINDS[row.getAttribute('data-alert-kind')].word + ' alert details',
@@ -48412,6 +48458,7 @@
         }
         return (cascades || []).map(function (c) {
           var home = getHome(), lim = chaseMaxMi(), best = null, latest = null, nearest = null;
+          var closestOutside = null;
           var publicSites = Object.create(null), publicBest = null, publicLatest = null;
           (c.publicHotspots || []).forEach(function (hotspot) {
             publicSites[hotspot.locId] = hotspot;
@@ -48439,6 +48486,8 @@
             }
             r = Object.assign({}, r, { _mi: d });
             if (publicSite) r.locName = publicSite.locName;
+            if (d > lim && (!closestOutside || d < closestOutside._mi
+                || d === closestOutside._mi && prefer(r, closestOutside))) closestOutside = r;
             if (!best || d < best._mi) { best = r; best._mi = d; }
             if (prefer(r, latest)) latest = r;
             if (publicSite) {
@@ -48456,7 +48505,7 @@
           });
           if (omitted) return null;
           var chosen = publicLatest && recentLocal(publicLatest) ? publicLatest
-            : latest && recentLocal(latest) ? latest : publicLatest || latest;
+            : latest && recentLocal(latest) ? latest : closestOutside || publicLatest || latest;
           return { c: c, near: publicBest || best, latest: chosen,
             localRecent: !!(chosen && recentLocal(chosen)) };
         }).filter(Boolean);
@@ -48588,7 +48637,7 @@
         if (diagnostics && diagnostics !== box._surgeDiagnostics) dbg('warn', 'Bird Gen source diagnostics: ' + diagnostics);
         box._surgeDiagnostics = diagnostics;
         markSurgeSourceStates(box, sourceStates, sourceState && sourceState.pendingSources);
-        var annualFirsts = sourceState && sourceState.foyRows || foyPendingRows();
+        var annualFirsts = sourceState && sourceState.foyRows || foySnapshotRows(foyHistoryRead());
         if (!megaRows.length && !needs.length && !events.length
             && !cascadePairs.length && !convergence.length && !topPatches.length
             && !favoriteRows.length
@@ -48600,7 +48649,7 @@
           traceCascadeDecision('merge', {
             present: false, winningKind: '', reasons: [],
             cascadePair: false, beforeSpeciesMerge: false,
-            afterSpeciesMerge: false, afterFoyMerge: false,
+            afterSpeciesMerge: false,
             afterHybridFilter: false, dropAt: 'no-cclo-card-before-merge',
             source: sourceStates.leaderboard,
             retained: !!(sourceState && sourceState.cascadeRetained)
@@ -48821,7 +48870,8 @@
           rows.push({
             kind: 'cascade',
             locationScoped: true, locationLocal: pair.localRecent,
-            placeConnector: pair.localRecent ? ' · most recent in chase area at ' : ' · most recent at ',
+            placeConnector: pair.localRecent ? ' recently at '
+              : outside ? ' · closest recent report at ' : ' · most recent at ',
             speciesKey: c.code,
             speciesNameKey: c.species,
             icon: photoSlot(c.species, c.code || ''),
@@ -49039,10 +49089,7 @@
         var ccloAfterSpeciesMerge = rows.some(function (row) {
           return (row.speciesKey || row.code) === 'chclon';
         });
-        appendFoySurgeReasons(rows, annualFirsts);
-        var ccloAfterFoyMerge = rows.some(function (row) {
-          return (row.speciesKey || row.code) === 'chclon';
-        });
+        appendFoySurgeCard(rows, annualFirsts, merged);
         rows = rows.filter(function (row) {
           if (!row.speciesKey && !row.code && !row.speciesNameKey) return true;
           var taxon = _taxonomyModel && _taxonomyModel.edition === taxonomyEdition()
@@ -49058,13 +49105,10 @@
           }),
           beforeSpeciesMerge: ccloBeforeSpeciesMerge,
           afterSpeciesMerge: ccloAfterSpeciesMerge,
-          afterFoyMerge: ccloAfterFoyMerge,
           afterHybridFilter: !!cclo,
           dropAt: ccloBeforeSpeciesMerge && !ccloAfterSpeciesMerge
             ? 'species-merge'
-            : ccloAfterSpeciesMerge && !ccloAfterFoyMerge
-              ? 'foy-merge'
-              : ccloAfterFoyMerge && !cclo
+            : ccloAfterSpeciesMerge && !cclo
                 ? 'taxonomy-hybrid-filter'
                 : !ccloBeforeSpeciesMerge && cascadePairs.some(function (pair) {
                   return isCascadeTraceTarget(pair.c);
@@ -49083,7 +49127,7 @@
           row.seenState = (row.kind === 'hotspot' || row.kind === 'patch'
               || row.kind === 'mass'
               || row.kind === 'ppte'
-              || row.kind === 'migration' || row.kind === 'sensitive')
+              || row.kind === 'migration' || row.kind === 'sensitive' || row.kind === 'foy')
             ? 'not-applicable'
             : (isSeen(row.speciesKey || row.code, row.speciesNameKey) === true ? 'seen'
               : isSeen(row.speciesKey || row.code, row.speciesNameKey) === false ? 'unseen' : 'unknown');
@@ -49140,81 +49184,54 @@
             ? surgeHighYieldPatches(res.cv.destinations || []) : []
         };
       }
-      function appendFoySurgeReasons(rows, annualFirsts) {
+      function appendFoySurgeCard(rows, annualFirsts, regionalRows) {
+        // The helper measures inclusive age: today (0) through two days ago.
         var recent = BL.firstYearEvidence(annualFirsts || [],
-          new Date(todayStr() + 'T12:00:00'), 7).recent;
-        var admitted = Object.create(null), groups = Object.create(null);
-        function memberRow(first) {
-          var why = 'Annual first in ' + esc(rankRegionName(foyContext().region))
-            + ' ' + foyContext().year + ': ' + esc(fmtDate(first.date))
-            + '. Newly learned since the verified list read ' + esc(fmtDate(first.previousReadDate))
-            + '; not proof of current presence or rarity.';
-          return {
-            kind: 'foy', speciesKey: first.code, speciesNameKey: first.name,
-            code: first.code, alpha: alphaFor(first.code),
-            icon: photoSlot(first.name, first.code), name: speciesLink(first.name, first.code),
-            namePrefix: 'First of the year ',
-            why: why, noteHeader: 'Newly learned regional annual first, not current-presence evidence',
-            extra: why, when: first.observedAt || first.date,
-            time: surgeTimeValue(first.observedAt || first.date),
-            where: first.locName ? (first.locId && !first.isPrivate
-              ? stakeHotspotLink(first.locId, first.locName)
-              : locLink(first.locName, null, null, first.locId, first.isPrivate)) : '',
-            checklistId: first.subId || '', count: null, eventCount: null
-          };
-        }
-        recent.forEach(function (first) {
-          if (admitted[first.code]) return;
+          new Date(todayStr() + 'T12:00:00'), 2).recent;
+        var admitted = Object.create(null), rare = Object.create(null);
+        (regionalRows || []).forEach(function (bird) {
+          if (bird && bird.kind === 'Rarity') rare[bird.code || bird.speciesCode] = true;
+        });
+        var members = recent.filter(function (first) {
+          var taxon = _taxonomyModel && _taxonomyModel.edition === taxonomyEdition()
+            && _taxonomyModel.byCode[first.code];
+          if (admitted[first.code] || taxon && taxon.category === 'hybrid'
+              || !BL.countableTaxon(first.name)) return false;
           admitted[first.code] = true;
-          var member = memberRow(first);
-          var matches = rows.filter(function (row) {
-            return row.kind !== 'hotspot' && row.kind !== 'patch' && row.kind !== 'migration'
-              && (row.speciesKey || row.code) === first.code;
-          }).sort(function (a, b) {
-            return SURGE_KINDS[a.kind].priority - SURGE_KINDS[b.kind].priority
-              || b.time - a.time;
-          });
-          if (matches.length) {
-            var hit = matches[0];
-            hit.foyMembers = (hit.foyMembers || []).concat(first);
-            hit.reasons = hit.reasons || [{ kind: hit.kind, why: hit.why }];
-            if (!hit.reasons.some(function (reason) { return reason.kind === 'foy'; })) {
-              hit.reasons.push({ kind: 'foy', why: member.why });
-              hit.extra = (hit.extra || '') + '<span data-alert-evidence-kind="foy">'
-                + 'FOY · ' + member.name + ' · ' + surgeFactsHtml(member)
-                + ' · ' + member.why + '</span>';
-            }
-            return;
-          }
-          (groups[first.date] || (groups[first.date] = [])).push(first);
+          return true;
         });
-        Object.keys(groups).forEach(function (date) {
-          var members = groups[date], row = memberRow(members[0]);
-          row.foyMembers = members;
-          row.data = { 'foy-date': date };
-          if (members.length > 1) {
-            row.code = row.speciesKey = row.speciesNameKey = row.alpha = '';
-            row.notificationKey = 'annual-first|' + date;
-            row.icon = birdGenBirdThumbnail(members);
-            row.name = members.slice(0, 2).map(function (bird) {
-              return '<span class="surgebirdname">' + speciesLink(bird.name, bird.code) + '</span>';
-            }).join('<span class="ppte-connector"> and </span>')
-              + (members.length > 2 ? '<span class="ppte-connector"> +'
-                + (members.length - 2) + ' more</span>' : '');
-            row.when = date;
-            row.time = surgeTimeValue(date);
-            row.where = row.checklistId = '';
-            row.why = members.length + ' regional annual firsts on ' + esc(fmtDate(date))
-              + '; not proof of current presence or rarity.';
-            row.extra = '<ul class="foymembers">' + members.map(function (bird) {
-              var detail = memberRow(bird);
-              return '<li>' + detail.name + ' · ' + surgeFactsHtml(detail)
-                + ' · ' + detail.why + '</li>';
-            }).join('') + '</ul>';
-          }
-          rows.push(row);
+        function preciseFoyTime(bird) {
+          return String(bird.observedAt || '').slice(0, 10) === bird.date
+            ? surgePreciseTimeValue(bird.observedAt) : 0;
+        }
+        members.sort(function (a, b) {
+          return b.date.localeCompare(a.date)
+            || Number(!!rare[b.code]) - Number(!!rare[a.code])
+            || preciseFoyTime(b) - preciseFoyTime(a)
+            || a.name.localeCompare(b.name) || a.code.localeCompare(b.code);
         });
-        return rows;
+        if (!members.length) return;
+        var first = members[0], precise = preciseFoyTime(first);
+        var time = precise || surgeTimeValue(first.date);
+        var names = members.slice(0, 2).map(function (bird) { return esc(bird.name); });
+        var headline = names.join(members.length === 2 ? ' and ' : ', ')
+          + (members.length > 2 ? ' and ' + (members.length - 2) + ' more' : '');
+        var place = members.length === 1 && first.locName && first.locId && !first.isPrivate
+          ? stakeHotspotLink(first.locId, first.locName) : '';
+        rows.push({kind:'foy', when:precise ? first.observedAt : first.date, time:time,
+          ageTime:time, ageLabel:precise ? '' : first.ageDays ? first.ageDays + 'd ago' : 'Today',
+          foyMembers:members, icon:birdGenBirdThumbnail(members, 2),
+          name:'First of the year ' + headline + (place ? ' at ' + place : '') + '.',
+          why:'Regional annual firsts, not proof of current presence or rarity.',
+          noteHeader:'Regional annual firsts, not proof of current presence or rarity',
+          omitWhen:true, extra:'Open FOY Ticks for the full annual list, newest first.'
+            + '<ul class="foymembers">' + members.map(function (bird) {
+              var place = bird.locName ? bird.locId && !bird.isPrivate
+                ? stakeHotspotLink(bird.locId, bird.locName) : esc(bird.locName) : 'Location unavailable';
+              return '<li data-foy-date="' + esc(bird.date) + '">' + speciesLink(bird.name, bird.code)
+                + ' - ' + esc(fmtDate(bird.date)) + ' - ' + place
+                + (bird.subId ? ' - ' + checklistLink(bird.subId, 'Checklist') : '') + '</li>';
+            }).join('') + '</ul>'});
       }
 
       var REPORTING_NS = 'bc_reporting_v1:';
@@ -49697,7 +49714,7 @@
         var pCountyScope = afterPaint.then(resolveCountyAcquisition);
         var favoriteSource = { state: 'loading', rows: [] };
         var massSource = { state: 'loading', rows: [] };
-        var foySource = { state: 'loading', rows: aggregate ? [] : foyPendingRows() };
+        var foySource = { state: 'loading', rows: aggregate ? [] : foySnapshotRows(foyHistoryRead()) };
         var cachedCascades = null, cachedConvergence = null;
         var retained = loadSurgeRetained() || {};
         function publishSource(key, result) {
@@ -49968,7 +49985,7 @@
             foySource = {
               state: result.error || !result.saved ? 'failed' : 'ok',
               error: result.error || '',
-              rows: result.record ? result.record.discoveryRows : []
+              rows: foySnapshotRows(result.record)
             };
             paintSurgeModel();
           }
@@ -53089,9 +53106,9 @@
           // bottom." It is reached from the top bar chip, which is where the
           // question "where am I?" is actually asked.
           '<div id="menuScopeHost"></div>' +
-          '<button type="button" class="secondary" id="menuAbout">About Bird Chaser</button>';
+          '<p class="menucopyright" id="menuCopyright">&copy; ' + new Date().getFullYear()
+          + ' Wyatt Houtz &middot; <a href="https://birdchaser.app/" target="_blank" rel="noopener">birdchaser.app</a></p>';
         main.insertBefore(menu, main.firstChild);
-        $('menuAbout').addEventListener('click', showAbout);
         _sections = [];
         MENU.forEach(function (m) {
           var anchor = document.getElementById(m.at);
@@ -53442,6 +53459,7 @@
           + '<button type="button" class="secondary" data-personal-period="all" aria-pressed="'
           + (personalPeriod() === 'all') + '" style="min-height:44px">All time'
           + (personalPeriod() === 'all' ? ' ✓' : '') + '</button></div></fieldset>'
+          + '<fieldset class="regionquickpick"><legend>Region</legend>'
           + '<details class="scopepick" id="menuScope">'
           + '<summary><span class="scopewhere">\u{1F30E} ' + esc(scopeDisplayCode())
           +   '</span><span class="scopechange">Change</span></summary>'
@@ -53463,7 +53481,8 @@
                 : '')
           + '</div>'
           + '</details>'
-          + '<div class="quickregions" id="menuRecentRegions" role="group" aria-label="Recent regions"></div>'
+          + '<div class="quickregions" id="menuRecentRegions" role="group" aria-label="Region"></div>'
+          + '</fieldset>'
           + '<button type="button" class="quicksetting" id="menuHomeQuick">'
           + '<span class="quicksettingvalue">' + homeText.replace(/ · (Edit|Set)$/, '')
           + '</span><span class="quicksettingaction">' + (getHome() ? 'Edit' : 'Set')
@@ -54057,7 +54076,7 @@
           age.classList.add('recent-birdgen-time');
           var head = row.querySelector(':scope > .name');
           head.appendChild(age);
-          if (kind === 'ppte' || kind === 'twitch') {
+          if (kind === 'ppte' || kind === 'twitch' || kind === 'foy') {
             head.setAttribute('role', 'group');
             head.removeAttribute('tabindex');
             head.setAttribute('aria-label', SURGE_KINDS[kind].word + ' alert');
@@ -54080,7 +54099,7 @@
             [].forEach.call(head.querySelectorAll('a,button,[tabindex]'), function (node) { node.tabIndex = -1; });
           }
           function open(event) {
-            if ((kind === 'ppte' || kind === 'twitch') && event.currentTarget === head
+            if ((kind === 'ppte' || kind === 'twitch' || kind === 'foy') && event.currentTarget === head
                 && event.target.closest('a,button,[role="link"]')) return;
             event.preventDefault();
             event.stopPropagation();
@@ -54350,10 +54369,6 @@
       // looked, 'count' for a standing total worth knowing - or null for
       // "nothing to say", which is the common case and must stay cheap.
       var MENU_BADGES = {};
-      MENU_BADGES.foyBtn = function () {
-        var pending = foyPendingRows();
-        return pending.length ? { n: pending.length, kind: 'new' } : null;
-      };
 
       // The first entry, and the strongest signal available: a species NEW to
       // the ABA rarity list. Reads the archive straight out of storage rather
@@ -54956,7 +54971,8 @@
           node.innerHTML = html || '';
           return node.textContent.trim();
         }
-        return (rows || []).slice(0, 500).map(function (row) {
+        return (rows || []).filter(function (row) { return row.kind !== 'foy'; })
+          .slice(0, 500).map(function (row) {
           var where = document.createElement('div');
           where.innerHTML = row.where || row.name || '';
           var link = where.querySelector('[data-loc]');
@@ -55067,13 +55083,6 @@
       function showSettings(show) {
         if (show) { showSection('settingsPanel'); showSettingsCategory(''); }
         else showMenu();
-      }
-      function showAbout() {
-        showSettings(true);
-        var heading = $('aboutBirdChaserHeading');
-        heading.tabIndex = -1;
-        heading.focus({ preventScroll: true });
-        heading.scrollIntoView({ block: 'center' });
       }
       function renderSettingsAccount() {
         if (!$('settingsAccountStatus')) return;
@@ -59101,7 +59110,7 @@
         foyPendingRows: foyPendingRows, ensureFoy: ensureFoy,
         renderFoy: renderFoy, loadFoy: loadFoy,
         consolidatePpteEvents: consolidatePpteEvents, surgeLoadingHealth: surgeLoadingHealth,
-        appendFoySurgeReasons: appendFoySurgeReasons,
+        appendFoySurgeCard: appendFoySurgeCard,
         countySeenEvidenceReady: countySeenEvidenceReady,
         ensureCountySeenEvidence: ensureCountySeenEvidence,
         loadMigration: loadMigration, renderFirstYear: renderFirstYear,

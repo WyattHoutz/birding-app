@@ -1330,6 +1330,11 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'next-release'}) {
+      out.push(...await nextReleaseLayout(scan, ${JSON.stringify(process.env.AUDIT_NEXT_MUTATION || '')}));
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'maps'}) {
       out.push.apply(out, await mapLayout(scan, ${JSON.stringify(process.env.AUDIT_MAP_MUTATION || '')}));
       finish(out);
@@ -2512,10 +2517,22 @@ const AUDIT = `<script>
       var recentRegionHost = document.getElementById('menuRecentRegions');
       var recentRegionBox = recentRegionHost.getBoundingClientRect();
       var recentRegionButtons = Array.from(recentRegionHost.querySelectorAll('button'));
+      var regionGroup = recentRegionHost.closest('fieldset');
+      var periodGroup = document.querySelector('.quicksettings .periodpick');
+      if (!regionGroup || regionGroup.querySelector('legend').textContent !== 'Region'
+          || document.getElementById('menuScope').parentElement !== regionGroup
+          || Math.abs(regionGroup.getBoundingClientRect().left - periodGroup.getBoundingClientRect().left) > 1
+          || Math.abs(regionGroup.getBoundingClientRect().right - periodGroup.getBoundingClientRect().right) > 1
+          || parseFloat(getComputedStyle(regionGroup).borderLeftWidth) <= 0) {
+        throw new Error('F1415 recent regions need a labelled boundary aligned with Time period');
+      }
       if (recentRegionButtons.length < 4 || !recentRegionButtons.every(function (button) {
         var rect = button.getBoundingClientRect();
+        var first = recentRegionButtons[0].getBoundingClientRect();
         return rect.width > 0 && rect.left >= recentRegionBox.left - 1
           && rect.right <= recentRegionBox.right + 1
+          && Math.abs(rect.left - first.left) <= 1
+          && Math.abs(rect.right - first.right) <= 1
           && button.scrollWidth <= button.clientWidth + 1;
       })) throw new Error('F1404 recent-region choices are missing, clipped or outside Quick Settings');
       out.push(scan('(F1404 production recent-region shortcuts)'));
@@ -2532,7 +2549,7 @@ const AUDIT = `<script>
           lat:A.getHome().lat,lng:A.getHome().lng,obsDt:localStamp,howMany:9,subId:'SF1401'}]
       }], [], []);
       var localAlert = document.querySelector('[data-alert-kind="cascade"][data-species-code="pacloo"]');
-      if (!localAlert || !/most recent in chase area at/.test(
+      if (!localAlert || !/Pacific Loon recently at Ocean Ave/.test(
         localAlert.querySelector('.surgealerttitle').textContent)) {
         throw new Error('F1401 production qualified local headline is missing');
       }
@@ -4097,18 +4114,21 @@ const AUDIT = `<script>
     });
     A.showSettingsCategory('');
     A.showMenu();
-    var aboutEntry=document.getElementById('menuAbout');
-    aboutEntry.scrollIntoView();
-    if(aboutEntry.getBoundingClientRect().height<44
-        ||aboutEntry.parentElement.lastElementChild!==aboutEntry)
-      throw new Error('F1370 About entry must be reachable at the bottom of Contents: '
-        +JSON.stringify({height:aboutEntry.getBoundingClientRect().height,
-          last:aboutEntry.parentElement.lastElementChild.id}));
-    out.push(scan('(F1370 main-menu About entry)'));
-    aboutEntry.click();
-    if(document.activeElement.id!=='aboutBirdChaserHeading'
-        ||document.getElementById('settingsPanel').hidden)
-      throw new Error('F1370 About entry must open and focus the actual section');
+    var menuCopyright=document.getElementById('menuCopyright');
+    var menuWebsite=menuCopyright && menuCopyright.querySelector('a');
+    if(document.getElementById('menuAbout') || !menuWebsite
+        ||menuCopyright.parentElement.lastElementChild!==menuCopyright
+        ||!menuCopyright.textContent.includes('Wyatt Houtz')
+        ||menuWebsite.href!=='https://birdchaser.app/')
+      throw new Error('F1416 menu needs copyright and website instead of an About button');
+    menuCopyright.scrollIntoView();
+    menuWebsite.focus();
+    if(document.activeElement!==menuWebsite||menuWebsite.getBoundingClientRect().height<44
+        ||menuCopyright.scrollWidth>menuCopyright.clientWidth+1)
+      throw new Error('F1416 copyright website must remain unclipped and keyboard/touch accessible');
+    out.push(scan('(F1416 main-menu copyright)'));
+    A.showSection('settingsPanel');
+    A.showSettingsCategory('');
     var about=document.getElementById('aboutBirdChaser');
     about.scrollIntoView();
     if(about.getBoundingClientRect().height<=0
@@ -4633,22 +4653,24 @@ const AUDIT = `<script>
     var groups=root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]');
     var group=groups[0];
     var count=root.querySelector('[data-count-kind="foy"]');
-    if (groups.length!==1 || group.dataset.foyDate!==date
-        || group.querySelector('[data-birdgen-total]').dataset.birdgenTotal!=='26'
+    var evidence=group && group.querySelector('template[data-surge-evidence]').content;
+    if (groups.length!==1 || group.querySelector('details')
         || !count || count.textContent.replace(/[^0-9]/g,'')!=='26'
         || count.getAttribute('aria-label').indexOf('26 FOY')!==0
-        || group.querySelector('.surgealerttitle').textContent.indexOf('+24')<0) {
+        || !/and 24 more/.test(group.querySelector('.surgealerttitle').textContent)) {
       throw new Error('F1102 compact same-day group lost complete annual-first membership');
     }
     out.push(scan('(F1102 26-member annual-first group)'));
-    group.querySelector('[data-surge-details]').click();
-    var details=document.getElementById('appSheet');
-    if (details.hidden || details.querySelectorAll('.foymembers > li').length!==26
-        || members.some(function(bird) {return details.textContent.indexOf(bird.name)<0;})) {
+    if (evidence.querySelectorAll('.foymembers > li').length!==26
+        || members.some(function(bird) {return evidence.textContent.indexOf(bird.name)<0;})) {
       throw new Error('F1102 grouped evidence action lost an annual-first member');
     }
+    group.querySelector(':scope > .name').click();
+    if (document.getElementById('sec-foyBtn').hidden) {
+      throw new Error('F1410 grouped annual-first card did not open FOY Ticks');
+    }
+    A.showSection('sec-surgeBtn',{load:false});
     out.push(scan('(F1102 complete annual-first evidence)'));
-    details.querySelector('.sheetclose').click();
   }
   async function refreshHitRegression(out) {
     var A = window.__app, navigation = document.getElementById('navRegion');
@@ -5114,8 +5136,9 @@ const AUDIT = `<script>
   const forwardLayout = ${require('./forward-layout').toString()};
   const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
+  const nextReleaseLayout = ${require('./next-release-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -5171,6 +5194,7 @@ const AUDIT = `<script>
     if (!out.some(function (result) { return result.fixtureError; })) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
+      out.push.apply(out, await nextReleaseLayout(scan, ''));
       try {
         var aggregateApp = window.__app;
         aggregateApp.setActiveReport('lower48');
@@ -5522,6 +5546,12 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'next-release') {
+      console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,
+        fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
+      process.exit(report.length===3 && report.every(r=>r.nextReleaseGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {
       console.log(JSON.stringify(report, null, 2));
       process.exit(report.length === 4 && report.every(r => r.rankClimbGeometry

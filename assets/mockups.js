@@ -1705,14 +1705,16 @@ const REVIEW_SHOTS = [
                })) throw new Error('F956 patch images must form a contained two-by-two grid: '
                  + JSON.stringify({frame:patchFrame,tiles:patchRects}));
            if (busy.querySelector('.surgebadge').textContent !== 'BUSY PATCH'
-               || busy.querySelectorAll('.surgehotspotpeople > span').length !== 9
+               || busy.querySelectorAll(':scope > .name > .surgehotspotthumb .surgehotspotpeople > span').length !== 9
+               || busy.querySelectorAll('.surgekindtile .busyPatchLogo .surgehotspotpeople > span').length !== 9
                || busy.querySelector('.surgehotspotmult').textContent !== '5×'
                || !/9 estimated parties.*7\.2 above usual 1\.8/.test(busy.textContent)) {
              throw new Error('F1219/F1232 BUSY PATCH must show its multiplier, party count and measured excess');
            }
-           var foyTitle = host.querySelector('[data-alert-kind="foy"] .surgealerttitle');
-           if (foyTitle.textContent !== 'First of the year American Pipit at Example annual-first public field'
-               || foyTitle.querySelector('.hslink').dataset.loc !== 'LMOCKFOY') {
+           var foyCard = host.querySelector('[data-alert-kind="foy"]');
+           if (foyCard.querySelector('details')
+               || !/First of the year American Pipit/.test(foyCard.querySelector('.surgealerttitle').textContent)
+               || foyCard.querySelector('.surgealerttitle .hslink').dataset.loc !== 'LMOCKFOY') {
              throw new Error('F962 FOY must retain the annual-first public place');
            }
            var megaTitles = Array.from(host.querySelectorAll('[data-alert-kind="mega"] .surgealerttitle'));
@@ -1782,7 +1784,7 @@ const REVIEW_SHOTS = [
                    return style.fontWeight !== '700'
                      || style.color !== document.defaultView.getComputedStyle(card.querySelector('.name')).color;
                  })) throw new Error('F967 bird/place names must be bold accent links within regular headlines');
-             if (card.dataset.alertKind === 'ppte') return;
+             if (card.dataset.alertKind === 'ppte' || card.dataset.alertKind === 'foy') return;
              if (card.querySelector('.surgeexplain,.surgefacts')
                  || !card.querySelector('.surge-leading-tag')) {
                throw new Error('F991 must remove visible footers and keep leading category tags');
@@ -1837,7 +1839,7 @@ const REVIEW_SHOTS = [
 const foyGroupBase = REVIEW_SHOTS.find(shot => shot.id === 'f951-birdgen-all');
 REVIEW_SHOTS.push({
   ...foyGroupBase, id: 'f1102-foy-many',
-  title: 'Bird Gen — 26 annual firsts, including merged evidence (representative data)',
+  title: 'Bird Gen — 26 annual firsts in one card (representative data)',
   prep: foyGroupBase.prep.replace(/return true;\s*$/, '') + `
     var existingMega = host.querySelector('[data-alert-kind="mega"]');
     var megaCode = existingMega.dataset.speciesCode;
@@ -1847,7 +1849,7 @@ REVIEW_SHOTS.push({
     var firsts = Array.from({length:26},function(_,index) {
       return {code:visibleBirds[index] ? visibleBirds[index].code : 'zzannualfixture'+index,
         name:visibleBirds[index] ? visibleBirds[index].name : 'Example annual bird '+index,
-        date:today,observedAt:today+' 08:00',previousReadDate:today};
+        date:today,observedAt:today+(index<3 ? ' 09:00' : ' 08:00'),previousReadDate:today};
     });
     A.renderSurge([],[],[],[],[],{
       mega:'ok',observations:'ok',leaderboard:'ok',hotspots:'ok',birdcast:'notApplicable',
@@ -1856,26 +1858,25 @@ REVIEW_SHOTS.push({
     });
     var group = host.querySelector('[data-alert-kind="foy"]');
     var filter = host.querySelector('[data-count-kind="foy"]');
+    var evidence = group && group.querySelector('template[data-surge-evidence]').content;
     if (!group || host.querySelectorAll('[data-alert-kind="foy"]').length !== 1
-        || !/26 FOY/.test(filter.textContent)
-        || group.querySelector('[data-birdgen-total]').dataset.birdgenTotal !== '25'
-        || !/\\+23\\b/.test(group.querySelector('.surgealerttitle').textContent)) {
-      throw new Error('F1102 real-app preview lost complete compact same-day membership');
+        || !/26/.test(filter.textContent) || !/FOY/.test(filter.getAttribute('aria-label'))
+        || group.querySelector('details') || !/and 24 more/.test(group.querySelector('.surgealerttitle').textContent)) {
+      throw new Error('F1102 real-app preview lost complete compact same-day membership: '
+        + JSON.stringify({count:filter.textContent,title:group && group.querySelector('.surgealerttitle').textContent,
+          members:evidence && evidence.querySelectorAll('.foymembers > li').length}));
     }
     filter.click();
     var visible = Array.from(host.querySelector('#surgeFeed').children).filter(function(row) {
       return !row.hidden;
     });
-    if (visible.length !== 2 || !visible.some(function(row) {return row.dataset.alertKind==='mega';})) {
-      throw new Error('F1102 filter lost merged annual-first evidence');
+    if (visible.length !== 1 || visible[0] !== group) {
+      throw new Error('FOY filter should show only the grouped card');
     }
-    group.querySelector('[data-surge-details]').click();
-    var details = document.getElementById('appSheet');
-    if (details.querySelectorAll('.foymembers > li').length !== 25
-        || firsts.slice(1).some(function(bird) {return !details.textContent.includes(bird.name);})) {
+    if (evidence.querySelectorAll('.foymembers > li').length !== 26
+        || firsts.some(function(bird) {return !evidence.textContent.includes(bird.name);})) {
       throw new Error('F1102 evidence must expose every grouped bird');
     }
-    details.querySelector('.sheetclose').click();
     filter.click();
     await FIX.fillFixturePhotos(host,document);
     host.setAttribute('data-mock-data','true');

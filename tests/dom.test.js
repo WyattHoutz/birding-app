@@ -291,16 +291,25 @@ test('F1274 grouped Settings preserves mounted controls, recovery and one-step b
   } finally { app.window.close(); }
 });
 
-test('F1370 actual Settings About exposes the current version, creator and public website/contact without replacing categories or source credits', async () => {
+test('F1370/F1416 menu copyright replaces About button while Settings retains version and source credits', async () => {
   const app = await boot();
   try {
     app.window.__app.showMenu();
-    const entry = app.$('menuAbout');
-    assert.equal(entry.textContent, 'About Bird Chaser');
-    assert.equal(entry.parentElement.lastElementChild, entry, 'About sits at the bottom of Contents');
-    app.click(entry);
+    assert.equal(app.$('menuAbout'), null);
+    const footer = app.$('menuCopyright');
+    assert.ok(footer.textContent.includes('\u00a9 ' + new Date().getFullYear() + ' Wyatt Houtz'));
+    assert.equal(footer.parentElement.lastElementChild, footer, 'copyright sits at the bottom of Contents');
+    assert.equal(footer.querySelector('button'), null);
+    const website = footer.querySelector('a');
+    assert.equal(website.textContent, 'birdchaser.app');
+    assert.equal(website.href, 'https://birdchaser.app/');
+    assert.equal(website.target, '_blank');
+    assert.ok(website.relList.contains('noopener'));
+    website.focus();
+    assert.equal(app.document.activeElement, website);
+    app.window.__app.showSection('settingsPanel');
+    app.window.__app.showSettingsCategory('');
     assert.equal(app.$('settingsPanel').hidden, false);
-    assert.equal(app.document.activeElement, app.$('aboutBirdChaserHeading'));
     const about = app.$('aboutBirdChaser');
     assert.ok(about && !about.hidden);
     assert.ok(about.closest('#settingsPanel'));
@@ -10386,7 +10395,7 @@ test('F815 FOY saves a silent baseline, discovers once, acknowledges and retains
     body = foySourceFixture(1, true);
     const discovered = await A.ensureFoy(true);
     assert.deepEqual(arr(discovered.record.pendingRows, r => r.code), ['newbird']);
-    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn').n, 1);
+    assert.equal(A.menuBadge('foyBtn', 'sec-foyBtn'), null, 'FOY must not bump the menu badge');
     const before = app.state.fetches.length;
     A.refreshMenuBadges();
     assert.equal(app.state.fetches.length, before, 'FOY badges must stay cache-only');
@@ -10651,20 +10660,16 @@ test('F815 FOY overlaps add one visible reason while distinct flock events survi
       {kind:'mass',code:'comnig',speciesKey:'comnig',time:200,why:'Independent flock'},
       {kind:'mass',code:'comnig',speciesKey:'comnig',time:300,why:'Second flock'},
     ];
-    A.appendFoySurgeReasons(rows, [first]);
-    assert.equal(rows.length, 3, 'FOY cannot duplicate an already represented bird');
-    assert.deepEqual(arr(rows[0].reasons, r => r.kind), ['mega','foy']);
-    assert.match(rows[0].extra, /FOY.*not proof of current presence or rarity/);
-    assert.equal(rows.filter(row => row.kind === 'mass').length, 2);
-    const solitary = [];
-    A.appendFoySurgeReasons(solitary, [first]);
-    assert.equal(solitary.length, 1);
-    assert.equal(solitary[0].kind, 'foy');
-    assert.equal(solitary[0].rare, undefined, 'an annual first is not automatically rare');
+    A.appendFoySurgeCard(rows, [first]);
+    assert.deepEqual(arr(rows, r => r.kind), ['mega','mass','mass','foy']);
+    assert.equal(rows[0].reasons, undefined, 'the regional first cannot change independent alert evidence');
+    assert.deepEqual(arr(rows[3].foyMembers, r => r.code), ['comnig']);
+    assert.equal(A.birdGenNotificationEvents(rows).length, 3, 'FOY does not generate a native notification');
     A.renderSurge([], [], [], [], [], {foy:'ok',foyRows:[first]});
     assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="foy"]').length, 1);
-    assert.match(surgeEvidence(app.$('surgeFeed').firstElementChild).textContent,
-      /Newly learned regional annual first/);
+    const card = app.$('surgeFeed').querySelector('[data-alert-kind="foy"]');
+    assert.equal(card.querySelector('details'), null);
+    assert.match(surgeEvidence(card).textContent, /not proof of current presence/);
   } finally { app.window.close(); }
 });
 
@@ -10883,6 +10888,99 @@ test('F1246 pending regional totals coalesce rerenders and isolate region/day co
   }finally{app.window.close();}
 });
 
+test('F1408 checklist targets reject named and canonical hybrids without hiding retained checklists', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, [], null, [
+      {code:'sabgul',name:"Sabine's Gull"},
+      {code:'hybrid1',name:'Western x Glaucous-winged Gull'},
+      {code:'hybrid2',name:'Canonical hybrid',category:'hybrid'}
+    ]);
+    const report = app.window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()];
+    report.codes = []; report.names = [];
+    A.renderStakeHs('LTARGET', 'Example Public Park', [{subId:'STARGET',
+      obsDt:recentObsStamp(),numSpecies:3,observationLinked:true,retained:true}], [
+      {speciesCode:'sabgul',comName:"Sabine's Gull",subId:'STARGET',howMany:1},
+      {speciesCode:'hybrid1',comName:'Western x Glaucous-winged Gull',subId:'STARGET',howMany:2},
+      {speciesCode:'hybrid2',category:'hybrid',subId:'STARGET',howMany:3}
+    ], {lat:47.7,lng:-122.2,n:3,nc:1}, false);
+    const row = app.$('stakeHsResults').querySelector('[data-ev-sub="STARGET"]');
+    assert.ok(row, 'retained observation-linked checklist stays visible');
+    const targets = [...row.querySelectorAll('.splink')].map(link => link.dataset.sp);
+    assert.ok(targets.includes('sabgul'));
+    assert.ok(!targets.includes('hybrid1'), 'named hybrid is not a target');
+    assert.ok(!targets.includes('hybrid2'), 'code-only canonical hybrid is not a target');
+  } finally {app.window.close();}
+});
+
+test('F1410/F1411 grouped FOY card ranks cached rarity, opens the annual list and retains Home navigation', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app, today = A.todayStr();
+    const yesterday = recentObsStamp(1).slice(0,10);
+    const firsts = [
+      {code:'amepip',name:'American Pipit',date:today},
+      {code:'comgra',name:'Common Grackle',date:today},
+      {code:'saggro',name:'Greater Sage-Grouse',date:today},
+      {code:'solsan',name:'Solitary Sandpiper',date:yesterday},
+      {code:'norwat',name:'Northern Waterthrush',date:yesterday}
+    ];
+    const before = app.state.fetches.length;
+    A.renderSurge([],[],[],[],[{kind:'Rarity',code:'saggro',name:'Greater Sage-Grouse'},
+      {kind:'Rarity',code:'norwat',name:'Northern Waterthrush'}],
+      {foy:'ok',foyRows:firsts,suppressNotifications:true});
+    let card = app.$('surgeFeed').querySelector('[data-alert-kind="foy"]');
+    assert.equal(card.querySelector('details'),null);
+    assert.equal(card.querySelector('.surgealerttitle').textContent,
+      'First of the year Greater Sage-Grouse, American Pipit and 3 more.');
+    assert.equal(card.querySelector('.ppte-extra-birds').textContent,'+3');
+    assert.equal(card.querySelector('[data-birdgen-total]').dataset.birdgenTotal,'5');
+    assert.equal(card.querySelectorAll('.thumb[data-bird]').length,2);
+    assert.equal(card.querySelector('.surgekindtile').textContent,'🐣');
+    assert.equal(card.querySelector('.surgeage').textContent,'Today');
+    assert.deepEqual(firsts.map(row=>row.code),['amepip','comgra','saggro','solsan','norwat']);
+    assert.equal(app.state.fetches.length,before,'preview ranking is cache-only');
+    const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="foy"]');
+    assert.ok(recent);
+    assert.match(recent.querySelector('.surgealerttitle').textContent,/and 3 more/);
+    app.click(recent.querySelector(':scope > .name'));
+    assert.equal(app.$('sec-foyBtn').hidden,false);
+    A.showSection('sec-surgeBtn',{load:false});
+    A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[{...firsts[0],
+      locId:'LFOY',locName:'Example Public Park'}],suppressNotifications:true});
+    card = app.$('surgeFeed').querySelector('[data-alert-kind="foy"]');
+    assert.equal(card.querySelector('.hslink').dataset.loc,'LFOY');
+    app.click(card.querySelector('.hslink'));
+    assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+    A.showSection('sec-surgeBtn',{load:false});
+    app.click(card.querySelector('.surgekindtile'));
+    assert.equal(app.$('sec-foyBtn').hidden,false);
+    assert.equal(A.menuBadge('foyBtn','sec-foyBtn'),null);
+  } finally {app.window.close();}
+});
+
+test('F1411 FOY time ties require a precise observation from the actual annual-first date', async () => {
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app,today=A.todayStr(),firsts=[
+      {code:'comgra',name:'Common Grackle',date:today,observedAt:recentObsStamp(1)},
+      {code:'amepip',name:'American Pipit',date:today},
+      {code:'saggro',name:'Greater Sage-Grouse',date:today,observedAt:today+' 10:00'},
+      {code:'solsan',name:'Solitary Sandpiper',date:today,observedAt:today+' 12:00'}
+    ];
+    const paint=rows=>A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:rows,suppressNotifications:true});
+    paint(firsts);
+    assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="foy"] .surgealerttitle').textContent,
+      /Solitary Sandpiper, Greater Sage-Grouse and 2 more/);
+    paint(firsts.slice(0,2));
+    const card=app.$('surgeFeed').querySelector('[data-alert-kind="foy"]');
+    assert.match(card.querySelector('.surgealerttitle').textContent,/American Pipit and Common Grackle/);
+    assert.equal(card.querySelector('.surgeage').textContent,'Today');
+    assert.equal(card.querySelector('.ppte-extra-birds'),null,'exactly two birds need no extra-count badge');
+  } finally {app.window.close();}
+});
+
 test('F1405 Top 100 paints the first Species page before Checklists or expanded rows settle', async () => {
   const rows = Array.from({length:500},(_,i)=>({rank:i+1,name:'Birder '+i,species:6000-i,checklists:10000-i}));
   const requests = [], releases = [];
@@ -10902,6 +11000,7 @@ test('F1405 Top 100 paints the first Species page before Checklists or expanded 
     await waitFor(()=>app.$('rankResults').querySelector('.rankrow'),'first page painted');
     assert.match(app.$('rankStatus').textContent,/500 Species rows loaded; loading up to 5,000/);
     assert.match(app.$('rankResults').textContent,/Birder 0/);
+    assert.equal(app.$('rankBtn').disabled,false,'first page must be usable while other sources are pending');
     await waitFor(()=>releases.some(row=>row.metric==='cl'),'checklist first-page request');
     releases.find(row=>row.metric==='cl').resolve(dualRankFixture('cl',rows,'lower48','AAAA'));
     await waitFor(()=>releases.length===3,'background 5,000 request independent of own standing');
@@ -10939,6 +11038,53 @@ test('F1405 wider cache is reused and hung initial aggregate reads settle withou
     await assert.rejects(A.fetchRank({region:'aba',max:500,rowLimit:500},period,'',false),/timed out/);
     await assert.rejects(A.fetchRank({region:'aba',max:500,rowLimit:500},period,'',false),/timed out/);
     assert.equal(app.state.fetches.filter(url=>/region=ABA/.test(url)).length,2,'a timed-out join must be released for retry');
+  } finally {app.window.close();}
+});
+
+test('F1414 scope changes cancel an obsolete read without starting its other metric or retry forms', async () => {
+  const held = [];
+  const app = await boot({sample:false,fetch:url => /top100/.test(url)
+    ? new Promise(resolve => held.push({url,resolve})) : []});
+  try {
+    const A = app.window.__app;
+    const fetch=app.window.fetch,signals=[];
+    app.window.fetch=function(url,options) {
+      if (/top100/.test(String(url))) signals.push(options.signal);
+      return fetch.call(this,url,options);
+    };
+    const pending = A.fetchRankPair({region:'US-WA',max:500,rowLimit:500},
+      A.personalBoardPeriod(),'',true).then(() => null, error => error);
+    await waitFor(() => held.length === 1,'owned first metric');
+    A.setActiveReport('hi');
+    assert.equal(signals[0].aborted,true,'scope transition must abort the active HTTP signal immediately');
+    const cancelled = await pending;
+    assert.match(cancelled.message,/changed|superseded/i);
+    assert.equal(held.length,1,'obsolete work cannot try another URL or metric');
+    held[0].resolve(dualRankFixture('spp',[{rank:1,name:'Obsolete',species:10,checklists:10}]));
+    await new Promise(resolve => setTimeout(resolve,20));
+    assert.doesNotMatch(app.window.localStorage.getItem(A.RANK_CACHE_KEY)||'',/Obsolete/);
+  } finally {held.forEach(row=>row.resolve([]));app.window.close();}
+});
+
+test('F1414 both metric timeouts have one detailed source-coverage message and remain retryable', async () => {
+  const app = await boot({sample:false,report:'lower48'});
+  try {
+    const A=app.window.__app, original=app.window.setTimeout;
+    const now=app.window.Date.now; let elapsed=0;
+    app.window.Date.now=()=>now()+elapsed;
+    app.window.setTimeout=(fn,ms,...args)=>ms===20000
+      ? original(()=>{elapsed+=53000;fn();},1) : original(fn,ms,...args);
+    A.showSection('sec-rankBtn',{load:false});
+    await A.loadRankings(true);
+    assert.equal(app.$('rankBtn').disabled,false);
+    assert.equal((app.$('sec-rankBtn').textContent.match(/20-second deadline/g)||[]).length,2,
+      'each failed metric is explained once, only in coverage');
+    assert.equal((app.$('sec-rankBtn').textContent.match(/53s elapsed/g)||[]).length,2,
+      'delayed callbacks report actual elapsed time, not the deadline budget');
+    assert.match(app.$('rankResults').querySelector('.rankcoverage').textContent,/Both board acquisitions failed/);
+    const before=app.state.fetches.filter(url=>/top100/.test(url)).length;
+    await A.loadRankings(true);
+    assert.equal(app.state.fetches.filter(url=>/top100/.test(url)).length,before+2);
   } finally {app.window.close();}
 });
 
@@ -11173,7 +11319,7 @@ test('F858/F869 metric switching uses independent boards and always exposes hone
   } finally { app.window.close(); }
 });
 
-test('F1401 fresh local MEGA, Cascade and Crowd evidence survives newer distant reports and species merging', async () => {
+test('F1401 fresh local MEGA, Cascade and Crowd evidence wins; Cascade falls back to the closest recent report', async () => {
   const observation=(local,minutes,id)=>({speciesCode:'nazboo1',comName:'Nazca Booby',
     obsDt:formatObsStamp(new Date(Date.now()-minutes*60000)),locId:local?'LNEAR':'LFAR',
     locName:local?'Nearby Public Park':'Distant Public Marsh',subId:id,
@@ -11207,9 +11353,44 @@ test('F1401 fresh local MEGA, Cascade and Crowd evidence survives newer distant 
       A.renderSurge([],[cascade(recent)],[],[]);
       card=app.document.querySelector('[data-alert-kind="cascade"]');
       assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,expected);
-      assert.match(card.querySelector('.surgealerttitle').textContent,/most recent/);
+      assert.match(card.querySelector('.surgealerttitle').textContent,
+        expected==='LNEAR'?/Nazca Booby recently at Nearby Public Park/:/closest recent report/);
       assert.equal(card.dataset.surgeChecklist,expected==='LNEAR'?'SN2':'SF2');
     }
+    const closer={...far[0],lat:46.8,locId:'LCLOSER',locName:'Closer Public Marsh',subId:'SCLOSER'};
+    const staleCloser={...closer,lat:47,obsDt:recentObsStamp(8),subId:'SSTALE'};
+    const nonHotspotLocal={...local[1],locId:'LLOCALPUBLIC',locName:'Local Public Trail'};
+    for (const [recent, id, checklist] of [
+      [[...far,staleCloser,closer],'LCLOSER','SCLOSER'],
+      [[...far,closer,nonHotspotLocal],'LLOCALPUBLIC','SN2'],
+      [[...far,closer,nonHotspotLocal,local[0]],'LNEAR','SN1']
+    ]) {
+      A.renderSurge([],[cascade(recent)],[],[]);
+      card=app.document.querySelector('[data-alert-kind="cascade"]');
+      assert.equal(card.querySelector('.surgealerttitle .hslink').dataset.loc,id);
+      assert.equal(card.dataset.surgeChecklist,checklist);
+    }
+    // November 18 device report: a newer out-of-area owl should not beat
+    // the previous day's eligible local park. Coordinates and IDs are synthetic.
+    const owlLocal={...local[0],obsDt:recentObsStamp(1),locName:'Carkeek Park',subId:'SOWLLOCAL'};
+    const owlOutside={...far[1],locName:'Samish Flats--East 90',subId:'SOWLOUTSIDE'};
+    A.renderSurge([],[{...cascade([owlOutside,owlLocal]),code:'sheowl',
+      species:'Short-eared Owl',publicHotspots:[owlLocal,owlOutside]}],[],[]);
+    card=app.document.querySelector('[data-alert-kind="cascade"][data-species-code="sheowl"]');
+    assert.match(card.querySelector('.surgealerttitle').textContent,
+      /Short-eared Owl recently at Carkeek Park/);
+    assert.equal(card.dataset.surgeChecklist,'SOWLLOCAL');
+    assert.doesNotMatch(card.textContent,/Outside chase area/);
+    const owlBirdLink=card.querySelector('.surgealerttitle .splink');
+    const owlPatchLink=card.querySelector('.surgealerttitle .hslink');
+    A.showSection('sec-surgeBtn',{load:false});
+    app.click(owlBirdLink);
+    assert.equal(app.$('sec-spLookupBtn').hidden,false);
+    assert.equal(app.$('spLookup').value,'Short-eared Owl');
+    A.showSection('sec-surgeBtn',{load:false});
+    app.click(owlPatchLink);
+    assert.equal(app.$('sec-stakeHsBtn').hidden,false);
+    assert.equal(app.$('stakeHs').value,'Carkeek Park');
     const input=[true,false].flatMap(near=>Array.from({length:4},(_,i)=>{
       const r=observation(near,(near?120:10)+i,'SC'+near+i);
       return {code:'syntheticcrowd',name:'Synthetic Crowd Bird',dateStr:r.obsDt,loc:r.locName,locId:r.locId,
@@ -11322,12 +11503,19 @@ test('F1403 failed or superseded aggregate feeds cannot establish a TWITCH basel
   } finally {failed.window.close();}
 });
 
-test('F1404 Quick Settings reuses recent choices, selection semantics and region-owned Home', async () => {
+test('F1404/F1415 Quick Settings groups recent choices, selection semantics and region-owned Home', async () => {
   const app = await boot({sample:false,storage:{bc_recent_regions_v1:'["lower48","wa","hi","lower48","invalid"]'}});
   try {
     const A = app.window.__app;
     const home = JSON.stringify(A.getHome());
     A.showMenu(); A.renderMenuIdentity();
+    const regionGroup = app.$('menuRecentRegions').closest('fieldset');
+    assert.ok(regionGroup, 'recent regions must have a visible fieldset boundary');
+    assert.equal(regionGroup.querySelector('legend').textContent, 'Region');
+    assert.equal(app.$('menuScope').parentElement, regionGroup,
+      'the current region and Change control belong inside the same boundary');
+    assert.notEqual(regionGroup, app.window.document.querySelector('.periodpick'),
+      'time period and recent regions remain separate groups');
     const choices = () => [...app.$('menuRecentRegions').querySelectorAll('button')];
     assert.deepEqual(choices().map(button => button.dataset.regionChoice), ['wa','lower48','hi']);
     assert.equal(choices()[0].getAttribute('aria-pressed'),'true');
@@ -11729,7 +11917,7 @@ test('F865 small patch bird cards allow a break after the complete name before f
   }finally{app.window.close();}
 });
 
-test('F863/F1102 Bird Gen retains every eligible recent annual first including merged reasons', async () => {
+test('Bird Gen groups the last three calendar dates without relying on discovery history', async () => {
   const app=await boot({sample:false});
   try {
     const A=app.window.__app;
@@ -11738,17 +11926,17 @@ test('F863/F1102 Bird Gen retains every eligible recent annual first including m
       const d=new Date(today); d.setDate(d.getDate()-age);
       return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     };
-    const first=(code,age)=>({code,name:'Annual Bird '+code,date:day(age),previousReadDate:day(1)});
+    const first=(code,age)=>({code,name:'Annual Bird '+code,date:day(age)});
     const candidates=[first('older',8),first('week',7),first('three',3),first('two',2),
       first('one',1),first('today',0),first('future',-1),{code:'undated',name:'Unknown Bird',date:''},
       {...first('withheld',0),sensitive:true}];
     const rows=[{kind:'mega',code:'today',speciesKey:'today',time:1,why:'Existing mega'}];
-    A.appendFoySurgeReasons(rows,candidates);
-    assert.deepEqual(arr(rows,row=>row.code),['today','one','two','three','week']);
-    assert.equal(rows[0].reasons.filter(reason=>reason.kind==='foy').length,1);
+    A.appendFoySurgeCard(rows,candidates);
+    assert.deepEqual(arr(rows,row=>row.kind),['mega','foy']);
+    assert.deepEqual(arr(rows[1].foyMembers,row=>row.code),['today','one','two']);
     const boundary=[];
-    A.appendFoySurgeReasons(boundary,[first('week',7),first('older',8),first('future',-1)]);
-    assert.deepEqual(arr(boundary,row=>row.code),['week'],'seven days qualifies; eight and future do not');
+    A.appendFoySurgeCard(boundary,[first('three',3),first('future',-1)]);
+    assert.equal(boundary.length,0,'no qualifying birds means no card');
   }finally{app.window.close();}
 });
 
@@ -21774,7 +21962,8 @@ test('F811 dual boards validate source ownership, stable identities and cache-on
     .replace('selected="selected"','')).period,'AAAA',
     'eBird All time uses the actual first-option HTML default, not an explicit selected attribute');
   app.open(/Top 100/);
-  await waitFor(() => !app.$('rankBtn').disabled && app.document.querySelector('.rankmetrics'),
+  await waitFor(() => /Species and Complete checklists boards verified/.test(
+    app.$('rankResults').querySelector('.rankcoverage')?.textContent || ''),
     'verified dual board');
   const calls = () => app.state.fetches.filter((url) => /top100/.test(url));
   assert.equal(calls().filter((url) => new URL(url).searchParams.get('rankedBy') === 'cl').length, 1);
@@ -21952,7 +22141,7 @@ test('F764 explicit Top 100 source refresh bypasses a warm cache and retains dat
   await waitFor(() => !app.$('rankBtn').disabled, 'fresh result');
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
   await app.window.__app.loadRankings(true);
-  assert.match(app.$('rankStatus').textContent, /Partial coverage: Checklists unavailable/,
+  assert.match(app.$('rankResults').querySelector('.rankcoverage').textContent, /Partial coverage: Checklists unavailable/,
     'an unchanged successful board must not conceal the other source failure');
   assert.match(app.$('rankResults').textContent, /Changed control birder/);
   fail = true;
@@ -34362,17 +34551,17 @@ test('F962 FOY headlines preserve the annual-first place and checklist without i
     assert.equal(card.querySelector('.surgebadge').textContent,'FOY');
     assert.equal(app.window.BirdInfoDialogs.alertKinds.foy.word,'FOY');
     assert.match(doc.querySelector('[data-count-kind="foy"]').getAttribute('aria-label'),/1 FOY/);
-    assert.equal(headline.textContent,'First of the year '+source.name+' at '+source.locName);
+    assert.equal(headline.textContent,'First of the year '+source.name+' at '+source.locName+'.');
     assert.equal(headline.querySelector('.hslink').dataset.loc,source.locId);
-    assert.match(surgeEvidence(card).querySelector('.surgeabsolute a').dataset.href,new RegExp(source.subId+'$'));
-    assert.equal(surgeEvidence(card).querySelector('.surgefacts').textContent.includes(source.locName),false);
+    assert.equal(surgeEvidence(card).querySelector('.foymembers .hslink').dataset.loc,source.locId);
+    assert.ok([...surgeEvidence(card).querySelectorAll('.foymembers a')].some(a =>
+      (a.dataset.href || a.href).endsWith(source.subId)));
     card=render({...first,locId:'',locName:'Verified public field',isPrivate:false});
-    assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name+' at Verified public field');
+    assert.match(surgeEvidence(card).querySelector('.foymembers').textContent,/Verified public field/);
     card=render({...first,locId:'',locName:'',isPrivate:false});
-    assert.equal(card.querySelector('.surgealerttitle').textContent,'First of the year '+source.name);
-    assert.match(surgeEvidence(card).querySelector('.surgefacts').textContent,/Location unavailable/);
+    assert.match(surgeEvidence(card).querySelector('.foymembers').textContent,/Location unavailable/);
     card=render({...first,isPrivate:true});
-    assert.equal(card.querySelector('.surgealerttitle .hslink'),null,
+    assert.equal(surgeEvidence(card).querySelector('.foymembers .hslink'),null,
       'a personal location must not become a public-patch destination');
     assert.equal(render({...first,sensitive:true}),null,
       'withheld annual-first evidence must not acquire a place headline');
@@ -34387,7 +34576,7 @@ test('F958 FOY badge has white text, a dark background and a visible outline in 
     app.document.body.appendChild(host);
     host.innerHTML=app.window.__app.surgeAlertCard({
       kind:'foy',name:'American Pipit',code:'amepip',alpha:'AMPI',
-      why:'Newly learned regional annual first'
+      foyMembers:[{code:'amepip',name:'American Pipit',date:app.window.__app.todayStr()}]
     },0);
     const badge=host.querySelector('.surgebadge-foy');
     const rule=[...app.document.styleSheets].flatMap(sheet=>[...sheet.cssRules])
@@ -34444,7 +34633,7 @@ test('F1219 Busy Patch prioritizes count and excess and rejects unscored retaine
       'Top Patch keeps its qualifying full single-bird photo, not a crowd tile');
     assert.equal(patch.querySelector('.surgehotspotthumb'),null);
     assert.equal(patch.querySelector('.surgealerttitle').textContent,'High-yield patch at Example top patch');
-    assert.equal(hotspot.querySelector('.surgekindtile').textContent.trim(),'📍');
+    assert.equal(hotspot.querySelectorAll('.surgekindtile .busyPatchLogo .surgehotspotpeople > span').length,9);
     assert.equal(hotspot.querySelector('.surgebadge').textContent.trim(),'BUSY PATCH');
     assert.match(app.document.querySelector('[data-count-kind="hotspot"]').getAttribute('aria-label'),/BUSY PATCH/);
     assert.equal(hotspot.querySelector('.surgealerttitle .hslink').dataset.loc,'LHOT');

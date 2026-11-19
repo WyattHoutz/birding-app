@@ -379,7 +379,7 @@ module.exports = ({
     }));
   }
 
-  test('F1102 all 26 same-day annual firsts survive admission and merged alert evidence', async () => {
+  test('F1102 all 26 same-day annual firsts survive independent of other alerts', async () => {
     const app = await boot({ sample: false });
     try {
       const A = app.window.__app, firsts = annualBirds(A.todayStr(), 'annualbird');
@@ -387,14 +387,15 @@ module.exports = ({
         kind: 'mega', code: firsts[0].code, speciesKey: firsts[0].code,
         time: 1, why: 'Existing synthetic mega evidence', name: firsts[0].name
       }];
-      A.appendFoySurgeReasons(rows, firsts);
+      A.appendFoySurgeCard(rows, firsts);
       const html = rows.map((row, i) => A.surgeAlertCard(row, i)).join('');
       for (const first of firsts) assert.ok(html.includes(first.name), first.code);
-      assert.equal(rows[0].reasons.filter(reason => reason.kind === 'foy').length, 1);
+      assert.equal(rows[0].reasons, undefined);
+      assert.equal(rows[1].foyMembers.length, 26);
     } finally { app.window.close(); }
   });
 
-  test('F1102 actual feed counts all FOY members, groups one day and filters merged reasons', async () => {
+  test('F1102 actual feed counts all FOY members and filters to the annual-list card', async () => {
     let alertHtml;
     const app = await boot({ sample: false, fetch: url => /alert\/summary/.test(url) ? alertHtml : [] });
     try {
@@ -413,16 +414,17 @@ module.exports = ({
       assert.match(filter.getAttribute('aria-label'), /FOY/i);
       const groups = [...root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]')];
       assert.equal(groups.length, 1);
-      assert.equal(groups[0].querySelector('[data-birdgen-total]').dataset.birdgenTotal, '25');
-      assert.match(groups[0].querySelector('.surgealerttitle').textContent, /\+23\b/);
+      const card = groups[0];
+      assert.equal(card.querySelector('details'), null);
+      assert.match(card.querySelector('.surgealerttitle').textContent, /and 24 more/);
       app.click(filter);
       const visible = [...root.querySelector('#surgeFeed').children].filter(row => !row.hidden);
-      assert.equal(visible.length, 2);
-      const mega = visible.find(row => row.dataset.alertKind === 'mega');
-      assert.ok(mega && mega.dataset.surgeReasons.split(',').includes('foy'));
-      app.click(groups[0].querySelector('[data-surge-details]'));
-      for (const first of firsts.slice(1)) assert.ok(app.$('appSheet').textContent.includes(first.name), first.code);
-      assert.match(app.$('appSheet').textContent, /not.*current presence|not proof of current presence/i);
+      assert.deepEqual(visible, groups);
+      const evidence = card.querySelector('template[data-surge-evidence]').content;
+      for (const first of firsts) assert.ok(evidence.textContent.includes(first.name), first.code);
+      assert.match(evidence.textContent, /not proof of current presence/i);
+      app.click(card.querySelector(':scope > .name'));
+      assert.equal(app.$('sec-foyBtn').hidden, false);
     } finally { app.window.close(); }
   });
 
@@ -441,7 +443,7 @@ module.exports = ({
       const A = app.window.__app;
       assert.equal(A.todayStr(), '2027-01-01');
       const members = annualBirds('2027-01-01', 'januarybird'), rows = [];
-      A.appendFoySurgeReasons(rows, members.concat([
+      A.appendFoySurgeCard(rows, members.concat([
         { code: 'previousyear', name: 'Previous Year Excluded', date: '2026-12-31' },
         { code: 'unknowndate', name: 'Unknown Date Excluded', date: '' }
       ]));
@@ -475,16 +477,12 @@ module.exports = ({
       assert.equal(parseInt(filter.querySelector('.presslabel').textContent, 10), 4);
       assert.match(filter.getAttribute('aria-label'), /FOY/i);
       const groups = [...root.querySelectorAll('#surgeFeed > [data-alert-kind="foy"]')];
-      assert.deepEqual(groups.map(group => group.dataset.foyDate).sort(), [day, today].sort());
-      for (const group of groups) {
-        assert.equal(group.querySelector('[data-birdgen-total]').dataset.birdgenTotal, '2');
-        app.click(group.querySelector('[data-surge-details]'));
-        const codes = [...app.$('appSheet').querySelectorAll('.splink[data-sp]')].map(link => link.dataset.sp);
-        for (const member of members.filter(member => member.date === group.dataset.foyDate)) {
-          assert.ok(codes.includes(member.code), member.code);
-        }
-        app.click(app.$('appSheet').querySelector('.sheetclose'));
-      }
+      assert.equal(groups.length, 1);
+      const entries = [...groups[0].querySelector('template[data-surge-evidence]').content
+        .querySelectorAll('[data-foy-date]')];
+      assert.deepEqual(entries.map(entry => entry.dataset.foyDate), [today, today, day, day]);
+      assert.deepEqual(entries.map(entry => entry.querySelector('.splink').dataset.sp),
+        members.map(member => member.code));
     } finally { app.window.close(); }
   });
 };
