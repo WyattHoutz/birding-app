@@ -23792,8 +23792,11 @@ test('F904 Stakeout metadata updates retain the hero, map and expanded checklist
     assert.equal(recent.querySelector('.stakeoutChecklistMore'), more);
     A.setWatchlist([{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
     A.renderSpeciesLookup();
-    assert.ok(app.$('spLookupResults').querySelector('.watchflag'),
+    const watch = app.$('spLookupResults').querySelector('.spLookupWatchlist');
+    assert.ok(watch, 'changed species metadata still updates promptly');
+    assert.equal(watch.getAttribute('aria-pressed'), 'true',
       'changed species metadata still updates promptly');
+    assert.equal(watch.textContent, 'Remove Watch');
     assert.equal(app.$('spLookupResults').querySelector('[data-hero]'), hero,
       'a changed species title must also retain the loaded photo');
     app.click(more);
@@ -41242,8 +41245,10 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
   const stakeoutCard = app.document.querySelector('#spLookupResults > li');
   const stakeoutSummary = app.$('spLookupDetailMain')
     .querySelector('.splookupsummary');
-  assert.match(stakeoutCard && stakeoutCard.textContent, /on your \d{4} Year List/,
+  const yearMembership = stakeoutCard.querySelector('.stakeoutListMembership[data-period^="year:"]');
+  assert.equal(yearMembership && yearMembership.dataset.state, 'on',
     'the species card lost the year-list state');
+  assert.match(yearMembership.textContent, /☑ \d{4} Year List — Washington/);
   assert.match(stakeoutSummary && stakeoutSummary.textContent,
     /Western Sandpiper · \d+ places? · \d+ reports? in the last 30 days · nearest .* · by distance/,
   'the Details summary does not describe the Western Sandpiper sightings');
@@ -43558,12 +43563,12 @@ test('a species lookup answers for a bird you have ALREADY seen', async () => {
     'a seen bird is answered inside its species card rather than refused');
   assert.equal(doc2.getElementById('spLookupStatus').textContent, '',
     'the loaded summary still floats above the species card');
-  // What must never regress is that a bird you have already seen is still
-  // answered AND still marked as seen — the ✅ and the words, both.
-  const panel = doc2.getElementById('sec-spLookupBtn').textContent;
-  assert.match(panel, /already on your \d{4} Year List/,
+  const membership = doc2.querySelector(
+    '#spLookupResults .stakeoutListMembership[data-period^="year:"]');
+  assert.equal(membership && membership.dataset.state, 'on',
     'the answer says you have already seen it rather than staying silent');
-  assert.match(panel, /✅/, 'and marks it with the same tick the other sections use');
+  assert.match(membership.textContent, /☑ \d{4} Year List — Washington/);
+  assert.equal(membership.querySelector('[role="img"]').getAttribute('aria-label'), 'On list');
   assert.equal(doc2.querySelectorAll('#spLookupResults > li').length, 1,
     'Stakeout renders exactly one medium species card, not a duplicate hero');
   assert.match(doc2.querySelector('#spLookupEvidenceDetails .megalatest').textContent,

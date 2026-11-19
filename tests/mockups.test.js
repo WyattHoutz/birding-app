@@ -1050,10 +1050,12 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'stakeoutreports', 'meganearest',
       'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f1110-sensitive', 'f951-birdgen-all', 'f1102-foy-many',
       'f1418-foy-full', 'f1418-foy-home', 'f1419-full-fallback', 'f1420-stakeout-watched',
+      'f1428-celebrity-identity',
       'f1422-stakeout-controls', 'f1423-stakeout-saved',
       'f1379-menu-preview', 'f1130-menu-recommendation', 'f1131-collapsed-menu'],
     'focused review states stay available without inflating the release contract');
-  for (const id of ['f1130-menu-recommendation', 'f1131-collapsed-menu']) {
+  for (const id of ['f1130-menu-recommendation', 'f1131-collapsed-menu',
+    'f1428-celebrity-identity']) {
     assert.ok(!mockups.SHOTS.some(shot => shot.id === id),
       id + ' must remain optional, not a mandatory release image');
   }
