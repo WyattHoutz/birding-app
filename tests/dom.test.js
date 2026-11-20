@@ -5783,15 +5783,22 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
   } finally { app.window.close(); }
 });
 
-test('F998 real rarity loader establishes TWITCH baseline and discovers a subsequent acquisition, not synthetic paint', async () => {
+for (const hour of [0,12]) {
+test('F998 real rarity loader establishes TWITCH baseline and discovers a subsequent acquisition, not synthetic paint at hour ' + hour, async () => {
+  const RealDate = Date, started = RealDate.now(), clock = new RealDate();
+  clock.setHours(hour,4,0,0);
+  class FixtureDate extends RealDate {
+    constructor(...args) {super(...(args.length ? args : [clock.getTime() + RealDate.now() - started]));}
+    static now() {return clock.getTime() + RealDate.now() - started;}
+  }
   let observations = [];
-  const app = await boot({ sample: false, fetch(url) {
+  const app = await boot({ Date:FixtureDate, sample: false, fetch(url) {
     return /data\/obs\//.test(url) ? observations : null;
   } });
   try {
     const A = app.window.__app, W = app.window, store = W.localStorage;
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
-    const now = new Date();
+    const now = new W.Date();
     const first = await A.getChaseRarity(true);
     assert.equal(first.feedComplete, true);
     assert.ok(!Array.isArray(first.rows), 'production results remain keyed by feed');
@@ -5803,7 +5810,7 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     assert.equal(count(), before, 'cache reuse spends no new calls');
     assert.equal(cached.feedComplete, true);
     observations = [{ speciesCode: 'verfly', comName: 'Vermilion Flycatcher',
-      sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(new Date(now.getTime() - 600000)),
+      sciName: 'Pyrocephalus rubinus', obsDt: formatObsStamp(now),
       locId: 'LF998', locName: 'Example public patch', subId: 'SF998',
       lat: 47.75, lng: -122.16, howMany: 1, obsReviewed: false, obsValid: true }];
     const eligible = observations[0];
@@ -5840,6 +5847,7 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
+}
 
 test('F998 real snapshot and full chase results preserve explicit TWITCH acquisition coverage', async () => {
   const app = await boot({ sample: false, fetch(url) {
