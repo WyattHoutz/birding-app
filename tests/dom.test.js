@@ -53455,12 +53455,12 @@ test('a checklist under a hotspot names the visit, not the place again', () => {
   assert.match(row, /class="cklead ckdate"><a[^>]*checklist\/S1[^>]*>8\/8 2:26p</,
     'so the row still has something to tap without repeating the heading');
   assert.match(txt, /Barb Chan/, 'who filed it — one of the few facts that differs per row');
-  assert.match(txt, /5 sp/, 'how many SPECIES they found');
+  assert.match(txt, /5sp/, 'how many SPECIES they found, with compact units');
   assert.match(txt, /17\.3 mi/, 'and how far away it is');
   assert.match(row, /data-ckl-sub="S1"/, 'with the hook the media pass needs');
 
   // SPECIES count and BIRD count are different facts. Keeping them apart is
-  // what lets a rarity row drop "×1" while a hotspot row keeps "19 sp".
+  // what lets a rarity row drop "×1" while a hotspot row keeps "19sp".
   assert.ok(!/ckcount/.test(row), 'no bird count here');
   assert.ok(!/Marymoor|Charles Richey/.test(txt), 'and no place name');
 

@@ -88,7 +88,8 @@ module.exports = function registerMigrationSetupControls({
               hours + 'hr ago');
             assert.equal(card.querySelector('.surge-twitch-reports'), null);
             assert.match(card.querySelector('template').content.textContent, /1 independent report in 24h/);
-            assert.match(card.querySelector('.surge-essential').textContent, /Unreviewed/);
+            assert.doesNotMatch(card.textContent, /Unreviewed report/,
+              'F1438 omits the redundant line without changing source age or detection identity');
             assert.equal(app.$('recentBirdGenRows').querySelector('.sub,.surge-essential'), null);
           }
         }
