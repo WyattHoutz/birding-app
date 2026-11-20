@@ -10995,6 +10995,17 @@ test('F1418 Recent FOY omits only its location while the full card keeps evidenc
   const app = await boot({sample:false});
   try {
     const A = app.window.__app, today = A.todayStr();
+    function assertBodyText(row, phrase) {
+      const title = row.querySelector('.surgealerttitle');
+      const walker = app.document.createTreeWalker(title, app.window.NodeFilter.SHOW_TEXT);
+      let text;
+      while ((text = walker.nextNode()) && !text.textContent.includes(phrase)) {}
+      assert.ok(text, 'F1431 headline must retain ' + phrase);
+      const style = app.window.getComputedStyle(text.parentElement);
+      assert.equal(style.fontWeight, '400', 'F1431 ' + phrase + ' must be regular weight');
+      assert.equal(style.color, app.window.getComputedStyle(app.document.body).color,
+        'F1431 ' + phrase + ' must use body ink');
+    }
     for (const location of [
       {locId:'LFOY1418',locName:'Example Public Park'},
       {locId:'LPRIVATE1418',locName:'Private annual-first place',isPrivate:true},
@@ -11008,6 +11019,18 @@ test('F1418 Recent FOY omits only its location while the full card keeps evidenc
       const recent = app.$('recentBirdGenRows').querySelector('[data-recent-kind="foy"]');
       assert.equal(recent.querySelector('.surgealerttitle').textContent,
         'First of the year American Pipit.');
+      const root = app.document.documentElement, themeBefore = root.dataset.theme;
+      for (const theme of ['light', 'dark']) {
+        root.dataset.theme = theme;
+        for (const row of [full, recent]) assertBodyText(row, 'First of the year ');
+        if (full.querySelector('[data-foy-location]')) {
+          assertBodyText(full, ' at ');
+          assert.equal(app.window.getComputedStyle(full.querySelector('.hslink')).fontWeight,
+            '700', 'the independent place link keeps its emphasis');
+        }
+      }
+      if (themeBefore === undefined) delete root.dataset.theme;
+      else root.dataset.theme = themeBefore;
       assert.equal(recent.querySelector('.hslink,[data-foy-location],template,.surgekindwrap'),null);
       assert.equal(recent.querySelector('.recent-birdgen-time').textContent,'Today');
       assert.equal(recent.querySelector('.thumb[data-bird]').dataset.bird,'American Pipit');
@@ -25003,13 +25026,18 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     app.window.localStorage.setItem(A.chaseMiKey(), '25');
     let card = render();
     assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
+    assert.equal(card.querySelector('.surge-essential'), null,
+      'F1432 an inside Patagonia event has no outside-area warning');
     assert.equal(card.querySelectorAll('.ppte-bird-composite > .thumb').length, 2);
     assert.equal(card.querySelector('.ppte-extra-birds'), null);
     assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Swamp Sparrow.*Vermilion Flycatcher/);
     assert.ok(card.querySelector('.surgekind-ppte svg'), 'the bordered category keeps its table symbol');
     A.useFoundAnchor({ lat: 47.5, lng: -122 }, 'Different origin');
     card = render();
-    assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(card.querySelector('.surge-essential')?.textContent, 'Outside chase area',
+      'F1432 farther Patagonia evidence uses the same visible warning as other alert kinds');
+    assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent,
+      'Patagonia picnic table effect outside your chase area!');
     app.window.localStorage.removeItem(A.speciesCacheKey(A.getObsRegion()));
     card = render();
     assert.match(surgeEvidence(card).querySelector('.ppte-evidence').textContent, /swaspa ×2 obs; verfly ×3 obs/,
@@ -25020,6 +25048,8 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     card = render({ ...event, publicHotspot: null,
       evidenceRows: event.evidenceRows.map(row => ({ ...row, lat: null, lon: null })) });
     assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(card.querySelector('.surge-essential'), null,
+      'F1432 unknown coordinates must not be presented as outside');
     assert.equal(surgeEvidence(card).querySelector('[data-ppte-distance-text]'), null);
     const publicEvent = { ...event,
       publicHotspot: { locId: 'L333', locName: 'Exact public patch', lat: 47.5, lng: -122 } };
@@ -25050,6 +25080,8 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     app.window.localStorage.removeItem(A.homeKey('lng'));
     card = render();
     assert.equal(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, 'Patagonia picnic table effect!');
+    assert.equal(card.querySelector('.surge-essential'), null,
+      'F1432 a missing origin leaves chase-area scope unknown');
   } finally { app.window.close(); }
 });
 

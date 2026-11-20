@@ -4689,6 +4689,31 @@ const AUDIT = `<script>
     }
     A.showSection('sec-surgeBtn',{load:false});
     out.push(scan('(F1102 complete annual-first evidence)'));
+    A.renderSurge([],[],[],[],[],{foy:'ok',foyRows:[Object.assign({},members[0],{
+      locId:'LF1431',locName:'Example Public Park'
+    })],deferPhotos:true,suppressNotifications:true});
+    var full=document.querySelector('#surgeFeed [data-alert-kind="foy"]');
+    var recent=document.querySelector('#recentBirdGenRows [data-recent-kind="foy"]');
+    var themeBefore=document.documentElement.dataset.theme;
+    ['light','dark'].forEach(function(theme) {
+      document.documentElement.dataset.theme=theme;
+      [full,recent].forEach(function(card) {
+        var title=card && card.querySelector('.surgealerttitle');
+        var walker=title && document.createTreeWalker(title,NodeFilter.SHOW_TEXT), text;
+        while (walker && (text=walker.nextNode()) && !text.textContent.includes('First of the year ')) {}
+        var intro=text && getComputedStyle(text.parentElement);
+        var location=title && title.querySelector('[data-foy-location]');
+        var ink=getComputedStyle(document.body).color;
+        if (!intro || intro.fontWeight!=='400' || intro.color!==ink
+            || location && (getComputedStyle(location).fontWeight!=='400'
+              || getComputedStyle(location).color!==ink
+              || getComputedStyle(location.querySelector('.hslink')).fontWeight!=='700'))
+          throw new Error('F1431 FOY introduction and at must use regular body ink, retaining the place link');
+      });
+    });
+    if (themeBefore===undefined) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme=themeBefore;
+    out.push(scan('(F1431 plain FOY introduction and connector)'));
   }
   async function refreshHitRegression(out) {
     var A = window.__app, navigation = document.getElementById('navRegion');
