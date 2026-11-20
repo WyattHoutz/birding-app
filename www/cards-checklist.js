@@ -92,7 +92,7 @@
     '  white-space: normal; overflow-wrap: anywhere; }',
     '.cklcards-sm > .cklcard-sm > .cksummary > .ckmain { min-width: 0; }',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmeta {',
-    '  display: inline; font-size: calc(14px * var(--s));',
+    '  display: inline; font-size: inherit;',
     '  color: var(--muted); white-space: normal; }',
     '.cklcards-sm > .cklcard-sm > .cksummary .ckmain > span + .ckmeta {',
     '  margin-left: .25em; }',
@@ -421,12 +421,6 @@
       if (v.targetsHtml || v.targets) {
         meta.push('<span class="cktargets">' + (v.targetsHtml || esc(v.targets)) + '</span>');
       }
-      // How many SPECIES the checklist held. Not the same fact as `count`,
-      // which is how many of ONE bird — keeping them separate is what lets a
-      // rarity row drop "×1" while a hotspot row keeps "19 sp".
-      if (v.sp != null && v.sp !== '') {
-        meta.push('<span class="cksp">' + esc(v.sp) + ' sp</span>');
-      }
     }
     // COUNT ON A SMALL ROW. Three requests that look opposed and are not:
     //
@@ -465,6 +459,9 @@
       (isMedium ? bits : meta).push('<span class="ckcount">' + (isMedium
         ? esc(v.count) + (String(v.count) === '1' ? ' bird' : ' birds')
         : '\u00d7' + (_num ? _n : 'X')) + '</span>');
+    }
+    if (!isMedium && v.sp != null && v.sp !== '') {
+      meta.push('<span class="cksp">' + esc(v.sp) + 'sp</span>');
     }
     if (v.distMi != null && isFinite(v.distMi)) {
       // ONE DECIMAL, always. It used to round anything over 10 mi, so the

@@ -5660,7 +5660,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.11.2';
+      var APP_VERSION = '2.11.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -17798,8 +17798,7 @@
           var nameHtml = (grouped
             ? '<strong class="stakeoutLocalityName">' + esc(where) + ' area</strong>'
             : stakeoutSourceName(sources[0])
-              + (sources[0].private ? stakeoutSourceMap(sources[0]) : ''))
-            + (c.valid === false ? ' \u26a0\ufe0f' : '');
+              + (sources[0].private ? stakeoutSourceMap(sources[0]) : ''));
           var reportCount = sources.reduce(function (sum, source) { return sum + source.count; }, 0);
           var sourceMeta = (grouped ? sources.length + ' locations' : '')
             + (reportCount > 1 ? (grouped ? ' \u00b7 ' : '') + reportCount + ' checklists' : '');
@@ -17975,17 +17974,15 @@
           dateHref: row.subId ? checklistUrl(row.subId) : '',
           observedAt: row.obsDt || row.isoObsDate || '',
           review: (row.__stateRba || row.__notable || row.rbaRare)
-            && row.reviewState && row.reviewState !== 'unknown' ? reviewFlag(row) : '',
+            && row.reviewState && row.reviewState !== 'unknown' ? reviewIcon(row) : '',
           durationHrs: row.durationHrs,
           durationPending: !!row.subId && row.durationHrs == null,
           href: row.subId ? checklistUrl(row.subId) : '',
           who: esc(row.userDisplayName || ''),
           sp: row.numSpecies != null ? row.numSpecies : '',
-          flag: (row.__stateRba || row.__notable || row.rbaRare
-            ? '<span class="tag rareflag" aria-label="Rare bird alert checklist">RARE</span>'
-            : '') + (place.locationPrivate
+          flag: place.locationPrivate
             ? '<span class="tag privateflag" title="Personal eBird location, not a shared hotspot" aria-label="Personal eBird location">PRIVATE</span>'
-            : ''),
+            : '',
           count: count,
           // Comments get one hydrated button at the END of the sentence.
           // This early slot is media-only or the same checklist would show a
@@ -18004,6 +18001,7 @@
             'ev-place': place.loc || place.locId || '',
             'ev-when': fmtWhenShort(row.obsDt || row.isoObsDate || ''),
             'ev-sort': row.obsDt || row.isoObsDate || '',
+            'ev-rare': row.__stateRba || row.__notable || row.rbaRare ? '1' : '0',
             'ev-inline': '1',
             'ev-show-notes': _spLookupNotes ? '1' : '0'
           }
@@ -18730,12 +18728,12 @@
         if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
         if (s === 'confirmed' || s === 'accepted') {
           return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
-               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span> CONFIRMED</span>';
+               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span></span>';
         }
         return '<span class="revpend" role="img" '
              + 'aria-label="Unconfirmed; no eBird reviewer confirmation available"'
              + ' title="Unconfirmed; no eBird reviewer confirmation available">'
-             + '\uD83E\uDD5A</span>';
+             + '<span aria-hidden="true">?</span></span>';
       }
 
       var CHASE_NS = 'ebird_chase_v1:';
@@ -28730,11 +28728,11 @@
               if (!species && got.speciesN != null) {
                 species = document.createElement('span');
                 species.className = 'cksp';
-                var beforeSpecies = meta.querySelector('.ckcount');
+                var beforeSpecies = meta.querySelector('.ckdist, .ckflag, .ckmapwrap, .ckqrwrap, .ckduration, .ckevid');
                 meta.insertBefore(species, beforeSpecies || null);
               }
               if (species && got.speciesN != null) {
-                species.textContent = got.speciesN + ' sp';
+                species.textContent = got.speciesN + 'sp';
               }
             }
             if (el.getAttribute('data-ev-checklist-only') === '1') {
@@ -46168,9 +46166,6 @@
         }
         if (/single.observation|one reported high count/i.test(evidenceText.textContent)) {
           warnings.push('Single report - flock may have moved');
-        }
-        if (a.unreviewed || /unreviewed|unconfirmed/i.test(evidenceText.textContent)) {
-          warnings.push('Unreviewed report');
         }
         return SpeciesCards.small({
           icon: a.icon,

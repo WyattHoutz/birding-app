@@ -193,8 +193,13 @@ const AUDIT = `<script>
     var title = host.querySelector('.fixturetitle').getBoundingClientRect();
     var reload = host.querySelector('.refreshbtn').getBoundingClientRect();
     var summary = host.querySelector('.cksummary');
-    var lead = host.querySelector('.cklead').getBoundingClientRect();
-    var place = host.querySelector('.fixtureplace').getBoundingClientRect();
+    function textRects(selector) {
+      var range = document.createRange();
+      range.selectNodeContents(host.querySelector(selector));
+      return [].filter.call(range.getClientRects(), function (rect) { return rect.width > 0; });
+    }
+    var leadRects = textRects('.cklead'), placeRects = textRects('.fixtureplace');
+    var lead = leadRects[leadRects.length - 1], place = placeRects[0];
     var age = host.querySelector('.ckage');
     var ageLineTops = {};
     var ageRange = document.createRange();
@@ -3172,13 +3177,15 @@ const AUDIT = `<script>
         lat:47.8, lng:-122.16,
         obsDt:new Date(stamp + (newer ? 3600000 : 0) - i * 60000).toISOString().slice(0,19),
         howMany:1, userDisplayName:'Synthetic observer with a wrapping name ' + i,
-        obsValid:true, locationPrivate:false};
+        numSpecies:3, obsValid:i !== 0, obsReviewed:i !== 0,
+        __notable:true, locationPrivate:false};
     }
     var rows = Array.from({length:60}, function (_, i) { return observation(i, false); });
     var newer = Array.from({length:6}, function (_, i) { return observation(i, true); });
     rows.concat(newer).forEach(function (row) {
-      A.seedEbirdCache('product/checklist/view/' + row.subId,
-        {obsDt:row.obsDt, numSpecies:3, durationHrs:1, obs:[]});
+      A.seedChecklistView(row.subId,
+        {subId:row.subId, userDisplayName:row.userDisplayName,
+          obsDt:row.obsDt, numSpecies:3, durationHrs:1, obs:[]});
     });
     A.clearSpeciesLookup();
     A.setActiveReport('wa');
@@ -3201,7 +3208,9 @@ const AUDIT = `<script>
     A.seedChase(profile.slug, {t:Date.now(), rarity:false,
       fetchBaseKey:A.chaseFetchBaseKey(profile), geoNotableKm:logic.geoNotableDistKm(profile),
       speciesCodes:['verfly'], rows:{}, cv:{merged:logic.mergeSnapshot([
-        {kind:'notable', src:'synthetic', rows:rows}])}});
+        {kind:'notable', src:'synthetic', rows:rows}]).map(function (row) {
+          return Object.assign({}, row, {__notable:true});
+        })}});
     var release;
     A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),
       new Promise(function (resolve) { release = resolve; }));
@@ -3242,6 +3251,23 @@ const AUDIT = `<script>
     watchedBird.stakeoutWatchAction=true;
     out.push(watchedBird);
     var first = visible(host)[0], main = first.querySelector('.ckmain');
+    await A.hydrateChecklistEvidence(host, true);
+    await until(function () {
+      return visible(host).every(function (row) { return row.querySelector('.cksp'); });
+    }, 'cached visible checklist facts did not settle before reading-anchor measurement');
+    var observer = first.querySelector('.ckwho'), age = first.querySelector('.ckage');
+    if (!observer || !age || getComputedStyle(observer).fontSize !== getComputedStyle(age).fontSize
+        || getComputedStyle(observer).fontWeight !== getComputedStyle(age).fontWeight)
+      throw new Error('F1433 observer must inherit the surrounding checklist sentence typography');
+    var birdCount = first.querySelector('.ckcount'), speciesTotal = first.querySelector('.cksp');
+    if (!birdCount || !speciesTotal || speciesTotal.textContent !== '3sp'
+        || !(birdCount.compareDocumentPosition(speciesTotal) & Node.DOCUMENT_POSITION_FOLLOWING))
+      throw new Error('F1435/F1436 actual checklist must keep bird-count-first compact species totals: '
+        + JSON.stringify({count:birdCount && birdCount.textContent,
+          species:speciesTotal && speciesTotal.textContent, row:first.dataset.evSub}));
+    if (host.querySelector('.rareflag'))
+      throw new Error('F1434 single-bird checklist rows must omit redundant RARE badges');
+    out.push(scan('(F1433-F1436 actual checklist presentation)'));
     var date = main.querySelector('.ckdate').getBoundingClientRect();
     var lead = main.querySelector('.cklead'), range = document.createRange();
     range.selectNodeContents(lead);
@@ -3266,6 +3292,10 @@ const AUDIT = `<script>
         'automatic append did not run');
       retained(host, anchor, 'automatic append ' + pass);
       measurements.push({append:pass, before:before.length, after:visible(host).length});
+      await A.hydrateChecklistEvidence(host, true);
+      await until(function () {
+        return visible(host).every(function (row) { return row.querySelector('.cksp'); });
+      }, 'appended cached checklist facts did not settle');
     }
     var expanded = visible(host);
     document.documentElement.style.overflowAnchor = 'none';
@@ -3293,7 +3323,19 @@ const AUDIT = `<script>
     retained(host, anchor, 'late source prepended newer reports');
     await pause(250);
     retained(host, anchor, 'settled late-source refresh');
+    var pendingReview = host.querySelector('[data-ev-sub="S891-AUDIT-0"] .revpend');
+    var confirmedReview = host.querySelector('[data-ev-sub="S891-AUDIT-1"] .revok');
+    if (!pendingReview || pendingReview.textContent !== '?'
+        || !pendingReview.getAttribute('aria-label').startsWith('Unconfirmed;')
+        || !confirmedReview || confirmedReview.textContent !== '\uD83D\uDEE1\uFE0F'
+        || !confirmedReview.getAttribute('aria-label').startsWith('Confirmed by'))
+      throw new Error('F1437 compact checklist review requires labelled question-mark and shield icons');
+    out.push(scan('(F1437 actual acquired review icons)'));
     A.setSpeciesLookupGrouped(true);
+    var placeHeading = host.querySelector('.spLookupPlaceList > .hscard-md > .name');
+    if (!placeHeading || /\u26a0/.test(placeHeading.textContent))
+      throw new Error('F1434 Stakeout place headings must not repeat the report warning');
+    out.push(scan('(F1434 actual grouped heading warning omission)'));
     var more = host.querySelector('.stakeoutChecklistMore');
     require(more, 'grouped inner expansion control missing');
     more.click();

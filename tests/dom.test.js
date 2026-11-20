@@ -6314,8 +6314,8 @@ test('F997 bounded automatic Menu and direct notable acquisition preserve their 
     assert.equal(calls().length, before + 3, 'explicit Refresh bypasses the warm memo once');
     assert.match(app.$('recentBirdGenRows').textContent, /Vermilion Flycatcher/);
     assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Unreviewed report/);
-    assert.match(app.$('surgeFeed').querySelector('[data-alert-kind="twitch"] .surge-essential')
-      .textContent, /Unreviewed report/, 'full-feed uncertainty survives compact preview');
+    assert.doesNotMatch(app.$('surgeFeed').querySelector('[data-alert-kind="twitch"]').textContent,
+      /Unreviewed report/, 'F1438 full and compact cards omit the redundant review line');
     assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),
       'actual new acquisition, not seeded renderSurge paint, produces a TWITCH');
     assert.match(app.$('recentBirdGenRows').textContent, /Northern Waterthrush/,
@@ -7576,7 +7576,7 @@ test('F991 compact cards retain evidence behind category buttons and preserve es
         when: recentObsStamp(0), time: Date.now(), extra, unreviewed: true,
       }, 0);
       assert.match(fixture.textContent, expected, kind);
-      assert.match(fixture.textContent, /Unreviewed report/, kind);
+      assert.doesNotMatch(fixture.textContent, /Unreviewed report/, kind);
       assert.equal(fixture.querySelector('.surgeexplain'), null);
     }
     assert.deepEqual(app.state.errors, []);
@@ -7953,7 +7953,15 @@ test('F1025 actual species lookup and grouped projections never promote missing 
       const card = app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`);
       assert.ok(card, 'actual summary projection keeps ' + row.subId);
       assert.equal(!!card.querySelector('.revok'), i === 0, 'only reviewed and valid is confirmed');
-      if (i === 1) assert.match(card.textContent, /Unconfirmed/);
+      if (i === 1) {
+        const pending = card.querySelector('.revpend');
+        assert.ok(pending, 'valid but unreviewed evidence remains unconfirmed');
+        assert.equal(pending.textContent, '?');
+        assert.match(pending.getAttribute('aria-label'), /^Unconfirmed;/);
+        assert.equal(pending.title, pending.getAttribute('aria-label'));
+      }
+      if (i === 2) assert.equal(card.querySelector('.revpend,.revok'), null,
+        'missing review evidence must not invent a review status');
       const records = A.speciesLookupRecords([row], []);
       const group = A.buildAllUnseen(records)[0];
       const host = app.document.createElement('div');
@@ -8001,9 +8009,10 @@ test('F1025 actual Favorite Patch detail and Bird Gen acquisition retain provisi
     A.renderSurge([], [], [], [], [], {}, [], source.rows);
     const card = app.$('surgeFeed').querySelector('[data-alert-kind="favorite"][data-species-code="lcspet"]');
     assert.ok(card);
-    const warning = card.querySelector('.surge-essential');
-    assert.ok(warning, 'a provisional Favorite report needs an explicit visible warning');
-    assert.match(warning.textContent, /Unreviewed report/);
+    assert.doesNotMatch(card.textContent, /Unreviewed report/,
+      'F1438 provisional Favorite alerts omit the redundant review line');
+    assert.doesNotMatch(app.$('recentBirdGenRows').textContent, /Unreviewed report/,
+      'F1438 full and Recent cards keep the same review-label omission');
     assert.equal(app.$('surgeFeed').querySelector('[data-alert-kind="favorite"][data-species-code="norwat"]')
       .querySelector('.revok'), null,
     'missing review fields must not invent confirmation');
@@ -8203,7 +8212,7 @@ test('F1378 exact available checklist facts survive first paint, redraws, progre
         const index=Number(sub.split('-')[1]);
         if(index>=12)continue;
         assert.equal(facts.who,'Synthetic cached observer '+index,'first inserted observer');
-        assert.equal(facts.sp,'17 sp','first inserted species total');
+        assert.equal(facts.sp,'17sp','first inserted species total');
         assert.match(facts.text,/30m/,'first inserted duration');
         assert.match(facts.media,/📷/,'first inserted target-species photo evidence');
       }
@@ -8218,7 +8227,7 @@ test('F1378 exact available checklist facts survive first paint, redraws, progre
             assert.equal(node.querySelector('.cksp'), null);
           } else {
             assert.equal(node.querySelector('.ckwho')?.textContent, 'Synthetic cached observer ' + index);
-            assert.equal(node.querySelector('.cksp')?.textContent, '17 sp');
+            assert.equal(node.querySelector('.cksp')?.textContent, '17sp');
             assert.match(node.textContent, /30m/);
             assert.match(node.querySelector('.ckevid')?.textContent || '', /📷/);
             assert.doesNotMatch(node.querySelector('.ckevid')?.textContent || '', /🔊/);
@@ -8256,14 +8265,14 @@ test('F1378 reuses acquired summaries and retains facts learned by actual hydrat
     await A.lookupSpecies('litsti','Little Stint');
     let node=app.$('spLookupRecent').querySelector('[data-ev-sub="'+row.subId+'"]');
     assert.equal(node.querySelector('.ckwho')?.textContent,'Synthetic summary observer');
-    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.equal(node.querySelector('.cksp')?.textContent,'23sp');
     assert.doesNotMatch(node.textContent,/30m/);
     await A.hydrateChecklistEvidence(node);
     A.setSpeciesLookupGrouped(false); A.setSpeciesLookupSort('dist');
     node=app.$('spLookupRecent').querySelector('[data-ev-sub="'+row.subId+'"]');
     assert.match(node.textContent,/30m/);
     assert.match(node.querySelector('.ckevid')?.textContent || '',/📷/);
-    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.equal(node.querySelector('.cksp')?.textContent,'23sp');
     assert.equal(app.state.fetches.filter(url=>/product\/checklist\/view\//.test(url)).length,1,
       'explicit visible-row hydration is shared; redraw must not reacquire it');
   } finally {app.window.close();}
@@ -8315,7 +8324,7 @@ test('F1378 bounded older-history species verification preserves the matched che
     await A.loadStakeoutPlaceHistory(host.querySelector('.stakeoutPlaceHistory'),{code:'litsti'});
     const node=host.querySelector('[data-ev-sub="'+sub+'"]');
     assert.ok(node,'the target species must be verified before projecting a summary');
-    assert.equal(node.querySelector('.cksp')?.textContent,'23 sp');
+    assert.equal(node.querySelector('.cksp')?.textContent,'23sp');
     assert.match(node.textContent,/Synthetic verified observer/);
     assert.match(node.textContent,/30m/);
     assert.equal(app.state.fetches.filter(url=>/product\/lists\/L1378/.test(url)).length,1);
@@ -8327,7 +8336,7 @@ test('F1378 bounded older-history species verification preserves the matched che
     await A.loadStakeoutPlaceHistory(slot,{code:'litsti'});
     assert.equal(list.children.length,1,'an existing match must not be duplicated');
     assert.equal(list.firstElementChild,existing,'retain the existing checklist node');
-    assert.equal(existing.querySelector('.cksp')?.textContent,'23 sp');
+    assert.equal(existing.querySelector('.cksp')?.textContent,'23sp');
     assert.match(existing.textContent,/Synthetic verified observer/);
     assert.match(existing.textContent,/30m/);
     assert.equal(app.state.fetches.filter(url=>/product\/lists\/L1378/.test(url)).length,1);
@@ -8462,7 +8471,7 @@ test('F1023 unrelated checklist details cannot overwrite an authorized summary o
     await A.hydrateChecklistEvidence(reopened);
     assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 2,
       'an unsuccessful detail result must remain retryable after reopening the summary');
-    assert.equal(reopened.querySelector('.cksp')?.textContent, '7 sp');
+    assert.equal(reopened.querySelector('.cksp')?.textContent, '7sp');
     assert.equal(reopened.querySelector('.ckwho')?.textContent, row.userDisplayName);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -11081,7 +11090,9 @@ test('F1419 all alert kinds have independent compact views and working full-view
       const {expected,...content} = cases[kind];
       holder.innerHTML = A.surgeAlertCard({kind,...content,code:'amepip',
         when:formatObsStamp(new Date(Date.now()-60000)),time:Date.now(),unreviewed:true,
-        why:'Representative qualification',extra:'Retained supporting evidence.',
+        why:'Representative qualification',
+        extra:'Retained supporting evidence.' + (kind === 'favorite' ? ' Outside chase area.'
+          : kind === 'mass' ? ' One reported high count.' : ''),
         data:{hsloc:'LVIEW1419',hslocname:'Example Public Park'}},0);
       const source = holder.firstElementChild, before = source.outerHTML;
       const full = A.birdGenAlertView(source,'full');
@@ -11109,7 +11120,11 @@ test('F1419 all alert kinds have independent compact views and working full-view
         assert.deepEqual(routes(card),routes(source),kind+' must preserve the exact bird/place destinations');
         assert.equal(card.querySelector('template[data-surge-evidence]').innerHTML,
           source.querySelector('template[data-surge-evidence]').innerHTML,kind);
-        assert.equal(card.querySelector('.sub').textContent,source.querySelector('.sub').textContent,kind);
+        assert.equal(card.querySelector('.sub')?.outerHTML,source.querySelector('.sub')?.outerHTML,
+          kind+' must preserve the exact optional warning subtitle');
+        assert.doesNotMatch(card.textContent,/Unreviewed report/,kind);
+        if (kind === 'favorite') assert.match(card.querySelector('.sub').textContent,/Outside chase area/);
+        if (kind === 'mass') assert.match(card.querySelector('.sub').textContent,/Single report - flock may have moved/);
         assert.ok(card.querySelector('.surgekindwrap'),kind+' must keep the full icon and age');
         app.click(card.querySelector('[data-surge-details]'));
         if (kind === 'foy') assert.equal(app.$('sec-foyBtn').hidden,false);
@@ -12701,7 +12716,7 @@ for (const retained of ['none', 'archive', 'snapshot', 'both']) {
       const A = app.window.__app;
       if (retained === 'archive' || retained === 'both') A.abaArchiveAdd('US-WA', [row]);
       await A.lookupSpecies(row.speciesCode, row.comName);
-      await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
+      await waitFor(() => app.$('spLookupRecent').querySelector('[data-ev-rare="1"]'),
         'actual RBA/notable evidence arrives');
       const card = app.$('spLookupResults');
       assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null,
@@ -12742,7 +12757,7 @@ test('F1012 Stakeout fresh empty Mega selection overrides retained index detail'
     assert.ok(view.bySpecies[row.speciesCode], 'the retired detail object remains useful');
     assert.equal(A.abaArchiveFor('US-WA', row.speciesCode).length, 1);
     await A.lookupSpecies(row.speciesCode, row.comName);
-    await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
+    await waitFor(() => app.$('spLookupRecent').querySelector('[data-ev-rare="1"]'),
       'current RBA evidence arrives');
     assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null);
     assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
@@ -12803,7 +12818,7 @@ for (const scope of ['current', 'different account', 'different region']) {
         app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify(saved));
       }
       await A.lookupSpecies(row.speciesCode, row.comName);
-      await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'),
+      await waitFor(() => app.$('spLookupRecent').querySelector('[data-ev-rare="1"]'),
         'independent RBA evidence arrives');
       assert.equal(!!app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'),
         scope === 'current', 'classification must follow source and account/region ownership');
@@ -23910,8 +23925,9 @@ for (const [order, retainedMega] of [
           assert.deepEqual(displayed.map((r) => r.dataset.evSub).sort(),
             [...expected.keys()].sort(), `${source}: exact distinct displayed IDs (${grouped})`);
           for (const r of displayed) {
-            assert.equal(!!r.querySelector('.rareflag'), expected.get(r.dataset.evSub),
+            assert.equal(r.dataset.evRare === '1', expected.get(r.dataset.evSub),
               `${source}: RARE provenance for ${r.dataset.evSub} (${grouped})`);
+            assert.equal(r.querySelector('.rareflag'), null, 'F1434 single-bird rows omit repeated RARE badges');
           }
         }
       }
@@ -23965,7 +23981,7 @@ for (const order of [['species', 'rba'], ['rba', 'species']]) {
       for (const source of order) {
         gates[source].resolve(source === 'species' ? rows : megaAlertHtml(rows));
         if (source === 'species') await lookup;
-        else await waitFor(() => app.$('spLookupRecent').querySelector('.rareflag'), 'RBA rendered');
+        else await waitFor(() => app.$('spLookupRecent').querySelector('[data-ev-rare="1"]'), 'RBA rendered');
       }
       for (const grouped of [true, false]) {
         A.setSpeciesLookupGrouped(grouped);
@@ -23990,7 +24006,8 @@ for (const order of [['species', 'rba'], ['rba', 'species']]) {
             assert.ok(main.children[1].classList.contains('cklead'),
               'F898 source place follows the timestamp');
           }
-          assert.ok(row.querySelector('.rareflag'), 'RARE survives either source order');
+          assert.equal(row.dataset.evRare, '1', 'rarity provenance survives either source order');
+          assert.equal(row.querySelector('.rareflag'), null, 'F1434 does not repeat rarity on single-bird rows');
           assert.equal(!!row.querySelector('.privateflag'),
             rows.find(r => r.subId === row.dataset.evSub).locationPrivate,
             'private locations are explicitly labelled in both presentation modes');
@@ -24006,6 +24023,150 @@ for (const order of [['species', 'rba'], ['rba', 'species']]) {
     } finally { app.window.close(); }
   });
 }
+
+test('F1433 actual Stakeout observer text inherits the checklist sentence typography', async () => {
+  const f = f890EvidenceFixture();
+  const source = { ...f.row('S1433'), userDisplayName: 'Synthetic observer with a wrapping name',
+    numSpecies: 11, durationHrs: 1 + 20 / 60 };
+  const app = await boot({ sample: false, fetch: url => /api\.ebird\.org/.test(url) ? [] : null });
+  try {
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), [source]);
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    function inherited(node, property) {
+      for (; node; node = node.parentElement) {
+        const value = app.window.getComputedStyle(node)[property];
+        if (value && value !== 'inherit') return value;
+      }
+      assert.fail(`No ${property} baseline found`);
+    }
+    for (const grouped of [true, false]) {
+      A.setSpeciesLookupGrouped(grouped);
+      const row = app.$('spLookupRecent').querySelector('[data-ev-sub="S1433"]');
+      const who = row.querySelector('.ckwho'), age = row.querySelector('.ckage');
+      assert.equal(who.textContent, source.userDisplayName);
+      assert.ok(age);
+      assert.equal(inherited(who, 'fontSize'), inherited(age, 'fontSize'),
+        'the observer must not shrink inside the metadata wrapper');
+      assert.equal(inherited(who, 'fontWeight'), inherited(age, 'fontWeight'),
+        'observer attribution remains ordinary sentence text');
+      assert.equal(row.querySelector('.ckdate a').href, A.checklistUrl(source.subId));
+      assert.equal(row.querySelector('.cksp').textContent, '11sp');
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1434 actual Stakeout omits redundant rare tags and heading warnings but retains report review', async () => {
+  const f = f890EvidenceFixture();
+  const source = { ...f.row('S1434'), obsValid: false, obsReviewed: false,
+    __notable: true, reviewState: 'unconfirmed', numSpecies: 11, durationHrs: 1 };
+  const app = await boot({ sample: false, fetch: url => /api\.ebird\.org/.test(url) ? [] : null });
+  try {
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), [source]);
+    A.seedChase('wa', { cv: { merged: [{
+      ...f.normalized(source), valid: false, reviewState: 'unconfirmed', __notable: true
+    }] } });
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(true);
+    const card = app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
+    const row = card.querySelector('[data-ev-sub="S1434"]');
+    assert.ok(row);
+    assert.equal(row.querySelector('.rareflag'), null,
+      'the selected bird must not regain a RARE badge on each checklist');
+    assert.doesNotMatch(card.querySelector(':scope > .name').textContent, /⚠/,
+      'the place heading must not repeat the newest report review warning');
+    assert.match(row.querySelector('.revpend').getAttribute('aria-label'), /Unconfirmed/,
+      'actual report review status must remain accessible');
+    assert.equal(row.dataset.evRare, '1', 'rarity provenance remains available without a visible badge');
+    assert.equal(row.querySelector('.ckdate a').href, A.checklistUrl(source.subId));
+    A.setSpeciesLookupGrouped(false);
+    const flat = app.$('spLookupRecent').querySelector('[data-ev-sub="S1434"]');
+    assert.equal(flat.querySelector('.rareflag'), null, 'flat single-bird rows also omit repeated rarity');
+    assert.match(flat.querySelector('.revpend').getAttribute('aria-label'), /Unconfirmed/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1437 actual Stakeout uses accessible question-mark and shield review icons', async () => {
+  const f = f890EvidenceFixture();
+  const sources = [false, true].map((confirmed, index) => ({
+    ...f.row('S1437-' + index, index), obsValid: confirmed, obsReviewed: confirmed,
+    __notable: true, reviewState: confirmed ? 'confirmed' : 'pending'
+  }));
+  const app = await boot({ sample: false, fetch: url => /api\.ebird\.org/.test(url) ? [] : null });
+  try {
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), sources);
+    A.seedChase('wa', { cv: { merged: sources.map(source => ({
+      ...f.normalized(source), valid: source.obsValid,
+      reviewState: source.reviewState, __notable: true
+    })) } });
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    for (const grouped of [true, false]) {
+      A.setSpeciesLookupGrouped(grouped);
+      for (const [index, source] of sources.entries()) {
+        const row = app.$('spLookupRecent').querySelector(`[data-ev-sub="${source.subId}"]`);
+        const icon = row.querySelector(index === 0 ? '.revpend' : '.revok');
+        assert.ok(icon);
+        assert.equal(icon.getAttribute('role'), 'img');
+        assert.match(icon.getAttribute('aria-label'), index === 0 ? /^Unconfirmed;/ : /^Confirmed by/);
+        assert.equal(icon.title, icon.getAttribute('aria-label'));
+        assert.equal(icon.textContent, index === 0 ? '?' : '🛡️',
+          'compact review status must not regain an egg or visible status words');
+        assert.equal(icon.querySelector('[aria-hidden="true"]').textContent, icon.textContent);
+      }
+    }
+    assert.match(A.reviewFlag({ reviewState: 'pending' }), /Unconfirmed<\/span>/,
+      'the separately labelled review flag is not being removed elsewhere');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1435/F1436 checklist bird counts precede compact species totals initially and after hydration', async () => {
+  const f = f890EvidenceFixture();
+  const source = f.row('S1435HYDRATE');
+  const app = await boot({ sample: false, fetch: url =>
+    /product\/checklist\/view\/S1435HYDRATE/.test(url)
+      ? { subId: source.subId, userDisplayName: source.userDisplayName,
+        numSpecies: 11, durationHrs: 1, obs: [] }
+      : /api\.ebird\.org/.test(url) ? [] : null });
+  try {
+    const host = app.document.createElement('div');
+    host.innerHTML = app.window.ChecklistCards.list('small', [1, null, undefined].map(count =>
+      app.window.ChecklistCards.small({ date: 'Nov 19', who: 'Synthetic observer', count, sp: 11 })));
+    app.document.body.appendChild(host);
+    for (const [index, row] of [...host.querySelectorAll('.cklcard-sm')].entries()) {
+      const species = row.querySelector('.cksp'), count = row.querySelector('.ckcount');
+      assert.equal(species.textContent, '11sp', 'species totals must not regain a separating space');
+      if (index < 2) {
+        assert.equal(count.textContent, index === 0 ? '×1' : '×X');
+        assert.ok(count.compareDocumentPosition(species) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+          'the bird count must come before the checklist species total');
+      } else assert.equal(count, null, 'absent bird counts must stay absent');
+    }
+    const A = app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), [source]);
+    await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    const row = app.$('spLookupRecent').querySelector('[data-ev-sub="S1435HYDRATE"]');
+    assert.equal(row.querySelector('.cksp'), null, 'exercise actual late insertion, not only text replacement');
+    await A.hydrateChecklistEvidence(row);
+    const count = row.querySelector('.ckcount'), species = row.querySelector('.cksp');
+    assert.equal(species.textContent, '11sp', 'hydration must use the same compact unit');
+    assert.ok(count.compareDocumentPosition(species) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'hydration must preserve bird-count-first order');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
 
 test('F1029 grouped Stakeout sources expose exact public and private destinations without disclosures', async () => {
   const f = f890EvidenceFixture();
@@ -48152,12 +48313,12 @@ test('F626 individual checklist rows preserve review criteria with the F819 shie
   const A = app.window.__app;
   const confirmed = A.reviewIcon({ reviewState: 'confirmed' });
   const pending = A.reviewIcon({ reviewState: 'pending' });
-  assert.match(confirmed, />\uD83D\uDEE1\uFE0F<\/span> CONFIRMED/,
-    'a confirmed checklist uses the same shield and explicit text');
-  assert.match(pending, />\uD83E\uDD5A<\/span>/,
-    'an unconfirmed checklist keeps its distinct egg icon');
+  assert.match(confirmed, />\uD83D\uDEE1\uFE0F<\/span><\/span>/,
+    'F1437 a confirmed compact checklist uses the shield without status words');
+  assert.match(pending, /aria-hidden="true">\?<\/span>/,
+    'F1437 an unconfirmed compact checklist uses a question mark');
   assert.doesNotMatch(pending, />[^<]*Unconfirmed[^<]*</,
-    'the existing pending icon is unchanged');
+    'the accessible status is not repeated as visible words');
   assert.match(confirmed, /aria-label="Confirmed by an eBird reviewer"/);
   assert.match(pending,
     /aria-label="Unconfirmed; no eBird reviewer confirmation available"/);
@@ -58965,7 +59126,7 @@ test('F498 small checklist cards use explicit actions without bullets or hanging
     checklistId: 'S395342498',
   });
   assert.match(html,
-    /Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*12h<\/span> ago[\s\S]*Robert Ambrose[\s\S]*41 sp[\s\S]*×1[\s\S]*1h57m/,
+    /Discovery Bay[\s\S]*9\/22 10:10a[\s\S]*12h<\/span> ago[\s\S]*Robert Ambrose[\s\S]*×1[\s\S]*41sp[\s\S]*1h57m/,
     'the shared row omits a required checklist fact');
   assert.doesNotMatch(html, /S395342498|class="ckid"/,
     'the compact row still prints the checklist id after the date became its action');
@@ -61408,7 +61569,8 @@ test('F819 confirmed presentation consistently uses the standard shield and expl
       { valid: true }]) {
       const host = app.document.createElement('div');
       host.innerHTML = render(evidence);
-      assert.match(host.textContent, /🛡️ CONFIRMED/);
+      assert.equal(host.textContent, render === A.reviewFlag ? '🛡️ CONFIRMED' : '🛡️',
+        'F1437 only the compact icon omits visible status words');
       assert.equal(host.querySelector('[aria-hidden="true"]').textContent, '🛡️');
       assert.equal(host.querySelector('.revok').getAttribute('aria-label'),
         'Confirmed by an eBird reviewer');
