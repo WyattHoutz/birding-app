@@ -5660,7 +5660,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.11.3';
+      var APP_VERSION = '2.11.4';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -17959,6 +17959,9 @@
         if (count == null) count = ob.howManyAtleast;
         if (count == null) count = ob.howManyStr;
         var showPlace = flat && !_spLookupGrouped;
+        var review = (row.__stateRba || row.__notable || row.rbaRare)
+          && row.reviewState && row.reviewState !== 'unknown' ? reviewIcon(row, true) : '';
+        var confirmed = row.reviewState === 'confirmed' || row.reviewState === 'accepted';
         return ChecklistCards.small({
           num: flat ? '' : num,
           dateFirst: flat && !_spLookupGrouped,
@@ -17973,8 +17976,8 @@
           date: fmtDateTime(row.obsDt || row.isoObsDate || ''),
           dateHref: row.subId ? checklistUrl(row.subId) : '',
           observedAt: row.obsDt || row.isoObsDate || '',
-          review: (row.__stateRba || row.__notable || row.rbaRare)
-            && row.reviewState && row.reviewState !== 'unknown' ? reviewIcon(row) : '',
+          review: confirmed ? '' : review,
+          reviewEnd: confirmed ? review : '',
           durationHrs: row.durationHrs,
           durationPending: !!row.subId && row.durationHrs == null,
           href: row.subId ? checklistUrl(row.subId) : '',
@@ -18003,6 +18006,7 @@
             'ev-sort': row.obsDt || row.isoObsDate || '',
             'ev-rare': row.__stateRba || row.__notable || row.rbaRare ? '1' : '0',
             'ev-inline': '1',
+            'ev-evidence-end': '1',
             'ev-show-notes': _spLookupNotes ? '1' : '0'
           }
         });
@@ -18723,12 +18727,13 @@
              + ' title="Unconfirmed; no eBird reviewer confirmation available">'
              + '\uD83E\uDD5A Unconfirmed</span>';
       }
-      function reviewIcon(r) {
+      function reviewIcon(r, labelled) {
         var s = r && r.reviewState;
         if (!s) s = (r && r.valid === true) ? 'confirmed' : 'pending';
         if (s === 'confirmed' || s === 'accepted') {
           return '<span class="revok" role="img" aria-label="Confirmed by an eBird reviewer"'
-               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span></span>';
+               + ' title="Confirmed by an eBird reviewer"><span aria-hidden="true">\uD83D\uDEE1\uFE0F</span>'
+               + (labelled ? ' Confirmed' : '') + '</span>';
         }
         return '<span class="revpend" role="img" '
              + 'aria-label="Unconfirmed; no eBird reviewer confirmation available"'
@@ -28485,6 +28490,15 @@
         return rarityNotes()
           || (el && el.getAttribute('data-ev-show-notes') === '1');
       }
+      function insertChecklistFact(meta, fact, before) {
+        meta.insertBefore(fact, before || null);
+        if (fact.previousSibling && !/\s$/.test(fact.previousSibling.textContent)) {
+          meta.insertBefore(document.createTextNode(' '), fact);
+        }
+        if (fact.nextSibling && !/^\s/.test(fact.nextSibling.textContent)) {
+          meta.insertBefore(document.createTextNode(' '), fact.nextSibling);
+        }
+      }
       function setChecklistDuration(el, durationHrs) {
         var slot = el && el.querySelector('.ckduration');
         if (!slot) return;
@@ -28720,16 +28734,15 @@
               if (!who && got.who) {
                 who = document.createElement('span');
                 who.className = 'ckwho';
-                var beforeWho = meta.querySelector('.cksp, .ckcount');
-                meta.insertBefore(who, beforeWho || null);
+                insertChecklistFact(meta, who, meta.firstChild);
               }
               if (who && got.who) who.textContent = got.who;
               var species = el.querySelector('.cksp');
               if (!species && got.speciesN != null) {
                 species = document.createElement('span');
                 species.className = 'cksp';
-                var beforeSpecies = meta.querySelector('.ckdist, .ckflag, .ckmapwrap, .ckqrwrap, .ckduration, .ckevid');
-                meta.insertBefore(species, beforeSpecies || null);
+                var beforeSpecies = meta.querySelector('.ckdist, .ckflag, .ckmapwrap, .ckqrwrap, .ckduration, .ckevid, .ckreview');
+                insertChecklistFact(meta, species, beforeSpecies);
               }
               if (species && got.speciesN != null) {
                 species.textContent = got.speciesN + 'sp';
@@ -28814,7 +28827,7 @@
                 reportFacts.insertBefore(slot, reportFacts.querySelector('.rbalink'));
               }
               else if (el.getAttribute('data-ev-evidence-end') === '1' && meta) {
-                meta.insertBefore(slot, meta.querySelector('.cknote'));
+                insertChecklistFact(meta, slot, meta.querySelector('.ckreview, .cknote'));
               }
               else if (lead) lead.insertAdjacentElement('afterend', slot);
               else if (summary) summary.insertBefore(slot, summary.firstChild);

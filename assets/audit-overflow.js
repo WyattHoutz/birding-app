@@ -3265,6 +3265,10 @@ const AUDIT = `<script>
       throw new Error('F1435/F1436 actual checklist must keep bird-count-first compact species totals: '
         + JSON.stringify({count:birdCount && birdCount.textContent,
           species:speciesTotal && speciesTotal.textContent, row:first.dataset.evSub}));
+    if (!/3sp\\s+1h/.test(first.querySelector('.ckmeta').textContent))
+      throw new Error('F1439 hydrated species total and duration must remain separate facts: '
+        + JSON.stringify({text:first.querySelector('.ckmeta').textContent,
+          duration:first.querySelector('.ckduration') && first.querySelector('.ckduration').textContent}));
     if (host.querySelector('.rareflag'))
       throw new Error('F1434 single-bird checklist rows must omit redundant RARE badges');
     out.push(scan('(F1433-F1436 actual checklist presentation)'));
@@ -3327,10 +3331,16 @@ const AUDIT = `<script>
     var confirmedReview = host.querySelector('[data-ev-sub="S891-AUDIT-1"] .revok');
     if (!pendingReview || pendingReview.textContent !== '?'
         || !pendingReview.getAttribute('aria-label').startsWith('Unconfirmed;')
-        || !confirmedReview || confirmedReview.textContent !== '\uD83D\uDEE1\uFE0F'
+        || !confirmedReview || confirmedReview.textContent !== '\uD83D\uDEE1\uFE0F Confirmed'
         || !confirmedReview.getAttribute('aria-label').startsWith('Confirmed by'))
       throw new Error('F1437 compact checklist review requires labelled question-mark and shield icons');
-    out.push(scan('(F1437 actual acquired review icons)'));
+    var confirmedRow = confirmedReview.closest('.cklcard-sm');
+    await A.hydrateChecklistEvidence(confirmedRow);
+    if (!confirmedRow.querySelector('.ckmeta').textContent.trim().endsWith('\uD83D\uDEE1\uFE0F Confirmed')
+        || [].some.call(confirmedRow.querySelectorAll('.ckwho,.ckcount,.cksp,.ckduration,.ckevid'),
+          function (fact) { return !(fact.compareDocumentPosition(confirmedReview) & Node.DOCUMENT_POSITION_FOLLOWING); }))
+      throw new Error('F1440 confirmed status must end the hydrated checklist facts');
+    out.push(scan('(F1437/F1440 actual acquired trailing confirmation)'));
     A.setSpeciesLookupGrouped(true);
     var placeHeading = host.querySelector('.spLookupPlaceList > .hscard-md > .name');
     if (!placeHeading || /\u26a0/.test(placeHeading.textContent))

@@ -24093,12 +24093,14 @@ test('F1434 actual Stakeout omits redundant rare tags and heading warnings but r
   } finally { app.window.close(); }
 });
 
-test('F1437 actual Stakeout uses accessible question-mark and shield review icons', async () => {
+test('F1437/F1440 actual Stakeout keeps pending distinct and puts labelled confirmation after hydrated facts', async () => {
   const f = f890EvidenceFixture();
-  const sources = [false, true].map((confirmed, index) => ({
+  const sources = [false, true, true].map((confirmed, index) => ({
     ...f.row('S1437-' + index, index), obsValid: confirmed, obsReviewed: confirmed,
-    __notable: true, reviewState: confirmed ? 'confirmed' : 'pending'
+    __notable: true, reviewState: confirmed ? 'confirmed' : 'pending',
+    ...(index === 2 ? { howMany: undefined, userDisplayName: '' } : {})
   }));
+  const held = new Map(sources.map(source => [source.subId, f890Deferred()]));
   const app = await boot({ sample: false, fetch: url => /api\.ebird\.org/.test(url) ? [] : null });
   try {
     const A = app.window.__app;
@@ -24108,44 +24110,91 @@ test('F1437 actual Stakeout uses accessible question-mark and shield review icon
       ...f.normalized(source), valid: source.obsValid,
       reviewState: source.reviewState, __notable: true
     })) } });
+    for (const source of sources) A.seedChecklistView(source.subId, held.get(source.subId).promise);
     await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
     A.setSpeciesLookupWithinChase(false);
     for (const grouped of [true, false]) {
       A.setSpeciesLookupGrouped(grouped);
       for (const [index, source] of sources.entries()) {
-        const row = app.$('spLookupRecent').querySelector(`[data-ev-sub="${source.subId}"]`);
+        const row = app.$('spLookupRecent').querySelector(`.cklcard-sm[data-ev-sub="${source.subId}"]`);
         const icon = row.querySelector(index === 0 ? '.revpend' : '.revok');
         assert.ok(icon);
         assert.equal(icon.getAttribute('role'), 'img');
         assert.match(icon.getAttribute('aria-label'), index === 0 ? /^Unconfirmed;/ : /^Confirmed by/);
         assert.equal(icon.title, icon.getAttribute('aria-label'));
-        assert.equal(icon.textContent, index === 0 ? '?' : '🛡️',
-          'compact review status must not regain an egg or visible status words');
-        assert.equal(icon.querySelector('[aria-hidden="true"]').textContent, icon.textContent);
+        assert.equal(icon.textContent, index === 0 ? '?' : '🛡️ Confirmed',
+          'only confirmed Stakeout status gains the requested visible label');
+        assert.equal(icon.querySelector('[aria-hidden="true"]').textContent, index === 0 ? '?' : '🛡️');
+        function confirmationLast() {
+          if (index === 0) {
+            assert.equal(icon.closest('.ckmeta'), null, 'pending review stays in its existing position');
+            return;
+          }
+          const meta = row.querySelector('.ckmeta');
+          assert.ok(meta.contains(icon));
+          assert.ok(meta.textContent.trim().endsWith('🛡️ Confirmed'),
+            'confirmation must end the checklist facts');
+          for (const fact of meta.querySelectorAll('.ckwho,.ckcount,.cksp,.ckduration,.ckevid')) {
+            assert.ok(fact.compareDocumentPosition(icon) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+              'confirmed status must follow observer, counts, duration and media');
+          }
+        }
+        if (grouped) assert.equal(row.querySelector('.ckevid'), null,
+          'exercise a newly arriving media fact, not replacement of an existing slot');
+        confirmationLast();
+        const hydration = A.hydrateChecklistEvidence(row);
+        held.get(source.subId).resolve({ subId: source.subId,
+          userDisplayName: source.userDisplayName || 'Late synthetic observer', numSpecies: 11,
+          durationHrs: index === 2 ? undefined : 1 + 20 / 60,
+          comments: 'Synthetic checklist note',
+          obs: [{ speciesCode: 'verfly', mediaCounts: { P: 1 } }] });
+        await hydration;
+        await waitFor(() => row.querySelector('.cksp')
+          && row.querySelector('.ckevid')?.textContent.includes('📷'), 'actual late checklist facts settle');
+        assert.equal(row.querySelector('.ckwho').textContent,
+          source.userDisplayName || 'Late synthetic observer');
+        if (index === 2) assert.equal(row.querySelector('.ckduration'), null,
+          'absent duration must not persist');
+        else assert.equal(row.querySelector('.ckduration').textContent, '1h20m');
+        assert.match(row.querySelector('.ckevid').textContent, /📷/);
+        if (index !== 2) assert.match(row.querySelector('.ckmeta').textContent, /11sp\s+1h20m/);
+        else assert.match(row.querySelector('.ckmeta').textContent, /11sp\s+📷\s+🛡️ Confirmed/);
+        confirmationLast();
+        if (index > 0) {
+          const action = row.querySelector('.cksummary > .cknote');
+          assert.ok(action, 'the independent clipboard action remains');
+          assert.ok(icon.compareDocumentPosition(action) & app.window.Node.DOCUMENT_POSITION_FOLLOWING);
+        }
       }
     }
     assert.match(A.reviewFlag({ reviewState: 'pending' }), /Unconfirmed<\/span>/,
       'the separately labelled review flag is not being removed elsewhere');
+    const compact = app.document.createElement('span');
+    compact.innerHTML = A.reviewIcon({ reviewState: 'confirmed' });
+    assert.equal(compact.textContent, '🛡️', 'unrelated compact mixed-bird callers stay unchanged');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
 
-test('F1435/F1436 checklist bird counts precede compact species totals initially and after hydration', async () => {
+test('F1435/F1436/F1439 checklist counts stay ordered, compact and separated from duration before and after hydration', async () => {
   const f = f890EvidenceFixture();
   const source = f.row('S1435HYDRATE');
   const app = await boot({ sample: false, fetch: url =>
     /product\/checklist\/view\/S1435HYDRATE/.test(url)
       ? { subId: source.subId, userDisplayName: source.userDisplayName,
-        numSpecies: 11, durationHrs: 1, obs: [] }
+        numSpecies: 11, durationHrs: 1 + 20 / 60, obs: [] }
       : /api\.ebird\.org/.test(url) ? [] : null });
   try {
     const host = app.document.createElement('div');
     host.innerHTML = app.window.ChecklistCards.list('small', [1, null, undefined].map(count =>
-      app.window.ChecklistCards.small({ date: 'Nov 19', who: 'Synthetic observer', count, sp: 11 })));
+      app.window.ChecklistCards.small({ date: 'Nov 19', who: 'Synthetic observer',
+        count, sp: 11, durationHrs: 1 + 20 / 60 })));
     app.document.body.appendChild(host);
     for (const [index, row] of [...host.querySelectorAll('.cklcard-sm')].entries()) {
       const species = row.querySelector('.cksp'), count = row.querySelector('.ckcount');
       assert.equal(species.textContent, '11sp', 'species totals must not regain a separating space');
+      assert.match(row.querySelector('.ckmeta').textContent, /11sp\s+1h20m/,
+        'initial species totals and duration are separate facts');
       if (index < 2) {
         assert.equal(count.textContent, index === 0 ? '×1' : '×X');
         assert.ok(count.compareDocumentPosition(species) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
@@ -24157,13 +24206,29 @@ test('F1435/F1436 checklist bird counts precede compact species totals initially
     A.seedEbirdCache(A.speciesLookupPath('US-WA', 'verfly', A.SP_LOOKUP_BACK), [source]);
     await A.lookupSpecies('verfly', 'Vermilion Flycatcher');
     A.setSpeciesLookupWithinChase(false);
-    const row = app.$('spLookupRecent').querySelector('[data-ev-sub="S1435HYDRATE"]');
+    const row = app.$('spLookupRecent').querySelector('.cklcard-sm[data-ev-sub="S1435HYDRATE"]');
     assert.equal(row.querySelector('.cksp'), null, 'exercise actual late insertion, not only text replacement');
     await A.hydrateChecklistEvidence(row);
     const count = row.querySelector('.ckcount'), species = row.querySelector('.cksp');
     assert.equal(species.textContent, '11sp', 'hydration must use the same compact unit');
+    const meta = row.querySelector('.ckmeta');
+    assert.match(meta.textContent, /×1\s+11sp\s+1h20m/,
+      'actual late insertion must preserve both independent field boundaries');
     assert.ok(count.compareDocumentPosition(species) & app.window.Node.DOCUMENT_POSITION_FOLLOWING,
       'hydration must preserve bird-count-first order');
+    const firstText = meta.textContent;
+    row.removeAttribute('data-ev-done');
+    await A.hydrateChecklistEvidence(row);
+    assert.equal(meta.textContent, firstText, 'repeated hydration must not duplicate facts or separators');
+    A.seedChecklistView('S1439-NODURATION', { subId: 'S1439-NODURATION', numSpecies: 11, obs: [] });
+    const absent = app.document.createElement('div');
+    absent.innerHTML = app.window.ChecklistCards.small({ count: 1,
+      data: { 'ev-sub': 'S1439-NODURATION', 'ev-inline': '1' } });
+    app.document.body.appendChild(absent);
+    await A.hydrateChecklistEvidence(absent);
+    assert.equal(absent.querySelector('.ckduration'), null);
+    assert.match(absent.querySelector('.ckmeta').textContent, /×1\s+11sp$/,
+      'appending species totals without duration still needs a field separator');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });

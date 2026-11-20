@@ -498,6 +498,7 @@
       if (trailingIcons) {
         meta.push('<span class="ckevid">' + trailingIcons + '</span>');
       }
+      if (v.reviewEnd) meta.push('<span class="ckreview">' + v.reviewEnd + '</span>');
     }
     var pendingNote = !isMedium && v.data && v.data['ev-sub']
       && v.data['ev-note-pending'] === '1'
