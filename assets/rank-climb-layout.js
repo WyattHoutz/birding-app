@@ -213,6 +213,16 @@ async function rankClimbLayout(scan, mutation) {
     board.me = board.rows[1];await paint();
     check(document.querySelectorAll('.rankclimb-unavailable[class*="podium-"]').length===3,'unknown podium scores',{});
     await measure('F1398 unknown-score ladder');
+    const tiedScores = [248,248,243,240,235,230,225,220,218,213,210,207,204,201,197,194,190,180,179];
+    board.rows = tiedScores.map((species,i)=>({rank:tiedScores.indexOf(species)+1,species,
+      profileId:i===17?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'}));
+    board.me = board.rows[17];await paint();
+    const tiedPodium = document.querySelector('[data-rank-milestone="2"]');
+    check(tiedPodium && tiedPodium.querySelector('.rankclimb-number').textContent==='#1'
+      && tiedPodium.querySelector('.rankclimb-cost').textContent==='+68 species'
+      && !tiedPodium.classList.contains('rankclimb-unavailable'),
+      'F1446 verified first-place tie supplies the second podium milestone',{});
+    await measure('F1446 verified first-place tie ladder');
     board.rows = Array.from({length:5001},(_,i)=>({rank:i<483?i+1:i<5000?484:5001,
       species:i<483?6001-i:i<5000?1000:999,
       profileId:i===5000?'synthetic-owner':'tied-'+i,name:'Synthetic birder'}));

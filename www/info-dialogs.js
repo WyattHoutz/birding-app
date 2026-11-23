@@ -52,7 +52,7 @@
     },
     need: {
       keyDescription: 'Locally notable birds with repeated sightings.',
-      priority: 3, word: 'CELEBRITY', glyph: '📸', name: 'Celebrity birds',
+      priority: 3, word: 'CELEBRITY', glyph: '💃', name: 'Celebrity birds',
       description: 'Locally notable birds with multiple qualifying sightings within chase distance, whether already seen or not.'
     },
     crowd: {
@@ -63,7 +63,7 @@
     cascade: {
       keyDescription: 'Birds newly added by several leaderboard birders.',
       priority: 5, word: 'CASCADE', glyph: '🏆', name: 'Leaderboard cascades',
-      description: 'At least five distinct Top 100 birders added the same species in the past seven calendar days, with the latest addition within three days. Distant destinations need public sighting evidence within three days; leaderboard interest does not prove independent reporting parties.'
+      description: 'At least five distinct leaderboard birders added the same species in the past seven calendar days, with the latest addition within three days. The count is not restricted to ranks 1-100. Distant destinations need public sighting evidence within three days; leaderboard interest does not prove independent reporting parties.'
     },
     favorite: {
       keyDescription: 'Birds you need at your saved hotspots.',
@@ -134,7 +134,7 @@
           + '<b>Rare birds</b>: this feed keeps one compact row per bird.</p>'
       },
       celebrity: {
-        title: '📸 Celebrity Birds',
+        title: '💃 Celebrity Birds',
         body: '<p>Birds <b>eBird flags as notable in this region</b>, with <b>' + BL.NEED_MIN_SIGHTINGS
           + ' or more independent sightings</b> and at least ' + BL.NEED_MIN_SIGHTINGS
           + ' distinguishable known reporting parties at one hotspot or adjacent '
@@ -175,16 +175,18 @@
       },
       cascade: {
         title: '🏆 Species cascading through the leaderboard',
-        body: '<p>eBird\u2019s Top 100 board prints, for each birder, the <b>most '
+        body: '<p>eBird\u2019s leaderboard prints, for each birder, the <b>most '
           + 'recent species they added</b> this year. Group that column by bird '
-          + 'and it becomes a chase board: when several of the top 100 add the '
+          + 'and it becomes a chase board: when several leaderboard birders add the '
           + '<b>same</b> species, that is evidence of recent interest, not proof '
           + 'of independent parties or continued presence.</p>'
           + '<p>Require <b>' + BL.CASCADE.MIN_BIRDERS
-          + '+ distinct people from the top 100 in the past ' + BL.CASCADE.WINDOW_DAYS
+          + '+ distinct leaderboard birders in the past ' + BL.CASCADE.WINDOW_DAYS
           + ' calendar days</b>, with the latest addition within '
           + BL.CASCADE.MAX_AGE_DAYS + ' calendar days. Each person counts once; '
-          + 'future and older additions do not count. It is not a rarity feed, so a bird can appear here '
+          + 'future and older additions do not count. The count uses the acquired '
+          + 'leaderboard rows, not just ranks 1-100; it is not every tick by every '
+          + 'birder in the region. It is not a rarity feed, so a bird can appear here '
           + 'without being flagged rare anywhere, and a mega nobody has ticked '
           + 'yet will not appear at all.</p>'
           + '<p>This category sees the <b>whole region</b>, including counties your '

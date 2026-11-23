@@ -1334,6 +1334,18 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'top100-sync'}) {
+      try { out.push(...await top100SyncLayout(scan)); }
+      catch(error) { out.push({label:'F1493 Top 100 sync',fixtureError:String(error)}); }
+      finish(out);
+      return;
+    }
+    if (${process.env.AUDIT_FOCUS === 'bird-reports'}) {
+      try { out.push(...await birdReportLayout(scan,null,auditStage)); }
+      catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'next-release'}) {
       out.push(...await nextReleaseLayout(scan, ${JSON.stringify(process.env.AUDIT_NEXT_MUTATION || '')}));
       finish(out);
@@ -2493,7 +2505,8 @@ const AUDIT = `<script>
           fullCounts:[].every.call(identity.querySelectorAll('.hdrcount span'), function (span) {
             return span.scrollWidth <= span.clientWidth + 1;
           }),
-          periodFirst:document.querySelector('.quicksettings').children[1].classList.contains('periodpick'),
+          regionFirst:document.querySelector('.quicksettings').children[1].classList.contains('regionquickpick')
+            && document.querySelector('.quicksettings').children[2].classList.contains('periodpick'),
           controls:['hdrRankJump','hdrSpeciesJump','hdrChecklistJump'].filter(function (id) {
             return !!document.getElementById(id);
           }).map(function (id) {
@@ -2515,7 +2528,7 @@ const AUDIT = `<script>
       A.renderMenuIdentity();
       var savedRecentRegions = localStorage.getItem('bc_recent_regions_v1');
       localStorage.setItem('bc_recent_regions_v1', JSON.stringify([
-        'wa', 'region:CA-NL', 'region:US-MI', 'lower48'
+        'wa', 'county:wa:US-WA-033', 'county:wa:US-WA-061', 'lower48', 'aba'
       ]));
       A.showMenu(); A.renderMenuIdentity();
       var recentRegionHost = document.getElementById('menuRecentRegions');
@@ -2553,11 +2566,41 @@ const AUDIT = `<script>
           lat:A.getHome().lat,lng:A.getHome().lng,obsDt:localStamp,howMany:9,subId:'SF1401'}]
       }], [], []);
       var localAlert = document.querySelector('[data-alert-kind="cascade"][data-species-code="pacloo"]');
-      if (!localAlert || !/Pacific Loon recently at Ocean Ave/.test(
+      if (!localAlert || !/Pacific Loon recently seen at Ocean Ave/.test(
         localAlert.querySelector('.surgealerttitle').textContent)) {
         throw new Error('F1401 production qualified local headline is missing');
       }
       out.push(scan('(F1401 production qualified local alert)'));
+      var tickThumb = localAlert.querySelector(':scope > .name > .surgetickthumb');
+      var tickBadge = tickThumb && tickThumb.querySelector('.surgetickcount');
+      if (!tickBadge || tickBadge.textContent !== '5'
+          || localAlert.querySelector('.surgekindtile').textContent !== '🏆'
+          || localAlert.querySelector('.surgealerttitle').textContent !== 'Leaderboard has 5 ticks for Pacific Loon recently seen at Ocean Ave (Water St), Edmonds') {
+        throw new Error('F1442 count must overlay the bird icon and leave the trophy and plain headline intact');
+      }
+      var thumbRect = tickThumb.getBoundingClientRect(), badgeRect = tickBadge.getBoundingClientRect();
+      var photoRect = tickThumb.querySelector('.thumb[data-bird]').getBoundingClientRect();
+      if (Math.abs(photoRect.width - thumbRect.width) > 1 || Math.abs(photoRect.height - thumbRect.height) > 1) {
+        throw new Error('F1442 hydrated bird photo must fill its count-overlay frame');
+      }
+      if (badgeRect.width <= 0 || badgeRect.height <= 0
+          || badgeRect.left < thumbRect.left - .5 || badgeRect.right > thumbRect.right + .5
+          || badgeRect.top < thumbRect.top - .5 || badgeRect.bottom > thumbRect.bottom + .5
+          || tickBadge.scrollWidth > tickBadge.clientWidth + 1
+          || getComputedStyle(tickBadge).position !== 'absolute') {
+        throw new Error('F1442 visible tick count must stay over and inside the bird image');
+      }
+      A.renderSurge([], [], [], [{code:'buggna',name:'Blue-gray Gnatcatcher',
+        reports:4,knownParties:4,nPlaces:1,distMi:2,whenStr:localStamp,
+        locName:'North Creek Park',locId:'LF1441PUBLIC',subId:'SF1441',count:1}], []);
+      var celebrity = document.querySelector('[data-alert-kind="need"] .surgealerttitle');
+      if (!celebrity
+          || celebrity.textContent !== 'Celebrity bird Blue-gray Gnatcatcher recently at North Creek Park'
+          || celebrity.querySelector('.splink').dataset.sp !== 'buggna'
+          || celebrity.querySelector('.hslink').dataset.loc !== 'LF1441PUBLIC') {
+        throw new Error('F1441 Celebrity must say recently without a bullet and retain both destinations');
+      }
+      out.push(scan('(F1441 production Celebrity recently headline)'));
       A.renderSurge([], [], [], [], [], {
         mega:'notApplicable', observations:'ok', leaderboard:'notApplicable',
         hotspots:'notApplicable', favorites:'notApplicable', mass:'notApplicable',
@@ -4796,7 +4839,9 @@ const AUDIT = `<script>
         var rect = refresh.getBoundingClientRect();
         if (!rect.width || rect.top < 0 || rect.bottom > window.innerHeight)
           throw new Error('F1140 refresh is not visibly testable: ' + sec.id);
-        var load = sec.querySelector(':scope > .row[hidden] button:not(.secondary):not(.pressbtn):not(.sortbtn):not([hidden])');
+        // Find mode leaves both retained anchor buttons secondary.
+        var load = sec.id === 'sec-quickBtn' ? document.getElementById('quickBtn')
+          : sec.querySelector(':scope > .row[hidden] button:not(.secondary):not(.pressbtn):not(.sortbtn):not([hidden])');
         var direct = (!load && /^(stakeHsRefresh|spLookupRefresh)$/.test(refresh.id))
           || (load && /^(refreshBtn|activeBtn)$/.test(load.id));
         if (direct) load = refresh;
@@ -4919,7 +4964,9 @@ const AUDIT = `<script>
       var speciesText=textBox(checklist.querySelector('.cksp'));
       result.checklistCodes.baselines={date:dateText.bottom,observer:observerText.bottom,
         species:speciesText.bottom};
-      var sameLine=dateText.top<observerText.bottom && observerText.top<dateText.bottom;
+      // Glyph bounds can overlap slightly across adjacent wrapped text lines.
+      var lineOverlap=Math.min(dateText.bottom,observerText.bottom)-Math.max(dateText.top,observerText.top);
+      var sameLine=lineOverlap>Math.min(dateText.height,observerText.height)/2;
       if(sameLine && Math.abs(dateText.bottom-observerText.bottom)>1)
         throw new Error('F1341 same-line date and observer text baselines staggered: '
           +JSON.stringify(result.checklistCodes.baselines));
@@ -5240,8 +5287,18 @@ const AUDIT = `<script>
   const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
+  const birdReportLayout = ${require('./bird-report-layout').toString()};
+  const top100SyncLayout = ${require('./top100-sync-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { out.push(...await birdReportLayout(scan,null,auditStage)); }
+      catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
+    }
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { out.push(...await top100SyncLayout(scan)); }
+      catch(error) { out.push({label:'F1493 Top 100 sync',fixtureError:String(error)}); }
+    }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { await approvedReleaseRegression(out); }
       catch (error) { out.push({label:'(F1040-F1055 regression)',fixtureError:String(error)}); }
@@ -5653,6 +5710,21 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'top100-sync') {
+      console.log('F1493_REQUIRED_FIXTURES=' + report.filter(r=>r.rankCountSync).length + '/4');
+      console.log(JSON.stringify(report,null,2));
+      process.exit(report.length===4 && report.every(r=>r.rankCountSync
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !['clipped','midword','small','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'bird-reports') {
+      console.log(JSON.stringify(report.map(r=>({label:r.label,fixtureError:r.fixtureError,
+        over:r.over,docScrollW:r.docScrollW,reading:r.birdReportReading,
+        items:r.items,clipped:r.clipped,midword:r.midword,small:r.small,crushed:r.crushed})),null,2));
+      process.exit(report.length===5 && report.some(r=>r.birdReportReading)
+        && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+          && !['clipped','midword','small','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'next-release') {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
@@ -5661,7 +5733,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {
       console.log(JSON.stringify(report, null, 2));
-      process.exit(report.length === 4 && report.every(r => r.rankClimbGeometry
+      process.exit(report.length === 5 && report.every(r => r.rankClimbGeometry
         && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'maps') {
@@ -5777,6 +5849,10 @@ server.listen(0, '127.0.0.1', () => {
       bad++;
       console.log('   F1266 FIXTURE missing expanded backup controls');
     }
+    if (report.filter(r => r.rankCountSync).length !== 4) {
+      bad++;
+      console.log('   F1493 FIXTURE missing actual refresh, pull, mismatch or failure geometry');
+    }
     if (report.filter(r => r.favoriteSearch && r.favoriteSearch.matches === 1).length !== 1) {
       bad++;
       console.log('   F1286 FIXTURE missing actual successful Favorite search action geometry');
@@ -5862,7 +5938,7 @@ server.listen(0, '127.0.0.1', () => {
       if (r.personalHeader) {
         const header = r.personalHeader;
         console.log('   F852/F853 HEADER GEOMETRY ' + JSON.stringify(header));
-        if (!header.twoRows || header.nameWidth <= 0 || !header.periodFirst
+        if (!header.twoRows || header.nameWidth <= 0 || !header.regionFirst
             || !header.justified || header.nameClipped || !header.fullWidth || !header.compact || !header.fullCounts
             || header.topBorder !== 0
             || header.basis !== (header.mode === 'all' ? 'All Time' : String(new Date().getFullYear()))

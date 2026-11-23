@@ -716,8 +716,11 @@ test('F1049 offline mockups read bundled section notes while unseeded remote sou
   });
   assert.equal(fetch('section-docs.json'),response,
     'primary help cannot wait on a deliberately hanging fixture source');
+  for(const asset of ['county-bounds-wa.json','county-bounds-hi.json','region-boundaries-wa.json','region-boundaries-hi.json'])
+    assert.equal(fetch(asset),response,'point membership needs the actual bundled '+asset);
   assert.ok(fetch('https://api.ebird.org/v2/data/obs/US-WA/recent') instanceof Promise);
-  assert.deepEqual(calls,['section-docs.json'],'this must not enable live external requests');
+  assert.deepEqual(calls,['section-docs.json','county-bounds-wa.json','county-bounds-hi.json',
+    'region-boundaries-wa.json','region-boundaries-hi.json'],'this must not enable live external requests');
 });
 
 test('F359 mockup preparation timeout rejects a hung fixture by shot name', async () => {
@@ -1051,11 +1054,23 @@ test('release mockups include exactly one section shot per visible menu entry', 
       'f629-nightly', 'f629-birdgen', 'f630-birdgen-top', 'f1110-sensitive', 'f951-birdgen-all', 'f1102-foy-many',
       'f1418-foy-full', 'f1418-foy-home', 'f1419-full-fallback', 'f1420-stakeout-watched',
       'f1428-celebrity-identity',
+      'f1442-leaderboard-ticks', 'f1442-leaderboard-recent',
+      'f1444-foy-local', 'f1444-foy-outside',
+      'f1445-county-search', 'f1445-county-current',
+      'f1449-region-quick', 'f1453-chooser-lists',
+      'f1448-location-county', 'f1447-header-region', 'f1446-ladder-tie',
       'f1422-stakeout-controls', 'f1423-stakeout-saved',
+      'f1468-stakeout-bggn',
+      'f1492-common-target-table', 'f1491-more-reports', 'f1493-top100-sync',
       'f1379-menu-preview', 'f1130-menu-recommendation', 'f1131-collapsed-menu'],
     'focused review states stay available without inflating the release contract');
   for (const id of ['f1130-menu-recommendation', 'f1131-collapsed-menu',
-    'f1428-celebrity-identity']) {
+    'f1428-celebrity-identity', 'f1442-leaderboard-ticks', 'f1442-leaderboard-recent',
+    'f1444-foy-local', 'f1444-foy-outside', 'f1445-county-search', 'f1445-county-current',
+    'f1449-region-quick', 'f1453-chooser-lists',
+    'f1448-location-county', 'f1447-header-region', 'f1446-ladder-tie',
+    'f1468-stakeout-bggn', 'f1492-common-target-table', 'f1491-more-reports',
+    'f1493-top100-sync']) {
     assert.ok(!mockups.SHOTS.some(shot => shot.id === id),
       id + ' must remain optional, not a mandatory release image');
   }

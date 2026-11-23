@@ -54,7 +54,14 @@ async function mapLayout(scan, mutation) {
     await paint();
     check(canvas.querySelector('.leaflet-popup'),'F1393 actual map popup required',{});
     if(mutation==='containment')target.style.isolation='auto';
-    document.getElementById('navRegion').focus();document.getElementById('navRegion').click();
+    canvas.scrollIntoView({block:'end'});
+    document.getElementById('navRegion').focus({preventScroll:true});document.getElementById('navRegion').click();
+    await paint();
+    const stateList=document.getElementById('regionChooserStateList');
+    stateList.open=true;
+    const choice=stateList.querySelector('.regionchoice:not([aria-current="true"])');
+    check(choice,'F1393 actual alternative region choice required',{});
+    choice.scrollIntoView({block:'start'});
     await paint();
     const bounds=canvas.getBoundingClientRect();
     let sampled=0,escaped=0,choices=0;
@@ -64,7 +71,8 @@ async function mapLayout(scan, mutation) {
         if(first&&first.closest('.regionchoice'))choices++;
         if(first&&target.contains(first))escaped++;
       }
-    check(sampled>0&&choices>0&&escaped===0,'F1393 map escaped chooser hit-testing',{sampled,choices,escaped});
+    check(sampled>0&&choices>0&&escaped===0,'F1393 map escaped chooser hit-testing',
+      {sampled,choices,escaped,map:box(canvas),choice:box(choice)});
     const search=document.getElementById('regionChooserSearch');search.value='US-WA';search.dispatchEvent(new Event('input'));
     const filters=[...document.querySelectorAll('[data-region-location]')].map(button=>({label:button.textContent,...box(button)}));
     check(filters.length===3&&filters.every(r=>r.height>=43.5&&r.width>43.5),'F1392 filter targets must remain reachable',filters);
@@ -120,6 +128,7 @@ async function mapLayout(scan, mutation) {
     out.push(Object.assign(scan('F1392-F1395 actual maps and chooser'),{mapGeometry:{zoomState,sampled,choices,escaped,filters,mapBox,creditBox,maps,recentBox,fallbackBox}}));
   }catch(error){out.push({label:'F1392-F1395 map geometry',fixtureError:error.message});}
   finally{
+    if(!document.getElementById('regionChooser').hidden)document.getElementById('regionChooserClose').click();
     window.fetch=savedFetch;
     homeKeys.forEach(([key,value])=>value===null?localStorage.removeItem(key):localStorage.setItem(key,value));
     A.setActiveReport(slug);A.setCountyView(county);A.showMenu();

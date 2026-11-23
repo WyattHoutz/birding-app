@@ -1732,15 +1732,17 @@ const REVIEW_SHOTS = [
              return !title.firstChild || title.firstChild.textContent !== 'Mega rarity ';
            })) throw new Error('F963 Mega headlines must begin with Mega rarity');
            if (host.querySelector('[data-alert-kind="need"] .surgealerttitle').textContent
-               !== 'Celebrity bird American Golden-Plover · most recent in chase area at Example public mudflats') {
+               !== 'Celebrity bird American Golden-Plover recently at Example public mudflats') {
              throw new Error('F954 Celebrity headlines must retain the requested prefix and place');
            }
-           [['crowd','Crowding to see '],['cascade','Leaderboard lit up by ']].forEach(function(entry) {
+           [['crowd','Crowding to see '],['cascade','Leaderboard has 12 ticks for ']].forEach(function(entry) {
              if (host.querySelector('[data-alert-kind="'+entry[0]+'"] .surgealerttitle')
                  .firstChild.textContent !== entry[1]) {
-               throw new Error('F954 '+entry[0]+' headline lost its requested prefix');
+               throw new Error('F954 '+entry[0]+' headline lost its requested wording');
              }
            });
+           if (host.querySelector('[data-alert-kind="cascade"] .surgetickcount').textContent !== '12')
+             throw new Error('F1442 Cascade mockup must show twelve ticks over the bird icon');
            if (host.querySelector('[data-alert-kind="favorite"] .surgealerttitle').textContent
                !== 'Northern Waterthrush at favorite patch Example saved public patch') {
              throw new Error('F954 Favorite headline lost its patch context');
@@ -1978,7 +1980,7 @@ REVIEW_SHOTS.push({
 const stakeoutHeaderReview = REVIEW_SHOTS.find(shot => shot.id === 'f1420-stakeout-watched');
 REVIEW_SHOTS.push({
   id:'f1428-celebrity-identity',at:'surgeBtn',freshApp:true,
-  title:'Celebrity - distinct camera icon and one species/form alert',
+  title:'Celebrity - dancing woman icon and one species/form alert',
   host:'surgeResults',scrollTo:'#surgeResults',
   prep:`FIX.before('surgeBtn',A,document);
     var window=document.defaultView;
@@ -2006,8 +2008,350 @@ REVIEW_SHOTS.push({
     notice.textContent='REPRESENTATIVE STUB DATA - one bird, species and Eastern form merged.';
     host.prepend(notice);
     var rows=host.querySelectorAll('[data-alert-kind="need"]');
-    if(rows.length!==1 || rows[0].querySelector('.surgekindtile').textContent!=='📸')
-      throw new Error('Celebrity preview must show one merged bird with the distinct camera glyph');
+    if(rows.length!==1 || rows[0].querySelector('.surgekindtile').textContent!=='💃')
+      throw new Error('F1467 Celebrity preview must show one merged bird with the dancing woman glyph');
+    var title=rows[0].querySelector('.surgealerttitle').textContent;
+    if(!/ recently at North Creek Park$/.test(title) || /[·•]/.test(title))
+      throw new Error('F1441 Celebrity preview must say recently without a bullet');
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1442-leaderboard-ticks',at:'surgeBtn',freshApp:true,
+  title:'Leaderboard ticks - counts over bird icons, not a Top 100 restriction',
+  host:'surgeResults',scrollTo:'#surgeResults',
+  prep:`FIX.before('surgeBtn',A,document);
+    var window=document.defaultView;
+    A.showSection('sec-surgeBtn',{load:false});
+    await (${preparePersonalFixture.toString()})(A,window,window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()],[
+      {code:'comter',name:'Common Tern'},{code:'pacloo',name:'Pacific Loon'}
+    ]);
+    var d=new Date(window.Date.now()-60*60000),p=function(n){return String(n).padStart(2,'0');};
+    var stamp=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+    var rows=[['comter','Common Tern',5],['pacloo','Pacific Loon',125]].map(function(bird){
+      return {code:bird[0],species:bird[1],latest:stamp,earliest:stamp,
+        birders:Array.from({length:bird[2]},function(_,i){return {name:'Synthetic birder '+i,rank:101+i};}),
+        recent:[{locId:'LF1442',locName:'Example Public Park',lat:47.76,lng:-122.16,
+          obsDt:stamp,howMany:3,subId:'SF1442'+bird[0]}]};
+    });
+    A.renderSurge([],rows,[],[],[],{mega:'notApplicable',observations:'ok',
+      leaderboard:'ok',hotspots:'notApplicable',foy:'notApplicable',foyRows:[],suppressNotifications:true});
+    var host=document.getElementById('surgeResults'),section=document.getElementById('sec-surgeBtn');
+    host.setAttribute('data-mock-data','true');
+    section.setAttribute('data-mock-at','surgeBtn');section.setAttribute('data-mock-ready','true');
+    var notice=document.createElement('p');notice.className='status';
+    notice.textContent='REPRESENTATIVE STUB DATA - leaderboard contributors may rank beyond 100.';
+    host.prepend(notice);
+    var cards=host.querySelectorAll('[data-alert-kind="cascade"]');
+    if(cards.length!==2)throw new Error('F1442 preview must retain both leaderboard birds');
+    Array.from(cards).forEach(function(card){
+      var badge=card.querySelector(':scope > .name > .thumb .surgetickcount');
+      var expected=card.dataset.speciesCode==='comter'?'5':'125';
+      if(!badge || badge.textContent!==expected || /lit up|top 100/i.test(card.querySelector('.surgealerttitle').textContent)
+          || card.querySelector('.surgekindtile').textContent!=='🏆')
+        throw new Error('F1442 preview needs the tick count on the bird, not the trophy or headline');
+    });
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1442-leaderboard-recent',freshApp:true,
+  title:'Recent Bird Gen - leaderboard ticks over the bird image',
+  host:'recentBirdGen',scrollTo:'#recentBirdGen',
+  prep:`FIX.before('surgeBtn',A,document);
+    var window=document.defaultView;
+    A.showSection('sec-surgeBtn',{load:false});
+    await (${preparePersonalFixture.toString()})(A,window,window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()],[
+      {code:'buggna',name:'Blue-gray Gnatcatcher'}
+    ]);
+    var d=new Date(window.Date.now()-60*60000),p=function(n){return String(n).padStart(2,'0');};
+    var stamp=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+    A.renderSurge([],[{code:'buggna',species:'Blue-gray Gnatcatcher',latest:stamp,earliest:stamp,
+      birders:Array.from({length:12},function(_,i){return {name:'Synthetic birder '+i,rank:101+i};}),
+      recent:[{locId:'LF1442RECENT',locName:'North Creek Park',lat:47.76,lng:-122.16,
+        obsDt:stamp,howMany:1,subId:'SF1442RECENT'}]}],[],[],[],
+      {mega:'notApplicable',observations:'ok',leaderboard:'ok',hotspots:'notApplicable',
+        foy:'notApplicable',foyRows:[],suppressNotifications:true});
+    A.updateRecentBirdGen();
+    A.showMenu();
+    var host=document.getElementById('recentBirdGen');
+    host.setAttribute('data-mock-data','true');
+    var notice=document.createElement('p');notice.className='mocklabel';
+    notice.textContent='REPRESENTATIVE STUB DATA - not current sightings.';
+    host.prepend(notice);
+    await FIX.fillFixturePhotos(host,document);
+    var row=host.querySelector('[data-recent-kind="cascade"]');
+    if(!row || row.querySelector('.surgealerttitle').textContent!=='Leaderboard has 12 ticks for Blue-gray Gnatcatcher'
+        || row.querySelector('.thumb .surgetickcount')?.textContent!=='12'
+        || row.querySelector('.hslink,.surgekindtile'))
+      throw new Error('F1442 Recent preview must retain the bird-image tick count without a location or trophy');
+    return true;`
+});
+for (const outside of [false,true]) REVIEW_SHOTS.push({
+  id:'f1444-foy-'+(outside?'outside':'local'),at:'surgeBtn',freshApp:true,
+  title:'First of the year - '+(outside?'newest outside fallback':'recent local location'),
+  host:'surgeResults',scrollTo:'#surgeResults',
+  prep:`FIX.before('surgeBtn',A,document);
+    var window=document.defaultView;
+    A.showSection('sec-surgeBtn',{load:false});
+    await (${preparePersonalFixture.toString()})(A,window,window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()],[
+      {code:'comgra',name:'Common Grackle'}
+    ]);
+    function stamp(minutes) {
+      var d=new Date(window.Date.now()-minutes*60000),p=function(n){return String(n).padStart(2,'0');};
+      return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+    }
+    var first={code:'comgra',name:'Common Grackle',date:stamp(1380).slice(0,10),observedAt:stamp(1380)};
+    var reports=[
+      {locId:'LCLOSE1444',loc:'Closer Public Marsh',lat:46.8,lon:-122.16,dateStr:stamp(120),subId:'SCLOSE1444'},
+      {locId:'LNEW1444',loc:'Newest Public Marsh--West Observation Point',lat:45.75,lon:-122.16,
+        dateStr:stamp(10),subId:'SNEW1444'}
+    ];
+    if(!${outside}) reports.push({locId:'LLOCAL1444',loc:'North Creek Park',lat:47.76,lon:-122.16,
+      dateStr:stamp(60),subId:'SLOCAL1444'});
+    A.renderSurge([],[],[],[],reports.map(function(row) {
+      return Object.assign({code:first.code,name:first.name,kind:'Recent'},row);
+    }),{mega:'notApplicable',observations:'ok',leaderboard:'notApplicable',hotspots:'notApplicable',
+      foy:'ok',foyRows:[first],deferPhotos:true,suppressNotifications:true});
+    var host=document.getElementById('surgeResults'),section=document.getElementById('sec-surgeBtn');
+    host.setAttribute('data-mock-data','true');
+    section.setAttribute('data-mock-at','surgeBtn');section.setAttribute('data-mock-ready','true');
+    host.querySelector('[data-count-kind="foy"]').click();
+    await FIX.fillFixturePhotos(host,document);
+    var card=host.querySelector('[data-alert-kind="foy"]'),title=card.querySelector('.surgealerttitle');
+    var expected=${JSON.stringify(outside
+      ? 'First of the year Common Grackle most recently seen at Newest Public Marsh--West Observation Point.'
+      : 'First of the year Common Grackle recently seen at North Creek Park.')};
+    var link=title.querySelector('.hslink');
+    if(title.textContent!==expected || !link || link.dataset.loc!==${JSON.stringify(outside?'LNEW1444':'LLOCAL1444')}
+        || card.dataset.surgeChecklist!==${JSON.stringify(outside?'SNEW1444':'SLOCAL1444')})
+      throw new Error('F1444 FOY preview must retain the selected recent public location and checklist');
+    var range=document.createRange();range.selectNodeContents(title);
+    if(Array.from(range.getClientRects()).some(function(rect) {
+      return rect.left<0 || rect.right>window.innerWidth+0.5;
+    })) throw new Error('F1444 FOY location text must fit the actual viewport');
+    if(${outside} && document.documentElement.dataset.display==='high-visibility') {
+      var disclosure=card.querySelector('.sub').getBoundingClientRect();
+      var kind=card.querySelector('.surgekindwrap').getBoundingClientRect();
+      if(disclosure.width<title.getBoundingClientRect().width-1 || disclosure.bottom>kind.top+0.5)
+        throw new Error('F1444 outside disclosure must reflow above the icon at High visibility');
+    }
+    var recent=document.querySelector('[data-recent-kind="foy"] .surgealerttitle');
+    if(!recent || recent.textContent!=='First of the year Common Grackle.' || recent.querySelector('.hslink'))
+      throw new Error('F1444 compact Recent must still omit the location');
+    var notice=document.createElement('p');notice.className='mocklabel';
+    notice.textContent='REPRESENTATIVE STUB DATA - recent public sighting, not the annual-first checklist.';
+    host.prepend(notice);
+    return true;`
+});
+for (const selectedCounty of [false,true]) REVIEW_SHOTS.push({
+  id:'f1445-county-'+(selectedCounty?'current':'search'),freshApp:true,
+  title:'Region chooser - '+(selectedCounty?'Snohomish County selected':'King and Snohomish county views'),
+  host:'regionChooser',
+  prep:`A.setActiveReport('wa');
+    ${selectedCounty ? "await A.selectRegionChoice('county:wa:US-WA-033'); await A.selectRegionChoice('county:wa:US-WA-061');" : ''}
+    A.openRegionChooser();
+    await new Promise(function(resolve){document.defaultView.requestAnimationFrame(resolve);});
+    var chooser=document.getElementById('regionChooser'),body=document.getElementById('regionChooserBody');
+    var search=document.getElementById('regionChooserSearch');
+    var countyHost=document.getElementById('regionChooserCounties');
+    var values=['county:wa:US-WA-033','county:wa:US-WA-061'];
+    var choices=values.map(function(value){return countyHost.querySelector('[data-region-choice="'+value+'"]');});
+    if(choices.some(function(choice){return !choice;}))
+      throw new Error('F1445 real chooser must contain both King and Snohomish county views');
+    if(${selectedCounty}) {
+      var current=document.getElementById('regionChooserCurrent').querySelector('[aria-current="true"]');
+      if(!current || current.dataset.regionChoice!=='county:wa:US-WA-061'
+          || A.activeScope().effectiveRegion!=='US-WA-061'
+          || document.getElementById('hdrScope').textContent!=='US-WA-061')
+        throw new Error('F1445 Current and the header must name the selected county scope');
+      body.scrollTop=0;
+    } else {
+      search.value='US-WA';search.dispatchEvent(new Event('input'));
+      choices=values.map(function(value){return countyHost.querySelector('[data-region-choice="'+value+'"]');});
+      countyHost.scrollIntoView({block:'center'});
+    }
+    (${selectedCounty} ? Array.from(document.getElementById('regionChooserRecent').querySelectorAll('button'))
+      : choices).forEach(function(choice) {
+      var rect=choice.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(choice);
+      if(choice.hidden || rect.width<44 || rect.height<44
+          || rect.left<0 || rect.right>document.defaultView.innerWidth+0.5
+          || (!${selectedCounty} && (rect.top<body.getBoundingClientRect().top-0.5
+              || rect.bottom>body.getBoundingClientRect().bottom+0.5))
+          || Array.from(range.getClientRects()).some(function(text){return text.left<rect.left-0.5 || text.right>rect.right+0.5;}))
+        throw new Error('F1445 county choices must fit with readable text and 44px targets');
+    });
+    var close=document.getElementById('regionChooserClose').getBoundingClientRect();
+    if(close.top<0 || close.bottom>document.defaultView.innerHeight || body.clientHeight<=0
+        || getComputedStyle(body).overflowY!=='auto')
+      throw new Error('F1445 county chooser must preserve reachable Close and a scrolling results body');
+    chooser.setAttribute('data-mock-data','true');
+    return true;`
+});
+const regionQuickVisits = `for(var value of ['county:wa:US-WA-033','county:wa:US-WA-061','lower48','aba','wa'])
+  await A.selectRegionChoice(value);`;
+REVIEW_SHOTS.push({
+  id:'f1449-region-quick',host:'menuScopeHost',freshApp:true,
+  title:'Quick settings - named region, Edit and mixed recent scopes',
+  scrollTo:'.quicksettings',
+  prep:regionQuickVisits+`
+    A.showMenu();
+    var current=document.getElementById('menuCurrentRegion'),edit=document.getElementById('menuRegion');
+    var region=document.querySelector('.regionquickpick'),period=document.querySelector('.periodpick');
+    var buttons=Array.from(document.getElementById('menuRecentRegions').querySelectorAll('button'));
+    if(!/Washington\\s+US-WA/.test(current.textContent) || current.closest('button,a,summary')
+        || edit.textContent!=='Edit' || buttons.length!==4 || buttons.some(function(button){return button.dataset.regionChoice==='wa';}))
+      throw new Error('F1449 actual Region summary needs passive name/code, Edit and four alternative frequent scopes');
+    var kinds={'county:wa:US-WA-033':'County','county:wa:US-WA-061':'County',lower48:'Major',aba:'Major'};
+    buttons.forEach(function(button){
+      if(button.querySelector('.regionchoicekind').textContent!==kinds[button.dataset.regionChoice])
+        throw new Error('F1449 actual quick toggles must state County or Major');
+    });
+    if(parseFloat(getComputedStyle(current).fontSize)<parseFloat(getComputedStyle(buttons[0]).fontSize)-0.01)
+      throw new Error('F1449 passive current region must retain the readable quick-choice text scale');
+    buttons.concat([edit]).forEach(function(button){
+      var box=button.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(button);
+      if(box.width<44 || box.height<44 || box.left<0 || box.right>document.defaultView.innerWidth+0.5
+          || Array.from(range.getClientRects()).some(function(text){return text.left<box.left-0.5 || text.right>box.right+0.5;}))
+        throw new Error('F1449 quick-toggle text and 44px targets must fit without horizontal clipping');
+    });
+    if(period.getBoundingClientRect().top<region.getBoundingClientRect().bottom-1)
+      throw new Error('F1450 actual Time period fieldset must follow the Region fieldset');
+    edit.focus({preventScroll:true});edit.click();
+    if(document.getElementById('regionChooser').hidden)
+      throw new Error('F1449 Edit must open the shared Region dialog');
+    document.getElementById('regionChooserClose').click();
+    if(document.activeElement!==edit)
+      throw new Error('F1449 closing Region settings must return focus to Edit');
+    document.getElementById('menuScopeHost').dataset.mockData='true';
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1453-chooser-lists',host:'regionChooser',freshApp:true,
+  title:'Region chooser - passive current county and collapsed county/state catalogs',
+  prep:regionQuickVisits+`
+    await A.selectRegionChoice('county:wa:US-WA-061');
+    A.openRegionChooser();
+    await new Promise(function(resolve){document.defaultView.requestAnimationFrame(resolve);});
+    var chooser=document.getElementById('regionChooser'),body=document.getElementById('regionChooserBody');
+    var current=document.getElementById('regionChooserCurrent'),county=document.getElementById('regionChooserCountyList');
+    var states=document.getElementById('regionChooserStateList'),parent=document.getElementById('regionChooserParent');
+    if(current.querySelector('button,a,input,select,[tabindex],[role="button"]'))
+      throw new Error('F1452 actual current region must be noninteractive text');
+    var reference=parseFloat(getComputedStyle(parent.querySelector('button')).fontSize);
+    if([current.firstElementChild,document.getElementById('regionChooserCountyCurrent')].some(function(node){
+      return parseFloat(getComputedStyle(node).fontSize)<reference-0.01;}))
+      throw new Error('F1452 passive current facts must retain the readable region-choice text scale');
+    if(county.open || states.open || !/Washington.*US-WA/.test(parent.textContent)
+        || !/Snohomish.*US-WA-061/.test(document.getElementById('regionChooserCountyCurrent').textContent))
+      throw new Error('F1453 actual chooser must show current parent/county with full lists collapsed');
+    [county,states].forEach(function(list){
+      var summary=list.querySelector('summary');summary.scrollIntoView({block:'nearest'});
+      var box=summary.getBoundingClientRect(),viewport=body.getBoundingClientRect(),range=document.createRange();
+      range.selectNodeContents(summary);
+      if(box.height<44 || box.left<0 || box.right>document.defaultView.innerWidth+0.5
+          || box.top<viewport.top-0.5 || box.bottom>viewport.bottom+0.5
+          || Array.from(range.getClientRects()).some(function(text){return text.left<box.left-0.5 || text.right>box.right+0.5;}))
+        throw new Error('F1453 collapsed county/state lists must remain readable and scroll-reachable');
+    });
+    county.closest('section').scrollIntoView({block:'start'});
+    var close=document.getElementById('regionChooserClose').getBoundingClientRect();
+    if(close.top<0 || close.bottom>document.defaultView.innerHeight || body.clientHeight<44)
+      throw new Error('F1453 chooser must retain visible dismissal and a scrolling results body');
+    chooser.dataset.mockData='true';
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1448-location-county',host:'regionChooser',freshApp:true,
+  title:'Home regions - verified Snohomish County and broader scopes',
+  prep:`localStorage.setItem(A.homeKey('lat'),'47.97898');
+    localStorage.setItem(A.homeKey('lng'),'-122.2021');
+    var W=document.defaultView,originalFetch=W.fetch;
+    W.fetch=function(url,init){return /photon/.test(String(url))
+      ?Promise.resolve({ok:true,json:function(){return Promise.resolve({features:[{properties:{state:'Washington',countrycode:'US'}}]});}})
+      :originalFetch(url,init);};
+    A.openRegionChooser();
+    document.querySelector('[data-region-location="home"]').click();
+    try {
+      var until=Date.now()+15000;
+      while(/Resolving/.test(document.getElementById('regionChooserLocationStatus').textContent)){
+        if(Date.now()>until)throw new Error('F1448 Home county fixture did not settle');
+        await new Promise(function(resolve){setTimeout(resolve,20);});
+      }
+    } finally {W.fetch=originalFetch;}
+    var county=document.getElementById('regionChooserCounties')
+      .querySelector('[data-region-choice="county:wa:US-WA-061"]:not([hidden])');
+    if(!county || !/US-WA-061/.test(document.getElementById('regionChooserLocationStatus').textContent))
+      throw new Error('F1448 actual Home filter must offer the polygon-verified Snohomish county');
+    var body=document.getElementById('regionChooserBody'),close=document.getElementById('regionChooserClose').getBoundingClientRect();
+    if(body.clientHeight<44 || getComputedStyle(body).overflowY!=='auto'
+        || close.top<0 || close.bottom>W.innerHeight
+        || document.getElementById('regionChooser').scrollWidth>W.innerWidth+1)
+      throw new Error('F1448 verified location must leave a reachable scrolling county-results body');
+    document.getElementById('regionChooser').dataset.mockData='true';
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1447-header-region',host:'regionChooser',freshApp:true,
+  title:'Header Region settings - county scope preserved',
+  prep:`await A.selectRegionChoice('county:wa:US-WA-033');
+    await A.selectRegionChoice('county:wa:US-WA-061');
+    A.showSection('sec-rankBtn',{load:false});
+    var chip=document.getElementById('hdrScope'),chooser=document.getElementById('regionChooser');
+    chip.focus({preventScroll:true});
+    var before=document.defaultView.scrollY;
+    chip.click();
+    await new Promise(function(resolve){document.defaultView.requestAnimationFrame(resolve);});
+    if(chooser.hidden || document.getElementById('menuScope').open
+        || document.defaultView.scrollY!==before
+        || document.activeElement!==document.getElementById('regionChooserClose'))
+      throw new Error('F1447 header must open shared Region settings without a footer jump');
+    var current=document.getElementById('regionChooserCurrent').querySelector('[aria-current="true"]');
+    if(!current || current.dataset.regionChoice!=='county:wa:US-WA-061'
+        || A.activeScope().effectiveRegion!=='US-WA-061')
+      throw new Error('F1447 opening Region settings must retain the actual county');
+    var close=document.getElementById('regionChooserClose').getBoundingClientRect();
+    var body=document.getElementById('regionChooserBody');
+    if(close.top<0 || close.bottom>document.defaultView.innerHeight
+        || close.width<44 || close.height<44 || body.clientHeight<=0
+        || getComputedStyle(body).overflowY!=='auto'
+        || chooser.scrollWidth>chooser.clientWidth+1)
+      throw new Error('F1447 Region settings must fit with reachable Close and scrolling results: '
+        +JSON.stringify({close:close.toJSON(),bodyHeight:body.clientHeight,
+          overflowY:getComputedStyle(body).overflowY,scrollWidth:chooser.scrollWidth,
+          clientWidth:chooser.clientWidth,viewportHeight:document.defaultView.innerHeight}));
+    chooser.dataset.mockData='true';
+    return true;`
+});
+REVIEW_SHOTS.push({
+  id:'f1446-ladder-tie',at:'rankBtn',host:'rankSummary',freshApp:true,minControls:0,
+  title:'Leaderboard ladder - verified first-place tie',
+  scrollTo:'.rankclimb',
+  expects:['.rankclimb [data-rank-milestone="2"]:not(.rankclimb-unavailable)'],
+  prep:`A.cancelStalledWork();
+    var sec=document.getElementById('rankBtn').closest('section');
+    A.showSection(sec.id,{load:false});
+    localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'synthetic-owner'}));
+    var scores=[248,248,243,240,235,230,225,220,218,213,210,207,204,201,197,194,190,180,179];
+    var rows=scores.map(function(species,i){return {rank:scores.indexOf(species)+1,species:species,
+      profileId:i===17?'synthetic-owner':'synthetic-'+i,name:'Synthetic birder'};});
+    var period=String(new Date().getFullYear());
+    var board={region:'US-WA',period:period,metric:'spp',rows:rows,me:rows[17]};
+    A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic birder');
+    await new Promise(function(resolve){document.defaultView.requestAnimationFrame(resolve);});
+    var ladder=document.querySelector('.rankclimb');
+    var tied=ladder.querySelector('[data-rank-milestone="2"]');
+    if(!tied || tied.querySelector('.rankclimb-number').textContent!=='#1'
+        || tied.querySelector('.rankclimb-cost').textContent!=='+68 species'
+        || tied.classList.contains('rankclimb-unavailable'))
+      throw new Error('F1446 real ladder must use the verified tied #1 score for the second milestone');
+    Array.from(ladder.querySelectorAll('.rankclimb-number,.rankclimb-cost')).forEach(function(node){
+      var parent=node.parentElement.getBoundingClientRect(),range=document.createRange();
+      range.selectNodeContents(node);
+      if(Array.from(range.getClientRects()).some(function(rect){return rect.left<parent.left-0.5
+          || rect.right>parent.right+0.5 || rect.left<0 || rect.right>document.defaultView.innerWidth+0.5;}))
+        throw new Error('F1446 tied podium ranks and costs must fit without horizontal clipping');
+    });
+    document.getElementById('rankSummary').dataset.mockData='true';
+    sec.dataset.mockAt='rankBtn';sec.dataset.mockReady='true';
     return true;`
 });
 const stakeoutControlsPrep = stakeoutHeaderReview.prep.replace(/return true;\s*$/, `
@@ -2030,13 +2374,13 @@ const stakeoutControlsPrep = stakeoutHeaderReview.prep.replace(/return true;\s*$
   var info=sec.querySelector('h2 .docbtn');
   if(!refresh.matches('h2 > .refreshbtn') || refresh.previousElementSibling!==info)
     throw new Error('F1422 selected-bird Refresh must sit immediately after Info');
-  var saved=document.querySelector('#spLookupDetailMain > h3');
-  if(saved.textContent!=='Saved results'
-      || !saved.nextElementSibling.matches('.splookupsaved')
-      || !/Saved results from 2 minutes ago/.test(saved.nextElementSibling.textContent)
+  var summary=document.querySelector('#spLookupDetailMain > .splookupsummary');
+  var infoBody=sec.querySelector('.sectiondoc');
+  if(!summary || document.querySelector('#spLookupDetailMain h4, #spLookupDetailMain .splookupsaved')
+      || !/Saved results from 2 minutes ago/.test(infoBody.getAttribute('data-note')||'')
       || /Saved results from/.test(document.getElementById('spLookupStatus').textContent))
-    throw new Error('F1423 saved timestamp must follow its heading, not precede the bird: '
-      +JSON.stringify({heading:saved.textContent,next:saved.nextElementSibling.outerHTML,
+    throw new Error('F1476 saved details must move into Info without an extra results heading: '
+      +JSON.stringify({summary:summary&&summary.textContent,note:infoBody.getAttribute('data-note'),
         status:document.getElementById('spLookupStatus').textContent}));
   return true;
 `);
@@ -2045,9 +2389,52 @@ REVIEW_SHOTS.push({
   title:'Stakeout Birds - one search row and heading Refresh',
   prep:stakeoutControlsPrep
 }, {
-  ...stakeoutHeaderReview,id:'f1423-stakeout-saved',scrollTo:'#spLookupDetailMain',
-  title:'Stakeout Birds - timestamp below Saved results',
-  prep:stakeoutControlsPrep
+  ...stakeoutHeaderReview,id:'f1423-stakeout-saved',scrollTo:'',
+  title:'Stakeout Birds - saved timestamp in Info',
+  prep:stakeoutControlsPrep.replace(/return true;\s*$/, `
+    sec.querySelector('h2 .docbtn').click();
+    for(var attempt=0;attempt<100&&!sec.querySelector('.sectiondoc .splookupsaved');attempt++)
+      await new Promise(function(resolve){setTimeout(resolve,20);});
+    if(sec.querySelector('.sectiondoc').hidden
+        || !/Saved results from 2 minutes ago/.test(sec.querySelector('.sectiondoc').textContent))
+      throw new Error('F1476 saved freshness is unavailable through the Info button');
+    return true;`)
+});
+
+REVIEW_SHOTS.push({
+  id:'f1468-stakeout-bggn',at:'spLookupBtn',freshApp:true,
+  title:'Stakeout Birds - Blue-gray Gnatcatcher, Taxonomy, Rarity and Observational Records',
+  host:'sec-spLookupBtn',fullPage:true,prepTimeoutMs:45000,
+  expects:['#spLookupTaxonomy:not([hidden]) > h3',
+    '#spLookupTaxonomy .spuhtaxnav', '#spLookupDetailMain .splookupsummary',
+    '#spLookupRecent .spLookupPlaceList > .hscard-md',
+    '#spLookupRarityHeading', '#spLookupRecordsHeading',
+    '#spLookupEvidenceDetails .stakeoutrarity[data-kind="rare"]'],
+  prep:`FIX.before('spLookupBtn',A,document);
+    var sec=document.getElementById('sec-spLookupBtn');
+    A.showSection(sec.id,{load:false});
+    return FIX.prepareStakeoutBggn(A,document,sec);`
+});
+
+REVIEW_SHOTS.push({
+  id:'f1492-common-target-table',at:'easyBtn',freshApp:true,
+  title:'Target Birds - ten common birds and existing needed-bird targets (representative sample)',
+  host:'sec-easyBtn',fullPage:true,prepTimeoutMs:45000,
+  expects:['#easyCommonResults tbody > tr','#easyCommonMore:not([hidden])','#easyResults'],
+  prep:`await FIX.prepareBirdReports(function(label){return {label:label};},'common'); return true;`
+},{
+  id:'f1491-more-reports',at:'spLookupBtn',freshApp:true,
+  title:'Stakeout Birds - five matching checklists after bounded continuation (representative sample)',
+  host:'sec-spLookupBtn',fullPage:true,prepTimeoutMs:45000,
+  expects:['#spLookupRecent .stakeoutPlaceChecklists > .cklcard-sm',
+    '#spLookupRecent .stakeoutHistoryStatus'],
+  prep:`await FIX.prepareBirdReports(function(label){return {label:label};},'history'); return true;`
+},{
+  id:'f1493-top100-sync',at:'rankBtn',freshApp:true,
+  title:'Top 100 - delayed published total, verified personal count and fresh recheck (representative sample)',
+  host:'sec-rankBtn',fullPage:true,prepTimeoutMs:45000,
+  expects:['#rankCountWarning[role="status"]','.ranknearby [aria-current]'],
+  prep:`await FIX.prepareTop100Sync(); return true;`
 });
 
 const SHOTS = [
@@ -2330,7 +2717,7 @@ const BOOTSTRAP = `
   // Unseeded sources stay pending unless their production owner cancels them.
   var bundledFetch = window.fetch.bind(window);
   var HANG = function (url, init) {
-    if (url === 'section-docs.json' || /^region-boundaries-(wa|hi)\.json$/.test(String(url)))
+    if (url === 'section-docs.json' || /^(?:region-boundaries|county-bounds)-(wa|hi)\.json$/.test(String(url)))
       return bundledFetch(url, init);
     return new Promise(function (resolve, reject) {
       if (!init || !init.signal) return;
@@ -2818,6 +3205,312 @@ const BOOTSTRAP = `
     }
     if (A.fgProgressReset) A.fgProgressReset();
     markHost(document.getElementById('spLookupIdHelp'), label);
+  }
+  async function prepareStakeoutBggn(A, document, sec) {
+    A.fgCancelAll('Starting representative BGGN review');
+    A.setActiveReport('wa');
+    A.setCountyView('');
+    var bird = {code:'buggna',name:'Blue-gray Gnatcatcher',
+      sci:'Polioptila caerulea',alpha:'BGGN'};
+    var historyFixture={};
+    historyFixture[bird.sci+'|Washington']={at:Date.now(),v:{
+      records:120,years:10,first:2016,last:2025,wide:9000,states:12,
+      topState:'',topPct:0}};
+    historyFixture['edge|Washington']={at:Date.now(),v:2025};
+    localStorage.setItem('ebird_gbif_v1',JSON.stringify(historyFixture));
+    var forms=[
+      {code:'buggna2',name:'Blue-gray Gnatcatcher (Western)',
+        sci:'Polioptila caerulea [obscura Group]',category:'issf',reportAs:'buggna'},
+      {code:'buggna1',name:'Blue-gray Gnatcatcher (Eastern)',
+        sci:'Polioptila caerulea caerulea',category:'issf',reportAs:'buggna'},
+      {code:'buggna3',name:'Blue-gray Gnatcatcher (Cozumel)',
+        sci:'Polioptila caerulea cozumelae',category:'issf',reportAs:'buggna'}
+    ];
+    await preparePersonalFixture(A,window,
+      window.__SEED_BIRDLIST__.seenByReport[A.getReportSlug()],[bird].concat(forms));
+    var taxonomyRows=[{
+      speciesCode:bird.code,comName:bird.name,sciName:bird.sci,category:'species',
+      order:'Passeriformes',familySciName:'Polioptilidae',
+      familyComName:'Gnatcatchers',taxonOrder:1
+    },{
+      speciesCode:'bktgna',comName:'Black-tailed Gnatcatcher',
+      sciName:'Polioptila melanura',category:'species',order:'Passeriformes',
+      familySciName:'Polioptilidae',familyComName:'Gnatcatchers',taxonOrder:5
+    },{
+      speciesCode:'amerob',comName:'American Robin',sciName:'Turdus migratorius',
+      category:'species',order:'Passeriformes',familySciName:'Turdidae',taxonOrder:6
+    },{
+      speciesCode:'mallar3',comName:'Mallard',sciName:'Anas platyrhynchos',
+      category:'species',order:'Anseriformes',familySciName:'Anatidae',taxonOrder:7
+    },{
+      speciesCode:'bird1',comName:'bird sp.',sciName:'Aves sp.',
+      category:'spuh',order:'',familySciName:'',taxonOrder:1000
+    },{
+      speciesCode:'passer1',comName:'passerine sp.',sciName:'Passeriformes sp.',
+      category:'spuh',order:'Passeriformes',familySciName:'',taxonOrder:1001
+    },{
+      speciesCode:'olwwar1',comName:'old world warbler sp.',
+      sciName:'Passeriformes sp. (Old World warbler sp.)',category:'spuh',
+      order:'Passeriformes',familySciName:'Sylviidae',
+      familyComName:'Sylviid Warblers and Allies',taxonOrder:25380
+    },{
+      speciesCode:'gnatca1',comName:'gnatcatcher sp.',sciName:'Polioptila sp.',
+      category:'spuh',order:'Passeriformes',familySciName:'Polioptilidae',
+      familyComName:'Gnatcatchers',taxonOrder:1002
+    }];
+    forms.forEach(function(form,index) {
+      taxonomyRows.push({speciesCode:form.code,comName:form.name,sciName:form.sci,
+        category:form.category,reportAs:form.reportAs,order:'Passeriformes',
+        familySciName:'Polioptilidae',familyComName:'Gnatcatchers',taxonOrder:2+index});
+    });
+    A.setSpuhModel(document.defaultView.Spuh.createFromTaxonomy(taxonomyRows));
+    var rows = Array.from({length:3},function (_,i) {
+      return {speciesCode:bird.code,comName:bird.name,sciName:bird.sci,
+        locId:'L-BGGN-REVIEW-'+(i%2),locName:'Representative Snohomish park '+(i%2+1),
+        lat:47.8+(i%2)*.01,lng:-122.16,obsDt:mockObservationDate(i+1),
+        subId:'S-BGGN-REVIEW-'+i,howMany:1,numSpecies:24+i,durationHrs:.5,
+        obsValid:true,obsReviewed:true,__notable:true,locationPrivate:false,
+        userDisplayName:'Sample Birder '+(i+1)};
+    });
+    var profile=A.chaseProfile();
+    A.seedChase(profile.slug,{t:Date.now(),rarity:false,
+      fetchBaseKey:A.chaseFetchBaseKey(profile),geoNotableKm:window.BirdLogic.geoNotableDistKm(profile),
+      speciesCodes:[bird.code],rows:{},cv:{merged:window.BirdLogic.mergeSnapshot([
+        {kind:'notable',src:'representative',rows:rows}]).map(function(row) {
+          return Object.assign({},row,{__notable:true});
+        })}});
+    rows.forEach(function(row) {
+      A.seedChecklistView(row.subId,{subId:row.subId,userDisplayName:row.userDisplayName,
+        obsDt:row.obsDt,numSpecies:row.numSpecies,durationHrs:row.durationHrs,
+        obs:[{speciesCode:bird.code,howMany:1}]});
+    });
+    await fillStakeoutSpecies(A,document,'Representative BGGN Stakeout',2,{
+      code:bird.code,name:bird.name,rows:rows});
+    await waitFor(function() {
+      return document.querySelector('#spLookupEvidenceDetails .stakeoutrarity[data-kind="rare"]');
+    },'BGGN rarity evidence',100);
+    var appNow=document.defaultView.Date.now;
+    document.defaultView.Date.now=function(){return appNow()+120000;};
+    A.clearSpeciesLookup();
+    await fillStakeoutSpecies(A,document,'Representative saved BGGN Stakeout',2,{
+      code:bird.code,name:bird.name,rows:rows,reuseSaved:true});
+    await waitFor(function() {
+      return /Saved results from 2 minutes ago/.test(
+          sec.querySelector('.sectiondoc').getAttribute('data-note')||'')
+        && document.querySelector('.stakeoutObservationRecords .megahistory').textContent;
+    },'BGGN saved summary and representative history',100);
+    fillMapHost(document.getElementById('spLookupMap'),'Representative BGGN recent places');
+    var taxonomy=document.getElementById('spLookupTaxonomy');
+    var recent=document.getElementById('spLookupRecent');
+    var rarity=document.getElementById('spLookupEvidenceDetails');
+    var groupButton=document.getElementById('spLookupGroup');
+    var notesButton=document.getElementById('spLookupNotes');
+    if(groupButton.nextElementSibling!==notesButton)
+      throw new Error('F1478 Group must precede Notes in the Stakeout template');
+    var groupBox=groupButton.getBoundingClientRect(), notesBox=notesButton.getBoundingClientRect();
+    if(groupBox.top>notesBox.top+.5
+        || (Math.abs(groupBox.top-notesBox.top)<.5&&groupBox.left>notesBox.left))
+      throw new Error('F1478 visual Group/Notes order differs from keyboard order');
+    if(taxonomy.hidden || taxonomy.querySelector('h3').textContent!=='Taxonomy'
+        || !taxonomy.contains(document.getElementById('spLookupIdHelp'))
+        || !(taxonomy.compareDocumentPosition(recent)&Node.DOCUMENT_POSITION_FOLLOWING)
+        || rarity.querySelector('h3').textContent!=='Rarity Details')
+      throw new Error('F1468/F1469 section content or ordering regressed');
+    var recordSection=rarity.querySelector('.stakeoutObservationRecords');
+    if(!recordSection || recordSection.querySelector('h3').textContent!=='Observational Records'
+        || !recordSection.contains(document.getElementById('spLookupDetailMain'))
+        || recordSection.querySelector('#spLookupDetailMain h4, .splookupsaved')
+        || !sec.querySelector('.sectiondoc').hidden
+        || !recordSection.querySelector('.bcstats') || !recordSection.querySelector('.megahistory'))
+      throw new Error('F1473/F1474/F1476 records must retain statistics, history and summary, with saved details in Info');
+    var raritySection=rarity.querySelector('.stakeoutRarityDetails');
+    if(!raritySection || !raritySection.querySelector('.stakeoutrarity[data-kind="rare"]')
+        || !raritySection.querySelector('.megalatest'))
+      throw new Error('F1472 rarity cards are not grouped under Rarity Details');
+    var variants=taxonomy.querySelector('.stakevariants');
+    if(!variants || variants.querySelector('h4')
+        || variants.querySelector('thead th').textContent!=='Variant')
+      throw new Error('F1480 variants must start with the column headers, not an extra heading');
+    if(Array.from(variants.querySelectorAll('thead th')).map(function(cell) {
+      return cell.textContent;
+    }).join(',')!=='Variant,Code,Link')
+      throw new Error('F1486 variants need Variant, Code and Link column headers');
+    var variantRows=Array.from(variants.querySelectorAll('tbody tr'));
+    if(variantRows.map(function(row) {return row.cells[1].querySelector('code').textContent;}).join(',')
+        !=='buggna,buggna1,buggna2,buggna3'
+        || variantRows.map(function(row) {return row.cells[0].textContent;}).join(',')
+        !=='(Default),Eastern,Western,Cozumel'
+        || !variantRows[0].cells[0].querySelector('i')
+        || getComputedStyle(variantRows[0].cells[0].querySelector('i')).fontStyle!=='italic')
+      throw new Error('F1481/F1485 variant labels, Default italics or code order regressed');
+    var defaultWeight=parseFloat(getComputedStyle(variantRows[0].cells[0].querySelector('i')).fontWeight);
+    if(defaultWeight!==400
+        || variantRows.slice(1).some(function(row) {
+          return parseFloat(getComputedStyle(row.cells[0]).fontWeight)<=defaultWeight;
+        }) || Array.from(variants.querySelectorAll('thead th')).some(function(cell) {
+          return parseFloat(getComputedStyle(cell).fontWeight)<=defaultWeight;
+        }))
+      throw new Error('F1487 only the italic Default label should lose bold weight');
+    if(variantRows.map(function(row) {return row.cells[1].textContent;}).join(',')
+        !=='buggna / BGGN,buggna1,buggna2,buggna3')
+      throw new Error('F1483 only the default code cell adds the existing abbreviation');
+    var hierarchy=taxonomy.querySelector('.spuhhierarchy');
+    if(hierarchy.querySelector('h4')
+        || hierarchy.firstElementChild!==hierarchy.querySelector('.spuhpathsentence')
+        || hierarchy.querySelector('.spuhpathsentence > strong'))
+      throw new Error('F1490 the hierarchy must not have a separate or inline heading');
+    var hierarchyPath=hierarchy.querySelector('.spuhpathsentence');
+    if(hierarchyPath.querySelector('br')
+        || !hierarchyPath.firstElementChild.matches('.spuhcompactlevel'))
+      throw new Error('F1490 hierarchy steps must wrap naturally without forced line breaks');
+    ['buggna','buggna2','buggna1','buggna3'].forEach(function(code) {
+      var link=variants.querySelector('a[href="https://ebird.org/species/'+code+'"]');
+      if(!link || link.dataset.href!==link.getAttribute('href') || link.hasAttribute('data-sp'))
+        throw new Error('F1470 exact-form eBird link missing: '+code);
+      if(link.closest('tr').cells.length!==3
+          || link.closest('tr').cells[1].querySelector('code').textContent!==code)
+        throw new Error('F1477 variants table columns regressed: '+code);
+    });
+    var hero=document.querySelector('#spLookupResults .bchero');
+    hero=isolateFixturePhotoSlot(hero);
+    var photo=document.createElement('img');
+    photo.className='birdpic';photo.alt=bird.name;
+    photo.src=fixtureIconPath(bird.code,BIRD_ICON_EXT);hero.appendChild(photo);
+    await decodeFixtureImage(photo,fixtureIconPath(bird.code,BIRD_ICON_EXT));
+    window.BirdIcons.fitHeroFrame(hero,photo);
+    var loadBar=document.getElementById('loadBar');
+    if(loadBar)loadBar.style.setProperty('display','none','important');
+    await new Promise(function(resolve) {requestAnimationFrame(function() {
+      requestAnimationFrame(resolve);
+    });});
+    if(Math.abs(hierarchyPath.getBoundingClientRect().top
+        -taxonomy.querySelector(':scope > h3').getBoundingClientRect().bottom)>1)
+      throw new Error('F1490 extra vertical space remains between Taxonomy and its hierarchy');
+    for(var node of sec.querySelectorAll('#spLookupTaxonomy, #spLookupTaxonomy h3, '
+        +'#spLookupSortRow, #spLookupGroup, #spLookupNotes, '
+        +'#spLookupTaxonomy .spuhpathchip, '
+        +'#spLookupDetailMain .splookupsummary, '
+        +'#spLookupRecent > h3, #spLookupRarityHeading, #spLookupRecordsHeading, .stakeoutrarity, '
+        +'.stakevariants, .stakevariantstable')) {
+      var box=node.getBoundingClientRect();
+      if(!box.width || box.left<-.5 || box.right>window.innerWidth+.5
+          || (!node.classList.contains('stakevariantstable')
+            && node.scrollWidth>node.clientWidth+1))
+        throw new Error('BGGN section geometry overflow: '+node.tagName+'#'+node.id
+          +'.'+node.className+' '+JSON.stringify({box:box.toJSON(),
+            scroll:node.scrollWidth,client:node.clientWidth,
+            descendants:Array.from(node.querySelectorAll('*')).filter(function(child) {
+              return child.getBoundingClientRect().right>box.right+1;
+            }).map(function(child) {
+              return {tag:child.tagName,cls:child.className,text:child.textContent.slice(0,60),
+                box:child.getBoundingClientRect().toJSON(),
+                whiteSpace:getComputedStyle(child).whiteSpace};
+            })}));
+    }
+    for(var cell of variants.querySelectorAll('th, td')) {
+      if(cell.scrollWidth>cell.clientWidth+1)
+        throw new Error('F1477 variant cell text overflow: '+cell.textContent);
+    }
+    for(var link of variants.querySelectorAll('tbody a')) {
+      if(getComputedStyle(link).textDecorationLine.indexOf('underline')===-1)
+        throw new Error('F1477 variant eBird links must be underlined');
+      var icon=link.querySelector(':scope > svg.qricon');
+      if(!icon || icon.getAttribute('aria-hidden')!=='true'
+          || link.firstElementChild!==icon || icon.nextElementSibling.textContent!=='eBird')
+        throw new Error('F1484 variant links need the decorative icon before the label');
+      var iconBox=icon.getBoundingClientRect(), labelBox=icon.nextElementSibling.getBoundingClientRect();
+      if(!iconBox.width || !iconBox.height || getComputedStyle(icon).visibility!=='visible'
+          || iconBox.right>labelBox.left+.5)
+        throw new Error('F1484 external-link icon is hidden or not before the label');
+    }
+    var tableScroll=variants.querySelector('.stakevariantstable');
+    if(tableScroll.scrollWidth>tableScroll.clientWidth+1) {
+      tableScroll.scrollLeft=tableScroll.scrollWidth-tableScroll.clientWidth;
+      var lastLink=variants.querySelector('tbody tr:last-child td:last-child a');
+      var linkBox=lastLink.getBoundingClientRect(), scrollBox=tableScroll.getBoundingClientRect();
+      if(linkBox.left<scrollBox.left-.5 || linkBox.right>scrollBox.right+.5)
+        throw new Error('F1477 narrow table cannot reveal the eBird links');
+      tableScroll.scrollLeft=0;
+    }
+    var chipProbe=document.createElement('p');
+    chipProbe.className='spuhpathsentence';
+    chipProbe.innerHTML='<span class="spuhcompactlevel">'
+      +'<button class="spuhtaxlink spuhpathchip">bird sp.</button></span>';
+    document.body.appendChild(chipProbe);
+    var normalChip=chipProbe.querySelector('button');
+    var largeChip=hierarchy.querySelector('button.spuhpathchip');
+    var normalStyle=getComputedStyle(normalChip), largeStyle=getComputedStyle(largeChip);
+    if(parseFloat(largeStyle.borderTopLeftRadius)<=0)
+      throw new Error('F1479 hierarchy chips must retain rounded corners');
+    for(var property of ['borderTopStyle','borderTopWidth','borderTopColor',
+        'borderTopLeftRadius','color','backgroundColor','fontWeight']) {
+      if(largeStyle[property]!==normalStyle[property])
+        throw new Error('F1479 hierarchy chip differs from its existing style: '
+          +property+' '+largeStyle[property]+' vs '+normalStyle[property]);
+    }
+    var limitedProbe=document.createElement('button');
+    limitedProbe.className='spuhtaxlink spuhpathchip limited';
+    normalChip.parentElement.appendChild(limitedProbe);
+    var limitedProbeStyle=getComputedStyle(limitedProbe);
+    for(var chip of hierarchy.querySelectorAll('.spuhpathchip')) {
+      var chipStyle=getComputedStyle(chip);
+      var insetStyle=chip.classList.contains('limited')?limitedProbeStyle:normalStyle;
+      if(chipStyle.paddingTop!==insetStyle.paddingTop
+          || chipStyle.paddingRight!==insetStyle.paddingRight
+          || parseFloat(chipStyle.marginTop)<=0 || parseFloat(chipStyle.marginLeft)<=0)
+        throw new Error('F1488 hierarchy spacing must be external with compact inset: '
+          +JSON.stringify({name:chip.textContent,paddingTop:chipStyle.paddingTop,
+            paddingRight:chipStyle.paddingRight,expectedTop:insetStyle.paddingTop,
+            expectedRight:insetStyle.paddingRight,marginTop:chipStyle.marginTop,
+            marginLeft:chipStyle.marginLeft,height:chip.getBoundingClientRect().height,
+            scale:getComputedStyle(document.documentElement).getPropertyValue('--s')}));
+      if(chipStyle.minHeight!==insetStyle.minHeight)
+        throw new Error('F1489 hierarchy chips must retain the content-sized minimum height: '
+          +chip.textContent+' '+chipStyle.minHeight+' vs '+insetStyle.minHeight);
+      var contentProbe=chip.cloneNode(true);
+      // Absolute probes can have a different containing block; pin the outer width.
+      contentProbe.style.cssText='position:absolute;visibility:hidden;height:auto;min-height:0;max-width:none;box-sizing:border-box;width:'
+        +chip.getBoundingClientRect().width+'px';
+      chip.parentElement.appendChild(contentProbe);
+      var contentHeight=contentProbe.getBoundingClientRect().height;
+      var contentWidth=contentProbe.getBoundingClientRect().width;
+      contentProbe.remove();
+      if(Math.abs(chip.getBoundingClientRect().height-contentHeight)>.5)
+        throw new Error('F1489 hierarchy chip height must follow its content, not a fixed target: '
+          +JSON.stringify({name:chip.textContent,height:chip.getBoundingClientRect().height,
+            expected:contentHeight,width:chip.getBoundingClientRect().width,
+            boxSizing:chipStyle.boxSizing,maxWidth:chipStyle.maxWidth,
+            probeWidth:contentWidth}));
+    }
+    var selectedStyle=getComputedStyle(hierarchy.querySelector('.spuhpathselected'));
+    if(selectedStyle.borderTopStyle!=='double'
+        || parseFloat(selectedStyle.borderTopWidth)<=parseFloat(largeStyle.borderTopWidth)
+        || selectedStyle.borderTopLeftRadius!==largeStyle.borderTopLeftRadius)
+      throw new Error('F1479 selected hierarchy chip lost its rounded double border');
+    var limitedChip=hierarchy.querySelector('.spuhpathchip[data-spuh="olwwar1"]');
+    if(!limitedChip || !limitedChip.querySelector('.spuhcompactstate[aria-label="Coverage limit"]'))
+      throw new Error('F1479 reference Old World warbler chip or coverage marker missing');
+    var limitedStyle=getComputedStyle(limitedChip);
+    if(limitedStyle.borderTopStyle!=='dashed'
+        || limitedStyle.borderTopLeftRadius!==largeStyle.borderTopLeftRadius
+        || limitedStyle.borderTopColor!==limitedProbeStyle.borderTopColor
+        || limitedStyle.backgroundColor!==limitedProbeStyle.backgroundColor
+        || limitedStyle.color!==limitedProbeStyle.color)
+      throw new Error('F1479 reference limited hierarchy styling differs: '
+        +JSON.stringify({border:limitedStyle.borderTopStyle,
+          radius:limitedStyle.borderTopLeftRadius,color:limitedStyle.borderTopColor}));
+    if(parseFloat(getComputedStyle(largeChip).fontSize)
+        <=parseFloat(getComputedStyle(normalChip).fontSize)
+        || largeChip.getBoundingClientRect().height<=normalChip.getBoundingClientRect().height)
+      throw new Error('F1471 Stakeout hierarchy controls are not larger than compact controls');
+    chipProbe.remove();
+    var warning=document.createElement('p');
+    warning.className='status';
+    warning.textContent='REPRESENTATIVE STUB DATA - layout preview, not current sightings.';
+    sec.insertBefore(warning,document.getElementById('spLookupResults'));
+    markHost(sec,'Blue-gray Gnatcatcher - representative reports, not live sightings');
+    sec.dataset.mockAt='spLookupBtn';sec.dataset.mockReady='true';
+    return true;
   }
   async function prepareF389Stakeout(A, document, sec, mode) {
     ensureMockStyle(document);
@@ -4888,6 +5581,58 @@ const BOOTSTRAP = `
     prepareStakeoutChecklistProgressive: prepareStakeoutChecklistProgressive,
     prepareF634Stakeout: prepareF634Stakeout,
     prepareF837: prepareF837,
+    prepareStakeoutBggn: prepareStakeoutBggn,
+    prepareBirdReports: async function(scan,preview) {
+      var A=window.__app, bird={code:'amerob',name:'American Robin'};
+      A.setActiveReport('wa'); A.setCountyView('');
+      await preparePersonalFixture(A,window,{yearList:[bird]},[bird]);
+      if(preview==='history'){
+        fixtureBefore('spLookupBtn',A,document);
+        var stamp=A.todayStr()+' 08:00',matches=[1,8,16,21,26];
+        var summaries=Array.from({length:36},function(_,i){
+          return {subId:'S1491LAYOUT'+i,locId:'L1491LAYOUT',
+            obsDt:stamp+':'+String(i).padStart(2,'0')};
+        });
+        summaries.forEach(function(row,i){A.seedChecklistView(row.subId,Object.assign({},row,{
+          numSpecies:23,durationHrs:1,obs:matches.indexOf(i)>=0?[{speciesCode:bird.code,howMany:1}]:[]
+        }));});
+        A.seedEbirdCache('product/lists/L1491LAYOUT?maxResults=12',summaries.slice(0,12));
+        A.seedEbirdCache('product/lists/L1491LAYOUT?maxResults=200',summaries);
+        await fillStakeoutSpecies(A,document,'Representative five-report history',1,{
+          code:bird.code,name:bird.name,rows:[Object.assign({},summaries[1],{
+            speciesCode:bird.code,comName:bird.name,locName:'Representative busy public park',
+            lat:47.76,lng:-122.16,howMany:1,numSpecies:23,durationHrs:1,obsValid:true
+          })]
+        });
+      }
+      var results=await (${require('./bird-report-layout').toString()})(scan,preview);
+      if(preview==='history'){
+        A.fgCancelAll('Representative bird-report preview complete');
+        A.fgProgressReset();
+        await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+      }
+      var at=preview==='history'?'spLookupBtn':'easyBtn',sec=document.getElementById('sec-'+at);
+      sec.dataset.mockAt=at;sec.dataset.mockReady='true';sec.dataset.mockData='true';
+      var host=document.getElementById(preview==='history'?'spLookupRecent':'easyCommonResults');
+      host.dataset.mockData='true';
+      var label=document.createElement('p');label.className='mocklabel';
+      label.textContent='REPRESENTATIVE STUB DATA - not current sightings';sec.prepend(label);
+      return results;
+    },
+    prepareTop100Sync: async function() {
+      var A=window.__app;
+      var birds=[{code:'amerob',name:'American Robin'},{code:'annhum',name:"Anna's Hummingbird"},
+        {code:'norfli',name:'Northern Flicker'},{code:'mallar',name:'Mallard'},
+        {code:'coripl',name:'Common Ringed Plover'},{code:'amgplo',name:'American Golden-Plover'}];
+      A.setActiveReport('wa');A.setCountyView('');
+      await preparePersonalFixture(A,window,{yearList:birds.slice(0,3)},birds);
+      await (${require('./top100-sync-layout').toString()})(function(label){return {label:label};},true);
+      var sec=document.getElementById('sec-rankBtn');
+      sec.dataset.mockAt='rankBtn';sec.dataset.mockReady='true';sec.dataset.mockData='true';
+      var label=document.createElement('p');label.className='mocklabel';
+      label.textContent='REPRESENTATIVE STUB DATA - not your current standing';sec.prepend(label);
+      return true;
+    },
     prepareStakeoutSpts: prepareStakeoutSpts,
     prepareF389Stakeout: prepareF389Stakeout,
     prepareBirdFinderMerged: prepareBirdFinderMerged,
