@@ -34,24 +34,47 @@ module.exports = async function birdReportLayout(scan, preview, stage, preparePe
       }
     }
   }
-  function compactTable(host) {
+  function compactList(host) {
+    var bubble=getComputedStyle(host.parentElement);
+    var settings=getComputedStyle(document.getElementById('regionChooserQuickSettings'));
+    require(parseFloat(bubble.borderTopWidth)>0&&parseFloat(bubble.borderTopLeftRadius)>0
+      &&bubble.borderTopWidth===settings.borderTopWidth
+      &&bubble.borderTopStyle===settings.borderTopStyle
+      &&bubble.borderTopColor===settings.borderTopColor
+      &&bubble.borderTopLeftRadius===settings.borderTopLeftRadius
+      &&bubble.backgroundColor===settings.backgroundColor,
+      'F1503 Easy Targets must share the Quick settings bubble treatment');
     var reference=document.createElement('div');
-    reference.innerHTML='<ul class="obs"><li><span class="name">Reference bird</span></li></ul>';
+    reference.innerHTML='<ul class="obs"><li><span class="name"><a class="splink">Reference bird</a></span></li></ul>';
     reference.style.cssText='position:absolute;left:-10000px;visibility:hidden';
     document.body.appendChild(reference);
-    var font=getComputedStyle(reference.querySelector('.name')).fontSize;
+    var referenceStyle=getComputedStyle(reference.querySelector('.splink'));
+    var font=referenceStyle.fontSize,color=referenceStyle.color,weight=referenceStyle.fontWeight;
     reference.remove();
     var rows=Array.from(host.querySelectorAll('[data-common-code]')).map(function(row){
       var link=row.querySelector('a.splink'),rect=row.getBoundingClientRect();
       var linkRect=link.getBoundingClientRect();
-      require(getComputedStyle(link).fontSize===font,
-        'F1494 paragraph shrank the shared species text');
+      var style=getComputedStyle(link),size=parseFloat(style.fontSize);
+      require(size<parseFloat(font)&&size>=parseFloat(font)*.8,
+        'F1503 list must use smaller readable text');
+      require(style.color===color&&style.fontWeight===weight&&style.textDecorationLine==='none',
+        'F1503 species links must retain the shared Stakeout color, bold weight and no underline');
+      require(!/^#\d/.test(link.textContent),'F1503 species links must omit rank prefixes');
       return {bird:link.textContent,rowHeight:rect.height,linkHeight:linkRect.height};
     });
-    var height=host.querySelector('.commonBirdNames').getBoundingClientRect().height;
-    if(parseFloat(font)<20)require(height<rows.reduce(function(sum,row){return sum+row.linkHeight;},0),
-      'F1494 paragraph is no shorter than stacked links');
-    return {font:font,paragraphHeight:height,rows:rows};
+    var list=host.querySelector('ol.commonBirdNames'),style=getComputedStyle(list);
+    require(style.listStyleType==='decimal'&&Array.from(list.children).every(function(row){
+      return row.tagName==='LI'&&getComputedStyle(row).display==='list-item';
+    }),'F1503 ranked birds must retain visible decimal list markers');
+    require(parseFloat(style.lineHeight)<=parseFloat(style.fontSize)*1.55,
+      'F1503 list must not be double spaced');
+    Array.from(list.children).forEach(function(row,index,items){
+      require(index===0||Math.abs(row.getBoundingClientRect().top
+        -items[index-1].getBoundingClientRect().bottom)<=1,
+        'F1503 list items must not add blank lines between birds');
+    });
+    return {font:style.fontSize,referenceFont:font,lineHeight:style.lineHeight,
+      listHeight:list.getBoundingClientRect().height,rows:rows};
   }
   A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder'});
   A.setActiveReport('wa'); A.setCountyView('');
@@ -62,7 +85,10 @@ module.exports = async function birdReportLayout(scan, preview, stage, preparePe
     ['sonspa','Song Sparrow'],['daejun','Dark-eyed Junco'],['houspa','House Sparrow'],
     ['houfin','House Finch'],['amegfi','American Goldfinch'],['eursta','European Starling'],
     ['norfli','Northern Flicker'],['annhum',"Anna's Hummingbird"],['bewwre',"Bewick's Wren"],
-    ['rubkin','Ruby-crowned Kinglet']
+    ['rubkin','Ruby-crowned Kinglet'],['grbher3','Great Blue Heron'],
+    ['gadwal','Gadwall'],['norsho','Northern Shoveler'],['gnwtea','Green-winged Teal'],
+    ['rebnut','Red-breasted Nuthatch'],['bushti','Bushtit'],['sposan','Spotted Sandpiper'],
+    ['bcnher','Black-crowned Night Heron']
   ];
   require(typeof preparePersonalFixture==='function','Exact personal fixture helper is missing');
   var taxa=names.map(function(bird){return {code:bird[0],name:bird[1]};});
@@ -95,19 +121,22 @@ module.exports = async function birdReportLayout(scan, preview, stage, preparePe
   require(document.querySelector('#easyResults [data-sp="amerob"]'),
     'F1492 WATCH bird missing from existing needed targets');
   var more = document.getElementById('easyCommonMore');
-  target(more,'F1492 Show more');
+  require(more.parentElement===host&&more.previousElementSibling===host.querySelector('ol.commonBirdNames')
+    &&more.textContent==='Show more.',
+    'F1503 Show more must follow the numbered list without becoming a ranked bird');
+  target(more,'F1503 Show more');
   var placeMore=document.getElementById('easyPlaces');
   require(placeMore && !placeMore.disabled,'F1498 retained Find more places must be actionable');
   target(placeMore,'F1498 Find more places');
   Array.from(host.querySelectorAll('a.splink')).forEach(function (link) {
-    target(link,'F1492 Stakeout ' + link.textContent);
     require(link.getAttribute('href') === '#spLookupBtn', 'F1492 wrong Stakeout destination');
     intactWords(link);
   });
   var footprints=[];
   Array.from(host.querySelectorAll('a.splink')).forEach(function(link){
     Array.from(link.getClientRects()).forEach(function(rect){
-      require(rect.height>=44,'F1494 inline link fragment has an undersized target');
+      require(rect.height>0&&rect.height<=parseFloat(getComputedStyle(host.querySelector('.commonBirdNames')).lineHeight)+1,
+        'F1503 list links must not add standalone-button line spacing');
       footprints.forEach(function(other){
         if(other.code===link.dataset.sp)return;
         require(Math.min(rect.right,other.rect.right)-Math.max(rect.left,other.rect.left)<=1
@@ -121,21 +150,26 @@ module.exports = async function birdReportLayout(scan, preview, stage, preparePe
   });
   Array.from(host.querySelectorAll('th')).forEach(intactWords);
   var commonResult=scan('F1492 populated common table: first ten');
-  commonResult.commonTableGeometry=compactTable(host);
+  commonResult.commonTableGeometry=compactList(host);
   out.push(commonResult);
   stage('bird-report common glyph geometry measured');
   var calls = window.__auditExternalCalls || 0;
   more.click();
   stage('bird-report common expansion clicked');
-  require(host.querySelectorAll('[data-common-code]').length === 13 && more.hidden,
-    'F1492 expansion did not exhaust the acquired thirteen');
+  require(host.querySelectorAll('[data-common-code]').length === 20 && !more.hidden,
+    'F1503 first expansion must append birds eleven through twenty');
   require((window.__auditExternalCalls || 0) === calls, 'F1492 expansion acquired more data');
   commonResult=scan('F1492 populated common table: expanded');
   stage('bird-report common expansion scanned');
-  commonResult.commonTableGeometry=compactTable(host);
+  commonResult.commonTableGeometry=compactList(host);
   out.push(commonResult);
-  if (preview === 'common') {
+  more.click();
+  require(host.querySelectorAll('[data-common-code]').length===names.length-1&&more.hidden,
+    'F1503 the final partial batch must exhaust only the acquired eligible birds');
+  require((window.__auditExternalCalls || 0)===calls,'F1503 final expansion acquired more data');
+  if (preview === 'common' || preview === 'common-expanded') {
     await A.loadEasyMisses();
+    if(preview==='common-expanded')document.getElementById('easyCommonMore').click();
     window.scrollTo(0,0);
     return out;
   }

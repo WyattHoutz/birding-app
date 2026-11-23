@@ -2282,7 +2282,7 @@ REVIEW_SHOTS.push({
         await new Promise(function(resolve){setTimeout(resolve,20);});
       }
     } finally {W.fetch=originalFetch;}
-    var county=document.getElementById('regionChooserCounties')
+    var county=document.getElementById('regionChooserLocationStack')
       .querySelector('[data-region-choice="county:wa:US-WA-061"]:not([hidden])');
     if(!county || !/US-WA-061/.test(document.getElementById('regionChooserLocationStatus').textContent))
       throw new Error('F1448 actual Home filter must offer the polygon-verified Snohomish county');
@@ -2291,6 +2291,61 @@ REVIEW_SHOTS.push({
         || close.top<0 || close.bottom>W.innerHeight
         || document.getElementById('regionChooser').scrollWidth>W.innerWidth+1)
       throw new Error('F1448 verified location must leave a reachable scrolling county-results body');
+    document.getElementById('regionChooser').dataset.mockData='true';
+    return true;`
+});
+for (const {withRecent,mode,id} of [
+  {withRecent:true,mode:'home',id:'recent'},
+  {withRecent:false,mode:'home',id:'no-recent'},
+  {withRecent:true,mode:'here',id:'here'},
+  {withRecent:true,mode:'all',id:'find'}
+]) REVIEW_SHOTS.push({
+  id:'f1502-chooser-'+id,host:'regionChooser',freshApp:true,
+  title:'Proposed region chooser - '+(mode==='all'?'Find':mode)+' selected, '
+    +(withRecent?'with recent codes':'without recent history'),
+  requiredInCapture:['#regionChooserQuickSettings','#regionChooserLocation'],
+  prep:`A.setActiveReport('wa');
+    ${withRecent ? `for(var value of ['county:wa:US-WA-061','aba','lower48','wa','county:wa:US-WA-033','wa'])
+      await A.selectRegionChoice(value);` : "localStorage.removeItem('bc_recent_regions_v1');"}
+    localStorage.setItem(A.homeKey('lat'),'47.6062');
+    localStorage.setItem(A.homeKey('lng'),'-122.3321');
+    var W=document.defaultView,originalFetch=W.fetch,originalGeolocation=W.navigator.geolocation;
+    ${mode==='here'?`Object.defineProperty(W.navigator,'geolocation',{configurable:true,value:{
+      getCurrentPosition:function(success){success({coords:{latitude:47.97898,longitude:-122.2021}});}
+    }});`:''}
+    W.fetch=function(url,init){return /photon/.test(String(url))
+      ?Promise.resolve({ok:true,json:function(){return Promise.resolve({features:[{properties:{state:'Washington',countrycode:'US'}}]});}})
+      :originalFetch(url,init);};
+    A.openRegionChooser();
+    document.querySelector('[data-region-location="${mode}"]').click();
+    try {
+      var until=Date.now()+15000;
+      while(/Resolving/.test(document.getElementById('regionChooserLocationStatus').textContent)){
+        if(Date.now()>until)throw new Error('F1502 ${mode} mockup did not settle');
+        await new Promise(function(resolve){setTimeout(resolve,20);});
+      }
+    } finally {
+      W.fetch=originalFetch;
+      ${mode==='here'?"Object.defineProperty(W.navigator,'geolocation',{configurable:true,value:originalGeolocation});":''}
+    }
+    var recent=document.getElementById('regionChooserRecentSection');
+    var stack=document.getElementById('regionChooserLocationStack');
+    if(recent.hidden===${withRecent}
+        || !document.querySelector('[data-region-location="${mode}"][aria-pressed="true"]')
+        || ${mode==='all'
+          ?"!stack.hidden || document.getElementById('regionChooserFind').hidden"
+          :`stack.hidden || stack.children.length!==4
+            || !stack.querySelector('[data-region-choice="county:wa:${mode==='here'?'US-WA-061':'US-WA-033'}"]')`})
+      throw new Error('F1502 actual chooser must show optional recent codes and the requested ${mode} view: '
+        +JSON.stringify({recentHidden:recent.hidden,stackHidden:stack.hidden,
+          stack:Array.from(stack.children).map(function(button){return button.dataset.regionChoice;}),
+          status:document.getElementById('regionChooserLocationStatus').textContent}));
+    if(document.getElementById('regionChooser').scrollWidth>W.innerWidth+1)
+      throw new Error('F1502 chooser mockup must fit the actual phone width');
+    document.getElementById('regionChooserBody').scrollTop=0;
+    document.getElementById('regionChooser').scrollTop=0;
+    document.getElementById('regionChooserRecent').scrollLeft=0;
+    W.parent.scrollTo(0,0);
     document.getElementById('regionChooser').dataset.mockData='true';
     return true;`
 });
@@ -2421,9 +2476,16 @@ REVIEW_SHOTS.push({
     return FIX.prepareStakeoutBggn(A,document,sec);`
 });
 
+for (const expanded of [false,true]) REVIEW_SHOTS.push({
+  id:'f1503-easy-targets'+(expanded?'-expanded':''),at:'easyBtn',freshApp:true,
+  title:'Compact Easy Targets - '+(expanded?'twenty birds after Show more':'initial ten birds')+' (representative sample)',
+  host:'sec-easyBtn',prepTimeoutMs:45000,
+  expects:['#easyCommonResults .commonBirdNames [data-common-code]','#easyCommonMore:not([hidden])'],
+  prep:`await FIX.prepareBirdReports(function(label){return {label:label};},${JSON.stringify(expanded?'common-expanded':'common')}); return true;`
+});
 REVIEW_SHOTS.push({
   id:'f1492-common-target-table',at:'easyBtn',freshApp:true,
-  title:'Target Birds - Easy Targets paragraph and existing needed-bird targets (representative sample)',
+  title:'Target Birds - Easy Targets ordered list and existing needed-bird targets (representative sample)',
   host:'sec-easyBtn',fullPage:true,prepTimeoutMs:45000,
   expects:['#easyCommonResults .commonBirdNames [data-common-code]','#easyCommonMore:not([hidden])','#easyResults'],
   prep:`await FIX.prepareBirdReports(function(label){return {label:label};},'common'); return true;`
@@ -6189,6 +6251,27 @@ async function main() {
         })()`, returnByValue: true
       }, sessionId);
       console.log('  loading capture geometry ' + JSON.stringify(geometry.result.value));
+    }
+    if (shot.id.startsWith('f1502-chooser-')) {
+      const geometry = await c.send('Runtime.evaluate', {
+        expression: `(function () {
+          var f=document.getElementById('f'), w=f.contentWindow, d=w.document;
+          var chooser=d.getElementById('regionChooser'), recent=d.getElementById('regionChooserRecent');
+          return {parentScroll:window.scrollY, frameTop:f.getBoundingClientRect().top,
+            appScroll:w.scrollY, chooserScroll:chooser.scrollTop, recentScroll:recent.scrollLeft,
+            headingTop:d.getElementById('regionChooserTitle').getBoundingClientRect().top,
+            recentCodes:Array.from(recent.children).map(function(button){return button.textContent;})};
+        })()`, returnByValue: true
+      }, sessionId);
+      console.log('  chooser capture geometry ' + JSON.stringify(geometry.result.value));
+      const metrics=geometry.result.value;
+      if(!metrics||metrics.parentScroll!==0||metrics.frameTop!==0||metrics.chooserScroll!==0
+          ||metrics.headingTop<0||metrics.headingTop>=shotHeight
+          ||(shot.id.endsWith('no-recent')?metrics.recentCodes.length!==0:metrics.recentCodes.length!==4)) {
+        console.error('  !! '+shot.id+': chooser heading or optional Recent is not ready for capture');
+        blank.push(shot.id);
+        continue;
+      }
     }
     const png = await c.send('Page.captureScreenshot', {
       format: 'png',

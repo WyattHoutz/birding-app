@@ -20,6 +20,8 @@ async function nextReleaseLayout(scan, mutation, focus) {
     await paint();
     const owner=A.activeScope().cacheIdentity;
     const navbar=document.getElementById('navbar'),button=document.getElementById('navRegion');
+    const tag=document.getElementById('navScopeTag');
+    if(mutation==='scope-flat')tag.style.borderRadius='0';
     if(mutation==='header-font')button.style.fontSize='8px';
     if(mutation==='header-transparent')button.style.opacity='0';
     if(mutation==='scope-row') {
@@ -32,13 +34,15 @@ async function nextReleaseLayout(scan, mutation, focus) {
     if(mutation==='scope-wrap')button.parentElement.style.flex='0 1 auto';
     const box=button.getBoundingClientRect(),back=document.getElementById('navBack').getBoundingClientRect();
     const title=document.getElementById('navTitle'),titleBox=title.getBoundingClientRect();
-    const year=String(new Date().getFullYear()).slice(-2);
+    const year=String(new Date().getFullYear());
     check(!document.getElementById('navPeriod')&&button.textContent===year+' US-WA-033',
-      'F1502 one link must show the two-digit year and effective county code');
+      'F1502 one link must show the four-digit year and effective county code');
     check(getComputedStyle(button).opacity==='1'
-      && parseFloat(getComputedStyle(button).fontSize)>=parseFloat(getComputedStyle(title).fontSize)*.7
-      && getComputedStyle(button).textDecorationLine.includes('underline'),
-      'F1502 scope link must remain visible, underlined and scale with header text');
+      && parseFloat(getComputedStyle(button).fontSize)>=parseFloat(getComputedStyle(title).fontSize)*.7,
+      'F1502 scope link must remain visible and scale with header text');
+    const tagBox=tag.getBoundingClientRect(),tagStyle=getComputedStyle(tag);
+    check(parseFloat(tagStyle.borderTopWidth)>=1&&parseFloat(tagStyle.borderRadius)>=tagBox.height/2,
+      'F1502 scope text must retain the shared rounded outlined tag');
     check(box.width>=43.5&&box.height>=43.5&&box.left>=0&&box.right<=innerWidth+.5,
       'F1502 scope link must retain an in-viewport 44px target: '+JSON.stringify(box.toJSON()));
     const navBox=navbar.getBoundingClientRect(),style=getComputedStyle(navbar);
@@ -54,7 +58,7 @@ async function nextReleaseLayout(scan, mutation, focus) {
       'F1502 scope link must not make the compact navbar taller');
     function checkText() {
       const rect=button.getBoundingClientRect(),range=document.createRange();
-      range.selectNodeContents(button);
+      range.selectNodeContents(tag);
       check([...range.getClientRects()].every(r=>r.left>=rect.left-.5&&r.right<=rect.right+.5
         &&r.top>=rect.top-.5&&r.bottom<=rect.bottom+.5),
         'F1502 year and region text must remain fully visible inside the link');
@@ -74,22 +78,105 @@ async function nextReleaseLayout(scan, mutation, focus) {
     checkText();
     A.setCountyView('US-WA-033');A.setPersonalPeriod('current');
     await paint();
+    const titles=[];
+    if(mutation==='scope-title-wrap')title.style.whiteSpace='normal';
+    for(const section of [...document.querySelectorAll('section.panel[id]')]
+      .filter(node=>node.id!=='menuPanel'&&node._enabled!==false)) {
+      A.showSection(section.id,{load:false});
+      await paint();
+      const heading=title.getBoundingClientRect(),target=button.getBoundingClientRect();
+      check(getComputedStyle(title).whiteSpace==='nowrap'
+        &&title.scrollHeight<=title.clientHeight+1&&heading.width>0&&heading.right<=target.left+.5
+        &&navbar.getBoundingClientRect().height<=navBox.height+.5,
+        'F1502 long menu titles must not wrap or grow the navbar: '+title.textContent);
+      titles.push({title:title.textContent,width:heading.width,truncated:title.scrollWidth>title.clientWidth});
+    }
+    check(titles.length>=20,'F1502 title proof must enumerate the actual menu catalog');
+    A.showSection('sec-spLookupBtn',{load:false});
+    await paint();
+    localStorage.setItem('bc_recent_regions_v1',JSON.stringify(['county:wa:US-WA-061','lower48','aba','wa']));
+    if(mutation==='chooser-wide')document.getElementById('regionChooser').style.gridTemplateColumns='auto';
     button.focus();
     button.click();
     await paint();
     const current=document.querySelector('#regionChooserCurrent button');
     if(mutation==='selected-enabled')current.disabled=false;
     if(mutation==='selected-font')current.style.fontFamily='Arial';
+    if(mutation==='selected-center')current.style.textAlign='center';
+    if(mutation==='selected-color')current.style.color='#0072b2';
+    if(mutation==='selected-background')current.style.backgroundColor='#fff';
     if(mutation==='selected-short') { current.style.minHeight='0';current.style.height='28px'; }
     check(current?.disabled&&current.getAttribute('aria-current')==='true'
-      && /✅ Selected:/.test(current.textContent),'F1499 selected state must be explicit and natively disabled');
+      && /^✅ /.test(current.textContent)&&!/\bSelected\b/i.test(current.textContent),
+      'F1499 selected state must use only a checkmark and remain natively disabled');
+    const currentStyle=getComputedStyle(current);
+    check(currentStyle.textAlign==='left'&&currentStyle.color==='rgb(0, 0, 0)'
+      &&currentStyle.backgroundColor==='rgb(238, 238, 238)',
+      'F1502 current region must be left-aligned with black text on light gray');
+    const periodHost=document.getElementById('regionChooserPeriod');
+    const location=document.getElementById('regionChooserLocation');
+    const reference=document.getElementById('destBtn').closest('section').querySelector('.modeswitch');
+    const modeShape=host=>[...host.querySelectorAll('.modebtn')].map(choice=>[
+      choice.querySelector('.mbico').innerHTML,choice.querySelector('.mbtxt').textContent]);
+    check(location.classList.contains('modeswitch')&&JSON.stringify(modeShape(location))===JSON.stringify(modeShape(reference))
+      &&!location.querySelector('[data-anchor],[data-goto]'),
+      'F1502 location chooser must share Today’s patches mode template without ranking or navigation actions');
+    const heightControl=reference.cloneNode(true);
+    heightControl.style.cssText='position:absolute;visibility:hidden;width:'+location.getBoundingClientRect().width+'px';
+    heightControl.setAttribute('aria-hidden','true');
+    heightControl.inert=true;
+    location.parentElement.appendChild(heightControl);
+    const modeHeights={chooser:location.getBoundingClientRect().height,
+      reference:heightControl.getBoundingClientRect().height,
+      chooserMinimum:getComputedStyle(location.querySelector('.modebtn')).minHeight,
+      referenceMinimum:getComputedStyle(heightControl.querySelector('.modebtn')).minHeight};
+    heightControl.remove();
+    check(Math.abs(modeHeights.chooser-modeHeights.reference)<1
+      &&modeHeights.chooserMinimum===modeHeights.referenceMinimum,
+      'F1502 chooser mode bar must match Today’s patches height: '+JSON.stringify(modeHeights));
+    const recent=document.getElementById('regionChooserRecent');
+    if(mutation==='recent-wrap')recent.style.flexWrap='wrap';
+    const recentCodes=[...recent.children].map(choice=>choice.textContent);
+    check(!document.getElementById('regionChooserRecentSection').hidden&&recentCodes.length===4,
+      'F1502 populated Recent must appear in top Quick settings');
+    const recentBoxes=[...recent.children].map(choice=>choice.getBoundingClientRect());
+    check(getComputedStyle(recent).flexWrap==='nowrap'
+      &&['auto','scroll'].includes(getComputedStyle(recent).overflowX)
+      &&recentBoxes.every(rect=>Math.abs(rect.top-recentBoxes[0].top)<1
+        &&rect.width>=43.5&&rect.height>=43.5),
+      'F1502 Recent codes must remain one horizontally scrollable row of touch targets');
+    for(const choice of [...recent.children]) {
+      recent.scrollLeft+=choice.getBoundingClientRect().left-recent.getBoundingClientRect().left-2;
+      await paint();
+      const rect=choice.getBoundingClientRect(),strip=recent.getBoundingClientRect();
+      check(rect.left>=strip.left-.5&&rect.right<=strip.right+.5
+        &&choice.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)),
+        'F1502 every Recent code must be horizontally reachable without wrapping');
+    }
+    recent.scrollLeft=0;
+    await paint();
+    const recentGeometry={codes:recentCodes,width:recent.clientWidth,scrollWidth:recent.scrollWidth};
+    const search=document.getElementById('regionChooserSearch').getBoundingClientRect();
+    for(const option of periodHost.querySelectorAll('button')) {
+      const rect=option.getBoundingClientRect();
+      check(rect.width>=43.5&&rect.height>=43.5&&rect.left>=0&&rect.right<=innerWidth+.5
+        &&rect.bottom<=search.top+.5&&option.contains(document.elementFromPoint(
+          rect.left+rect.width/2,rect.top+rect.height/2)),
+        'F1502 chooser time toggle must be reachable above region search: '+JSON.stringify({
+          option:rect.toJSON(),search:search.toJSON(),hit:document.elementFromPoint(
+            rect.left+rect.width/2,rect.top+rect.height/2)?.outerHTML}));
+    }
+    periodHost.querySelector('[data-personal-period="all"]').click();
+    check(A.personalPeriod()==='all'&&!document.getElementById('regionChooser').hidden,
+      'F1502 chooser life-list toggle must change the shared period without closing');
+    periodHost.querySelector('[data-personal-period="current"]').click();
     const selected=current.getBoundingClientRect();
     check(selected.height>=43.5&&selected.width>=43.5
       && selected.left>=0&&selected.right<=innerWidth+.5,'F1499 current selection must remain readable: '
         +JSON.stringify(selected.toJSON()));
     const body=document.getElementById('regionChooserBody');
     check([...body.querySelectorAll(':scope > section > h3')].map(h=>h.textContent).join('|')
-      ==='Current region|Recent regions|Major Regions|States, provinces and territories|County',
+      ==='Current region|Major Regions|States, provinces and territories|County',
       'F1499 chooser groups must retain the requested order');
     const counties=document.getElementById('regionChooserCountyList');
     check(!counties.open,'F1499 county list must start collapsed');
@@ -101,6 +188,40 @@ async function nextReleaseLayout(scan, mutation, focus) {
       'F1499 independent county disclosure must remain reachable');
     summary.click();
     check(counties.open,'F1499 disabled selected region cannot disable county disclosure');
+    const fetchBefore=window.fetch;
+    let homeStack=[];
+    try {
+      window.fetch=function(url,options) {
+        return /photon\.komoot\.io\/reverse/.test(String(url))
+          ?Promise.resolve(new Response(JSON.stringify({features:[{properties:{state:'Washington',countrycode:'US'}}]}),
+            {headers:{'Content-Type':'application/json'}}))
+          :fetchBefore(url,options);
+      };
+      document.querySelector('[data-region-location="home"]').click();
+      for(let attempt=0;attempt<120&&/Resolving/.test(
+        document.getElementById('regionChooserLocationStatus').textContent);attempt++)await paint();
+      const stack=document.getElementById('regionChooserLocationStack');
+      const stackCodes=[...stack.children].map(choice=>choice.dataset.regionChoice);
+      check(!stack.hidden&&stack.children.length>=3
+        &&new Set(stackCodes).size===stackCodes.length
+        &&!stackCodes.some(value=>/^county:[^:]+:$/.test(value))
+        &&!document.getElementById('regionChooserRecentSection').hidden
+        &&JSON.stringify([...recent.children].map(choice=>choice.textContent))===JSON.stringify(recentCodes)
+        &&document.getElementById('regionChooserFind').hidden,
+        'F1502 Home must show a unique flat verified stack with shared Recent and no Find search');
+      for(const choice of stack.querySelectorAll('button')) {
+        choice.scrollIntoView({block:'center'});
+        await paint();
+        const rect=choice.getBoundingClientRect();
+        check(rect.width>=43.5&&rect.height>=43.5&&rect.left>=0&&rect.right<=innerWidth+.5
+          &&choice.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)),
+          'F1502 flat location region buttons must remain independently reachable');
+        homeStack.push({code:choice.dataset.regionChoice,rect:rect.toJSON()});
+      }
+      document.querySelector('[data-region-location="all"]').click();
+      check(stack.hidden&&!document.getElementById('regionChooserFind').hidden,
+        'F1502 Find must restore the searchable full catalog');
+    } finally {window.fetch=fetchBefore;}
     document.getElementById('regionChooserClose').click();
     check(document.activeElement===button,'F1502 chooser dismissal must restore scope-link focus');
     window.scrollTo(0,0);
@@ -111,7 +232,10 @@ async function nextReleaseLayout(scan, mutation, focus) {
       && document.activeElement.closest('.periodpick'),'F1502 main-menu year must retain the existing period picker');
     check(A.activeScope().cacheIdentity===owner,'F1502 opening selectors must not change the active account/scope/time');
     A.setCountyView('');A.showMenu();
-    return {scopeLink:box.toJSON(),allTime,navbar:navBox.toJSON(),selected:selected.toJSON(),disclosure:disclosure.toJSON()};
+    return {scopeLink:box.toJSON(),tag:tagBox.toJSON(),allTime,navbar:navBox.toJSON(),
+      menuTitles:titles.length,longestTitles:titles.sort((a,b)=>b.title.length-a.title.length).slice(0,5),
+      recent:recentGeometry,modeHeights,
+      selected:selected.toJSON(),disclosure:disclosure.toJSON(),homeStack};
   });
   if(focus==='scope-headers')return results;
   await record('F1410 grouped FOY and Home', async () => {

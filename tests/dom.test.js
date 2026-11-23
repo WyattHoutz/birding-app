@@ -12139,7 +12139,12 @@ test('F1452/F1453/F1499 chooser disables the checked current region and collapse
     const selected=current.querySelector('button');
     assert.ok(selected&&selected.disabled,'Current region is a native disabled button');
     assert.equal(selected.getAttribute('aria-current'),'true');
-    assert.match(selected.textContent,/✅ Selected:/);
+    assert.match(selected.textContent,/^✅ /);
+    assert.doesNotMatch(selected.textContent,/\bSelected\b/i,'the checkmark replaces the visible Selected label');
+    const selectedStyle=app.window.getComputedStyle(selected);
+    assert.equal(selectedStyle.textAlign,'left');
+    assert.equal(selectedStyle.color,'rgb(0, 0, 0)');
+    assert.equal(selectedStyle.backgroundColor,'rgb(238, 238, 238)');
     assert.match(current.textContent,/Snohomish.*US-WA-061/);
     assert.equal(app.$('regionChooserStateList').open,false,'the full state catalog starts collapsed');
     assert.equal(app.$('regionChooserCountyList').open,false,'the full county catalog starts collapsed');
@@ -12147,8 +12152,10 @@ test('F1452/F1453/F1499 chooser disables the checked current region and collapse
     assert.match(app.$('regionChooserCountyCurrent').textContent,/Snohomish.*US-WA-061/);
     const body=app.$('regionChooserBody');
     assert.deepEqual([...body.querySelectorAll(':scope > section > h3')].map(h=>h.textContent),
-      ['Current region','Recent regions','Major Regions','States, provinces and territories','County']);
-    assert.equal(body.querySelector(':scope > hr').previousElementSibling.querySelector('h3').textContent,'Recent regions');
+      ['Current region','Major Regions','States, provinces and territories','County']);
+    assert.equal(body.querySelector(':scope > hr').previousElementSibling.querySelector('h3').textContent,'Current region');
+    assert.ok(app.$('regionChooserQuickSettings').contains(app.$('regionChooserRecentSection')),
+      'Recent is now a quick setting above the catalog and location modes');
     assert.ok(app.$('regionChooserAll').querySelectorAll('button').length>=65);
     const expectedCounties=Object.keys(JSON.parse(fs.readFileSync(wwwFixture('county-bounds-wa.json'),'utf8'))).sort();
     app.$('regionChooserCountyList').querySelector('summary').click();
@@ -18801,8 +18808,10 @@ test('F728 chooser keeps the previous region directly visible in Recent', async 
   const chooser = app.$('regionChooser');
   assert.equal(chooser.hidden, false);
   assert.match(app.$('regionChooserCurrent').textContent, /Michigan.*US-MI/i);
-  assert.match(app.$('regionChooserRecent').textContent, /Washington.*US-WA/i,
-    'Washington still requires an undiscoverable reverse scroll gesture');
+  const recentWashington=app.$('regionChooserRecent').querySelector('[data-region-choice="wa"]');
+  assert.equal(recentWashington.textContent,'US-WA','Recent shows an abbreviated region code');
+  assert.match(recentWashington.getAttribute('aria-label'),/Washington.*US-WA/i,
+    'the full region name remains accessible');
   assert.match(chooser.textContent, /65 ABA jurisdictions/i);
   assert.match(chooser.textContent, /search or scroll/i);
   const search = app.$('regionChooserSearch');
@@ -18815,7 +18824,7 @@ test('F728 chooser keeps the previous region directly visible in Recent', async 
   assert.match(app.$('regionChooserClose').getAttribute('aria-label'), /Close/i);
   const before = A.scopeGeneration();
   const washington = [...app.$('regionChooserRecent').querySelectorAll('.regionchoice')]
-    .find((button) => /Washington/.test(button.textContent));
+    .find((button) => button.dataset.regionChoice === 'wa');
   app.click(washington);
   assert.equal(A.getReportSlug(), 'wa');
   assert.equal(A.scopeGeneration(), before + 1,
@@ -27055,11 +27064,11 @@ test('F1104 Common birds keeps public, owned bird/place evidence flat and global
   } finally {app.window.close();}
 });
 
-test('F1492 F1494 Easy Targets paragraph ranks unseen or WATCH birds and expands without requests', async () => {
+test('F1492 F1494 F1503 Easy Targets ordered list ranks unseen or WATCH birds and expands without requests', async () => {
   const app=await boot({fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
   try {
     const A=app.window.__app;
-    const taxa=Array.from({length:14},(_,i)=>({code:'f1492bird'+i,name:'Common Fixture Bird '+i}));
+    const taxa=Array.from({length:24},(_,i)=>({code:'f1492bird'+i,name:'Common Fixture Bird '+i}));
     await seedSeen(app,[taxa[0].code,taxa[1].code],[],taxa);
     A.setWatchlist([{code:taxa[0].code,name:taxa[0].name}]);
     const hotspots=[
@@ -27090,12 +27099,22 @@ test('F1492 F1494 Easy Targets paragraph ranks unseen or WATCH birds and expands
     assert.equal(table()[0].dataset.commonCode,taxa[0].code,'a seen WATCH bird remains eligible');
     assert.equal(table()[0].dataset.siteDays,'3','duplicate reports at one hotspot/day count once');
     assert.equal(app.$('easyCommon').querySelector('h3').textContent,'Easy Targets');
-    assert.equal(common.querySelectorAll('p.commonBirdNames').length,1);
+    assert.equal(common.querySelectorAll('ol.commonBirdNames').length,1);
+    assert.ok(table().every(row=>row.tagName==='LI'&&row.parentElement===common.firstElementChild),
+      'each ranked bird is a direct item of the ordered list');
     assert.equal(common.querySelector('table'),null);
     assert.ok(table()[0].querySelector('.tag.watchflag'),'reuse the explicit WATCH tag');
     assert.equal(table()[1].querySelector('.watchflag'),null,'unseen birds are not labelled WATCH');
-    assert.deepEqual(table().map((row,i)=>row.querySelector('a').textContent),
-      table().map((row,i)=>'#'+(i+1)+' '+taxa.find(t=>t.code===row.dataset.commonCode).name));
+    assert.deepEqual(table().map(row=>row.querySelector('a').textContent),
+      table().map(row=>taxa.find(t=>t.code===row.dataset.commonCode).name));
+    assert.doesNotMatch(common.textContent,/#\d/,'species links omit rank prefixes');
+    const more=app.$('easyCommonMore'),initial=table().map(row=>row.dataset.commonCode);
+    assert.equal(more.textContent,'Show more.');
+    assert.equal(more.parentElement,common,'expansion follows the list, outside its numbered items');
+    assert.equal(more.previousElementSibling,common.querySelector('ol.commonBirdNames'));
+    assert.equal(more,more.parentElement.lastElementChild);
+    assert.match(common.querySelector('.splink').className,/stakeoutSourceAction/);
+    assert.equal(app.window.getComputedStyle(common.querySelector('.splink')).fontWeight,'700');
     assert.ok(!common.querySelector('[data-common-code="'+taxa[1].code+'"]'),
       'an even more common seen, unwatched bird must not displace eligible targets');
     assert.ok(app.$('easyResults').querySelector('[data-sp="'+taxa[0].code+'"]'),
@@ -27108,9 +27127,20 @@ test('F1492 F1494 Easy Targets paragraph ranks unseen or WATCH birds and expands
     assert.match(app.$('appSheet').textContent,/representatives, not every observation/);
     app.click(app.$('appSheet').querySelector('.sheetclose'));
     const moreCalls=app.state.fetches.length;
-    app.click(app.$('easyCommonMore'));
-    assert.equal(table().length,13);
+    more.focus();app.click(more);
+    assert.equal(table().length,20,'the first expansion appends birds 11-20');
+    assert.deepEqual(table().slice(0,10).map(row=>row.dataset.commonCode),initial,
+      'expansion retains the existing ranked ten');
+    assert.equal(app.$('easyCommonMore'),more,'list expansion preserves its control');
+    assert.equal(app.document.activeElement,more,'focus stays on Show more while another batch remains');
+    assert.equal(common.querySelectorAll('ol.commonBirdNames').length,1,
+      'expansion continues one numbered list instead of restarting at one');
+    assert.equal(more.hidden,false);
+    app.click(more);
+    assert.equal(table().length,23,'the final partial batch is not padded or truncated');
     assert.equal(app.$('easyCommonMore').hidden,true);
+    assert.equal(app.document.activeElement,table().at(-1).querySelector('a'),
+      'exhaustion moves focus to the final added bird');
     assert.equal(app.state.fetches.length,moreCalls,'common-bird expansion must use acquired data');
     assert.deepEqual(table().map(row=>row.dataset.commonCode).sort(),taxa.filter((_,i)=>i!==1).map(t=>t.code).sort(),
       'unseen and WATCH birds qualify, but seen/unwatched, private, sensitive, outside-radius and outside-scope reports do not');
@@ -30391,7 +30421,8 @@ test('grouped sections offer each other as modes of one report', async () => {
         `group "${key}" must mark exactly one mode as current`);
       // An in-panel switch lives in one section, so there is nothing to
       // cross-check — but it must still be inside a real one.
-      assert.ok(sw.closest('section.panel'), `group "${key}" sits in a section`);
+      assert.ok(sw.closest('section.panel') || key==='region'&&sw.closest('#regionChooser[role="dialog"]'),
+        `group "${key}" sits in a section or the shared region dialog`);
       continue;
     }
     const modes = pick
@@ -30756,6 +30787,7 @@ test('every mode switch is built from ONE table', async () => {
   // ...and by data-anchor when it RE-RANKS the panel it is already in.
   const keyOf = (b) => b.getAttribute('data-goto')
     || (b.getAttribute('data-anchor') ? 'anchor:' + b.getAttribute('data-anchor') : '')
+    || (b.getAttribute('data-region-location') ? 'region:' + b.getAttribute('data-region-location') : '')
     || b.id;
   rows.forEach((r) => {
     const g = r.getAttribute('data-modes');
@@ -39620,7 +39652,7 @@ test('F10/F728/F1502: compact year-region link preserves chooser, context and ma
     'the navbar must open the shared chooser rather than the undiscoverable native wheel');
   const A=app.window.__app,period=app.$('hdrPeriod');
   const context=()=>[A.bcProfile(),A.activeScope().cacheIdentity,A.personalPeriod()].join('|');
-  const year=String(new app.window.Date().getFullYear()).slice(-2);
+  const year=String(new app.window.Date().getFullYear());
   for (const [report,county,time] of [
     ['wa','','current'],['wa','US-WA-033','current'],['wa','US-WA-033','all'],['wa','','all'],
     ['lower48','','all'],['','','current']
@@ -39633,8 +39665,9 @@ test('F10/F728/F1502: compact year-region link preserves chooser, context and ma
       'the wide labelled pair must not return to section headers');
     assert.equal(sel.textContent,(time==='all'?'All':year)+' '+(county||
       (report==='lower48'?'LOWER48':report?'US-WA':'Region')),
-      'one compact text link shows the two-digit year/All and effective region code');
+      'one compact text link shows the four-digit year/All and effective region code');
     assert.equal(sel.querySelector('.navregionicon'),null,'the superseded globe must not return');
+    assert.ok(app.$('navScopeTag').classList.contains('tag'),'scope text uses the shared tag format');
     assert.match(sel.getAttribute('aria-label'),report?/Scope:/:/Choose report region/);
     if (report) assert.equal(sel.getAttribute('aria-label'),app.$('hdrScope').getAttribute('aria-label'));
     sel.focus();
@@ -39654,6 +39687,45 @@ test('F10/F728/F1502: compact year-region link preserves chooser, context and ma
   assert.ok(app.document.activeElement.closest('.periodpick'),'selected existing period receives focus');
   assert.equal(context(),before,'opening the main-menu picker changes no account, area or period');
   } finally { app.window.close(); }
+});
+
+test('F1502 chooser period toggle shares menu semantics without losing region, search or focus', async () => {
+  const app=await boot();
+  try {
+    const A=app.window.__app;
+    A.setActiveReport('wa');A.setCountyView('US-WA-033');A.setPersonalPeriod('current');
+    app.open(/Settings/);
+    app.$('navRegion').focus();app.click(app.$('navRegion'));
+    const host=app.$('regionChooserPeriod'),search=app.$('regionChooserSearch');
+    assert.ok(host.compareDocumentPosition(search)&app.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'the time-period toggle appears above region search');
+    search.value='Washington';search.dispatchEvent(new app.window.Event('input',{bubbles:true}));
+    app.$('regionChooserCountyList').open=true;
+    const owner=()=>[A.bcProfile(),A.getReportSlug(),A.getCountyView()].join('|');
+    const before=owner(),year=String(new app.window.Date().getFullYear());
+    for (const period of ['all','current']) {
+      const option=host.querySelector('[data-personal-period="'+period+'"]');
+      if(period==='all') {
+        assert.equal(option.textContent,'All');
+        assert.match(option.getAttribute('aria-label'),/Life list/);
+      }
+      option.focus();app.click(option);
+      const selected=host.querySelector('[data-personal-period="'+period+'"]');
+      assert.equal(A.personalPeriod(),period==='all'?'all':'year:'+year);
+      assert.equal(selected.getAttribute('aria-pressed'),'true');
+      assert.match(selected.textContent,/✓/,'selected state is not conveyed by colour alone');
+      assert.equal(app.document.activeElement,selected,'focus survives toggle repaint');
+      assert.equal(app.$('regionChooser').hidden,false,'changing time does not dismiss the chooser');
+      assert.equal(owner(),before,'period changes preserve the account and exact region/county');
+      assert.equal(search.value,'Washington','period changes preserve the region search');
+      assert.equal(app.$('regionChooserCountyList').open,true,'county disclosure stays open');
+      assert.equal(app.$('navRegion').textContent,(period==='all'?'All':year)+' US-WA-033');
+      assert.equal(app.document.querySelector('.quicksettings [data-personal-period="'+period+'"]')
+        .getAttribute('aria-pressed'),'true','menu shortcut stays synchronized');
+    }
+    app.click(app.$('regionChooserClose'));
+    assert.equal(app.document.activeElement,app.$('navRegion'));
+  } finally {app.window.close();}
 });
 
 test('F10: the navbar controls scale with the text-size setting', () => {
@@ -64560,7 +64632,7 @@ test('the region and county pickers show the code the top bar displays', async (
   A.scopeOpen();          // builds and binds the pickers
   app.click(app.$('menuRegion'));
   const opts = [...doc.querySelectorAll('#regionChooserAll .regionchoice, #regionChooserBroader .regionchoice')]
-    .map((o) => o.querySelector('.regionchoicename').textContent.replace(/^\u2705 Selected: /,''));
+    .map((o) => o.querySelector('.regionchoicename').textContent.replace(/^\u2705 /,''));
   app.click(app.$('regionChooserClose'));
   const wa = opts.find((t) => t.startsWith('Washington'));
   assert.ok(/^Washington\s+US-WA\b/.test(wa), 'the report names its code: ' + wa);
@@ -67215,9 +67287,9 @@ test('F1448 Here and Home resolve exact King, Snohomish, Pierce and Honolulu cou
       app.click(app.document.querySelector('[data-region-location="'+mode+'"]'));
       await waitFor(()=>!/Resolving/.test(app.$('regionChooserLocationStatus').textContent),'exact county '+county);
       assert.equal(search.value,county,'county enrichment preserves the live search');
-      assert.deepEqual([...new Set(arr(app.$('regionChooserBody').querySelectorAll('.regionchoice:not([hidden])'),
-        b=>b.dataset.regionChoice))],['county:'+parent+':'+county],
-        'the requested point must resolve its actual county, not the selected county or overlapping rectangle');
+      assert.deepEqual(arr(app.$('regionChooserLocationStack').querySelectorAll('button:not([hidden])'),
+        b=>b.dataset.regionChoice),['county:'+parent+':'+county,parent,...(parent==='hi'?[]:['lower48']),'aba'],
+        'the flat location stack starts with its actual county, not the selected county or overlapping rectangle');
       assert.equal(A.activeScope().effectiveRegion,before,'location filtering does not select a scope');
       assert.equal(JSON.stringify(A.getHome()),home,'location filtering never moves saved Home');
       assert.equal(app.state.locations.length,mode==='here'?1:0);
@@ -67255,7 +67327,7 @@ test('F1448 offshore, ambiguous and missing exact county geometry never become s
       const countyChoices=arr(app.$('regionChooserCounties').querySelectorAll('.regionchoice:not([hidden])'),
         b=>b.dataset.regionChoice).filter(value=>!value.endsWith(':'));
       assert.deepEqual(countyChoices,[],'unverified county membership must remain unavailable');
-      assert.ok(app.$('regionChooserAll').querySelector('[data-region-choice="wa"]:not([hidden])'),
+      assert.ok(app.$('regionChooserLocationStack').querySelector('[data-region-choice="wa"]:not([hidden])'),
         'verified parent region remains available');
       assert.match(app.$('regionChooserLocationStatus').textContent,/county.*not verified/i);
       assert.equal(A.getCountyView(),'US-WA-061');
@@ -67289,7 +67361,7 @@ test('F1448 late polygon resolution cannot overwrite All or changed Home or popu
   }
 });
 
-test('F1392 actual chooser filters every group by owned Home and combines search with verified overlap', async()=>{
+test('F1392 actual chooser shows the owned Home stack independently of Find search', async()=>{
   const cases=[['Washington','US',['aba','lower48','wa','county:wa:US-WA-033']],['Alaska','US',['aba','region:US-AK']],
     ['Hawaii','US',['aba','hi']],['British Columbia','CA',['aba','region:CA-BC']],
     ['England','GB',[]],['Puerto Rico','US',[]]];
@@ -67300,11 +67372,17 @@ test('F1392 actual chooser filters every group by owned Home and combines search
       assert.equal(app.state.locations.length,0,'opening never requests GPS');
       app.click(app.document.querySelector('[data-region-location="home"]'));
       await waitFor(()=>!/Resolving/.test(app.$('regionChooserLocationStatus').textContent),'Home membership settles');
-      const choices=()=>arr(app.$('regionChooserBody').querySelectorAll('.regionchoice'),b=>!b.hidden?b.dataset.regionChoice:null).filter(Boolean);
+      const choices=()=>{
+        const stack=app.$('regionChooserLocationStack');
+        return arr((stack.hidden?app.$('regionChooserBody'):stack).querySelectorAll('button[data-region-choice]'),
+          b=>!b.hidden?b.dataset.regionChoice:null).filter(Boolean);
+      };
       assert.deepEqual([...new Set(choices())].sort(),expected.sort(),state);
       const search=app.$('regionChooserSearch');search.value='US-WA';search.dispatchEvent(new app.window.Event('input'));
-      assert.ok(choices().every(value=>value==='wa'||value==='county:wa:US-WA-033'),
-        'Current and Recent must not leak outside the verified state/county');
+      assert.deepEqual([...new Set(choices())].sort(),expected.sort(),
+        'hidden Find search must not filter the verified Home stack');
+      assert.equal(app.$('regionChooserRecentSection').hidden,true,
+        'no Recent section is shown without another recent region');
       app.click(app.document.querySelector('[data-region-location="all"]'));
       search.value='';search.dispatchEvent(new app.window.Event('input'));
       assert.ok(new Set(choices()).size>=65);
@@ -67313,6 +67391,64 @@ test('F1392 actual chooser filters every group by owned Home and combines search
       assert.equal(app.document.querySelector('[data-region-location="all"]').getAttribute('aria-pressed'),'true');
     }finally{app.window.close();}
   }
+});
+
+test('F1502 Here Home Find shows only each verified location stack and restores the searchable catalog', async()=>{
+  const app=await boot({sample:false,location:{lat:47.97898,lng:-122.2021},
+    storage:{ebird_home_lat:'47.6062',ebird_home_lng:'-122.3321',
+      bc_recent_regions_v1:'["aba","lower48","county:wa:US-WA-061"]'},
+    fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
+  try {
+    const A=app.window.__app,home=JSON.stringify(A.getHome());
+    A.setCountyView('US-WA-033');
+    const area=A.activeScope().effectiveRegion,anchor=JSON.stringify(A.anchorPoint());
+    A.openRegionChooser();
+    const quick=app.$('regionChooserQuickSettings'),recent=app.$('regionChooserRecentSection');
+    assert.ok(quick.contains(recent)&&quick.contains(app.$('regionChooserPeriod')));
+    assert.ok(quick.compareDocumentPosition(app.$('regionChooserLocation'))
+      &app.window.Node.DOCUMENT_POSITION_FOLLOWING,'quick settings precede Here/Home/Find');
+    const recentCodes=()=>arr(app.$('regionChooserRecent').querySelectorAll('button'),b=>b.textContent);
+    assert.deepEqual(recentCodes(),['ABA','LOWER48','US-WA-061']);
+    const location=app.$('regionChooserLocation');
+    const reference=app.$('destBtn').closest('section').querySelector('.modeswitch');
+    const modeShape=host=>arr(host.querySelectorAll('.modebtn'),button=>[
+      button.querySelector('.mbico').innerHTML,button.querySelector('.mbtxt').textContent]);
+    assert.deepEqual(modeShape(location),modeShape(reference),
+      'the chooser shares Today’s patches icons, labels and mode-button template');
+    assert.ok(location.classList.contains('row')&&location.classList.contains('modeswitch'));
+    assert.deepEqual(arr(location.querySelectorAll('button'),button=>button.dataset.regionLocation),
+      ['here','home','all'],'shared styling retains chooser-specific actions');
+    assert.equal(location.querySelector('[data-anchor],[data-goto],.sortpick'),null);
+    const search=app.$('regionChooserSearch');
+    search.value='Hawaii';search.dispatchEvent(new app.window.Event('input'));
+    for(const [mode,county] of [['home','US-WA-033'],['here','US-WA-061']]) {
+      app.click(app.document.querySelector('[data-region-location="'+mode+'"]'));
+      await waitFor(()=>!/Resolving/.test(app.$('regionChooserLocationStatus').textContent),mode+' stack');
+      const stack=app.$('regionChooserLocationStack');
+      assert.equal(stack.hidden,false);
+      assert.deepEqual(arr(stack.querySelectorAll('button'),b=>b.dataset.regionChoice),
+        ['county:wa:'+county,'wa','lower48','aba'],'one button per nested verified region, smallest first');
+      assert.ok([...stack.children].every(button=>!button.hidden),
+        'a retained Find query must not hide any verified location choice');
+      assert.equal(stack.querySelector('details,h3'),null,'no expandable catalog groups in location modes');
+      assert.equal(recent.hidden,false,'populated Recent stays available in every location mode');
+      assert.deepEqual(recentCodes(),['ABA','LOWER48','US-WA-061'],'location filters never filter Recent');
+      assert.equal(app.$('regionChooserFind').hidden,true,'location modes contain no Find search form');
+      assert.equal(app.$('regionChooserBody').querySelectorAll('.sheetsection:not([hidden])').length,0);
+      assert.equal(A.activeScope().effectiveRegion,area,'browsing a location never selects it');
+      assert.equal(JSON.stringify(A.anchorPoint()),anchor,'region browsing does not change the ranking anchor');
+      assert.equal(app.state.locations.length,mode==='here'?1:0,'only chooser Here requests device location');
+      assert.equal(JSON.stringify(A.getHome()),home,'Here does not move saved Home');
+      assert.equal(search.value,'Hawaii','Find keeps its own query while location stacks ignore it');
+    }
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    assert.equal(app.$('regionChooserLocationStack').hidden,true);
+    assert.equal(app.$('regionChooserFind').hidden,false);
+    assert.equal(recent.hidden,false);
+    assert.ok(app.$('regionChooserAll').querySelector('[data-region-choice="hi"]:not([hidden])'));
+    search.value='';search.dispatchEvent(new app.window.Event('input'));
+    assert.ok(app.$('regionChooserAll').querySelectorAll('button:not([hidden])').length>=65);
+  } finally {app.window.close();}
 });
 
 test('F1392 Here failure never substitutes Home; late Home resolution cannot replace All', async()=>{

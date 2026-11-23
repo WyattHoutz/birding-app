@@ -633,7 +633,7 @@
     .scopebody .countypick select { min-width: 0; }
     .scopebody .countypick { display: flex; align-items: center; gap: 8px;
                              max-width: 100%; }
-    .quicksettings { margin: 10px 0 2px; border: 1px solid var(--line);
+    .quicksettings, #regionChooserQuickSettings, #easyCommon { margin: 10px 0 2px; border: 1px solid var(--line);
                      border-radius: 12px; overflow: hidden; background: var(--card); }
     .quicksettingstitle { padding: 8px 12px 5px; color: var(--muted);
                           font-size: calc(12px * var(--s)); font-weight: 800;
@@ -1270,8 +1270,9 @@
     #navbar #navRegion { max-width: 100%; min-width: 44px; min-height: 44px;
       padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--link);
       font-size: calc(11px * var(--s)); line-height: 1.2; text-align: right;
-      text-decoration: underline; text-underline-offset: .15em;
       white-space: normal; overflow-wrap: anywhere; }
+    #navRegion .tag { display: block; padding: 2px 6px; color: var(--link);
+      font-size: inherit; white-space: normal; overflow-wrap: anywhere; }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     /* Beside the name, hard right. `margin-left: auto` rather than a fixed
        width, so a long region label ("Waikoloa / Big Island") grows leftwards
@@ -1669,8 +1670,6 @@
     .mapcredits a { color: var(--link); display: inline; min-height: 0; }
     .mapcredits .leaflet-control-attribution { float: none; position: static;
       margin: 0; padding: 0; background: transparent; font: inherit; z-index: auto; }
-    .regionlocation { display: flex; width: 100%; margin-bottom: 10px; }
-    .regionlocation .sortbtn { flex: 1; min-height: 44px; font-size: calc(14px * var(--s)); }
     .birdcast-alert {
       display: grid; grid-template-columns: calc(72px * var(--s)) minmax(0, 1fr); gap: 12px;
       align-items: center; margin: 4px 0 12px; padding: 13px;
@@ -2388,6 +2387,7 @@
     .modeswitch .modebtn + .modebtn { border-left: 1px solid var(--line); }
     .modeswitch .modebtn[aria-pressed="true"] { background: var(--accent);
                                                 color: var(--accent-ink); }
+    .modeswitch .modebtn[aria-pressed="true"]::after { content: " ✓"; font-weight: 900; }
     /* Older places within the radius, folded away. There used to be a SECOND
        expander beside this one (.upfar, "N more places beyond 30 mi") on every
        card. Two folds under one bird was one too many — the status line above
@@ -4004,6 +4004,7 @@
       max(16px, env(safe-area-inset-left)); }
     .fullscreen-sheet[hidden] { display: none; }
     #regionChooser { z-index: 130; display: grid;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden;
       top: var(--region-viewport-top, 0px); bottom: auto;
       height: var(--region-viewport-height, 100dvh); box-sizing: border-box; }
@@ -4011,6 +4012,11 @@
     #regionChooser .sheethead { position: static; }
     #regionChooserClose { min-width: 44px; min-height: 44px; }
     .regionchooser-search { padding: 10px 0; }
+    #regionChooserQuickSettings { margin: 0 0 12px; }
+    #regionChooserPeriod button { min-width: 44px; }
+    .chooserquickbody { padding: 0 10px 8px; }
+    .chooserquickbody fieldset { min-width: 0; margin: 0; padding: 4px 0; border: 0; }
+    .chooserquickbody legend { font-size: calc(12px * var(--s)); color: var(--muted); }
     .regionchooser-search label { display: block; }
     #regionChooserBody { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
     #regionChooserBody > .sheetsection:first-child { margin-top: 0; }
@@ -4021,6 +4027,11 @@
     .sheetsection { margin: 18px 0; }
     .sheetsection h3 { margin-bottom: 8px; }
     .regionchoices { display: grid; gap: 8px; }
+    #regionChooserRecent { display: flex; flex-wrap: nowrap; overflow-x: auto;
+      max-width: 100%; min-width: 0; padding: 4px 2px; box-sizing: border-box; }
+    #regionChooserRecent .regionchoice { flex: 0 0 auto; width: auto; min-width: 44px;
+      min-height: 44px; font-size: calc(12px * var(--s)); white-space: nowrap; }
+    #regionChooserRecent button:focus-visible { outline-offset: -3px; }
     .regionchoice { width: 100%; min-width: 0; min-height: 48px; text-align: left;
       box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
     .regionchoicekind { display: block; font-size: .8em; font-weight: 600; }
@@ -4028,20 +4039,23 @@
     .regionsummary, .regioncurrent, .regioncatalog > summary { font-size: calc(15px * var(--s)); }
     .regioncatalog > summary { min-height: 44px; padding: 10px 0;
       box-sizing: border-box; cursor: pointer; font-weight: 700; }
-    .regionlocation { flex-wrap: wrap; }
-    .regionlocation button { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
-    @media (max-width: 360px) {
-      [data-display="high-visibility"] .regionlocation button:first-child { flex-basis: 100%; }
-    }
     #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
     #regionChooserUnsupportedList li { margin-bottom: 8px; }
-    #easyCommonResults .commonBirdNames { margin: 0; font-size: calc(17px * var(--s));
-      line-height: max(48px, 1.8em); }
-    #easyCommonResults .splink { display: inline; font-weight: 400;
-      padding: max(0px, calc((44px - 1em) / 2)) 0; }
-    #easyCommonMore, #easyPlaces, .stakeoutLoadMoreHistory, .stakeoutLoadHistory { min-height: 44px; min-width: 44px; }
+    #easyCommon { margin: 12px 0; padding: 8px 12px; }
+    #easyCommon h3 { margin: 0 0 6px; font-size: calc(16px * var(--s)); }
+    #easyCommonResults .commonBirdNames { margin: 0; padding: 0 0 0 1.75em;
+      list-style: decimal; font-size: calc(14px * var(--s)); line-height: 1.5; }
+    #easyCommonResults .commonBirdNames > li { margin: 0; padding: 0; }
+    #easyCommonResults .splink { display: inline; color: var(--accent); padding: 0; }
+    #easyCommonMore { display: block; min-height: 44px; min-width: 44px; margin: 4px 0 0; padding: 0;
+      border: 0; border-radius: 0; background: none; color: var(--accent);
+      font: inherit; font-size: calc(14px * var(--s)); font-weight: 700;
+      line-height: 1.5; text-align: left; white-space: nowrap; cursor: pointer; }
+    #easyCommonMore[hidden] { display: none; }
+    #easyPlaces, .stakeoutLoadMoreHistory, .stakeoutLoadHistory { min-height: 44px; min-width: 44px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
-    .regioncurrent:disabled, .regionchoice[aria-current="true"]:disabled { opacity: 1; }
+    .regioncurrent:disabled, .regionchoice[aria-current="true"]:disabled {
+      opacity: 1; text-align: left; color: #000; background: #eee; }
     .quickregions { display: grid; grid-template-columns: minmax(0, 1fr);
       gap: 8px; padding: 8px 0; }
     .quickregions .regionchoice { width: 100%; max-width: 100%; min-width: 0;
@@ -4216,7 +4230,7 @@
     </button>
     <span id="navTitle"></span>
     <span class="navregion">
-      <button id="navRegion" type="button" aria-label="Choose report region">Choose region</button>
+      <button id="navRegion" type="button" aria-label="Choose report region"><span id="navScopeTag" class="tag">Choose region</span></button>
     </span>
   </div>
   <header>
@@ -4259,22 +4273,32 @@
               aria-label="Close region chooser">Close</button>
     </div>
     <div class="regionchooser-search">
-      <div id="regionChooserLocation"></div>
+      <div id="regionChooserQuickSettings" aria-label="Quick settings">
+        <div class="quicksettingstitle">Quick settings</div>
+        <div class="chooserquickbody">
+          <fieldset id="regionChooserRecentSection" hidden>
+            <legend>Recent regions</legend>
+            <div id="regionChooserRecent" class="regionchoices"></div>
+          </fieldset>
+          <div id="regionChooserPeriod"></div>
+        </div>
+      </div>
+      <div id="regionChooserLocation" class="row modeswitch" data-modes="region" data-current="region:all"
+           role="group" aria-label="Filter regions by location"></div>
       <p id="regionChooserLocationStatus" class="hint" role="status"></p>
-      <label for="regionChooserSearch">Search all regions</label>
-      <input id="regionChooserSearch" type="search" autocomplete="off"
-             placeholder="Name or region code">
+      <div id="regionChooserFind">
+        <label for="regionChooserSearch">Search all regions</label>
+        <input id="regionChooserSearch" type="search" autocomplete="off"
+               placeholder="Name or region code">
+      </div>
     </div>
     <div id="regionChooserBody" tabindex="0" aria-label="Region choices">
     <section class="sheetsection">
       <h3>Current region</h3>
       <div id="regionChooserCurrent" class="regionchoices"></div>
     </section>
-    <section class="sheetsection">
-      <h3>Recent regions</h3>
-      <div id="regionChooserRecent" class="regionchoices"></div>
-    </section>
     <hr>
+    <div id="regionChooserLocationStack" class="regionchoices" aria-label="Regions at this location" hidden></div>
     <section class="sheetsection">
       <h3>Major Regions</h3>
       <div id="regionChooserBroader" class="regionchoices"></div>
@@ -4746,7 +4770,7 @@
       <div id="easyCommon">
         <h3>Easy Targets</h3>
         <div id="easyCommonResults"><p class="hint">Load Target Birds to see the recent public-report sample.</p></div>
-        <button id="easyCommonMore" class="secondary" type="button" aria-controls="easyCommonResults" hidden>Show more</button>
+        <button id="easyCommonMore" type="button" aria-controls="easyCommonResults" hidden>Show more.</button>
       </div>
       <div class="row">
         <button id="easyBtn">Find birds I need</button>
@@ -7421,6 +7445,7 @@
         var scope = beginScopeTransition();
         recomputePersonalChase(scope);
         headerScopeRefresh();
+        if (!$('regionChooser').hidden) renderRegionPeriodPicker();
         renderMenuIdentity();
         updateMyYear();
         renderMenuList();
@@ -41517,23 +41542,30 @@
         var rows = gbifScanOrder(computeEasyMisses(easyPublicObservations(
           state.rows, state.hotspots, state.scope, state.anchor, state.radius),
           EASY_OPPORTUNITY_DAYS, parents), state.rows.length);
-        var host = $('easyCommonResults'), more = $('easyCommonMore');
-        host.innerHTML = rows.length ? '<p class="commonBirdNames">'
-            + rows.slice(0, _easyCommonVisible).map(function (row, index) {
-              return '<span data-common-code="' + esc(row.code)
+        var host = $('easyCommonResults'), more = $('easyCommonMore') || document.createElement('button');
+        var returnFocus = document.activeElement === more;
+        host.innerHTML = rows.length ? '<ol class="commonBirdNames">'
+            + rows.slice(0, _easyCommonVisible).map(function (row) {
+              return '<li data-common-code="' + esc(row.code)
                 + '" data-site-days="' + row.siteDays + '">'
-                + stakeSpeciesLink(row.name, row.code, '#' + (index + 1) + ' ' + row.name, true)
-                + watchExceptionTag(row.code, row.name, parents) + '</span>';
-            }).join(', ') + '.</p>'
+                + stakeSpeciesLink(row.name, row.code, '', true)
+                + watchExceptionTag(row.code, row.name, parents) + '</li>';
+            }).join('') + '</ol>'
             : '<p class="hint">No eligible species reports in this sample. Commonness is not established.</p>';
         more.hidden = rows.length <= _easyCommonVisible;
-        more.textContent = 'Show ' + Math.min(EASY_COMMON_BATCH,
-          Math.max(0, rows.length - _easyCommonVisible)) + ' more';
+        more.id = 'easyCommonMore'; more.type = 'button';
+        more.setAttribute('aria-controls', 'easyCommonResults');
+        more.textContent = 'Show more.';
+        host.appendChild(more);
         more.onclick = function () {
           if (!easyOpportunityCurrent(state)) return;
           _easyCommonVisible += EASY_COMMON_BATCH;
           renderEasyCommon(state);
         };
+        if (returnFocus) {
+          var focus = more.hidden ? host.querySelector('[data-common-code]:last-of-type a') : more;
+          if (focus) focus.focus({ preventScroll: true });
+        }
       }
       function easyOpportunityKey() {
         var a = anchorPoint() || {};
@@ -52072,7 +52104,7 @@
       }
       function clearScopeTransitionSection(section, status) {
         if (!section) return;
-        if (section.id === 'sec-easyBtn') $('easyCommonMore').hidden = true;
+        if (section.id === 'sec-easyBtn' && $('easyCommonMore')) $('easyCommonMore').hidden = true;
         [].slice.call(section.querySelectorAll('[id]')).filter(function (el) {
           return /(results|list|map|summary)$/i.test(el.id || '');
         }).forEach(function (el) {
@@ -54007,9 +54039,10 @@
         if (!el) return;
         var code = scopeCode();
         var nav = $('navRegion');
-        if (nav) {
+        var navLabel = $('navScopeTag');
+        if (nav && navLabel) {
           nav.hidden = false;
-          nav.textContent = (personalPeriod() === 'all' ? 'All' : String(new Date().getFullYear()).slice(-2))
+          navLabel.textContent = (personalPeriod() === 'all' ? 'All' : String(new Date().getFullYear()))
             + ' ' + (code === 'Region' ? code : code.toUpperCase());
         }
         if (!code || code === 'Region') {
@@ -54126,6 +54159,35 @@
           + '</div>';
       }
 
+      function personalPeriodPickerHtml(allLabel) {
+        return '<fieldset class="periodpick"><legend>Time period</legend><div class="row">'
+          + '<button type="button" class="secondary" data-personal-period="current" '
+          + 'aria-label="Current year ' + new Date().getFullYear() + '" aria-pressed="'
+          + (personalPeriod() !== 'all') + '" style="min-height:44px">'
+          + new Date().getFullYear() + (personalPeriod() !== 'all' ? ' ✓' : '') + '</button>'
+          + '<button type="button" class="secondary" data-personal-period="all" aria-label="Life list (all time)" aria-pressed="'
+          + (personalPeriod() === 'all') + '" style="min-height:44px">' + esc(allLabel)
+          + (personalPeriod() === 'all' ? ' ✓' : '') + '</button></div></fieldset>';
+      }
+      function bindPersonalPeriodPicker(host, returnFocus) {
+        if (!host) return;
+        Array.from(host.querySelectorAll('[data-personal-period]')).forEach(function (button) {
+          button.addEventListener('click', function () {
+            var value = button.getAttribute('data-personal-period');
+            setPersonalPeriod(value);
+            if (returnFocus) {
+              var selected = host.querySelector('[data-personal-period="' + value + '"]');
+              if (selected) selected.focus({ preventScroll: true });
+            }
+          });
+        });
+      }
+      function renderRegionPeriodPicker() {
+        var host = $('regionChooserPeriod');
+        if (!host) return;
+        host.innerHTML = personalPeriodPickerHtml('All');
+        bindPersonalPeriodPicker(host, true);
+      }
       function menuScopeHtml() {
         var current = regionChoiceRows().find(function (row) { return row.value === activeRegionChoice(); });
         var currentName = current ? regionChoiceName(current) : scopeDisplayCode();
@@ -54141,14 +54203,6 @@
           'high-visibility': 'High visibility (1.75×)'
         };
         var displayText = displayNames[getDisplayProfile()] || displayNames.standard;
-        var periodHtml = '<fieldset class="periodpick"><legend>Time period</legend><div class="row">'
-          + '<button type="button" class="secondary" data-personal-period="current" '
-          + 'aria-label="Current year ' + new Date().getFullYear() + '" aria-pressed="'
-          + (personalPeriod() !== 'all') + '" style="min-height:44px">'
-          + new Date().getFullYear() + (personalPeriod() !== 'all' ? ' ✓' : '') + '</button>'
-          + '<button type="button" class="secondary" data-personal-period="all" aria-pressed="'
-          + (personalPeriod() === 'all') + '" style="min-height:44px">All time'
-          + (personalPeriod() === 'all' ? ' ✓' : '') + '</button></div></fieldset>';
         return '<div class="quicksettings" aria-label="Quick settings">'
           + '<div class="quicksettingstitle">Quick settings</div>'
           + '<fieldset class="regionquickpick"><legend>Region</legend>'
@@ -54159,7 +54213,7 @@
           + '</div>'
           + '<div class="quickregions" id="menuRecentRegions" role="group" aria-label="Recent regions"></div>'
           + '</fieldset>'
-          + periodHtml
+          + personalPeriodPickerHtml('All time')
           + '<button type="button" class="quicksetting" id="menuHomeQuick">'
           + '<span class="quicksettingvalue">' + homeText.replace(/ · (Edit|Set)$/, '')
           + '</span><span class="quicksettingaction">' + (getHome() ? 'Edit' : 'Set')
@@ -54199,9 +54253,7 @@
         // call, so the two can never disagree about which report is active.
         var host = $('menuScopeHost');
         if (host) host.innerHTML = menuScopeHtml();
-        if (host) Array.from(host.querySelectorAll('[data-personal-period]')).forEach(function (button) {
-          button.addEventListener('click', function () { setPersonalPeriod(button.getAttribute('data-personal-period')); });
-        });
+        bindPersonalPeriodPicker(host, false);
         // This render replaces both selects. It is also called alone when a
         // lazy rank arrives, so binding only from renderMenuList leaves native
         // arrows over empty controls after that background repaint.
@@ -56856,7 +56908,7 @@
         button.className = 'regionchoice secondary';
         var name = document.createElement('span'), kind = document.createElement('small');
         name.className = 'regionchoicename';
-        name.textContent = (current ? '\u2705 Selected: ' : '') + regionChoiceName(row);
+        name.textContent = (current ? '\u2705 ' : '') + regionChoiceName(row);
         kind.className = 'regionchoicekind';
         kind.textContent = regionChoiceType(row);
         button.appendChild(name);
@@ -56888,6 +56940,20 @@
           host.appendChild(button);
         });
       }
+      function renderChooserRecentRegions(rows, current) {
+        var host = $('regionChooserRecent');
+        host.innerHTML = '';
+        recentRegions().filter(function (value) { return value !== current; }).forEach(function (value) {
+          var row = rows.find(function (choice) { return choice.value === value; });
+          if (!row) return;
+          var button = regionChoiceButton(row, false);
+          button.textContent = String(row.countyCode || row.code || row.value).toUpperCase();
+          button.setAttribute('aria-label', regionChoiceName(row) + '. Switch region.');
+          button.title = regionChoiceName(row);
+          host.appendChild(button);
+        });
+        $('regionChooserRecentSection').hidden = !host.children.length;
+      }
       var _regionLocation = { mode: 'all', code: '', message: '' };
       var _regionLocationGeneration = 0;
       function regionLocationOwner(mode) {
@@ -56914,14 +56980,33 @@
           ++_regionLocationGeneration;
           state.code = '';
           state.needsHome = false;
-          state.message = 'Profile, listing area or saved Home changed. Choose Here or Home again, or All regions.';
+          state.message = 'Profile, listing area or saved Home changed. Choose Here or Home again, or Find.';
         }
         rows.forEach(function (row) { byValue[row.value] = row; });
-        var q = String($('regionChooserSearch').value || '').trim().toLowerCase();
+        var catalog = state.mode === 'all', stack = $('regionChooserLocationStack');
+        stack.innerHTML = '';
+        stack.hidden = catalog;
+        $('regionChooserFind').hidden = !catalog;
+        [].slice.call($('regionChooserBody').children).forEach(function (child) {
+          if (child !== stack && child.id !== 'regionChooserSearchStatus') child.hidden = !catalog;
+        });
+        if (!catalog) {
+          function depth(row) { return row.parentValue ? 0 : row.value === 'lower48' ? 2 : row.value === 'aba' ? 3 : 1; }
+          rows.filter(function (row) {
+            return (!row.parentValue || row.countyCode) && regionChoiceContains(row, state.code);
+          })
+            .sort(function (a, b) { return depth(a) - depth(b); })
+            .forEach(function (row) {
+              stack.appendChild(row.value === activeRegionChoice()
+                ? regionChoiceSummary(row) : regionChoiceButton(row, false));
+            });
+        }
+        var q = catalog ? String($('regionChooserSearch').value || '').trim().toLowerCase() : '';
         var visible = {};
         [].slice.call($('regionChooserBody').querySelectorAll('.regionchoice')).forEach(function (button) {
           var row = byValue[button.dataset.regionChoice];
-          button.hidden = !row || state.mode !== 'all' && !regionChoiceContains(row, state.code)
+          button.hidden = !row || catalog === stack.contains(button)
+            || !catalog && !regionChoiceContains(row, state.code)
             || !!q && button.dataset.searchText.indexOf(q) < 0;
           if (!button.hidden) visible[row.value] = true;
         });
@@ -56940,11 +57025,11 @@
           $('regionChooserLocationStatus').appendChild(setup);
         }
         $('regionChooserSearchStatus').textContent = Object.keys(visible).length
-          ? state.mode === 'all' ? '' : Object.keys(visible).length + ' supported matching regions. All regions restores the catalog.'
+          ? state.mode === 'all' ? '' : Object.keys(visible).length + ' supported matching regions. Find opens the full catalog.'
           : state.mode === 'all' ? unsupportedMatches
             ? unsupportedMatches + ' observed Major Regions match; not supported yet.' : 'No matching regions.'
-            : 'No verified matching regions. Choose All regions to browse the catalog.';
-        if (q || state.mode !== 'all') {
+            : 'No verified matching regions. Choose Find to browse the catalog.';
+        if (q && catalog) {
           ['regionChooserCountyList', 'regionChooserStateList'].forEach(function (id) {
             var list = $(id);
             if (list && list.querySelector('.regionchoice:not([hidden])')) list.open = true;
@@ -56995,7 +57080,7 @@
         var point = mode === 'home' ? getHome() : null;
         if (mode === 'home' && !point) {
           _regionLocation.needsHome = true;
-          _regionLocation.message = 'No saved Home for this profile and area. Set Home in Settings, or choose All regions.';
+          _regionLocation.message = 'No saved Home for this profile and area. Set Home in Settings, or choose Find.';
           applyRegionChooserFilter();
           return Promise.resolve();
         }
@@ -57021,19 +57106,21 @@
           if (!current()) return;
           _regionLocation.code = '';
           _regionLocation.message = 'Could not resolve ' + mode + ': ' + (error && error.message || 'Location unavailable.')
-            + ' Choose All regions to continue.';
+            + ' Choose Find to continue.';
           applyRegionChooserFilter();
         });
       }
       function renderRegionLocationControls() {
         var host = $('regionChooserLocation');
-        host.innerHTML = window.ToggleControls.group({ label: 'Filter regions by location', cls: 'regionlocation',
-          options: ['all', 'here', 'home'].map(function (mode) {
-            return { label: mode === 'all' ? 'All regions' : mode === 'here' ? 'Here' : 'Home',
-              pressed: _regionLocation.mode === mode, data: { 'region-location': mode } };
-          }) });
+        var current = 'region:' + _regionLocation.mode;
+        host.setAttribute('data-current', current);
+        host.innerHTML = modeSwitchHtml(regionModeOptions(), current);
         [].slice.call(host.querySelectorAll('button')).forEach(function (button) {
-          button.addEventListener('click', function () { chooseRegionLocation(button.dataset.regionLocation); });
+          button.addEventListener('click', function () {
+            var mode = button.dataset.regionLocation;
+            chooseRegionLocation(mode);
+            host.querySelector('[data-region-location="' + mode + '"]').focus({ preventScroll: true });
+          });
         });
       }
       function regionChooserCountyParent() {
@@ -57044,6 +57131,7 @@
         });
       }
       function renderRegionChooser(options) {
+        renderRegionPeriodPicker();
         var rows = regionChoiceRows(), current = activeRegionChoice();
         var savedSearch = options && options.preserveSearch ? $('regionChooserSearch').value : '';
         var byValue = {};
@@ -57072,12 +57160,7 @@
         } else {
           currentHost.textContent = 'No region selected yet.';
         }
-        recentRegions().filter(function (value) {
-          return value !== current && byValue[value];
-        }).forEach(function (value) {
-          recentHost.appendChild(regionChoiceButton(byValue[value], false));
-        });
-        if (!recentHost.children.length) recentHost.textContent = 'No recent regions yet.';
+        renderChooserRecentRegions(rows, current);
         var countyParent = regionChooserCountyParent();
         var parent = rows.find(function (row) { return row.value === getReportSlug() && !row.parentValue; });
         var parentHost = $('regionChooserParent');
@@ -57155,13 +57238,7 @@
           _cachedRecentRevision = revision;
           if (chooser.hidden) return;
           var rows = regionChoiceRows(), current = activeRegionChoice();
-          var host = $('regionChooserRecent');
-          host.innerHTML = '';
-          recentRegions().forEach(function (value) {
-            var row = rows.find(function (choice) { return choice.value === value; });
-            if (row && value !== current) host.appendChild(regionChoiceButton(row, false));
-          });
-          if (!host.children.length) host.textContent = 'No recent regions yet.';
+          renderChooserRecentRegions(rows, current);
           applyRegionChooserFilter();
         }).catch(function (error) {
           dbg('warn', 'Cached recent region recovery failed: ' + error.message);
@@ -58517,12 +58594,26 @@
         // NAVIGATE to Quick outing, while these re-rank the section you are
         // already in. Same labels, same order, same state — one template, four
         // algorithms.
-        anchor: [
+        anchor: anchorModeOptions(),
+        region: regionModeOptions()
+      };
+      function anchorModeOptions() {
+        return [
           { anchor: 'here', icon: '\uD83D\uDCCD', label: 'Here', full: 'Rank from my current location' },
           { anchor: 'home', icon: '\uD83C\uDFE0', label: 'Home', full: 'Rank from home' },
           { anchor: 'find', icon: '\uD83D\uDD0E', label: 'Find\u2026', full: 'Rank from a place I name' }
-        ]
-      };
+        ];
+      }
+      function regionModeOptions() {
+        return anchorModeOptions().map(function (option) {
+          return {
+            regionLocation: option.anchor === 'find' ? 'all' : option.anchor,
+            icon: option.icon, label: option.label,
+            full: option.anchor === 'find' ? 'Find a region in the full catalog'
+              : option.anchor === 'here' ? 'Regions at my current location' : 'Regions at saved Home'
+          };
+        });
+      }
       // The accessible name carries the FULL wording, because splitting a
       // label into icon + text spans loses the space in textContent and the
       // guards read aria-label — a lesson learned the hard way when a label
@@ -58533,23 +58624,27 @@
       // (Birdiest vs Newest), which keeps its own handler and is addressed by
       // id. Both are drawn identically because to the reader they are the same
       // gesture — pick which question this panel answers.
+      function modeSwitchHtml(set, cur) {
+        return set.map(function (m) {
+          var key = m.to || m.id || (m.anchor ? 'anchor:' + m.anchor : 'region:' + m.regionLocation);
+          return '<button class="modebtn" type="button"'
+            + (m.to ? ' data-goto="' + m.to + '"'
+                    : m.anchor ? ' data-anchor="' + m.anchor + '"'
+                              : m.regionLocation ? ' data-region-location="' + m.regionLocation + '"'
+                                                 : ' id="' + m.id + '"')
+            + ' aria-pressed="' + (key === cur ? 'true' : 'false') + '"'
+            + ' aria-label="' + esc(m.full) + '">'
+            + '<span class="mbico" aria-hidden="true">' + menuGlyph(m.at, m.icon) + '</span>'
+            + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
+        }).join('');
+      }
       function buildModeSwitches() {
         var rows = document.querySelectorAll('.modeswitch[data-modes]');
         Array.prototype.forEach.call(rows, function (row) {
           var set = MODE_SETS[row.getAttribute('data-modes')];
           if (!set) return;
           var cur = row.getAttribute('data-current') || '';
-          row.innerHTML = set.map(function (m) {
-            var key = m.to || m.id || ('anchor:' + m.anchor);
-            return '<button class="modebtn" type="button"'
-              + (m.to ? ' data-goto="' + m.to + '"'
-                      : (m.anchor ? ' data-anchor="' + m.anchor + '"'
-                                  : ' id="' + m.id + '"'))
-              + ' aria-pressed="' + (key === cur ? 'true' : 'false') + '"'
-              + ' aria-label="' + esc(m.full) + '">'
-              + '<span class="mbico" aria-hidden="true">' + menuGlyph(m.at, m.icon) + '</span>'
-              + '<span class="mbtxt">' + esc(m.label) + '</span></button>';
-          }).join('');
+          row.innerHTML = modeSwitchHtml(set, cur);
         });
       }
       // BEFORE any addEventListener below. The checklist chips are addressed
