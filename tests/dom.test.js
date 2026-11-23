@@ -39611,31 +39611,42 @@ test('F10: the navbar back control is icon-only but keeps its accessible name', 
     'shrinking the control must not unwire it - it still returns to Contents');
 });
 
-test('F10/F728/F1500: labelled navbar scope and year buttons reuse the main menu routes and context', async () => {
+test('F10/F728/F1502: compact navbar globe preserves chooser, context and main-menu year controls', async () => {
   const app = await boot();
   try {
   const sel = app.$('navRegion');
   assert.ok(sel, 'the navbar still offers the region picker');
   assert.equal(sel.tagName, 'BUTTON',
     'the navbar must open the shared chooser rather than the undiscoverable native wheel');
-  const A=app.window.__app,period=app.$('navPeriod');
+  const A=app.window.__app,period=app.$('hdrPeriod');
   const context=()=>[A.bcProfile(),A.activeScope().cacheIdentity,A.personalPeriod()].join('|');
-  const before=context();
-  assert.equal(app.document.querySelector('.navregionicon'),null,'no globe-only control remains');
-  for(const [button,source] of [[sel,app.$('hdrScope')],[period,app.$('hdrPeriod')]]){
-    assert.ok(button.classList.contains('hdrscope'),'shared header control style');
-    assert.equal(button.textContent,source.textContent,'same visible scope/time label');
-    assert.equal(button.getAttribute('aria-label'),source.getAttribute('aria-label'));
+  for (const [report,county,time] of [['wa','','current'],['wa','US-WA-033','all'],['','','current']]) {
+    A.setActiveReport(report); A.setCountyView(county); A.setPersonalPeriod(time);
+    app.open(/Settings/);
+    const before=context();
+    assert.equal(app.$('navPeriod'),null,'section navbar has no year button');
+    assert.equal(app.document.querySelectorAll('#navbar .hdrscope').length,0,
+      'the wide labelled pair must not return to section headers');
+    assert.equal(sel.textContent.trim(),'\u{1F30E}','the visible control is only the compact globe');
+    assert.equal(sel.querySelector('.navregionicon').getAttribute('aria-hidden'),'true');
+    assert.match(sel.getAttribute('aria-label'),report?/Scope:/:/Choose report region/);
+    if (report) assert.equal(sel.getAttribute('aria-label'),app.$('hdrScope').getAttribute('aria-label'));
+    sel.focus();
+    app.click(sel);
+    assert.equal(app.$('regionChooser').hidden,false,'globe opens the existing shared chooser');
+    app.click(app.$('regionChooserClose'));
+    assert.equal(app.document.activeElement,sel,'dismissal restores the compact globe focus');
+    assert.equal(context(),before,'opening the chooser changes no account, area or period');
   }
-  app.open(/Settings/);
-  app.click(sel);
-  assert.equal(app.$('regionChooser').hidden, false);
-  app.click(app.$('regionChooserClose'));
-
+  A.setActiveReport('wa');
+  A.showMenu();
+  const before=context();
+  assert.ok(period.classList.contains('hdrscope')&&app.$('hdrScope').classList.contains('hdrscope'),
+    'main-menu year and region controls are retained');
   app.click(period);
-  assert.equal(app.$('menuPanel').hidden,false,'year routes to the existing main-menu period picker');
+  assert.equal(app.$('menuPanel').hidden,false,'main-menu year retains the existing period picker');
   assert.ok(app.document.activeElement.closest('.periodpick'),'selected existing period receives focus');
-  assert.equal(context(),before,'opening either picker changes no account, area or period');
+  assert.equal(context(),before,'opening the main-menu picker changes no account, area or period');
   } finally { app.window.close(); }
 });
 

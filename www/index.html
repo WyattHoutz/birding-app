@@ -1223,7 +1223,7 @@
     #sec-foyBtn > h2 { flex-wrap: wrap; }
     .panel.compacthead > .status { padding-top: 0; }
     .panel h2 .dim { display: none; }
-    #navbar { position: sticky; top: 0; z-index: 50; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--nav-bg); border-bottom: 1px solid var(--line);
+    #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--nav-bg); border-bottom: 1px solid var(--line);
       /* ⚠️ F270. THE 80% WIDTH BUG, FOUND AT LAST — AND IT WAS THE NAVBAR.
          F261 shipped a detector because three of my hypotheses were wrong and
          the probe kept running after the page had healed. It paid for itself
@@ -1266,10 +1266,11 @@
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
     #navbar #navBack { flex: 0 0 auto; padding: 0; width: calc(38px * var(--s)); height: calc(38px * var(--s)); display: inline-flex; align-items: center; justify-content: center; font-size: calc(24px * var(--s)); line-height: 1; }
     #navTitle { min-width: 0; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .navregion { grid-column: 1 / -1; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%; min-width: 0; }
-    #navbar .hdrscope { min-width: 0; max-width: 100%; min-height: 44px; padding: 4px 10px;
-      font-size: calc(12px * var(--s)); white-space: normal; overflow-wrap: anywhere;
-      border-color: var(--line); background: var(--card); }
+    .navregion { flex: 0 0 auto; margin-left: auto; display: inline-flex; }
+    #navbar #navRegion { display: inline-flex; align-items: center; justify-content: center;
+      width: max(44px, calc(38px * var(--s))); height: max(44px, calc(38px * var(--s)));
+      min-width: 44px; min-height: 44px; padding: 0; }
+    .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     /* Beside the name, hard right. `margin-left: auto` rather than a fixed
        width, so a long region label ("Waikoloa / Big Island") grows leftwards
@@ -4214,9 +4215,8 @@
     </button>
     <span id="navTitle"></span>
     <span class="navregion">
-      <button id="navPeriod" class="hdrscope" type="button" hidden></button>
-      <button id="navRegion" class="hdrscope" type="button"
-              aria-label="Change report region"></button>
+      <button id="navRegion" class="secondary" type="button"
+              aria-label="Change report region"><span class="navregionicon" aria-hidden="true">&#127758;</span></button>
     </span>
   </div>
   <header>
@@ -5734,7 +5734,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.12.1';
+      var APP_VERSION = '2.12.2';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -54009,9 +54009,7 @@
         if (!code || code === 'Region') {
           el.hidden = true;
           $('hdrPeriod').hidden = true;
-          $('navPeriod').hidden = true;
           $('navRegion').hidden = false;
-          $('navRegion').textContent = 'Choose region';
           $('navRegion').setAttribute('aria-label', 'Choose report region');
           return;
         }
@@ -54036,13 +54034,8 @@
         el.setAttribute('aria-label',
           'Scope: ' + said + (cv ? ', ' + cv + ' county' : '')
           + ' · ' + personalBasisLabel() + '. Open Region settings.');
-        [['navPeriod', period], ['navRegion', el]].forEach(function (pair) {
-          var button = $(pair[0]), source = pair[1];
-          if (!button) return;
-          button.hidden = source.hidden;
-          button.textContent = source.textContent;
-          button.setAttribute('aria-label', source.getAttribute('aria-label'));
-        });
+        var nav = $('navRegion');
+        if (nav) nav.setAttribute('aria-label', el.getAttribute('aria-label'));
       }
 
       // --- F195(d): filter the menu, don't hide it behind a gesture ---------
@@ -54294,20 +54287,18 @@
       // Bound once. The chip is in static markup, so a listener attached on
       // every menu render would stack up one per repaint.
       function bindHeaderScope() {
-        ['hdrPeriod', 'navPeriod'].forEach(function (id) {
-          var period = $(id);
-          if (period && !period._bound) {
-            period._bound = true;
-            period.addEventListener('click', function () {
-              if (visibleSectionId() !== '(menu)') showMenu();
-              var target = document.querySelector('.quicksettings .periodpick');
-              if (!target) return;
-              if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              var selected = target.querySelector('[aria-pressed="true"]');
-              if (selected) selected.focus({ preventScroll: true });
-            });
-          }
-        });
+        var period = $('hdrPeriod');
+        if (period && !period._bound) {
+          period._bound = true;
+          period.addEventListener('click', function () {
+            if (visibleSectionId() !== '(menu)') showMenu();
+            var target = document.querySelector('.quicksettings .periodpick');
+            if (!target) return;
+            if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var selected = target.querySelector('[aria-pressed="true"]');
+            if (selected) selected.focus({ preventScroll: true });
+          });
+        }
         var el = $('hdrScope');
         if (!el || el._bound) return;
         el._bound = true;
@@ -57340,7 +57331,8 @@
           var button = $(id);
           if (button) {
             button.value = getReportSlug();
-            button.textContent = id === 'menuRegion' ? 'Edit' : label;
+            if (id === 'menuRegion') button.textContent = 'Edit';
+            else button.title = label;
           }
         });
         headerScopeRefresh();

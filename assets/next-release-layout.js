@@ -13,29 +13,44 @@ async function nextReleaseLayout(scan, mutation, focus) {
   }
   A.cancelStalledWork();
   A.setActiveReport('wa'); A.setCountyView('');
-  await record('F1499/F1500 selected chooser and labelled header pair', async () => {
+  await record('F1499/F1502 selected chooser and compact navbar globe', async () => {
     A.setCountyView('US-WA-033');
     A.showSection('sec-spLookupBtn',{load:false});
     await paint();
-    const owner=A.activeScope().cacheIdentity, boxes=[];
-    for (const [id,sourceId] of [['navPeriod','hdrPeriod'],['navRegion','hdrScope']]) {
-      const button=document.getElementById(id),source=document.getElementById(sourceId);
-      if(mutation==='header-font')button.style.fontSize='8px';
-      if(mutation==='header-transparent')button.style.opacity='0';
-      const box=button.getBoundingClientRect(),range=document.createRange();
-      range.selectNodeContents(button);
-      check(button.textContent===source.textContent,'F1500 header labels must share the main-menu scope/period');
-      check(getComputedStyle(button).fontSize===getComputedStyle(source).fontSize
-        && getComputedStyle(button).opacity==='1','F1500 labelled controls must retain shared readable text');
-      check(box.width>=43.5&&box.height>=43.5&&box.left>=0&&box.right<=innerWidth+.5,
-        'F1500 header targets must fit the viewport: '+JSON.stringify(box.toJSON()));
-      check([...range.getClientRects()].every(r=>r.left>=box.left-.5&&r.right<=box.right+.5),
-        'F1500 visible header labels must not clip');
-      const hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
-      check(hit&&button.contains(hit),'F1500 labelled header must be hit-testable');
-      boxes.push(box.toJSON());
+    const owner=A.activeScope().cacheIdentity;
+    const navbar=document.getElementById('navbar'),button=document.getElementById('navRegion');
+    const icon=button.querySelector('.navregionicon');
+    if(mutation==='header-font')icon.style.fontSize='8px';
+    if(mutation==='header-transparent')button.style.opacity='0';
+    if(mutation==='globe-row') {
+      navbar.style.flexWrap='wrap';
+      button.parentElement.style.flexBasis='100%';
     }
-    document.getElementById('navRegion').click();
+    if(mutation==='globe-small') {
+      Object.assign(button.style,{width:'12px',height:'12px',minWidth:'0',minHeight:'0'});
+    }
+    const box=button.getBoundingClientRect(),back=document.getElementById('navBack').getBoundingClientRect();
+    const title=document.getElementById('navTitle'),titleBox=title.getBoundingClientRect();
+    check(!document.getElementById('navPeriod')&&button.textContent.trim()==='\u{1F30E}',
+      'F1502 section navbar must contain only the compact globe, not a year/region pair');
+    check(getComputedStyle(button).opacity==='1'
+      && parseFloat(getComputedStyle(icon).fontSize)>=parseFloat(getComputedStyle(title).fontSize),
+      'F1502 globe must remain visible and scale with nearby header text');
+    check(box.width>=43.5&&box.height>=43.5&&box.left>=0&&box.right<=innerWidth+.5,
+      'F1502 globe must retain an in-viewport 44px target: '+JSON.stringify(box.toJSON()));
+    const navBox=navbar.getBoundingClientRect(),style=getComputedStyle(navbar);
+    const controls=[...navbar.children].map(node=>node.getBoundingClientRect()).filter(r=>r.width&&r.height);
+    const tallest=Math.max(...controls.map(r=>r.height));
+    check(navBox.height<=tallest+parseFloat(style.paddingTop)+parseFloat(style.paddingBottom)
+      +parseFloat(style.borderTopWidth)+parseFloat(style.borderBottomWidth)+1
+      && Math.abs(box.top+box.height/2-back.top-back.height/2)<1,
+      'F1502 all navbar controls must remain in one compact row');
+    check(box.width<=Math.max(back.width,44)+.5&&titleBox.width>0&&titleBox.right<=box.left+.5,
+      'F1502 globe must stay compact and leave independent title space');
+    const hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
+    check(hit&&button.contains(hit),'F1502 globe must remain independently hit-testable');
+    button.focus();
+    button.click();
     await paint();
     const current=document.querySelector('#regionChooserCurrent button');
     if(mutation==='selected-enabled')current.disabled=false;
@@ -62,14 +77,16 @@ async function nextReleaseLayout(scan, mutation, focus) {
     summary.click();
     check(counties.open,'F1499 disabled selected region cannot disable county disclosure');
     document.getElementById('regionChooserClose').click();
+    check(document.activeElement===button,'F1502 chooser dismissal must restore globe focus');
     window.scrollTo(0,0);
-    document.getElementById('navPeriod').click();
+    A.showMenu();
+    document.getElementById('hdrPeriod').click();
     await paint();
     check(!document.getElementById('menuPanel').hidden
-      && document.activeElement.closest('.periodpick'),'F1500 year action must reuse the existing period picker');
-    check(A.activeScope().cacheIdentity===owner,'F1500 opening selectors must not change the active account/scope/time');
+      && document.activeElement.closest('.periodpick'),'F1502 main-menu year must retain the existing period picker');
+    check(A.activeScope().cacheIdentity===owner,'F1502 opening selectors must not change the active account/scope/time');
     A.setCountyView('');A.showMenu();
-    return {headerButtons:boxes,selected: selected.toJSON(),disclosure:disclosure.toJSON()};
+    return {globe:box.toJSON(),navbar:navBox.toJSON(),selected:selected.toJSON(),disclosure:disclosure.toJSON()};
   });
   if(focus==='scope-headers')return results;
   await record('F1410 grouped FOY and Home', async () => {
