@@ -21239,7 +21239,8 @@ test('F877 Recent on/off retains panel, both metrics and source coverage through
           const panel = app.document.querySelector('.ranknearby');
           assert.ok(panel,'Recent must retain the answer-panel host');
           if (populated) {
-            assert.ok(panel.querySelector('.rankclimb[aria-label="Species rank-climb goals"]'));
+            assert.ok(panel.querySelector('.rankclimb[aria-label="'
+              +(metric==='cl'?'Checklists':'Species')+' rank-climb goals"]'));
             assert.equal(panel.querySelector('.rankclimb-stop.current .rankclimb-rank').textContent,'#6');
             assert.equal(panel.querySelectorAll('table').length,1);
             assert.equal(panel.querySelectorAll('table[aria-label="Five birders above and below you"] tbody tr').length,11);
@@ -36344,7 +36345,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
     comName: 'Sharp-tailed Sandpiper',
     sciName: 'Calidris acuminata',
     obsDt: stamp(i * 10),
-    locName: i ? `Supporting place ${i}` : 'League Island--Eide Rd.',
+    locName: i ? `Leque Island--Supporting place ${i}` : 'Leque Island--Eide Rd.',
     locId: `L${i}`,
     subId: `S${i}`,
     lat: 47.9 + i * 0.01,
@@ -36388,7 +36389,7 @@ test('F430 Bird Gen mega opens the complete Mega Stakeout directly', async () =>
   assert.equal(app.$('spLookupRecent').querySelector('button.spLookupMore'), null,
     'one nearby locality must not require an extra place batch');
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .hscard-md').length, 1,
-    'the nearby supporting places should share the four-mile locality');
+    'the explicitly named venue should retain its nearby supporting places');
   assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList .cklcard-sm').length, 6,
     'one supporting Mega checklist is not nested under its unified place row');
   const reportLinks = [
@@ -41620,7 +41621,7 @@ test('F502 Today’s Patches keeps mileage in the hotspot title row right column
     'Today’s Patches does not pass mileage to the shared hotspot title column');
 });
 
-test('F503/F554 Stakeout keeps flat ten-row batches and bounds selected history at six', async () => {
+test('F503/F554 Stakeout keeps flat ten-row batches through complete expansion', async () => {
   const rows = Array.from({length:22}, (_,i) => ({
     speciesCode:'amepip', comName:'American Pipit', locName:'Batch fixture',
     locId:'L503', lat:47.7, lng:-122.2, subId:'S503-'+i,
@@ -41637,11 +41638,9 @@ test('F503/F554 Stakeout keeps flat ten-row batches and bounds selected history 
   assert.equal(list.children.length,10);
   app.click(app.$('spLookupRecent').querySelector('.stakeoutChecklistMore'));
   assert.equal(list.children.length,20);
-  const history = HTML.slice(HTML.indexOf('function loadStakeoutPlaceHistory('),
-    HTML.indexOf('function hydrateStakeoutPlaceHistories('));
-  assert.match(HTML, /var STAKEOUT_HISTORY_SCAN = 6;/);
-  assert.match(history, /\.slice\(0, STAKEOUT_HISTORY_SCAN\)/,
-    'selected history scanning does not use the shared six-candidate bound');
+  app.click(app.$('spLookupRecent').querySelector('.stakeoutChecklistMore'));
+  assert.equal(list.children.length,22);
+  assert.equal(app.$('spLookupRecent').querySelector('.stakeoutChecklistMore'),null);
   app.window.close();
 });
 
@@ -44282,7 +44281,7 @@ test('F1215 Stakeout history reconciles four plus two reports and discloses genu
     }
   });
 
-test('F779 Stakeout automatically checks only rendered places within the unchanged history budget', async () => {
+test('F779/F1501 Stakeout progressively checks only rendered places and reuses their histories', async () => {
   const listCalls = [];
   const places = Array.from({ length: 18 }, (_, i) => ({
     speciesCode: 'amepip',
@@ -44308,11 +44307,16 @@ test('F779 Stakeout automatically checks only rendered places within the unchang
     fetch(url) {
       const path = String(url);
       if (/data\/obs\/US-WA\/recent\/amepip/.test(path)) return places;
+      if (/product\/lists\/L\d+\?maxResults=200/.test(path)) {
+        app.window.__app.fgSchedReset(app.window.Date.now());
+        return [];
+      }
       if (/product\/lists\/L\d+\?maxResults=12/.test(path)) {
+        app.window.__app.fgSchedReset(app.window.Date.now());
         listCalls.push(path);
         const loc=/product\/lists\/(L\d+)/.exec(path)[1];
         return Array.from({length:8},(_,i)=>({subId:'S779-budget-'+loc+'-'+i,
-          obsDt:recentObsStamp(0,8),locId:loc}));
+          obsDt:recentObsStamp(1,8),locId:loc}));
       }
       if (/product\/checklist\/view\//.test(path)) return { obs: [] };
       if (/api\.ebird\.org/.test(path)) return [];
@@ -44322,7 +44326,7 @@ test('F779 Stakeout automatically checks only rendered places within the unchang
   installSpuhFixture(app);
   for(let loc=1;loc<=18;loc++)for(let i=0;i<8;i++){
     app.window.__app.seedChecklistView('S779-budget-L'+loc+'-'+i,{
-      locId:'L'+loc,obsDt:recentObsStamp(0,8),obs:[]});
+      locId:'L'+loc,obsDt:recentObsStamp(1,8),obs:[]});
   }
   await app.window.__app.lookupSpecies('amepip', 'American Pipit');
   app.window.__app.setSpeciesLookupWithinChase(false);
@@ -44358,9 +44362,14 @@ test('F779 Stakeout automatically checks only rendered places within the unchang
     '#spLookupRecent .spLookupPlaceList > .hscard-md').length, 10);
   await waitFor(() => listCalls.length === 9, 'five newly rendered-place scans', 110000);
   assert.equal(new Set(listCalls).size, 9, 'successful checks were reacquired on append');
+  await waitFor(() => {
+    const slots=[...app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]')];
+    return slots.length===9 && slots.every(slot=>/\bchecked 8 recent checklists/.test(
+      slot.querySelector('.stakeoutHistoryStatus').textContent));
+  }, 'all rendered histories finish progressive continuation');
   for(const slot of app.document.querySelectorAll('#spLookupRecent .stakeoutPlaceHistory[data-done]')){
-    assert.match(slot.querySelector('.stakeoutHistoryStatus').textContent,/checked 6 recent checklists/,
-      'the automatic scan must stop at six even when more candidate checklists were returned');
+    assert.match(slot.querySelector('.stakeoutHistoryStatus').textContent,/checked 8 recent checklists/,
+      'automatic continuation must inspect the remaining returned candidates after first paint');
   }
   app.window.close();
 });
@@ -44369,7 +44378,7 @@ test('F779 automatic history exposes zero one and multiple matches, deduplicates
   const calls = [];
   const held = [];
   let holdSummaries = false;
-  const today = todayFixtureDate();
+  const today = recentObsStamp(1,8).slice(0,10);
   const app = await boot({ fetch(url) {
     if (/recent\/amepip/.test(url)) return ['ZERO', 'ONE', 'MANY', 'PRIVATE'].map((id, i) => ({
       speciesCode: 'amepip', comName: 'American Pipit', locName: id, locId: `L-${id}`,
@@ -44390,7 +44399,7 @@ test('F779 automatic history exposes zero one and multiple matches, deduplicates
       const [, id, suffix] = checklist;
       const match = suffix === 'current' || (id === 'ONE' && suffix === 'a')
         || (id === 'MANY' && ['a', 'b'].includes(suffix));
-      return { obsDt: `${today} 08:00`, obs: match ? [{ speciesCode: 'amepip' }] : [] };
+      return {locId:`L-${id}`,obsDt:`${today} 08:00`,obs:match?[{speciesCode:'amepip'}]:[]};
     }
     if (/product\/checklist\/view\//.test(url)) return { obs: [] };
     if (/api\.ebird\.org/.test(url)) return [];
@@ -44407,19 +44416,23 @@ test('F779 automatic history exposes zero one and multiple matches, deduplicates
       const match = suffix === 'current' || (id === 'ONE' && suffix === 'a')
         || (id === 'MANY' && ['a', 'b'].includes(suffix));
       app.window.__app.seedEbirdCache(`product/checklist/view/${row.subId}`, {
-        obsDt: `${today} 08:00`, obs: match ? [{ speciesCode: 'amepip' }] : [],
+        locId:`L-${id}`,obsDt:`${today} 08:00`,obs:match?[{speciesCode:'amepip'}]:[],
       });
     }
   }
   await app.window.__app.lookupSpecies('amepip', 'American Pipit');
   app.click(app.$('spLookupStatewide'));
-  await waitFor(() => app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]').length === 3,
-    'bounded automatic histories');
+  await waitFor(() => {
+    const slots=[...app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]')];
+    return slots.length===3 && slots.every(slot=>/\bchecked 7 recent checklists/.test(
+      slot.querySelector('.stakeoutHistoryStatus').textContent));
+  },
+    'progressive automatic histories');
   const places = [...app.document.querySelectorAll('.spLookupPlaceList > li')];
   for (const [id, count] of [['ZERO', 0], ['ONE', 1], ['MANY', 2]]) {
     const place = places.find((row) => row.textContent.includes(id));
     assert.match(place.textContent, new RegExp(`${count} matching reports? added to this list`));
-    assert.match(place.textContent, /checked 6 recent checklists/);
+    assert.match(place.textContent, /checked 7 recent checklists/);
     const rows = [...place.querySelectorAll('.stakeoutPlaceChecklists > li')];
     assert.equal(rows.length, count + 1);
     assert.equal(new Set(rows.map((row) => row.dataset.evSub)).size, rows.length);
@@ -44427,7 +44440,7 @@ test('F779 automatic history exposes zero one and multiple matches, deduplicates
   }
   assert.equal(calls.filter((url) => /product\/lists/.test(url)).length, 0,
     'warm checklist summaries contacted the network');
-  assert.ok(!calls.some((url) => /PRIVATE|beyond-budget/.test(url)));
+  assert.ok(!calls.some((url) => /PRIVATE/.test(url)));
   assert.ok(!app.state.fetches.some((url) => /product\/lists\/L-PRIVATE/.test(url)),
     'private location entered public hotspot acquisition');
   const count = calls.length;
@@ -44435,6 +44448,13 @@ test('F779 automatic history exposes zero one and multiple matches, deduplicates
   await waitFor(() => app.document.querySelectorAll('.stakeoutPlaceHistory[data-done]').length === 3,
     'cached histories immediately repaint');
   assert.equal(calls.length, count, 'warm results reacquired checklist evidence');
+  for (const [id,added] of [['ZERO',0],['ONE',1],['MANY',2]]) {
+    const place=[...app.document.querySelectorAll('.spLookupPlaceList > li')]
+      .find(row=>row.textContent.includes(id));
+    assert.match(place.querySelector('.stakeoutHistoryStatus').textContent,
+      new RegExp(`${added} matching reports? added to this list`),
+      'cached redraw retains the cumulative recovered count without counting duplicates');
+  }
   holdSummaries = true;
   const realNow = app.window.Date.now.bind(app.window.Date);
   app.window.Date.now = () => realNow() + 31 * 60 * 1000;
@@ -44482,9 +44502,11 @@ test('F779 failed checklist read stays honest and retryable; obsolete bird canno
     if (/recent\/amepip/.test(url)) return [{
       speciesCode: 'amepip', comName: 'American Pipit', locName: 'History Park',
       locId: 'L-HISTORY', lat: 47.7, lng: -122.2,
-      obsDt: `${todayFixtureDate()} 09:00`, subId: 'S-CURRENT', obsValid: true,
+      obsDt: recentObsStamp(1,9), subId: 'S-CURRENT', obsValid: true,
     }];
-    if (/product\/lists\/L-HISTORY/.test(url)) return [{ subId: 'S-HISTORY' }];
+    if (/product\/lists\/L-HISTORY/.test(url)) return [{
+      subId: 'S-HISTORY',locId:'L-HISTORY',obsDt:recentObsStamp(1,8)
+    }];
     if (/product\/checklist\/view\/S-HISTORY/.test(url)) {
       if (fail) return { __status: 403 };
       return new Promise((resolve) => { release = resolve; });
@@ -44496,15 +44518,16 @@ test('F779 failed checklist read stays honest and retryable; obsolete bird canno
   installSpuhFixture(app);
   const A = app.window.__app;
   await A.lookupSpecies('amepip', 'American Pipit');
-  await waitFor(() => app.document.querySelector('.stakeoutLoadHistory'), 'honest failure');
-  assert.match(app.$('spLookupRecent').textContent, /not evidence that no other reports exist/);
-  assert.equal(app.document.querySelector('.stakeoutPlaceHistory[data-done]'), null);
+  await waitFor(() => app.document.querySelector('.stakeoutLoadMoreHistory'), 'honest partial failure');
+  assert.match(app.$('spLookupRecent').textContent, /1 candidate\/source reads unavailable/);
+  assert.match(app.$('spLookupRecent').textContent, /do not establish a complete census/);
+  assert.equal(app.document.querySelectorAll('.stakeoutPlaceChecklists > li').length,1);
   fail = false;
-  app.click(app.document.querySelector('.stakeoutLoadHistory'));
+  app.click(app.document.querySelector('.stakeoutLoadMoreHistory'));
   await waitFor(() => release, 'history retry');
   const old = app.document.querySelector('.stakeoutPlaceChecklists');
   const next = A.lookupSpecies('solsan', 'Solitary Sandpiper');
-  release({ obs: [{ speciesCode: 'amepip' }] });
+  release({locId:'L-HISTORY',obsDt:recentObsStamp(1,8),obs:[{speciesCode:'amepip'}]});
   await next;
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(old.children.length, 1, 'obsolete history appended after changing birds');
@@ -45788,8 +45811,8 @@ test('F461 Stakeout merges retained Mega and live checklists into one place list
     comName: 'Sharp-tailed Sandpiper',
     obsDt: `2026-09-${String(21 - Math.floor(i / 12)).padStart(2, '0')} `
       + `${String(17 - (i % 12)).padStart(2, '0')}:17`,
-    locName: i === 39 ? 'League Island--Eide Rd.'
-      : 'League Island--Davis Slough Access',
+    locName: i === 39 ? 'Leque Island--Eide Rd.'
+      : 'Leque Island--Davis Slough Access',
     locId: i === 39 ? 'L-EIDE' : 'L-DAVIS',
     subId: `S${900000 + i}`,
     lat: i === 39 ? 47.91 : 47.9,
@@ -45825,7 +45848,7 @@ test('F461 Stakeout merges retained Mega and live checklists into one place list
   assert.ok(places.querySelectorAll('.cklcard-sm').length >= 7,
     'the retained snapshot and newer live place did not preserve their checklists');
   assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 1,
-    'the nearby retained and live sources did not share one locality');
+    'the explicitly named venue did not retain both source accesses');
   const links = [...places.querySelectorAll('.cklcard-sm [href*="/checklist/"]')]
     .map((link) => link.getAttribute('href'));
   assert.equal(new Set(links).size, links.length,
@@ -51197,8 +51220,8 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.ok(places, 'the unified Mega report list did not render immediately');
   const morePlaces = D.querySelector('#spLookupRecent button.spLookupMore');
   if (morePlaces) app.click(morePlaces);
-  assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 3,
-    'the deterministic four-mile centroid grouping must retain all three localities');
+  assert.equal(places.querySelectorAll(':scope > .hscard-md').length, 6,
+    'independent public venues must retain all six locations without distance-only merging');
   assert.equal(places.querySelectorAll('.cklcard-sm').length, 14,
     'the unified Mega report list did not keep every supporting checklist');
   assert.match(places.textContent, /Neah Bay harbor/);
@@ -61450,15 +61473,17 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
     return rows;
   }
   let rows = assertIdentity();
-  assert.equal(app.$('spLookupMap').querySelectorAll('.locality-marker').length,2,
-    'the first date prefix contains both near and distant localities');
+  assert.equal(app.$('spLookupMap').querySelectorAll('.locality-marker').length,4,
+    'the first date prefix retains distinct public venues near and far');
   assert.equal(rows.length, 10);
   const initialDates = rows.map(row => row.getAttribute('data-ev-sort'));
   assert.deepEqual(initialDates, initialDates.slice().sort().reverse());
   const staleMore = app.$('spLookupRecent').querySelector('.progressive-more');
   staleMore.click();
   rows = assertIdentity();
-  assert.equal(rows.length, 14);
+  assert.deepEqual(rows.map(row=>row.dataset.evSub).sort(),
+    observations.map(row=>row.subId).sort(),
+    'flat reports include every checklist exactly once across shared private satellites');
   const repeated = rows.filter(row => row.getAttribute('data-ev-place') === 'Place 0');
   assert.equal(repeated.length, 4, 'each source checklist retains its own place name');
   assert.equal(repeated[0].getAttribute('data-pin-number'), repeated[1].getAttribute('data-pin-number'));
@@ -61489,7 +61514,7 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
     }
   }
   assertGrouped();
-  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li').length, 3);
+  assert.equal(app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > li').length, 5);
   assertGrouped();
   A.setSpeciesLookupWithinChase(true);
   assert.doesNotMatch(app.$('spLookupRecent').textContent, /Place [45]/,
@@ -64518,7 +64543,7 @@ test('the region and county pickers show the code the top bar displays', async (
   A.scopeOpen();          // builds and binds the pickers
   app.click(app.$('menuRegion'));
   const opts = [...doc.querySelectorAll('#regionChooserAll .regionchoice, #regionChooserBroader .regionchoice')]
-    .map((o) => o.querySelector('.regionchoicename').textContent);
+    .map((o) => o.querySelector('.regionchoicename').textContent.replace(/^\u2705 Selected: /,''));
   app.click(app.$('regionChooserClose'));
   const wa = opts.find((t) => t.startsWith('Washington'));
   assert.ok(/^Washington\s+US-WA\b/.test(wa), 'the report names its code: ' + wa);
@@ -68859,10 +68884,10 @@ test('F152: every section a county view narrows says that it is narrowed', async
     if (at < 0) return;                       // inline/anonymous — nothing to read
     const end = HTML.indexOf('\n      function ', at + 10);
     const body = HTML.slice(at, end < 0 ? HTML.length : end);
-    const reads = /getChase\(|getChaseRarity\(/.test(body);
+    const reads = /getChase\(|getChaseRarity\(|getTwitchRarity\(/.test(body);
     checked++;
     assert.equal(!!L[k].countyView, reads,
-      `${k} (${fn}) ${reads ? 'reads' : 'does not read'} the chase cache, so `
+      `${k} (${fn}) ${reads ? 'reads' : 'does not read'} county-owned evidence, so `
       + `countyView must be ${reads ? 'true' : 'absent'}`);
   });
   assert.ok(checked > 15, `the scan must actually read bodies, read ${checked}`);

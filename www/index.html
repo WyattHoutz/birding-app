@@ -18075,11 +18075,15 @@
       }
 
       function spLookupEvidenceRows(places, grouped) {
-        var rows = [];
+        var rows = [], seenChecklists = Object.create(null);
         spLookupOrderedPlaces(places).forEach(function (place) {
           var checklists = grouped ? [null]
             : (place.checklists && place.checklists.length ? place.checklists : [place]);
           checklists.forEach(function (ck) {
+            if (!grouped && ck.subId) {
+              if (seenChecklists[ck.subId]) return;
+              seenChecklists[ck.subId] = true;
+            }
             rows.push({ place: place, checklist: ck });
           });
         });
@@ -18467,12 +18471,12 @@
             }
             var list = slot.closest('.stakeoutPlaceDetails');
             list = list && list.querySelector('.stakeoutPlaceChecklists');
+            var addedIds = Object.assign(Object.create(null), result.addedIds), refreshed = [];
             if (list) {
               var existing = {};
               [].forEach.call(list.querySelectorAll('[data-ev-sub]'), function (row) {
                 existing[row.getAttribute('data-ev-sub')] = row;
               });
-              var added = 0, refreshed = [];
               allMatches.forEach(function (match) {
                 retainStakeoutChecklistFacts(match.subId, Object.assign({}, match, { obs: [match.ob] }));
                 if (existing[match.subId]) {
@@ -18483,7 +18487,7 @@
                 var holder = document.createElement('ul');
                 holder.innerHTML = stakeoutChecklistRow(match, place, bird, 0);
                 var row = holder.firstElementChild;
-                if (row) { list.appendChild(row); added++; }
+                if (row) { list.appendChild(row); addedIds[match.subId] = true; }
                 if (row) existing[match.subId] = row;
               });
               [].slice.call(list.children).sort(function (a, b) {
@@ -18495,6 +18499,8 @@
                 Math.min(list.children.length, STAKEOUT_CHECKLIST_INITIAL + STAKEOUT_CHECKLIST_BATCH))));
               limitStakeoutChecklistRows(list);
             }
+            result.addedIds = addedIds;
+            var added = Object.keys(addedIds).length;
             slot.innerHTML = '<div class="stakeoutHistoryStatus" role="status">'
               + (added || 0) + ' matching report' + (added === 1 ? '' : 's') + ' added to this list'
               + ' · checked ' + result.checked + ' recent checklist'
