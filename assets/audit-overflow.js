@@ -1343,7 +1343,10 @@ const AUDIT = `<script>
     if (${process.env.AUDIT_FOCUS === 'bird-reports'}) {
       try {
         out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture));
-        if (${process.env.AUDIT_COMPOSE_APPROVED === '1'}) await approvedReleaseRegression(out);
+        if (${process.env.AUDIT_COMPOSE_APPROVED === '1'}) {
+          A.applyCapturedIdentity({status:'missing'});
+          await approvedReleaseRegression(out);
+        }
       }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
       finish(out);
@@ -3806,6 +3809,7 @@ const AUDIT = `<script>
   async function approvedReleaseRegression(out) {
     var A = window.__app;
     function require(value, message) { if (!value) throw new Error(message); }
+    A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder'});
     A.setActiveReport('wa'); A.setCountyView('');
     await preparePersonalFixture(A,window,{yearList:[{code:'amerob',name:'American Robin'}]},[
       {code:'amerob',name:'American Robin'},{code:'bohwax',name:'Bohemian Waxwing'}
