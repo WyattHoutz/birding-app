@@ -74,8 +74,17 @@ async function mapLayout(scan, mutation) {
     check(sampled>0&&choices>0&&escaped===0,'F1393 map escaped chooser hit-testing',
       {sampled,choices,escaped,map:box(canvas),choice:box(choice)});
     const search=document.getElementById('regionChooserSearch');search.value='US-WA';search.dispatchEvent(new Event('input'));
-    const filters=[...document.querySelectorAll('[data-region-location]')].map(button=>({label:button.textContent,...box(button)}));
-    check(filters.length===3&&filters.every(r=>r.height>=43.5&&r.width>43.5),'F1392 filter targets must remain reachable',filters);
+    const filterButtons=[...document.querySelectorAll('[data-region-location]')];
+    if(mutation==='chooser-target')Object.assign(filterButtons[0].style,{minHeight:'12px',height:'12px'});
+    const modeReference=document.getElementById('destBtn').closest('section').querySelector('.modebtn');
+    const modeMinimum=parseFloat(getComputedStyle(modeReference).minHeight);
+    const filters=filterButtons.map(button=>{
+      const rect=button.getBoundingClientRect();
+      return {label:button.textContent,...box(button),hit:button.contains(
+        document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2))};
+    });
+    check(filters.length===3&&filters.every(r=>r.height>=modeMinimum-.5&&r.width>43.5&&r.hit),
+      'F1392 filter targets must match shared mode sizing and remain reachable',{modeMinimum,filters});
     document.getElementById('regionChooserClose').click();
     check(document.activeElement.id==='navRegion','F1393 chooser focus not restored',{});
     check(canvas.querySelector('.leaflet-marker-icon')&&canvas.querySelector('.leaflet-popup'),
