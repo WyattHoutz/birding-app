@@ -18,6 +18,34 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const BL = require(process.env.BIRDCHASER_LOGIC || path.join(__dirname, '..', 'www', 'logic.js'));
+test('F1457 Washington and pilot counties require positive immutable administrative or exact boundary evidence', () => {
+  const fixture = require('./fixtures/region-membership.json');
+  for (const row of fixture.cases) {
+    const before = JSON.stringify(row.record);
+    assert.deepEqual(fixture.scopes.map(scope => BL.regionMembership(row.record, scope).state),
+      row.states, row.name);
+    assert.equal(JSON.stringify(row.record), before, 'membership must not rewrite source evidence');
+  }
+  const boundary = {code:'US-WA-061',accuracyMi:.01,geometry:{type:'Polygon',
+    coordinates:[[[-123,47],[-122,47],[-122,48],[-123,48],[-123,47]]]}};
+  assert.deepEqual(BL.regionMembership({lat:47.5,lng:-122.5},'US-WA-061',boundary),
+    {state:'inside',basis:'boundary'});
+  assert.equal(BL.regionMembership({lat:46,lng:-122.5},'US-WA-061',boundary).state,'outside');
+  assert.equal(BL.regionMembership({county:'US-WA-033',lat:47.5,lng:-122.5},
+    'US-WA-061',boundary).basis,'conflicting-boundary');
+  assert.equal(BL.regionMembership({lat:47,lng:-122.5},'US-WA-061',boundary).state,'unknown');
+  assert.equal(BL.regionMembership({lat:47.5,lng:-122.5},'US-WA-033',boundary).state,'unknown');
+  assert.equal(BL.regionMembership({lat:47.5,lng:-122.5},'US-WA-061',
+    {code:'US-WA-061',bounds:{minX:-123,maxX:-122,minY:47,maxY:48}}).state,'unknown',
+    'overlapping bounding rectangles are not positive membership evidence');
+  assert.equal(BL.regionMembership({county:'US-WA-033'},'lower48').state,'unknown');
+  const raw={speciesCode:'amerob',comName:'American Robin',subId:'S1457',
+    subnational2Code:'US-WA-061',subnational1Code:'US-WA',countryCode:'US'};
+  const merged=BL.mergeSnapshot([{kind:'recent',src:'Exact source',rows:[raw]}])[0];
+  assert.deepEqual([merged.county,merged.state,merged.country,merged.sources],
+    ['US-WA-061','US-WA','US',['Exact source']]);
+  assert.equal(BL.regionMembership(merged,'US-WA-061').state,'inside');
+});
 test('F1246 projected competition ranks group ties and terminate at the current rank',()=>{
   const rows=[{rank:1,species:10},{rank:2,species:9},{rank:2,species:9},
     {rank:4,species:8},{rank:5,species:7},{rank:6,species:6}];

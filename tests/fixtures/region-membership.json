@@ -1,0 +1,21 @@
+{
+  "scopes": ["US-WA-061", "US-WA-033", "US-WA"],
+  "cases": [
+    {"name":"Snohomish","record":{"subnational2Code":"US-WA-061"},"states":["inside","outside","inside"]},
+    {"name":"King","record":{"subnational2Code":"US-WA-033"},"states":["outside","inside","inside"]},
+    {"name":"Pierce","record":{"subnational2Code":"US-WA-053"},"states":["outside","outside","inside"]},
+    {"name":"Washington only","record":{"subnational1Code":"US-WA"},"states":["unknown","unknown","inside"]},
+    {"name":"Oregon","record":{"subnational1Code":"US-OR"},"states":["outside","outside","outside"]},
+    {"name":"Idaho","record":{"subnational2Code":"US-ID-001"},"states":["outside","outside","outside"]},
+    {"name":"British Columbia","record":{"subnational1Code":"CA-BC"},"states":["outside","outside","outside"]},
+    {"name":"US only","record":{"countryCode":"US"},"states":["unknown","unknown","unknown"]},
+    {"name":"missing","record":{},"states":["unknown","unknown","unknown"]},
+    {"name":"names and radius are not membership","record":{"locName":"King County Washington","lat":47.6,"lng":-122.3,"distMi":0},"states":["unknown","unknown","unknown"]},
+    {"name":"county/state conflict","record":{"subnational2Code":"US-WA-033","subnational1Code":"US-OR"},"states":["unknown","unknown","unknown"]},
+    {"name":"county/country conflict","record":{"county":"US-WA-061","countryCode":"CA"},"states":["unknown","unknown","unknown"]},
+    {"name":"normalized aliases","record":{"county":"US-WA-061","state":"US-WA","country":"US","sources":["Exact public feed"]},"states":["inside","outside","inside"]},
+    {"name":"conflicting aliases","record":{"county":"US-WA-061","subnational2Code":"US-WA-033"},"states":["unknown","unknown","unknown"]},
+    {"name":"normalized Python aliases","record":{"subnational2":"US-WA-033","subnational1":"US-WA","country":"US"},"states":["outside","inside","inside"]},
+    {"name":"invalid code","record":{"subnational2Code":"King"},"states":["unknown","unknown","unknown"]}
+  ]
+}

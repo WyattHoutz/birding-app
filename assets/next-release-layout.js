@@ -1,6 +1,6 @@
 'use strict';
 
-async function nextReleaseLayout(scan, mutation) {
+async function nextReleaseLayout(scan, mutation, focus) {
   const A = window.__app, results = [];
   const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const check = (ok, message) => { if (!ok) throw new Error(message); };
@@ -13,6 +13,62 @@ async function nextReleaseLayout(scan, mutation) {
   }
   A.cancelStalledWork();
   A.setActiveReport('wa'); A.setCountyView('');
+  await record('F1499/F1500 selected chooser and labelled header pair', async () => {
+    A.setCountyView('US-WA-033');
+    A.showSection('sec-spLookupBtn',{load:false});
+    await paint();
+    const owner=A.activeScope().cacheIdentity, boxes=[];
+    for (const [id,sourceId] of [['navPeriod','hdrPeriod'],['navRegion','hdrScope']]) {
+      const button=document.getElementById(id),source=document.getElementById(sourceId);
+      if(mutation==='header-font')button.style.fontSize='8px';
+      if(mutation==='header-transparent')button.style.opacity='0';
+      const box=button.getBoundingClientRect(),range=document.createRange();
+      range.selectNodeContents(button);
+      check(button.textContent===source.textContent,'F1500 header labels must share the main-menu scope/period');
+      check(getComputedStyle(button).fontSize===getComputedStyle(source).fontSize
+        && getComputedStyle(button).opacity==='1','F1500 labelled controls must retain shared readable text');
+      check(box.width>=43.5&&box.height>=43.5&&box.left>=0&&box.right<=innerWidth+.5,
+        'F1500 header targets must fit the viewport: '+JSON.stringify(box.toJSON()));
+      check([...range.getClientRects()].every(r=>r.left>=box.left-.5&&r.right<=box.right+.5),
+        'F1500 visible header labels must not clip');
+      const hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
+      check(hit&&button.contains(hit),'F1500 labelled header must be hit-testable');
+      boxes.push(box.toJSON());
+    }
+    document.getElementById('navRegion').click();
+    await paint();
+    const current=document.querySelector('#regionChooserCurrent button');
+    if(mutation==='selected-enabled')current.disabled=false;
+    check(current?.disabled&&current.getAttribute('aria-current')==='true'
+      && /✅ Selected:/.test(current.textContent),'F1499 selected state must be explicit and natively disabled');
+    const selected=current.getBoundingClientRect();
+    check(selected.height>=43.5&&selected.width>=43.5
+      && selected.left>=0&&selected.right<=innerWidth+.5,'F1499 current selection must remain readable');
+    const body=document.getElementById('regionChooserBody');
+    check([...body.querySelectorAll(':scope > section > h3')].map(h=>h.textContent).join('|')
+      ==='Current region|Recent regions|Major Regions|States, provinces and territories|County',
+      'F1499 chooser groups must retain the requested order');
+    const counties=document.getElementById('regionChooserCountyList');
+    check(!counties.open,'F1499 county list must start collapsed');
+    const summary=counties.querySelector('summary');
+    summary.scrollIntoView({block:'center'});
+    await paint();
+    const disclosure=summary.getBoundingClientRect();
+    check(disclosure.height>=43.5&&disclosure.left>=0&&disclosure.right<=innerWidth+.5,
+      'F1499 independent county disclosure must remain reachable');
+    summary.click();
+    check(counties.open,'F1499 disabled selected region cannot disable county disclosure');
+    document.getElementById('regionChooserClose').click();
+    window.scrollTo(0,0);
+    document.getElementById('navPeriod').click();
+    await paint();
+    check(!document.getElementById('menuPanel').hidden
+      && document.activeElement.closest('.periodpick'),'F1500 year action must reuse the existing period picker');
+    check(A.activeScope().cacheIdentity===owner,'F1500 opening selectors must not change the active account/scope/time');
+    A.setCountyView('');A.showMenu();
+    return {headerButtons:boxes,selected: selected.toJSON(),disclosure:disclosure.toJSON()};
+  });
+  if(focus==='scope-headers')return results;
   await record('F1410 grouped FOY and Home', async () => {
     A.showSection('sec-surgeBtn',{load:false});
     const date=A.todayStr();

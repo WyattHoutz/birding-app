@@ -2226,7 +2226,7 @@ REVIEW_SHOTS.push({
 });
 REVIEW_SHOTS.push({
   id:'f1453-chooser-lists',host:'regionChooser',freshApp:true,
-  title:'Region chooser - passive current county and collapsed county/state catalogs',
+  title:'Region chooser - checked disabled current county and collapsed catalogs',
   prep:regionQuickVisits+`
     await A.selectRegionChoice('county:wa:US-WA-061');
     A.openRegionChooser();
@@ -2234,8 +2234,9 @@ REVIEW_SHOTS.push({
     var chooser=document.getElementById('regionChooser'),body=document.getElementById('regionChooserBody');
     var current=document.getElementById('regionChooserCurrent'),county=document.getElementById('regionChooserCountyList');
     var states=document.getElementById('regionChooserStateList'),parent=document.getElementById('regionChooserParent');
-    if(current.querySelector('button,a,input,select,[tabindex],[role="button"]'))
-      throw new Error('F1452 actual current region must be noninteractive text');
+    var selected=current.querySelector('button');
+    if(!selected || !selected.disabled || !/Selected:/.test(selected.textContent))
+      throw new Error('F1499 actual current region must be a labelled disabled button');
     var reference=parseFloat(getComputedStyle(parent.querySelector('button')).fontSize);
     if([current.firstElementChild,document.getElementById('regionChooserCountyCurrent')].some(function(node){
       return parseFloat(getComputedStyle(node).fontSize)<reference-0.01;}))
@@ -2418,9 +2419,9 @@ REVIEW_SHOTS.push({
 
 REVIEW_SHOTS.push({
   id:'f1492-common-target-table',at:'easyBtn',freshApp:true,
-  title:'Target Birds - ten common birds and existing needed-bird targets (representative sample)',
+  title:'Target Birds - Easy Targets paragraph and existing needed-bird targets (representative sample)',
   host:'sec-easyBtn',fullPage:true,prepTimeoutMs:45000,
-  expects:['#easyCommonResults tbody > tr','#easyCommonMore:not([hidden])','#easyResults'],
+  expects:['#easyCommonResults .commonBirdNames [data-common-code]','#easyCommonMore:not([hidden])','#easyResults'],
   prep:`await FIX.prepareBirdReports(function(label){return {label:label};},'common'); return true;`
 },{
   id:'f1491-more-reports',at:'spLookupBtn',freshApp:true,
@@ -5585,8 +5586,8 @@ const BOOTSTRAP = `
     prepareBirdReports: async function(scan,preview) {
       var A=window.__app, bird={code:'amerob',name:'American Robin'};
       A.setActiveReport('wa'); A.setCountyView('');
-      await preparePersonalFixture(A,window,{yearList:[bird]},[bird]);
       if(preview==='history'){
+        await preparePersonalFixture(A,window,{yearList:[bird]},[bird]);
         fixtureBefore('spLookupBtn',A,document);
         var stamp=A.todayStr()+' 08:00',matches=[1,8,16,21,26];
         var summaries=Array.from({length:36},function(_,i){
@@ -5605,7 +5606,7 @@ const BOOTSTRAP = `
           })]
         });
       }
-      var results=await (${require('./bird-report-layout').toString()})(scan,preview);
+      var results=await (${require('./bird-report-layout').toString()})(scan,preview,null,preparePersonalFixture);
       if(preview==='history'){
         A.fgCancelAll('Representative bird-report preview complete');
         A.fgProgressReset();

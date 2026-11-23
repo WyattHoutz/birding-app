@@ -244,6 +244,39 @@ async function rankClimbLayout(scan, mutation) {
         && stop.querySelector('.rankclimb-cost').textContent==='Score not loaded';
     }),'F1399 uncovered thresholds never invent minimums',{});
     await measure('F1399 separate truncated shared-target ladder');
+    const speciesRows=Array.from({length:11},(_,i)=>({rank:i+1,species:210-i,checklists:999,
+      name:'Synthetic birder',profileId:i===5?'synthetic-owner':'species-'+i,recent:recent[i]||''}));
+    const checklistRows=Array.from({length:11},(_,i)=>({rank:i+1,checklists:550-i*5,species:null,
+      name:'Synthetic birder',profileId:i===2?'synthetic-owner':'checklist-'+i,recent:recent[i]||''}));
+    const pair={boards:{
+      spp:{region:'US-WA',period,metric:'spp',rows:speciesRows,me:speciesRows[5]},
+      cl:{region:'US-WA',period,metric:'cl',rows:checklistRows,me:checklistRows[2]}
+    },failures:{},stale:{}};
+    A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
+    document.querySelector('[data-rank-metric="cl"]').click();
+    Array.from(document.querySelectorAll('#rankResults .rankrow')).slice(2).forEach(row=>row.remove());
+    const section=document.getElementById('sec-rankBtn'), info=section.querySelector('.sectiondoc');
+    if(info.hidden)section.querySelector('.docbtn').click();
+    const deadline=performance.now()+4000;
+    while(!info.querySelector('.rankclimb-next') && performance.now()<deadline) {
+      await new Promise(resolve=>setTimeout(resolve,50));
+    }
+    check(document.querySelector('.rankclimb .current .rankclimb-number').textContent==='#3',
+      'F1496 checklist leaderboard owns the current ladder rank',{});
+    check(document.querySelector('.rankclimb').textContent.includes('+5 checklists')
+      && !document.querySelector('.ranknearby .rankclimb-next'),
+      'F1496 checklist score gaps and Info-only next step',{});
+    check(info.querySelector('.rankclimb-next')
+      && info.querySelector('.rankclimb-next').textContent.includes('545-checklist group at #2')
+      && info.querySelector('.rankclimb-next').getBoundingClientRect().width>0,
+      'F1496 live checklist next step is rendered in Info',{});
+    document.querySelectorAll('.rankclimb-cost,.ranknearby th,.rankclimb-next').forEach(node=>{
+      const range=document.createRange();range.selectNodeContents(node);
+      check(Array.from(range.getClientRects()).every(rect=>rect.left>=-.5 && rect.right<=innerWidth+.5),
+        'F1496 checklist text stays inside the phone viewport',node.textContent);
+    });
+    results.push(Object.assign(scan('F1496 selected Checklists ladder and Info'),
+      {rankClimbGeometry:{metric:'cl',currentRank:3,infoOnly:true}}));
   } finally {
     if (typeof auditStage==='function') auditStage('F1398 restore');
     if (identity===null) localStorage.removeItem(A.IDENTITY_META_KEY);

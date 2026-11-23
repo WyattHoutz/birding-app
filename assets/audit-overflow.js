@@ -1341,13 +1341,14 @@ const AUDIT = `<script>
       return;
     }
     if (${process.env.AUDIT_FOCUS === 'bird-reports'}) {
-      try { out.push(...await birdReportLayout(scan,null,auditStage)); }
+      try { out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture)); }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
       finish(out);
       return;
     }
-    if (${process.env.AUDIT_FOCUS === 'next-release'}) {
-      out.push(...await nextReleaseLayout(scan, ${JSON.stringify(process.env.AUDIT_NEXT_MUTATION || '')}));
+    if (${['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)}) {
+      out.push(...await nextReleaseLayout(scan, ${JSON.stringify(process.env.AUDIT_NEXT_MUTATION || '')},
+        ${JSON.stringify(process.env.AUDIT_FOCUS || '')}));
       finish(out);
       return;
     }
@@ -4888,10 +4889,12 @@ const AUDIT = `<script>
       window.frameElement.style.width = '402px';
       document.documentElement.style.setProperty('--s', '1.35');
       document.documentElement.dataset.a11y = 'off';
-      override.textContent = '#navRegion { overflow: visible !important; }';
+      override.textContent = '#navRegion { position: fixed !important; inset: 0 !important; '
+        + 'width: 100vw !important; height: 100vh !important; max-width: none !important; '
+        + 'opacity: 0 !important; z-index: 9999 !important; }';
       document.head.appendChild(override);
       var mutant = await probe('Newfoundland and Labrador / Western coastal islands', false);
-      if (!mutant.length) throw new Error('F1140 unclipped mutation was not detected');
+      if (!mutant.length) throw new Error('F1140 oversized transparent header mutation was not detected');
     } finally {
       override.remove();
       navigation.textContent = originalLabel;
@@ -5185,8 +5188,16 @@ const AUDIT = `<script>
         A.renderRankPair({boards:{spp:board},failures:{},stale:{}},'US-WA',period,'Synthetic birder');
         var speciesMetric=document.querySelector('[data-rank-metric="spp"]');
         if(speciesMetric && speciesMetric.getAttribute('aria-pressed')!=='true')speciesMetric.click();
-        contained(document.querySelector('.rankclimb-next'));
-        check(document.querySelector('.rankclimb-next').textContent.indexOf('Next step')>=0,'exact next-step label');
+        check(!document.querySelector('.ranknearby .rankclimb-next'),'next-step copy belongs in Info');
+        var rankSection=document.getElementById('sec-rankBtn');
+        var rankInfo=rankSection.querySelector('.sectiondoc');
+        if(rankInfo.hidden)rankSection.querySelector('.docbtn').click();
+        var infoDeadline=performance.now()+4000;
+        while(!rankInfo.querySelector('.rankclimb-next') && performance.now()<infoDeadline) {
+          await new Promise(function(resolve){setTimeout(resolve,50);});
+        }
+        contained(rankInfo.querySelector('.rankclimb-next'));
+        check(rankInfo.querySelector('.rankclimb-next').textContent.indexOf('Next step')>=0,'exact next-step label in Info');
         result=scan('(F1352 actual rank goals)');
         result.queuePresentation='rank';out.push(result);
 
@@ -5288,11 +5299,12 @@ const AUDIT = `<script>
   const mapLayout = ${require('./map-layout').toString()};
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
   const birdReportLayout = ${require('./bird-report-layout').toString()};
+  const preparePersonalFixture = ${require('./mockups').preparePersonalFixture.toString()};
   const top100SyncLayout = ${require('./top100-sync-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
-      try { out.push(...await birdReportLayout(scan,null,auditStage)); }
+      try { out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture)); }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
@@ -5725,15 +5737,15 @@ server.listen(0, '127.0.0.1', () => {
         && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
           && !['clipped','midword','small','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
     }
-    if (process.env.AUDIT_FOCUS === 'next-release') {
+    if (['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)) {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
-      process.exit(report.length===5 && report.every(r=>r.nextReleaseGeometry
+      process.exit(report.length===(process.env.AUDIT_FOCUS==='scope-headers'?1:6) && report.every(r=>r.nextReleaseGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {
       console.log(JSON.stringify(report, null, 2));
-      process.exit(report.length === 5 && report.every(r => r.rankClimbGeometry
+      process.exit(report.length === 6 && report.every(r => r.rankClimbGeometry
         && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'maps') {

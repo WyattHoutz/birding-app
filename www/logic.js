@@ -656,12 +656,62 @@
         // rarity row link to the county rare-bird alert it appeared in.
         county: r.subnational2Code || '',
         countyName: r.subnational2Name || '',
+        state: r.subnational1Code || '',
+        country: r.countryCode || '',
         sources: e.sources.slice()
       });
       if (r.groupId) out[out.length - 1].groupId = r.groupId;
       if (r.numObservers != null) out[out.length - 1].numObservers = r.numObservers;
     });
     return out;
+  }
+
+  function regionMembership(record, region, boundary) {
+    if (['US-WA', 'US-WA-061', 'US-WA-033'].indexOf(region) < 0) {
+      return { state: 'unknown', basis: 'unsupported-scope' };
+    }
+    record = record || {};
+    function codes(keys) {
+      return keys.map(function (key) { return String(record[key] || '').trim().toUpperCase(); })
+        .filter(function (value, index, values) { return value && values.indexOf(value) === index; });
+    }
+    var counties = codes(['subnational2Code', 'county', 'subnational2']);
+    var states = codes(['subnational1Code', 'state', 'subnational1']);
+    var countries = codes(['countryCode', 'country']);
+    if (counties.length > 1 || states.length > 1 || countries.length > 1
+        || counties.some(function (code) { return !/^[A-Z]{2}-[A-Z0-9]+-[A-Z0-9]+$/.test(code); })
+        || states.some(function (code) { return !/^[A-Z]{2}-[A-Z0-9]+$/.test(code); })
+        || countries.some(function (code) { return !/^[A-Z]{2}$/.test(code); })) {
+      return { state: 'unknown', basis: 'conflicting-administration' };
+    }
+    var county = counties[0] || '', state = states[0] || '', country = countries[0] || '';
+    if (county && state && county.indexOf(state + '-') !== 0
+        || county && country && county.indexOf(country + '-') !== 0
+        || state && country && state.indexOf(country + '-') !== 0) {
+      return { state: 'unknown', basis: 'conflicting-administration' };
+    }
+    state = state || (county ? county.split('-').slice(0, 2).join('-') : '');
+    country = country || (state ? state.split('-')[0] : '');
+    var administrative = county && region !== 'US-WA'
+      ? county === region ? 'inside' : 'outside'
+      : state ? state === 'US-WA' ? region === 'US-WA' ? 'inside' : 'unknown' : 'outside'
+      : country && country !== 'US' ? 'outside' : 'unknown';
+    if (!boundary) return { state: administrative, basis: administrative === 'unknown'
+      ? 'insufficient-administration' : 'administrative' };
+    var lng = record.lng != null ? record.lng : record.lon;
+    var point = record.lat != null && record.lat !== '' && lng != null && lng !== ''
+      && !record.coordinatesMissing && !record.coordinates_missing
+      && Math.abs(+record.lat) <= 90 && Math.abs(+lng) <= 180
+      ? { lat: +record.lat, lng: +lng } : null;
+    var exact = boundary.code === region && point && polygonBoundaryInfo(point, boundary);
+    var accuracy = Number(boundary.accuracyMi || 0);
+    if (!exact || !isFinite(accuracy) || accuracy < 0 || exact.boundaryMi <= accuracy) {
+      return { state: 'unknown', basis: 'unverified-boundary' };
+    }
+    var geometric = exact.inside ? 'inside' : 'outside';
+    return administrative !== 'unknown' && administrative !== geometric
+      ? { state: 'unknown', basis: 'conflicting-boundary' }
+      : { state: geometric, basis: 'boundary' };
   }
 
   // ---- seen / unseen (mirror analyze.seen + report unseen/own) -------------
@@ -5237,6 +5287,7 @@
     haversineMi: haversineMi,
     countyEdgeMi: countyEdgeMi,
     deriveCountyScope: deriveCountyScope, regionReachability: regionReachability,
+    regionMembership: regionMembership,
     annotateDistance: annotateDistance,
     parseObsDt: parseObsDt,
     dayStr: dayStr,

@@ -1223,7 +1223,7 @@
     #sec-foyBtn > h2 { flex-wrap: wrap; }
     .panel.compacthead > .status { padding-top: 0; }
     .panel h2 .dim { display: none; }
-    #navbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--nav-bg); border-bottom: 1px solid var(--line);
+    #navbar { position: sticky; top: 0; z-index: 50; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px 12px; padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--nav-bg); border-bottom: 1px solid var(--line);
       /* ⚠️ F270. THE 80% WIDTH BUG, FOUND AT LAST — AND IT WAS THE NAVBAR.
          F261 shipped a detector because three of my hypotheses were wrong and
          the probe kept running after the page had healed. It paid for itself
@@ -1264,21 +1264,12 @@
       min-width: 0; overflow-x: clip; }
     #navbar[hidden] { display: none; }  /* redundant now: see [hidden] above */
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
-    /* Icon-only chrome. #navTitle is the only element in this row with no
-       intrinsic width, so it is the one that gets squeezed -- a text back
-       button plus a <select> sized by its longest option label ("Waikoloa /
-       Big Island") left it about 40px on a phone. Both controls are now
-       squares that scale with --s, so the tap target grows with the text
-       rather than clipping at the setting a low-vision reader would pick. */
     #navbar #navBack { flex: 0 0 auto; padding: 0; width: calc(38px * var(--s)); height: calc(38px * var(--s)); display: inline-flex; align-items: center; justify-content: center; font-size: calc(24px * var(--s)); line-height: 1; }
-    #navTitle { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* The <select> is kept, not replaced by a custom menu: on iOS it opens the
-       native wheel picker, which shows every region label in full. It is laid
-       transparently over the globe so the control reads as an icon while the
-       list it opens stays legible. opacity:0 still receives taps. */
-    .navregion { position: relative; flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: calc(38px * var(--s)); height: calc(38px * var(--s)); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-    .navregion .navregionicon { font-size: calc(17px * var(--s)); line-height: 1; }
-    #navRegion { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; overflow: hidden; border: 0; border-radius: 10px; -webkit-appearance: none; appearance: none; font-size: calc(16px * var(--s)); }
+    #navTitle { min-width: 0; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .navregion { grid-column: 1 / -1; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%; min-width: 0; }
+    #navbar .hdrscope { min-width: 0; max-width: 100%; min-height: 44px; padding: 4px 10px;
+      font-size: calc(12px * var(--s)); white-space: normal; overflow-wrap: anywhere;
+      border-color: var(--line); background: var(--card); }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     /* Beside the name, hard right. `margin-left: auto` rather than a fixed
        width, so a long region label ("Waikoloa / Big Island") grows leftwards
@@ -4042,17 +4033,13 @@
     }
     #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
     #regionChooserUnsupportedList li { margin-bottom: 8px; }
-    #easyCommonResults table { width: 100%; border-collapse: collapse; }
-    #easyCommonResults th, #easyCommonResults td { padding: 0; }
-    #easyCommonResults td { border-top: 1px solid var(--line); }
-    #easyCommonResults th:last-child, #easyCommonResults td:last-child { width: 1%; white-space: nowrap; }
-    #easyCommonResults th, #easyCommonResults td { overflow-wrap: anywhere; vertical-align: middle; }
-    #easyCommonResults .obs { margin: 0; }
-    #easyCommonResults .obs > li { padding: 0; border: 0; }
-    #easyCommonResults .obs .name { min-height: 0; }
-    #easyCommonResults .splink { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
-    #easyCommonMore, .stakeoutLoadMoreHistory, .stakeoutLoadHistory { min-height: 44px; min-width: 44px; }
+    #easyCommonResults .commonBirdNames { margin: 0; font-size: calc(17px * var(--s));
+      line-height: max(48px, 1.8em); }
+    #easyCommonResults .splink { display: inline; font-weight: 400;
+      padding: max(0px, calc((44px - 1em) / 2)) 0; }
+    #easyCommonMore, #easyPlaces, .stakeoutLoadMoreHistory, .stakeoutLoadHistory { min-height: 44px; min-width: 44px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
+    .regioncurrent:disabled, .regionchoice[aria-current="true"]:disabled { opacity: 1; }
     .quickregions { display: grid; grid-template-columns: minmax(0, 1fr);
       gap: 8px; padding: 8px 0; }
     .quickregions .regionchoice { width: 100%; max-width: 100%; min-width: 0;
@@ -4227,8 +4214,8 @@
     </button>
     <span id="navTitle"></span>
     <span class="navregion">
-      <span class="navregionicon" aria-hidden="true">&#127758;</span>
-      <button id="navRegion" class="secondary" type="button"
+      <button id="navPeriod" class="hdrscope" type="button" hidden></button>
+      <button id="navRegion" class="hdrscope" type="button"
               aria-label="Change report region"></button>
     </span>
   </div>
@@ -4287,16 +4274,7 @@
       <h3>Recent regions</h3>
       <div id="regionChooserRecent" class="regionchoices"></div>
     </section>
-    <section class="sheetsection">
-      <h3>County</h3>
-      <p id="regionChooserCountyCurrent" class="regioncurrent"></p>
-      <details id="regionChooserCountyList" class="regioncatalog">
-        <summary id="regionChooserCountyListLabel">All counties</summary>
-        <p id="countyLoadStatus" class="hint" role="status"></p>
-        <p class="menuidhint">Choose one county to narrow the listing area. Personal membership uses this exact county and selected time period. A bird recorded elsewhere in the state does not establish county membership.</p>
-        <div id="regionChooserCounties" class="regionchoices"></div>
-      </details>
-    </section>
+    <hr>
     <section class="sheetsection">
       <h3>Major Regions</h3>
       <div id="regionChooserBroader" class="regionchoices"></div>
@@ -4314,6 +4292,16 @@
         <p id="regionChooserCatalogHint" class="hint"></p>
         <p id="regionChooserScopeHint" class="menuidhint"></p>
         <div id="regionChooserAll" class="regionchoices"></div>
+      </details>
+    </section>
+    <section class="sheetsection">
+      <h3>County</h3>
+      <p id="regionChooserCountyCurrent" class="regioncurrent"></p>
+      <details id="regionChooserCountyList" class="regioncatalog">
+        <summary id="regionChooserCountyListLabel">All counties</summary>
+        <p id="countyLoadStatus" class="hint" role="status"></p>
+        <p class="menuidhint">Choose one county to narrow the listing area. Personal membership uses this exact county and selected time period. A bird recorded elsewhere in the state does not establish county membership.</p>
+        <div id="regionChooserCounties" class="regionchoices"></div>
       </details>
     </section>
     <p id="regionChooserSearchStatus" class="hint" role="status"></p>
@@ -4676,7 +4664,7 @@
         <label class="vh" for="rankScope">Which leaderboard</label>
         <select id="rankScope" hidden></select>
       </div>
-      <div id="rankStatus" class="status">Your standing plus the full Top 100 board for the region you’re birding, and how your rank has moved since you started tracking. Switch regions from the nav, or pick a county board here.</div>
+      <div id="rankStatus" class="status"></div>
       <div id="rankSummary"></div>
       <div id="rankResults"></div>
     </section>
@@ -4756,7 +4744,7 @@
       <h2>🎯 Target Birds <span class="dim" id="easyRegionLabel"></span></h2>
       <div class="row modeswitch" data-modes="anchor" data-current="anchor:home"></div>
       <div id="easyCommon">
-        <h3>Common birds in your area</h3>
+        <h3>Easy Targets</h3>
         <div id="easyCommonResults"><p class="hint">Load Target Birds to see the recent public-report sample.</p></div>
         <button id="easyCommonMore" class="secondary" type="button" aria-controls="easyCommonResults" hidden>Show more</button>
       </div>
@@ -5746,7 +5734,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.12.0';
+      var APP_VERSION = '2.12.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -9829,6 +9817,7 @@
         }
         progressEnd();
         fgClearStall();
+        if (visibleSectionId() === 'sec-easyBtn') reconcileEasyOpportunities();
       }
       // Tokens refill continuously. While any remain a call only pays the small
       // gap; once they are gone every call waits for the next drip, which is
@@ -12824,6 +12813,9 @@
           count: o.howMany, observer: o.userDisplayName || '',
           valid: o.obsValid == null ? null : !!o.obsValid,
           reviewed: o.obsReviewed == null ? null : !!o.obsReviewed,
+          county: o.subnational2Code || '',
+          state: o.subnational1Code || '',
+          country: o.countryCode || '',
           location_private: typeof o.locationPrivate === 'boolean' ? o.locationPrivate : null,
           __stateRba: true
         };
@@ -13287,6 +13279,42 @@
       }
 
       var _twitchRefreshGeneration = 0;
+      function twitchCountyCode() {
+        var region = activeScope().effectiveRegion;
+        return region === 'US-WA-061' || region === 'US-WA-033' ? region : '';
+      }
+      function twitchCountyRows(rows, region) {
+        return (rows || []).map(function (row) {
+          // A verified, scope-owned county alert is positive source assignment.
+          return row.__rbaRegion === region && !row.county && !row.subnational2Code && !row.subnational2
+            ? Object.assign({}, row, {county:region}) : row;
+        }).filter(function (row) {
+          return BL.regionMembership(row, region).state === 'inside'
+            && !(row.obsReviewed === true && row.obsValid === false)
+            && !(row.reviewed === true && row.valid === false);
+        });
+      }
+      function getTwitchRarity(force) {
+        var region = twitchCountyCode();
+        if (!region) return getChaseRarity(force);
+        var scope = activeScope(), credential = getKey(), started = Date.now();
+        var work = navWork('County Twitch rarity reports');
+        var path = 'data/obs/' + region + '/recent/notable?back=' + BL.CONST.FETCH_BACK
+          + '&detail=full&maxResults=10000';
+        return ebird(path, false, false, force, work).then(function (rows) {
+          if (!scopeCurrent(scope) || credential !== getKey() || !workCurrent(work)) {
+            throw queueCancelledError(work);
+          }
+          if (!Array.isArray(rows)) throw new Error('Invalid notable feed response');
+          var local = twitchCountyRows(rows, region);
+          var merged = BL.applyExclusions(BL.mergeSnapshot([
+            {kind:'notable', src:region, rows:local}
+          ]), chaseProfile());
+          BL.annotateDistance(merged, getHome());
+          return {cv:{merged:merged}, t:(_ebCache[path] || {}).t || started,
+            county:region, withheld:rows.length - local.length};
+        });
+      }
       function rarityRefreshState(button, pending) {
         button.disabled = !!pending;
         button.setAttribute('aria-busy', String(!!pending));
@@ -13332,11 +13360,11 @@
         var startingFilters = focusedPpte ? { year: 'all', distance: 'region' } : rarityFilters();
         var stateRba = !focusedPpte && startingFilters.distance === 'region'
           ? stateRbaRecords(force, function (message) { if (current()) st.textContent = message; },
-            null, fetchLatest ? false : undefined)
+            twitchCountyCode() || null, fetchLatest ? false : undefined, current)
           : Promise.resolve({ rows: [], complete: true });
         return Promise.all([
           focusedPpte ? Promise.resolve({ cv: { merged: [] }, t: Date.now() })
-            : getChaseRarity(force ? 'notable' : false),
+            : getTwitchRarity(force ? 'notable' : false),
           stateRba
         ]).then(function (loaded) {
           if (!current()) return false;
@@ -13350,6 +13378,9 @@
           var sourceRows = focusedPpte ? focusedPpte.event.evidenceRows : (c.cv && c.cv.merged) || [];
           if (filters.distance === 'region') {
             sourceRows = mergeRarityRecords(sourceRows, stateSource.rows || []);
+          }
+          if (!focusedPpte && twitchCountyCode()) {
+            sourceRows = twitchCountyRows(sourceRows, twitchCountyCode());
           }
           var statewideIncomplete = filters.distance === 'region' && !stateSource.complete;
           var days = stakeoutDays(sourceRows);
@@ -13424,8 +13455,11 @@
                 + (filters.year === 'unseen' ? 'unseen ' : 'total ') + 'farther out available' : '');
           }
           if (statewideIncomplete) {
-            summary += ' Statewide RBA check incomplete; showing available geographic and retained evidence.';
+            summary += twitchCountyCode()
+              ? ' County RBA check incomplete; showing verified selected-county evidence.'
+              : ' Statewide RBA check incomplete; showing available geographic and retained evidence.';
           }
+          if (twitchCountyCode()) summary += ' Unknown county membership withheld.';
           // A HEADER, then the prose. Asked for as "a bolder formatted header
           // carrying the COUNT and the LAST UPDATE TIME" - the two facts that
           // decide whether to read on were buried mid-sentence in a run-on
@@ -13646,7 +13680,8 @@
           }
           var tailRows = [];
           // F128 follow-up: where to go when the radius filtered something out.
-          var stLink = stateAlertLink((scopeAll[0] || all[0] || {}).county);
+          var stLink = twitchCountyCode() ? countyAlertLink({county:twitchCountyCode()})
+            : stateAlertLink((scopeAll[0] || all[0] || {}).county);
           if (filters.distance === 'near' && stLink) {
             tailRows.push('<li class="farhost"><div class="hint">Wider than your radius: '
               + stLink + '</div></li>');
@@ -17552,6 +17587,7 @@
 
       function renderSpeciesLookup() {
         var out = $('spLookupResults'), st = $('spLookupStatus'), g = _spLookupGroup;
+        if ($('spLookupMap')) $('spLookupMap').hidden = !_spLookupGrouped;
         if (!out || !g) return;
         if ($('spLookupRefresh')) $('spLookupRefresh').disabled = _spLookupLoading;
         var reading = captureStakeoutReading($('spLookupRecent'));
@@ -18214,6 +18250,145 @@
         if (/^\d{4}-\d{2}-\d{2}$/.test(date) && row.obsTime) date += ' ' + row.obsTime;
         return date;
       }
+      function acquireStakeoutHistory(locId, code, previous, more, work, current) {
+        var now = Date.now(), cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - SP_LOOKUP_BACK);
+        var result = Object.assign({
+          summaries:[], matches:[], visited:{}, failed:{}, days:[],
+          expanded:false, capped:false, dateCapped:false, dateReads:0,
+          sourceFailed:false, invalidSummaries:0, withheld:0
+        }, previous || {});
+        ['summaries','matches','days'].forEach(function (key) { result[key] = result[key].slice(); });
+        result.visited = Object.assign({}, result.visited);
+        result.failed = more === true ? {} : Object.assign({}, result.failed);
+        if (more === true) result.sourceFailed = false;
+        function recent(row) {
+          var date = BL.parseObsDt(stakeoutHistoryDate(row));
+          return !date || date.getTime() >= cutoff.getTime() && date.getTime() <= now;
+        }
+        function pending() {
+          return result.summaries.filter(function (row) {
+            return !result.visited[row.subId || row.subID] && recent(row);
+          });
+        }
+        function merge(rows) {
+          if (!Array.isArray(rows)) throw new Error('Checklist summaries are unavailable.');
+          var ids = Object.create(null);
+          result.summaries = result.summaries.concat(rows).filter(function (row) {
+            var sub = row && (row.subId || row.subID);
+            if (!sub) { result.invalidSummaries++; return false; }
+            if (ids[sub]) return false;
+            ids[sub] = true;
+            return true;
+          });
+        }
+        function source(path, accept) {
+          return ebird(path, true, false, false, work).then(function (rows) {
+            if (!current()) throw queueCancelledError(work);
+            if (!Array.isArray(rows)) throw new Error('Checklist summaries are unavailable.');
+            merge(rows);
+            accept(rows);
+          }).catch(function (error) {
+            if (!current() || error && error.queueCancelled) throw error;
+            result.sourceFailed = true;
+          });
+        }
+        var acquire = Promise.resolve();
+        if (!previous || more && !result.expanded) {
+          var maximum = more ? STAKEOUT_HISTORY_MAX : 12;
+          acquire = source('product/lists/' + encodeURIComponent(locId)
+            + '?maxResults=' + maximum, function (rows) {
+              result.expanded = !!more || rows.length < maximum;
+              result.capped = result.expanded && rows.length >= STAKEOUT_HISTORY_MAX;
+              if (result.capped && !result.days.length && !result.dateReads) {
+                for (var day = new Date(now); day >= new Date(cutoff.getFullYear(),
+                    cutoff.getMonth(), cutoff.getDate()); day.setDate(day.getDate() - 1)) {
+                  result.days.push([day.getFullYear(), day.getMonth() + 1, day.getDate()].join('/'));
+                }
+              }
+            });
+        }
+        return acquire.then(function () {
+          if (!current()) throw queueCancelledError(work);
+          var available = pending().filter(function (row) { return !result.failed[row.subId || row.subID]; });
+          if (!available.length && result.days.length && !result.sourceFailed) {
+            return source('product/lists/' + encodeURIComponent(locId) + '/' + result.days[0]
+              + '?maxResults=' + STAKEOUT_HISTORY_MAX + '&sortKey=obs_dt', function (rows) {
+                result.days.shift();
+                result.dateReads++;
+                if (rows.length >= STAKEOUT_HISTORY_MAX) result.dateCapped = true;
+              });
+          }
+        }).then(function () {
+          var rows = pending().filter(function (row) { return !result.failed[row.subId || row.subID]; })
+            .slice(0, more ? STAKEOUT_HISTORY_BATCH : STAKEOUT_HISTORY_SCAN);
+          return pool(rows, 3, function (row) {
+            if (!current()) throw queueCancelledError(work);
+            var sub = row.subId || row.subID;
+            return checklistView(sub, true, work).then(function (detail) {
+              if (!current()) throw queueCancelledError(work);
+              if (!detail || !Array.isArray(detail.obs)) throw new Error('Checklist could not be read.');
+              var stamp = stakeoutHistoryDate(detail), summaryStamp = stakeoutHistoryDate(row);
+              if (!stamp || /^\d{4}-\d{2}-\d{2}$/.test(stamp)
+                  && summaryStamp.indexOf(stamp) === 0) stamp = summaryStamp || stamp;
+              var date = BL.parseObsDt(stamp);
+              var location = detail.locId || detail.loc && detail.loc.locId || '';
+              if (!date || !location) throw new Error('Checklist date or location could not be verified.');
+              result.visited[sub] = true;
+              delete result.failed[sub];
+              if (location !== locId || date.getTime() < cutoff.getTime() || date.getTime() > now
+                  || detail.locationPrivate || detail.location_private || detail.obsSensitive
+                  || detail.obsReviewed === true && detail.obsValid === false) {
+                result.withheld++;
+                return;
+              }
+              var observation = detail.obs.filter(function (ob) {
+                return ob && ob.speciesCode === code && !ob.obsSensitive
+                  && !ob.locationPrivate && !ob.location_private
+                  && !(ob.obsReviewed === true && ob.obsValid === false)
+                  && (!ob.locId || ob.locId === locId);
+              })[0];
+              if (!observation) return;
+              if (!result.matches.some(function (match) { return match.subId === sub; })) {
+                result.matches.push({subId:sub,locId:locId,obsDt:stamp,
+                  userDisplayName:detail.userDisplayName || row.userDisplayName || '',
+                  groupId:detail.groupId || '',durationHrs:detail.durationHrs,
+                  numSpecies:detail.numSpecies != null ? detail.numSpecies : row.numSpecies,
+                  ob:observation});
+              }
+            }).catch(function (error) {
+              if (!current() || error && error.queueCancelled) throw error;
+              result.failed[sub] = true;
+            });
+          });
+        }).then(function () {
+          if (!current()) throw queueCancelledError(work);
+          result.checked = Object.keys(result.visited).length;
+          result.remaining = pending().length;
+          result.failures = Object.keys(result.failed).length + (result.sourceFailed ? 1 : 0);
+          result.autoAvailable = pending().some(function (row) {
+            return !result.failed[row.subId || row.subID];
+          }) || !result.sourceFailed && (!result.expanded || !!result.days.length);
+          result.moreAvailable = result.autoAvailable || !!result.failures;
+          return result;
+        });
+      }
+      function stakeoutHistoryEvidence(matches, place, bird) {
+        return speciesLookupRecords((matches || []).map(function (match) {
+          return Object.assign({}, match.ob, match, {
+            speciesCode:bird.code,comName:bird.name,locName:place.loc || place.locName || '',
+            locId:place.locId,lat:place.lat,lng:place.lon != null ? place.lon : place.lng,
+            locationPrivate:false
+          });
+        }), []).map(function (row) {
+          row.distMi = place.distMi;
+          row.sourcePlace = {loc:place.loc || place.locName || '',locId:place.locId,
+            lat:place.lat,lon:place.lon != null ? place.lon : place.lng,
+            distMi:place.distMi,sub2:place.sub2,
+            locationPrivate:false,location_private:false};
+          return row;
+        });
+      }
       function loadStakeoutPlaceHistory(slot, bird, more) {
         if (!slot || slot.getAttribute('data-loading') || !more && slot.getAttribute('data-done')) {
           return Promise.resolve();
@@ -18221,25 +18396,19 @@
         var locId = slot.getAttribute('data-loc') || '';
         var code = slot.getAttribute('data-code') || (bird && bird.code) || '';
         if (!locId || !code) return Promise.resolve();
-        var generation = _spLookupGeneration, report = getReportSlug();
+        var generation = _spLookupGeneration, report = getReportSlug(), credential = getKey();
         var work = navWork('Stakeout older checklists');
+        var owner = [generation, _navGeneration, _workCancelGeneration].join(':');
         function current() {
           return slot.isConnected && generation === _spLookupGeneration
-            && report === getReportSlug() && work.navGeneration === _navGeneration
+            && report === getReportSlug() && credential === getKey() && work.navGeneration === _navGeneration
             && work.cancelGeneration === _workCancelGeneration;
         }
         work.current = current;
         var cacheKey = report + ':' + code + ':' + locId;
         var cached = _stakeoutHistoryCache[cacheKey];
-        var fresh = cached && Date.now() - cached.at < EB_CACHE_MS;
+        var fresh = cached && cached.credential === credential && Date.now() - cached.at < EB_CACHE_MS;
         var previous = fresh && cached.result;
-        var cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - SP_LOOKUP_BACK);
-        var cutoffTime = cutoff.getTime();
-        function recent(row) {
-          var date = BL.parseObsDt(stakeoutHistoryDate(row));
-          return !date || date.getTime() >= cutoffTime;
-        }
         function ownsFocus() {
           // Disabling a focused button can move native browser focus to the body.
           return slot.contains(document.activeElement)
@@ -18247,6 +18416,7 @@
               && (document.activeElement === document.body || document.activeElement === document.documentElement);
         }
         slot.setAttribute('data-loading', '1');
+        slot.setAttribute('data-history-owner', owner);
         if (slot.contains(document.activeElement)) slot.setAttribute('data-restore-focus', '1');
         var loadingRoot = $('spLookupRecent'), loadingReading = captureStakeoutReading(loadingRoot);
         var status = slot.querySelector('.stakeoutHistoryStatus');
@@ -18255,80 +18425,13 @@
         restoreStakeoutReading(loadingRoot, loadingReading);
         var acquisition = fresh && !more
           ? Promise.resolve(cached.result)
-          : (more && previous && previous.expanded
-              ? Promise.resolve(previous.summaries)
-              : ebird('product/lists/' + encodeURIComponent(locId) + '?maxResults='
-                  + (more ? STAKEOUT_HISTORY_MAX : 12), true, false, false, work))
-          .then(function (rows) {
-            if (!current()) throw queueCancelledError(work);
-            if (!Array.isArray(rows)) throw new Error('Checklist summaries are unavailable.');
-            var capped = more && (rows.length >= STAKEOUT_HISTORY_MAX || previous && previous.capped);
-            var ids = {};
-            var summaries = rows.slice(0, more ? STAKEOUT_HISTORY_MAX : 12).filter(function (row) {
-              var sub = row.subId || row.subID || '';
-              if (sub && ids[sub]) return false;
-              if (sub) ids[sub] = true;
-              return true;
-            });
-            var visited = Object.assign({}, more && previous && previous.visited || {});
-            var matches = more && previous ? (previous.matches || []).slice() : [];
-            var pending = summaries.filter(function (row) {
-              return !visited[row.subId || row.subID || ''] && (!more || recent(row));
-            });
-            rows = more ? pending.slice(0, STAKEOUT_HISTORY_BATCH)
-              : summaries.slice(0, STAKEOUT_HISTORY_SCAN);
-            var failure = null;
-            return pool(rows, 3, function (row) {
-              if (!current()) throw queueCancelledError(work);
-              var sub = row.subId || row.subID || '';
-              if (!sub) { failure = new Error('Checklist summary has no identity.'); return; }
-              return checklistView(sub, true, work).then(function (d) {
-                if (!current()) throw queueCancelledError(work);
-                if (!d || !Array.isArray(d.obs)) throw new Error('Checklist could not be read.');
-                var observedAt = stakeoutHistoryDate(d), summaryDate = stakeoutHistoryDate(row);
-                if (!observedAt || /^\d{4}-\d{2}-\d{2}$/.test(observedAt)
-                    && summaryDate.indexOf(observedAt) === 0) observedAt = summaryDate || observedAt;
-                var observedDate = BL.parseObsDt(observedAt);
-                if (more && !observedDate) {
-                  throw new Error('Checklist date could not be verified.');
-                }
-                visited[sub] = true;
-                var detailLoc = d.locId || d.loc && d.loc.locId || '';
-                if (more && (observedDate.getTime() < cutoffTime
-                    || detailLoc && detailLoc !== locId
-                    || d.locationPrivate || d.location_private || d.obsSensitive)) return;
-                var ob = ((d && d.obs) || []).filter(function (x) {
-                  return x && x.speciesCode === code;
-                })[0];
-                if (!ob || more && (ob.obsSensitive || ob.locationPrivate || ob.location_private)) return;
-                matches.push({
-                  subId: sub,
-                  locId: d.locId || d.loc && d.loc.locId || row.locId,
-                  obsDt: observedAt,
-                  userDisplayName: (d && d.userDisplayName) || row.userDisplayName || '',
-                  groupId: (d && d.groupId) || '',
-                  durationHrs: d && d.durationHrs,
-                  numSpecies: d.numSpecies != null ? d.numSpecies : row.numSpecies,
-                  ob: ob
-                });
-              }).catch(function (error) { failure = error; });
-            }).then(function () {
-              if (failure) throw failure;
-              if (!current()) throw queueCancelledError(work);
-              var remaining = summaries.filter(function (row) {
-                return !visited[row.subId || row.subID || ''] && recent(row);
-              }).length;
-              return { checked: Object.keys(visited).length, matches: matches,
-                visited: visited, summaries: summaries, expanded: !!more,
-                moreAvailable: !!remaining || !more && summaries.length >= 12,
-                capped: !!capped };
-            });
-          });
+          : acquireStakeoutHistory(locId, code, previous, more, work, current);
         return acquisition.then(function (result) {
             if (!current()) return;
             var readingRoot = $('spLookupRecent'), reading = captureStakeoutReading(readingRoot);
             var hadFocus = ownsFocus();
-            _stakeoutHistoryCache[cacheKey] = { at: Date.now(), result: result };
+            _stakeoutHistoryCache[cacheKey] = { at:fresh && !more ? cached.at : Date.now(),
+              credential:credential,result:result };
             var seen = {}, allMatches = (result.matches || []).filter(function (r) {
               if (!r.subId || seen[r.subId]) return false;
               seen[r.subId] = 1; return true;
@@ -18341,6 +18444,27 @@
               lat: parseFloat(slot.getAttribute('data-lat')),
               lon: parseFloat(slot.getAttribute('data-lng'))
             };
+            var ownedPlace = bird && (bird.places || []).filter(function (candidate) {
+              return candidate.locId === locId;
+            })[0];
+            if (ownedPlace) {
+              var byChecklist = Object.create(null);
+              (ownedPlace.checklists || []).concat(stakeoutHistoryEvidence(allMatches, ownedPlace, bird))
+                .forEach(function (row) { if (row.subId) byChecklist[row.subId] = row; });
+              ownedPlace.checklists = Object.keys(byChecklist).map(function (sub) { return byChecklist[sub]; })
+                .sort(function (a,b) { return String(b.dateStr).localeCompare(String(a.dateStr)); });
+              ownedPlace.nReports = ownedPlace.checklists.length;
+              if (ownedPlace.checklists[0]
+                  && ownedPlace.checklists[0].dateStr > ownedPlace.dateStr) {
+                ownedPlace.dateStr = ownedPlace.checklists[0].dateStr;
+                ownedPlace.subId = ownedPlace.checklists[0].subId;
+              }
+              var groupIds = Object.create(null);
+              (bird.places || []).forEach(function (candidate) {
+                (candidate.checklists || []).forEach(function (row) { if (row.subId) groupIds[row.subId] = true; });
+              });
+              bird.nReports = Object.keys(groupIds).length;
+            }
             var list = slot.closest('.stakeoutPlaceDetails');
             list = list && list.querySelector('.stakeoutPlaceChecklists');
             if (list) {
@@ -18374,14 +18498,20 @@
             slot.innerHTML = '<div class="stakeoutHistoryStatus" role="status">'
               + (added || 0) + ' matching report' + (added === 1 ? '' : 's') + ' added to this list'
               + ' · checked ' + result.checked + ' recent checklist'
-              + (result.checked === 1 ? '' : 's') + ' (up to '
-              + STAKEOUT_HISTORY_SCAN + ' automatically; ' + STAKEOUT_HISTORY_BATCH + ' per action).'
-              + (result.expanded ? ' Older search: last ' + SP_LOOKUP_BACK + ' days.' : '')
-              + (result.moreAvailable ? ' More candidate checklists remain unchecked.'
+              + (result.checked === 1 ? '' : 's') + ' (first '
+              + STAKEOUT_HISTORY_SCAN + ', then ' + STAKEOUT_HISTORY_BATCH + ' per progressive batch).'
+              + ' Selected window: last ' + SP_LOOKUP_BACK + ' days.'
+              + (result.moreAvailable ? ' More candidate checklists or source dates remain unchecked.'
                 : ' No unchecked recent candidates in the returned summaries.')
-              + (result.capped ? ' Source summary limit reached; coverage may be incomplete.' : '')
+              + (result.capped ? ' Recent summary limit reached; ' + result.dateReads
+                + ' dated sources checked, ' + result.days.length + ' pending.' : '')
+              + (result.dateCapped ? ' A dated source also reached its limit; coverage remains incomplete.' : '')
+              + (result.failures ? ' ' + result.failures + ' candidate/source reads unavailable; retry is available.' : '')
+              + (result.withheld || result.invalidSummaries ? ' Some candidates were withheld or could not be verified.' : '')
+              + ' Returned sources do not establish a complete census.'
               + '</div>' + (result.moreAvailable
-                ? '<button type="button" class="secondary stakeoutLoadMoreHistory">Find more reports</button>' : '');
+                ? '<button type="button" class="secondary stakeoutLoadMoreHistory">'
+                  + (result.failures ? 'Retry unavailable reports' : 'Find more reports') + '</button>' : '');
             slot.setAttribute('data-done', '1');
             slot.removeAttribute('data-loading');
             var next = slot.querySelector('.stakeoutLoadMoreHistory');
@@ -18397,6 +18527,9 @@
             slot.removeAttribute('data-restore-focus');
             restoreStakeoutReading(readingRoot, reading);
             hydrateStakeoutChecklistFacts(slot);
+            if (result.autoAvailable && (!slot.hasAttribute('data-manual-only') || more)) {
+              setTimeout(function () { if (current()) queueStakeoutHistory(slot, bird, 'auto'); }, 0);
+            }
             return Promise.all(refreshed || []);
           })
           .catch(function (error) {
@@ -18424,27 +18557,38 @@
         slot.setAttribute('data-queued', '1');
         if (slot.contains(document.activeElement)) slot.setAttribute('data-restore-focus', '1');
         [].forEach.call(slot.querySelectorAll('button'), function (button) { button.disabled = true; });
-        var generation = _spLookupGeneration, nav = _navGeneration;
-        var owner = generation + ':' + nav;
+        var generation = _spLookupGeneration, nav = _navGeneration, cancel = _workCancelGeneration;
+        var owner = [generation,nav,cancel].join(':');
+        slot.setAttribute('data-history-owner', owner);
         if (owner !== _stakeoutHistoryOwner) {
           _stakeoutHistoryOwner = owner;
           _stakeoutHistoryTail = Promise.resolve();
         }
         _stakeoutHistoryTail = _stakeoutHistoryTail.then(function () {
+          if (slot.getAttribute('data-history-owner') !== owner) return;
           slot.removeAttribute('data-queued');
-          if (!slot.isConnected || generation !== _spLookupGeneration || nav !== _navGeneration) return;
+          if (!slot.isConnected || generation !== _spLookupGeneration
+              || nav !== _navGeneration || cancel !== _workCancelGeneration) return;
           return loadStakeoutPlaceHistory(slot, bird, more);
         });
         return _stakeoutHistoryTail;
       }
       function hydrateStakeoutPlaceHistories(root, bird, keepRows) {
         if (!root || !speciesLookupDetails()) return Promise.resolve();
+        var owner = [_spLookupGeneration,_navGeneration,_workCancelGeneration].join(':');
+        [].forEach.call(root.querySelectorAll('.stakeoutPlaceHistory[data-history-owner]'), function (slot) {
+          if (slot.getAttribute('data-history-owner') === owner) return;
+          ['data-loading','data-queued','data-done'].forEach(function (name) { slot.removeAttribute(name); });
+          [].forEach.call(slot.querySelectorAll('button'), function (button) { button.disabled = false; });
+        });
         if (!keepRows) [].forEach.call(root.querySelectorAll('.stakeoutPlaceChecklists'),
           limitStakeoutChecklistRows);
         [].forEach.call(root.querySelectorAll('.stakeoutPlaceHistory[data-done]'), function (slot) {
           var cached = _stakeoutHistoryCache[getReportSlug() + ':'
             + slot.getAttribute('data-code') + ':' + slot.getAttribute('data-loc')];
-          if (!cached || Date.now() - cached.at >= EB_CACHE_MS) slot.removeAttribute('data-done');
+          if (!cached || cached.credential !== getKey() || Date.now() - cached.at >= EB_CACHE_MS) {
+            slot.removeAttribute('data-done');
+          }
         });
         var slots = [].slice.call(root.querySelectorAll(
           '.stakeoutPlaceHistory[data-loc]:not([data-done]):not([data-loading])'));
@@ -18453,7 +18597,7 @@
           if (slot.getAttribute('data-manual-only')) {
             var result = _stakeoutHistoryCache[getReportSlug() + ':'
               + slot.getAttribute('data-code') + ':' + slot.getAttribute('data-loc')];
-            if (result && Date.now() - result.at < EB_CACHE_MS) {
+            if (result && result.credential === getKey() && Date.now() - result.at < EB_CACHE_MS) {
               queueStakeoutHistory(slot, bird);
               return;
             }
@@ -27104,18 +27248,79 @@
           return String(a.loc || a.locName || '').length - String(b.loc || b.locName || '').length;
         }).pop() || fallback;
       }
+      function stakeoutVenueKey(record) {
+        var name = String(record.loc || record.locName || '').toLowerCase().trim();
+        if (/^marymoor\b/.test(name)) return 'marymoor park';
+        if (/^(?:leque(?:ue)?\b|eide\s+(?:road|rd)\b)/.test(name)) return 'leque island/eide road';
+        if (/^(?:union bay\b|montlake fill\b)/.test(name)) return 'union bay/montlake fill';
+        var base = name.split(/\s*(?:--|\u2013|\u2014)\s*/)[0].trim();
+        return /\b(?:park|refuge|reserve|natural area|arboretum|wetlands?)\b/.test(base)
+          ? base : name;
+      }
+      function stakeoutLocalGroups(records) {
+        var groups = [], satellites = [], unattached = [];
+        function nearby(a, b) {
+          return rarityCoordinates(a) && rarityCoordinates(b)
+            && haversineMi(+a.lat, +(a.lon != null ? a.lon : a.lng),
+              +b.lat, +(b.lon != null ? b.lon : b.lng)) < RARITY_LOCAL_GROUP_MI;
+        }
+        (records || []).forEach(function (record) {
+          if (record.location_private || record.locationPrivate) {
+            satellites.push(record);
+            return;
+          }
+          var group = groups.filter(function (candidate) {
+            return candidate.some(function (anchor) {
+              return record.locId && record.locId === anchor.locId
+                || stakeoutVenueKey(record) && stakeoutVenueKey(record) === stakeoutVenueKey(anchor)
+                  && nearby(record, anchor);
+            });
+          })[0];
+          if (group) group.push(record);
+          else groups.push([record]);
+        });
+        satellites.forEach(function (record) {
+          var attached = false;
+          groups.forEach(function (group) {
+            if (group.some(function (anchor) {
+              return !(anchor.location_private || anchor.locationPrivate) && nearby(record, anchor);
+            })) {
+              group.push(record);
+              attached = true;
+            }
+          });
+          if (!attached) unattached.push(record);
+        });
+        return groups.concat(rarityLocalGroups(unattached));
+      }
       function buildStakeoutGroup(records) {
         if (!records || !records.length) return null;
+        var cachedPlaces = Object.create(null), recovered = [];
+        records.forEach(function (record) {
+          if (!record.locId || record.location_private || record.locationPrivate || cachedPlaces[record.locId]) return;
+          cachedPlaces[record.locId] = true;
+          var cached = _stakeoutHistoryCache[getReportSlug() + ':' + record.code + ':' + record.locId];
+          if (cached && cached.credential === getKey() && Date.now() - cached.at < EB_CACHE_MS) {
+            recovered = recovered.concat(stakeoutHistoryEvidence(cached.result.matches, record, record));
+          }
+        });
+        records = records.concat(recovered);
         var ordered = records.slice().sort(function (a, b) {
           return [a.locId, a.loc, a.lat, a.lon, a.subId].join('|')
             .localeCompare([b.locId, b.loc, b.lat, b.lon, b.subId].join('|'));
         });
-        var places = rarityLocalGroups(ordered).map(function (rs) {
-          var closest = rs.slice().sort(function (a, b) {
+        var places = stakeoutLocalGroups(ordered).map(function (rs) {
+          var anchors = rs.filter(function (r) { return !(r.location_private || r.locationPrivate); });
+          var closest = (anchors.length ? anchors : rs).slice().sort(function (a, b) {
             return (a.distMi == null ? Infinity : a.distMi) - (b.distMi == null ? Infinity : b.distMi);
           })[0];
           var rep = rarityLocalPlace(rs, closest);
-          var checklistRows = rs.filter(function (r) { return !!r.subId; });
+          var checklistIds = Object.create(null);
+          var checklistRows = rs.filter(function (r) {
+            if (!r.subId || checklistIds[r.subId]) return false;
+            checklistIds[r.subId] = true;
+            return true;
+          });
           if (!checklistRows.length) checklistRows = [rep];
           var cks = checklistRows.map(function (r) {
             return Object.assign({}, r, { sourcePlace: Object.assign({}, r, {
@@ -27133,8 +27338,12 @@
           });
         });
         places.sort(function (a, b) { return a.localityKey.localeCompare(b.localityKey); });
+        var reportIds = Object.create(null);
+        ordered.forEach(function (row, index) {
+          reportIds[row.subId || [row.locId,row.dateStr,index].join('|')] = true;
+        });
         return { code: ordered[0].code, name: ordered[0].name, places: places,
-          nPlaces: places.length, nReports: ordered.length,
+          nPlaces: places.length, nReports: Object.keys(reportIds).length,
           anyUnconfirmed: ordered.some(function (r) { return r.valid === false; }),
           distMi: places.reduce(function (best, p) {
             return p.distMi != null && (best == null || p.distMi < best) ? p.distMi : best;
@@ -27211,7 +27420,7 @@
         }, 8000);
         var snap = null, days = {};
         var force = takeForce() || fetchLatest;
-        return getChaseRarity(force ? 'notable' : false).then(function (c) {
+        return getTwitchRarity(force ? 'notable' : false).then(function (c) {
           if (!current()) return null;
           // The snapshot's own timestamp, kept so the status line can say when
           // the DATA was read rather than when the page was painted.
@@ -35794,8 +36003,8 @@
         {
           var nearby = document.createElement('div');
           nearby.className = 'ranknearby';
-          nearby.innerHTML = rankNearbyHTML(pair.boards.spp, region, period, name,
-            pair.stale && pair.stale.spp);
+          nearby.innerHTML = rankNearbyHTML(selected, region, period, name,
+            pair.stale && pair.stale[_rankMetric], _rankMetric);
           $('rankSummary').append(nearby);
           var verify = nearby.querySelector('[data-rank-verify], [data-rank-account]');
           if (verify) verify.addEventListener('click', function () {
@@ -35975,18 +36184,22 @@
           });
       }
 
-      function rankNearbyHTML(data, region, period, name, stale) {
+      function rankNearbyHTML(data, region, period, name, stale, metric) {
+        metric = metric === 'cl' ? 'cl' : 'spp';
+        var field = metric === 'cl' ? 'checklists' : 'species';
+        var metricLabel = metric === 'cl' ? 'Checklists' : 'Species';
+        setSectionNote($('sec-rankBtn'), '', false);
         var unavailable = '<p class="hint">Nearby competitors unavailable: ';
-        if (!rankSourceMatches(data, region, period, 'spp')
+        if (!rankSourceMatches(data, region, period, metric)
             || (data.profile != null && data.profile !== bcProfile())
             || (data.ownerRevision != null && data.ownerRevision !== identityRevision())) {
-          return unavailable + 'no verified Species board for this account, region and period.</p>';
+          return unavailable + 'no verified ' + metricLabel + ' board for this account, region and period.</p>';
         }
         var rows = data.rows || [], meta = getIdentityMeta();
         if (rows.some(function (row) {
           return !row || !Number.isInteger(row.rank) || row.rank < 1
-            || !Number.isInteger(row.species) || row.species < 0;
-        })) return unavailable + 'the returned ranks or species totals are invalid.</p>';
+            || !Number.isInteger(row[field]) || row[field] < 0;
+        })) return unavailable + 'the returned ranks or ' + field + ' totals are invalid.</p>';
         var profile = meta && meta.profileId;
         var me = profile && rows.find(function (row) { return row.profileId === profile; });
         var prefix = data.ownerMatch === 'session-prefix-name' && data.sessionUser
@@ -35995,18 +36208,18 @@
           ? data.sessionUser : null;
         if (prefix) {
           me = rows.find(function (row) {
-            return row.rank === prefix.rank && row.species === prefix.species
+            return row.rank === prefix.rank && row[field] === prefix[field]
               && String(row.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
                 === String(prefix.name).replace(/\s+/g, ' ').trim().toLowerCase();
           }) || null;
         }
         var own = prefix || me || (profile && data.me && data.me.profileId === profile ? data.me : null);
-        var coverage = '<p class="hint">' + esc(rankRegionName(region)) + ' · Species · '
+        var coverage = '<p class="hint">' + esc(rankRegionName(region)) + ' · ' + metricLabel + ' · '
           + esc(period) + ' · ' + rows.length + ' rows returned'
           + (data.readAt ? ' · read ' + esc(data.readAt) : ' · read time unavailable')
           + (stale ? ' · STALE — refresh failed' : '')
           + (prefix ? ' · Session user matched by display name' : '') + '</p>';
-        if (!own || !Number.isInteger(own.species) || own.species < 0
+        if (!own || !Number.isInteger(own[field]) || own[field] < 0
             || !Number.isInteger(own.rank) || own.rank < 1) {
           var verified = profile && meta.source === 'ebird-bird-list';
           return coverage + unavailable + (verified
@@ -36033,15 +36246,17 @@
           rankCounts[row.rank] = (rankCounts[row.rank] || 0) + 1;
         });
         function transitionIsComplete(previous, row) {
-          if (row.rank === previous.rank) return row.species === previous.species;
+          if (row.rank === previous.rank) return row[field] === previous[field];
           return row.rank === previous.rank + rankCounts[previous.rank]
-            && row.species < previous.species;
+            && row[field] < previous[field];
         }
         var contiguous = windowRows.every(function (row, i) {
           if (!i) return true;
           return transitionIsComplete(windowRows[i - 1], row);
         });
-        var climb = BL.rankClimbGoals(rows, own);
+        var climb = BL.rankClimbGoals(rows.map(function (row) {
+          return { rank: row.rank, species: row[field] };
+        }), { rank: own.rank, species: own[field] });
         var nextGoal = climb.stops.filter(function (stop) { return stop.cost > 0; })
           .sort(function (a, b) { return a.cost - b.cost; })[0];
         var represented = {};
@@ -36050,7 +36265,7 @@
           var atCutoff = rows[cutoff - 1];
           return stop.rank < cutoff && cutoff < stop.rank + rankCounts[stop.rank]
             && (stop.known || climb.localAvailable && atCutoff
-              && atCutoff.rank === stop.rank && atCutoff.species === stop.total);
+              && atCutoff.rank === stop.rank && atCutoff[field] === stop.total);
         }
         [1, 2, 3, 10, 100, 500, 1000, 2000, 3000, 5000].forEach(function (cutoff) {
           if (own.rank <= cutoff) return;
@@ -36110,13 +36325,15 @@
             + (cutoff >= 1000 ? '18' : '20') + 'px;font-family:Arial,Helvetica,sans-serif;font-weight:800;letter-spacing:normal">'
             + esc(rankNum(cutoff)) + '</text></svg>';
         }
-        var html = coverage + '<section class="rankclimb" aria-label="Species rank-climb goals">'
-          + '<h3>Your ladder</h3>'
-          + (nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next verified score goal' : 'Next step')
-            + ':</strong> +' + esc(rankNum(nextGoal.cost)) + ' species to '
+        setSectionNote($('sec-rankBtn'),
+          nextGoal ? '<p class="rankclimb-next"><strong>' + (nextGoal.known ? 'Next verified score goal' : 'Next step')
+            + ':</strong> +' + esc(rankNum(nextGoal.cost)) + ' ' + field + ' to '
             + (nextGoal.win ? 'exceed the leading score' : 'tie the ' + esc(rankNum(nextGoal.total))
-              + '-species group at #' + esc(rankNum(nextGoal.rank)))
-            + ' in this snapshot. This is a score goal, not a promise of attainable birds or a future rank.</p>' : '')
+              + (metric === 'cl' ? '-checklist' : '-species') + ' group at #' + esc(rankNum(nextGoal.rank)))
+            + ' in this snapshot. This is a score goal, not a promise of attainable '
+            + (metric === 'cl' ? 'checklists' : 'birds') + ' or a future rank.</p>' : '', false);
+        var html = coverage + '<section class="rankclimb" aria-label="' + metricLabel + ' rank-climb goals">'
+          + '<h3>Your ladder</h3>'
           + '<ol class="rankclimb-route" aria-label="Rank milestones, highest first">'
           + displayStops.map(function (stop, i) {
             var badgeMilestone = stop.milestone;
@@ -36130,7 +36347,7 @@
               + '<span class="rankclimb-number">' + (stop.rank === null ? '—' : '#' + esc(rankNum(stop.rank))) + '</span></span><div class="rankclimb-detail">'
               + '<span class="rankclimb-cost">'
               + (stop.current ? 'You are here' : stop.unavailable ? (badgeMilestone <= 3 ? 'Score unknown' : 'Score not loaded')
-                : '+' + esc(rankNum(stop.cost)) + ' species') + '</span></div></div>'
+                : '+' + esc(rankNum(stop.cost)) + ' ' + field) + '</span></div></div>'
               + (i < displayStops.length - 1 ? '<div class="rankclimb-arrow" aria-hidden="true">'
                 + '<svg viewBox="0 0 24 28" preserveAspectRatio="none"><path d="M12 1L1 12H8V27H16V12H23Z" fill="currentColor"/></svg></div>' : '')
               + '</li>';
@@ -36143,14 +36360,14 @@
           + 'there are gaps around your row in returned coverage. Open the board in eBird.</p>';
         html += '<h3 class="ranknearby-title">Birders around you</h3><table aria-label="Five birders above and below you"><thead><tr>'
           + '<th scope="col">Rank</th><th scope="col">Birder</th>'
-          + '<th scope="col" class="ranknumber">Species</th><th scope="col" class="ranknumber">Gap</th>'
+          + '<th scope="col" class="ranknumber">' + metricLabel + '</th><th scope="col" class="ranknumber">Gap</th>'
           + '</tr></thead><tbody>' + windowRows.map(function (row) {
-            var mine = row === me, gap = row.species - own.species;
+            var mine = row === me, gap = row[field] - own[field];
             return '<tr' + (mine ? ' aria-current="true"' : '') + '><td>#' + esc(rankNum(row.rank))
               + '</td><td>' + (mine ? 'You' : extA(rankProfileUrl(row),row.name)) + '</td><td class="ranknumber">'
-              + esc(row.species) + '</td><td class="ranknumber">'
+              + esc(row[field]) + '</td><td class="ranknumber">'
               + (mine ? '—' : gap > 0 ? '+' + gap : String(gap)) + '</td></tr>';
-          }).join('') + '</tbody></table><p class="hint">Gap = their species minus yours. '
+          }).join('') + '</tbody></table><p class="hint">Gap = their ' + field + ' minus yours. '
           + 'Snapshot targets assume unchanged totals; they do not guarantee future ranks.'
           + (index < 5 ? ' Fewer than five higher rows are available.' : '')
           + (index + 5 >= rows.length ? ' Lower neighbors may be truncated by returned coverage; '
@@ -41293,22 +41510,16 @@
         var parents = _taxonomyModel && _taxonomyModel.parents || easySeedParentOf();
         var rows = gbifScanOrder(computeEasyMisses(easyPublicObservations(
           state.rows, state.hotspots, state.scope, state.anchor, state.radius),
-          EASY_OPPORTUNITY_DAYS, parents, true), state.rows.length);
+          EASY_OPPORTUNITY_DAYS, parents), state.rows.length);
         var host = $('easyCommonResults'), more = $('easyCommonMore');
-        host.innerHTML = '<p class="hint">Ranked by distinct public hotspot-days in the last '
-          + EASY_OPPORTUNITY_DAYS + ' days within ' + state.radius
-          + ' straight-line miles. Representative reports, not a complete survey.'
-          + (state.failures ? ' Some discovery requests are unavailable.' : '')
-          + (state.capped ? ' Source response limit reached.' : '') + '</p>'
-          + (rows.length ? '<table><thead><tr><th scope="col">Bird</th>'
-            + '<th scope="col" title="Distinct public hotspot and observation-date combinations">Score</th>'
-            + '</tr></thead><tbody>' + rows.slice(0, _easyCommonVisible).map(function (row) {
-              return '<tr data-common-code="' + esc(row.code) + '"><td>'
-                + '<ul class="obs card-sm">' + SpeciesCards.small({
-                  name: stakeSpeciesLink(row.name, row.code, '', true)
-                }) + '</ul></td><td>' + row.siteDays + '</td></tr>';
-            }).join('') + '</tbody></table>'
-            : '<p class="hint">No eligible species reports in this sample. Commonness is not established.</p>');
+        host.innerHTML = rows.length ? '<p class="commonBirdNames">'
+            + rows.slice(0, _easyCommonVisible).map(function (row, index) {
+              return '<span data-common-code="' + esc(row.code)
+                + '" data-site-days="' + row.siteDays + '">'
+                + stakeSpeciesLink(row.name, row.code, '#' + (index + 1) + ' ' + row.name, true)
+                + watchExceptionTag(row.code, row.name, parents) + '</span>';
+            }).join(', ') + '.</p>'
+            : '<p class="hint">No eligible species reports in this sample. Commonness is not established.</p>';
         more.hidden = rows.length <= _easyCommonVisible;
         more.textContent = 'Show ' + Math.min(EASY_COMMON_BATCH,
           Math.max(0, rows.length - _easyCommonVisible)) + ' more';
@@ -41353,6 +41564,9 @@
       }
       function easyHotspotInScope(hotspot, scope) {
         var region = scope.effectiveRegion;
+        if (region === 'US-WA-061' || region === 'US-WA-033') {
+          return BL.regionMembership(hotspot, region).state === 'inside';
+        }
         if (region === 'lower48' || region === 'aba') {
           var country = hotspot.countryCode, state = hotspot.subnational1Code;
           return (country === 'US' || region === 'aba' && country === 'CA')
@@ -41380,6 +41594,11 @@
               || o.obsSensitive || o.locationSensitive || o.isSensitive
               || o.obsReviewed === true && o.obsValid === false
               || BL.taxonKind(o.comName, o.exoticCategory) !== 'species') return false;
+          if (scope.effectiveRegion === 'US-WA-061' || scope.effectiveRegion === 'US-WA-033') {
+            var membership = BL.regionMembership(o, scope.effectiveRegion);
+            if (membership.state === 'outside'
+                || membership.basis === 'conflicting-administration') return false;
+          }
           var date = BL.parseObsDt(o.obsDt);
           return date && date >= cutoff && date.getTime() <= Date.now() + 86400000;
         }).map(function (o) {
@@ -41412,6 +41631,26 @@
         rows.scopeKey = state.key;
         return rows;
       }
+      function reconcileEasyOpportunities() {
+        var previous = _easyOpportunities;
+        if (!previous || easyOpportunityCurrent(previous)
+            || !scopeCurrent(previous.scope) || previous.key !== easyOpportunityKey()
+            || previous.credential !== getKey() || previous.targets !== _chaseTargetGeneration) return false;
+        if (!previous.discoveryFinished) {
+          _autoLoaded['sec-easyBtn'] = false;
+          $('easyBtn').disabled = false;
+          return false;
+        }
+        var state = Object.assign({}, previous, {
+          work:navWork('Retained Common birds opportunities'), busy:false,
+          rows:previous.rows.slice(), checked:Object.assign({}, previous.checked)
+        });
+        _easyOpportunities = state;
+        state.work.current = function () { return easyOpportunityCurrent(state); };
+        $('easyBtn').disabled = false;
+        paintEasyOpportunities(state, true);
+        return true;
+      }
       function paintEasyOpportunities(state, saved) {
         if (!easyOpportunityCurrent(state)) return;
         renderEasyCommon(state);
@@ -41434,6 +41673,8 @@
             ? '; geographic discovery covers the inner ' + state.plan.coveredMi.toFixed(1)
               + 'mi of your ' + state.radius + 'mi radius' : '')
           + '; representative reports, not a complete survey'
+          + (state.scope.effectiveRegion === 'US-WA-061' || state.scope.effectiveRegion === 'US-WA-033'
+            ? '; exact county place evidence required; unknown membership withheld' : '')
           + (state.capped ? '; source response limit reached' : '')
           + (state.failures ? '; partial: ' + state.failures + ' requests unavailable; Retry refresh' : '')
           + (state.busy ? '; checking more places' : '')
@@ -53759,7 +54000,15 @@
         var el = $('hdrScope');
         if (!el) return;
         var code = scopeCode();
-        if (!code || code === 'Region') { el.hidden = true; return; }
+        if (!code || code === 'Region') {
+          el.hidden = true;
+          $('hdrPeriod').hidden = true;
+          $('navPeriod').hidden = true;
+          $('navRegion').hidden = false;
+          $('navRegion').textContent = 'Choose region';
+          $('navRegion').setAttribute('aria-label', 'Choose report region');
+          return;
+        }
         el.hidden = false;
         el.textContent = scopeDisplayCode();
         var period = $('hdrPeriod');
@@ -53781,6 +54030,13 @@
         el.setAttribute('aria-label',
           'Scope: ' + said + (cv ? ', ' + cv + ' county' : '')
           + ' · ' + personalBasisLabel() + '. Open Region settings.');
+        [['navPeriod', period], ['navRegion', el]].forEach(function (pair) {
+          var button = $(pair[0]), source = pair[1];
+          if (!button) return;
+          button.hidden = source.hidden;
+          button.textContent = source.textContent;
+          button.setAttribute('aria-label', source.getAttribute('aria-label'));
+        });
       }
 
       // --- F195(d): filter the menu, don't hide it behind a gesture ---------
@@ -54032,17 +54288,20 @@
       // Bound once. The chip is in static markup, so a listener attached on
       // every menu render would stack up one per repaint.
       function bindHeaderScope() {
-        var period = $('hdrPeriod');
-        if (period && !period._bound) {
-          period._bound = true;
-          period.addEventListener('click', function () {
-            var target = document.querySelector('.quicksettings .periodpick');
-            if (!target) return;
-            if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            var selected = target.querySelector('[aria-pressed="true"]');
-            if (selected) selected.focus({ preventScroll: true });
-          });
-        }
+        ['hdrPeriod', 'navPeriod'].forEach(function (id) {
+          var period = $(id);
+          if (period && !period._bound) {
+            period._bound = true;
+            period.addEventListener('click', function () {
+              if (visibleSectionId() !== '(menu)') showMenu();
+              var target = document.querySelector('.quicksettings .periodpick');
+              if (!target) return;
+              if (target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              var selected = target.querySelector('[aria-pressed="true"]');
+              if (selected) selected.focus({ preventScroll: true });
+            });
+          }
+        });
         var el = $('hdrScope');
         if (!el || el._bound) return;
         el._bound = true;
@@ -55182,6 +55441,10 @@
           }
         } catch (e) {}
         _sections.forEach(function (s) { s.hidden = (s.id !== id); });
+        if (id === 'sec-easyBtn') reconcileEasyOpportunities();
+        if (id === 'sec-spLookupBtn' && _spLookupGroup) {
+          hydrateStakeoutPlaceHistories($('spLookupRecent'), _spLookupGroup, true);
+        }
         fgProgressSync();
         var menu = $('menuPanel'); if (menu) menu.hidden = true;
         var hdr = document.querySelector('header'); if (hdr) hdr.hidden = true;
@@ -56580,12 +56843,10 @@
         return /^(?:US|AU)-/.test(row.code) ? 'State' : 'Region';
       }
       function regionChoiceSummary(row) {
-        var text = document.createElement('p');
-        text.className = 'regioncurrent';
-        text.textContent = regionChoiceName(row);
-        text.dataset.regionChoice = row.value;
-        text.setAttribute('aria-current', 'true');
-        return text;
+        var button = regionChoiceButton(row, true);
+        button.classList.remove('regionchoice');
+        button.classList.add('regioncurrent');
+        return button;
       }
       function regionChoiceButton(row, current) {
         var button = document.createElement('button');
@@ -56593,7 +56854,7 @@
         button.className = 'regionchoice secondary';
         var name = document.createElement('span'), kind = document.createElement('small');
         name.className = 'regionchoicename';
-        name.textContent = regionChoiceName(row);
+        name.textContent = (current ? '\u2705 Selected: ' : '') + regionChoiceName(row);
         kind.className = 'regionchoicekind';
         kind.textContent = regionChoiceType(row);
         button.appendChild(name);
@@ -56601,7 +56862,11 @@
         button.appendChild(kind);
         button.dataset.regionChoice = row.value;
         button.dataset.searchText = [button.textContent, row.label, row.code, row.value, row.searchAlias || ''].join(' ').toLowerCase();
-        if (current) button.setAttribute('aria-current', 'true');
+        if (current) {
+          button.disabled = true;
+          button.setAttribute('aria-current', 'true');
+          return button;
+        }
         button.addEventListener('click', function () {
           selectRegionChoice(button.dataset.regionChoice);
         });
@@ -56819,7 +57084,7 @@
           parentHost.appendChild(parent.value === current ? regionChoiceSummary(parent) : regionChoiceButton(parent, false));
         } else parentHost.textContent = 'Select a state, province or territory to view its counties.';
         $('regionChooserCountyCurrent').textContent = getCountyView() && byValue[current]
-          ? regionChoiceName(byValue[current]) : countyParent ? 'Whole region; no county view selected.' : 'No county view selected.';
+          ? regionChoiceName(byValue[current]) : countyParent ? 'All counties: no county view selected' : 'No county view selected.';
         $('regionChooserCountyList').hidden = !countyParent && !savedSearch.trim();
         $('regionChooserCountyListLabel').textContent = savedSearch.trim() ? 'Matching counties'
           : 'All counties' + (countyParent ? ' · ' + countyParent.label : '');
@@ -57072,6 +57337,7 @@
             button.textContent = id === 'menuRegion' ? 'Edit' : label;
           }
         });
+        headerScopeRefresh();
       }
       // Switching region rebuilds the report: the cached chase data, the
       // rendered lists and the once-only auto-load flags all belong to the

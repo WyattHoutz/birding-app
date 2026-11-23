@@ -3747,6 +3747,90 @@ test('F1292 actual detached species completion cannot roll back targeted notable
   }
 });
 
+test('F1461 county Twitches use exact notable sources, scoped retention and alert links through Snohomish then King', async () => {
+  let hold=false,release;
+  const stamp=recentObsStamp(1), taxa=[{code:'verfly',name:'Vermilion Flycatcher'}];
+  const bird=(county,suffix,extra={})=>({speciesCode:'verfly',comName:'Vermilion Flycatcher',
+    subId:'S1461'+suffix,obsDt:stamp,lat:47.76,lng:-122.16,
+    locId:'L1461'+suffix,locName:'Public '+suffix,subnational2Code:county,
+    subnational1Code:'US-WA',obsReviewed:true,obsValid:true,...extra});
+  const mixed=[bird('US-WA-061','SN'),bird('US-WA-033','KING'),
+    bird('US-WA-061','PENDING',{obsReviewed:false,obsValid:false}),
+    bird('US-WA-061','REJECTED',{obsValid:false}),
+    bird('','UNKNOWN'),bird('US-WA-061','CONFLICT',{subnational1Code:'US-OR'})];
+  const app=await boot({sample:false,storage:{
+    ebird_rarity_filters_v1:JSON.stringify({year:'all',distance:'region'}),
+    ebird_aba_sid:'COUNTYPILOT'
+  },fetch(url){
+    if(/data\/obs\/.*notable/.test(url)){
+      if(hold&&/US-WA-061/.test(url))return new Promise(resolve=>{release=()=>resolve(mixed);});
+      return mixed;
+    }
+    if(/alert\/rba\//.test(url))return megaAlertHtml([{
+      code:'verfly',name:'Vermilion Flycatcher',subId:'S1461999',when:stamp,
+      lat:47.76,lng:-122.16,place:'Public county alert park',count:1
+    }]);
+    return [];
+  }});
+  try{
+    const A=app.window.__app;
+    for(const [county,ids] of [['US-WA-061',['S1461SN','S1461PENDING']],
+      ['US-WA-033',['S1461KING']]]){
+      A.setCountyView(county);await seedSeen(app,[],[],taxa);
+      const key='ebird_rba_retained_v1:'+A.activeScope().cacheIdentity+'|COUNTYPILOT|'+county;
+      const retained=(suffix,rowCounty)=>({kind:'Rarity',code:'verfly',name:'Vermilion Flycatcher',
+        subId:'S1461'+suffix,locId:'L1461'+suffix,loc:'Public retained '+suffix,
+        lat:47.76,lon:-122.16,dateStr:stamp,county:rowCounty,
+        __rbaRegion:county,__rbaAcquiredAt:Date.now()-1000});
+      await A.zcPut(key,{owner:key,region:county,rows:[
+        retained('RETAINED',county),
+        retained('FOREIGN',county==='US-WA-061'?'US-WA-033':'US-WA-061')
+      ]});
+      const start=app.state.fetches.length;
+      await A.refresh();
+      const html=app.$('results').innerHTML;
+      for(const id of ids.concat(['S1461999','S1461RETAINED']))assert.ok(html.includes(id),id+' admitted');
+      for(const id of ['S1461FOREIGN','S1461REJECTED','S1461UNKNOWN','S1461CONFLICT'])
+        assert.ok(!html.includes(id),id+' withheld before grouping/counting');
+      assert.ok(!html.includes(county==='US-WA-061'?'S1461KING':'S1461SN'));
+      const paths=app.state.fetches.slice(start).filter(url=>/data\/obs\/.*notable/.test(url));
+      assert.equal(paths.length,1,'only one consumer-local notable source');
+      assert.ok(paths[0].includes('/data/obs/'+county+'/recent/notable'));
+      const rba=app.state.fetches.slice(start).filter(url=>/alert\/rba\//.test(url));
+      assert.ok(rba.length&&rba.every(url=>url.includes('/alert/rba/'+county+'?')));
+      const links=[...app.$('results').querySelectorAll('a.rbalink')];
+      assert.ok(links.length&&links.every(a=>a.href.includes('/alert/rba/'+county+'?')),
+        'ordinary RBA links cannot escape to Washington or a sibling county');
+      const before=app.state.fetches.length;
+      await A.loadActiveRarities();
+      const week=app.$('activeResults').innerHTML;
+      for(const id of ids)assert.ok(week.includes(id));
+      assert.ok(!week.includes('S1461UNKNOWN')&&!week.includes('S1461FOREIGN'));
+      assert.equal(app.state.fetches.length,before,'weekly projection reuses the exact county URL memo');
+      app.window.localStorage.setItem('ebird_rarity_filters_v1',JSON.stringify({year:'all',distance:'near'}));
+      await A.refresh();
+      const nearLinks=[...app.$('results').querySelectorAll('a.rbalink')];
+      assert.ok(nearLinks.length&&nearLinks.every(a=>a.href.includes('/alert/rba/'+county+'?')),
+        'the ordinary wider-than-radius escape stays in the selected county too');
+      app.window.localStorage.setItem('ebird_rarity_filters_v1',JSON.stringify({year:'all',distance:'region'}));
+    }
+    A.setCountyView('US-WA-061');await seedSeen(app,[],[],taxa);
+    hold=true;const stale=A.refresh({fetchLatest:true});
+    await waitFor(()=>release,'held Snohomish notable response');
+    A.setCountyView('US-WA-033');await seedSeen(app,[],[],taxa);
+    hold=false;await A.refresh();
+    const html=app.$('results').innerHTML;
+    release();await stale;
+    assert.equal(app.$('results').innerHTML,html,'late county source cannot repaint another county');
+    A.setCountyView('');
+    const start=app.state.fetches.length;
+    await A.loadActiveRarities();
+    const statePaths=app.state.fetches.slice(start).filter(url=>/data\/obs\/.*notable/.test(url));
+    assert.ok(statePaths.some(url=>/\/geo\//.test(url)),'Washington keeps its existing shared feed plan');
+    assert.deepEqual(app.state.errors,[]);
+  }finally{if(release)release();app.window.close();}
+});
+
 test('F1292/F1322 TWITCH headings hard-refresh only applicable RBA inputs while normal loads reuse them', async () => {
   for (const weekly of [false, true]) {
     let latest = false, hold = false, browserCache;
@@ -10784,7 +10868,8 @@ test('F1446 podium milestones use verified tied scores without inventing skipped
     milestone(ladder,10,'#10','+33 species');
     assert.equal(ladder.querySelectorAll('.rankclimb-cup').length,3);
     assert.equal(ladder.querySelector('.current .rankclimb-number').textContent,'#18');
-    assert.match(ladder.querySelector('.rankclimb-next').textContent,/\+10 species.*190-species group at #17/);
+    assert.match(app.$('sec-rankBtn').querySelector('.sectiondoc').getAttribute('data-note'),
+      /\+10 species.*190-species group at #17/);
     assert.doesNotMatch(ladder.textContent,/Score unknown/);
 
     const triple = rows.map((row,i)=>i===2?{...row,rank:1,species:248}:row);
@@ -11432,7 +11517,7 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     assert.equal(panel.querySelector('[aria-current="true"]').textContent,'#182You209—');
     assert.equal(app.$('rankSummary').firstElementChild,panel);
     assert.equal(panel.querySelector('h3').textContent,'Your ladder');
-    pair.boards.cl={...board,metric:'cl',rows:[{...rows[0],name:'Other-board only',profileId:'cl-only'}]};
+    pair.boards.cl={...board,metric:'cl',me:null,rows:[{...rows[0],name:'Other-board only',profileId:'cl-only'}]};
     paint();
     assert.doesNotMatch(app.document.querySelector('.ranknearby').textContent,/Other-board only/);
     board.rows=rows.slice(0,7);
@@ -11464,8 +11549,9 @@ test('F857 nearby targets use verified source rows and bounded neighborhood cove
     assert.equal(app.document.querySelectorAll('.ranknearby [aria-current]').length,1);
     board.rows=rows;board.me=rows[5];
     app.click(app.document.querySelector('[data-rank-metric="cl"]'));
-    assert.match(app.document.querySelector('.ranknearby').textContent,/Species/,
-      'the Species neighbor panel remains reachable while viewing Checklists');
+    assert.match(app.document.querySelector('.ranknearby').textContent,/Checklists/);
+    assert.equal(app.document.querySelector('.rankclimb'),null,
+      'missing checklist standing must not borrow the Species ladder');
     assert.doesNotMatch(app.document.querySelector('.ranknearby').textContent,/Other-board only/);
     app.click(app.document.querySelector('[data-rank-metric="spp"]'));
     app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'wrong'}));
@@ -11587,7 +11673,7 @@ test('F883 Top 100 explicitly extends Species coverage for a verified rank above
   }finally{app.window.close();}
 });
 
-test('F858/F869 metric switching uses independent boards and always exposes honest Species neighbor coverage', async () => {
+test('F858/F869 metric switching uses independent boards and honest selected-metric neighbor coverage', async () => {
   const app = await boot({sample:false});
   try {
     const A = app.window.__app;
@@ -12043,20 +12129,26 @@ test('F1450 Quick settings orders Region before Time period and preserves indepe
   }finally{app.window.close();}
 });
 
-test('F1452/F1453 chooser keeps current scope as text and collapses complete state and county catalogs',async()=>{
+test('F1452/F1453/F1499 chooser disables the checked current region and collapses complete state and county catalogs',async()=>{
   const app=await boot();
   try{
     const A=app.window.__app;
     await A.selectRegionChoice('county:wa:US-WA-061');
     A.openRegionChooser();
     const current=app.$('regionChooserCurrent');
-    assert.equal(current.querySelector('button,a,input,select,[tabindex],[role="button"]'),null,
-      'Current region must be noninteractive text');
+    const selected=current.querySelector('button');
+    assert.ok(selected&&selected.disabled,'Current region is a native disabled button');
+    assert.equal(selected.getAttribute('aria-current'),'true');
+    assert.match(selected.textContent,/✅ Selected:/);
     assert.match(current.textContent,/Snohomish.*US-WA-061/);
     assert.equal(app.$('regionChooserStateList').open,false,'the full state catalog starts collapsed');
     assert.equal(app.$('regionChooserCountyList').open,false,'the full county catalog starts collapsed');
     assert.match(app.$('regionChooserParent').textContent,/Washington.*US-WA/);
     assert.match(app.$('regionChooserCountyCurrent').textContent,/Snohomish.*US-WA-061/);
+    const body=app.$('regionChooserBody');
+    assert.deepEqual([...body.querySelectorAll(':scope > section > h3')].map(h=>h.textContent),
+      ['Current region','Recent regions','Major Regions','States, provinces and territories','County']);
+    assert.equal(body.querySelector(':scope > hr').previousElementSibling.querySelector('h3').textContent,'Recent regions');
     assert.ok(app.$('regionChooserAll').querySelectorAll('button').length>=65);
     const expectedCounties=Object.keys(JSON.parse(fs.readFileSync(wwwFixture('county-bounds-wa.json'),'utf8'))).sort();
     app.$('regionChooserCountyList').querySelector('summary').click();
@@ -20485,15 +20577,82 @@ test('F1352 actual ladder distinguishes a cheapest exact step from an independen
     const board={region:'US-WA',period,metric:'spp',rows,me:rows[3064]};
     const pair={boards:{spp:board},failures:{},stale:{},coverage:'synthetic source'};
     A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
-    assert.ok(app.document.querySelector('.rankclimb-next'),'the actual ladder must expose an inline next-step prompt');
-    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next step: \+1 species.*#3,057/);
-    assert.match(app.document.querySelector('.rankclimb-next').textContent,/not a promise/);
+    const note=()=>new app.window.DOMParser().parseFromString(
+      app.$('sec-rankBtn').querySelector('.sectiondoc').getAttribute('data-note'),'text/html').body.textContent;
+    assert.equal(app.document.querySelector('.rankclimb-next'),null,'next-step copy belongs in Info');
+    assert.match(note(),/Next step: \+1 species.*#3,057/);
+    assert.match(note(),/not a promise/);
     assert.match(app.document.querySelector('.rankclimb').textContent,/#2,993.*\+9 species/);
     board.rows=rows.slice(0,100).concat(rows.slice(101));
     A.renderRankPair(pair,'US-WA',period,'Synthetic birder');
-    assert.match(app.document.querySelector('.rankclimb-next').textContent,/Next verified score goal: \+1 species.*#3,057/);
+    assert.match(note(),/Next verified score goal: \+1 species.*#3,057/);
     assert.match(app.document.querySelector('.rankclimb').textContent,/Exact next-rank coverage is incomplete/);
     assert.doesNotMatch(app.document.querySelector('.rankclimb').textContent,/known.group/i);
+  } finally {app.window.close();}
+});
+
+test('F1496 ladder and live Info follow the selected leaderboard without borrowing rows or repaint reads', async()=>{
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app;
+    app.window.localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'owner'}));
+    A.showSection('sec-rankBtn',{load:false});
+    const period=String(new app.window.Date().getFullYear());
+    const speciesRows=Array.from({length:11},(_,i)=>({rank:i+1,species:210-i,checklists:999,
+      name:i===5?'Owner':'Species birder '+i,profileId:i===5?'owner':'species-'+i}));
+    const checklistRows=Array.from({length:11},(_,i)=>({rank:i+1,checklists:550-i*5,species:null,
+      name:i===2?'Owner':'Checklist birder '+i,profileId:i===2?'owner':'checklist-'+i}));
+    const species={region:'US-WA',period,metric:'spp',rows:speciesRows,me:speciesRows[5]};
+    const checklists={region:'US-WA',period,metric:'cl',rows:checklistRows,me:checklistRows[2]};
+    const pair={boards:{spp:species,cl:checklists},failures:{},stale:{},coverage:'Two distinct synthetic boards'};
+    const before=JSON.stringify(pair.boards);
+    const reads=()=>app.state.fetches.filter(url=>/top100/.test(url)).length;
+    const initialReads=reads();
+    const section=app.$('sec-rankBtn');
+    const panel=()=>section.querySelector('.ranknearby');
+    A.renderRankPair(pair,'US-WA',period,'Owner');
+    assert.equal(app.$('rankStatus').textContent,'','introductory explanation is not above the ladder');
+    assert.equal(panel().querySelector('.current .rankclimb-number').textContent,'#6');
+    assert.match(panel().textContent,/\+1 species/);
+    assert.equal(panel().querySelector('.rankclimb-next'),null);
+    assert.match(section.querySelector('.sectiondoc').getAttribute('data-note')||'',
+      /\+1 species.*206-species group at #5/,'the current Species goal is supplied to Info');
+    app.click(section.querySelector('.docbtn'));
+    const info=section.querySelector('.sectiondoc');
+    await waitFor(()=>info.querySelector('.rankclimb-next'),'selected Species next step in Info');
+    assert.match(info.textContent,/Your standing plus the full Top 100 board.*Switch regions from the nav/);
+    assert.match(info.querySelector('.rankclimb-next').textContent,/\+1 species.*206-species group at #5/);
+    app.click(section.querySelector('[data-rank-metric="cl"]'));
+    assert.ok(panel().querySelector('.rankclimb'),
+      'the actual Checklist leaderboard must produce a ladder without Species counts');
+    await waitFor(()=>info.querySelector('.rankclimb-next')?.textContent.includes('checklists'),
+      'open Info updates to the checklist goal');
+    assert.equal(panel().querySelector('.current .rankclimb-number').textContent,'#3');
+    assert.match(panel().textContent,/\+5 checklists/);
+    assert.doesNotMatch(panel().textContent,/Species birder|\+1 species/);
+    assert.match(panel().querySelector('thead').textContent,/Checklists/);
+    assert.match(panel().querySelector('[aria-current]').textContent,/#3You540—/);
+    assert.match(info.querySelector('.rankclimb-next').textContent,/\+5 checklists.*545-checklist group at #2/);
+    assert.equal(JSON.stringify(pair.boards),before,'neither leaderboard is rewritten');
+    pair.stale.cl='Synthetic old read';
+    A.renderRankPair(pair,'US-WA',period,'Owner');
+    assert.match(panel().textContent,/STALE/);
+    delete pair.boards.cl;
+    A.renderRankPair(pair,'US-WA',period,'Owner');
+    await waitFor(()=>!info.querySelector('.rankclimb-next'),'missing selected board clears the old goal');
+    assert.match(panel().textContent,/no verified Checklists board/);
+    assert.equal(panel().querySelector('.rankclimb'),null);
+    pair.boards.cl={...checklists,region:'US-OR'};
+    A.renderRankPair(pair,'US-WA',period,'Owner');
+    assert.match(panel().textContent,/no verified Checklists board/);
+    pair.boards.cl={...checklists,rows:[{...checklistRows[0],checklists:null}]};
+    A.renderRankPair(pair,'US-WA',period,'Owner');
+    assert.match(panel().textContent,/checklists totals are invalid/);
+    app.click(section.querySelector('[data-rank-metric="spp"]'));
+    await waitFor(()=>info.querySelector('.rankclimb-next')?.textContent.includes('species'),
+      'Species goal restored in open Info');
+    assert.equal(panel().querySelector('.current .rankclimb-number').textContent,'#6');
+    assert.equal(reads(),initialReads,'switching and opening Info cannot acquire another leaderboard');
   } finally {app.window.close();}
 });
 
@@ -24555,6 +24714,80 @@ async function f890DisplayedRows(app, grouped) {
   return [...host.querySelectorAll('.cklcard-sm')].filter((row) => !row.hidden);
 }
 
+test('F1495 actual Stakeout keeps independent public anchors and named venues while retaining labelled private satellites', async () => {
+  const place=(n,name,lat,lng,privatePlace=false)=>({
+    speciesCode:'verfly',comName:'Vermilion Flycatcher',obsId:'OBS1495'+n,subId:'S1495'+n,
+    obsDt:recentObsStamp(1),locId:'L1495'+n,locName:name,lat,lng,
+    howMany:1,locationPrivate:privatePlace,subnational2Code:'US-WA-061'
+  });
+  const rows=[
+    place('01','Boe Road / Stanwood',48.20,-122.37),
+    place('02','Leque Island',48.23,-122.37),
+    place('03','Eide Road',48.231,-122.371),
+    place('04','Union Bay Natural Area (Montlake Fill)',47.65,-122.30),
+    place('05','Magnuson Park',47.68,-122.25),
+    place('06','Meadowbrook Pond',47.70,-122.30),
+    place('07','Marymoor Park--East',47.66,-122.11),
+    place('08','Marymoor Park--West',47.66,-122.12),
+    place('09','Nearby custom garden',48.215,-122.37,true),
+    place('10','Distant private garden',49,-123,true),
+    place('11','Montlake Fill',47.651,-122.301)
+  ];
+  rows.push({...rows[0],obsId:'OBS1495DUPLICATE'});
+  const app=await boot({sample:false,fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
+  try{
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),rows);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    await f890DisplayedRows(app,true);
+    const cards=[...app.$('spLookupRecent').querySelectorAll('.spLookupPlaceList > .hscard-md')];
+    assert.equal(cards.length,7,'independent anchors stay separate; genuine venues retain their members');
+    const card=name=>cards.find(node=>node.querySelector(':scope > .name').textContent.includes(name));
+    const ids=node=>[...node.querySelectorAll('[data-ev-sub]')].map(ck=>ck.dataset.evSub);
+    const boe=card('Boe Road'),leque=card('Leque Island'),marymoor=card('Marymoor');
+    assert.ok(boe&&leque&&boe!==leque);
+    assert.deepEqual(ids(boe).sort(),['S149501','S149509']);
+    assert.deepEqual(ids(leque).sort(),['S149502','S149503','S149509']);
+    assert.deepEqual(ids(marymoor).sort(),['S149507','S149508']);
+    assert.deepEqual(ids(card('Union Bay')).sort(),['S149504','S149511']);
+    assert.deepEqual(ids(card('Magnuson')),['S149505']);
+    assert.deepEqual(ids(card('Meadowbrook')),['S149506']);
+    for(const node of [boe,leque]){
+      assert.match(node.textContent,/Nearby custom garden/);
+      assert.match(node.textContent,/PRIVATE/,'nearby evidence is never advertised as public access');
+      assert.equal(new Set(ids(node)).size,ids(node).length,'no checklist duplicates inside one public anchor');
+    }
+    assert.ok(card('Distant private garden'),'unattached private evidence is retained too');
+    assert.deepEqual(app.state.errors,[]);
+  }finally{app.window.close();}
+});
+
+test('F1497 Stakeout Group hides retained and newly rendered maps without acquiring evidence', async () => {
+  const f=f890EvidenceFixture();
+  const app=await boot({sample:false,fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
+  try{
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),f.notable.slice(0,3));
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    const map=app.$('spLookupMap'),other=app.$('hotMap');
+    assert.ok(map.firstChild);assert.equal(map.hidden,false);
+    const before=app.state.fetches.length,otherHidden=other.hidden;
+    A.setSpeciesLookupGrouped(false);
+    assert.equal(map.hidden,true,'retained map is unavailable when Group is unchecked');
+    assert.ok(app.$('spLookupRecent').querySelector('.stakeoutFlatChecklists'));
+    A.renderSpeciesLookup();
+    assert.equal(map.hidden,true,'new results/metadata cannot restore an unchecked map');
+    A.setSpeciesLookupGrouped(true);
+    assert.equal(map.hidden,false);assert.ok(map.firstChild);
+    assert.equal(other.hidden,otherHidden,'unrelated maps are untouched');
+    assert.equal(app.state.fetches.length,before,'presentation toggle performs no acquisition');
+    assert.deepEqual(app.state.errors,[]);
+  }finally{app.window.close();}
+});
+
 test('F904 Stakeout metadata updates retain the hero, map and expanded checklist DOM', async () => {
   const f = f890EvidenceFixture();
   const rows = Array.from({ length: 24 }, (_, i) => f.row('S904-' + i, i));
@@ -26622,6 +26855,127 @@ test('F1103 Common birds distinguishes absent counts from explicit uncounted evi
   } finally {app.window.close();}
 });
 
+test('F1498 retained Find more places recovers after navigation, cancellation and failure without reviving old work', async () => {
+  for(const mode of ['navigation','cancel','failure']){
+    const taxa=Array.from({length:9},(_,i)=>({code:'recoverybird'+i,name:'Recovery Bird '+i}));
+    const stamp=recentObsStamp(1,9);
+    const hotspots=[{locId:'LRECOVERY',locName:'Recovery Park',lat:47.76,
+      lng:-122.16,subnational1Code:'US-WA'}];
+    const records=taxa.map(t=>({speciesCode:t.code,comName:t.name,obsDt:stamp,
+      locId:'LRECOVERY',locName:'Recovery Park',lat:47.76,lng:-122.16,subId:'S'+t.code}));
+    let release,hold=false,calls=0,pending;
+    const app=await boot({fetch(url){
+      if(/\/ref\/hotspot\/geo\?/.test(url))return hotspots;
+      if(/\/data\/obs\/geo\/recent\?/.test(url))return records;
+      if(/\/data\/nearest\/geo\/recent\//.test(url)){
+        calls++;
+        if(hold){hold=false;return new Promise(resolve=>{release=()=>resolve(mode==='failure'?{invalid:true}:[]);});}
+        return [];
+      }
+      return null;
+    }});
+    try{
+      const A=app.window.__app;
+      await seedSeen(app,[],[],taxa);
+      A.showSection('sec-easyBtn',{load:false});
+      assert.equal(await A.loadEasyMisses(true),true);
+      assert.equal(calls,7,'initial enrichment stays bounded');
+      assert.equal(app.$('easyPlaces').disabled,false);
+      const targets=[...app.$('easyResults').querySelectorAll('[data-ev-sub]')].map(r=>r.dataset.evSub);
+      hold=true;pending=A.easyFindMorePlaces(true).catch(()=>false);
+      await waitFor(()=>release,'held actual '+mode+' continuation');
+      assert.equal(app.$('easyPlaces').disabled,true);
+      const before=calls;
+      if(mode==='navigation'){
+        A.showMenu();A.showSection('sec-easyBtn',{load:false});
+      }else if(mode==='cancel')A.fgCancelAll('Fixture cancellation');
+      if(mode!=='failure'){
+        assert.equal(app.$('easyPlaces').disabled,false,'retained action recovers before obsolete callback finishes');
+        assert.equal(calls,before,'reconciliation does not acquire evidence');
+      }
+      if(mode==='navigation'){
+        const obsoleteRelease=release;
+        hold=true;
+        const resumed=A.easyFindMorePlaces(true);
+        await waitFor(()=>release!==obsoleteRelease,'new owned continuation holds its own response');
+        obsoleteRelease();await pending;pending=null;
+        assert.equal(app.$('easyPlaces').disabled,true,
+          'obsolete settlement cannot clear the new owner busy state');
+        release();await resumed;
+        assert.equal(app.$('easyPlaces').disabled,false);
+        assert.deepEqual([...app.$('easyResults').querySelectorAll('[data-ev-sub]')]
+          .map(r=>r.dataset.evSub),targets);
+        continue;
+      }
+      release();await pending;pending=null;
+      if(mode!=='failure')assert.equal(calls,before,'obsolete callbacks cannot resume their old batch');
+      assert.equal(app.$('easyPlaces').disabled,false,'old settlement cannot disable the current action');
+      assert.deepEqual([...app.$('easyResults').querySelectorAll('[data-ev-sub]')].map(r=>r.dataset.evSub),targets);
+      const retry=calls;
+      if(mode==='failure')assert.match(app.$('easyStatus').textContent,/unavailable/);
+      app.click(app.$('easyPlaces'));
+      await waitFor(()=>calls>retry,'current-owned continuation retries');
+      await waitFor(()=>!app.$('easyPlaces').disabled,'bounded retry settles');
+      assert.ok(calls-retry<=7,'continuation remains bounded');
+      assert.deepEqual(app.state.errors,[]);
+    }finally{if(release)release();if(pending)await pending;app.window.close();}
+  }
+});
+
+test('F1458 Target Birds county pilot gates places, additional hydration and cached projections before counts', async () => {
+  const taxa=[{code:'verfly',name:'Vermilion Flycatcher'}], stamp=recentObsStamp(1,9);
+  const places=[
+    {locId:'L1458SN',locName:'Snohomish Public Park',subnational2Code:'US-WA-061'},
+    {locId:'L1458KING',locName:'King Public Park',subnational2Code:'US-WA-033'},
+    {locId:'L1458PIERCE',locName:'Pierce Public Park',subnational2Code:'US-WA-053'},
+    {locId:'L1458UNKNOWN',locName:'Unknown County Park',subnational1Code:'US-WA'},
+    {locId:'L1458CONFLICT',locName:'Conflicting Park',subnational2Code:'US-WA-061',subnational1Code:'US-OR'}
+  ].map(p=>({lat:47.76,lng:-122.16,...p}));
+  const rows=places.map(p=>({speciesCode:'verfly',comName:'Vermilion Flycatcher',
+    locId:p.locId,locName:p.locName,obsDt:stamp,subId:'S'+p.locId}));
+  let release,hold=false;
+  const app=await boot({fetch(url){
+    if(/ref\/hotspot\/geo/.test(url))return places;
+    if(/data\/obs\/geo\/recent/.test(url))return rows;
+    if(/data\/nearest\/geo\/recent/.test(url)){
+      if(hold)return new Promise(resolve=>{release=()=>resolve(rows);});
+      return rows;
+    }
+    return null;
+  }});
+  try{
+    const A=app.window.__app;
+    for(const [county,id] of [['US-WA-061','L1458SN'],['US-WA-033','L1458KING']]){
+      A.setCountyView(county); await seedSeen(app,[],[],taxa);
+      assert.equal(await A.loadEasyMisses(true),true);
+      assert.deepEqual([...app.$('easyResults').querySelectorAll('[data-ev-sub]')]
+        .map(row=>row.dataset.evSub),['S'+id],'only the selected county contributes rendered targets');
+      const saved=await A.zcGet(A.easyOpportunityKey());
+      assert.deepEqual([...saved.rows].map(row=>row.locId),[id],'shared raw discovery is projected before caching');
+      const before=app.state.fetches.length;
+      assert.equal(await A.loadEasyMisses(false),true);
+      assert.equal(app.state.fetches.length,before,'exact scoped saved projection performs no acquisition');
+      assert.deepEqual([...app.$('easyResults').querySelectorAll('[data-ev-sub]')]
+        .map(row=>row.dataset.evSub),['S'+id],'saved hydration retains exact county membership');
+      const safe=A.easyPublicObservations(rows.concat([{...rows.find(r=>r.locId===id),
+        subnational2Code:county==='US-WA-061'?'US-WA-033':'US-WA-061',subId:'SCONFLICT'}]),
+        places,A.activeScope(),A.anchorPoint(),35);
+      assert.equal(safe.length,1,'conflicting row metadata cannot borrow in-scope hotspot evidence');
+    }
+    A.setCountyView('US-WA-061'); await seedSeen(app,[],[],taxa);
+    hold=true; const stale=A.loadEasyMisses(true);
+    await waitFor(()=>release,'held pilot additional-place response');
+    A.setCountyView('US-WA-033'); await seedSeen(app,[],[],taxa);
+    hold=false; assert.equal(await A.loadEasyMisses(true),true);
+    const html=app.$('easyResults').innerHTML;
+    release(); await stale;
+    assert.equal(app.$('easyResults').innerHTML,html,'late Snohomish hydration cannot repaint King');
+    A.setCountyView('');
+    assert.equal(A.easyPublicObservations(rows.slice(0,4),places,A.activeScope(),A.anchorPoint(),35).length,4,
+      'Washington retains its existing state projection; the pilot does not enable broad-region policy');
+  }finally{if(release)release();app.window.close();}
+});
+
 test('F1104 Common birds keeps public, owned bird/place evidence flat and globally ordered', async () => {
   const app = await boot({fetch:()=>null});
   try {
@@ -26697,12 +27051,13 @@ test('F1104 Common birds keeps public, owned bird/place evidence flat and global
   } finally {app.window.close();}
 });
 
-test('F1492 common-bird table includes seen birds, ranks distinct public hotspot-days and expands without requests', async () => {
+test('F1492 F1494 Easy Targets paragraph ranks unseen or WATCH birds and expands without requests', async () => {
   const app=await boot({fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
   try {
     const A=app.window.__app;
-    const taxa=Array.from({length:13},(_,i)=>({code:'f1492bird'+i,name:'Common Fixture Bird '+i}));
-    await seedSeen(app,[taxa[0].code],[],taxa);
+    const taxa=Array.from({length:14},(_,i)=>({code:'f1492bird'+i,name:'Common Fixture Bird '+i}));
+    await seedSeen(app,[taxa[0].code,taxa[1].code],[],taxa);
+    A.setWatchlist([{code:taxa[0].code,name:taxa[0].name}]);
     const hotspots=[
       {locId:'L1492A',locName:'Common Sample Park',lat:47.76,lng:-122.16,subnational1Code:'US-WA'},
       {locId:'L1492B',locName:'Second Sample Park',lat:47.78,lng:-122.16,subnational1Code:'US-WA'},
@@ -26715,6 +27070,8 @@ test('F1492 common-bird table includes seen birds, ranks distinct public hotspot
     const rows=taxa.map(t=>record(t,'L1492A'));
     rows.push(record(taxa[0],'L1492A',1),record(taxa[0],'L1492B'),
       record(taxa[0],'L1492A',0,{subId:'S1492-duplicate-site-day'}));
+    rows.push(record(taxa[1],'L1492A',1),record(taxa[1],'L1492B'),
+      record(taxa[1],'L1492B',1));
     for(const [code,loc,extra] of [['private1492','L1492A',{locationPrivate:true}],
       ['sensitive1492','L1492A',{obsSensitive:true}],['far1492','L1492FAR',{}],
       ['other1492','L1492OTHER',{}]]) rows.push(record({code,name:'Excluded Fixture Bird'},loc,0,extra));
@@ -26722,21 +27079,37 @@ test('F1492 common-bird table includes seen birds, ranks distinct public hotspot
       geoDone:3,failures:0,discoveryFinished:true});
     const calls=app.state.fetches.length;
     assert.equal(await A.loadEasyMisses(),true);
-    const common=app.$('easyCommonResults'),table=()=>[...common.querySelectorAll('tbody > tr')];
+    const common=app.$('easyCommonResults'),table=()=>[...common.querySelectorAll('[data-common-code]')];
     assert.ok(app.$('easyCommon').compareDocumentPosition(app.$('easyResults'))
       & app.window.Node.DOCUMENT_POSITION_FOLLOWING,'common birds must precede needed-bird targets');
     assert.equal(table().length,10);
-    assert.equal(table()[0].dataset.commonCode,taxa[0].code,'the highest-ranked bird remains visible when seen');
-    assert.equal(table()[0].lastElementChild.textContent,'3','duplicate reports at one hotspot/day count once');
-    assert.ok(!app.$('easyResults').querySelector('[data-sp="'+taxa[0].code+'"]'),
-      'including seen common birds must not add them to needed-bird targets');
-    assert.match(common.textContent,/Representative reports, not a complete survey/);
+    assert.equal(table()[0].dataset.commonCode,taxa[0].code,'a seen WATCH bird remains eligible');
+    assert.equal(table()[0].dataset.siteDays,'3','duplicate reports at one hotspot/day count once');
+    assert.equal(app.$('easyCommon').querySelector('h3').textContent,'Easy Targets');
+    assert.equal(common.querySelectorAll('p.commonBirdNames').length,1);
+    assert.equal(common.querySelector('table'),null);
+    assert.ok(table()[0].querySelector('.tag.watchflag'),'reuse the explicit WATCH tag');
+    assert.equal(table()[1].querySelector('.watchflag'),null,'unseen birds are not labelled WATCH');
+    assert.deepEqual(table().map((row,i)=>row.querySelector('a').textContent),
+      table().map((row,i)=>'#'+(i+1)+' '+taxa.find(t=>t.code===row.dataset.commonCode).name));
+    assert.ok(!common.querySelector('[data-common-code="'+taxa[1].code+'"]'),
+      'an even more common seen, unwatched bird must not displace eligible targets');
+    assert.ok(app.$('easyResults').querySelector('[data-sp="'+taxa[0].code+'"]'),
+      'WATCH birds retain their existing needed-target eligibility');
+    assert.doesNotMatch(common.textContent,/Site days|Score|Ranked by/);
+    app.click(app.$('sec-easyBtn').querySelector('.docbtn'));
+    for(let i=0;i<100&&(!app.$('appSheet')||!/Easy Targets ranks/.test(app.$('appSheet').textContent));i++)
+      await new Promise(resolve=>app.window.setTimeout(resolve,10));
+    assert.match(app.$('appSheet').textContent,/distinct hotspot and observation-date pairs/);
+    assert.match(app.$('appSheet').textContent,/representatives, not every observation/);
+    app.click(app.$('appSheet').querySelector('.sheetclose'));
+    const moreCalls=app.state.fetches.length;
     app.click(app.$('easyCommonMore'));
     assert.equal(table().length,13);
     assert.equal(app.$('easyCommonMore').hidden,true);
-    assert.equal(app.state.fetches.length,calls,'common-bird expansion must use acquired data');
-    assert.deepEqual(table().map(row=>row.dataset.commonCode).sort(),taxa.map(t=>t.code).sort(),
-      'private, sensitive, outside-radius and outside-scope reports cannot populate common birds');
+    assert.equal(app.state.fetches.length,moreCalls,'common-bird expansion must use acquired data');
+    assert.deepEqual(table().map(row=>row.dataset.commonCode).sort(),taxa.filter((_,i)=>i!==1).map(t=>t.code).sort(),
+      'unseen and WATCH birds qualify, but seen/unwatched, private, sensitive, outside-radius and outside-scope reports do not');
     const link=table()[0].querySelector('a.splink');
     assert.equal(link.dataset.sp,taxa[0].code,'the Stakeout action must retain the ranked species identity');
     assert.equal(link.getAttribute('href'),'#spLookupBtn');
@@ -39234,39 +39607,37 @@ test('F10: the navbar back control is icon-only but keeps its accessible name', 
     'shrinking the control must not unwire it - it still returns to Contents');
 });
 
-test('F10/F728: the region chooser opens from an icon-sized navbar button', async () => {
+test('F10/F728/F1500: labelled navbar scope and year buttons reuse the main menu routes and context', async () => {
   const app = await boot();
+  try {
   const sel = app.$('navRegion');
   assert.ok(sel, 'the navbar still offers the region picker');
   assert.equal(sel.tagName, 'BUTTON',
     'the navbar must open the shared chooser rather than the undiscoverable native wheel');
-  const wrap = sel.closest('.navregion');
-  assert.ok(wrap, 'the select is wrapped in a fixed-size box that supplies the icon');
-  assert.ok(wrap.querySelector('.navregionicon'),
-    'the wrapper paints a glyph, which is what the reader sees instead of "Waikoloa / Big Island"');
+  const A=app.window.__app,period=app.$('navPeriod');
+  const context=()=>[A.bcProfile(),A.activeScope().cacheIdentity,A.personalPeriod()].join('|');
+  const before=context();
+  assert.equal(app.document.querySelector('.navregionicon'),null,'no globe-only control remains');
+  for(const [button,source] of [[sel,app.$('hdrScope')],[period,app.$('hdrPeriod')]]){
+    assert.ok(button.classList.contains('hdrscope'),'shared header control style');
+    assert.equal(button.textContent,source.textContent,'same visible scope/time label');
+    assert.equal(button.getAttribute('aria-label'),source.getAttribute('aria-label'));
+  }
+  app.open(/Settings/);
   app.click(sel);
   assert.equal(app.$('regionChooser').hidden, false);
   app.click(app.$('regionChooserClose'));
 
-  const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
-  const rule = (sel2) => {
-    const m = css.match(new RegExp('(^|[\\s}])' + sel2.replace(/[.#*]/g, '\\$&') + '\\s*\\{([^}]*)\\}'));
-    return m ? m[2] : '';
-  };
-  assert.match(rule('#navRegion'), /opacity:\s*0/,
-    'the select is laid transparently over the glyph - opacity:0 still receives taps, unlike visibility:hidden');
-  assert.match(rule('#navRegion'), /position:\s*absolute/,
-    'absolute positioning is what stops the select claiming width from the title');
-  assert.match(rule('#navTitle'), /flex:\s*1 1 auto/,
-    'the title is the element that should absorb the freed space');
-  assert.match(rule('#navTitle'), /min-width:\s*0/,
-    'without min-width:0 a flex item refuses to shrink below its content and the ellipsis never engages');
-  app.window.close();
+  app.click(period);
+  assert.equal(app.$('menuPanel').hidden,false,'year routes to the existing main-menu period picker');
+  assert.ok(app.document.activeElement.closest('.periodpick'),'selected existing period receives focus');
+  assert.equal(context(),before,'opening either picker changes no account, area or period');
+  } finally { app.window.close(); }
 });
 
 test('F10: the navbar controls scale with the text-size setting', () => {
   const css = HTML.slice(HTML.indexOf('<style'), HTML.indexOf('</style>'));
-  ['#navbar #navBack', '.navregion'].forEach((s) => {
+  ['#navbar #navBack'].forEach((s) => {
     const m = css.match(new RegExp('(^|[\\s}])' + s.replace(/[.#*]/g, '\\$&') + '\\s*\\{([^}]*)\\}'));
     assert.ok(m, 'expected a rule for ' + s);
     assert.match(m[2], /width:\s*calc\(\s*\d+px\s*\*\s*var\(--s\)\s*\)/,
@@ -43575,9 +43946,162 @@ test('F501-F510 Stakeout always shows details, merges history, and keeps Notes i
   assert.doesNotMatch(hydrate, /!hasCommentButton/);
 });
 
-test('F1491 busy-place history finds five recent matches in bounded explicit batches without repeat reads',
+test('F1501 actual busy SSHA flow recovers all seven accessible reports and retains flat/cached consumers',async()=>{
+  const stamp=recentObsStamp(1,8),positions=new Set([3,7,9,21,22,41,42]);
+  const summaries=Array.from({length:64},(_,i)=>({subId:'S1501-'+i,obsDt:stamp,locId:'L1506828'}));
+  const primary={speciesCode:'shshaw',comName:'Sharp-shinned Hawk',locName:'North Creek Park',
+    locId:'L1506828',lat:47.86,lng:-122.24,obsDt:stamp,subId:'S1501-7',obsValid:true,howMany:1};
+  const app=await boot({fetch(url){
+    if(/recent\/shshaw/.test(url))return [primary];
+    if(/product\/lists\/L1506828/.test(url))
+      return new URL(url).searchParams.get('maxResults')==='12'?summaries.slice(0,12):summaries;
+    return /api\.ebird\.org/.test(url)?[]:null;
+  }});
+  try{
+    const A=app.window.__app;
+    for(const [i,row] of summaries.entries())A.seedChecklistView(row.subId,
+      {...row,obs:positions.has(i)?[{speciesCode:'shshaw',howMany:1}]:[]});
+    installSpuhFixture(app);
+    await A.lookupSpecies('shshaw','Sharp-shinned Hawk');
+    A.setSpeciesLookupWithinChase(false);
+    const list=()=>app.document.querySelector('.stakeoutPlaceChecklists');
+    assert.ok(list().children.length>=1,'useful primary evidence paints before progressive recovery finishes');
+    await waitFor(()=>list().children.length===7
+      && /checked 64 recent/.test(app.$('spLookupRecent').textContent),
+      'automatic recovery scans all actual recent candidates')
+      .catch(error=>assert.fail(error.message));
+    assert.equal(app.document.querySelector('.stakeoutLoadMoreHistory'),null);
+    const sourceCalls=()=>app.state.fetches.filter(url=>/product\/lists\/L1506828/.test(url));
+    assert.equal(sourceCalls().length,2,'small useful read then one expanded summary source');
+    const evidenceCalls=()=>app.state.fetches.filter(url=>/api\.ebird\.org/.test(url)).length;
+    const before=evidenceCalls();
+    A.setSpeciesLookupGrouped(false);
+    assert.equal(app.$('spLookupRecent').querySelectorAll('[data-ev-sub]').length,7,
+      'actual flat consumer must retain acquired history, not return to the collapsed primary report');
+    A.setSpeciesLookupGrouped(true);A.renderSpeciesLookup();
+    await waitFor(()=>list().children.length===7,'cached grouped redraw');
+    assert.equal(evidenceCalls(),before,'verified redraw performs no observation/checklist acquisition');
+    A.setSpeciesLookupGrouped(false);
+    await A.lookupSpecies('shshaw','Sharp-shinned Hawk');
+    assert.equal(app.$('spLookupRecent').querySelectorAll('[data-ev-sub]').length,7,
+      'a newly built flat projection restores verified cached history too');
+    assert.equal(evidenceCalls(),before);
+    assert.deepEqual(app.state.errors,[]);
+  }finally{app.window.close();}
+});
+
+test('F1501 capped recent sources continue through documented dates, retain partial success and retry unavailable details',async()=>{
+  const stamp=recentObsStamp(1,8),locId='L1501CAP';
+  const summaries=Array.from({length:202},(_,i)=>({subId:'S1502'+String(i).padStart(3,'0'),obsDt:stamp,locId}));
+  const primary={speciesCode:'shshaw',comName:'Sharp-shinned Hawk',locName:'Busy Public Park',
+    locId,lat:47.86,lng:-122.24,obsDt:stamp,subId:summaries[3].subId,howMany:1};
+  const day=new Date();day.setDate(day.getDate()-1);
+  const datePath='/'+[day.getFullYear(),day.getMonth()+1,day.getDate()].join('/')+'?';
+  const app=await boot({fetch(url){
+    if(/recent\/shshaw/.test(url))return [primary];
+    if(url.includes('product/lists/'+locId+'/')){
+      app.window.__app.fgSchedReset(app.window.Date.now());
+      return url.includes(datePath)?summaries.slice(200).concat(summaries.slice(0,198)):[];
+    }
+    if(url.includes('product/lists/'+locId))
+      return new URL(url).searchParams.get('maxResults')==='12'?summaries.slice(0,12):summaries.slice(0,200);
+    return /api\.ebird\.org/.test(url)?[]:null;
+  }});
+  try{
+    const A=app.window.__app;
+    for(const [i,row] of summaries.entries()){
+      const detail={...row,obs:i===3||i>=200?[{speciesCode:'shshaw',howMany:1}]:[]};
+      if(i<6&&i!==3)detail.obs=[{speciesCode:'shshaw',howMany:1}];
+      if(i===0)detail.locationPrivate=true;
+      if(i===1)detail.locId='LOTHER';
+      if(i===2)detail.obsDt='2020-01-01 08:00';
+      if(i===4)Object.assign(detail.obs[0],{obsReviewed:true,obsValid:false});
+      if(i===5)detail.obs[0].obsSensitive=true;
+      if(i===201)delete detail.obs;
+      A.seedChecklistView(row.subId,detail);
+    }
+    installSpuhFixture(app);
+    await A.lookupSpecies('shshaw','Sharp-shinned Hawk');
+    A.setSpeciesLookupWithinChase(false);
+    const root=app.$('spLookupRecent'),list=()=>root.querySelector('.stakeoutPlaceChecklists');
+    await waitFor(()=>/\b0 pending/.test(root.textContent)
+      && /1 candidate\/source reads unavailable/.test(root.textContent),'all documented date sources settle')
+      .catch(error=>assert.fail(error.message));
+    assert.deepEqual([...list().querySelectorAll('[data-ev-sub]')].map(r=>r.dataset.evSub).sort(),
+      [summaries[3].subId,summaries[200].subId].sort(),
+      'an inaccessible candidate cannot erase successful matches; exact initial-pass guards still apply');
+    assert.match(root.textContent,/dated source also reached its limit; coverage remains incomplete/);
+    assert.match(root.textContent,/do not establish a complete census/);
+    const dates=app.state.fetches.filter(url=>url.includes('product/lists/'+locId+'/'));
+    assert.equal(dates.length,31,'the complete selected rolling window uses documented daily location routes');
+    assert.ok(dates.every(url=>/\/\d{4}\/\d{1,2}\/\d{1,2}\?/.test(url)
+      &&new URL(url).searchParams.get('sortKey')==='obs_dt'));
+    const before=app.state.fetches.length;
+    A.seedChecklistView(summaries[201].subId,{...summaries[201],obs:[{speciesCode:'shshaw',howMany:1}]});
+    app.click(root.querySelector('.stakeoutLoadMoreHistory'));
+    await waitFor(()=>list().children.length===3&&!root.querySelector('.stakeoutLoadMoreHistory'),
+      'explicit retry adds the previously unavailable verified report')
+      .catch(error=>assert.fail(error.message));
+    assert.equal(app.state.fetches.length,before,'retry reuses returned summary/date pools');
+    assert.equal(new Set([...list().querySelectorAll('[data-ev-sub]')].map(r=>r.dataset.evSub)).size,3);
+    assert.deepEqual(app.state.errors,[]);
+  }finally{app.window.close();}
+});
+
+test('F1501 retained loading reconciles navigation and cancellation without reviving obsolete details',async()=>{
+  for(const change of ['navigation','cancel']){
+    const stamp=recentObsStamp(1,8),locId='L1501OWNER';
+    const primary={speciesCode:'shshaw',comName:'Sharp-shinned Hawk',locName:'Retained Public Park',
+      locId,lat:47.86,lng:-122.24,obsDt:stamp,subId:'S1501OWNER0',howMany:1};
+    const old={subId:'S1501OWNER1',obsDt:stamp,locId},fresh={...old,subId:'S1501OWNER2'};
+    const initial=[primary,old,...Array.from({length:10},(_,i)=>({...old,subId:'S1501OWNEREXTRA'+i}))];
+    let release,reads=0;
+    const app=await boot({fetch(url){
+      if(/recent\/shshaw/.test(url))return [primary];
+      if(url.includes('product/lists/'+locId))return ++reads===1?initial:[primary,fresh];
+      if(url.includes('product/checklist/view/'+old.subId))
+        return new Promise(resolve=>{release=resolve;});
+      return /api\.ebird\.org/.test(url)?[]:null;
+    }});
+    try{
+      const A=app.window.__app;
+      A.seedChecklistView(primary.subId,{...primary,obs:[{speciesCode:'shshaw'}]});
+      A.seedChecklistView(fresh.subId,{...fresh,obs:[{speciesCode:'shshaw'}]});
+      initial.slice(2).forEach(row=>A.seedChecklistView(row.subId,{...row,obs:[]}));
+      installSpuhFixture(app);
+      await A.lookupSpecies('shshaw','Sharp-shinned Hawk');
+      await waitFor(()=>release,'held obsolete checklist detail');
+      const slot=app.document.querySelector('.stakeoutPlaceHistory');
+      assert.equal(slot.getAttribute('data-loading'),'1');
+      const owner=slot.getAttribute('data-history-owner');
+      if(change==='navigation'){
+        A.showSection('settingsPanel',{load:false});
+        A.showSection('sec-spLookupBtn',{load:false});
+      }else{
+        A.fgCancelAll('Offline history cancellation fixture');
+        A.renderSpeciesLookup();
+      }
+      assert.notEqual(slot.getAttribute('data-history-owner'),owner,'retained loading must acquire a new owner');
+      await waitFor(()=>slot.hasAttribute('data-done')&&!slot.hasAttribute('data-loading')
+        && app.document.querySelector('[data-ev-sub="'+fresh.subId+'"]'),
+        'retained slot accepts fresh work instead of remaining stuck');
+      assert.equal(reads,2,'a fresh owner can expand the retained summary pool');
+      const rows=()=>[...app.document.querySelectorAll('.stakeoutPlaceChecklists [data-ev-sub]')]
+        .map(row=>row.dataset.evSub).sort();
+      assert.deepEqual(rows(),[primary.subId,fresh.subId].sort());
+      const status=slot.textContent;
+      release({...old,obs:[{speciesCode:'shshaw',howMany:99}]});
+      await new Promise(resolve=>setTimeout(resolve,50));
+      assert.deepEqual(rows(),[primary.subId,fresh.subId].sort(),'obsolete detail cannot append to the new owner');
+      assert.equal(slot.textContent,status,'obsolete settlement cannot replace current status');
+      assert.deepEqual(app.state.errors,[]);
+    }finally{if(release)release({...old,obs:[]});app.window.close();}
+  }
+});
+
+test('F1491/F1501 busy-place history finds five recent matches in progressive bounded batches without repeat reads',
   {timeout:180000},async()=>{
-    const stamp=recentObsStamp(0,8),matches=new Set([1,8,16,21,26]),requests=[];
+    const stamp=recentObsStamp(1,8),matches=new Set([1,8,16,21,26]),requests=[];
     const summaries=Array.from({length:36},(_,i)=>({subId:'S1491-'+i,obsDt:stamp,locId:'L1491BUSY'}));
     summaries.splice(8,0,{...summaries[8]});
     summaries.push({subId:'S1491-OLD',obsDt:recentObsStamp(40,8),locId:'L1491BUSY'});
@@ -43601,27 +44125,23 @@ test('F1491 busy-place history finds five recent matches in bounded explicit bat
             ?[{speciesCode:'amepip',howMany:1,obsSensitive:i===35}]:[]});
       }
       installSpuhFixture(app);
+      const checkpoints=[];
+      const observer=new app.window.MutationObserver(()=>{
+        const status=app.document.querySelector('.stakeoutHistoryStatus');
+        const match=status&&/checked (\d+) recent/.exec(status.textContent);
+        if(match&&checkpoints.at(-1)!==+match[1])checkpoints.push(+match[1]);
+      });
+      observer.observe(app.$('spLookupRecent'),{childList:true,subtree:true});
       await A.lookupSpecies('amepip','American Pipit');
-      await waitFor(()=>app.document.querySelector('.stakeoutPlaceHistory[data-done]'),'initial bounded scan',110000);
+      await waitFor(()=>/checked 36 recent/.test(app.$('spLookupRecent').textContent),
+        'progressive bounded scans exhaust available candidates',110000);
+      observer.disconnect();
       const slot=app.document.querySelector('.stakeoutPlaceHistory');
       const list=slot.closest('.stakeoutPlaceDetails').querySelector('.stakeoutPlaceChecklists');
-      assert.equal(list.children.length,1,'the quick scan cannot silently widen its six-candidate bound');
-      assert.equal(requests.length,1);
+      assert.equal(list.children.length,5,'progression must not stop at the old first-six limit');
       assert.match(requests[0],/maxResults=12$/);
-      for(const [checked,count]of [[18,3],[30,5],[36,5]]){
-        const more=slot.querySelector('.stakeoutLoadMoreHistory');
-        assert.ok(more,'remaining recent candidates need an explicit continuation');
-        more.focus();
-        app.click(more);
-        await waitFor(()=>!slot.hasAttribute('data-loading')&&!slot.hasAttribute('data-queued'),
-          'manual history batch',110000);
-        assert.match(slot.textContent,new RegExp('checked '+checked+' recent checklists'),
-          'each action must inspect at most twelve new unique recent candidates');
-        assert.equal(list.children.length,count);
-        assert.equal(new Set([...list.children].map(row=>row.dataset.evSub)).size,count);
-        assert.equal(app.document.activeElement,slot.querySelector('.stakeoutLoadMoreHistory')
-          ||slot.querySelector('.stakeoutHistoryStatus'),'manual continuation must retain keyboard focus');
-      }
+      assert.deepEqual(checkpoints,[6,18,30,36],'first paint stays bounded at six, later batches at twelve');
+      assert.equal(new Set([...list.children].map(row=>row.dataset.evSub)).size,5);
       assert.equal(requests.length,2,'manual batches reuse the expanded summary pool');
       assert.match(requests[1],/maxResults=200$/);
       assert.equal(slot.querySelector('.stakeoutLoadMoreHistory'),null);
@@ -43631,14 +44151,16 @@ test('F1491 busy-place history finds five recent matches in bounded explicit bat
         'wrong-place, private checklist and sensitive observation matches cannot enter the public extension');
       const before=requests.length;
       A.renderSpeciesLookup();
-      await waitFor(()=>app.document.querySelector('.stakeoutPlaceHistory[data-done]'),'expanded cached history');
+      await waitFor(()=>app.document.querySelector('.stakeoutPlaceHistory[data-done]'),
+        'expanded cached history remains physically reachable after redraw')
+        .catch(error=>assert.fail(error.message));
       assert.equal(app.document.querySelector('.stakeoutPlaceChecklists').children.length,5);
       assert.equal(requests.length,before,'rerendering must retain expanded matches without source requests');
     }finally{app.window.close();}
 });
 
 test('F1491 failed or obsolete manual history retains proven rows and remains retryable',async()=>{
-  const stamp=recentObsStamp(0,8),summaries=Array.from({length:8},(_,i)=>({
+  const stamp=recentObsStamp(1,8),summaries=Array.from({length:8},(_,i)=>({
     subId:'S1491RETRY-'+i,obsDt:stamp,locId:'L1491RETRY'}));
   let fail=true,release;
   const app=await boot({fetch(url){
@@ -43658,18 +44180,15 @@ test('F1491 failed or obsolete manual history retains proven rows and remains re
       ...row,obs:row.subId.endsWith('-0')?[{speciesCode:'amepip'}]:[]});
     installSpuhFixture(app);
     await A.lookupSpecies('amepip','American Pipit');
-    await waitFor(()=>app.document.querySelector('.stakeoutPlaceHistory[data-done]'),'initial retry fixture scan');
+    await waitFor(()=>/1 candidate\/source reads unavailable/.test(app.$('spLookupRecent').textContent),
+      'partial failure remains retryable',110000);
     const slot=app.document.querySelector('.stakeoutPlaceHistory');
     const list=slot.closest('.stakeoutPlaceDetails').querySelector('.stakeoutPlaceChecklists');
+    assert.equal(list.children.length,1,'failed extra history cannot remove existing evidence');
+    assert.match(slot.textContent,/Returned sources do not establish a complete census/);
+    fail=false;
     slot.querySelector('.stakeoutLoadMoreHistory').focus();
     app.click(slot.querySelector('.stakeoutLoadMoreHistory'));
-    await waitFor(()=>slot.querySelector('.stakeoutLoadHistory'),'honest manual failure',110000);
-    assert.equal(list.children.length,1,'failed extra history cannot remove existing evidence');
-    assert.match(slot.textContent,/not evidence that no other reports exist/);
-    assert.equal(app.document.activeElement,slot.querySelector('.stakeoutLoadHistory'),
-      'failed manual history must move keyboard focus to Retry');
-    fail=false;
-    app.click(slot.querySelector('.stakeoutLoadHistory'));
     await waitFor(()=>release,'manual history retry');
     const next=A.lookupSpecies('solsan','Solitary Sandpiper');
     release({...summaries[6],obs:[{speciesCode:'amepip'}]});
@@ -43681,7 +44200,7 @@ test('F1491 failed or obsolete manual history retains proven rows and remains re
 });
 
 test('F1491 known large checklist sets offer manual history without eager acquisition',async()=>{
-  const stamp=recentObsStamp(0,8),requests=[];
+  const stamp=recentObsStamp(1,8),requests=[];
   const summaries=Array.from({length:12},(_,i)=>({subId:'S1491KNOWN-'+i,obsDt:stamp,locId:'L1491KNOWN'}));
   const app=await boot({fetch(url){
     if(/recent\/amepip/.test(url))return summaries.slice(0,10).map(row=>({...row,
@@ -43709,7 +44228,7 @@ test('F1491 known large checklist sets offer manual history without eager acquis
 test('F1215 Stakeout history reconciles four plus two reports and discloses genuinely hidden matches',
   { timeout: 180000 }, async () => {
     for (const additions of [2, 6]) {
-      const stamp = todayFixtureDate() + ' 08:00';
+      const stamp = recentObsStamp(1,8);
       const initial = Array.from({ length: 4 }, (_, i) => ({
         speciesCode: 'amepip', comName: 'American Pipit', locName: 'Pipit patch',
         locId: 'L1', lat: 47.75, lng: -122.16, obsDt: stamp,
@@ -69160,7 +69679,7 @@ test('F189: the county picker says what it is, on screen', async () => {
 
   // The default option is a STATE, not a list of the data.
   assert.equal(label.textContent,'County','the visible heading names the choice level');
-  assert.match(app.$('regionChooserCountyCurrent').textContent,/Whole region; no county view selected/,
+  assert.match(app.$('regionChooserCountyCurrent').textContent,/All counties: no county view selected/,
     'the current state must answer whether the list is filtered');
   assert.match(sel.querySelector('summary').textContent,/All counties/,
     'the collapsed list is visibly named, not a list of seed counties');

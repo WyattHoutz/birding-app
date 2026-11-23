@@ -148,7 +148,7 @@
       ]
     },
     "rankBtn": {
-      "introduction": "eBird's Top 100 lists the leading birders in an area by species or checklists. This menu shows those rankings and your position when your profile is available.",
+      "introduction": "Your standing plus the full Top 100 board for the region you're birding, and how your rank has moved since you started tracking. Switch regions from the nav, or pick a county board here.",
       "report": "## 🏆 Top 100 — Leaderboard",
       "summary": "Your standing on the region's eBird Top 100, plus the board itself.",
       "inputs": [
@@ -161,7 +161,7 @@
         "\"of N eBirders\" comes from a separate endpoint that needs eBird's own web token, scraped from the site bundle.",
         "The app records one successful owner-rank snapshot per day, separated by region, period, metric, profile and identity revision because eBird cannot re-serve a past board.",
         "Season best is the lowest valid rank in those on-device snapshots. If that rank was reached more than once, the card names the first date it was reached.",
-        "The compact target tables remain at the top on both toggles and are explicitly Species targets, using only the Species source and a verified eBird profile ID. They show five returned birders above and below you, same-board gaps, the next-higher tie/exceed target, an available Top 100 cutoff and how many higher returned rows five more species would exceed. Missing identity offers Verify my eBird profile; missing or gapped coverage remains unavailable.",
+        "Your ladder and the five returned birders above and below you use the selected Species or Checklists leaderboard, its official ranks and its own count field. Score gaps, milestone costs and the live next-step explanation follow that same board without another read. A missing selected board is unavailable, never replaced by the other metric. Missing identity offers Verify my eBird profile; missing or gapped coverage remains explicit.",
         "Species retains up to 500 returned rows from the existing 500-result request, reusing its daily account-owned cache with Leaderboard Ticks and joining duplicate in-flight reads. The main Top 100 board stays limited to its existing presentation.",
         "Latest-bird images are 56px before display scaling and sit immediately left of the bird name, not in the rank column."
       ],
@@ -562,11 +562,12 @@
         "The hierarchy information button explains the starred notation, preserves the selected spuh's generated definition, and keeps taxonomy and example-image source boundaries out of the primary result.",
         "Candidate birds are split into Recently reported and Other regional candidates. The regional feed proves only recent presence, so rows say RECENT or REGIONAL LIST and never invent per-species report counts or a most-reported ranking.",
         "Selecting a candidate replaces the search field with that bird's name and removes the now-redundant spuh result before painting the bird's normal map, recent-hotspot evidence and bird hierarchy. Clicking the source-spuh chip in the concise hierarchy reopens the candidate result when a different bird is needed.",
-        "Observations are grouped to one shared HotspotCards.small row per location, keeping that place's most recent checklist, count and evidence.",
+        "Group keeps independent public hotspots separate. Sublocations at the same named venue may share a place card; nearby private or custom locations stay explicitly labelled supporting evidence and cannot join otherwise independent public anchors.",
         "Reachable shows only physically reachable places: inside the chase radius, in the report's target counties, public, and not pelagic, offshore, open-water or a named ocean basin. It sorts those places newest first. Distance sorts every regional place from nearest to farthest, including evidence hidden from Reachable. The loaded sightings summary names the active view inside the selected bird card after its selected personal-list state, including unknown history.",
         "The first five places paint immediately. Show more places appends the next batch into the same list without refetching, nesting a second list or accepting a stale control from an older species lookup.",
-        "In the flat Recent Checklists view, a row's printed number matches its public map pin, not its checklist ordinal. Multiple checklists at the same place share a number. Private places or missing coordinates say No public pin; they never receive an invented map location. Ten-row expansion, date/distance sorting, radius filtering and Group switches update rows and pins together.",
-        "Viewport-near public hotspots automatically check up to six recent checklist summaries for this bird, one place at a time through shared background pacing. Known matching reports appear without a tap, with zero/one/multiple additional-match counts and the checked budget. Private locations are excluded; failed reads remain explicit and retryable, never absence. Cached successful evidence is reused and obsolete navigation cannot append.",
+        "Turning Group off shows individual Recent Checklists and hides the map. Grouped public places share their labelled map locality; private places or missing coordinates never receive an invented public destination. Ten-row expansion, date/distance sorting, radius filtering and Group switches preserve the acquired supporting evidence.",
+        "Viewport-near public hotspots first check six recent checklist candidates, then continue automatically in batches of twelve through shared background pacing, with no fixed matching-report limit. Already-large known sets retain an explicit Find more reports action. Each pass discloses its checked budget, pending work and unavailable reads; Retry unavailable reports revisits failed candidates without discarding successful evidence. Private locations are excluded, successful history survives grouped/flat redraws, and obsolete navigation or cancelled work cannot append.",
+        "When the 200-summary recent source is capped, recovery checks documented daily location sources across the selected thirty-day window. Exact species, public location, observation date and review checks still apply. A capped daily source, failed read or unverified candidate remains an explicit coverage limitation, never a claim that no other reports exist.",
         "A Mega-launched lookup still renders exactly one medium species card. Mega evidence is prepended inside that card while the ordinary place list, map, date/distance/iconic controls, arrival note and unwatched-place lane continue below it.",
         "An honestly empty active-region sightings result keeps the Mega evidence visible rather than replacing it with an empty-state message.",
         "Back returns to the source Mega list only if its report/region/SID/scope/generation key is still current; otherwise it returns to Contents.",
@@ -580,6 +581,7 @@
         "Absence is an answer, not an error — no rows means it is not being reported right now, which is exactly what you asked.",
         "The name lookup can identify a bird outside the region, but the sightings answer remains scoped to the active report. A fallback match may therefore lead to the honest answer that there are no local reports in the active window.",
         "The per-species feed returns only the most recent report at each place. One row per place is the endpoint's limit, not the bird's full history; repeated visits at the same place may be omitted.",
+        "Checklist recovery covers accessible returned candidates, not a complete census. Source caps, unavailable or private checklists and unverifiable records can leave coverage incomplete; no undocumented pagination or guessed checklist identifiers are used.",
         "Mega context is transient and exact-code only. Ordinary search and generic species links clear it, so rarity evidence cannot attach to a different bird.",
         "The spuh answer proves taxonomy containment, not that the field identification is correct. It is safe only if every plausible species was selected.",
         "Seventy-nine labels are shown with a dashed Coverage limit warning and are never selected automatically: 73 parenthetical glosses whose narrower membership is not published (58 share coverage with another spuh and 15 are lone labels), five named subfamilies, and the mixed Buteo/eagle group."
@@ -618,6 +620,8 @@
         "nearest-species reports for additional places, in batches of seven discovered eligible birds"
       ],
       "how": [
+        "Easy Targets shows the ten most common unseen or explicitly WATCH birds first, in a numbered paragraph. Each name opens that species in Stakeout Birds. WATCH uses the same verification tag as other targets; already-recorded, unwatched birds are excluded and unknown unseen membership is withheld.",
+        "Easy Targets ranks the acquired seven-day public sample by distinct hotspot and observation-date pairs, with sampled-day frequency and species name as tie-breakers. This counts site-days, not individual birds or encounter probability. It uses the selected area and straight-line radius. Show more uses only already-acquired evidence.",
         "One entry means one countable needed bird at one source-supported public hotspot. Different hotspots remain separate, even when their names match. Repeat source checklists are retained in that entry instead of creating duplicate targets.",
         "Apply the selected radius and source-supported personal-list region before aggregating evidence. Unknown membership is withheld; explicit Needs proof and Watch exceptions retain their labels.",
         "Newest sorts all bird/place entries by source observation time. Nearest sorts by that hotspot's straight-line distance. Neither sort refetches observations.",
