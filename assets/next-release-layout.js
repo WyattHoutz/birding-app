@@ -39,11 +39,14 @@ async function nextReleaseLayout(scan, mutation, focus) {
     await paint();
     const current=document.querySelector('#regionChooserCurrent button');
     if(mutation==='selected-enabled')current.disabled=false;
+    if(mutation==='selected-font')current.style.fontFamily='Arial';
+    if(mutation==='selected-short') { current.style.minHeight='0';current.style.height='28px'; }
     check(current?.disabled&&current.getAttribute('aria-current')==='true'
       && /✅ Selected:/.test(current.textContent),'F1499 selected state must be explicit and natively disabled');
     const selected=current.getBoundingClientRect();
     check(selected.height>=43.5&&selected.width>=43.5
-      && selected.left>=0&&selected.right<=innerWidth+.5,'F1499 current selection must remain readable');
+      && selected.left>=0&&selected.right<=innerWidth+.5,'F1499 current selection must remain readable: '
+        +JSON.stringify(selected.toJSON()));
     const body=document.getElementById('regionChooserBody');
     check([...body.querySelectorAll(':scope > section > h3')].map(h=>h.textContent).join('|')
       ==='Current region|Recent regions|Major Regions|States, provinces and territories|County',
