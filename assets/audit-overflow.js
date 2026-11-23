@@ -1344,7 +1344,8 @@ const AUDIT = `<script>
       try {
         out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture));
         if (${process.env.AUDIT_COMPOSE_APPROVED === '1'}) {
-          A.applyCapturedIdentity({status:'missing'});
+          A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder',
+            profileId:'representative-owner'});
           await approvedReleaseRegression(out);
         }
       }
@@ -3499,8 +3500,8 @@ const AUDIT = `<script>
     readingResult.measurements = measurements;
     out.push(readingResult);
     var sourceRows = [
-      {locId:'L1029-A',locName:'Public source Alpha',lat:47.8,lng:-122.16},
-      {locId:'L1029-B',locName:'Public source Beta with a longer location name',lat:47.801,lng:-122.161},
+      {locId:'L1029-A',locName:'Representative Park -- public source Alpha',lat:47.8,lng:-122.16},
+      {locId:'L1029-B',locName:'Representative Park -- public source Beta with a longer location name',lat:47.801,lng:-122.161},
       {locId:'P1029-A',locName:'Private source one',lat:47.802,lng:-122.162,locationPrivate:true},
       {locId:'P1029-B',locName:'Private source two',lat:47.803,lng:-122.163,locationPrivate:true},
       {locId:'P1029-C',locName:'Private source two',lat:47.803,lng:-122.163,locationPrivate:true}

@@ -258,7 +258,8 @@ async function rankClimbLayout(scan, mutation) {
     const section=document.getElementById('sec-rankBtn'), info=section.querySelector('.sectiondoc');
     if(info.hidden)section.querySelector('.docbtn').click();
     const deadline=performance.now()+4000;
-    while(!info.querySelector('.rankclimb-next') && performance.now()<deadline) {
+    while(!info.querySelector('.rankclimb-next')?.textContent.includes('545-checklist group at #2')
+        && performance.now()<deadline) {
       await new Promise(resolve=>setTimeout(resolve,50));
     }
     check(document.querySelector('.rankclimb .current .rankclimb-number').textContent==='#3',
@@ -269,7 +270,11 @@ async function rankClimbLayout(scan, mutation) {
     check(info.querySelector('.rankclimb-next')
       && info.querySelector('.rankclimb-next').textContent.includes('545-checklist group at #2')
       && info.querySelector('.rankclimb-next').getBoundingClientRect().width>0,
-      'F1496 live checklist next step is rendered in Info',{});
+      'F1496 live checklist next step is rendered in Info',{
+        next:info.querySelector('.rankclimb-next')?.textContent,
+        width:info.querySelector('.rankclimb-next')?.getBoundingClientRect().width,
+        infoHidden:info.hidden,sectionHidden:section.hidden,open:info.dataset.open
+      });
     document.querySelectorAll('.rankclimb-cost,.ranknearby th,.rankclimb-next').forEach(node=>{
       const range=document.createRange();range.selectNodeContents(node);
       check(Array.from(range.getClientRects()).every(rect=>rect.left>=-.5 && rect.right<=innerWidth+.5),

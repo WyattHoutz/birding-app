@@ -140,8 +140,12 @@ async function preparePersonalFixture(A, window, seen, taxa = [], includeLife = 
     + seen.yearList.map(row => '<li><a href="/species/' + row.code + '">'
       + row.name + '</a></li>').join('') + '</main></body></html>';
   const originalFetch = window.fetch;
+  const profileId = (A.getIdentityMeta() || {}).profileId;
   window.fetch = function (request, options) {
-    return String(request) === url
+    return String(request) === 'https://ebird.org/profile' && profileId
+      ? Promise.resolve({ ok: true, url: 'https://ebird.org/profile/' + profileId,
+        text: () => Promise.resolve('<!doctype html><html><body></body></html>') })
+      : String(request) === url
       ? Promise.resolve({ ok: true, text: () => Promise.resolve(html) })
       : includeLife && String(request) === lifeUrl
       ? Promise.resolve({ ok: true, text: () => Promise.resolve(html.replace(

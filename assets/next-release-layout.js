@@ -251,6 +251,8 @@ async function nextReleaseLayout(scan, mutation, focus) {
         return new Promise(resolve=>held.push({metric,max:query.get('maxResults'),resolve}));
       };
       A.showSection('sec-rankBtn',{load:false});
+      const speciesMetric=document.querySelector('[data-rank-metric="spp"]');
+      if (speciesMetric && speciesMetric.getAttribute('aria-pressed')!=='true') speciesMetric.click();
       load=A.loadRankings(true);
       await until(()=>held.some(r=>r.metric==='cl'),'pending Checklists source');
       await paint(); usable();

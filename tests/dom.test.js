@@ -20733,6 +20733,8 @@ test('F830 gallery personal fixture qualifies real Twitches controls and preserv
     storage:{ebird_display_name:'Sample Birder'} });
   const A = app.window.__app;
   const { preparePersonalFixture } = require('../assets/mockups.js');
+  A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder',
+    profileId:'fixture-gallery-owner'});
   const originalFetch = app.window.fetch;
   assert.equal(A.personalListEvidence().complete, false);
   await preparePersonalFixture(A, app.window, {yearList:[
@@ -20741,6 +20743,7 @@ test('F830 gallery personal fixture qualifies real Twitches controls and preserv
   assert.equal(app.window.fetch, originalFetch, 'temporary fixture transport must restore');
   assert.equal(A.personalListEvidence().complete, true);
   assert.equal(A.personalListEvidence().count, 1);
+  assert.equal(A.getIdentityMeta().profileId, 'fixture-gallery-owner');
   const profile = A.chaseProfile();
   seedCompleteNotableChase(app, {'king-notable.json':[
       {speciesCode:'shtsan',comName:'Sharp-tailed Sandpiper',
