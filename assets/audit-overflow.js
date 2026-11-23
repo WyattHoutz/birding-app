@@ -4827,7 +4827,8 @@ const AUDIT = `<script>
   }
   async function refreshHitRegression(out) {
     var A = window.__app, navigation = document.getElementById('navRegion');
-    var originalLabel = navigation.textContent;
+    var originalLabel = navigation.getAttribute('aria-label'), originalTitle = navigation.title;
+    var originalMarkup = navigation.innerHTML;
     var originalScale = document.documentElement.style.getPropertyValue('--s');
     var originalA11y = document.documentElement.dataset.a11y;
     var originalWidth = window.frameElement.style.width;
@@ -4840,7 +4841,10 @@ const AUDIT = `<script>
       for (var refresh of panels) {
         var sec = refresh.closest('section');
         A.showSection(sec.id, {load:false});
-        navigation.textContent = label;
+        navigation.setAttribute('aria-label', label);
+        navigation.title = label;
+        if (navigation.innerHTML !== originalMarkup)
+          throw new Error('F1502 scope metadata must preserve the compact globe');
         window.scrollTo(0, 0);
         await new Promise(function (resolve) { requestAnimationFrame(resolve); });
         var rect = refresh.getBoundingClientRect();
@@ -4903,7 +4907,8 @@ const AUDIT = `<script>
       if (!mutant.length) throw new Error('F1140 oversized transparent header mutation was not detected');
     } finally {
       override.remove();
-      navigation.textContent = originalLabel;
+      navigation.setAttribute('aria-label', originalLabel);
+      navigation.title = originalTitle;
       window.frameElement.style.width = originalWidth;
       document.documentElement.style.setProperty('--s', originalScale);
       document.documentElement.dataset.a11y = originalA11y;
