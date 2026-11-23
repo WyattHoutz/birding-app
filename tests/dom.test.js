@@ -39611,7 +39611,7 @@ test('F10: the navbar back control is icon-only but keeps its accessible name', 
     'shrinking the control must not unwire it - it still returns to Contents');
 });
 
-test('F10/F728/F1502: compact navbar globe preserves chooser, context and main-menu year controls', async () => {
+test('F10/F728/F1502: compact year-region link preserves chooser, context and main-menu year controls', async () => {
   const app = await boot();
   try {
   const sel = app.$('navRegion');
@@ -39620,22 +39620,28 @@ test('F10/F728/F1502: compact navbar globe preserves chooser, context and main-m
     'the navbar must open the shared chooser rather than the undiscoverable native wheel');
   const A=app.window.__app,period=app.$('hdrPeriod');
   const context=()=>[A.bcProfile(),A.activeScope().cacheIdentity,A.personalPeriod()].join('|');
-  for (const [report,county,time] of [['wa','','current'],['wa','US-WA-033','all'],['','','current']]) {
+  const year=String(new app.window.Date().getFullYear()).slice(-2);
+  for (const [report,county,time] of [
+    ['wa','','current'],['wa','US-WA-033','current'],['wa','US-WA-033','all'],['wa','','all'],
+    ['lower48','','all'],['','','current']
+  ]) {
     A.setActiveReport(report); A.setCountyView(county); A.setPersonalPeriod(time);
     app.open(/Settings/);
     const before=context();
     assert.equal(app.$('navPeriod'),null,'section navbar has no year button');
     assert.equal(app.document.querySelectorAll('#navbar .hdrscope').length,0,
       'the wide labelled pair must not return to section headers');
-    assert.equal(sel.textContent.trim(),'\u{1F30E}','the visible control is only the compact globe');
-    assert.equal(sel.querySelector('.navregionicon').getAttribute('aria-hidden'),'true');
+    assert.equal(sel.textContent,(time==='all'?'All':year)+' '+(county||
+      (report==='lower48'?'LOWER48':report?'US-WA':'Region')),
+      'one compact text link shows the two-digit year/All and effective region code');
+    assert.equal(sel.querySelector('.navregionicon'),null,'the superseded globe must not return');
     assert.match(sel.getAttribute('aria-label'),report?/Scope:/:/Choose report region/);
     if (report) assert.equal(sel.getAttribute('aria-label'),app.$('hdrScope').getAttribute('aria-label'));
     sel.focus();
     app.click(sel);
-    assert.equal(app.$('regionChooser').hidden,false,'globe opens the existing shared chooser');
+    assert.equal(app.$('regionChooser').hidden,false,'year-region link opens the existing shared chooser');
     app.click(app.$('regionChooserClose'));
-    assert.equal(app.document.activeElement,sel,'dismissal restores the compact globe focus');
+    assert.equal(app.document.activeElement,sel,'dismissal restores the year-region link focus');
     assert.equal(context(),before,'opening the chooser changes no account, area or period');
   }
   A.setActiveReport('wa');

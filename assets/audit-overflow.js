@@ -4844,7 +4844,7 @@ const AUDIT = `<script>
         navigation.setAttribute('aria-label', label);
         navigation.title = label;
         if (navigation.innerHTML !== originalMarkup)
-          throw new Error('F1502 scope metadata must preserve the compact globe');
+          throw new Error('F1502 scope metadata must preserve the year-region link');
         window.scrollTo(0, 0);
         await new Promise(function (resolve) { requestAnimationFrame(resolve); });
         var rect = refresh.getBoundingClientRect();
