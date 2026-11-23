@@ -1341,7 +1341,10 @@ const AUDIT = `<script>
       return;
     }
     if (${process.env.AUDIT_FOCUS === 'bird-reports'}) {
-      try { out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture)); }
+      try {
+        out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture));
+        if (${process.env.AUDIT_COMPOSE_APPROVED === '1'}) await approvedReleaseRegression(out);
+      }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
       finish(out);
       return;
@@ -3804,12 +3807,10 @@ const AUDIT = `<script>
     var A = window.__app;
     function require(value, message) { if (!value) throw new Error(message); }
     A.setActiveReport('wa'); A.setCountyView('');
-    var owner = A.personalListOwner();
-    localStorage.setItem(A.personalListKey(owner), JSON.stringify({
-      owner:owner,coverage:'complete',declaredCount:1,unresolved:0,paginated:false,
-      codes:['amerob'],rows:[{code:'amerob',name:'American Robin',observedAt:''}],
-      readAt:new Date().toISOString(),readDate:A.todayStr()
-    }));
+    await preparePersonalFixture(A,window,{yearList:[{code:'amerob',name:'American Robin'}]},[
+      {code:'amerob',name:'American Robin'},{code:'bohwax',name:'Bohemian Waxwing'}
+    ]);
+    A.setWatchlist([]);
     var measurements = [];
     function measurePill(host, expectedSides) {
       require(host && host.getBoundingClientRect().width > 0, 'F1051/F1052 visible picker missing');
@@ -5733,7 +5734,9 @@ server.listen(0, '127.0.0.1', () => {
       console.log(JSON.stringify(report.map(r=>({label:r.label,fixtureError:r.fixtureError,
         over:r.over,docScrollW:r.docScrollW,reading:r.birdReportReading,commonTable:r.commonTableGeometry,
         items:r.items,clipped:r.clipped,midword:r.midword,small:r.small,crushed:r.crushed})),null,2));
-      process.exit(report.length===5 && report.some(r=>r.birdReportReading)
+      process.exit(report.length===(process.env.AUDIT_COMPOSE_APPROVED==='1'?9:5)
+        && (process.env.AUDIT_COMPOSE_APPROVED!=='1'||report.some(r=>r.approvedRelease))
+        && report.some(r=>r.birdReportReading)
         && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
           && !['clipped','midword','small','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
     }
