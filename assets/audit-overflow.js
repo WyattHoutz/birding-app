@@ -5719,7 +5719,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     if (process.env.AUDIT_FOCUS === 'bird-reports') {
       console.log(JSON.stringify(report.map(r=>({label:r.label,fixtureError:r.fixtureError,
-        over:r.over,docScrollW:r.docScrollW,reading:r.birdReportReading,
+        over:r.over,docScrollW:r.docScrollW,reading:r.birdReportReading,commonTable:r.commonTableGeometry,
         items:r.items,clipped:r.clipped,midword:r.midword,small:r.small,crushed:r.crushed})),null,2));
       process.exit(report.length===5 && report.some(r=>r.birdReportReading)
         && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5

@@ -4042,12 +4042,15 @@
     }
     #regionChooserUnsupported summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; cursor: pointer; }
     #regionChooserUnsupportedList li { margin-bottom: 8px; }
-    #easyCommonResults table { width: 100%; }
-    #easyCommonResults th, #easyCommonResults td { padding-left: 0; padding-right: 0; }
+    #easyCommonResults table { width: 100%; border-collapse: collapse; }
+    #easyCommonResults th, #easyCommonResults td { padding: 0; }
+    #easyCommonResults td { border-top: 1px solid var(--line); }
     #easyCommonResults th:last-child, #easyCommonResults td:last-child { width: 1%; white-space: nowrap; }
     #easyCommonResults th, #easyCommonResults td { overflow-wrap: anywhere; vertical-align: middle; }
     #easyCommonResults .obs { margin: 0; }
-    #easyCommonResults .splink { display: inline-flex; align-items: center; min-height: 44px; }
+    #easyCommonResults .obs > li { padding: 0; border: 0; }
+    #easyCommonResults .obs .name { min-height: 0; }
+    #easyCommonResults .splink { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
     #easyCommonMore, .stakeoutLoadMoreHistory, .stakeoutLoadHistory { min-height: 44px; min-width: 44px; }
     .regionchoice[aria-current="true"] { border-width: 2px; }
     .quickregions { display: grid; grid-template-columns: minmax(0, 1fr);

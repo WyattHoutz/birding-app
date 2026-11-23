@@ -33,6 +33,26 @@ module.exports = async function birdReportLayout(scan, preview, stage) {
       }
     }
   }
+  function compactTable(host) {
+    var reference=host.querySelector('.obs').cloneNode(true);
+    reference.style.cssText='position:absolute;left:-10000px;visibility:hidden';
+    document.body.appendChild(reference);
+    var font=getComputedStyle(reference.querySelector('.name')).fontSize;
+    reference.remove();
+    var previous,rows=Array.from(host.querySelectorAll('tbody > tr')).map(function(row){
+      var link=row.querySelector('a.splink'),rect=row.getBoundingClientRect();
+      var linkRect=link.getBoundingClientRect();
+      require(rect.height<=linkRect.height+1,'F1492 excess row height: '
+        +rect.height+' versus link '+linkRect.height);
+      if(previous)require(rect.top-previous.bottom<=1,'F1492 excess inter-row gap: '
+        +(rect.top-previous.bottom));
+      require(getComputedStyle(row.querySelector('.name')).fontSize===font,
+        'F1492 compact table shrank the shared species text');
+      previous=rect;
+      return {bird:link.textContent,rowHeight:rect.height,linkHeight:linkRect.height};
+    });
+    return {font:font,rows:rows};
+  }
   A.setActiveReport('wa'); A.setCountyView('');
   A.useFoundAnchor({lat:47.75,lng:-122.16}, 'Representative sample area');
   var owner = A.personalListOwner();
@@ -80,14 +100,18 @@ module.exports = async function birdReportLayout(scan, preview, stage) {
     intactWords(link);
   });
   Array.from(host.querySelectorAll('th')).forEach(intactWords);
-  out.push(scan('F1492 populated common table: first ten'));
+  var commonResult=scan('F1492 populated common table: first ten');
+  commonResult.commonTableGeometry=compactTable(host);
+  out.push(commonResult);
   stage('bird-report common glyph geometry measured');
   var calls = window.__auditExternalCalls || 0;
   more.click();
   require(host.querySelectorAll('tbody > tr').length === 13 && more.hidden,
     'F1492 expansion did not exhaust the acquired thirteen');
   require((window.__auditExternalCalls || 0) === calls, 'F1492 expansion acquired more data');
-  out.push(scan('F1492 populated common table: expanded'));
+  commonResult=scan('F1492 populated common table: expanded');
+  commonResult.commonTableGeometry=compactTable(host);
+  out.push(commonResult);
   if (preview === 'common') {
     await A.loadEasyMisses();
     window.scrollTo(0,0);
