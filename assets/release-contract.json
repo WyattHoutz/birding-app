@@ -114,7 +114,8 @@
       "common_opportunities_v1:",
       "dateFirst: flat && !_spLookupGrouped",
       "id=\"spLookupClear\"",
-      "stakeoutPinCue",
+      "row.subId ? ' ' + checklistLink(row.subId)",
+      "sp: row.numSpecies != null ? row.numSpecies : ''",
       "WATCH: explicit Watch List verification\">WATCH</span>",
       "No physically reachable reports are within",
       "PERSIST_DELAY_MS = 750",
@@ -172,6 +173,7 @@
   },
   "forbiddenText": {
     "index.html": [
+      "stakeoutPinCue",
       "'bc_p:' + profile",
       "id=\"abaDetail\"",
       "No public pin",

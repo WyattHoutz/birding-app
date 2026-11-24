@@ -37,6 +37,31 @@ test('the checked-in public tree satisfies the release bundle contract', () => {
   assert.doesNotThrow(() => verifyBundle(PUBLIC_ROOT, version, contract));
 });
 
+test('F1524 the bundle rejects missing checklist identity or totals and restored locality cues', () => {
+  const { verifyBundle } = require(bundleVerifierPath);
+  const production = JSON.parse(fs.readFileSync(releaseContractPath, 'utf8'));
+  const contract = {
+    requiredText: { 'index.html': production.requiredText['index.html'] },
+    forbiddenText: { 'index.html': production.forbiddenText['index.html'] },
+  };
+  const version = require(path.join(ROOT, 'package.json')).version;
+  const source = fs.readFileSync(path.join(PUBLIC_ROOT,'index.html'),'utf8');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(),'bird-checklist-contract-'));
+  const file = path.join(root,'index.html');
+  try {
+    fs.writeFileSync(file,source);
+    assert.doesNotThrow(() => verifyBundle(root,version,contract));
+    for (const marker of ["row.subId ? ' ' + checklistLink(row.subId)",
+      "sp: row.numSpecies != null ? row.numSpecies : ''"]) {
+      fs.writeFileSync(file,source.replace(marker,''));
+      assert.throws(() => verifyBundle(root,version,contract),
+        error => error.message.includes('Missing required text in index.html: '+marker));
+    }
+    fs.writeFileSync(file,source+'\n<span class="stakeoutPinCue">Locality 1</span>');
+    assert.throws(() => verifyBundle(root,version,contract),/Found forbidden text.*stakeoutPinCue/);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
 test('F1265 the shipped palette contract rejects either removed WATCH colour', () => {
   const { verifyBundle } = require(bundleVerifierPath);
   const colours = ['#009E73', '#D55E00'].map(colour =>
