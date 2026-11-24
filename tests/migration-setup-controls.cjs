@@ -896,7 +896,8 @@ module.exports = function registerMigrationSetupControls({
     const app = await boot({ report: null, home: false, sample: false, key: null,
       location: { lat: 47.6, lng: -122.3 },
       storage: { bc_setup_step_v1: 'region', 'ebird_home_lat:or': '45.5',
-        'ebird_home_lng:or': '-122.6', 'ebird_home_place:or': 'Saved Oregon Home' },
+        'ebird_home_lng:or': '-122.6', 'ebird_home_place:or': 'Saved Oregon Home',
+        'ebird_home_lat:hi':'19.7','ebird_home_lng:hi':'-155.1' },
       fetch: url => /photon\.komoot\.io\/reverse/.test(url) ? preparedHomeRegion() : null });
     try {
       const A = app.window.__app;
@@ -906,7 +907,7 @@ module.exports = function registerMigrationSetupControls({
       assert.doesNotMatch(app.$('setupSheetBody').textContent, /city center.*no exact address/);
       app.click(app.$('setupHelp'));
       assert.match(app.$('appSheet').textContent, /city center.*no exact address/);
-      assert.match(app.$('appSheet').textContent, /more Home\/region pairs later/);
+      assert.match(app.$('appSheet').textContent, /One permanent Home is shared across regions.*persistent Temp Home/);
       app.click(app.$('appSheet').querySelector('.sheetclose'));
       assert.equal(app.$('setupSkip'), null);
       assert.equal(app.$('setupChooseRegion'), null);
@@ -986,6 +987,7 @@ module.exports = function registerMigrationSetupControls({
       assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())), { lat: 47.6, lng: -122.3 });
       assert.equal(app.window.localStorage.getItem('ebird_home_lat:or'), '45.5');
       assert.equal(app.window.localStorage.getItem('ebird_home_place:or'), 'Saved Oregon Home');
+      assert.equal(app.window.localStorage.getItem('ebird_home_lat:hi'), '19.7');
       assert.equal(app.window.localStorage.getItem('bc_setup_home_draft_v1'), null);
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'seen');
       for (const index of [2, 3]) {

@@ -116,6 +116,43 @@ test('F1515 conflicting legacy Homes require explicit migration and preserve ori
   } finally {app.window.close();}
 });
 
+test('F1515 legacy migration is linear once and read-safe under storage pressure', async () => {
+  const app = await boot({home:false,sample:false});
+  const W = app.window, A = W.__app, store = W.localStorage;
+  const proto = W.Storage.prototype, key = proto.key, set = proto.setItem;
+  let reads = 0;
+  try {
+    for (let i=0;i<200;i++) store.setItem('ebird_own_seen:migration-'+i,'protected');
+    store.setItem('ebird_home_lat','0');
+    store.setItem('ebird_home_lng','10');
+    const count = store.length;
+    proto.key = function(index) { reads++; return key.call(this,index); };
+    proto.setItem = function(name,value) {
+      if (/^ebird_home_(?:lat|lng|place):shared-v1$|^ebird_home_migrated_v1$/.test(name))
+        throw new W.DOMException('Synthetic migration quota','QuotaExceededError');
+      return set.call(this,name,value);
+    };
+    let migrated;
+    assert.doesNotThrow(()=>{migrated=A.getHome();},'reading an existing legacy Home cannot throw a migration write error');
+    assert.deepEqual(JSON.parse(JSON.stringify(migrated)),{lat:0,lng:10});
+    assert.ok(reads>0 && reads<=count,'automatic legacy scan must be linear');
+    const first = reads;
+    for(let i=0;i<20;i++) assert.equal(A.getHome().lat,0);
+    assert.equal(reads,first,'saved-base reads must not repeat legacy enumeration');
+    assert.equal(store.getItem('ebird_home_migrated_v1'),null,'failed migration is not durable');
+    store.removeItem('ebird_home_lat');
+    store.removeItem('ebird_home_lng');
+    assert.equal(A.getHome(),null,'removed legacy coordinates cannot survive in the memo');
+    proto.setItem = set;
+    store.setItem('ebird_home_lat','47.6'); store.setItem('ebird_home_lng','-122.3');
+    assert.equal(A.getHome().lat,47.6);
+    A.openSavedLocationEditor('home');
+    app.$('clearHomeBtn').click();
+    assert.equal(A.getHome(),null,'Clear must win over the migration memo and preserved archive');
+    assert.equal(store.getItem('ebird_home_lat'),'47.6');
+  } finally {proto.key=key;proto.setItem=set;W.close();}
+});
+
 test('F1515 actual Temp editor requires explicit save, survives restart, and never follows Find', async () => {
   const app = await boot();
   const A = app.window.__app, store = app.window.localStorage;
@@ -3460,8 +3497,11 @@ test('F1377 matched Busy reference contention preserves demand while fresh foreg
       const now=Date.now(); A.fgSchedReset(now);
       for(let i=0;i<16;i++) A.fgWindowPush(now-54000);
       const before=starts.length, started=performance.now(), work={current:()=>true};
+      const patchScope=A.activeScope();
+      await A.ensurePatchScope(patchScope);
       const input={codes:['US-WA-033'],home:A.getHome(),anchors:A.getAnchors(),
-        context:A.hotspotContextKey(),reportSlug:A.getReportSlug(),cacheKey:A.hotCacheKey(),
+        patchScope,context:A.hotspotContextKey(null,null,null,patchScope),
+        reportSlug:A.getReportSlug(),cacheKey:A.hotCacheKey(patchScope),
         meta:[{locId:'L131001',locName:'Synthetic public patch',lat:47.6,lng:-122.3}],ownerWork:work};
       if(mode==='foreground-control') input.resourceAccess=(provider,params)=>
         provider==='busy-party-detail' ? A.checklistView(params.sub,true,work)
@@ -3477,7 +3517,7 @@ test('F1377 matched Busy reference contention preserves demand while fresh foreg
       if(mode==='yielding-reference') {
         assert.equal(starts.filter(row=>/product\/lists\/L131001/.test(row.url)).length,0,
           'required references remain pending without occupying reserved foreground capacity');
-        assert.equal(A.currentBusySnapshot().busyState.pending,true);
+        assert.equal(A.currentBusySnapshot(false,patchScope).busyState.pending,true);
       }
       const result=await pending;
       assert.equal(result.busyState.partial,false);
@@ -3487,7 +3527,7 @@ test('F1377 matched Busy reference contention preserves demand while fresh foreg
       assert.equal(fresh.at<ref.at,mode==='yielding-reference');
       const count=starts.length, at=result.busyState.at;
       await A.startBusyPatches(input);
-      assert.equal(starts.length,count); assert.equal(A.currentBusySnapshot(true).busyState.at,at);
+      assert.equal(starts.length,count); assert.equal(A.currentBusySnapshot(true,patchScope).busyState.at,at);
       results.push({paths,busy:JSON.parse(JSON.stringify(result.busy)).map(({at,...row})=>row),
         checked:result.busyState.checked,candidates:result.busyState.candidates});
       t.diagnostic(JSON.stringify({mode,fixture:'matched warm current, cold references/parties; 16 prior starts; 250ms reference/25ms other transport',
@@ -7193,9 +7233,15 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
       dateStr: stamp, locId: 'LF990', loc: 'Synthetic public patch', subId: 'SF990',
       lat: 47.75, lon: -122.16, count: 1, obsReviewed: false };
     const source = (merged, extra = {}) => {
-      const profile = A.chaseProfile(), rows = {}, feedStates = {};
-      app.window.BirdLogic.planFeeds(profile).filter(feed => feed.kind === 'notable')
-        .forEach(feed => { rows[feed.file] = merged; feedStates[feed.file] = 'ok'; });
+      const profile = A.birdGenObservationProfile(), rows = {}, feedStates = {};
+      app.window.BirdLogic.planFeeds(profile).forEach(feed => {
+        rows[feed.file] = feed.kind === 'notable' ? merged.map(row => ({
+          speciesCode:row.code,comName:row.name,locId:row.locId,locName:row.loc,
+          lat:row.lat,lng:row.lon,obsDt:row.dateStr,subId:row.subId,howMany:row.count,
+          obsReviewed:row.obsReviewed
+        })) : [];
+        feedStates[feed.file] = 'ok';
+      });
       return { profile, rows, feedStates, cv: { merged }, feedComplete: true, ...extra };
     };
     assert.equal(A.surgeObservedResult(source([bird], { partial: true }), now).twitchRows.length, 0);
@@ -16969,9 +17015,9 @@ test('every section the report maps has a map container, wired to a renderer', a
       const tier = HTML.slice(HTML.indexOf('function loadDayTier('),
         HTML.indexOf('function loadExcursions('));
       const finalPaintWired =
-        tier.includes('renderDestinations(finalRows, map, results, false, false)');
+        tier.includes('renderDestinations(finalRows, map, results, false, false, scopeOwner)');
       const pendingPaintWired =
-        tier.includes('renderDestinations(rows, map, results, true)');
+        tier.includes('renderDestinations(rows, map, results, true, false, scopeOwner)');
       const genericContainers =
         tier.includes('var results = $(resultsId), map = $(mapId)');
       wired = finalPaintWired && pendingPaintWired && genericContainers
@@ -18538,8 +18584,10 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
     'F694 network timing starts without a fresh suspension heartbeat');
 
   const chase = between('function computeChaseRows(', 'function destinationFallbackRows');
-  assert.equal((chase.match(/home:\s*anchorPoint\(\)/g) || []).length, 2,
-    'F697 both unseen and all-patch scoring must follow the active Home/Here/Find anchor');
+  assert.equal((chase.match(/home:\s*anchorPoint\(\)/g) || []).length, 1,
+    'F697 all-patch scoring must follow the active Home/Here/Find anchor');
+  assert.match(chase, /home:\s*profile\.savedBaseOrigin \? profile\.home : anchorPoint\(\)/,
+    'F1515 Bird Gen scoring must use its saved-base owner without changing ordinary planner scoring');
   assert.doesNotMatch(chase, /home:\s*getHome\(\)/,
     'F697 one patch path still ranks from saved Home instead of the active anchor');
   assert.equal((chase.match(/reportAs:\s*canonicalParents\(/g) || []).length, 2,
@@ -18555,7 +18603,7 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
 
   const converge = between('function acquireBusyPatches(', 'function busyPatchReason(');
   assert.match(converge,
-    /_busyPromise && _busyContext === context && workCurrent\(_busyWork\) && !force\) return _busyPromise/,
+    /_busyBroad\.promise && _busyBroad\.context === context && workCurrent\(_busyBroad\.work\) && !force\) return _busyBroad\.promise/,
     'F695 duplicate Bird Gen callers no longer join the active source promise');
   const tasks = between('function sourceTask(', '_surgeRetrySources = function');
   assert.match(tasks,
@@ -18569,9 +18617,9 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
 
   const sourceContext = between('function surgeConvoyProfile(', 'function loadSurgeSourceCache(');
   assert.match(sourceContext, /counties:\s*\(getCounties\(\) \|\| \[\]\)\.slice\(\)/);
-  assert.match(sourceContext, /anchorPoint\(\)/);
+  assert.match(sourceContext, /activeSavedBase\(\)/);
   assert.match(sourceContext, /encodeURIComponent\(surgeSourceContext\(\)\)/,
-    'F700 Bird Gen source cache is not scoped to counties and the active anchor');
+    'F700/F1515 Bird Gen source cache is not scoped to counties and the active saved base');
 
   const checklistSource = fs.readFileSync(path.join(WWW, 'cards-checklist.js'), 'utf8');
   assert.match(checklistSource,
@@ -23030,7 +23078,7 @@ test('F951 retained Cascades requalify and recount the surviving lookback instea
     assert.deepEqual(Array.from(retained.cascades.rows,x=>x.species),['Strong bird']);
     assert.equal(retained.cascades.rows[0].birders.length,5);
     assert.equal(retained.cascades.rows[0].earliest,day(0));
-    assert.match(A.surgeSourceContext(),/^cascade-5-7-3\|\|/,
+    assert.match(A.surgeSourceContext(),/^cascade-5-7-3:saved-base-v1\|\|/,
       'old enriched subsets must not mask participants or revive two-person alerts');
   } finally {app.window.close();}
 });
@@ -23044,7 +23092,7 @@ test('F916 CCLO decisions distinguish place rejection, source state, merging and
       assert.ok(log,'missing '+stage+' trace');
       return JSON.parse(log.msg.split(' · ').at(-1));
     };
-    const base = {lat:47.75,lng:-122.16,locName:'Public marsh',obsDt:stamp,subId:'SECRET'};
+    const base = {locId:'LF916',lat:47.75,lng:-122.16,locName:'Public marsh',obsDt:stamp,subId:'SECRET'};
     const cascade = {code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
       birders:[{name:'PRIVATE A',rank:1},{name:'PRIVATE B',rank:2}],locationState:'ok'};
     const cases = [
@@ -23067,7 +23115,8 @@ test('F916 CCLO decisions distinguish place rejection, source state, merging and
     }
     const lalo = {...cascade,code:'laplon',species:'Lapland Longspur',recent:[base]};
     A.renderSurge([],[{...cascade,recent:[base]},lalo],[],
-      [{code:'chclon',name:cascade.species,whenStr:stamp,reports:4}],[],{leaderboard:'ok'});
+      [{code:'chclon',name:cascade.species,locId:base.locId,locName:base.locName,
+        whenStr:stamp,reports:4}],[],{leaderboard:'ok'});
     assert.equal(trace('merge').winningKind,'need');
     assert.deepEqual(trace('merge').reasons,['need','cascade']);
     app.click(app.$('surgeResults').querySelector('[data-count-kind="cascade"]'));
@@ -25561,8 +25610,8 @@ test('the Go birding anchor covers six sections, and rank from it', async () => 
     HTML.indexOf('function getAnchors(') + 700);
   assert.match(src, /quickAnchor\(quickOrigin\)/,
     'getAnchors honours the chosen origin, so the algorithms need not each know');
-  assert.match(src, /getHome\(\)/,
-    'and falls back to home, so an untouched section still matches the report, '
+  assert.match(src, /activeSavedBase\(\)/,
+    'and falls back to the saved Home/Temp base, so an untouched section still matches the report, '
     + 'which ranks from a fixed anchor and cannot ask where you are standing');
 
   // F241: Nemesis birds' own spot distances now follow the same chosen point,
@@ -27551,7 +27600,9 @@ test('F943/F1019 PPTE feed keeps chronology while preserving actual distance and
       });
       return [...app.document.querySelectorAll('[data-alert-kind="ppte"]')];
     }
-    A.useFoundAnchor({ lat: 47, lng: -122 }, 'First origin');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47');
+    app.window.localStorage.setItem(A.homeKey('lng'),'-122');
+    A.useFoundAnchor({ lat: 45, lng: -120 }, 'Unrelated one-off origin');
     app.window.localStorage.setItem(A.chaseMiKey(), '25');
     let cards = render();
     assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'unknown', 'near']);
@@ -27564,7 +27615,8 @@ test('F943/F1019 PPTE feed keeps chronology while preserving actual distance and
         expected.toFixed(1) + 'mi away', 'known distances remain visible even beyond the chase radius');
     }
     assert.equal(surgeEvidence(cards[1]).querySelector('[data-ppte-distance-text]'), null, 'unknown is not zero miles');
-    A.useFoundAnchor({ lat: 48, lng: -122 }, 'Changed origin');
+    app.window.localStorage.setItem(A.homeKey('lat'),'48');
+    A.useFoundAnchor({ lat: 45, lng: -120 }, 'Still unrelated');
     cards = render();
     assert.deepEqual(cards.map(card => card.getAttribute('data-ppte-event')), ['far', 'unknown', 'near']);
     assert.equal(surgeEvidence(cards[0]).querySelector('[data-ppte-distance-text]').textContent, '0.0mi away');
@@ -27715,7 +27767,9 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
       assert.ok(card, 'chase wording must not become a radius filter');
       return card;
     }
-    A.useFoundAnchor({ lat: 47, lng: -122 }, 'Event origin');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47');
+    app.window.localStorage.setItem(A.homeKey('lng'),'-122');
+    A.useFoundAnchor({ lat: 45, lng: -120 }, 'Unrelated one-off origin');
     app.window.localStorage.setItem(A.chaseMiKey(), '25');
     let card = render();
     assert.match(surgeEvidence(card).querySelector('.surgeexplain > b').textContent, /effect in your chase area!/);
@@ -27725,7 +27779,7 @@ test('F939/F943 PPTE composites and chase wording use the actual event without f
     assert.equal(card.querySelector('.ppte-extra-birds'), null);
     assert.match(card.querySelector('.ppte-bird-composite').getAttribute('aria-label'), /Swamp Sparrow.*Vermilion Flycatcher/);
     assert.ok(card.querySelector('.surgekind-ppte svg'), 'the bordered category keeps its table symbol');
-    A.useFoundAnchor({ lat: 47.5, lng: -122 }, 'Different origin');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47.5');
     card = render();
     assert.equal(card.querySelector('.surge-essential')?.textContent, 'Outside chase area',
       'F1432 farther Patagonia evidence uses the same visible warning as other alert kinds');
@@ -28147,6 +28201,7 @@ test('the three species sections use the large icon + title treatment', () => {
 test('F743 favorites share Today patch title, numbering and distance treatment', async () => {
   const app = await boot();
   const A = app.window.__app;
+  await A.ensurePatchScope(A.activeScope());
   A.setFavs([]);
   A.addFav({ locId: 'L-TITLE', locName: 'Synthetic long Favorite patch title',
     lat: 47.6, lng: -122.3 });
@@ -28291,7 +28346,7 @@ test('F472/F1137 Nearby names its finite 32-km scan when no hotspot is returned'
   await app.window.__app.loadQuickOuting('home');
   assert.equal(app.document.querySelectorAll('#quickResults [data-hsloc]').length, 0);
   assert.match(app.$('quickStatus').textContent,
-    /No recently active eBird hotspots in the 32-km scan near home\./);
+    /No recently active eBird hotspots in the 32-km scan near Home: Saved Home \(legacy\)\./);
   app.window.close();
 });
 
@@ -32550,7 +32605,8 @@ test('F781 deprecated custom-region Settings controls are absent without deletin
   assert.equal(app.window.__app.getReportSlug(), 'u-michigan-test');
   assert.equal(app.$('homePlace').value, 'Saved Home');
   app.click(app.$('clearHomeBtn'));
-  assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan-test'), null);
+  assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan-test'), '42.31');
+  assert.equal(app.window.__app.getHome(),null,'Clear cannot reactivate the preserved legacy archive');
   assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
   const help = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs.settingsPanel;
   assert.match(help.how.join(' '), /deprecated.*preserved/);
@@ -58874,6 +58930,7 @@ test('quick outing keeps broader local unseen evidence', async () => {
 test('F474/F1137 Nearby retains its place scan and exposes All/Unseen without a second target pipeline', async () => {
   const calls = [];
   const app = await boot({
+    report:'hi',
     storage: {
       ebird_home_lat: '19.92',
       ebird_home_lng: '-155.88',
@@ -58883,9 +58940,9 @@ test('F474/F1137 Nearby retains its place scan and exposes All/Unseen without a 
       calls.push(u);
       if (/ref\/hotspot\/geo/.test(u)) {
         return [
-          { locId: 'L1', locName: 'Needed Patch', lat: 19.92, lng: -155.88,
+          { locId: 'L1', locName: 'Needed Patch', lat: 19.92, lng: -155.88,subnational1Code:'US-HI',
             numSpeciesAllTime: 42, latestObsDt: todayFixtureDate() + ' 08:27' },
-          { locId: 'L2', locName: 'Seen-only Patch', lat: 19.93, lng: -155.89,
+          { locId: 'L2', locName: 'Seen-only Patch', lat: 19.93, lng: -155.89,subnational1Code:'US-HI',
             numSpeciesAllTime: 35, latestObsDt: todayFixtureDate() + ' 08:20' },
         ];
       }
@@ -58959,7 +59016,7 @@ test('F1137 Nearby is click-only and filters loaded patches using confirmed unse
       if (match) {
         const bird = taxa[Number(match[1]) % taxa.length];
         return [{speciesCode:bird.code,comName:bird.name,locId:'L1137-' + match[1],
-          obsDt:todayFixtureDate() + ' 08:27',howMany:1}];
+          subnational1Code:'US-WA',obsDt:todayFixtureDate() + ' 08:27',howMany:1}];
       }
       return [];
     }});
@@ -58969,9 +59026,10 @@ test('F1137 Nearby is click-only and filters loaded patches using confirmed unse
     A.setWatchlist([{code:'f1137watch',name:'F1137 Watch Bird'}]);
     for (let i = 0; i < 27; i++) {
       const bird = taxa[i % taxa.length];
-      app.window.localStorage.setItem(A.bcReal('ebird_locsp_v2:L1137-' + i + ':30'),
-        JSON.stringify({d:A.todayStr(),v:[{code:bird.code,name:bird.name,
-          dateStr:todayFixtureDate() + ' 08:27',count:1}]}));
+      A.seedEbirdCache('data/obs/L1137-' + i + '/recent?back=30', [{
+        speciesCode:bird.code,comName:bird.name,locId:'L1137-'+i,
+        subnational1Code:'US-WA',obsDt:todayFixtureDate() + ' 08:27',howMany:1
+      }]);
     }
     app.window.IntersectionObserver = class {
       constructor(callback) { this.callback = callback; }

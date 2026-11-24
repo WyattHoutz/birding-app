@@ -21684,18 +21684,18 @@
       }
 
       function getHome(slug) {
-        migrateSharedHome();
+        var legacy = migrateSharedHome();
         var la = parseFloat(localStorage.getItem(homeKey('lat', slug))), lo = parseFloat(localStorage.getItem(homeKey('lng', slug)));
         if (isFinite(la) && isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lng: lo };
-        return null;
+        return legacy ? { lat: legacy.lat, lng: legacy.lng } : null;
       }
 
       function legacyHomeChoices() {
         var choices = [], prefixes = [''];
-        for (var i = 0; i < localStorage.length; i++) {
-          var key = localStorage.key(i), match = /^ebird_home_lat:(.+)$/.exec(key || '');
+        bcVisibleKeys().forEach(function (key) {
+          var match = /^ebird_home_lat:(.+)$/.exec(key || '');
           if (match && match[1] !== 'shared-v1') prefixes.push(':' + match[1]);
-        }
+        });
         prefixes.forEach(function (suffix) {
           var lat = localStorage.getItem('ebird_home_lat' + suffix);
           var lng = localStorage.getItem('ebird_home_lng' + suffix);
@@ -21703,23 +21703,43 @@
           lat = Number(lat); lng = Number(lng);
           if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
           if (choices.some(function (p) { return p.lat === lat && p.lng === lng; })) return;
-          choices.push({ lat: lat, lng: lng, label: localStorage.getItem('ebird_home_place' + suffix)
+          choices.push({ lat: lat, lng: lng, legacySuffix: suffix, label: localStorage.getItem('ebird_home_place' + suffix)
             || 'Saved Home (' + (suffix.slice(1) || 'legacy') + ')' });
         });
         return choices;
       }
+      var _homeMigrationAttempts = Object.create(null);
       function migrateSharedHome() {
-        if (localStorage.getItem('ebird_home_migrated_v1')) return;
+        if (localStorage.getItem('ebird_home_migrated_v1')) return null;
+        var profile = bcProfile(), signature = JSON.stringify([
+          localStorage.getItem('ebird_home_lat'), localStorage.getItem('ebird_home_lng')
+        ]), previous = _homeMigrationAttempts[profile];
+        if (previous && previous.signature === signature) {
+          var candidate = previous.choice;
+          if (!candidate) return null;
+          var oldLat = localStorage.getItem('ebird_home_lat' + candidate.legacySuffix);
+          var oldLng = localStorage.getItem('ebird_home_lng' + candidate.legacySuffix);
+          return oldLat != null && oldLng != null && oldLat.trim() && oldLng.trim()
+            && Number(oldLat) === candidate.lat && Number(oldLng) === candidate.lng ? candidate : null;
+        }
         if (localStorage.getItem(homeKey('lat')) != null && localStorage.getItem(homeKey('lng')) != null) {
-          localStorage.setItem('ebird_home_migrated_v1', '1');
-          return;
+          try { localStorage.setItem('ebird_home_migrated_v1', '1'); } catch (e) {}
+          _homeMigrationAttempts[profile] = { signature: signature, choice: null };
+          return null;
         }
         var choices = legacyHomeChoices();
-        if (choices.length !== 1) return;
-        ['lat', 'lng', 'place'].forEach(function (field) {
-          localStorage.setItem(homeKey(field), String(field === 'place' ? choices[0].label : choices[0][field]));
-        });
-        localStorage.setItem('ebird_home_migrated_v1', '1');
+        var choice = choices.length === 1 ? choices[0] : null;
+        _homeMigrationAttempts[profile] = { signature: signature, choice: choice };
+        if (!choice) return null;
+        try {
+          ['lat', 'lng', 'place'].forEach(function (field) {
+            localStorage.setItem(homeKey(field), String(field === 'place' ? choice.label : choice[field]));
+          });
+          localStorage.setItem('ebird_home_migrated_v1', '1');
+        } catch (e) {
+          dbg('warn', 'Shared Home migration is not persisted; the saved legacy point remains unchanged.');
+        }
+        return choice;
       }
       function tempHome() {
         try { return homeLocationCandidate(JSON.parse(localStorage.getItem('ebird_temp_home_v1') || 'null')); }
