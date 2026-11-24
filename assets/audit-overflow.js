@@ -380,16 +380,25 @@ const AUDIT = `<script>
       if (el.closest && el.closest('.leaflet-container')) continue;
       var r = el.getBoundingClientRect();
       if (!r.width && !r.height) continue;
-      if (r.right > maxRight) maxRight = r.right;
-      var over = r.right - vw;
+      // Recent deliberately scrolls horizontally; fixtures separately hit-test
+      // every choice. Only its painted intersection can overflow the viewport.
+      var recentStrip = el.closest && el.closest('#regionChooserRecent');
+      var recentBox = recentStrip && recentStrip.getBoundingClientRect();
+      var recentClip = recentBox && ['auto', 'scroll'].indexOf(getComputedStyle(recentStrip).overflowX) >= 0
+        && recentBox.left >= -0.5 && recentBox.right <= vw + 0.5;
+      var right = recentClip ? Math.min(r.right, recentBox.right) : r.right;
+      var left = recentClip ? Math.max(r.left, recentBox.left) : r.left;
+      if (left > right) continue;
+      if (right > maxRight) maxRight = right;
+      var over = right - vw;
       if (over > 0.5) {
         items.push({ sel: chain(el), over: +over.toFixed(1), width: +r.width.toFixed(1), left: +r.left.toFixed(1) });
       }
       // The other half, never checked until now: a box that starts before the
       // left edge makes the page just as draggable, and the device screenshot
       // showed the panel's LEFT edge clipped.
-      if (r.left < -0.5) {
-        items.push({ sel: chain(el), over: +(-r.left).toFixed(1), width: +r.width.toFixed(1),
+      if (left < -0.5) {
+        items.push({ sel: chain(el), over: +(-left).toFixed(1), width: +r.width.toFixed(1),
                      left: +r.left.toFixed(1), side: 'LEFT' });
       }
     }
@@ -1354,7 +1363,7 @@ const AUDIT = `<script>
       return;
     }
     if (${process.env.AUDIT_FOCUS === 'release-review'}) {
-      out.push(...await releaseReviewLayout(scan, ${JSON.stringify(process.env.AUDIT_REVIEW_MUTATION || '')}));
+      out.push(...await releaseReviewLayout(scan, ${JSON.stringify(process.env.AUDIT_REVIEW_MUTATION || '')}, auditStage));
       finish(out);
       return;
     }
@@ -3532,8 +3541,12 @@ const AUDIT = `<script>
         'F1029 checklist bullets must be painted');
       var members=card.querySelector('.stakeoutIncludedLocations');
       if (scenario==='group') {
-        require(members && members.querySelectorAll('.hscard-sm').length===4,
-          'F1029 group must show four deduplicated source rows');
+        require(members && members.querySelectorAll('.hscard-sm').length===3,
+          'F1511 group must list only the three additional deduplicated sources');
+        var primary=card.querySelector(':scope > .name .hslink');
+        require(primary && primary.dataset.loc==='L1029-B'
+          && !members.querySelector('[data-loc="L1029-B"]'),
+          'F1511 the public primary belongs in the linked header, not repeated below');
         var name=members.querySelector('.hslink');
         var checklistText=checklist.querySelector('.ckmain');
         require(Math.abs(name.getBoundingClientRect().left-checklistText.getBoundingClientRect().left)<=.5,
@@ -5388,7 +5401,7 @@ const AUDIT = `<script>
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
       out.push.apply(out, await nextReleaseLayout(scan, ''));
-      out.push.apply(out, await releaseReviewLayout(scan, ''));
+      out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
       try {
         var aggregateApp = window.__app;
         aggregateApp.setActiveReport('lower48');
@@ -5759,8 +5772,9 @@ server.listen(0, '127.0.0.1', () => {
     }
     if (process.env.AUDIT_FOCUS === 'release-review') {
       console.log(JSON.stringify(report, null, 2));
-      process.exit(report.length===4 && report.every(r=>r.releaseReviewGeometry
-        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
+      process.exit(report.length===5 && report.every(r=>r.releaseReviewGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !(r.items||[]).length && !(r.small||[]).length) ? 0 : 1);
     }
     if (['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)) {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,

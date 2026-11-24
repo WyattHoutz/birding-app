@@ -3704,6 +3704,7 @@
                  border-radius: 6px; text-align: left; letter-spacing: 0;
                  font: 400 calc(14px * var(--s))/1.18 system-ui, sans-serif; }
     .spuhpathsentence .spuhpathchip[data-category="spuh"] { font-style: italic; }
+    :root[data-a11y="on"] .spuhpathsentence button.spuhpathchip { min-width: 44px; min-height: 44px; }
     .spuhpathsentence .spuhpathchip.limited { border-style: dashed;
                  border-color: var(--warn); color: var(--note-ink);
                  background: var(--note-bg); }
@@ -9865,6 +9866,7 @@
         progressEnd();
         fgClearStall();
         if (visibleSectionId() === 'sec-easyBtn') reconcileEasyOpportunities();
+        if (visibleSectionId() === 'sec-spLookupBtn') pauseStakeoutPlaceHistories();
       }
       // Tokens refill continuously. While any remain a call only pays the small
       // gap; once they are gone every call waits for the next drip, which is
@@ -17992,6 +17994,19 @@
             + esc(source.name) + ' in Maps">\uD83D\uDDFA \u2197</a>'
           : ' <span class="hint">No map coordinates</span>';
       }
+      function stakeoutSourceLabel(source, withCount) {
+        var checklistLinks = source.private ? Object.keys(source.checklists).map(function (sub) {
+          return checklistLink(sub, sub);
+        }) : [];
+        return stakeoutSourceName(source)
+          + (withCount && (source.count > 1 || !source.private && source.count)
+            ? ', <span class="stakeoutSourceCount" data-source-loc="'
+              + esc(source.place.locId || '') + '" data-source-point="'
+              + esc(source.private ? source.point : '') + '">' + source.count
+              + (source.count === 1 ? ' checklist' : ' checklists') + '</span>' : '')
+          + (checklistLinks.length ? ', ' + checklistLinks.join(', ') : '')
+          + (source.private ? (withCount ? ', ' : ' ') + stakeoutSourceMap(source).trim() : '');
+      }
       function spLookupPlaceCards(places, startAt, bird, pin) {
         var n = startAt || 1, out = [];
         (places || []).forEach(function (p) {
@@ -18019,24 +18034,22 @@
           var where = p.loc || p.locId || '';
           var sources = stakeoutSourceLocations(p, cks);
           var grouped = sources.length > 1;
-          var nameHtml = (grouped
-            ? '<strong class="stakeoutLocalityName">' + esc(where) + ' area</strong>'
-            : stakeoutSourceName(sources[0])
-              + (sources[0].private ? stakeoutSourceMap(sources[0]) : ''));
+          var primary = sources.filter(function (source) {
+            return source.private === !!p.locationPrivate
+              && (source.place.locId && source.place.locId === p.locId
+                || source.private && source.point
+                  && source.point === distQ(p.lat, p.lon != null ? p.lon : p.lng));
+          })[0] || sources[0];
+          var additional = sources.filter(function (source) { return source !== primary; });
+          var nameHtml = stakeoutSourceLabel(primary, grouped);
           var reportCount = sources.reduce(function (sum, source) { return sum + source.count; }, 0);
           var sourceMeta = (grouped ? sources.length + ' locations' : '')
             + (reportCount > 1 ? (grouped ? ' \u00b7 ' : '') + reportCount + ' checklists' : '');
-          var locationsHtml = grouped
-            ? '<div class="stakeoutIncludedLocations"><div class="rankhead"><b>Locations</b></div>'
-              + HotspotCards.list('small', sources.map(function (source) {
+          var locationsHtml = additional.length
+            ? '<div class="stakeoutIncludedLocations"><div class="rankhead"><b>Additional locations</b></div>'
+              + HotspotCards.list('small', additional.map(function (source) {
                 return HotspotCards.small({
-                  name: stakeoutSourceName(source)
-                    + (source.count > 1 || !source.private && source.count
-                      ? ', <span class="stakeoutSourceCount" data-source-loc="'
-                        + esc(source.place.locId || '') + '" data-source-point="'
-                        + esc(source.private ? source.point : '') + '">' + source.count
-                        + (source.count === 1 ? ' checklist' : ' checklists') + '</span>' : '')
-                    + (source.private ? ', ' + stakeoutSourceMap(source).trim() : '')
+                  name: stakeoutSourceLabel(source, true)
                 });
               })) + '</div>'
             : '';
@@ -18623,9 +18636,47 @@
           });
       }
 
+      function pauseStakeoutPlaceHistories() {
+        var root = $('spLookupRecent');
+        if (!root) return;
+        var reading = captureStakeoutReading(root);
+        [].forEach.call(root.querySelectorAll(
+          '.stakeoutPlaceHistory[data-loading],.stakeoutPlaceHistory[data-queued]'), function (slot) {
+          ['data-loading','data-queued','data-done','data-restore-focus'].forEach(function (name) {
+            slot.removeAttribute(name);
+          });
+          slot.setAttribute('data-history-paused', '1');
+          slot.setAttribute('data-manual-only', '1');
+          slot.setAttribute('data-history-owner',
+            [_spLookupGeneration,_navGeneration,_workCancelGeneration].join(':'));
+          var status = slot.querySelector('.stakeoutHistoryStatus');
+          if (status) status.textContent = 'Checklist history cancelled. Existing reports kept; '
+            + 'choose Find more reports to continue.';
+          var button = slot.querySelector('.stakeoutLoadMoreHistory');
+          if (!button) {
+            [].forEach.call(slot.querySelectorAll('button'), function (old) { old.remove(); });
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'secondary stakeoutLoadMoreHistory';
+            button.textContent = 'Find more reports';
+            slot.appendChild(button);
+          }
+          button.disabled = false;
+          if (!button.hasAttribute('data-bound')) {
+            button.setAttribute('data-bound', '1');
+            button.addEventListener('click', function () {
+              queueStakeoutHistory(slot, slot._historyBird, true);
+            });
+          }
+        });
+        restoreStakeoutReading(root, reading);
+      }
+
       function queueStakeoutHistory(slot, bird, more) {
         if (!slot.isConnected || slot.getAttribute('data-queued')
-            || !more && slot.getAttribute('data-done') || slot.getAttribute('data-loading')) return;
+            || !more && (slot.getAttribute('data-done') || slot.hasAttribute('data-history-paused'))
+            || slot.getAttribute('data-loading')) return;
+        slot.removeAttribute('data-history-paused');
         slot.setAttribute('data-queued', '1');
         if (slot.contains(document.activeElement)) slot.setAttribute('data-restore-focus', '1');
         [].forEach.call(slot.querySelectorAll('button'), function (button) { button.disabled = true; });
@@ -18666,6 +18717,7 @@
           '.stakeoutPlaceHistory[data-loc]:not([data-done]):not([data-loading])'));
         slots.forEach(function (slot) {
           slot._historyBird = bird;
+          if (slot.hasAttribute('data-history-paused')) return;
           if (slot.getAttribute('data-manual-only')) {
             var result = _stakeoutHistoryCache[getReportSlug() + ':'
               + slot.getAttribute('data-code') + ':' + slot.getAttribute('data-loc')];

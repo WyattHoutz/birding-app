@@ -25226,7 +25226,7 @@ test('F1435/F1436/F1439 checklist counts stay ordered, compact and separated fro
   } finally { app.window.close(); }
 });
 
-test('F1029 grouped Stakeout sources expose exact public and private destinations without disclosures', async () => {
+test('F1511 F1029 grouped Stakeout sources link the primary header and list only additional destinations', async () => {
   const f = f890EvidenceFixture();
   const rows = [
     ...Array.from({length:2}, (_,i) => ({...f.row('S1029-A'+i,i),
@@ -25247,26 +25247,36 @@ test('F1029 grouped Stakeout sources expose exact public and private destination
     A.setSpeciesLookupWithinChase(false);
     A.setSpeciesLookupGrouped(true);
     const card=app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
-    assert.ok(card.querySelector(':scope > .name .stakeoutLocalityName'),'locality title must be nonlinked normal ink');
-    assert.equal(card.querySelector(':scope > .name .hslink'),null,'group titles are not hotspot links');
+    const header=card.querySelector(':scope > .name');
+    const primary=header.querySelector('.hslink');
+    assert.ok(primary,'the actual grouped header must open its primary Stakeout Patch');
+    assert.equal(primary.dataset.loc,'L1029-B','retain the existing public representative, not a private satellite');
+    assert.equal(primary.textContent,'Lequeue Island - Eide Road','use the exact hotspot name without an area suffix');
+    assert.match(header.textContent,/3 checklists/,'the primary source retains its own checklist count');
     const members=[...card.querySelectorAll('.stakeoutIncludedLocations .hscard-sm')];
-    assert.equal(members.length,4,'private records at the same exact waypoint share a source row');
+    assert.equal(members.length,3,'the primary is not repeated; private records at one waypoint share a source row');
     assert.match(card.querySelector(':scope > .meta').textContent,/4 locations.*8 checklists/);
     assert.deepEqual(members.map(row => row.querySelector('.hslink')?.dataset.loc || ''),
-      ['L1029-A','L1029-B','','']);
+      ['L1029-A','','']);
     assert.match(members[0].textContent,/2 checklists/);
-    assert.match(members[1].textContent,/3 checklists/);
-    assert.doesNotMatch(members[2].textContent,/checklist/,'one private checklist has no redundant count');
-    assert.match(members[3].textContent,/2 checklists/);
+    assert.doesNotMatch(members[1].textContent,/checklist/,'one private checklist has no redundant count');
+    assert.match(members[2].textContent,/2 checklists/);
     assert.equal(members.filter(row => row.querySelector('.privateflag')).length,2);
+    for (const [index,ids] of [[1,['S1029-P1']],[2,['S1029-P20','S1029-P21']]]) {
+      const links=[...members[index].querySelectorAll('a.cklid')];
+      assert.deepEqual(links.map(link=>new URL(link.href).pathname.split('/').pop()).sort(),ids,
+        'private source rows expose every original checklist ID as an eBird destination');
+      links.forEach(link=>assert.match(link.textContent,
+        new RegExp(new URL(link.href).pathname.split('/').pop())));
+    }
     assert.deepEqual(members.flatMap(row => [...row.querySelectorAll('.maplink')].map(a => a.dataset.q)),
       ['47.952,-122.162','47.953,-122.163'],'private map actions use their source, not the group representative');
-    for (const row of members.slice(2)) {
+    for (const row of members.slice(1)) {
       assert.equal(row.querySelector('a.hslink'),null);
       assert.equal(app.window.getComputedStyle(row.querySelector('.stakeoutPrivateName')).fontWeight,'400');
     }
     const headings=[...card.querySelectorAll('.rankhead')];
-    assert.deepEqual(headings.map(node => node.textContent),['Locations','Checklists']);
+    assert.deepEqual(headings.map(node => node.textContent),['Additional locations','Checklists']);
     for (const property of ['fontSize','fontWeight','color']) {
       assert.equal(app.window.getComputedStyle(headings[0])[property],
         app.window.getComputedStyle(headings[1])[property]);
@@ -25284,6 +25294,15 @@ test('F1029 grouped Stakeout sources expose exact public and private destination
       'source and checklist lists must not add different left margins');
     const bulletRule=rules.find(rule => rule.selectorText?.includes('.stakeoutIncludedLocations .hscard-sm::before'));
     assert.match(bulletRule?.style.content || '',/2022|•/,'source and checklist rows require small bullet markers');
+    assert.equal(primary.tabIndex,0);
+    app.click(primary);
+    assert.equal(app.$('stakeHs').value,'Lequeue Island - Eide Road',
+      'clicking the actual main header opens the existing primary hotspot, not an invented area');
+    assert.equal(app.$('stakeHsBtn').closest('section').hidden,false);
+    A.showSection('sec-spLookupBtn',{load:false});
+    primary.dispatchEvent(new app.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    assert.equal(app.$('stakeHs').value,'Lequeue Island - Eide Road','the primary header works from the keyboard');
+    A.showSection('sec-spLookupBtn',{load:false});
     const link=members[0].querySelector('.hslink');
     assert.equal(link.tabIndex,0);
     link.dispatchEvent(new app.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
@@ -25291,6 +25310,39 @@ test('F1029 grouped Stakeout sources expose exact public and private destination
     assert.equal(app.$('stakeHsBtn').closest('section').hidden,false);
     assert.deepEqual(app.state.errors,[]);
   } finally { app.window.close(); }
+});
+
+test('F1511 private-only Stakeout groups retain private header and additional-pin map actions', async () => {
+  const f=f890EvidenceFixture();
+  const rows=[
+    {...f.row('S1511-P1'),locId:'P1511-A',locName:'Private garden',
+      lat:47.8,lng:-122.1,locationPrivate:true},
+    {...f.row('S1511-P2'),locId:'P1511-B',locName:'Longer private garden name',
+      lat:47.801,lng:-122.101,locationPrivate:true}
+  ];
+  const app=await boot({sample:false,fetch:url=>/api\.ebird\.org/.test(url)?[]:null});
+  try {
+    const A=app.window.__app;
+    installSpuhFixture(app);
+    A.seedEbirdCache(A.speciesLookupPath('US-WA','verfly',A.SP_LOOKUP_BACK),rows);
+    await A.lookupSpecies('verfly','Vermilion Flycatcher');
+    A.setSpeciesLookupWithinChase(false);
+    A.setSpeciesLookupGrouped(true);
+    const card=app.$('spLookupRecent').querySelector('.spLookupPlaceList > .hscard-md');
+    const header=card.querySelector(':scope > .name');
+    assert.equal(card.querySelector('.hslink'),null,'a private-only group never becomes a public hotspot route');
+    assert.ok(header.querySelector('.privateflag'));
+    const extras=[...card.querySelectorAll('.stakeoutIncludedLocations .hscard-sm')];
+    assert.equal(extras.length,1,'the private primary is not repeated among additional pins');
+    assert.ok(extras[0].querySelector('.privateflag'));
+    assert.deepEqual([header,extras[0]].flatMap(node=>[...node.querySelectorAll('a.cklid')]
+      .map(link=>link.href)).sort(),rows.map(row=>'https://ebird.org/checklist/'+row.subId).sort(),
+      'private headers and additional pins retain their exact checklist destinations');
+    assert.deepEqual([header,extras[0]].map(node=>node.querySelector('.maplink').dataset.q).sort(),
+      ['47.8,-122.1','47.801,-122.101']);
+    assert.equal(card.querySelectorAll('.cklcard-sm').length,2,'both original checklists remain available');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
 });
 
 for (const privateLocation of [false,true]) {
@@ -44319,6 +44371,104 @@ test('F1491 known large checklist sets offer manual history without eager acquis
     assert.match(requests[0],/maxResults=200$/);
     assert.equal(slot.closest('.stakeoutPlaceDetails').querySelector('.stakeoutPlaceChecklists').children.length,12);
   }finally{app.window.close();}
+});
+
+test('F1512 cancelling manual history restores Find more reports without a redraw or automatic restart', async () => {
+  const stamp=recentObsStamp(1,8),locId='L1512MANUAL';
+  const summaries=Array.from({length:11},(_,i)=>({subId:'S1512-'+i,obsDt:stamp,locId}));
+  const observations=summaries.slice(0,10).map(row=>({...row,speciesCode:'amepip',
+    comName:'American Pipit',locName:'Manual History Park',lat:47.75,lng:-122.16,
+    howMany:1,obsValid:true}));
+  let release,detailReads=0;
+  const app=await boot({fetch(url) {
+    if(/recent\/amepip/.test(url))return observations;
+    if(url.includes('product/lists/'+locId))return summaries;
+    if(url.includes('product/checklist/view/S1512-10')) {
+      detailReads++;
+      return new Promise(resolve=>{release=resolve;});
+    }
+    return /api\.ebird\.org/.test(url)?[]:null;
+  }});
+  try {
+    const A=app.window.__app;
+    summaries.slice(0,10).forEach(row=>A.seedChecklistView(row.subId,
+      {...row,obs:[{speciesCode:'amepip',howMany:1}]}));
+    installSpuhFixture(app);
+    A.showSection('sec-spLookupBtn',{load:false});
+    await A.lookupSpecies('amepip','American Pipit');
+    const slot=app.document.querySelector('.stakeoutPlaceHistory[data-manual-only]');
+    const button=slot.querySelector('.stakeoutLoadMoreHistory');
+    assert.equal(button.disabled,false);
+    app.click(button);
+    await waitFor(()=>release,'held manual history detail');
+    assert.equal(button.disabled,true,'the in-flight action cannot start duplicate work');
+    const list=slot.closest('.stakeoutPlaceDetails').querySelector('.stakeoutPlaceChecklists');
+    const before=list.children.length;
+    A.cancelStalledWork();
+    assert.equal(button.disabled,false,'Cancel must restore Find more reports without requiring a redraw');
+    assert.equal(slot.hasAttribute('data-loading'),false);
+    assert.match(slot.querySelector('.stakeoutHistoryStatus').textContent,/cancelled/i);
+    A.renderSpeciesLookup();
+    assert.equal(button.disabled,false,'metadata repaint preserves the restored continuation');
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(detailReads,1,'cancellation must not automatically restart history acquisition');
+    assert.equal(list.children.length,before,'existing evidence remains visible');
+    release({...summaries[10],obs:[{speciesCode:'amepip',howMany:99}]});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(list.children.length,before,'obsolete completion cannot append after cancellation');
+    A.seedChecklistView(summaries[10].subId,
+      {...summaries[10],obs:[{speciesCode:'amepip',howMany:1}]});
+    app.click(button);
+    await waitFor(()=>list.children.length===11&&!slot.hasAttribute('data-loading'),
+      'explicit resumed history accepts the verified remaining report');
+    assert.equal(new Set([...list.querySelectorAll('[data-ev-sub]')]
+      .map(row=>row.dataset.evSub)).size,11);
+    assert.deepEqual(app.state.errors,[]);
+  } finally {
+    if(release)release({...summaries[10],obs:[]});
+    app.window.close();
+  }
+});
+
+test('F1512 cancelling an automatic history scan offers explicit continuation without restarting it', async () => {
+  const stamp=recentObsStamp(1,8),locId='L1512AUTO';
+  const rows=[0,1].map(i=>({subId:'S1512AUTO'+i,obsDt:stamp,locId}));
+  const primary={...rows[0],speciesCode:'amepip',comName:'American Pipit',
+    locName:'Automatic History Park',lat:47.75,lng:-122.16,howMany:1,obsValid:true};
+  let release,reads=0;
+  const app=await boot({fetch(url) {
+    if(/recent\/amepip/.test(url))return [primary];
+    if(url.includes('product/lists/'+locId))return rows;
+    if(url.includes('product/checklist/view/S1512AUTO1')) {
+      reads++;
+      return new Promise(resolve=>{release=resolve;});
+    }
+    return /api\.ebird\.org/.test(url)?[]:null;
+  }});
+  try {
+    const A=app.window.__app;
+    A.seedChecklistView(rows[0].subId,{...rows[0],obs:[{speciesCode:'amepip'}]});
+    installSpuhFixture(app);A.showSection('sec-spLookupBtn',{load:false});
+    await A.lookupSpecies('amepip','American Pipit');
+    await waitFor(()=>release,'held automatic history');
+    const slot=app.document.querySelector('.stakeoutPlaceHistory');
+    assert.equal(slot.querySelector('button'),null,'exercise a scan without an existing continuation');
+    A.cancelStalledWork();
+    const resume=slot.querySelector('.stakeoutLoadMoreHistory');
+    assert.ok(resume&&!resume.disabled,'cancelled automatic history must offer manual recovery');
+    A.renderSpeciesLookup();
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(reads,1,'repaint cannot silently restart the cancelled scan');
+    release({...rows[1],obs:[{speciesCode:'amepip'}]});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    const list=slot.closest('.stakeoutPlaceDetails').querySelector('.stakeoutPlaceChecklists');
+    assert.equal(list.children.length,1,'late cancelled work cannot append');
+    A.seedChecklistView(rows[1].subId,{...rows[1],obs:[{speciesCode:'amepip'}]});
+    app.click(resume);
+    await waitFor(()=>list.children.length===2&&!slot.hasAttribute('data-loading'),
+      'explicit automatic-scan recovery');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {if(release)release({...rows[1],obs:[]});app.window.close();}
 });
 
 test('F1215 Stakeout history reconciles four plus two reports and discloses genuinely hidden matches',
