@@ -2805,16 +2805,16 @@
     .surgeexplainextra * { font-size: inherit; font-weight: 400; line-height: inherit; }
     .surgeexplainextra .extlink { display: inline; margin-top: 0; }
     @media (max-width: 375px) {
-      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li[data-alert-kind="ppte"] > .name {
+      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li:is([data-alert-kind="ppte"], [data-alert-kind="need"], [data-alert-kind="cascade"]) > .name {
         display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px;
       }
-      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li[data-alert-kind="ppte"] > .name > .thumb {
+      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li:is([data-alert-kind="ppte"], [data-alert-kind="need"], [data-alert-kind="cascade"]) > .name > .thumb {
         grid-column: 1; grid-row: 1;
       }
-      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li[data-alert-kind="ppte"] > .name > .surgekindwrap {
+      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li:is([data-alert-kind="ppte"], [data-alert-kind="need"], [data-alert-kind="cascade"]) > .name > .surgekindwrap {
         grid-column: 2; grid-row: 1;
       }
-      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li[data-alert-kind="ppte"] > .name > .ntext {
+      html:not([data-display="high-visibility"]) .surgefeed.obs.card-sm > li:is([data-alert-kind="ppte"], [data-alert-kind="need"], [data-alert-kind="cascade"]) > .name > .ntext {
         grid-column: 1 / -1; grid-row: 2;
       }
     }
