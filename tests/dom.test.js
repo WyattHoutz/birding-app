@@ -93,6 +93,194 @@ function surgeSourceRoot(app, expand = true) {
   return root;
 }
 
+test('F1518 saving a Washington Home retires a missing-Home region warning without another region switch', async () => {
+  const app = await boot({home:false});
+  const A = app.window.__app, notice = app.$('savedBaseRegionNotice');
+  try {
+    assert.equal((await A.reconcileSavedBase()).choice,'needs-base');
+    assert.equal(notice.hidden,false);
+    A.openSavedLocationEditor('home');
+    app.$('homePlace').value = '47.76, -122.20';
+    app.$('geocodeBtn').click();
+    await waitFor(()=>!app.$('homeCandidateReview').hidden,'public city-centre Home review');
+    app.$('homeDeviceSave').click();
+    assert.equal(A.getHome().lat,47.76);
+    assert.match(app.$('homeSavedSummary').textContent,/Active saved base/);
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(notice.hidden,true,'the old missing-Home warning must not survive an approved reachable Home');
+  } finally {app.window.close();}
+});
+
+test('F1518 unresolved legacy Homes are not called geographically unreachable and explicit choice refreshes the notice', async () => {
+  const app = await boot({home:false,storage:{
+    'ebird_home_lat:wa':'47.6','ebird_home_lng:wa':'-122.3','ebird_home_place:wa':'Public city-centre fixture',
+    'ebird_home_lat:hi':'19.7','ebird_home_lng:hi':'-155.1','ebird_home_place:hi':'Public island fixture'
+  }});
+  const A = app.window.__app, notice = app.$('savedBaseRegionNotice');
+  try {
+    await A.reconcileSavedBase();
+    assert.equal(A.getHome(),null);
+    assert.doesNotMatch(notice.textContent,/Neither saved base reaches/);
+    assert.match(notice.textContent,/choose.*Home.*saved/i);
+    const review = notice.querySelector('button');
+    assert.equal(review.dataset.savedBaseEditor,'home');
+    review.click();
+    assert.equal(app.$('settingsHomeEditor').open,true);
+    [...app.$('savedHomeMigration').querySelectorAll('button')]
+      .find(button=>/Public city-centre fixture/.test(button.textContent)).click();
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(notice.hidden,true,'a migration approval is a real Home change');
+    assert.equal(app.window.localStorage.getItem('ebird_home_lat:hi'),'19.7');
+  } finally {app.window.close();}
+});
+
+test('F1518 explicit Temp saves preserve consent but refresh actual reachability instead of hiding warnings', async () => {
+  const app = await boot({home:false,storage:{
+    'ebird_home_lat:shared-v1':'19.7','ebird_home_lng:shared-v1':'-155.1'
+  }});
+  const A = app.window.__app, notice = app.$('savedBaseRegionNotice');
+  async function saveTemp(point) {
+    A.openSavedLocationEditor('temp');
+    app.$('tempHomePlace').value = point;
+    app.$('tempGeocodeBtn').click();
+    await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'explicit Temp review');
+    app.$('tempHomeDeviceSave').click();
+    await new Promise(resolve=>setTimeout(resolve,40));
+  }
+  try {
+    await A.reconcileSavedBase();
+    await saveTemp('40.71, -74.00');
+    assert.equal(A.tempHome().lat,40.71,'an explicitly approved out-of-region point stays saved');
+    assert.equal(notice.hidden,false,'saving an unreachable Temp cannot silently dismiss the distance warning');
+    await saveTemp('47.61, -122.33');
+    assert.equal(notice.hidden,true,'a reachable Temp clears the obsolete warning');
+    app.$('tempClearHomeBtn').click();
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(notice.hidden,false,'Use Home must recheck the still-distant permanent Home');
+    A.setActiveReport('hi');
+    await A.reconcileSavedBase();
+    await saveTemp('47.61, -122.33');
+    assert.notEqual(A.tempHome(),null,'a notice refresh must not undo an explicit Temp save just because Home is reachable');
+    assert.equal(A.tempHome().lat,47.61,'a notice refresh must not undo an explicit Temp save just because Home is reachable');
+    A.setActiveReport('wa');
+    await A.reconcileSavedBase();
+    assert.equal(A.tempHome().lat,47.61,'a deliberate distant-region switch still reuses reachable Temp');
+  } finally {app.window.close();}
+});
+
+test('F1518 chase-distance controls refresh the region warning without changing saved locations', async () => {
+  const app = await boot({home:false,storage:{
+    'ebird_home_lat:shared-v1':'47.61','ebird_home_lng:shared-v1':'-122.33'
+  }});
+  const A = app.window.__app, notice = app.$('savedBaseRegionNotice');
+  try {
+    app.window.localStorage.setItem(A.chaseMiKey(),'40');
+    A.setCountyView('US-WA-061');
+    await A.reconcileSavedBase();
+    assert.equal(notice.hidden,true);
+    for(let i=0;i<7;i++) app.$('chaseMiDown').click();
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(A.chaseMaxMi(),5);
+    assert.equal(notice.hidden,false,'a smaller configured radius must replace the old reachable verdict');
+    assert.match(notice.textContent,/within 5 mi/);
+    for(let i=0;i<7;i++) app.$('chaseMiUp').click();
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(notice.hidden,true,'a wider configured radius must retire the old warning');
+    assert.equal(A.getHome().lat,47.61);
+    assert.equal(A.tempHome(),null);
+  } finally {app.window.close();}
+});
+
+test('F1519 deferred editor navigation belongs to the latest visible Settings request', async () => {
+  const app = await boot();
+  const W = app.window, A = W.__app, frames = [], focused = [];
+  const raf = W.requestAnimationFrame;
+  const flush = () => { for(let i=0;i<3;i++) frames.splice(0).forEach(callback=>callback()); };
+  try {
+    W.requestAnimationFrame = callback => frames.push(callback);
+    for (const kind of ['Home','TempHome']) {
+      app.$('settings'+kind+'Editor').querySelector('summary').focus = () => focused.push(kind);
+    }
+    A.openSavedLocationEditor('home');
+    A.openSavedLocationEditor('temp');
+    flush();
+    assert.deepEqual(focused,['TempHome'],'an older Home request must not steal focus from Temp Home');
+    focused.length = 0;
+    A.openSavedLocationEditor('temp');
+    A.showMenu();
+    A.showSection('settingsPanel',{load:false});
+    flush();
+    assert.deepEqual(focused,[],'leaving and returning cannot revive an obsolete editor scroll');
+    A.openSavedLocationEditor('temp');
+    A.showSettingsCategory('account');
+    flush();
+    assert.deepEqual(focused,[],'opening another Settings category must cancel deferred editor focus');
+    A.openSavedLocationEditor('home');
+    A.setCountyView('US-WA-061');
+    flush();
+    assert.deepEqual(focused,[],'changing scope must cancel deferred editor focus');
+    A.openSavedLocationEditor('home');
+    W.localStorage.setItem('ebird_county_view:wa','US-WA-033');
+    flush();
+    assert.deepEqual(focused,[],'persisted scope changes cannot revive an obsolete editor scroll');
+  } finally {W.requestAnimationFrame=raf;W.close();}
+});
+
+test('F1520 Settings leads with distinct Home and Temp bubbles and visible values before account actions', async () => {
+  const app = await boot();
+  const A = app.window.__app, W = app.window, D = app.document;
+  try {
+    app.click(app.$('brandSettings'));
+    const home = app.$('homeSettingsBubble'), temp = app.$('tempHomeSettingsBubble');
+    assert.ok(home && temp,'both saved locations need their own visible Settings bubble');
+    assert.ok(home.compareDocumentPosition(temp) & W.Node.DOCUMENT_POSITION_FOLLOWING);
+    for (const [prefix,bubble] of [['home',home],['tempHome',temp]]) {
+      const editor = app.$(prefix === 'home' ? 'settingsHomeEditor' : 'settingsTempHomeEditor');
+      editor.open = false;
+      assert.equal(bubble.closest('[hidden]'),null);
+      assert.ok(bubble.contains(app.$(prefix+'SavedSummary')));
+      assert.equal(app.$(prefix+'SavedSummary').closest('details'),null,
+        'current saved values must remain visible with the editor closed');
+      assert.ok(bubble.compareDocumentPosition(app.$('settingsCategories')) & W.Node.DOCUMENT_POSITION_FOLLOWING,
+        'saved locations must precede all other Settings options');
+      assert.match(editor.querySelector('summary').textContent,prefix==='home'?/Change Home/:/Set Temp Home/);
+    }
+    assert.match(app.$('homeSavedSummary').textContent,/Active saved base/);
+    assert.match(app.$('tempHomeSavedSummary').textContent,/not set/i);
+    for (const id of ['ebirdSignOut','setupOpenBtn']) {
+      assert.ok(temp.compareDocumentPosition(app.$(id)) & W.Node.DOCUMENT_POSITION_FOLLOWING,
+        'setup and Logout belong below saved locations');
+    }
+    A.openSavedLocationEditor('temp');
+    assert.equal(app.$('settingsTempHomeEditor').open,true);
+    assert.equal(app.$('settingsSavedLocations').hidden,false);
+    assert.equal(D.querySelectorAll('#homePlace').length,1,'moving controls cannot duplicate handlers or IDs');
+    A.showSettingsCategory('account');
+    assert.equal(app.$('settingsSavedLocations').hidden,true,'category subpages stay focused');
+    A.showSettingsCategory('');
+    assert.equal(app.$('settingsSavedLocations').hidden,false);
+  } finally {app.window.close();}
+});
+
+test('F1522 county reports retain the selected region without a redundant county-only warning', async () => {
+  const app = await boot();
+  const A = app.window.__app;
+  try {
+    A.setCountyView('US-WA-033');
+    const reports = [...app.document.querySelectorAll('section')]
+      .filter(section=>section._loader && section._loader.countyView && section._enabled!==false);
+    assert.ok(reports.length>1,'exercise current county-owned reports rather than retired menu IDs');
+    for (const section of reports) {
+      A.showSection(section.id,{load:false});
+      assert.equal(section.querySelector('.secscope:not(.secprofile)'),null,
+        'county reports must not add the redundant county-only warning');
+      assert.match(app.$('navRegion').textContent,/US-WA-033/);
+      assert.equal(A.activeScope().effectiveRegion,'US-WA-033',
+        'removing a warning must not widen the actual personal scope');
+    }
+  } finally {app.window.close();}
+});
+
 test('F1515 conflicting legacy Homes require explicit migration and preserve originals', async () => {
   const app = await boot({home:false,storage:{
     'ebird_home_lat:wa':'47.6','ebird_home_lng:wa':'-122.3','ebird_home_place:wa':'Sample Coast',
@@ -984,6 +1172,65 @@ test('F1460 retired Favorite detail cannot replace a newer completed raw-detail 
     assert.equal(app.$('favLoadBtn').disabled,false);
     assert.deepEqual(app.state.errors,[]);
   } finally { release([old]); app.window.__app.cancelStalledWork(); app.window.close(); }
+});
+
+test('F1523 actual Day trip limits primary and species feeds to the selected county and separates retained contexts', async () => {
+  const common = {subnational1Code:'US-WA',countryCode:'US',locationPrivate:false,obsValid:true,
+    obsDt:formatObsStamp(new Date(Date.now()-3600000)),howMany:1,userDisplayName:'Sample observer'};
+  const rows = [
+    {...common,locId:'L1523SNO',locName:'Public Arlington fixture',lat:48.2,lng:-122.12,
+      subnational2Code:'US-WA-061',speciesCode:'snotarget',comName:'Snohomish fixture bird',subId:'S1523SNO'},
+    {...common,locId:'L1523KING',locName:'Public Skykomish fixture',lat:47.71,lng:-121.36,
+      subnational2Code:'US-WA-033',speciesCode:'kingtarget',comName:'King fixture bird',subId:'S1523KING'}
+  ];
+  const app = await boot({sample:false,home:false,storage:{
+    'ebird_home_lat:shared-v1':'47.61','ebird_home_lng:shared-v1':'-122.33'
+  },fetch:url=>/data\/obs\//.test(url)?rows:/api\.ebird|api\.gbif/.test(url)?[]:null});
+  const A = app.window.__app;
+  let loading;
+  try {
+    A.setCountyView('US-WA-061');
+    await seedSeen(app,[],[],rows);
+    const savedHome = JSON.stringify(A.getHome());
+    A.showSection('sec-excBtn',{load:false});
+    let context = '';
+    for (const county of ['US-WA-061','US-WA-033']) {
+      if (A.getCountyView()!==county) {
+        A.setCountyView(county);
+        await seedSeen(app,[],[],rows);
+      }
+      const start = app.state.fetches.length;
+      loading = A.loadExcursions();
+      const requested = () => app.state.fetches.slice(start)
+        .filter(url=>/data\/obs\//.test(url) && !/data\/obs\/L[^/]+\//.test(url));
+      const outside = () => requested().some(url=>!url.includes('/data/obs/'+county+'/'));
+      await waitFor(()=>outside() || app.$('dayTripProgress').hidden,
+        'Day trip settles or exposes an out-of-county request',60000);
+      assert.equal(outside(),false,
+      'Day trip must acquire only selected-county feeds, including primary and species enrichment: '
+        + requested().filter(url=>!url.includes('/data/obs/'+county+'/'))
+          .map(url=>new URL(url).pathname).join(', '));
+      await loading;
+      const requests = requested();
+      assert.ok(requests.length>0,'the actual Day trip loader must acquire observations');
+      assert.ok(requests.every(url=>url.includes('/data/obs/'+county+'/')),
+        'Day trip must acquire only selected-county feeds, including primary and species enrichment');
+      assert.ok(requests.some(url=>/\/recent\/(?:snotarget|kingtarget)\?/.test(url)),
+        'exercise real species enrichment, not just empty primary feeds');
+      const details = app.state.fetches.slice(start).filter(url=>/data\/obs\/L[^/]+\//.test(url));
+      assert.ok(details.every(url=>url.includes(county==='US-WA-061'?'/L1523SNO/':'/L1523KING/')),
+        'preserve hydration, but only for the selected county patch');
+      const next = app.$('excResults').dataset.tierContext;
+      assert.ok(next);
+      if (context) assert.notEqual(next,context,'retained Day trip context must include the exact county');
+      context = next;
+      assert.equal(JSON.stringify(A.getHome()),savedHome,'county acquisition must not move an outside-county Home');
+    }
+    await A.setDayTripRange('from8plus');
+    assert.equal(app.$('dayTripWarning').hidden,true,
+      'an explicitly selected county is not a broad multi-county scan even in the open-ended time band');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {A.cancelStalledWork();if(loading) loading.catch(()=>{});app.window.close();}
 });
 
 test('F1460 actual Day-trip rebuilds mixed evidence with an outside-county Home', async () => {
@@ -19183,6 +19430,112 @@ async function setupOwnedSeenApp(codes = [], options = {}) {
   app.window.localStorage.removeItem('ebird_seen_meta');
   return app;
 }
+
+test('F1521 actual county, period and region choices automatically acquire exact personal lists despite older CSV metadata', async () => {
+  const app = await setupOwnedSeenApp(['stable']);
+  const A = app.window.__app, W = app.window, reads = [], original = W.fetch;
+  const parentKey = A.personalListKey(A.personalListOwner()), parent = W.localStorage.getItem(parentKey);
+  try {
+    W.localStorage.setItem('ebird_seen_meta',JSON.stringify({source:'csv',count:1}));
+    W.fetch = (url,options) => {
+      if (!/\/lifelist\//.test(url)) return original(url,options);
+      reads.push(String(url));
+      const parsed = new URL(url);
+      return Promise.resolve({ok:true,status:200,text:async()=>ownedPersonalListFixture({
+        region:parsed.pathname.split('/').pop(),period:parsed.search ? 'year' : 'all',
+        codes:['rename']
+      })});
+    };
+    A.openRegionChooser();
+    app.$('regionChooserCountyList').open = true;
+    app.click(app.$('regionChooserCounties').querySelector('[data-region-choice="county:wa:US-WA-033"]'));
+    await waitFor(()=>reads.length===1,'region selection automatically starts its exact seen-list fetch')
+      .catch(()=>assert.fail('a deliberate county choice must automatically fetch its exact seen list'));
+    await waitFor(()=>A.personalListEvidence().complete,'county seen list settles');
+    assert.match(reads[0],/\/lifelist\/US-WA-033\?time=year$/);
+    assert.deepEqual(Object.keys(A.personalListEvidence().exact),['rename']);
+    A.openRegionChooser();
+    app.click(app.$('regionChooser').querySelector('[data-personal-period="all"]'));
+    await waitFor(()=>reads.length===2 && A.personalListEvidence().complete,'all-time county acquisition');
+    assert.match(reads[1],/\/lifelist\/US-WA-033$/);
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    app.click(app.$('regionChooserAll').querySelector('[data-region-choice="hi"]'));
+    await waitFor(()=>reads.length===3 && A.personalListEvidence().complete,'new parent-region acquisition');
+    assert.match(reads[2],/\/lifelist\/US-HI$/);
+    A.setActiveReport('wa');
+    A.setCountyView('US-WA-033');
+    await new Promise(resolve=>setTimeout(resolve,60));
+    assert.equal(reads.length,3,'returning to a fresh exact-scope list must reuse it');
+    assert.equal(W.localStorage.getItem(parentKey),parent,'county acquisition cannot overwrite the parent list');
+  } finally {W.close();}
+});
+
+test('F1521 rapid scope switches reject the old list and apply only the current county owner', async () => {
+  const app = await setupOwnedSeenApp();
+  const A = app.window.__app, W = app.window, pending = new Map(), original = W.fetch;
+  try {
+    W.localStorage.setItem('ebird_seen_meta',JSON.stringify({source:'csv',count:0}));
+    W.fetch = (url,options) => /\/lifelist\//.test(url)
+      ? new Promise(resolve=>pending.set(new URL(url).pathname.split('/').pop(),resolve))
+      : original(url,options);
+    A.setCountyView('US-WA-033');
+    await waitFor(()=>pending.has('US-WA-033'),'first automatic county request');
+    const oldKey = A.personalListKey(A.personalListOwner());
+    A.setCountyView('US-WA-061');
+    await waitFor(()=>pending.has('US-WA-061'),'second automatic county request');
+    pending.get('US-WA-033')({ok:true,status:200,text:async()=>ownedPersonalListFixture({
+      region:'US-WA-033',codes:['stable']
+    })});
+    pending.delete('US-WA-033');
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(A.personalListEvidence().complete,false,'an old county cannot satisfy the new county');
+    assert.equal(W.localStorage.getItem(oldKey),null,'superseded responses cannot publish a list');
+    pending.get('US-WA-061')({ok:true,status:200,text:async()=>ownedPersonalListFixture({
+      region:'US-WA-061',codes:['rename']
+    })});
+    pending.delete('US-WA-061');
+    await waitFor(()=>A.personalListEvidence().complete,'current county list settles');
+    assert.deepEqual(Object.keys(A.personalListEvidence().exact),['rename']);
+  } finally {
+    for (const resolve of pending.values()) resolve({ok:false,status:503,text:async()=>''});
+    W.close();
+  }
+});
+
+test('F1521 automatic personal acquisition reports failure, supports explicit retry and respects exact-scope Skip', async () => {
+  const app = await setupOwnedSeenApp();
+  const A = app.window.__app, W = app.window, original = W.fetch;
+  let reads = 0, fail = true;
+  try {
+    W.localStorage.setItem('ebird_seen_meta',JSON.stringify({source:'csv',count:0}));
+    W.fetch = (url,options) => {
+      if (!/\/lifelist\//.test(url)) return original(url,options);
+      reads++;
+      return Promise.resolve({ok:!fail,status:fail?503:200,text:async()=>ownedPersonalListFixture({
+        region:'US-WA-033'
+      })});
+    };
+    A.setCountyView('US-WA-033');
+    await waitFor(()=>A.personalListEvidence().failure,'automatic acquisition reports its real failure');
+    assert.equal(A.personalListEvidence().complete,false);
+    assert.match(app.$('keyBanner').textContent,/Couldn't fetch your seen list/);
+    for(let i=0;i<4;i++) A.renderKeyBanner();
+    assert.equal(reads,1,'failure must not create an automatic repaint loop');
+    fail = false;
+    app.click(app.$('seenFetchBtn'));
+    await waitFor(()=>A.personalListEvidence().complete,'explicit retry repairs exact membership');
+    assert.equal(reads,2);
+    const skipped = Object.assign({},A.personalListOwner(),{region:'US-WA-061'});
+    W.localStorage.setItem('ebird_seen_setup_skipped',A.personalListKey(skipped));
+    A.setCountyView('US-WA-061');
+    await new Promise(resolve=>setTimeout(resolve,60));
+    assert.equal(reads,2,'a deliberate exact-scope Skip remains respected');
+    W.localStorage.removeItem('ebird_display_name');
+    A.setActiveReport('hi');
+    await new Promise(resolve=>setTimeout(resolve,60));
+    assert.equal(reads,2,'an unconnected account cannot trigger automatic personal acquisition');
+  } finally {W.close();}
+});
 
 async function setupFavoriteApp() {
   const app = await setupOwnedSeenApp(['stable']);

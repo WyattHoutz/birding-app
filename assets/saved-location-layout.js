@@ -6,6 +6,10 @@ async function savedLocationLayout(scan, mutation) {
   const check = (condition, message) => { if (!condition) throw new Error(message); };
   const $ = id => document.getElementById(id);
   const originalTemp = localStorage.getItem('ebird_temp_home_v1');
+  const originalCounty = A.getCountyView();
+  const homeKeys = ['lat','lng','place'].map(field => A.homeKey(field))
+    .concat('ebird_home_migrated_v1');
+  const originalHome = homeKeys.map(key => localStorage.getItem(key));
   async function record(label, run) {
     try {
       const measurements = await run();
@@ -44,6 +48,100 @@ async function savedLocationLayout(scan, mutation) {
         return {kind, candidate:summary, width:rect.width};
       });
     }
+    await record('F1518 saved Home retires the obsolete region warning', async () => {
+      A.openSavedLocationEditor('home');
+      $('clearHomeBtn').click();
+      $('tempClearHomeBtn').click();
+      await A.reconcileSavedBase(false);
+      const notice = $('savedBaseRegionNotice'), review = notice.querySelector('button');
+      check(!notice.hidden && /Home is not set/.test(notice.textContent),
+        'Missing Home must not be described as geographically unreachable');
+      const rect = notice.getBoundingClientRect();
+      check(rect.width > 0 && rect.left >= -.5 && rect.right <= innerWidth+.5,
+        'Missing-Home notice must fit the viewport');
+      check(review.dataset.savedBaseEditor === 'home', 'Missing Home must link to the Home editor');
+      review.click();
+      $('homePlace').value = '47.75, -122.16';
+      $('geocodeBtn').click();
+      await paint();
+      check(!$('homeCandidateReview').hidden, 'Home requires explicit candidate approval');
+      $('homeDeviceSave').click();
+      await paint();
+      check(notice.hidden, 'Approved reachable Home must retire the stale warning without a region switch');
+      check(/Active saved base/.test($('homeSavedSummary').textContent),
+        'Saved Home remains the active base');
+      return {missingNoticeWidth:rect.width, warningRetired:true};
+    });
+    await record('F1520 saved-location bubbles lead Settings with visible current values', async () => {
+      A.openSavedLocationEditor('home');
+      $('settingsHomeEditor').open = false;
+      $('settingsTempHomeEditor').open = false;
+      window.scrollTo(0,0);
+      await paint();
+      const positions = [];
+      for (const prefix of ['home','tempHome']) {
+        const bubble = $(prefix+'SettingsBubble'), summary = $(prefix+'SavedSummary');
+        check(bubble && !bubble.closest('[hidden]') && !summary.closest('details'),
+          'Current saved values must remain visible outside the closed editor');
+        const rect = bubble.getBoundingClientRect(), text = summary.getBoundingClientRect();
+        const style = getComputedStyle(bubble);
+        check(parseFloat(style.borderTopWidth)>0 && parseFloat(style.borderRadius)>0,
+          'Each saved location needs a visible rounded outline, not color alone');
+        check(rect.width>0 && rect.left>=-.5 && rect.right<=innerWidth+.5
+          && text.height>0 && text.left>=rect.left && text.right<=rect.right,
+        'Each saved-location bubble and current value must fit the page width');
+        positions.push({top:rect.top,bottom:rect.bottom,width:rect.width});
+      }
+      check(positions[0].bottom<=positions[1].top+.5
+        && positions[1].bottom<=$('settingsCategories').getBoundingClientRect().top+.5,
+      'Home then Temp Home must lead Settings before every other category');
+      return {positions,closedEditorValuesVisible:true};
+    });
+    await record('F1519 review links visibly reach the requested saved editor', async () => {
+      const positions = [];
+      for (const kind of ['temp','home']) {
+        localStorage.removeItem('ebird_temp_home_v1');
+        if (kind === 'temp') {
+          localStorage.setItem(A.homeKey('lat'),'19.7');
+          localStorage.setItem(A.homeKey('lng'),'-155.1');
+        } else {
+          localStorage.removeItem(A.homeKey('lat'));
+          localStorage.removeItem(A.homeKey('lng'));
+        }
+        for (const from of ['settings','feed']) {
+          if (from === 'settings') A.openSavedLocationEditor('home');
+          else A.showSection('sec-surgeBtn',{load:false});
+          $('settingsHomeEditor').open = true;
+          $('settingsTempHomeEditor').open = false;
+          await A.reconcileSavedBase(false);
+          window.scrollTo(0,0);
+          const button = $('savedBaseRegionNotice').querySelector('button');
+          check(!$('savedBaseRegionNotice').hidden && button.dataset.savedBaseEditor === kind,
+            'The real warning must supply the requested saved-editor action');
+          button.click();
+          await paint();
+          const editor = $(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
+          const title = editor.querySelector('summary').getBoundingClientRect();
+          const header = $('navbar').getBoundingClientRect();
+          check(editor.open && !$('settingsPanel').hidden
+            && title.top >= header.bottom-.5 && title.bottom <= innerHeight+.5,
+          'Review '+kind+' from '+from+' must bring its editor title below the sticky header and into view');
+          positions.push({kind,from,top:title.top,bottom:title.bottom,headerBottom:header.bottom});
+        }
+      }
+      return {positions};
+    });
+    await record('F1522 county report omits the redundant scope warning', async () => {
+      A.setCountyView('US-WA-033');
+      A.showSection('sec-surgeBtn',{load:false});
+      await paint();
+      check(!$('sec-surgeBtn').querySelector('.secscope:not(.secprofile)'),
+        'County report must not add the redundant county-only warning');
+      check($('navRegion').textContent.includes('US-WA-033')
+        && A.activeScope().effectiveRegion === 'US-WA-033',
+      'Removing the warning must retain exact county identity and acquisition scope');
+      return {countyIdentityRetained:true,countyWarning:false};
+    });
     await record('F1517 single-page region chooser', async () => {
       A.openRegionChooser();
       $('regionChooserLocation').querySelector('[data-region-location="all"]').click();
@@ -62,10 +160,13 @@ async function savedLocationLayout(scan, mutation) {
       check(vertical(chooser), 'Choose region must own the one vertical scroll surface');
       check(!vertical(body), 'Lower region choices must not scroll independently');
       check(![...body.querySelectorAll('*')].some(vertical), 'No nested vertical scroller in region choices');
-      const top = document.querySelector('.regionchooser-search').getBoundingClientRect().top;
-      chooser.scrollTop = 150;
+      chooser.scrollTop = 0;
       await paint();
-      check(chooser.scrollTop > 0
+      const start = chooser.scrollTop;
+      const top = document.querySelector('.regionchooser-search').getBoundingClientRect().top;
+      chooser.scrollTop = start + 150;
+      await paint();
+      check(chooser.scrollTop > start + 50
         && document.querySelector('.regionchooser-search').getBoundingClientRect().top < top - 50,
       'Scrolling the choices must move upper page content too');
       body.scrollTop = 75;
@@ -80,8 +181,13 @@ async function savedLocationLayout(scan, mutation) {
     });
   } finally {
     $('regionChooserClose').click();
+    homeKeys.forEach((key,index) => {
+      if (originalHome[index] == null) localStorage.removeItem(key);
+      else localStorage.setItem(key,originalHome[index]);
+    });
     if (originalTemp == null) localStorage.removeItem('ebird_temp_home_v1');
     else localStorage.setItem('ebird_temp_home_v1',originalTemp);
+    A.setCountyView(originalCounty);
     A.resetTransientAnchor();
     A.showMenu();
   }

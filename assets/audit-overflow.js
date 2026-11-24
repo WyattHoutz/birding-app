@@ -5830,7 +5830,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     if (process.env.AUDIT_FOCUS === 'saved-locations') {
       console.log(JSON.stringify(report,null,2));
-      process.exit(report.length===3 && report.every(r=>r.savedLocationGeometry
+      process.exit(report.length===7 && report.every(r=>r.savedLocationGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
         && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
     }

@@ -5801,7 +5801,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.13.0';
+      var APP_VERSION = '2.13.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6356,6 +6356,7 @@
       function tripScopeProfile(bandId, onProgress, workOverride, maxHours) {
         var base = chaseProfile();
         var home = anchorPoint();
+        var selectedCounty = String(getCountyView() || '').toUpperCase(), startScope = activeScope();
         var parent = countyParentCode(base);
         var work = workOverride || navWork('county metadata');
         var startGeneration = _chaseGeneration;
@@ -6369,7 +6370,12 @@
             ? BL.travelBandMaxStraightMi(cfg, bandId)
             : BL.travelHoursMaxStraightMi(cfg, maxHours);
           if (!(cap > 0)) throw new Error('No straight-line ceiling for ' + bandId);
-          return deriveCountyCandidates(home, cap, parent, work)
+          var candidates = selectedCounty
+            ? Promise.resolve(getCountyChoices().filter(function (county) {
+              return String(county.code || '').toUpperCase() === selectedCounty;
+            }))
+            : deriveCountyCandidates(home, cap, parent, work);
+          return candidates
             .then(function (candidates) {
               if (!candidates.length) {
                 return { rows: [], complete: true, failed: [], total: 0 };
@@ -6381,6 +6387,7 @@
             && Number(currentHome.lat) + ',' + Number(currentHome.lng);
           if (startGeneration !== _chaseGeneration
               || startSlug !== getReportSlug()
+              || !scopeCurrent(startScope)
               || startHome !== currentHomeKey) {
             var superseded = new Error('Destination tier request superseded by new Home or report');
             superseded.tierSuperseded = true;
@@ -6402,7 +6409,8 @@
           }
           var out = {};
           Object.keys(base || {}).forEach(function (key) { out[key] = base[key]; });
-          out.slug = base.slug + '-tier-' + bandId;
+          out.slug = base.slug + '-tier-' + bandId
+            + (selectedCounty ? '-' + selectedCounty.toLowerCase() : '');
           out.counties = scope.map(function (row) {
             return { slug: row.slug, code: row.code, label: row.label };
           });
@@ -6412,6 +6420,7 @@
           out.tierBand = bandId;
           out.tierCapMi = cap;
           out.tierCountyCodes = scope.map(function (row) { return row.code; });
+          out.tierSelectedCounty = selectedCounty;
           out.countyScopeComplete = catalog.complete;
           out.countyScopeFailed = catalog.failed.slice();
           out.travelCfg = cfg;
@@ -6465,6 +6474,7 @@
       }
       function refreshChaseMi() {
         syncChaseMi();
+        reconcileSavedBase(false);
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
         var open = _sections.filter(function (s) { return !s.hidden; })[0];
@@ -19915,6 +19925,13 @@
         try { applyScopeTransitionPending(scope); } catch (e) {}
         try { headerIdentityRefresh(); } catch (e) {}
         setTimeout(function () {
+          if (!scopeCurrent(scope)) return;
+          var state = seenSetupState();
+          if (state.canFetch && !state.skipped && !state.pending && !state.attempted
+              && (!state.evidence.complete || state.evidence.stale)) {
+            preparePersonalList(scope, false, null, { quiet: true, allowBrowser: false })
+              .catch(function () {});
+          }
           try { lazyFetchRankMe(); } catch (e) {}
         }, 0);
         return scope;
@@ -20663,6 +20680,8 @@
       }
       function getChaseAll(force, profileOverride, workOverride, onPartial) {
         var profile = profileOverride || chaseProfile(), slug = profile.slug;
+        var speciesProfile = profile.tierSelectedCounty
+          ? Object.assign({}, profile, { stateCode: profile.tierSelectedCounty }) : profile;
         var wantKm = BL.geoNotableDistKm(profile);
         var wantBaseKey = chaseFetchBaseKey(profile);
         var generation = _chaseGeneration;
@@ -20949,7 +20968,7 @@
           gatheredKm = merged.geoNotableKm;
         }
         function snapshotProvenance(cv) {
-          var required = feeds.concat(BL.planSpeciesFeeds(profile,
+          var required = feeds.concat(BL.planSpeciesFeeds(speciesProfile,
             chasePhase2Codes(cv || compute(null), feeds.length, BL.SPECIES_FEED_MAX)));
           var times = required.map(function (feed) { return feedTimes[feed.file]; })
             .filter(function (at) { return Number.isFinite(at) && at > 0 && at <= Date.now(); });
@@ -21178,7 +21197,7 @@
             var phase2Budget = BL.SPECIES_FEED_MAX;
             var targetCodes = chasePhase2Codes(
               phaseOneCv, feeds.length, phase2Budget);
-            var spFeeds = BL.planSpeciesFeeds(profile, targetCodes);
+            var spFeeds = BL.planSpeciesFeeds(speciesProfile, targetCodes);
 
             // RESOLVE HERE, on phase 1. Not "publish and keep waiting".
             //
@@ -21244,7 +21263,7 @@
             }
             function runTargetPlan(targetCodes, expectedTargetGeneration) {
               requireCurrentChase();
-              var pending = BL.planSpeciesFeeds(profile, targetCodes).filter(function (feed) {
+              var pending = BL.planSpeciesFeeds(speciesProfile, targetCodes).filter(function (feed) {
                 return !attemptedSpecies[feed.file];
               });
               var remaining = Math.max(0,
@@ -21421,6 +21440,18 @@
               feedComplete: true, feedFailed: false,
               cv: computeChaseRows(profile, profile.slug, {}, [], null, patchScope) };
           }
+          function scopedResult(value) {
+            return patchScope ? projectChaseResult(value, profile, profile.slug, patchScope) : value;
+          }
+          function acquireTier() {
+            return getChaseAll(force, profile, work, onPartial && function (value, done, total, county, phase) {
+              return onPartial(scopedResult(value), done, total, county, phase);
+            }).then(scopedResult);
+          }
+          if (profile.tierSelectedCounty) {
+            profile.tierBaseRadiusMi = chaseMaxMi();
+            return acquireTier();
+          }
           return getChaseAll(force, null, work).then(function (base) {
             if (!workCurrent(work)) throw queueCancelledError(work);
             if (patchScope && base) base = projectChaseResult(base, base.profile || chaseProfile(),
@@ -21428,12 +21459,7 @@
             profile.tierBaseRadiusMi = base && base.cv && base.cv.destRadiusMi != null
               ? base.cv.destRadiusMi
               : (profile.dailyDriveMi || BL.CONST.DAILY_DRIVE_MI);
-            function scopedResult(value) {
-              return patchScope ? projectChaseResult(value, profile, profile.slug, patchScope) : value;
-            }
-            return getChaseAll(force, profile, work, onPartial && function (value, done, total, county, phase) {
-              return onPartial(scopedResult(value), done, total, county, phase);
-            }).then(scopedResult);
+            return acquireTier();
           });
         });
       }
@@ -21758,6 +21784,7 @@
       }
       function savedBaseAnchors() { return BL.anchorsFor(null, { home: activeSavedBase() }); }
       function savedBaseChanged() {
+        reconcileSavedBase(false);
         resetTransientAnchor();
         clearChaseCache();
         _surgeLoadGeneration++;
@@ -21780,23 +21807,33 @@
         savedBaseChanged();
       }
       var _savedBaseRegionGeneration = 0;
-      function reconcileSavedBase() {
+      function reconcileSavedBase(restoreHome) {
         var generation = ++_savedBaseRegionGeneration, profile = bcProfile();
         var scope = activeScope(), identity = savedBaseIdentity(), radius = chaseMaxMi();
+        var notice = $('savedBaseRegionNotice');
+        if (notice) notice.hidden = true;
         return loadRegionBoundary(scope.parentRegion, scope.effectiveRegion).then(function (boundary) {
           if (!window.document || _appUnloading || generation !== _savedBaseRegionGeneration || profile !== bcProfile()
               || !scopeCurrent(scope) || identity !== savedBaseIdentity() || radius !== chaseMaxMi()) return null;
           var decision = BL.savedBaseDecision(getHome(), tempHome(), boundary, radius);
-          if (decision.choice === 'home' && tempHome()) {
+          if (restoreHome !== false && decision.choice === 'home' && tempHome()) {
             clearTempHome();
             loadSettings();
+            return decision;
           }
-          var notice = $('savedBaseRegionNotice');
           if (notice) {
+            var missing = decision.home === 'missing-home' && decision.temp === 'missing-home';
             notice.hidden = decision.choice === 'home' || decision.choice === 'temp';
-            notice.querySelector('span').textContent = decision.choice === 'unknown'
-              ? 'Region-boundary distance is unknown. Saved locations are unchanged. Review Temp Home if needed.'
-              : 'Neither saved base reaches this region within ' + radius + ' mi. Set a Temp Home; the old point stays saved until you confirm a replacement.';
+            notice.querySelector('span').textContent = missing
+              ? (!localStorage.getItem('ebird_home_migrated_v1') && legacyHomeChoices().length > 1
+                ? 'Choose your shared Home from the saved legacy locations. Saved locations are unchanged.'
+                : 'Home is not set. Review Home to save a permanent location, or explicitly save a Temp Home for this region.')
+              : decision.choice === 'unknown'
+                ? 'Region-boundary distance is unknown. Saved locations are unchanged. Review Temp Home if needed.'
+                : 'Neither saved base reaches this region within ' + radius + ' mi. Set a Temp Home; the old point stays saved until you confirm a replacement.';
+            var review = notice.querySelector('button');
+            review.dataset.savedBaseEditor = missing ? 'home' : 'temp';
+            review.textContent = missing ? 'Review Home' : 'Review Temp Home';
           }
           return decision;
         });
@@ -26602,7 +26639,7 @@
         var home = anchorPoint() || {};
         var lat = Number(home.lat), lng = Number(home.lng);
         return [
-          getReportSlug(),
+          activeScope().cacheIdentity,
           bandId,
           isFinite(lat) ? lat.toFixed(5) : '',
           isFinite(lng) ? lng.toFixed(5) : ''
@@ -26655,7 +26692,7 @@
           if (!current()) stopEstimate();
           else renderEstimate();
         }, 1000);
-        $('dayTripWarning').hidden = bandId !== 'from8plus';
+        $('dayTripWarning').hidden = bandId !== 'from8plus' || scopeOwner.level === 'subregion';
         progress.hidden = false;
         progress.removeAttribute('value');
         st.setAttribute('aria-busy', 'true');
@@ -56217,26 +56254,6 @@
           var el = sec0.querySelector('.sechint');
           if (el) el.parentNode.removeChild(el);
         })();
-        // County views narrow public rows; personal eligibility belongs to the
-        // exact active geography and selected list period.
-        (function () {
-         if (!sec0 || !h20) return;
-         var el = sec0.querySelector('.secscope');
-         var code = getCountyView();
-         var spec = sec0._loader;
-         if (!code || !spec || !spec.countyView) {
-           if (el) el.parentNode.removeChild(el);
-           return;
-         }
-         if (!el) {
-           el = document.createElement('div');
-           el.className = 'secscope';
-           var anchor = sec0.querySelector('.sechint') || h20;
-           anchor.insertAdjacentElement('afterend', el);
-         }
-         el.textContent = '📍 ' + countyViewLabel() + ' only — personal needs use the exact '
-           + activeScope().label + ' ' + personalBasisLabel() + '.';
-        })();
         // F188: WHOSE LIST IS THIS? Silent on Main, loud on anything else.
         //
         // An ever-present marker stops being read, which is why this repo
@@ -56651,6 +56668,8 @@
         var overview = $('settingsCategories');
         if (!overview) return;
         overview.hidden = !!category;
+        var savedLocations = $('settingsSavedLocations');
+        if (savedLocations) savedLocations.hidden = !!category;
         document.querySelectorAll('[data-settings-category]').forEach(function (section) {
           section.hidden = section.dataset.settingsCategory !== category;
         });
@@ -56764,6 +56783,22 @@
         move(boundaries.erase, boundaries.sources, reset); groups.advanced.appendChild(reset);
         panel.querySelector('h2').after(categories);
         Object.keys(groups).forEach(function (key) { categories.after(groups[key]); });
+        var locations = document.createElement('section');
+        locations.id = 'settingsSavedLocations';
+        locations.setAttribute('aria-label', 'Home and Temp Home');
+        [[home, 'home', 'Home', 'Your permanent base for this profile.'],
+          [temp, 'tempHome', 'Temp Home', 'Optional override. Clear / Use Home returns to Home.']]
+          .forEach(function (item) {
+            var bubble = document.createElement('section');
+            bubble.id = item[1] + 'SettingsBubble'; bubble.className = 'home-review';
+            var heading = document.createElement('h3');
+            heading.id = item[1] + 'SettingsTitle'; heading.textContent = item[2];
+            bubble.setAttribute('aria-labelledby', heading.id);
+            var hint = document.createElement('p'); hint.textContent = item[3];
+            bubble.append(heading, hint, $(item[1] + 'SavedSummary'), item[0]);
+            locations.appendChild(bubble);
+          });
+        categories.before(locations);
         $('ebirdSignOut').textContent = 'Logout';
         var status = document.createElement('p');
         status.id = 'settingsLogoutStatus'; status.setAttribute('role', 'status');
@@ -60581,15 +60616,27 @@
         lookupSettingsHome(q);
       });
 
+      var _savedLocationEditorGeneration = 0;
       function openSavedLocationEditor(kind) {
+        var generation = ++_savedLocationEditorGeneration;
         showSettings(true);
-        showSettingsCategory('account');
         var editor = $(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
         editor.open = true;
-        var field = $(kind === 'temp' ? 'tempHomePlace' : 'homePlace');
-        field.focus({ preventScroll: true });
-        if (editor.scrollIntoView) editor.scrollIntoView({ block: 'start' });
         renderSavedLocations();
+        var navigation = _navGeneration, profile = bcProfile(), scope = activeScope();
+        function reveal() {
+          if (generation !== _savedLocationEditorGeneration || navigation !== _navGeneration
+              || profile !== bcProfile() || !scopeCurrent(scope)
+              || $('settingsPanel').hidden || $('settingsSavedLocations').hidden || !editor.open) return;
+          var title = editor.querySelector('summary'), nav = $('navbar').getBoundingClientRect();
+          title.focus({ preventScroll: true });
+          try { window.scrollTo(0, Math.max(0, window.scrollY
+            + title.getBoundingClientRect().top - nav.bottom - 12)); } catch (e) {}
+        }
+        // Settings restores its page scroll on the next frame.
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function () { requestAnimationFrame(reveal); });
+        } else reveal();
       }
       document.addEventListener('click', function (event) {
         var link = event.target.closest && event.target.closest('[data-saved-base-editor]');
@@ -60607,6 +60654,9 @@
             + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5) + '). '
             + ((prefix === 'home') === !tempHome() ? 'Active saved base.' : 'Not the active saved base.')
             : label + ' is not set.';
+          var editor = $(prefix === 'home' ? 'settingsHomeEditor' : 'settingsTempHomeEditor');
+          editor.querySelector('summary').textContent = (point ? 'Change ' : 'Set ')
+            + (prefix === 'home' ? 'Home' : 'Temp Home');
           var map = $(prefix + 'SavedMap');
           clearMap(map);
           if (point) renderMap(map, [{ lat: point.lat, lng: point.lng, num: 'S',
@@ -60699,7 +60749,6 @@
         cancelTempHomeLookup();
         renderSavedLocations();
         tempEditor('geocodeStatus').textContent = 'Saved Temp Home. Permanent Home is unchanged.';
-        $('savedBaseRegionNotice').hidden = true;
       });
       tempEditor('clearHomeBtn').addEventListener('click', function () {
         cancelTempHomeLookup();
@@ -60707,7 +60756,6 @@
         renderSavedLocations();
         tempEditor('homePlace').value = '';
         tempEditor('geocodeStatus').textContent = 'Temp Home cleared. Using Home.';
-        $('savedBaseRegionNotice').hidden = true;
       });
 
       function persistSettings() {
