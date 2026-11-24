@@ -20350,8 +20350,8 @@ test('F207: only profile-scoped stored coordinates count as Home', async () => {
   assert.match(app.$('keyBanner').textContent, /Set Home/i,
     'the ordered setup resumes at Home when the region is already known');
 
-  app.window.localStorage.setItem('ebird_home_lat:wa', '47.61234');
-  app.window.localStorage.setItem('ebird_home_lng:wa', '-122.24567');
+  app.window.localStorage.setItem(A.homeKey('lat'), '47.61234');
+  app.window.localStorage.setItem(A.homeKey('lng'), '-122.24567');
   assert.equal(JSON.stringify(A.getHome()),
     JSON.stringify({ lat: 47.61234, lng: -122.24567 }),
   'an existing owned Home remains authoritative');

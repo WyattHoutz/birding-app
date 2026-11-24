@@ -1373,8 +1373,8 @@ module.exports = function registerMigrationSetupControls({
       const A = app.window.__app;
       A.openSetupSheet();
       app.click(app.$('setupNext'));
-      app.window.localStorage.setItem('ebird_home_lat:wa', '47.8');
-      app.window.localStorage.setItem('ebird_home_lng:wa', '-122.1');
+      app.window.localStorage.setItem(A.homeKey('lat'), '47.8');
+      app.window.localStorage.setItem(A.homeKey('lng'), '-122.1');
       await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-home-replace'
         && !app.$('appSheet').hidden || app.$('setupSheetBody').dataset.setupStep === 'seen',
         'region selection outcome after concurrent Home change');
