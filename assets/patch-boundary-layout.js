@@ -96,11 +96,12 @@ async function patchBoundaryLayout(scan, mutation) {
     });
     let patches;
     await record('F1460 Cold patches','sec-coldBtn','coldResults',async()=>{
-      patches = await A.runHotspotScan({});
+      patches = await A.runHotspotScan({force:true});
       check(patches && patches.cold.length,'actual bounded Cold scan must produce an eligible patch');
     });
     await record('F1460 Busy patches','sec-hotBtn','hotResults',async()=>{
-      check(patches && patches.busy.length,'actual bounded Busy scan must produce an eligible patch');
+      check(patches && patches.busy.length,'actual bounded Busy scan must produce an eligible patch: '
+        + JSON.stringify({state:patches && patches.busyState,base:A.activeSavedBase()}));
       A.renderHot(patches);
     });
     await record('F1460 Iconic patches','sec-iconicBtn','iconicResults',async()=>{

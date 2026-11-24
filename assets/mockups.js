@@ -4781,9 +4781,11 @@ const BOOTSTRAP = `
       A.setWatchlist([{code: 'baisan', name: "Baird's Sandpiper"}]);
       ['L-FIXTURE-1', 'L-FIXTURE-2'].forEach(function (id) {
         A.seedFavDetail(id, [
-          { speciesCode: 'baisan', comName: "Baird's Sandpiper", howMany: 2,
+          { locId:id, subnational1Code:'US-WA', subnational2Code:'US-WA-033',
+            speciesCode: 'baisan', comName: "Baird's Sandpiper", howMany: 2,
             obsDt: mockObservationDate(2), subId: 'SFAVMOCK1' },
-          { speciesCode: 'solsan', comName: 'Solitary Sandpiper', howMany: 1,
+          { locId:id, subnational1Code:'US-WA', subnational2Code:'US-WA-033',
+            speciesCode: 'solsan', comName: 'Solitary Sandpiper', howMany: 1,
             obsDt: mockObservationDate(24), subId: 'SFAVMOCK2' }
         ]);
       });

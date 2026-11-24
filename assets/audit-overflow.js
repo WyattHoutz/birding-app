@@ -2827,6 +2827,16 @@ const AUDIT = `<script>
         locale.localeFixture = list.textContent;
         out.push(locale);
         A.showSection('sec-favResults');
+        ['L-F1','L-F2'].forEach(function (id) {
+          A.seedFavDetail(id, [
+            {locId:id,speciesCode:'baisan',comName:"Baird's Sandpiper",howMany:2,
+              subnational1Code:'US-WA',subnational2Code:'US-WA-033',
+              obsDt:new Date().toISOString().slice(0,10)+' 08:00',subId:'SFAVAUDIT1'},
+            {locId:id,speciesCode:'solsan',comName:'Solitary Sandpiper',howMany:1,
+              subnational1Code:'US-WA',subnational2Code:'US-WA-033',
+              obsDt:new Date().toISOString().slice(0,10)+' 07:00',subId:'SFAVAUDIT2'}
+          ]);
+        });
         return A.loadFavs().then(function () {
           var favorite = scan('sec-favResults');
           favorite.populatedFixture = true;
@@ -3843,6 +3853,8 @@ const AUDIT = `<script>
   async function approvedReleaseRegression(out) {
     var A = window.__app;
     function require(value, message) { if (!value) throw new Error(message); }
+    A.cancelStalledWork();
+    A.fgSchedReset(Date.now());
     A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder'});
     A.setActiveReport('wa'); A.setCountyView('');
     await preparePersonalFixture(A,window,{yearList:[{code:'amerob',name:'American Robin'}]},[
@@ -3905,7 +3917,11 @@ const AUDIT = `<script>
       await new Promise(function (resolve) { setTimeout(resolve,50); });
     }
     var card = document.querySelector('#cklResults .bigdaycard');
-    require(card, 'F1053 production Big days fixture missing');
+    require(card, 'F1053 production Big days fixture missing: ' + JSON.stringify({
+      base:A.activeSavedBase(),scope:A.activeScope(),limiter:A.fgState(),
+      status:document.getElementById('cklStatus').textContent,
+      diagnostics:window.__dbg.buf.slice(-8)
+    }));
     var radius = document.getElementById('cklRadius');
     measurePill(radius,4);
     require(Array.from(radius.querySelectorAll('button')).every(function (button) {

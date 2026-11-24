@@ -38,6 +38,9 @@ async function alertLocationLayout(scan, mutation, view) {
   A.showSection('sec-surgeBtn', { load: false });
   const states = { mega:'notApplicable',observations:'retained',leaderboard:'retained',
     hotspots:'notApplicable',suppressNotifications:true };
+  const radiusKey = A.chaseMiKey(), originalRadius = localStorage.getItem(radiusKey);
+  localStorage.setItem(radiusKey,'80');
+  try {
   await record('F1513 separate Celebrity reporting sites', async () => {
     const now = Date.now();
     const merged = [
@@ -142,6 +145,10 @@ async function alertLocationLayout(scan, mutation, view) {
     return {measurements};
   });
   return results;
+  } finally {
+    if (originalRadius == null) localStorage.removeItem(radiusKey);
+    else localStorage.setItem(radiusKey,originalRadius);
+  }
 }
 
 module.exports = alertLocationLayout;
