@@ -248,7 +248,8 @@
       "label": "⚙️ Settings",
       "report": null,
       "map": null,
-      "why": "app-only: API key / home / report picker",
+      "appMap": "homeCandidateMap",
+      "why": "app-only: API key / home / report picker, with a temporary candidate Home map for explicit Save Home approval; it is not a report-result map or a saved location until approved",
       "sub": "Region, display, data"
     },
     {

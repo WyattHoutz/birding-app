@@ -12244,7 +12244,9 @@ test('F859 cached regions recover locally with owner, timestamp and alias contro
     await new Promise(resolve=>setTimeout(resolve,150));
     const buttons = arr(app.$('regionChooserRecent').querySelectorAll('button'),b=>b.dataset.regionChoice);
     assert.deepEqual(buttons,['region:US-MI','hi','ca','az','region:US-CO']);
-    assert.equal(app.state.fetches.length,before,'recovery must not fetch');
+    assert.deepEqual(app.state.fetches.slice(before).filter(url=>
+      !/^(?:county-bounds|region-boundaries)-wa\.json$/.test(url)),[],
+      'cached recovery may load bundled Home geometry, but must not fetch provider data');
     assert.deepEqual(arr(await A.recoverCachedRecentRegions()),recovered,'restart discovery uses persistent records');
     app.window.localStorage.setItem(A.IDENTITY_REV_KEY,String(A.identityRevision()+1));
     assert.deepEqual(arr(A.recentRegions()),['wa','region:US-MI'],
@@ -18708,7 +18710,9 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     const beforeOpen = app.state.fetches.length;
     app.click(app.$('navRegion'));
     const snohomish = find('Snohomish','county:wa:US-WA-061');
-    assert.equal(app.state.fetches.length,beforeOpen,'opening and searching existing county choices is offline');
+    assert.deepEqual(app.state.fetches.slice(beforeOpen).filter(url=>
+      !/^(?:county-bounds|region-boundaries)-wa\.json$/.test(url)),[],
+      'existing county choices and Home geometry must remain provider-offline');
     assert.equal(app.state.locations.length,0,'opening the chooser must not request GPS');
     let generation = A.scopeGeneration();
     app.click(snohomish);
@@ -18780,7 +18784,9 @@ test('F1445 cached county visits and loaded county references stay searchable wi
       'owned cached county visit appears');
     assert.ok(app.$('regionChooserRecent').querySelector('[data-region-choice="county:wa:US-WA-061"]'),
       'an existing raw county-code visit must normalize instead of disappearing');
-    assert.equal(app.state.fetches.length,before,'county visit recovery is local');
+    assert.deepEqual(app.state.fetches.slice(before).filter(url=>
+      !/^(?:county-bounds|region-boundaries)-wa\.json$/.test(url)),[],
+      'county visit recovery may read bundled Home geometry, never provider data');
     app.click(app.$('regionChooserClose'));
     await A.selectRegionChoice('region:CA-PE');
     await A.ensureActiveCountyCatalog();
@@ -19402,7 +19408,7 @@ test('F318: runtime county discovery loads references only and persists All/coun
       || /\/ref\/region\/(?:list\/subnational2|info)\//.test(url)),
   'the only live eBird calls are county reference metadata');
 
-  assert.match(app.$('regionChooserCountyCurrent').textContent,/no county view selected/);
+  assert.match(app.$('regionChooserCountyCurrent').textContent,/Selected view: All counties in Oregon/);
   const choice=app.$('regionChooserCounties').querySelector('[data-region-choice="county:u-oregon:US-OR-051"]');
   assert.match(choice.textContent,/Multnomah.*US-OR-051/);
   app.click(choice);
@@ -42996,11 +43002,11 @@ test('F358 Stakeout bird continues from a spuh into bird evidence', async () => 
       .map((level) => [...level.querySelectorAll('[data-compact-label]')]
         .map((item) => item.dataset.compactLabel)),
     [
-      ['bird sp.'],
-      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
-      ['Scolopacidae sp.'],
-      ['Calidris sp.', 'peep sp.'],
       ['Western Sandpiper'],
+      ['Calidris sp.', 'peep sp.'],
+      ['Scolopacidae sp.'],
+      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
+      ['bird sp.'],
     ],
     'the selected bird path does not separate rank siblings with one concise level');
   assert.equal(app.document.querySelectorAll(
@@ -64815,7 +64821,7 @@ test('the region and county pickers show the code the top bar displays', async (
   // code the chip will show.
   assert.ok(cs.some((t) => /^King\b.*US-WA-033$/.test(t)),
     'the named county choice names its exact code: ' + JSON.stringify(cs));
-  assert.match(app.$('regionChooserCountyCurrent').textContent,/no county view selected/,
+  assert.match(app.$('regionChooserCountyCurrent').textContent,/Selected view: All counties in Washington/,
     'the unfiltered default survives');
 
   // THE CHIP AND THE PICKER MUST AGREE, which is the whole point of
@@ -64853,7 +64859,7 @@ test('Hawaii exposes its Big Island county view beside the region picker', async
   const county = app.$('regionChooserCounties').querySelector('[data-region-choice="county:hi:US-HI-001"]');
   assert.ok(county, 'Hawaii must expose its county view in the shared chooser');
   assert.equal(county.querySelector('.regionchoicekind').textContent,'County');
-  assert.match(app.$('regionChooserCountyCurrent').textContent,/no county view selected/,
+  assert.match(app.$('regionChooserCountyCurrent').textContent,/Selected view: All counties in Hawaii/,
     'the county chooser keeps its explicit unfiltered state');
   assert.match(county.textContent,
     /Hawaii County \(Big Island\).*US-HI-001/,
@@ -67682,6 +67688,12 @@ test('F1506 saved Home shortcut uses actual county polygons without GPS and reje
     assert.match(app.$('regionChooserCountyShortcut').textContent,/Current county \(Home\)/);
     assert.equal(recent.firstElementChild,firstRecent,'background Home county lookup rebuilt Recent');
     assert.equal(app.document.activeElement,app.$('regionChooserSearch'),'background lookup stole search focus');
+    app.$('regionChooserCountyList').querySelector('summary').click();
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const expected=Object.keys(JSON.parse(fs.readFileSync(wwwFixture('county-bounds-wa.json'),'utf8'))).sort();
+    assert.deepEqual([...app.$('regionChooserCounties').querySelectorAll('[data-region-choice]')]
+      .map(button=>button.dataset.regionChoice.split(':').at(-1)).sort(),expected,
+      'opening All counties must paint the complete catalog already loaded by Home');
     assert.equal(app.state.locations.length,0,'opening the chooser requested GPS');
     assert.equal(JSON.stringify(A.getHome()),home);
     assert.equal(A.getCountyView(),'','Home shortcut silently selected its county');
@@ -70091,7 +70103,7 @@ test('F188: the picker sits beside the key it scopes, and says when it acts', ()
   // it changes the active storage namespace. The control must say both.
   const panel = HTML.slice(HTML.indexOf('<label for="bcProfileSel">'),
                            HTML.indexOf('<label for="abaSid">'));
-  assert.match(panel, /Changes save automatically.*Switching profiles reloads the app/s,
+  assert.match(panel, /Account changes save automatically; Home requires Save Home\..*Switching profiles reloads the app/s,
     'the control must say when it takes effect');
   assert.doesNotMatch(panel, /id="(?:bcProfileName|ebirdName)"/,
     'read-only identity must not look like an unfinished editable setting');
@@ -70192,7 +70204,7 @@ test('F189: the county picker says what it is, on screen', async () => {
 
   // The default option is a STATE, not a list of the data.
   assert.equal(label.textContent,'County','the visible heading names the choice level');
-  assert.match(app.$('regionChooserCountyCurrent').textContent,/All counties: no county view selected/,
+  assert.match(app.$('regionChooserCountyCurrent').textContent,/Selected view: All counties in Washington/,
     'the current state must answer whether the list is filtered');
   assert.match(sel.querySelector('summary').textContent,/All counties/,
     'the collapsed list is visibly named, not a list of seed counties');

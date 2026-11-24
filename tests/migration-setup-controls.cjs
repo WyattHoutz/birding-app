@@ -175,7 +175,7 @@ module.exports = function registerMigrationSetupControls({
         await A.renderSpuhStakeoutNav(code, model.speciesRow(code).name);
         const nav = app.$('spLookupIdHelp');
         assert.deepEqual([...nav.querySelectorAll('.spuhpathsentence [data-spuh]')]
-          .map(node => node.dataset.spuh), expected);
+          .map(node => node.dataset.spuh), expected.slice().reverse());
         assert.deepEqual([...nav.querySelectorAll('.spuhtaxchoices [data-spuh]')]
           .map(node => node.dataset.spuh), expected);
         assert.equal(nav.querySelector('.spuhtaxequiv'), null, 'overlap is not equivalence');
@@ -1669,7 +1669,10 @@ module.exports = function registerMigrationSetupControls({
       app.$('homePlace').dispatchEvent(new app.window.Event('input', { bubbles: true }));
       assert.equal(app.$('homeDeviceSave').hidden, true, 'edited device candidate remained acceptable');
       app.click(app.$('geocodeBtn'));
-      await waitFor(() => A.getHome().lat === 47.65, 'corrected manual Home');
+      await waitFor(() => !app.$('homeDeviceSave').hidden, 'corrected manual Home review');
+      assert.equal(JSON.stringify(A.getHome()), initial,'manual correction requires explicit approval');
+      app.click(app.$('homeDeviceSave'));
+      assert.equal(A.getHome().lat,47.65,'explicit approval saves the corrected manual Home');
       app.click(app.$('homeCurrentLocation'));
       await waitFor(() => !app.$('homeDeviceSave').hidden, 'approved candidate');
       app.click(app.$('homeDeviceSave'));

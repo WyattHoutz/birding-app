@@ -57471,6 +57471,7 @@
           fillCountyPicker($('menuCounty'));
           if (status) status.textContent = _runtimeCounties[slug].length
             ? '' : 'This jurisdiction has no county subdivisions. The whole region remains selected.';
+          if (!$('regionChooser').hidden) renderRegionChooser({ preserveSearch: true });
           return Promise.resolve(_runtimeCounties[slug]);
         }
         if (!getKey() && !COUNTY_SEED_FILES[parent]) {

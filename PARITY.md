@@ -156,6 +156,10 @@ F743 also adds an app-only numbered **Favorite patches map** (`favMap`) inside
 the shared Favorite section. `report-contract.json` declares it as `appMap`
 with a reason; the report's `map` contract remains unchanged. It uses only
 device-owned saved coordinates and order, not a broad scan or report fetch.
+F1507 adds the temporary Settings **candidate Home map** (`homeCandidateMap`),
+declared as an app-only map with its approval purpose in the same contract.
+It previews supplied or device-derived coordinates before explicit Save Home;
+Cancel leaves saved Home unchanged. It is not a report result or automatic save.
 F735/F736's checked taxonomy editions and optional common-name presentation are
 likewise device-side additions: canonical codes, scientific identity and source
 evidence stay unchanged, and no locale taxonomy is redistributed in the bundle.
