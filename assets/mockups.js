@@ -516,7 +516,7 @@ const EXTRA_SHOTS = [
     host: 'sec-spLookupBtn', fullPage: true, freshApp: true,
     prepTimeoutMs: 45000,
     expects: ['#spLookupRecent .stakeoutFlatChecklists .ckmain > .ckdate:first-child',
-      '#spLookupRecent .stakeoutPinCue',
+      '#spLookupRecent .cklid',
       '#spLookupClear', '#spLookupBtn'],
     prep: `FIX.before('spLookupBtn', A, document);
            var sec = document.getElementById('spLookupBtn').closest('section');
@@ -1152,10 +1152,10 @@ const REVIEW_SHOTS = [
            A.showSection(sec.id);
            return FIX.prepareF634Stakeout(A, document, sec);` },
   { id: 'stakeoutpins-f837', at: 'spLookupBtn',
-    title: 'Stakeout bird — checklists share their public map-pin numbers',
+    title: 'Stakeout bird — checklist IDs retain their map associations',
     host: 'sec-spLookupBtn', scrollTo: '#spLookupRecent', fullPage: true,
     prepTimeoutMs: 45000,
-    expects: ['#spLookupRecent .stakeoutPinCue', '#spLookupRecent .stakeoutFlatChecklists'],
+    expects: ['#spLookupRecent .cklid', '#spLookupRecent .stakeoutFlatChecklists'],
     prep: `var sec = document.getElementById('spLookupBtn').closest('section');
            A.showSection(sec.id);
            await FIX.prepareF837(A, document, sec);` },
@@ -5233,7 +5233,7 @@ const BOOTSTRAP = `
       } else if (!pins.has(number)
           || pins.get(number).title !== number + ': ' + row.getAttribute('data-ev-place')
           || pins.get(number).key !== row.getAttribute('data-pin-place')
-          || row.querySelector('.stakeoutPinCue').textContent !== number + '.') {
+          || !row.querySelector('.cklid').textContent.includes(row.getAttribute('data-ev-sub'))) {
         throw new Error('F837 actual row/pin identity mismatch');
       }
     });

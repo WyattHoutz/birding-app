@@ -171,14 +171,18 @@ async function releaseReviewLayout(scan, mutation, stage=()=>{}) {
     A.setActiveReport('wa');window.scrollTo(0,0);
     return {unavailable:true,chooseRegion:true};
   });
-  await record('F1511 actual primary hotspot and additional locations',async()=>{
+  await record('F1511/F1524 actual primary hotspot and recent checklist identities',async()=>{
     A.clearSpeciesLookup();
     const sources=[
       {locId:'L1511A',locName:'Representative Park -- South',lat:47.7,lng:-122.2},
       {locId:'L1511B',locName:'Representative Park -- North boardwalk and observation platform',lat:47.701,lng:-122.201},
       {locId:'P1511',locName:'Nearby private garden',lat:47.702,lng:-122.202,locationPrivate:true}
     ].map((source,index)=>Object.assign({speciesCode:'lcspet',comName:"Leach's Storm-Petrel",
-      subId:'S1511'+index,obsDt:A.todayStr()+' 09:00',howMany:1,obsValid:true},source));
+      subId:'S15110000'+index,obsDt:A.todayStr()+' 09:00',howMany:1,numSpecies:34-index,obsValid:true},source));
+    sources.forEach(source=>A.seedChecklistView(source.subId,{
+      subId:source.subId,obsDt:source.obsDt,numSpecies:source.numSpecies,
+      durationHrs:1,obs:[{speciesCode:'lcspet',howMany:1}]
+    }));
     A.seedEbirdCache(A.speciesLookupPath('US-WA','lcspet',A.SP_LOOKUP_BACK),sources);
     A.showSection('sec-spLookupBtn',{load:false});
     A.lookupSpecies('lcspet',"Leach's Storm-Petrel");
@@ -205,7 +209,20 @@ async function releaseReviewLayout(scan, mutation, stage=()=>{}) {
     check(document.getElementById('stakeHs').value===sources[1].locName
       &&!document.getElementById('sec-stakeHsBtn').hidden,'primary header did not open its actual Stakeout Patch');
     A.cancelStalledWork();A.showSection('sec-spLookupBtn',{load:false});await paint();
-    return {primary:'L1511B',additional:2,exactName:true,patchOpened:true};
+    A.setSpeciesLookupGrouped(false);await paint();
+    const rows=[...document.querySelectorAll('#spLookupRecent .stakeoutFlatChecklists > li')];
+    check(rows.length===sources.length,'Recent Checklists must retain every public/private report');
+    for(const row of rows) {
+      const source=sources.find(source=>source.subId===row.dataset.evSub),id=row.querySelector('.cklid');
+      check(source&&row.querySelector('.cklead').textContent.includes(source.locName),
+        'Recent Checklists must keep the actual source name');
+      check(!row.querySelector('.stakeoutPinCue'),'Recent Checklists must not append Locality numbers');
+      check(id&&id.textContent.includes(source.subId)
+        &&id.href==='https://ebird.org/checklist/'+source.subId,'Checklist ID must link to its own report');
+      check(row.querySelector('.cksp')?.textContent===source.numSpecies+'sp','Total species must remain visible');
+      fits(row);fits(id);
+    }
+    return {primary:'L1511B',additional:2,exactName:true,patchOpened:true,checklistIds:rows.length};
   });
   return results;
 }

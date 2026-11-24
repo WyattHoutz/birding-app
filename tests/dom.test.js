@@ -26828,7 +26828,8 @@ for (const order of [['species', 'rba'], ['rba', 'species']]) {
             'private locations are explicitly labelled in both presentation modes');
           if (!grouped && rows.find(r => r.subId === row.dataset.evSub).locationPrivate) {
             assert.ok(row.dataset.pinNumber, 'F895 source-provided personal coordinates join a locality');
-            assert.match(row.textContent, /Locality \d+/);
+            assert.equal(row.querySelector('.stakeoutPinCue'),null);
+            assert.ok(row.querySelector('.cklid').textContent.includes(row.dataset.evSub));
           }
         }
         assert.equal(host.querySelector('.stakeoutPlaceHistory[data-loc^="L894PERSONAL"]'), null);
@@ -27289,7 +27290,10 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
             const pin=[...app.$('spLookupMap').querySelectorAll('[data-pin-place]')]
               .find(p=>p.dataset.pinPlace===row.dataset.pinPlace);
             assert.ok(pin,'each row refers to its actual locality marker');
-            if (!grouped) assert.equal(row.querySelector('.stakeoutPinCue').textContent,'Locality '+pin.textContent);
+            if (!grouped) {
+              assert.equal(row.querySelector('.stakeoutPinCue'),null);
+              assert.ok(row.querySelector('.cklid').textContent.includes(source.subId));
+            }
             assert.ok(pin.classList.contains('locality-marker'),'map marker retains its locality identity');
             if (identity.has(source.subId)) assert.equal(row.dataset.pinNumber,identity.get(source.subId));
             identity.set(source.subId,row.dataset.pinNumber);
@@ -63514,15 +63518,16 @@ test('the Stakeout map is rendered by the function that owns its data', () => {
     'the row renderer still reaches for module state instead of its argument');
 });
 
-test('F837 visible Stakeout checklist identities equal map pins across controls and expansion', async () => {
+test('F1524/F837 recent checklist names, IDs and species totals retain exact map ownership across controls and expansion', async () => {
   const observations = Array.from({length: 14}, (_, i) => ({
     speciesCode: 'solsan', comName: 'Solitary Sandpiper',
-    locId: 'L' + (i % 7), locName: 'Place ' + (i % 7 === 1 ? 0 : i % 7),
+    locId: 'L' + (i % 7), locName: 'Place ' + (i % 7 === 1 ? 0 : i % 7)
+      + (i % 7 === 2 ? ' Locality 1' : ''),
     lat: i % 7 === 5 ? null : i % 7 === 4 ? 49 : 47.75 + (i % 7) * 0.01,
     lng: i % 7 === 5 ? null : -122.16,
     locationPrivate: i % 7 === 6,
     obsDt: recentObsStamp(1, 10, 59 - i), subId: 'SF837-' + i,
-    howMany: 1, obsValid: true
+    howMany: 1, numSpecies: 20 + i, obsValid: true
   }));
   const app = await boot({sample: false, fetch(url) {
     return /data\/obs\/.*\/recent\/solsan/.test(url) ? observations : [];
@@ -63552,6 +63557,16 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
     for (const row of rows) {
       const place = row.getAttribute('data-ev-place');
       const number = row.getAttribute('data-pin-number') || '';
+      const source = observations.find(observation => observation.subId === row.dataset.evSub);
+      assert.equal(row.querySelector('.stakeoutPinCue'),null,
+        'Recent Checklists must not append generated Locality labels');
+      assert.ok(row.querySelector('.cklead').textContent.includes(source.locName),
+        'the actual source place name must remain intact');
+      const id = row.querySelector('.cklid');
+      assert.ok(id && id.textContent.includes(source.subId), 'show the individual checklist ID');
+      assert.equal(id.href,'https://ebird.org/checklist/'+encodeURIComponent(source.subId));
+      assert.equal(row.querySelector('.cksp')?.textContent,source.numSpecies+'sp',
+        'show total checklist species, not the focal-bird count');
       if (/Place 5/.test(place)) {
         assert.equal(number, '', 'coordinate gaps have no invented pin');
         assert.match(row.textContent, /No map coordinates/);
@@ -63562,7 +63577,6 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
         const position = positions.get(pins.find(pin => pin.textContent === number));
         assert.ok(observations.some(o => o.lat === position.lat && o.lng === position.lng),
           'the locality representative uses a supplied coordinate, not an invented sighting');
-        assert.equal(row.querySelector('.stakeoutPinCue')?.textContent, 'Locality ' + number);
         assert.ok(row.querySelector('.ckdate a'), 'checklist date link preserved');
         mapped.add(number);
       }
@@ -63623,7 +63637,8 @@ test('F837 visible Stakeout checklist identities equal map pins across controls 
     'nearby private evidence is visible and labelled, without a public map pin');
   assertGrouped();
   A.setSpeciesLookupGrouped(false);
-  assert.ok(app.$('spLookupRecent').querySelector('.stakeoutPinCue'));
+  assert.ok(app.$('spLookupRecent').querySelector('.cklid'));
+  assert.equal(app.$('spLookupRecent').querySelector('.stakeoutPinCue'),null);
   await new Promise(resolve => setTimeout(resolve, 300));
   app.window.close();
 });

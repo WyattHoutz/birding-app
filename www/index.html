@@ -565,7 +565,6 @@
       padding-inline-start: 1em; text-indent: -1em;
     }
     .stakeoutFlatChecklists > li > .cksummary > .ckmain * { text-indent: 0; }
-    .stakeoutPinCue { font-weight: 700; white-space: nowrap; }
     /* F138: `var(--link)`, not two hard-coded Okabe-Ito blues plus a SECOND
        dark-mode media query. `--link` already holds exactly this value per
        theme — blue on light, sky blue on dark — chosen for the same reason
@@ -18240,8 +18239,8 @@
             ? (place.locId && !place.locationPrivate
                 ? stakeHotspotLink(place.locId, place.loc || place.locId || '')
                 : esc(place.loc || place.locId || ''))
-              + (pin ? ' <span class="stakeoutPinCue" aria-label="Map locality ' + pin.num
-                + '">Locality ' + pin.num + '</span>' : ' <span class="hint">No map coordinates</span>')
+              + (row.subId ? ' ' + checklistLink(row.subId) : '')
+              + (pin ? '' : ' <span class="hint">No map coordinates</span>')
             : '',
           date: fmtDateTime(row.obsDt || row.isoObsDate || ''),
           dateHref: row.subId ? checklistUrl(row.subId) : '',
