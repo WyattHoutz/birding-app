@@ -69487,7 +69487,9 @@ test('F1507 Home lookup reviews a map and cannot save through generic Settings, 
   const app=await boot({sample:false,report:'aba',home:false});
   try {
     const A=app.window.__app;
-    app.open(/Settings/);
+    A.openSavedLocationEditor('home');
+    assert.equal(app.$('settingsSavedLocations').hidden,false);
+    assert.equal(app.$('settingsHomeEditor').open,true);
     async function find(query) {
       app.$('homePlace').value=query;app.click(app.$('geocodeBtn'));
       await waitFor(()=>!app.$('homeCandidateReview').hidden,'Home map review');

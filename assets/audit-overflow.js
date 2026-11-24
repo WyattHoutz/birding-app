@@ -4675,9 +4675,7 @@ const AUDIT = `<script>
       },'missing ambiguous manual choices');
       record('Home manual choices');
       document.getElementById('setupSheetClose').click();
-      A.showSection('settingsPanel');
-      A.showSettingsCategory('account');
-      document.getElementById('settingsHomeEditor').open=true;
+      A.openSavedLocationEditor('home');
       document.getElementById('homeCurrentLocation').click();
       await until(function () { return !document.getElementById('homeDeviceSave').hidden; },
         'missing Settings approval');

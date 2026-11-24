@@ -136,8 +136,7 @@ async function releaseReviewLayout(scan, mutation, stage=()=>{}) {
     } finally {document.getElementById('regionChooserClose').click();A.setCountyView('');}
   });
   await record('F1507 actual Home map, explicit Save and Cancel',async capture=>{
-    A.showSection('settingsPanel');A.showSettingsCategory('account');
-    document.getElementById('settingsHomeEditor').open=true;
+    A.openSavedLocationEditor('home');
     const saved=JSON.stringify(A.getHome()),place=document.getElementById('homePlace');
     place.value='47.7, -122.2';place.dispatchEvent(new Event('input',{bubbles:true}));
     document.getElementById('geocodeBtn').click();
