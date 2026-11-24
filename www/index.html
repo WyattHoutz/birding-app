@@ -1271,8 +1271,14 @@
       padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--link);
       font-size: calc(11px * var(--s)); line-height: 1.2; text-align: right;
       white-space: normal; overflow-wrap: anywhere; }
-    #navRegion .tag { display: block; padding: 2px 6px; color: var(--link);
+    #navRegion .tag { display: block; padding: 2px 6px; color: #fff;
+      background: #487c64; border: 2px solid #a1bfb3; border-radius: 999px;
       font-size: inherit; white-space: normal; overflow-wrap: anywhere; }
+    .home-save-status { border: 2px solid var(--muted); border-radius: 8px; padding: 10px; }
+    .home-review { border: 2px solid var(--muted); border-radius: 12px; padding: 12px; margin: 12px 0; }
+    .home-review button { min-height: 44px; min-width: 44px; }
+    #homeCandidateMap .mapcanvas { height: 200px; }
+    #regionChooserCountySource { flex-basis: 100%; margin: 4px 0 0; }
     .regionpick { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; }
     /* Beside the name, hard right. `margin-left: auto` rather than a fixed
        width, so a long region label ("Waikoloa / Big Island") grows leftwards
@@ -3683,40 +3689,42 @@
                  font-size: calc(12px * var(--s)); }
     .spuhcompactlevel .spuhtaxlink.limited { border: 2px dashed var(--warn);
                  border-radius: 6px; padding: 2px 5px; background: var(--note-bg); }
-    .spuhpathsentence { margin: 2px 0; font-size: calc(13px * var(--s));
-                 line-height: 1.8; }
-    .spuhpathsentence .spuhcompactlevel { display: inline; margin: 0; padding: 0; }
+    .spuhpathsentence { list-style: none; padding: 0; margin: 2px 0;
+                 font-size: calc(14px * var(--s)); line-height: 1.3; }
+    .spuhpathsentence .spuhcompactlevel { display: grid; margin: 0; padding: 0 0 12px;
+                 grid-template-columns: minmax(20px, max-content) minmax(0, 1fr);
+                 column-gap: 6px; row-gap: 6px; }
+    .spuhpathsentence .spuhcompactlevel.selected { display: block; }
     .spuhpathsentence .spuhcompactlevel::before,
     .spuhpathsentence .spuhcompactlevel::after { display: none; }
     .spuhpathsentence .spuhpathchip { min-width: 0; min-height: 0;
                  border: 2px solid var(--safe-blue); background: var(--card);
                  color: var(--link); text-decoration: none; cursor: pointer;
-                 vertical-align: middle; flex: 0 0 auto; padding: 2px 6px;
-                 border-radius: 6px; text-align: left; letter-spacing: .035em;
-                 font: 800 calc(10.5px * var(--s))/1.1 system-ui, sans-serif; }
+                 grid-column: 2; width: fit-content; max-width: 100%; padding: 4px 7px;
+                 border-radius: 6px; text-align: left; letter-spacing: 0;
+                 font: 400 calc(14px * var(--s))/1.18 system-ui, sans-serif; }
+    .spuhpathsentence .spuhpathchip[data-category="spuh"] { font-style: italic; }
     .spuhpathsentence .spuhpathchip.limited { border-style: dashed;
                  border-color: var(--warn); color: var(--note-ink);
                  background: var(--note-bg); }
     .spuhpathsentence .spuhpathselected { border-style: double;
-                 border-width: 3px; cursor: default; }
-    #spLookupTaxonomy .spuhpathchip { max-width: calc(100% - 20px); white-space: normal;
-                 overflow-wrap: break-word; display: inline-block;
-                 margin: 6px 10px;
-                 font-size: calc(16px * var(--s)); }
+                 border-width: 3px; cursor: default; font-weight: 700; background: #eaf6ef; }
+    #spLookupTaxonomy .spuhpathchip { max-width: 100%; white-space: normal;
+                 overflow-wrap: anywhere; display: block; margin: 0;
+                 font-size: calc(14px * var(--s)); }
     #spLookupTaxonomy > h3 { margin-bottom: 0; }
     #spLookupTaxonomy .spuhtaxnav,
     #spLookupTaxonomy .spuhpathsentence { margin-top: 0; }
-    #spLookupTaxonomy .spuhsiblingpair { display: inline-flex; max-width: 100%;
-                 vertical-align: middle; align-items: center; }
-    #spLookupTaxonomy .spuhsiblingpair .spuhpathchip { flex: 0 1 auto; }
-    #spLookupTaxonomy .spuhsiblingsep { flex: 0 0 auto; }
+    #spLookupTaxonomy .spuhsiblingpair { display: contents; }
     .spuhpathsentence .spuhcompactstate { margin-left: 3px;
                  font-size: calc(9px * var(--s)); }
-    .spuhpathsentence .spuhsiblingsep { padding: 0 4px; color: var(--muted);
-                 font-size: .9em; font-weight: 900; line-height: 1;
-                 vertical-align: middle; }
-    .spuhpathsentence .spuhsiblingpair { white-space: nowrap; }
-    .spuhpathsentence .spuhpatharrow { color: var(--muted); }
+    .spuhpathsentence .spuhsiblingsep { grid-column: 1; justify-self: center;
+                 align-self: start; padding-top: 6px; color: var(--muted);
+                 font-size: calc(12px * var(--s)); font-weight: 400; }
+    .spuhpathsentence .spuhpatharrow { grid-column: 1; grid-row: 1; color: var(--ink);
+                 padding: 1px 0 0; justify-self: center; align-self: start; }
+    .spuhpathsentence .spuhpatharrow svg { display: block; }
+    .spuhpathtail { white-space: nowrap; }
     .spuhpatharrow { padding: 0 3px; font-family: ui-monospace, monospace;
                  font-weight: 900; white-space: nowrap; }
     .spuhhierarchysentence > .spuhtaxdetails { margin: 0; border-top: 0;
@@ -3725,7 +3733,7 @@
                  min-height: calc(44px * var(--s)); display: inline-flex;
                  align-items: center; padding: 7px 0;
                  color: var(--link); font-size: calc(13px * var(--s));
-                 font-weight: 800; text-decoration: underline;
+                 font-weight: 400; text-decoration: underline;
                  text-underline-offset: 2px; cursor: pointer; }
     .spuhhierarchysentence > .spuhtaxdetails > .spuhtaxdetailsbody {
                  margin-top: 4px; border: 2px solid var(--ink);
@@ -4321,6 +4329,7 @@
     <section class="sheetsection">
       <h3>County</h3>
       <p id="regionChooserCountyCurrent" class="regioncurrent"></p>
+      <div id="regionChooserCountyShortcut" class="regionchoices"></div>
       <details id="regionChooserCountyList" class="regioncatalog">
         <summary id="regionChooserCountyListLabel">All counties</summary>
         <p id="countyLoadStatus" class="hint" role="status"></p>
@@ -4350,6 +4359,10 @@
         <button id="refreshBtn">Refresh</button>
       </div>
       <div id="status" class="status"></div>
+      <div id="twitchesUnavailable" hidden>
+        <button id="twitchesChooseRegion" class="secondary" type="button">Choose region</button>
+        <p class="hint">Mega rarities is a separate ABA Code 3+ alert, not an ABA-wide RBA feed.</p>
+      </div>
       <ul id="results" class="obs big xl"></ul>
     </section>
 
@@ -4973,7 +4986,7 @@
       <div class="row">
         <select id="bcProfileSel"></select>
       </div>
-      <p class="hint"><b>Changes save automatically.</b> Switching profiles reloads the app. Each local slot keeps separate account data; names alone do not prove ownership.</p>
+      <p class="hint"><b>Account changes save automatically; Home requires Save Home.</b> Switching profiles reloads the app. Each local slot keeps separate account data; names alone do not prove ownership.</p>
       <label>Bird Chaser setup</label>
       <div class="row">
         <button id="setupOpenBtn" class="secondary" type="button">Open Setup Bird Chaser</button>
@@ -4987,11 +5000,20 @@
         <button id="geocodeBtn" class="secondary" type="button">Find</button>
         <button id="homeCurrentLocation" class="secondary" type="button">Use my current location</button>
         <button id="homeFindCancel" class="secondary" type="button">Cancel lookup</button>
-        <button id="homeDeviceSave" class="secondary" type="button" hidden>Use this location as Home</button>
-        <button id="homeOutsideSave" class="secondary" type="button" hidden>Save this out-of-region Home</button>
         <button id="clearHomeBtn" class="secondary" type="button">Clear Home</button>
       </div>
-      <p class="hint" id="geocodeStatus">Enter a place or waypoint, then tap Find.</p>
+      <p class="home-save-status" id="geocodeStatus" role="status" aria-live="polite">Enter a place or waypoint, then tap Find to review it before saving.</p>
+      <div id="homeCandidateReview" class="home-review" hidden>
+        <h3>Location found - review before saving</h3>
+        <p id="homeCandidateSummary"></p>
+        <div id="homeCandidateMap" role="region" aria-label="Candidate Home map"></div>
+        <p id="homeCandidateConsent"></p>
+        <div class="row">
+          <button id="homeDeviceSave" type="button" hidden>Save Home</button>
+          <button id="homeOutsideSave" type="button" hidden>Save this out-of-region Home</button>
+          <button id="homeCandidateCancel" class="secondary" type="button">Cancel</button>
+        </div>
+      </div>
       <div class="row">
         <div><input id="homeLat" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lat 47.75" /></div>
         <div><input id="homeLng" type="text" inputmode="decimal" autocorrect="off" spellcheck="false" placeholder="lng -122.16" /></div>
@@ -5758,7 +5780,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.12.2';
+      var APP_VERSION = '2.12.3';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -13341,11 +13363,18 @@
         });
       }
       function rarityRefreshState(button, pending) {
-        button.disabled = !!pending;
+        var unavailable = button.id === 'refreshBtn' && !ppteTwitchContext()
+          && !BL.planFeeds(chaseProfile()).some(function (feed) { return feed.kind === 'notable'; });
+        button.disabled = !!pending || unavailable;
+        if (button.id === 'refreshBtn') {
+          $('twitchesUnavailable').hidden = !unavailable;
+          button.title = unavailable ? 'No Rare Bird Alert feed is available for this region.' : '';
+        }
         button.setAttribute('aria-busy', String(!!pending));
         var heading = button.closest('section').querySelector('.refreshbtn');
         if (heading) {
-          heading.disabled = !!pending;
+          heading.disabled = !!pending || unavailable;
+          if (button.id === 'refreshBtn') heading.title = button.title;
           heading.setAttribute('aria-busy', String(!!pending));
         }
       }
@@ -13355,7 +13384,16 @@
         var liveRba = !focusedPpte && BL.planFeeds(chaseProfile()).some(function (feed) {
           return feed.kind === 'notable';
         });
-        if (fetchLatest && !liveRba) return;
+        if (!focusedPpte && !liveRba) {
+          ++_twitchRefreshGeneration;
+          if ($('results')._twitchList && $('results')._twitchList.stopNotes) $('results')._twitchList.stopNotes();
+          $('results').innerHTML = '';
+          $('status').textContent = 'Rare Bird Alerts are not available for ' + getReport().label
+            + '. Choose a supported state, province or county to see Twitches.';
+          rarityRefreshState($('refreshBtn'), false);
+          return Promise.resolve(false);
+        }
+        rarityRefreshState($('refreshBtn'), false);
         // Your own new checklists, read without being asked, once per session.
         // Hung off the wave rather than off boot: refresh() is the thing that
         // runs when you actually open the app to go birding, and it is the
@@ -15163,39 +15201,42 @@
       }
 
       function spuhPathChip(node) {
+        var label = esc(node.name).replace(/\//g, '/<wbr>');
+        if (node.limit) label = label.replace(/([^<>\s]+)$/, '<span class="spuhpathtail">$1'
+          + '<span class="spuhcompactstate" aria-label="Coverage limit">⚠</span></span>');
         return '<button type="button" class="spuhtaxlink spuhpathchip'
           + (node.limit ? ' limited' : '') + '" data-spuh="' + esc(node.code)
+          + '" data-category="' + esc(node.category || '')
           + '" data-compact-label="' + esc(node.name) + '"><span>'
-          + esc(node.name) + '</span>'
-          + (node.limit
-            ? '<span class="spuhcompactstate" aria-label="Coverage limit">⚠</span>' : '')
+          + label + '</span>'
           + '</button>';
       }
 
-      function spuhPathSentenceHtml(levels, extraClass, viewControls, wrapRanks) {
-        var path = (levels || []).map(function (level) {
+      function spuhPathSentenceHtml(levels, extraClass, viewControls) {
+        var path = (levels || []).slice().reverse().map(function (level, levelIndex) {
           if (level.species) {
-            return '<span class="spuhcompactlevel" data-rank="species">'
-              + '<span class="spuhpathchip spuhpathselected" data-compact-label="'
-              + esc(level.species.name) + '">' + esc(level.species.name) + '</span></span>';
+            return '<li class="spuhcompactlevel selected" data-rank="species">'
+              + '<span class="spuhpathchip spuhpathselected" aria-current="true" data-category="species" data-compact-label="'
+              + esc(level.species.name) + '">' + esc(level.species.name) + '</span></li>';
           }
-          return '<span class="spuhcompactlevel" data-rank="' + esc(level.rank) + '">'
+          return '<li class="spuhcompactlevel" data-rank="' + esc(level.rank) + '">'
+            + (levelIndex ? '<span class="spuhpatharrow" aria-hidden="true">'
+              + '<svg viewBox="0 0 20 24" width="20" height="24" focusable="false">'
+              + '<path d="M4 3v11a4 4 0 0 0 4 4h9m-4-4 4 4-4 4" fill="none"'
+              + ' stroke="currentColor" stroke-width="2.5" stroke-linecap="round"'
+              + ' stroke-linejoin="round"></path></svg></span>' : '')
             + level.siblings.map(function (entry, index) {
                 var chip = spuhPathChip(entry.node);
                 return index
-                  ? '<span class="spuhsiblingpair"><span class="spuhsiblingsep" '
-                    + 'role="img" aria-label="or">\\</span>' + chip + '</span>'
+                  ? '<span class="spuhsiblingpair"><span class="spuhsiblingsep">or</span>'
+                    + chip + '</span>'
                   : chip;
               }).join('')
-            + '</span>';
-        }).join('<span class="spuhpatharrow" aria-hidden="true">›</span>'
-          + (wrapRanks ? '<wbr>' : ''));
-        return '<p class="spuhcompactpath spuhcompactchain spuhpathsentence'
-          + (extraClass ? ' ' + extraClass : '') + '">'
-          + (viewControls
-            ? viewControls + '<span class="spuhpathcontent"> ' + path + '.</span>'
-            : ' ' + path + '.')
-          + '</p>';
+            + '</li>';
+        }).join('');
+        return (viewControls || '') + '<ol class="spuhcompactpath spuhcompactchain spuhpathsentence'
+          + (extraClass ? ' ' + extraClass : '') + '" aria-label="Specific to broad taxonomy">'
+          + path + '</ol>';
       }
 
       function spuhViewToggleHtml() {
@@ -15649,7 +15690,7 @@
           + '<div class="spuhcomparebody"></div></details>';
         return '<div class="spuhtaxnav" data-species="' + esc(species.code) + '">'
           + '<div class="spuhhierarchy spuhhierarchysentence">'
-          + spuhPathSentenceHtml(compactLevels, null, null, true)
+          + spuhPathSentenceHtml(compactLevels)
           + '<details class="spuhdetails spuhtaxdetails">'
           + '<summary class="spuhdetailslink">Show Hierarchy Details</summary>'
           + '<div class="spuhdetailsbody spuhtaxdetailsbody">' + detailed
@@ -56956,9 +56997,49 @@
       }
       var _regionLocation = { mode: 'all', code: '', message: '' };
       var _regionLocationGeneration = 0;
+      var _regionCountyShortcuts = {};
       function regionLocationOwner(mode) {
         return JSON.stringify([bcProfile(), identityRevision(), getReportSlug(),
           mode === 'home' ? getHome() : null]);
+      }
+      function rememberRegionCounty(result, mode) {
+        if (!result || !result.countyCode) return;
+        _regionCountyShortcuts[mode] = { owner: regionLocationOwner(mode), at: Date.now(),
+          value: 'county:' + result.countyParentSlug + ':' + result.countyCode };
+      }
+      function renderRegionCountyShortcut(rows, current) {
+        var host = $('regionChooserCountyShortcut');
+        host.innerHTML = '';
+        var choice, source;
+        ['here', 'home'].some(function (mode) {
+          var cached = _regionCountyShortcuts[mode], age = cached && Date.now() - cached.at;
+          if (!cached || cached.owner !== regionLocationOwner(mode) || age < 0 || age > 5 * 60000) return false;
+          choice = rows.find(function (row) { return row.value === cached.value; });
+          source = mode === 'here' ? 'Here' : 'Home';
+          return !!choice;
+        });
+        if (!choice) {
+          host.textContent = 'Current county is not verified. Choose Here or Home.';
+          return;
+        }
+        var label = document.createElement('p');
+        label.id = 'regionChooserCountySource'; label.className = 'hint';
+        label.textContent = 'Current county (' + source + ')';
+        var button = regionChoiceButton(choice, choice.value === current);
+        button.setAttribute('aria-describedby', label.id);
+        host.appendChild(label); host.appendChild(button);
+      }
+      function resolveSavedHomeCountyShortcut() {
+        var home = getHome(), code = getRegion(), generation = _regionLocationGeneration;
+        if (!home || !REGION_BOUNDARY_FILES[code]) return;
+        var owner = regionLocationOwner('home');
+        return resolveRegionLocationCounty({ lat: home.lat, lng: home.lng, code: code }).then(function (result) {
+          if (generation !== _regionLocationGeneration || owner !== regionLocationOwner('home')
+              || $('regionChooser').hidden || !result.countyCode) return;
+          _runtimeCounties[result.countyParentSlug] = activeCountyChoiceRows({ rows: result.countyCatalogRows });
+          rememberRegionCounty(result, 'home');
+          renderRegionCountyShortcut(regionChoiceRows(), activeRegionChoice());
+        }).catch(function (error) { dbg('warn', 'Home county shortcut unavailable: ' + netErr(error)); });
       }
       function regionChoiceContains(row, code) {
         code = String(code || '').toUpperCase();
@@ -56984,6 +57065,7 @@
         }
         rows.forEach(function (row) { byValue[row.value] = row; });
         var catalog = state.mode === 'all', stack = $('regionChooserLocationStack');
+        renderRegionCountyShortcut(rows, activeRegionChoice());
         stack.innerHTML = '';
         stack.hidden = catalog;
         $('regionChooserFind').hidden = !catalog;
@@ -57067,6 +57149,7 @@
       function chooseRegionLocation(mode) {
         var generation = ++_regionLocationGeneration, profile = bcProfile(), revision = identityRevision();
         var slug = getReportSlug(), home = JSON.stringify(getHome());
+        if (mode !== 'all') delete _regionCountyShortcuts[mode];
         _regionLocation = { mode: mode, code: '', owner: regionLocationOwner(mode),
           message: mode === 'all' ? '' : 'Resolving ' + mode + '…' };
         renderRegionLocationControls();
@@ -57092,6 +57175,7 @@
           return resolveRegionLocationCounty(result);
         }).then(function (result) {
           if (!current()) return;
+          rememberRegionCounty(result, mode);
           _regionLocation.code = result.countyCode || result.code;
           _regionLocation.message = (mode === 'home' ? 'Saved Home' : 'Device location requested now (cache up to 5 min)')
             + ' · ' + (result.countyCode ? result.countyLabel + ' ' + result.countyCode + ' · ' : '')
@@ -57168,8 +57252,8 @@
         if (parent && !getReport().isRarityTracker) {
           parentHost.appendChild(parent.value === current ? regionChoiceSummary(parent) : regionChoiceButton(parent, false));
         } else parentHost.textContent = 'Select a state, province or territory to view its counties.';
-        $('regionChooserCountyCurrent').textContent = getCountyView() && byValue[current]
-          ? regionChoiceName(byValue[current]) : countyParent ? 'All counties: no county view selected' : 'No county view selected.';
+        $('regionChooserCountyCurrent').textContent = 'Selected view: ' + (getCountyView() && byValue[current]
+          ? regionChoiceName(byValue[current]) : countyParent ? 'All counties in ' + countyParent.label : getReport().label);
         $('regionChooserCountyList').hidden = !countyParent && !savedSearch.trim();
         $('regionChooserCountyListLabel').textContent = savedSearch.trim() ? 'Matching counties'
           : 'All counties' + (countyParent ? ' · ' + countyParent.label : '');
@@ -57225,6 +57309,7 @@
         $('regionChooserStateList').open = false;
         var chooser = $('regionChooser');
         chooser.hidden = false;
+        resolveSavedHomeCountyShortcut();
         sizeRegionChooser();
         chooser.scrollTop = 0;
         $('regionChooserBody').scrollTop = 0;
@@ -57260,7 +57345,7 @@
         _regionChooserReturnFocus = null;
       }
       function bindRegionPickers() {
-        ['menuRegion', 'navRegion'].forEach(function (id) {
+        ['menuRegion', 'navRegion', 'twitchesChooseRegion'].forEach(function (id) {
           var button = $(id); if (!button || button.dataset.bound) return;
           button.addEventListener('click', openRegionChooser);
           button.dataset.bound = '1';
@@ -57518,11 +57603,16 @@
         $('homeLat').value = isFinite(hla) ? hla : '';
         $('homeLng').value = isFinite(hlo) ? hlo : '';
         $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
+        $('geocodeStatus').textContent = isFinite(hla) && isFinite(hlo)
+          ? 'Saved Home for ' + getReport().label + ': ' + ($('homePlace').value || 'Coordinates')
+            + ' (' + hla.toFixed(5) + ', ' + hlo.toFixed(5) + '). Find a new candidate to review before replacing it.'
+          : 'No Home saved for ' + getReport().label + '. Enter a place or waypoint, then tap Find to review before saving.';
         $('tideStation').value = localStorage.getItem(tideKey()) || '';
         if ($('homeRegionLabel')) $('homeRegionLabel').textContent = '· ' + getReport().label + ' only';
         $('abaSid').value = getAbaSid();
         syncRankRegionUI();
         syncRegionNav();
+        rarityRefreshState($('refreshBtn'), false);
         renderBirdcast(null, null, true);
         renderTimeOfDay();
         renderMigration();
@@ -58536,7 +58626,7 @@
       });
       $('setupOpenBtn').addEventListener('click', openSetupSheet);
       $('regionCatalogRefresh').addEventListener('click', refreshRegionNames);
-      ['apiKey', 'homePlace', 'homeLat', 'homeLng', 'tideStation',
+      ['apiKey', 'tideStation',
         'abaSid'].forEach(function (id) {
         var field = $(id);
         if (field) field.addEventListener('change', validateAndPersistSettings);
@@ -59527,6 +59617,8 @@
         ++_homeLookupGeneration;
         _homeOutsideCandidate = null;
         _homeDeviceCandidate = null;
+        $('homeCandidateReview').hidden = true;
+        clearMap($('homeCandidateMap'));
         $('homeOutsideSave').hidden = true;
         $('homeDeviceSave').hidden = true;
         $('geocodeBtn').disabled = false;
@@ -59536,11 +59628,36 @@
       var _homeDeviceCandidate = null;
       $('homeFindCancel').addEventListener('click', function () {
         cancelHomeLookup();
+        var saved = getHome();
+        $('homeLat').value = saved ? saved.lat : '';
+        $('homeLng').value = saved ? saved.lng : '';
+        $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
         $('geocodeStatus').textContent = 'Lookup cancelled. Saved Home is unchanged.';
       });
+      $('homeCandidateCancel').addEventListener('click', function () { $('homeFindCancel').click(); });
       ['homePlace', 'homeLat', 'homeLng'].forEach(function (id) {
-        $(id).addEventListener('input', cancelHomeLookup);
+        $(id).addEventListener('input', function () {
+          cancelHomeLookup();
+          $('geocodeStatus').textContent = 'Not saved yet. Tap Find to review the candidate. Saved Home is unchanged.';
+        });
       });
+      function reviewSettingsHomeCandidate(candidate, outside, source) {
+        var res = candidate.result;
+        _homeOutsideCandidate = outside ? candidate : null;
+        _homeDeviceCandidate = outside ? null : candidate;
+        $('homeOutsideSave').hidden = !outside;
+        $('homeDeviceSave').hidden = outside;
+        $('homeCandidateReview').hidden = false;
+        $('homeCandidateSummary').textContent = source + ': ' + res.label + ' ('
+          + res.lat.toFixed(5) + ', ' + res.lng.toFixed(5) + ').';
+        $('homeCandidateConsent').textContent = 'Check the pin. Save Home will '
+          + (getHome() ? 'replace your saved Home' : 'set Home') + ' for ' + getReport().label
+          + ' only. Cancel lookup leaves saved Home unchanged.'
+          + (outside ? ' Warning: this is outside the selected region or its region could not be verified.'
+            : res.manualCoordinates ? ' Coordinates supplied; region membership is not verified.' : '');
+        renderMap($('homeCandidateMap'), [{ lat: res.lat, lng: res.lng,
+          num: 'C', locName: 'Candidate Home - not saved' }], null, false, '#0072b2');
+      }
       function lookupSettingsHome(q) {
         var typed = ($('apiKey').value || '').trim(), wrong = typed ? keyLooksWrong(typed) : '';
         if (wrong) {
@@ -59557,25 +59674,24 @@
         btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
         _homeOutsideCandidate = null;
         _homeDeviceCandidate = null;
+        $('homeCandidateReview').hidden = true;
+        clearMap($('homeCandidateMap'));
         $('homeOutsideSave').hidden = true;
         $('homeDeviceSave').hidden = true;
         return geocodePlace(q, { home: true }).then(function (res) {
           if (!current()) return false;
-          if (res.regionMatch !== true && !res.manualCoordinates) {
-            _homeOutsideCandidate = { result: res, generation: generation, report: report,
-              profile: profile, scope: scope, identity: identity };
-            $('homeOutsideSave').hidden = false;
+          var owned = { result: res, generation: generation, report: report,
+            profile: profile, scope: scope, identity: identity };
+          var outside = res.regionMatch !== true && !res.manualCoordinates;
+          reviewSettingsHomeCandidate(owned, outside, 'Search result');
+          if (outside) {
             st.textContent = 'Warning: ' + res.label + ' (' + res.lat.toFixed(4)
               + ', ' + res.lng.toFixed(4) + ') is outside ' + getReport().label
               + ' or its region could not be verified. Home was not saved. '
               + 'Qualify the search, enter coordinates, or explicitly save this out-of-region Home.';
             return false;
           }
-          $('homeLat').value = res.lat.toFixed(5);
-          $('homeLng').value = res.lng.toFixed(5);
-          $('homePlace').value = res.label;
-          persistSettings();
-          st.textContent = '\ud83d\udccd ' + res.label + ' \u2192 ' + res.lat.toFixed(4) + ', ' + res.lng.toFixed(4) + '. Saved automatically.';
+          st.textContent = 'Not saved yet. Review the map and choose Save Home. Saved Home is unchanged.';
           return true;
         }).catch(function (e) {
           if (!current()) return false;
@@ -59594,11 +59710,11 @@
         $('homeLng').value = res.lng.toFixed(5);
         $('homePlace').value = res.label;
         cancelHomeLookup();
-        if (candidate.device) saveOwnedHome(res, res.label);
-        else persistSettings();
+        saveOwnedHome(res, res.label);
+        invalidateSettingsEvidence('home-save');
         $('geocodeStatus').textContent = outside
           ? 'Explicitly saved out-of-region Home: ' + res.label + '.'
-          : 'Approved and saved Home: ' + res.label + '.';
+          : 'Saved. Approved and saved Home for ' + getReport().label + ': ' + res.label + '.';
       }
       $('homeOutsideSave').addEventListener('click', function () {
         confirmSettingsHomeCandidate(_homeOutsideCandidate, true);
@@ -59639,12 +59755,8 @@
             status.textContent = (candidate.regionWarning ? candidate.regionWarning + ' ' : '') + 'Candidate: ' + candidate.label + ' ('
               + candidate.lat.toFixed(5) + ', ' + candidate.lng.toFixed(5)
               + '). Approve it or correct the place and tap Find. Saved Home is unchanged.';
-            if (candidate.regionMatch === true) {
-              _homeDeviceCandidate = owned;
-              $('homeDeviceSave').hidden = false;
-            } else {
-              _homeOutsideCandidate = owned;
-              $('homeOutsideSave').hidden = false;
+            reviewSettingsHomeCandidate(owned, candidate.regionMatch !== true, 'Current location');
+            if (candidate.regionMatch !== true) {
               status.textContent += ' Warning: this is outside the selected region or its region is unverified.';
             }
           });
@@ -59664,7 +59776,10 @@
         $('homePlace').focus();
       });
       $('geocodeBtn').addEventListener('click', function () {
-        var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus');
+        var q = ($('homePlace').value || '').trim(), st = $('geocodeStatus'), saved = getHome();
+        var lat = Number($('homeLat').value), lng = Number($('homeLng').value);
+        if ($('homeLat').value.trim() && $('homeLng').value.trim() && isFinite(lat) && isFinite(lng)
+            && (!saved || lat !== saved.lat || lng !== saved.lng)) q = lat + ', ' + lng;
         if (!q) { st.textContent = 'Type a city, address, or "lat, lng" first.'; return; }
         lookupSettingsHome(q);
       });
@@ -59679,13 +59794,6 @@
         localStorage.setItem(K.api, $('apiKey').value.trim());
         if (_keySetupFromBanner) discardBundledSeedForAccount();
         localStorage.setItem(K.report, getReportSlug());
-        var hla = parseFloat($('homeLat').value), hlo = parseFloat($('homeLng').value);
-        if (isFinite(hla) && isFinite(hlo)) {
-          localStorage.setItem(homeKey('lat'), hla); localStorage.setItem(homeKey('lng'), hlo);
-          localStorage.setItem(homeKey('place'), ($('homePlace').value || '').trim());
-        } else {
-          localStorage.removeItem(homeKey('lat')); localStorage.removeItem(homeKey('lng')); localStorage.removeItem(homeKey('place'));
-        }
         localStorage.setItem(tideKey(), ($('tideStation').value || '').trim());
         // Identity is read-only and belongs to the authenticated eBird account.
         // Settings must never turn stale field contents into an override.
@@ -59718,11 +59826,7 @@
           setKeyStatus('Not saved: that key ' + wrong + '. Fix it, or tap Get a key.', 'bad');
           return;
         }
-        var place = ($('homePlace').value || '').trim();
-        var haveCoords = isFinite(parseFloat($('homeLat').value)) && isFinite(parseFloat($('homeLng').value));
-        if (place && !haveCoords) {
-          lookupSettingsHome(place);
-        } else { cancelHomeLookup(); persistSettings(); }
+        persistSettings();
       }
 
       // Runtime badge — confirms the native Capacitor bridge once sideloaded.

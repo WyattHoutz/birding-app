@@ -3524,8 +3524,8 @@ const BOOTSTRAP = `
       var insetStyle=chip.classList.contains('limited')?limitedProbeStyle:normalStyle;
       if(chipStyle.paddingTop!==insetStyle.paddingTop
           || chipStyle.paddingRight!==insetStyle.paddingRight
-          || parseFloat(chipStyle.marginTop)<=0 || parseFloat(chipStyle.marginLeft)<=0)
-        throw new Error('F1488 hierarchy spacing must be external with compact inset: '
+          || parseFloat(chipStyle.marginTop)!==0 || parseFloat(chipStyle.marginLeft)!==0)
+        throw new Error('F1504 hierarchy spacing belongs to the aligned level grid: '
           +JSON.stringify({name:chip.textContent,paddingTop:chipStyle.paddingTop,
             paddingRight:chipStyle.paddingRight,expectedTop:insetStyle.paddingTop,
             expectedRight:insetStyle.paddingRight,marginTop:chipStyle.marginTop,

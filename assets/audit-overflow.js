@@ -135,7 +135,7 @@ const BOOTSTRAP = `<script>
   window.fetch = function (url) {
     var u = String(url);
     if (/^https?:\\/\\/(localhost|127\\.)/.test(u) || /^[./]/.test(u)
-      || u==='section-docs.json' || /^region-boundaries-(wa|hi)\\.json$/.test(u)) return realFetch.apply(this, arguments);
+      || u==='section-docs.json' || /^(region-boundaries|county-bounds)-(wa|hi)\\.json$/.test(u)) return realFetch.apply(this, arguments);
     window.__auditExternalCalls = (window.__auditExternalCalls || 0) + 1;
     var body = [];
     if (/ref\\/taxonomy/.test(u)) body = SPP;
@@ -1350,6 +1350,11 @@ const AUDIT = `<script>
         }
       }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
+      finish(out);
+      return;
+    }
+    if (${process.env.AUDIT_FOCUS === 'release-review'}) {
+      out.push(...await releaseReviewLayout(scan, ${JSON.stringify(process.env.AUDIT_REVIEW_MUTATION || '')}));
       finish(out);
       return;
     }
@@ -5309,11 +5314,12 @@ const AUDIT = `<script>
   const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
+  const releaseReviewLayout = ${require('./release-review-layout').toString()};
   const birdReportLayout = ${require('./bird-report-layout').toString()};
   const preparePersonalFixture = ${require('./mockups').preparePersonalFixture.toString()};
   const top100SyncLayout = ${require('./top100-sync-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture)); }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
@@ -5382,6 +5388,7 @@ const AUDIT = `<script>
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
       out.push.apply(out, await nextReleaseLayout(scan, ''));
+      out.push.apply(out, await releaseReviewLayout(scan, ''));
       try {
         var aggregateApp = window.__app;
         aggregateApp.setActiveReport('lower48');
@@ -5749,6 +5756,11 @@ server.listen(0, '127.0.0.1', () => {
         && report.some(r=>r.birdReportReading)
         && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
           && !['clipped','midword','small','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'release-review') {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.length===4 && report.every(r=>r.releaseReviewGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
     }
     if (['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)) {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,

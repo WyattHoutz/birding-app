@@ -114,6 +114,12 @@ test('F1088 published slash membership is exact, overlapping and not a reportAs 
   assert.deepEqual(model.candidates('y00428').map(row => row.code), ['bohwax', 'japwax1']);
   assert.notEqual(model.coverage('waxwin').id, model.coverage('y00428').id);
   assert.equal(model.node('waxwin').route, 'species-list');
+  assert.equal(model.node('waxwin').category, 'slash',
+    'explicit category must survive taxonomy packing and coverage modelling');
+  const misleading = Spuh.createFromTaxonomy(TAXONOMY.concat(
+    spuh('namedslash', 'A/B sp.', 'Calidris sp.', 'Charadriiformes', 'Scolopacidae', 114)));
+  assert.equal(misleading.node('namedslash').category, 'spuh',
+    'punctuation must not replace the explicit source category');
   assert.equal(model.speciesRow('waxwin'), null);
   assert.deepEqual(model.narrowestShared(['bohwax', 'japwax1']).map(row => row.node.code), ['y00428']);
   assert.deepEqual(model.relatedForSpecies('cedwax').flatMap(row => row.nodes.map(node => node.code)), ['waxwin']);
@@ -127,6 +133,8 @@ test('F1088 published slash membership is exact, overlapping and not a reportAs 
 
 test('packTaxonomy keeps only the compact fields needed at runtime', () => {
   const packed = Spuh.packTaxonomy(TAXONOMY);
+  assert.throws(() => Spuh.create({ ...packed, v: 3 }), /Unsupported spuh model schema/,
+    'category-less cached tuples must be refreshed, not guessed from punctuation');
   assert.equal(packed.v, Spuh.SCHEMA);
   assert.equal(packed.species.length, 14);
   assert.equal(packed.spuhs.length, 13);

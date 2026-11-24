@@ -23,7 +23,7 @@
 (function (global) {
   'use strict';
 
-  var SCHEMA = 3;
+  var SCHEMA = 4;
   var GLOSS = /\s*\([^()]*\)\s*$/;
   var SPECIES_LIST = /^([A-Z][A-Za-z-]+)\s+([a-z][A-Za-z-]*(?:\/[A-Z][A-Za-z-]+\s+[a-z][A-Za-z-]*|\/[a-z][A-Za-z-]*)+)$/;
 
@@ -90,7 +90,8 @@
         String(row.order || ''),
         String(row.familySciName || ''),
         String(row.familyComName || ''),
-        Number(row.taxonOrder || 0)
+        Number(row.taxonOrder || 0),
+        String(row.category || '')
       ];
       if (row.category === 'species') species.push(tuple);
       else if (row.category === 'spuh' || row.category === 'slash') spuhs.push(tuple);
@@ -111,7 +112,8 @@
   function rowFromTuple(t) {
     return {
       code: t[0], name: t[1], sci: t[2], order: t[3],
-      familySci: t[4], familyCom: t[5], taxonOrder: Number(t[6] || 0)
+      familySci: t[4], familyCom: t[5], taxonOrder: Number(t[6] || 0),
+      category: t[7] || ''
     };
   }
 
@@ -316,6 +318,7 @@
         code: row.code,
         name: row.name,
         sci: row.sci,
+        category: row.category,
         taxonOrder: row.taxonOrder,
         coverageId: coverageClass.id,
         rank: coverage.rank,

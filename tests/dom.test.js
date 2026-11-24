@@ -31101,6 +31101,8 @@ test('F780 Clear Home clears only the active report and permits a coordinate res
   assert.equal(app.document.activeElement, app.$('homePlace'));
   app.$('homePlace').value = '42.31, -84.02';
   app.click(app.$('geocodeBtn'));
+  await waitFor(() => !app.$('homeDeviceSave').hidden, 'new coordinate review');
+  app.click(app.$('homeDeviceSave'));
   await waitFor(() => app.window.localStorage.getItem('ebird_home_lat:wa') === '42.31',
     'new coordinate Home');
   assert.equal(app.window.localStorage.getItem('ebird_home_lng:wa'), '-84.02');
@@ -31137,6 +31139,8 @@ test('F782 Twitches refetches Michigan rarities when Home changes during an olde
   app.click(app.$('clearHomeBtn'));
   app.$('homePlace').value = '43, -84';
   app.click(app.$('geocodeBtn'));
+  await waitFor(() => !app.$('homeDeviceSave').hidden, 'corrected coordinate review');
+  app.click(app.$('homeDeviceSave'));
   await waitFor(() => app.window.localStorage.getItem('ebird_home_lat:u-michigan') === '43',
     'corrected fixture Home');
   A.refresh();
@@ -31163,8 +31167,11 @@ test('F780 Clear Home rejects late explicit and automatic geocoder responses', a
     app.$('homeLat').value = '';
     app.$('homeLng').value = '';
     app.$('homePlace').value = 'Ambiguous place';
-    if (automatic) app.$('homePlace').dispatchEvent(new app.window.Event('change'));
-    else app.click(app.$('geocodeBtn'));
+    if (automatic) {
+      app.$('homePlace').dispatchEvent(new app.window.Event('change'));
+      assert.equal(resolveSearch, undefined, 'editing Home must not initiate an automatic lookup');
+    }
+    app.click(app.$('geocodeBtn'));
     await waitFor(() => !!resolveSearch, 'held Home geocoder');
     app.click(app.$('clearHomeBtn'));
     resolveSearch({ features: [{
@@ -43366,7 +43373,7 @@ test('Stakeout bird renders the approved marked-spuh taxonomic hierarchy', async
   app.window.close();
 });
 
-test('F352/F1468/F1471/F1482/F1488/F1489/F1490 Stakeout has an unheaded naturally wrapping hierarchy with content-sized Spuh controls before hotspot results', async () => {
+test('F352/F1468/F1471/F1482/F1488/F1489/F1490/F1504 Stakeout has a selected-first taxonomy with aligned alternatives and preserved details', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\/sem/.test(url)) return [];
@@ -43422,8 +43429,8 @@ test('F352/F1468/F1471/F1482/F1488/F1489/F1490 Stakeout has an unheaded naturall
     'the hierarchy details text link still has a button border');
   assert.doesNotMatch(detailsLinkRule[1], /\bbackground\s*:/,
     'the hierarchy details text link still has a button fill');
-  assert.equal(compact.tagName, 'P',
-    'the concise hierarchy is still a formatted card/list instead of one sentence');
+  assert.equal(compact.tagName, 'OL',
+    'the specific-to-broad hierarchy needs ordered levels');
   assert.equal(hierarchy.querySelector('h4'), null,
     'the removed Bird hierarchy heading must not return');
   assert.equal(hierarchy.firstElementChild, compact);
@@ -43436,42 +43443,40 @@ test('F352/F1468/F1471/F1482/F1488/F1489/F1490 Stakeout has an unheaded naturall
     'the hierarchy must not add empty space below Taxonomy');
   assert.equal(nav.querySelector('.spuhcompactlegend'), null,
     'the hierarchy must not reintroduce its removed legend');
-  assert.equal([...compact.querySelectorAll('.spuhpatharrow')]
-    .map((arrow) => arrow.textContent).join(' '), '› › › ›',
-  'hierarchy levels are not separated by the approved chevrons');
+  assert.equal(compact.querySelectorAll('.spuhpatharrow svg path').length, 4,
+    'broader levels need turning arrows, not stranded inline chevrons');
   assert.equal(compact.querySelector('br'), null,
     'neither bird sp. nor chevrons should have forced line breaks');
-  assert.ok(compact.firstElementChild?.matches('.spuhcompactlevel'),
-    'the hierarchy starts directly with bird sp.');
+  assert.ok(compact.firstElementChild?.matches('.spuhcompactlevel.selected'));
+  assert.equal(compact.firstElementChild.dataset.rank, 'species');
+  assert.equal(compact.firstElementChild.querySelector('.spuhpatharrow'), null);
+  assert.equal(compact.querySelector('.spuhpathselected').getAttribute('aria-current'), 'true');
   assert.deepEqual(
     [...compact.querySelectorAll(':scope > .spuhcompactlevel')]
       .map((level) => [...level.querySelectorAll('[data-compact-label]')]
         .map((item) => item.dataset.compactLabel)),
     [
-      ['bird sp.'],
-      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
-      ['Scolopacidae sp.'],
-      ['Calidris sp.', 'peep sp.'],
       ['Semipalmated Sandpiper'],
+      ['Calidris sp.', 'peep sp.'],
+      ['Scolopacidae sp.'],
+      ['Charadriiformes sp.', 'shorebird sp.', 'large shorebird sp.'],
+      ['bird sp.'],
     ],
     'an ordinary bird lookup does not group same-rank siblings in the concise path');
   assert.match(compact.textContent,
-    /Charadriiformes sp\.\s*\\\s*shorebird sp\.\s*⚠\s*\\\s*large shorebird sp\.\s*⚠/,
-    'order siblings are not joined by the approved backslash with coverage labels intact');
+    /Charadriiformes sp\.\s*or\s*shorebird sp\.\s*⚠\s*or\s*large shorebird sp\.\s*⚠/,
+    'same-rank alternatives retain their explicit or and coverage labels');
   assert.ok([...compact.querySelectorAll('.spuhsiblingsep')].every((separator) =>
-    separator.textContent.trim() === '\\'
-      && separator.getAttribute('aria-label') === 'or'
-      && separator.getAttribute('role') === 'img'
-      &&
-    separator.parentElement.classList.contains('spuhsiblingpair')
+    separator.textContent.trim() === 'or'
+      && separator.parentElement.classList.contains('spuhsiblingpair')
       && separator.nextElementSibling?.matches('[data-compact-label]')),
-  'a sibling backslash loses its “or” meaning or can wrap away from its label');
-  assert.match(HTML,
-    /\.spuhpathsentence \.spuhsiblingsep\s*\{[^}]*padding:\s*0 4px[^}]*color:\s*var\(--muted\)[^}]*font-size:\s*\.9em[^}]*font-weight:\s*900/,
-  'the approved slash is not smaller, bold, padded, and medium grey');
-  assert.match(HTML,
-    /\.spuhpathsentence \.spuhpatharrow\s*\{[^}]*color:\s*var\(--muted\)/,
-  'the approved hierarchy chevrons are not medium grey');
+    'an alternative marker must stay beside its exact actionable label');
+  for (const chip of compact.querySelectorAll('[data-spuh]')) {
+    assert.equal(chip.dataset.category, 'spuh');
+    assert.equal(app.window.getComputedStyle(chip).fontStyle, 'italic');
+    assert.ok(['400', 'normal'].includes(app.window.getComputedStyle(chip).fontWeight));
+  }
+  assert.equal(app.window.getComputedStyle(compact.querySelector('.spuhpathselected')).fontWeight, '700');
   assert.deepEqual(
     [...path.querySelectorAll('.spuhtaxlevel')].map((level) => level.dataset.rank),
     ['class', 'order', 'family', 'genus', 'species'],
@@ -43509,11 +43514,11 @@ test('F352/F1468/F1471/F1482/F1488/F1489/F1490 Stakeout has an unheaded naturall
   const badgeStyle = app.window.getComputedStyle(badgeProbe);
   const chipStyle = app.window.getComputedStyle(
     compact.querySelector('.spuhpathchip'));
-  assert.equal(chipStyle.paddingTop, badgeStyle.paddingTop,
-    'hierarchy buttons retain the compact inset, not the added internal padding');
-  assert.equal(chipStyle.paddingRight, badgeStyle.paddingRight);
-  assert.ok(parseFloat(chipStyle.marginTop) > 0 && parseFloat(chipStyle.marginLeft) > 0,
-    'added hierarchy spacing belongs outside the button border');
+  assert.equal(chipStyle.paddingTop, '4px');
+  assert.equal(chipStyle.paddingRight, '7px');
+  assert.equal(chipStyle.marginTop, '0px');
+  assert.equal(chipStyle.marginLeft, '0px',
+    'hierarchy spacing belongs to the aligned level grid');
   for (const chip of compact.querySelectorAll('.spuhpathchip')) {
     assert.equal(app.window.getComputedStyle(chip).minHeight, '0px',
       'hierarchy chips must remain content-sized, including limited and selected labels');
@@ -44916,7 +44921,9 @@ test('F780 Home ranks Michigan independently of invalid Home and warns before sa
   app.open(/Settings/);
   app.$('homePlace').value = 'Chelsea';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => /Saved automatically/.test(app.$('geocodeStatus').textContent), 'Michigan Home');
+  await waitFor(() => !app.$('homeDeviceSave').hidden, 'Michigan Home review');
+  assert.equal(app.window.__app.getHome().lat, 51.49, 'lookup saved before approval');
+  app.click(app.$('homeDeviceSave'));
   assert.equal(app.window.__app.getHome().lat, 42.32);
   assert.match(queries[0].searchParams.get('q'), /Michigan/);
   assert.notEqual(queries[0].searchParams.get('lat'), '51.4900');
@@ -44939,6 +44946,8 @@ test('F780 Home ranks Michigan independently of invalid Home and warns before sa
   assert.equal(app.window.__app.getHome().lat, 51.49);
   app.$('homePlace').value = '45, -85';
   app.click(app.$('geocodeBtn'));
+  await waitFor(() => !app.$('homeDeviceSave').hidden, 'coordinate review');
+  app.click(app.$('homeDeviceSave'));
   await waitFor(() => app.window.__app.getHome().lat === 45, 'pasted coordinates');
   assert.equal(queries.length, 4, 'coordinate entry contacted geocoder');
   app.window.close();
@@ -67391,6 +67400,179 @@ test('F1392 actual chooser shows the owned Home stack independently of Find sear
       assert.equal(app.document.querySelector('[data-region-location="all"]').getAttribute('aria-pressed'),'true');
     }finally{app.window.close();}
   }
+});
+
+test('F1504 typography follows taxonomy category rather than name punctuation', async()=>{
+  const app=await boot({fetch:url=>/api\.ebird/.test(url)?[]:null});
+  try {
+    const model=installSpuhFixture(app);
+    model.node('peep').category='slash';
+    model.node('peep').name='Alternative candidate label';
+    model.node('cal').name='Calidris/X sp.';
+    await app.window.__app.lookupSpecies('sem','Semipalmated Sandpiper');
+    const host=app.$('spLookupIdHelp');
+    const slash=host.querySelector('.spuhpathchip[data-spuh="peep"]');
+    const spuh=host.querySelector('.spuhpathchip[data-spuh="cal"]');
+    assert.equal(slash.dataset.category,'slash');
+    assert.equal(app.window.getComputedStyle(slash).fontStyle,'normal');
+    assert.equal(app.window.getComputedStyle(spuh).fontStyle,'italic');
+    assert.ok(spuh.querySelector('wbr'),'slash break opportunities do not classify the taxon');
+    assert.equal(slash.querySelectorAll('[aria-label="Coverage limit"]').length,1);
+    assert.equal(app.window.getComputedStyle(slash).borderTopStyle,'dashed');
+  } finally {app.window.close();}
+});
+
+test('F1505 shared scope tag retains the exact owner palette and named region action', async()=>{
+  const app=await boot({sample:false});
+  try {
+    const A=app.window.__app;
+    A.showSection('sec-spLookupBtn',{load:false});
+    for(const slug of ['wa','aba']) {
+      A.setActiveReport(slug);
+      const style=app.window.getComputedStyle(app.$('navScopeTag'));
+      assert.equal(style.backgroundColor,'rgb(72, 124, 100)');
+      assert.equal(style.color,'rgb(255, 255, 255)');
+      assert.equal(style.borderTopColor,'rgb(161, 191, 179)');
+      assert.equal(style.borderTopWidth,'2px');
+      assert.match(app.$('navScopeTag').textContent,slug==='wa'?/US-WA/:/ABA/);
+      app.click(app.$('navRegion'));
+      assert.equal(app.$('regionChooser').hidden,false);
+      app.click(app.$('regionChooserClose'));
+    }
+  } finally {app.window.close();}
+});
+
+test('F1506 verified Here county survives Find and reopen without selecting it or requesting GPS again', async()=>{
+  const app=await boot({sample:false,location:{lat:47.97898,lng:-122.2021},
+    fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
+  try {
+    const A=app.window.__app;
+    A.openRegionChooser();
+    assert.equal(app.state.locations.length,0);
+    app.click(app.document.querySelector('[data-region-location="here"]'));
+    await waitFor(()=>/US-WA-061/.test(app.$('regionChooserLocationStatus').textContent),'verified Here county');
+    app.click(app.document.querySelector('[data-region-location="all"]'));
+    const choice=()=>app.$('regionChooserCountyShortcut').querySelector('[data-region-choice="county:wa:US-WA-061"]');
+    assert.ok(choice(),'Find lost the verified Here county');
+    assert.match(app.$('regionChooserCountyShortcut').textContent,/Current county \(Here\)/);
+    assert.match(app.$('regionChooserCountyCurrent').textContent,/Selected view: All counties in Washington/);
+    assert.equal(A.getCountyView(),'');
+    app.click(app.$('regionChooserClose'));A.openRegionChooser();
+    assert.ok(choice(),'reopen lost the still-fresh county');
+    assert.equal(app.state.locations.length,1);
+    const original=app.window.Date.now;
+    app.window.Date.now=()=>original()+5*60000+1;
+    app.$('regionChooserSearch').dispatchEvent(new app.window.Event('input'));
+    assert.equal(choice(),null,'expired Here evidence remained actionable');
+    app.window.Date.now=original;
+    app.$('regionChooserSearch').dispatchEvent(new app.window.Event('input'));
+    app.click(choice());
+    assert.equal(A.getCountyView(),'US-WA-061','shortcut lost actual county routing');
+  } finally {app.window.close();}
+});
+
+test('F1507 Home lookup reviews a map and cannot save through generic Settings, Cancel or obsolete approval', async()=>{
+  const app=await boot({sample:false,report:'aba',home:false});
+  try {
+    const A=app.window.__app;
+    app.open(/Settings/);
+    async function find(query) {
+      app.$('homePlace').value=query;app.click(app.$('geocodeBtn'));
+      await waitFor(()=>!app.$('homeCandidateReview').hidden,'Home map review');
+    }
+    await find('47.6, -122.3');
+    assert.equal(A.getHome(),null);
+    assert.ok(app.$('homeCandidateMap').querySelector('svg,.mapcanvas'),'candidate has no map or offline fallback');
+    assert.match(app.$('geocodeStatus').textContent,/Not saved yet/);
+    A.persistSettings();
+    assert.equal(A.getHome(),null,'unrelated settings saved the unapproved Home');
+    app.click(app.$('homeCandidateCancel'));
+    assert.equal(A.getHome(),null);
+    assert.equal(app.$('homeCandidateReview').hidden,true);
+    await find('47.6, -122.3');
+    app.click(app.$('homeDeviceSave'));
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())),{lat:47.6,lng:-122.3});
+    assert.match(app.$('geocodeStatus').textContent,/Saved\..*ABA Area/);
+    await find('47.7, -122.2');
+    const saved=JSON.stringify(A.getHome());
+    app.$('homeLat').value='48';
+    app.$('homeLat').dispatchEvent(new app.window.Event('input'));
+    A.persistSettings();
+    assert.equal(JSON.stringify(A.getHome()),saved,'edited fields escaped explicit save');
+    app.click(app.$('homeDeviceSave'));
+    assert.equal(JSON.stringify(A.getHome()),saved,'editing did not revoke approval');
+    await find('47.8, -122.1');
+    A.setActiveReport('wa');
+    app.click(app.$('homeDeviceSave'));
+    A.setActiveReport('aba');
+    assert.equal(JSON.stringify(A.getHome()),saved,'obsolete candidate crossed area ownership');
+  } finally {app.window.close();}
+});
+
+test('F1506 saved Home shortcut uses actual county polygons without GPS and rejects changed Home ownership', async()=>{
+  let finishBoundary;
+  const app=await boot({sample:false,storage:{bc_recent_regions_v1:'["hi","aba"]'}});
+  try {
+    const A=app.window.__app;
+    const fetch=app.window.fetch;
+    app.window.fetch=(url,init)=>/region-boundaries-wa\.json/.test(String(url))
+      ? new Promise(resolve=>{finishBoundary=()=>resolve({ok:true,
+        json:async()=>JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'),'utf8'))});})
+      : fetch(url,init);
+    const home=JSON.stringify(A.getHome());
+    A.openRegionChooser();
+    const recent=app.$('regionChooserRecent');
+    const openingRecent=recent.firstElementChild;
+    await waitFor(()=>recent.firstElementChild!==openingRecent&&finishBoundary,'existing Recent recovery before Home completes');
+    const firstRecent=recent.firstElementChild;
+    app.$('regionChooserSearch').focus();
+    finishBoundary();
+    await waitFor(()=>app.$('regionChooserCountyShortcut').querySelector('[data-region-choice="county:wa:US-WA-033"]'),
+      'saved Home polygon county');
+    assert.match(app.$('regionChooserCountyShortcut').textContent,/Current county \(Home\)/);
+    assert.equal(recent.firstElementChild,firstRecent,'background Home county lookup rebuilt Recent');
+    assert.equal(app.document.activeElement,app.$('regionChooserSearch'),'background lookup stole search focus');
+    assert.equal(app.state.locations.length,0,'opening the chooser requested GPS');
+    assert.equal(JSON.stringify(A.getHome()),home);
+    assert.equal(A.getCountyView(),'','Home shortcut silently selected its county');
+    app.window.localStorage.setItem(A.homeKey('lng'),'0');
+    app.$('regionChooserSearch').dispatchEvent(new app.window.Event('input'));
+    assert.equal(app.$('regionChooserCountyShortcut').querySelector('button'),null,
+      'old Home county remained actionable after Home changed');
+    app.click(app.$('regionChooserClose'));A.openRegionChooser();
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(app.$('regionChooserCountyShortcut').querySelector('button'),null,
+      'an outside Home acquired the selected state county by assumption');
+    assert.match(app.$('regionChooserCountyShortcut').textContent,/not verified/);
+  } finally {app.window.close();}
+});
+
+test('F1508 unsupported ABA Twitches explains capability and opens the real chooser while Washington still loads', async()=>{
+  const app=await boot({sample:false,report:'aba',fetch:url=>/api\.ebird|ebird\.org\/alert/.test(url)?[]:null});
+  try {
+    const A=app.window.__app;
+    assert.equal(app.$('refreshBtn').disabled,true,'initial ABA scope offered an unsupported Refresh');
+    assert.equal(app.$('twitchesUnavailable').hidden,false);
+    A.showSection('sec-refreshBtn',{load:false});
+    const before=app.state.fetches.length;
+    await A.refresh();await A.refresh({fetchLatest:true});
+    assert.match(app.$('status').textContent,/Rare Bird Alerts are not available for ABA Area/);
+    assert.doesNotMatch(app.$('status').textContent,/hotspot ranking/);
+    assert.equal(app.$('refreshBtn').disabled,true);
+    assert.equal(app.$('twitchesUnavailable').hidden,false);
+    assert.equal(app.state.fetches.length,before,'unsupported refresh acquired a nonexistent feed');
+    app.click(app.$('twitchesChooseRegion'));
+    assert.equal(app.$('regionChooser').hidden,false);
+    app.click(app.$('regionChooserClose'));
+    A.showSection('settingsPanel');
+    A.setActiveReport('wa');
+    assert.equal(app.$('twitchesUnavailable').hidden,true,'supported scope retained an old unavailable panel');
+    assert.equal(app.$('refreshBtn').disabled,false,'supported scope retained the disabled unsupported control');
+    await A.refresh({fetchLatest:true});
+    assert.equal(app.$('twitchesUnavailable').hidden,true);
+    assert.equal(app.$('refreshBtn').disabled,false);
+    assert.ok(app.state.fetches.some(url=>/recent\/notable/.test(url)),'supported refresh did not load');
+  } finally {app.window.close();}
 });
 
 test('F1502 Here Home Find shows only each verified location stack and restores the searchable catalog', async()=>{
