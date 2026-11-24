@@ -1002,6 +1002,8 @@ module.exports = function registerMigrationSetupControls({
     const app = await boot({ report: 'wa', home: false, sample: false,
       storage: { bc_setup_step_v1: 'region', 'ebird_home_lat:wa': '47.7',
         'ebird_home_lng:wa': '-122.2', 'ebird_home_place:wa': 'Existing Home',
+        'ebird_home_lat:shared-v1': '47.7', 'ebird_home_lng:shared-v1': '-122.2',
+        'ebird_home_place:shared-v1': 'Existing Home',
         'ebird_home_lat:u-or': '45.5', 'ebird_home_lng:u-or': '-122.6',
         'ebird_home_place:u-or': 'Existing Oregon Home',
         ebird_custom_regions: JSON.stringify([{ slug: 'u-or', label: 'Oregon',
@@ -1038,7 +1040,7 @@ module.exports = function registerMigrationSetupControls({
       await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-replace'
         && !app.$('appSheet').hidden, 'Oregon Home replacement confirmation');
       assert.equal(A.getReportSlug(), 'wa', 'derived region switched before confirmation');
-      assert.match(app.$('appSheet').textContent, /Saved Home:.*Existing Oregon Home/);
+      assert.match(app.$('appSheet').textContent, /Saved Home:.*Existing Home/);
       assert.equal(app.$('setupNext'), null);
       assert.equal(app.$('setupHomeOutside'), null, 'outside-region consent must not bypass pair matching');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-back]'));
@@ -1055,9 +1057,10 @@ module.exports = function registerMigrationSetupControls({
       await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'seen', 'confirmed Oregon pair');
       assert.equal(A.getHome().lat, 44);
       assert.equal(A.getReportSlug(), 'u-or');
-      assert.equal(A.getHome('wa').lat, 47.7, 'Oregon Home replaced Washington Home');
+      assert.equal(A.getHome('wa').lat, 44, 'explicitly approved shared Home is region-independent');
       A.setActiveReport('wa');
-      assert.equal(A.getHome().lat, 47.7, 'switching regions carried Oregon Home across');
+      assert.equal(A.getHome().lat, 44, 'switching regions preserves the approved shared Home');
+      assert.equal(app.window.localStorage.getItem('ebird_home_lat:wa'),'47.7','legacy Home is archived');
       assert.equal(app.state.locations.length, 0, 'manual entry requested device permission');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -1340,7 +1343,7 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-replace');
         assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
         assert.equal(A.getHome().lat, 47.7, 'enabled confirmation cannot silently overwrite Home');
-        if (change === 'saved') app.window.localStorage.setItem('ebird_home_lat:wa', '47.8');
+        if (change === 'saved') app.window.localStorage.setItem(A.homeKey('lat'), '47.8');
         else if (change === 'draft') {
           draft.point.lat = draft.region.lat = 47.9;
           app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));

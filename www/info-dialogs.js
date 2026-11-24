@@ -483,7 +483,8 @@
         + 'Validate Home checks a typed location. If several places match, choose the intended candidate. '
         + 'Review the selected location, then Continue to find its state or province.</p>'
         + '<p>Nothing is saved until you validate Home and confirm its matching region. '
-        + 'Existing Homes remain unchanged while you review it. You can add more Home/region pairs later.</p>'
+        + 'Your saved Home remains unchanged while you review it. One permanent Home is shared across regions '
+        + 'in this profile; Settings also offers one persistent Temp Home for trips.</p>'
         + '<p>The selected-location confirmation shows OpenStreetMap tiles around the candidate. '
         + 'Open Maps opens your selected external map app only when tapped. '
         + 'Coordinates remain readable offline; previewing does not save Home.</p>'
@@ -491,10 +492,10 @@
     region: {
       title: 'Confirm region',
       body: '<p class="docintro">Save the Home you approved together with its matching region.</p>'
-        + '<p>Your Home must be within its region. To use another region, choose a Home there. '
+        + '<p>Initial setup selects the region containing the Home you approved. '
         + 'No additional device-location request is needed.</p>'
-        + '<p>If that region already has a different Home, replacement requires your explicit confirmation. '
-        + 'You can add more Home/region pairs later, each with its own Home.</p>'
+        + '<p>Replacing the shared permanent Home requires your explicit confirmation. '
+        + 'Later region changes reuse a reachable Home or saved Temp Home without moving either point.</p>'
         + '<p>First-time setup uses the state or province containing Home. After setup, the region picker '
         + 'also offers broader reports such as Lower 48 and ABA Area. No county or broader-region choice '
         + 'is required here. Where bundled boundary data is available, the picture shows an approximate '
@@ -523,8 +524,8 @@
       body: '<p class="docintro">The summary shows which capabilities are ready and which still need setup.</p>'
         + '<p>Each capability is independent. Skipping a step does not mark it ready. '
         + 'Home is required to complete setup, but can be approximate.</p>'
-        + '<p>Reopen setup in Settings at any time. You can add more Home/region pairs later; '
-        + 'each region has its own Home.</p>'
+        + '<p>Reopen setup in Settings at any time. Home is shared across regions in this profile. '
+        + 'Set or change Temp Home in Settings for a trip; Here and Find are one-off searches and never save a base.</p>'
     }
   };
 
@@ -620,7 +621,7 @@
     ['nemesis', 'Nemesis birds menu badge', '<p>When the Nemesis beta setting is available, opt in to its menu count here. The global Hide notification counts setting takes precedence; the tool and its data stay available.</p>'],
     ['theme', 'Theme', '<p>System follows your phone. Light or Dark wins until you choose System again.</p>'],
     ['maps', 'Maps app', '<p>Open in Maps links and trip routes use the selected app immediately. OpenStreetMap directions support only a start and end; multi-stop routes disclose that limitation rather than silently dropping intermediate stops.</p>'],
-    ['distance', 'How far will you drive for a bird?', '<p>Adjust the saved chase distance in five-mile steps or reset to 35 miles. Nearby opportunities use the active Home or explicitly selected origin; this is straight-line distance, not a promised driving time.</p>'],
+    ['distance', 'How far will you drive for a bird?', '<p>Adjust the saved chase distance in five-mile steps or reset to the selected region\'s default. Nearby opportunities use the active Home or Temp Home, or an explicitly selected one-off origin. Bird Gen always uses the active saved base. This is straight-line distance, not a promised driving time.</p>'],
     ['notifications', 'Bird Gen iPhone notifications', '<p>Optional local notifications require the installed iPhone app; there is no notification server. All qualified Bird Gen categories can notify on foreground refresh. Native background checks cover Celebrity and Crowd only; iOS chooses whether and when to run them, not a guaranteed interval.</p><p>Crowd is held back when coverage is incomplete or capped. Mass Flocks and Patagonia menus do not bypass Bird Gen rules. Each profile opts in separately; background checks use the active profile, region, Home and chase distance. Initial snapshots establish a quiet baseline, and reports dated before opt-in do not interrupt you.</p><p>Permission, Background App Refresh, power and network conditions can prevent delivery. This is not an urgent-alert service.</p>'],
     ['backup', 'Personal lists: backup and restore', '<p>Backups include only WATCH and Favorite patches, not credentials, caches, history or legacy region definitions. Stable species IDs avoid four-letter ambiguity; Favorites retain saved IDs, names, region and coordinate-only metadata.</p><ol><li>Select the categories and export current choices.</li><li>Save an external JSON file before erasing app data. Text here or on the clipboard is not an independent backup.</li><li>Open a supported JSON file or paste/edit it, choose Merge or Replace, then Preview.</li><li>Save the reviewed lists. Missing categories remain unchanged; Merge preserves existing choices and metadata. Replace requires separate confirmation.</li></ol>'],
     ['key', 'eBird API key', '<p>Get a key reuses your eBird website sign-in. A labelled displayed key is captured and verified before saving. If it cannot be read, copy it and tap Paste, or open the page externally. The key is kept on this device and sent only to eBird.</p>' + apiApplicationHelpHtml(true)],

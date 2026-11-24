@@ -160,6 +160,13 @@ F1507 adds the temporary Settings **candidate Home map** (`homeCandidateMap`),
 declared as an app-only map with its approval purpose in the same contract.
 It previews supplied or device-derived coordinates before explicit Save Home;
 Cancel leaves saved Home unchanged. It is not a report result or automatic save.
+F1515 extends that same app-only Settings editor contract with the saved Home
+map (`homeSavedMap`) and saved/candidate Temp Home maps (`tempHomeSavedMap`,
+`tempHomeCandidateMap`). Saved and unsaved locations are labelled separately;
+only explicit Save adopts a candidate. The one permanent Home and optional Temp
+Home are profile-owned across regions. The polygon-only switching decision is
+shared with `region_membership.saved_base_decision`; editor persistence and
+explicit legacy-Home migration remain device-only behavior.
 F735/F736's checked taxonomy editions and optional common-name presentation are
 likewise device-side additions: canonical codes, scientific identity and source
 evidence stay unchanged, and no locale taxonomy is redistributed in the bundle.

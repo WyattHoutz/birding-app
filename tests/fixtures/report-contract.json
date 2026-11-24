@@ -249,7 +249,7 @@
       "report": null,
       "map": null,
       "appMap": "homeCandidateMap",
-      "why": "app-only: API key / home / report picker, with a temporary candidate Home map for explicit Save Home approval; it is not a report-result map or a saved location until approved",
+      "why": "app-only: API key / shared Home / Temp Home / report picker. F1515 has labelled saved Home and Temp Home maps plus separate unsaved candidate maps for explicit Save/Cancel approval; these device-owned editor previews are not report-result maps",
       "sub": "Region, display, data"
     },
     {

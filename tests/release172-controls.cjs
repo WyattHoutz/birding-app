@@ -185,7 +185,7 @@ module.exports = ({
     try {
       const A = app.window.__app;
       assert.equal(A.getReportSlug(), '');
-      assert.equal(A.getHome(), null);
+      assert.equal(A.getHome().lat,45.5,'the unambiguous previously owned Home is shared before choosing evidence');
       const accept = [...app.document.querySelectorAll('button')]
         .find(button => /^Use Washington$/.test(button.textContent.trim()));
       assert.ok(accept);
@@ -193,7 +193,7 @@ module.exports = ({
       assert.ok(app.$('regionFindBtn'));
       app.click(accept);
       await waitFor(() => A.getReportSlug() === 'wa', 'explicit Washington acceptance');
-      assert.equal(A.getHome(), null);
+      assert.equal(A.getHome().lat,45.5,'accepting a region recommendation cannot move the shared Home');
       assert.equal(app.window.localStorage.getItem('ebird_home_lat:or'), '45.5');
       assert.equal(app.window.localStorage.getItem('ebird_home_lng:or'), '-122.6');
     } finally { app.window.close(); }

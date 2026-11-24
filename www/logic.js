@@ -670,6 +670,13 @@
     if (['US-WA', 'US-WA-061', 'US-WA-033'].indexOf(region) < 0) {
       return { state: 'unknown', basis: 'unsupported-scope' };
     }
+    return administrativeMembership(record, region, boundary);
+  }
+
+  function administrativeMembership(record, region, boundary) {
+    if (!/^[A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(region || '')) {
+      return { state: 'unknown', basis: 'unsupported-scope' };
+    }
     record = record || {};
     function codes(keys) {
       return keys.map(function (key) { return String(record[key] || '').trim().toUpperCase(); })
@@ -692,10 +699,12 @@
     }
     state = state || (county ? county.split('-').slice(0, 2).join('-') : '');
     country = country || (state ? state.split('-')[0] : '');
-    var administrative = county && region !== 'US-WA'
+    var parts = region.split('-'), countyScope = parts.length === 3;
+    var parent = parts.slice(0, 2).join('-');
+    var administrative = county && countyScope
       ? county === region ? 'inside' : 'outside'
-      : state ? state === 'US-WA' ? region === 'US-WA' ? 'inside' : 'unknown' : 'outside'
-      : country && country !== 'US' ? 'outside' : 'unknown';
+      : state ? state === parent ? countyScope ? 'unknown' : 'inside' : 'outside'
+      : country && country !== parts[0] ? 'outside' : 'unknown';
     if (!boundary) return { state: administrative, basis: administrative === 'unknown'
       ? 'insufficient-administration' : 'administrative' };
     var lng = record.lng != null ? record.lng : record.lon;
@@ -712,6 +721,22 @@
     return administrative !== 'unknown' && administrative !== geometric
       ? { state: 'unknown', basis: 'conflicting-boundary' }
       : { state: geometric, basis: 'boundary' };
+  }
+
+  function patchEvidence(records, region, boundary) {
+    // Composite membership remains separate; never infer Lower 48/ABA from US.
+    if (!/^[A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(region || '')) {
+      return (records || []).slice();
+    }
+    return (records || []).filter(function (record) {
+      if (record && record.co && ['county', 'subnational2', 'subnational2Code'].some(function (key) {
+        return record[key] && String(record[key]).trim().toUpperCase()
+          !== String(record.co).trim().toUpperCase();
+      })) return false;
+      var evidence = record && record.co
+        ? Object.assign({}, record, { county: record.co }) : record;
+      return administrativeMembership(evidence, region, boundary).state === 'inside';
+    });
   }
 
   // ---- seen / unseen (mirror analyze.seen + report unseen/own) -------------
@@ -889,6 +914,21 @@
     return edge > radius
       ? { state: 'unreachable', edgeMi: edge }
       : { state: 'unknown', edgeMi: edge };
+  }
+
+  function savedBaseDecision(home, temp, boundary, radiusMi) {
+    function reach(point) {
+      if (!point) return 'missing-home';
+      if (!boundaryGeometry(boundary)) return 'unknown';
+      return regionReachability(point, boundary, radiusMi).state;
+    }
+    var permanent = reach(home), temporary = reach(temp);
+    return {
+      choice: permanent === 'reachable' ? 'home'
+        : temporary === 'reachable' ? 'temp'
+          : permanent === 'unknown' || temporary === 'unknown' ? 'unknown' : 'needs-base',
+      home: permanent, temp: temporary
+    };
   }
 
   function deriveCountyScope(home, counties, edgeMi) {
@@ -2746,6 +2786,11 @@
     // behaviour is exactly as before.
     var publicPins = publicPersonalLocids(allRecs, opts.hotspots);
     Object.keys(publicPins).forEach(function (k) { stakeout[k] = 1; });
+    var patchRecs = patchEvidence(allRecs, opts.patchRegion, opts.patchBoundary);
+    var patchStakeout = computeStakeoutLocids(patchRecs, seen);
+    var patchPublicPins = publicPersonalLocids(patchRecs,
+      patchEvidence(opts.hotspots, opts.patchRegion, opts.patchBoundary));
+    Object.keys(patchPublicPins).forEach(function (k) { patchStakeout[k] = 1; });
     var unseenAll = computeUnseen(allRecs, seen, {
       excludeOwn: false, personalEvidence: opts.personalEvidence
     });
@@ -2765,8 +2810,11 @@
       ? new Date(snapMid.getFullYear(), snapMid.getMonth(), snapMid.getDate() - CONST.TRIP_WINDOW_DAYS).getTime()
       : -Infinity;
 
-    var nearRecent = near.filter(function (r) { return recMs(r) >= cutoff; });
-    var excursionRecent = unseen.filter(function (r) {
+    var patchUnseen = patchEvidence(unseen, opts.patchRegion, opts.patchBoundary);
+    var nearRecent = patchUnseen.filter(function (r) {
+      return inTargetCounties(r, countyLabels, countyCodes) && recMs(r) >= cutoff;
+    });
+    var excursionRecent = patchUnseen.filter(function (r) {
       if (!inExcursionPool(r, countyLabels, countyCodes)) return false;
       var t = recMs(r);
       return t >= cutoff || (isSpecialTrip(r) && t >= excCutoff);
@@ -2775,9 +2823,9 @@
     // Today patches are recommendations, not just evidence. Private pins can
     // still support Stakeout/Twitches, but must never become a named place to go.
     var nearRecentGo = nearRecent.filter(function (r) {
-      return isPublicLocation(r) && isChaseable(r, stakeout);
+      return isPublicLocation(r) && isChaseable(r, patchStakeout);
     });
-    var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, stakeout); });
+    var excursionRecentGo = excursionRecent.filter(function (r) { return isReachable(r, patchStakeout); });
 
     var destOpts = {
       dailyDriveMi: dailyDriveMi,
@@ -2805,6 +2853,7 @@
         src: 'DestinationFallback30d',
         rows: opts.destinationFallbackRows
       }]), profile);
+      fallbackRecs = patchEvidence(fallbackRecs, opts.patchRegion, opts.patchBoundary);
       annotateDistance(fallbackRecs, home);
       fallbackRecs = computeUnseen(fallbackRecs, seen, {
         excludeOwn: true,
@@ -2844,7 +2893,7 @@
       var fallbackNearGo = fallbackRecs.filter(function (r) {
         return inTargetCounties(r, countyLabels, countyCodes) &&
           isPublicLocation(r) &&
-          isChaseable(r, stakeout);
+          isChaseable(r, patchStakeout);
       });
       var fallbackDest = destinations(fallbackNearGo,
         Object.assign({}, destOpts, {
@@ -2881,7 +2930,7 @@
         (exc.length < fallbackTarget || full.length < FULL_DAY_MIN_ROWS)) {
       fallbackExcursionGo = fallbackRecs.filter(function (r) {
         return inExcursionPool(r, countyLabels, countyCodes) &&
-          isReachable(r, stakeout);
+          isReachable(r, patchStakeout);
       });
     }
     if (opts.travelCfg && exc.length < fallbackTarget &&
@@ -4820,6 +4869,24 @@
     return Object.keys(parties).length;
   }
 
+  function celebrityDestination(rows) {
+    var latest = null, newest = -Infinity;
+    (rows || []).forEach(function (r) {
+      if (!r || !r.locId || r.location_private || r.locationPrivate) return;
+      if (r.location_private !== false && r.locationPrivate !== false) return;
+      if (!isPublicPlace(r.loc || r.locName || '')) return;
+      var time = recTime(r);
+      if (isFinite(time) && time > newest) { latest = r; newest = time; }
+    });
+    return latest;
+  }
+
+  function celebritySites(rows) {
+    return needClusters(rows).map(function (cluster) {
+      return { rows: cluster.rows, destination: celebrityDestination(cluster.rows) };
+    });
+  }
+
   function needNearby(records, opts) {
     opts = opts || {};
     var now = opts.now == null ? Date.now() : opts.now;
@@ -4909,7 +4976,7 @@
       if (t > g.latest) g.latest = t;
     });
 
-    var out = order.map(function (c) { return byCode[c]; });
+    var species = order.map(function (c) { return byCode[c]; }), out = [];
     // WHAT BELONGS IN "HAPPENING NOW", settled over four rounds of feedback:
     //
     //   "this ten birds you need is not valuable. use recent burst algorithm to
@@ -4936,17 +5003,11 @@
     // This also finally answers F144 ("Happening now shows birds you need, when
     // it should show buzz"), which was filed for exactly this and only ever
     // half-addressed by de-duplication.
-    out.forEach(function (g) {
-      // Score each WALKABLE CLUSTER separately and keep the best one. The old
-      // code ran chaseConfidence over every row for the species region-wide,
-      // so single sightings at unrelated places added up into a "crowd" that
-      // existed nowhere you could drive to.
-      var best = null;
-      needClusters(g.rows).forEach(function (cl) {
+    species.forEach(function (bird) {
+      celebritySites(bird.rows).forEach(function (cl) {
+        var g = Object.assign({}, bird);
         var conf = chaseConfidence(cl.rows, { nowMs: now });
         var parties = knownReportingParties(cl.rows);
-        // The nearest row in the cluster is the one the card describes, so
-        // the place, checklist, time and count all come from one report.
         var near = null, nearD = null, newest = null, newestT = -Infinity, places = {};
         cl.rows.forEach(function (r) {
           var pid = r.locId || r.loc || r.locName || '';
@@ -4957,29 +5018,20 @@
           if (d == null || !isFinite(d)) return;
           if (nearD == null || d < nearD) { nearD = d; near = r; }
         });
-        var cand = { conf: conf, knownParties: parties,
-                     qualified: conf.events >= minSightings && parties >= minParties,
-                     row: near, distMi: nearD,
-                     newest: newest, newestT: newestT,
-                     nPlaces: Object.keys(places).length, reports: cl.rows.length };
-        if (best && best.qualified && !cand.qualified) return;
-        if (!best || (cand.qualified && !best.qualified) || cand.conf.events > best.conf.events
-            || (cand.conf.events === best.conf.events
-                && (best.distMi == null
-                    || (cand.distMi != null && cand.distMi < best.distMi)))) best = cand;
-      });
-      g.conf = best ? best.conf : chaseConfidence([], { nowMs: now });
-      // The corroborated count, which is NOT g.reports: that counts rows, and
-      // a birding party files one sighting several times over.
-      g.sightings = g.conf.events;
-      g.knownParties = best ? best.knownParties : 0;
-      if (best) {
-        g.nPlaces = best.nPlaces;
-        g.reports = best.reports;
-        g.clusterMi = best.distMi;
-        var r = best.row;
+        var destination = cl.destination;
+        if (opts.requirePublicDestination && !destination) return;
+        if (destination) { newest = destination; newestT = recTime(destination); }
+        g.conf = conf;
+        g.sightings = conf.events;
+        g.knownParties = parties;
+        g.rare = cl.rows.some(function (r) { return r.kind === 'Rarity'; });
+        g.siteLocIds = Object.keys(places).sort();
+        g.nPlaces = g.siteLocIds.length;
+        g.reports = cl.rows.length;
+        g.clusterMi = nearD;
+        var r = near;
         if (r) {
-          g.distMi = best.distMi;
+          g.distMi = nearD;
           g.locId = r.locId || ''; g.locName = r.loc || r.locName || '';
           g.subId = r.subId || '';
           g.whenStr = r.dateStr || '';
@@ -4987,9 +5039,9 @@
           g.lat = r.lat == null ? null : r.lat;
           g.lon = (r.lon == null ? r.lng : r.lon);
         }
-        var latest = best.newest;
+        var latest = newest;
         if (latest) {
-          g.latest = best.newestT;
+          g.latest = newestT;
           g.latestStr = latest.dateStr || '';
           g.latestSubId = latest.subId || '';
           g.latestLocId = latest.locId || '';
@@ -4999,8 +5051,9 @@
           g.latestDistMi = latest.distMi == null ? null : Number(latest.distMi);
           g.latestCount = (typeof latest.count === 'number') ? latest.count : null;
         }
-      }
-      g.rows = null;                    // grouping detail, not render data
+        g.rows = null;
+        out.push(g);
+      });
     });
     out = out.filter(function (g) {
       // Notable, or it is not something anyone is talking about.
@@ -5245,6 +5298,8 @@
     prettyMMDD: prettyMMDD,
     scoutGroups: scoutGroups,
     needNearby: needNearby,
+    celebrityDestination: celebrityDestination,
+    celebritySites: celebritySites,
     NEED_MIN_SIGHTINGS: NEED_MIN_SIGHTINGS,
     yieldBand: yieldBand,
     choiceLift: choiceLift, wilsonBound: wilsonBound, CHOICE_Z: CHOICE_Z,
@@ -5287,7 +5342,9 @@
     haversineMi: haversineMi,
     countyEdgeMi: countyEdgeMi,
     deriveCountyScope: deriveCountyScope, regionReachability: regionReachability,
+    savedBaseDecision: savedBaseDecision,
     regionMembership: regionMembership,
+    patchEvidence: patchEvidence,
     annotateDistance: annotateDistance,
     parseObsDt: parseObsDt,
     dayStr: dayStr,

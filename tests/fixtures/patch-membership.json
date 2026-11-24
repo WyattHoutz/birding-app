@@ -1,0 +1,23 @@
+{
+  "records": [
+    {"id":"king","county":"US-WA-033","state":"US-WA","country":"US"},
+    {"id":"snohomish","co":"US-WA-061"},
+    {"id":"state-only","subnational1Code":"US-WA"},
+    {"id":"oregon","subnational2Code":"US-OR-051"},
+    {"id":"ontario","subnational1Code":"CA-ON"},
+    {"id":"unknown"},
+    {"id":"label-only","locName":"King County Park","sources":["King","Geo50km"]},
+    {"id":"conflict","subnational2Code":"US-WA-033","subnational1Code":"US-OR"},
+    {"id":"cache-conflict","co":"US-WA-033","county":"US-WA-061"},
+    {"id":"malformed","county":"King"},
+    {"id":"country-only","country":"US"}
+  ],
+  "queries": [
+    {"region":"US-WA-033","ids":["king"]},
+    {"region":"US-WA-061","ids":["snohomish"]},
+    {"region":"US-WA","ids":["king","snohomish","state-only"]},
+    {"region":"US-OR","ids":["oregon"]},
+    {"region":"US-OR-051","ids":["oregon"]},
+    {"region":"CA-ON","ids":["ontario"]}
+  ]
+}

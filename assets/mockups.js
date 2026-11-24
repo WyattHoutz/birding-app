@@ -2167,7 +2167,7 @@ for (const selectedCounty of [false,true]) REVIEW_SHOTS.push({
           || A.activeScope().effectiveRegion!=='US-WA-061'
           || document.getElementById('hdrScope').textContent!=='US-WA-061')
         throw new Error('F1445 Current and the header must name the selected county scope');
-      body.scrollTop=0;
+      chooser.scrollTop=0;
     } else {
       search.value='US-WA';search.dispatchEvent(new Event('input'));
       choices=values.map(function(value){return countyHost.querySelector('[data-region-choice="'+value+'"]');});
@@ -2185,8 +2185,9 @@ for (const selectedCounty of [false,true]) REVIEW_SHOTS.push({
     });
     var close=document.getElementById('regionChooserClose').getBoundingClientRect();
     if(close.top<0 || close.bottom>document.defaultView.innerHeight || body.clientHeight<=0
-        || getComputedStyle(body).overflowY!=='auto')
-      throw new Error('F1445 county chooser must preserve reachable Close and a scrolling results body');
+        || getComputedStyle(chooser).overflowY!=='auto'
+        || getComputedStyle(body).overflowY!=='visible')
+      throw new Error('F1445 county chooser must preserve reachable Close and one scrolling page');
     chooser.setAttribute('data-mock-data','true');
     return true;`
 });
@@ -2239,7 +2240,9 @@ REVIEW_SHOTS.push({
     var current=document.getElementById('regionChooserCurrent'),county=document.getElementById('regionChooserCountyList');
     var states=document.getElementById('regionChooserStateList'),parent=document.getElementById('regionChooserParent');
     var selected=current.querySelector('button');
-    if(!selected || !selected.disabled || !/Selected:/.test(selected.textContent))
+    if(!selected || !selected.disabled || selected.getAttribute('aria-current')!=='true'
+        || selected.dataset.regionChoice!=='county:wa:US-WA-061'
+        || !/Snohomish.*US-WA-061/.test(selected.textContent))
       throw new Error('F1499 actual current region must be a labelled disabled button');
     var reference=parseFloat(getComputedStyle(parent.querySelector('button')).fontSize);
     if([current.firstElementChild,document.getElementById('regionChooserCountyCurrent')].some(function(node){
@@ -2249,8 +2252,8 @@ REVIEW_SHOTS.push({
         || !/Snohomish.*US-WA-061/.test(document.getElementById('regionChooserCountyCurrent').textContent))
       throw new Error('F1453 actual chooser must show current parent/county with full lists collapsed');
     [county,states].forEach(function(list){
-      var summary=list.querySelector('summary');summary.scrollIntoView({block:'nearest'});
-      var box=summary.getBoundingClientRect(),viewport=body.getBoundingClientRect(),range=document.createRange();
+      var summary=list.querySelector('summary');summary.scrollIntoView({block:'center'});
+      var box=summary.getBoundingClientRect(),viewport=chooser.getBoundingClientRect(),range=document.createRange();
       range.selectNodeContents(summary);
       if(box.height<44 || box.left<0 || box.right>document.defaultView.innerWidth+0.5
           || box.top<viewport.top-0.5 || box.bottom>viewport.bottom+0.5
@@ -2260,7 +2263,7 @@ REVIEW_SHOTS.push({
     county.closest('section').scrollIntoView({block:'start'});
     var close=document.getElementById('regionChooserClose').getBoundingClientRect();
     if(close.top<0 || close.bottom>document.defaultView.innerHeight || body.clientHeight<44)
-      throw new Error('F1453 chooser must retain visible dismissal and a scrolling results body');
+      throw new Error('F1453 chooser must retain visible dismissal and reachable choices');
     chooser.dataset.mockData='true';
     return true;`
 });
@@ -2287,10 +2290,12 @@ REVIEW_SHOTS.push({
     if(!county || !/US-WA-061/.test(document.getElementById('regionChooserLocationStatus').textContent))
       throw new Error('F1448 actual Home filter must offer the polygon-verified Snohomish county');
     var body=document.getElementById('regionChooserBody'),close=document.getElementById('regionChooserClose').getBoundingClientRect();
-    if(body.clientHeight<44 || getComputedStyle(body).overflowY!=='auto'
+    var chooser=document.getElementById('regionChooser');
+    if(body.clientHeight<44 || getComputedStyle(chooser).overflowY!=='auto'
+        || getComputedStyle(body).overflowY!=='visible'
         || close.top<0 || close.bottom>W.innerHeight
         || document.getElementById('regionChooser').scrollWidth>W.innerWidth+1)
-      throw new Error('F1448 verified location must leave a reachable scrolling county-results body');
+      throw new Error('F1448 verified location must leave one reachable scrolling chooser page');
     document.getElementById('regionChooser').dataset.mockData='true';
     return true;`
 });
@@ -2372,9 +2377,10 @@ REVIEW_SHOTS.push({
     var body=document.getElementById('regionChooserBody');
     if(close.top<0 || close.bottom>document.defaultView.innerHeight
         || close.width<44 || close.height<44 || body.clientHeight<=0
-        || getComputedStyle(body).overflowY!=='auto'
+        || getComputedStyle(chooser).overflowY!=='auto'
+        || getComputedStyle(body).overflowY!=='visible'
         || chooser.scrollWidth>chooser.clientWidth+1)
-      throw new Error('F1447 Region settings must fit with reachable Close and scrolling results: '
+      throw new Error('F1447 Region settings must fit with reachable Close and one scrolling page: '
         +JSON.stringify({close:close.toJSON(),bodyHeight:body.clientHeight,
           overflowY:getComputedStyle(body).overflowY,scrollWidth:chooser.scrollWidth,
           clientWidth:chooser.clientWidth,viewportHeight:document.defaultView.innerHeight}));
@@ -2547,6 +2553,55 @@ const SHOTS = [
         }
         return true;`) },
 ].concat(SECTION_SHOTS, EXTRA_SHOTS);
+
+for (const kind of ['home','temp']) {
+  const prefix=kind==='temp'?'tempHome':'home';
+  REVIEW_SHOTS.push({
+    id:'f1515-'+kind, freshApp:true, host:prefix+'CandidateReview',
+    title:'Saved '+(kind==='temp'?'Temp Home':'Home')+' and explicit unsaved candidate',
+    scrollTo:'#'+prefix+'CandidateReview',
+    prep:`A.cancelStalledWork();
+      localStorage.setItem(A.homeKey('lat'),'47.75');
+      localStorage.setItem(A.homeKey('lng'),'-122.16');
+      localStorage.setItem(A.homeKey('place'),'Synthetic permanent base');
+      localStorage.setItem('ebird_temp_home_v1',JSON.stringify({lat:47.8,lng:-122.3,label:'Synthetic trip base'}));
+      A.openSavedLocationEditor('${kind}');
+      document.getElementById('${prefix}Place').value='48, -122';
+      document.getElementById('${kind==='temp'?'tempGeocodeBtn':'geocodeBtn'}').click();
+      await new Promise(function(resolve){setTimeout(resolve,30);});
+      var review=document.getElementById('${prefix}CandidateReview');
+      if(review.hidden || !/Save/.test(review.textContent) || !/Cancel/.test(review.textContent))
+        throw new Error('F1515 actual editor must show unsaved review with explicit Save and Cancel');
+      if(A.getHome().lat!==47.75 || A.tempHome().lat!==47.8)
+        throw new Error('F1515 mockup candidate cannot alter either saved location');
+      var label=document.createElement('p');label.className='mocklabel';
+      label.textContent='REPRESENTATIVE STUB DATA - unsaved candidate; saved locations are unchanged.';
+      review.prepend(label);review.dataset.mockData='true';
+      return true;`
+  });
+}
+REVIEW_SHOTS.push({
+  id:'f1517-region-bottom',freshApp:true,host:'regionChooser',
+  title:'Choose region - one page scrolled to its last county choices',
+  prep:regionQuickVisits+`A.openRegionChooser();
+    document.querySelector('[data-region-location="all"]').click();
+    await new Promise(function(resolve){setTimeout(resolve,100);});
+    document.getElementById('regionChooserStateList').open=true;
+    document.getElementById('regionChooserCountyList').open=true;
+    await new Promise(function(resolve){requestAnimationFrame(resolve);});
+    var chooser=document.getElementById('regionChooser'),body=document.getElementById('regionChooserBody');
+    chooser.scrollTop=chooser.scrollHeight;
+    await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});
+    var choices=Array.from(document.querySelectorAll('#regionChooserCounties button:not([hidden])'));
+    if(!choices.length)throw new Error('F1517 county catalog must contain choices');
+    var last=choices[choices.length-1].getBoundingClientRect();
+    if(chooser.scrollTop<=0 || getComputedStyle(chooser).overflowY!=='auto'
+        || getComputedStyle(body).overflowY!=='visible' || last.top<0
+        || last.bottom>document.defaultView.innerHeight)
+      throw new Error('F1517 only the complete chooser page may scroll');
+    chooser.dataset.mockData='true';
+    return true;`
+});
 
 REVIEW_SHOTS.push({
   id: 'f1379-menu-preview',

@@ -93,6 +93,22 @@ test('F979 Celebrity needs actual independent public evidence even under partial
   assert.equal(notifications.evaluate(profile, feeds(missingCoordinates), now).events.length, 0);
 });
 
+test('F1513 native Celebrity notifications retain both separately qualifying reporting sites', () => {
+  const first = rows('trokin','Tropical Kingbird').map(row => ({
+    ...row,locId:'LWEST1513',locName:'West Seattle shore',lat:47.57,lng:-122.40,
+  }));
+  const second = rows('trokin','Tropical Kingbird').map((row,i) => ({
+    ...row,locId:'LSTAN1513',locName:'Stanwood marsh',lat:48.24,lng:-122.37,
+    subId:'SStanwood1513'+i,
+  }));
+  const result = notifications.evaluate({...profile,chaseMaxMi:100},feeds([...first,...second]),now);
+  assert.equal(result.events.length,2);
+  assert.equal(new Set(result.events.map(event => event.id)).size,2,
+    'notification identity must retain the reporting location, not only the species');
+  assert.deepEqual(new Set(result.events.map(event => event.id.split('|').at(-1))),
+    new Set(['LWEST1513','LSTAN1513']));
+});
+
 test('F979 Crowd never invents an empty baseline from missing, failed, capped or stale sources', () => {
   const complete = feeds(rows('amecro', 'American Crow', 6), false);
   const result = notifications.evaluate(profile, complete, now);

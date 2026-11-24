@@ -18,6 +18,23 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const BL = require(process.env.BIRDCHASER_LOGIC || path.join(__dirname, '..', 'www', 'logic.js'));
+test('F1515 saved-base policy needs exact boundaries, configured radius and Home-first proof', () => {
+  const boundary = {accuracyMi:.01,geometry:{type:'Polygon',
+    coordinates:[[[0,0],[1,0],[1,1],[.5,.5],[0,1],[0,0]]]}};
+  const home = {lat:.3,lng:-.1}, temp = {lat:.3,lng:.3};
+  assert.equal(BL.savedBaseDecision(home,temp,boundary,10).choice,'home');
+  assert.equal(BL.savedBaseDecision(home,temp,boundary,2).choice,'temp');
+  assert.equal(BL.savedBaseDecision({lat:30,lng:30},temp,boundary,2).choice,'temp');
+  assert.equal(BL.savedBaseDecision(home,null,boundary,2).choice,'needs-base');
+  assert.equal(BL.savedBaseDecision(home,temp,{bounds:{minX:0,maxX:1,minY:0,maxY:1}},1000).choice,'unknown');
+  assert.equal(BL.savedBaseDecision({lat:30,lng:30},null,
+    {bounds:{minX:0,maxX:1,minY:0,maxY:1}},10).choice,'unknown',
+  'even a distant rectangle is not the selected region boundary');
+  assert.equal(BL.savedBaseDecision({lat:.9,lng:.5},null,boundary,1).choice,'needs-base',
+    'concave indentation is outside despite lying in the containing rectangle');
+  assert.equal(BL.savedBaseDecision({lat:0,lng:.5},temp,boundary,10).home,'unknown',
+    'boundary uncertainty must not prove reachable Home');
+});
 test('F1457 Washington and pilot counties require positive immutable administrative or exact boundary evidence', () => {
   const fixture = require('./fixtures/region-membership.json');
   for (const row of fixture.cases) {
@@ -45,6 +62,28 @@ test('F1457 Washington and pilot counties require positive immutable administrat
   assert.deepEqual([merged.county,merged.state,merged.country,merged.sources],
     ['US-WA-061','US-WA','US',['Exact source']]);
   assert.equal(BL.regionMembership(merged,'US-WA-061').state,'inside');
+});
+test('F1460 patch evidence requires positive county/state membership without altering raw caches or pilot scope',()=>{
+  const fixture = require('./fixtures/patch-membership.json');
+  const before = JSON.stringify(fixture);
+  for (const {region, ids} of fixture.queries) {
+    const result = BL.patchEvidence(fixture.records, region);
+    assert.deepEqual(result.map(row => row.id), ids, region);
+    assert.ok(result.every(row => fixture.records.includes(row)), 'projection must retain source identity');
+  }
+  assert.equal(JSON.stringify(fixture), before);
+  assert.equal(BL.regionMembership({county:'US-OR-051'},'US-OR').basis,'unsupported-scope',
+    'patch opt-in must not expand the separate county pilots');
+  assert.deepEqual(BL.patchEvidence(fixture.records),fixture.records,
+    'unscoped legacy calculations preserve behavior');
+  assert.deepEqual(BL.patchEvidence(fixture.records,'US'),fixture.records,
+    'country/composite membership is not invented by administrative patch scoping');
+  const boundary={code:'US-WA-033',accuracyMi:.01,geometry:{type:'Polygon',
+    coordinates:[[[-123,47],[-122,47],[-122,48],[-123,48],[-123,47]]]}};
+  const rows=[{id:'inside',lat:47.5,lng:-122.5},{id:'outside',lat:46,lng:-122.5},
+    {id:'edge',lat:47,lng:-122.5},{id:'conflict',county:'US-WA-061',lat:47.5,lng:-122.5}];
+  assert.deepEqual(BL.patchEvidence(rows,'US-WA-033',boundary).map(row=>row.id),['inside']);
+  assert.deepEqual(BL.patchEvidence(rows,'US-WA-033',{...boundary,code:'US-WA-061'}),[]);
 });
 test('F1246 projected competition ranks group ties and terminate at the current rank',()=>{
   const rows=[{rank:1,species:10},{rank:2,species:9},{rank:2,species:9},
@@ -839,6 +878,60 @@ test('needNearby preserves the newest report tuple separately from the nearest o
   assert.equal(row.latestDistMi, 3);
 });
 
+test('F1513 Celebrity keeps separately qualifying sites and prefers their own public reports', () => {
+  const now = new Date(2026, 10, 23, 12).getTime();
+  const sites = [
+    { locId: 'LWEST', loc: 'West Seattle shore', lat: 47.57, lon: -122.40, distMi: 15 },
+    { locId: 'LSTAN', loc: 'Stanwood marsh', lat: 48.24, lon: -122.37, distMi: 30 },
+  ];
+  const records = sites.flatMap((site, index) => Array.from({ length: 4 }, (_, i) => ({
+    ...site, code: 'trokin', name: 'Tropical Kingbird', kind: 'Rarity', valid: true,
+    dateStr: '2026-11-23 0' + (6 + i) + ':00', location_private: false,
+    observer: 'Observer ' + index + '-' + i, subId: 'S' + index + i, count: i + 1,
+  })));
+  records.push({ ...records[0], locId: 'LCUSTOM', loc: 'Adjacent custom pin',
+    lat: 47.571, dateStr: '2026-11-23 11:00', observer: 'Later observer',
+    subId: 'SPRIVATE', location_private: true, count: 99 });
+  records.push({ ...records[0], locId: 'LUNKNOWN', loc: 'Unverified shore',
+    dateStr: '2026-11-23 11:30', observer: 'Unknown observer',
+    subId: 'SUNKNOWN', location_private: null });
+  const original = JSON.stringify(records);
+  for (const input of [records, [...records].reverse()]) {
+    const alerts = BL.needNearby(input, { now, seen: {}, maxMi: 35, requirePublicDestination: true });
+    assert.equal(alerts.length, 2, 'independent sites for the same species must both survive');
+    assert.deepEqual(new Set(alerts.map(row => row.latestLocId)), new Set(['LWEST', 'LSTAN']));
+    for (const alert of alerts) {
+      const west = alert.latestLocId === 'LWEST';
+      assert.equal(alert.latestSubId, west ? 'S03' : 'S13');
+      assert.equal(alert.latestStr, '2026-11-23 09:00');
+      assert.equal(alert.latestCount, 4, 'never borrow the newer private report count');
+      assert.equal(alert.sightings, west ? 6 : 4, 'corroboration belongs to this cluster only');
+      assert.equal(alert.siteLocIds.includes(west ? 'LSTAN' : 'LWEST'), false);
+    }
+  }
+  assert.equal(JSON.stringify(records), original);
+  assert.equal(BL.needNearby(records.filter(row => row.locId !== 'LCUSTOM'
+    && row.locId !== 'LUNKNOWN' && row.subId !== 'S03'),
+  { now, seen: {}, maxMi: 35, requirePublicDestination: true }).length, 1,
+  'three West Seattle reports cannot borrow Stanwood corroboration');
+});
+
+test('F1513 Celebrity cannot invent a public destination from private, unknown or conflicting identity', () => {
+  const now = new Date(2026, 10, 23, 12).getTime();
+  const records = Array.from({ length: 4 }, (_, i) => ({
+    code: 'snobun', name: 'Snow Bunting', kind: 'Rarity', valid: true,
+    locId: 'LCUSTOM', loc: 'Coastal observation pin', lat: 47.57, lon: -122.40,
+    distMi: 15, dateStr: '2026-11-23 0' + (6 + i) + ':00',
+    observer: 'Observer ' + i, subId: 'S' + i,
+  }));
+  for (const flags of [{ location_private: true }, {},
+    { location_private: false, locationPrivate: true }]) {
+    assert.deepEqual(BL.needNearby(records.map(row => ({ ...row, ...flags })),
+      { now, seen: {}, maxMi: 35, requirePublicDestination: true }), []);
+  }
+  assert.equal(BL.celebrityDestination(records), null);
+});
+
 test('a shared checklist counts as ONE party in the busy-hotspot lane', () => {
   // Six people on one list is one decision to visit, not six. Before this,
   // Cedar River mouth's 16 observers counted as 16 independent parties and
@@ -904,6 +997,45 @@ test('computeChaseViews: returns the section arrays and excludes seen birds', ()
   assert.equal(rare.kind, 'Rarity', 'notable-feed obs flagged Rarity');
   const need = cv.merged.find((r) => r.obsId === 'o-need');
   assert.equal(need.kind, 'Need', 'recent-only obs flagged Need');
+});
+
+test('F1460 Today and Day-trip rebuild mixed clusters and fallback scores before ranking while retaining broad evidence',()=>{
+  const profile={...BL.profileFor('wa'),tierBaseRadiusMi:10,dailyDriveMi:10};
+  profile.counties=profile.counties.concat({code:'US-OR-051',slug:'multnomah',label:'Multnomah'});
+  const date='2026-11-23';
+  function row(id,county,code,locId,lat,lng,old=false) {
+    return {...OBS({obsId:id,subId:'S-'+id,speciesCode:code,
+      comName:code==='snoowl1'?'Snowy Owl':'American Robin',locId,locName:'Public park '+locId,
+      lat,lng,obsDt:(old?'2026-11-08':date)+' 08:00'}),subnational2Code:county};
+  }
+  const inside=[row('inside','US-WA-033','amerob','Linside',47.66,-122.30),
+    row('far','US-WA-033','amerob','Lfar',47.30,-121.40)];
+  const older=[row('old-inside','US-WA-033','buffle','Lold',47.69,-122.30,true)];
+  const base={seen:{},ownName:'Nobody',snapshotDate:date,home:{lat:47.65,lng:-122.30},
+    dailyDriveMi:10,travelCfg:TZ,destinationFallbackTarget:4};
+  const control=BL.computeChaseViews(profile,{...base,
+    rowsToday:waSnapshot({'king-recent.json':inside}),destinationFallbackRows:older});
+  assert.ok(control.destinations.length>=2,'fresh and older inside controls must both be ranked');
+  assert.ok(control.dayTrip.length,'the inside Day-trip control must actually enter that projection');
+  for(const [region,outsideCounty] of [['US-WA-033','US-WA-061'],['US-WA','US-OR-051']]) {
+    const outside=row('outside',outsideCounty,'snoowl1','Loutside',47.6601,-122.3001);
+    const outsideOld=row('outside-old',outsideCounty,'snoowl1','LoutsideOld',47.72,-122.30,true);
+    const unknown={...row('unknown','','snoowl1','Lunknown',47.6602,-122.3002)};
+    const raw=waSnapshot({'king-recent.json':inside,
+      'geo-notable.json':[outside,unknown]});
+    const fallback=older.concat(outsideOld),before=JSON.stringify([raw,fallback]);
+    const unscoped=BL.computeChaseViews(profile,{...base,rowsToday:raw,destinationFallbackRows:fallback});
+    assert.notDeepEqual(unscoped.destinations,control.destinations,
+      'outside/unknown rare evidence must change the unfiltered ranking as a negative control');
+    const scoped=BL.computeChaseViews(profile,{...base,rowsToday:raw,
+      destinationFallbackRows:fallback,patchRegion:region});
+    for(const key of ['destinations','excursions','fullDay','dayTrip']) {
+      assert.deepEqual(scoped[key],control[key],region+' '+key+' must equal independently inside-only scoring');
+      assert.ok(scoped[key].every(cluster=>cluster.records.every(record=>record.county==='US-WA-033')));
+    }
+    assert.equal(scoped.merged.length,inside.length+2,'non-patch evidence must remain available');
+    assert.equal(JSON.stringify([raw,fallback]),before,'raw acquisition caches must be immutable');
+  }
 });
 
 test('F653 Today patches never recommend an explicitly private location', () => {

@@ -1367,6 +1367,21 @@ const AUDIT = `<script>
       finish(out);
       return;
     }
+    if (${process.env.AUDIT_FOCUS === 'alert-locations'}) {
+      out.push(...await alertLocationLayout(scan, ${JSON.stringify(process.env.AUDIT_ALERT_MUTATION || '')}));
+      finish(out);
+      return;
+    }
+    if (${process.env.AUDIT_FOCUS === 'patch-boundaries'}) {
+      out.push(...await patchBoundaryLayout(scan, ${JSON.stringify(process.env.AUDIT_PATCH_MUTATION || '')}));
+      finish(out);
+      return;
+    }
+    if (${process.env.AUDIT_FOCUS === 'saved-locations'}) {
+      out.push(...await savedLocationLayout(scan, ${JSON.stringify(process.env.AUDIT_SAVED_MUTATION || '')}));
+      finish(out);
+      return;
+    }
     if (${['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)}) {
       out.push(...await nextReleaseLayout(scan, ${JSON.stringify(process.env.AUDIT_NEXT_MUTATION || '')},
         ${JSON.stringify(process.env.AUDIT_FOCUS || '')}));
@@ -5327,12 +5342,19 @@ const AUDIT = `<script>
   const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
+  const alertLocationLayout = ${require('./alert-location-layout').toString()};
+  const patchBoundaryLayout = ${require('./patch-boundary-layout').toString()};
+  const savedLocationLayout = ${require('./saved-location-layout').toString()};
   const releaseReviewLayout = ${require('./release-review-layout').toString()};
   const birdReportLayout = ${require('./bird-report-layout').toString()};
   const preparePersonalFixture = ${require('./mockups').preparePersonalFixture.toString()};
   const top100SyncLayout = ${require('./top100-sync-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','alert-locations','patch-boundaries','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { out.push(...await savedLocationLayout(scan)); }
+      catch(error) { out.push({label:'F1515 F1517 saved locations and region scroll',fixtureError:String(error)}); }
+    }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await birdReportLayout(scan,null,auditStage,preparePersonalFixture)); }
       catch(error) { out.push({label:'F1491 F1492 bird reports',fixtureError:String(error)}); }
@@ -5401,6 +5423,8 @@ const AUDIT = `<script>
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
       out.push.apply(out, await nextReleaseLayout(scan, ''));
+      out.push.apply(out, await alertLocationLayout(scan, ''));
+      out.push.apply(out, await patchBoundaryLayout(scan, ''));
       out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
       try {
         var aggregateApp = window.__app;
@@ -5775,6 +5799,24 @@ server.listen(0, '127.0.0.1', () => {
       process.exit(report.length===5 && report.every(r=>r.releaseReviewGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
         && !(r.items||[]).length && !(r.small||[]).length) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'alert-locations') {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.length===2 && report.every(r=>r.alertLocationGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'patch-boundaries') {
+      console.log(JSON.stringify(report,null,2));
+      process.exit(report.length===8 && report.every(r=>r.patchBoundaryGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'saved-locations') {
+      console.log(JSON.stringify(report,null,2));
+      process.exit(report.length===3 && report.every(r=>r.savedLocationGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
     }
     if (['next-release','scope-headers'].includes(process.env.AUDIT_FOCUS)) {
       console.log(JSON.stringify(report.map(r=>({label:r.label,nextReleaseGeometry:r.nextReleaseGeometry,
