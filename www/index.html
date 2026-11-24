@@ -13408,7 +13408,8 @@
         var context = twitchContext(twitchView()), list = twitchList(out, context);
         if (list.stopNotes) list.stopNotes();
         function current() {
-          return refreshId === _twitchRefreshGeneration && chaseGeneration === _chaseGeneration
+          return !!window.document && !_appUnloading
+            && refreshId === _twitchRefreshGeneration && chaseGeneration === _chaseGeneration
             && reportSlug === getReportSlug() && fetchKey === chaseFetchBaseKey(chaseProfile())
             && context === twitchContext(twitchView()) && out._twitchList === list;
         }
@@ -13879,7 +13880,7 @@
           markRaritySeen(all.map(rarityRowId));
         }).catch(function (e) { if (current()) st.textContent = netErr(e); })
           .finally(function () {
-            if (refreshId !== _twitchRefreshGeneration) return;
+            if (_appUnloading || !window.document || refreshId !== _twitchRefreshGeneration) return;
             rarityRefreshState(btn, false);
           });
       }
@@ -52242,6 +52243,7 @@
         });
       }
       function settleScopeTransition(section, scope) {
+        if (_appUnloading || !window.document) return false;
         if (!scopeCurrent(scope)) {
           applyScopeTransitionPending(activeScope());
           return false;

@@ -93,6 +93,48 @@ function surgeSourceRoot(app, expand = true) {
   return root;
 }
 
+test('v2.12.3 unloading Twitches cannot repaint rows or settle its refresh button', async () => {
+  const app = await boot({sample:false});
+  try {
+    const A = app.window.__app;
+    const event = A.ppteEvents(ppteFixture())[0];
+    A.openPpteEvent(event);
+    const pending = A.refresh();
+    const status = app.$('status'), button = app.$('refreshBtn');
+    const before = status.innerHTML, busy = button.getAttribute('aria-busy');
+    assert.equal(busy, 'true', 'the real Twitches refresh is still pending');
+    app.window.dispatchEvent(new app.window.Event('unload'));
+    assert.equal(await pending, false);
+    assert.equal(status.innerHTML, before, 'unloaded Twitches cannot publish late evidence');
+    assert.equal(button.getAttribute('aria-busy'), busy, 'unloaded refresh cannot change controls');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('v2.12.3 unloaded autoload completions cannot settle scope or performance state', async () => {
+  for (const reject of [false, true]) {
+    const app = await boot();
+    let settle;
+    try {
+      const A = app.window.__app, section = app.$('sec-refreshBtn');
+      A.showSection(section.id, {load:false});
+      const status = app.$('status');
+      status.setAttribute('aria-busy', 'true');
+      section._loader = {...section._loader, fn:() => new Promise((resolve, fail) => {
+        settle = reject ? () => fail(new Error('late controlled failure')) : () => resolve(true);
+      })};
+      const pending = A.autoLoad(section);
+      assert.equal(typeof settle, 'function', 'the actual autoload consumer owns pending work');
+      app.window.dispatchEvent(new app.window.Event('unload'));
+      const before = status.outerHTML;
+      settle();
+      assert.equal(await pending, false);
+      assert.equal(status.outerHTML, before, 'neither success nor failure may settle an unloaded section');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
 test('F1362 F1365 actual completion ordering retains rows, focus, reading position and exact foreground guidance', async () => {
   const app=await setupOwnedSeenApp(['stable']);
   const releases={};
