@@ -17000,7 +17000,7 @@ test('app boots: Leaflet loads and the Contents menu is built', async () => {
     'one original Contents tile per contract section, independent of shortcuts');
   assert.ok(app.$('menuPanel') && !app.$('menuPanel').hidden, 'menu visible at start');
   assert.equal(app.$('navbar').hidden, true, 'navbar hidden at start');
-  const visible = [...app.document.querySelectorAll('main section')].filter((s) => !s.hidden);
+  const visible = [...app.document.querySelectorAll('main > section')].filter((s) => !s.hidden);
   assert.equal(visible.length, 0, 'no section is open until one is picked');
   assert.deepEqual(app.state.errors, [], 'no uncaught errors while booting');
   app.window.close();
@@ -17286,7 +17286,7 @@ test('every section the report maps has a map container, wired to a renderer', a
 test('navigation opens exactly one section and the back button returns', async () => {
   const app = await boot();
   app.open(/Settings/);
-  const sections = [...app.document.querySelectorAll('main section')];
+  const sections = [...app.document.querySelectorAll('main > section')];
   assert.equal(sections.filter((s) => !s.hidden).length, 1, 'exactly one section visible');
   assert.equal(app.$('settingsPanel').hidden, false, 'the chosen section is the visible one');
   assert.equal(app.$('menuPanel').hidden, true, 'menu hides while in a section');
@@ -17436,7 +17436,7 @@ test('swiping right in a section returns to the Contents menu', async () => {
   swipe(app, app.$('destStatus'), 140, 10);
   assert.equal(app.$('menuPanel').hidden, false, 'swipe right reopened Contents');
   assert.equal(app.$('navbar').hidden, true, 'navbar hidden back on the menu');
-  const visible = [...app.document.querySelectorAll('main section')].filter((s) => !s.hidden);
+  const visible = [...app.document.querySelectorAll('main > section')].filter((s) => !s.hidden);
   assert.equal(visible.length, 0, 'no section left open');
   app.window.close();
 });
@@ -33952,7 +33952,7 @@ test('the Nearby Patches doc names the shared scan, deliberate batches and confi
 
 test('every section carries an info button that opens its calculation notes', async () => {
   const app = await boot();
-  const secs = [...app.document.querySelectorAll('main section')]
+  const secs = [...app.document.querySelectorAll('main > section')]
     .filter((s) => s.querySelector('h2') && s.id && s.id !== 'menuPanel');
   assert.ok(secs.length >= 15, 'found the report sections (got ' + secs.length + ')');
   secs.forEach((s) => {
