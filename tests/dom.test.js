@@ -7233,7 +7233,10 @@ test('F1315/F1422/F1423/F1474/F1476 actual Stakeout restores saved reports and k
     mode = 'empty';
     app.click(refreshButton);
     await waitFor(() => !refreshButton.disabled, 'successful-empty request completion');
+    A.renderSpeciesLookup();
     assert.match(status.textContent, /No verified in-region reports of Vermilion Flycatcher/);
+    assert.match(status.textContent, /coverage is not a complete survey/);
+    assert.doesNotMatch(status.textContent, /it is not being seen right now/);
     assert.doesNotMatch(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
     A.clearSpeciesLookup();
     assert.equal(infoBody.getAttribute('data-note'), null, 'Clear removes any previous saved note');
@@ -7418,6 +7421,7 @@ test('F1057 Stakeout Refresh bypasses only selected sightings and retains eviden
     fail = false; empty = true;
     app.click(refresh);
     await waitFor(() => !refresh.disabled, 'successful empty refresh');
+    A.renderSpeciesLookup();
     assert.match(app.$('spLookupStatus').textContent, /No verified in-region reports of Vermilion Flycatcher/);
     assert.doesNotMatch(app.$('spLookupRecent').textContent, /Refresh place 2/);
     app.click(app.$('spLookupClear'));

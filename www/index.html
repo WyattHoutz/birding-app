@@ -16015,6 +16015,11 @@
             }));
           });
       }
+      function speciesLookupEmptyMessage(name, scope) {
+        return 'No verified in-region reports of ' + name + ' in '
+          + (scope || activeScope()).label + ' in the last ' + SP_LOOKUP_BACK
+          + ' days. Outside or unknown membership is withheld; coverage is not a complete survey.';
+      }
       // Distance uses the nearest home/work anchor, like Closest spots.
       function speciesLookupRecords(rows, anchors) {
         return (rows || []).filter(Boolean).map(function (r) {
@@ -16713,9 +16718,7 @@
             });
           var recs = speciesLookupRecords(_spLookupEvidence.stateRows, anchors);
           if (!liveRecs.length) {
-            var emptyMessage = 'No verified in-region reports of ' + name + ' in '
-              + refreshScope.label + ' in the last ' + SP_LOOKUP_BACK
-              + ' days. Outside or unknown membership is withheld; coverage is not a complete survey.';
+            var emptyMessage = speciesLookupEmptyMessage(name, refreshScope);
             st.textContent = emptyMessage;
             // ⚠️ F255. CLEAR THE MAP, or the previous search's pins stay on screen.
             //
@@ -17786,9 +17789,7 @@
             + 'data-code="' + esc(g.code) + '" data-name="' + esc(g.name)
             + '">Retry sightings</button></div>';
         } else if (g.emptyCurrent && !_spLookupLoading) {
-          st.textContent = 'No reports of ' + g.name + ' in '
-            + (BL.speciesFeedRegion(getReport()) || getObsRegion()) + ' in the last '
-            + SP_LOOKUP_BACK + ' days. That is a real answer: it is not being seen right now.';
+          st.textContent = speciesLookupEmptyMessage(g.name);
         } else if (_spLookupLoading) {
           st.innerHTML = stakeoutLoadingHtml(
             'Looking up ' + g.name + ' across ' + (getReport().label || getRegion())
