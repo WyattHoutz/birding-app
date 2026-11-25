@@ -7152,7 +7152,7 @@ test('F1315/F1422/F1423/F1474/F1476 actual Stakeout restores saved reports and k
     assert.ok(status.classList.contains('splookuploading'));
     assert.ok(status.querySelector('progress:not([value])'),
       'waiting must be visible without inventing a completion percentage');
-    assert.doesNotMatch(status.textContent, /No reports/);
+    assert.doesNotMatch(status.textContent, /No (?:verified in-region )?reports/);
     release(); await first; release = null;
     const store = app.window.localStorage;
     const key = Array.from({ length: store.length }, (_, i) => store.key(i))
@@ -32896,8 +32896,10 @@ test('Stakeout search tries parent regions without claiming a parent bird is loc
     'the parent result is not merged or duplicated');
 
   app.click(found.querySelector('li[data-code="ostric2"]'));
-  await waitFor(() => /No reports of Common Ostrich in US-WA/.test(
+  await waitFor(() => /No verified in-region reports of Common Ostrich/.test(
     doc.getElementById('spLookupStatus').textContent), 'the local sighting answer');
+  assert.ok(doc.getElementById('spLookupStatus').textContent.includes(A.activeScope().label),
+    'the empty sighting answer names the selected scope, not the taxonomy parent');
   assert.ok(calls.some((u) => /data\/obs\/US-WA\/recent\/ostric2/.test(u)),
     'opening a parent taxonomy result still asks the active report for sightings');
   assert.ok(!calls.some((u) => /data\/obs\/US\/recent\/ostric2/.test(u)),
@@ -49051,7 +49053,7 @@ test('F389 Stakeout Reachable excludes pelagic pins and other Hawaiian islands',
   app.window.close();
 });
 
-// "Not being reported" is the answer to the question, not a failure to answer.
+// Empty verified coverage is an answer, not a source failure or proof of absence.
 test('a species with no recent reports says so as a result, not an error', async () => {
   const app = await boot({
     fetch(url) {
@@ -49065,11 +49067,13 @@ test('a species with no recent reports says so as a result, not an error', async
   const doc = app.window.document;
   doc.getElementById('spLookup').value = 'Absent Grebe';
   app.window.__app.runSpeciesLookup();
-  await waitFor(() => /No reports/.test(doc.getElementById('spLookupStatus').textContent),
+  await waitFor(() => /No verified in-region reports/.test(doc.getElementById('spLookupStatus').textContent),
     'verified empty primary sightings');
   const st = doc.getElementById('spLookupStatus').textContent;
-  assert.match(st, /not being seen right now|No reports/,
-    `absence is stated plainly: got "${st}"`);
+  assert.match(st, /No verified in-region reports of Absent Grebe/,
+    `empty coverage is stated plainly: got "${st}"`);
+  assert.match(st, /coverage is not a complete survey/);
+  assert.doesNotMatch(st, /not being seen right now/);
   assert.doesNotMatch(st, /error|failed|undefined/i, 'and it is not dressed up as a failure');
   app.window.close();
 });
@@ -54490,7 +54494,7 @@ test('F304 a failed selected-state read is an error, not a false empty answer', 
   assert.ok(app.$('spLookupEvidenceDetails').querySelector('.megaevidence'),
     'already-held Mega evidence remains available after the live read fails');
   assert.doesNotMatch(stakeoutSurfaceText(app) + app.$('spLookupStatus').textContent,
-    /No reports.*real answer|not being seen right now/i,
+    /No (?:verified in-region )?reports|not being seen right now/i,
     'a failed request cannot be relabelled as an observed absence');
   await settleMegaEntry(app, 'whiwag');
   app.window.close();
@@ -63994,8 +63998,8 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
   // elsewhere in the file, so deleting either CALL still left the name
   // present and both mutations passed. A guard bounded by a brace it cannot
   // match is a guard bounded by nothing.
-  const emptyAt = HTML.indexOf("var emptyMessage = 'No verified in-region reports of ");
-  assert.ok(emptyAt > 0, 'the empty-feed message is still there to anchor on');
+  const emptyAt = HTML.indexOf('if (!liveRecs.length) {', HTML.indexOf('function lookupSpecies('));
+  assert.ok(emptyAt > 0, 'the empty-feed branch is still there to anchor on');
   const endAt = HTML.indexOf('var g = buildStakeoutGroup', emptyAt);
   assert.ok(endAt > emptyAt, 'the non-empty path still follows, to bound the branch');
   const branch = HTML.slice(emptyAt, endAt);
