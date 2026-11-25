@@ -1611,6 +1611,14 @@ test('F384/F385 release mockups expose row actions and regional watch scope', ()
     'the release fixture does not reject a cross-region bird leaking into the default view');
   assert.match(scope, /1 of 2 species awaiting verification/,
     'the default Needs proof screenshot no longer discloses its hidden stored row');
+  const sightings = /rows:\s*(\{'king-notable\.json':\s*\[[\s\S]*?\]\})/.exec(scope);
+  assert.ok(sightings, 'the Watch gallery seeds its actual public-sighting source');
+  const rows = vm.runInNewContext('(' + sightings[1] + ')', {
+    mockObservationDate: () => '2026-11-24 08:00'
+  });
+  const logic = require('../www/logic');
+  assert.equal(logic.regionMembership(rows['king-notable.json'][0], 'US-WA').state, 'inside',
+    'the Watch sighting needs positive selected-state provenance, not coordinates alone');
   assert.deepEqual(mockups.STUB_SPEC.nvResults.allowDisabled, [],
     'Watch list no longer contains reorder controls');
 });

@@ -5018,6 +5018,7 @@ const BOOTSTRAP = `
           rows: {'king-notable.json': [
             { speciesCode: 'baisan', comName: "Baird's Sandpiper",
               locName: 'Marymoor Park--Audubon Bird Loop', locId: 'L2',
+              subnational2Code: 'US-WA-033', subnational1Code: 'US-WA', countryCode: 'US',
               lat: 47.658, lng: -122.118, howMany: 2,
               obsDt: mockObservationDate(2), subId: 'SWATCHMOCK' }
           ]}
