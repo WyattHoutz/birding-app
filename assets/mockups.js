@@ -921,6 +921,44 @@ function assertBirdGenRecoveryLayout(document, host) {
 
 const REVIEW_SHOTS = [
   ...SETUP_REVIEW_SHOTS,
+  ...['default','temporary','candidate','unset'].map(state => ({
+    id:'f1533-home-'+state,title:'Home - '+state+' saved-location state',
+    at:'settingsPanel',host:'settingsPanel',freshApp:true,fullPage:true,minControls:2,
+    expects:['#homeSettingsBubble'],
+    prep:`
+      A.cancelStalledWork();
+      localStorage.removeItem('ebird_temp_home_v1');
+      localStorage.setItem('ebird_home_migrated_v1','1');
+      if (${JSON.stringify(state)}==='unset') {
+        for (var field of ['lat','lng','place']) localStorage.removeItem(A.homeKey(field));
+      } else {
+        localStorage.setItem(A.homeKey('lat'),'47.75');
+        localStorage.setItem(A.homeKey('lng'),'-122.16');
+        localStorage.setItem(A.homeKey('place'),'Example Woodinville address');
+      }
+      if (${JSON.stringify(state)}==='temporary') localStorage.setItem('ebird_temp_home_v1',
+        JSON.stringify({lat:48.43,lng:-123.37,label:'Example Victoria trip'}));
+      A.openSavedLocationEditor(${JSON.stringify(state)}==='temporary'?'temp':'home');
+      if (['default','temporary'].includes(${JSON.stringify(state)})) {
+        document.getElementById(${JSON.stringify(state)}==='temporary'
+          ? 'tempHomeFindCancel':'homeFindCancel').click();
+      }
+      if (${JSON.stringify(state)}==='candidate') {
+        document.getElementById('homePlace').value='47.61, -122.33';
+        document.getElementById('geocodeBtn').click();
+        for (var i=0;i<80 && document.getElementById('homeCandidateReview').hidden;i++)
+          await new Promise(resolve=>setTimeout(resolve,25));
+        if (document.getElementById('homeCandidateReview').hidden) throw new Error('Home candidate did not render');
+      }
+      var notice=document.createElement('p');
+      notice.textContent='REPRESENTATIVE STUB DATA - example saved addresses.';
+      notice.className='hint';
+      document.getElementById('homeSettingsBubble').prepend(notice);
+      document.getElementById('settingsPanel').setAttribute('data-mock-data','true');
+      document.getElementById('settingsPanel').dataset.mockAt='settingsPanel';
+      document.getElementById('settingsPanel').dataset.mockReady='true';
+      return true;`
+  })),
   {
     id:'f1191-source-health',title:'Loading errors separate from nonfatal coverage',
     at:'surgeBtn',host:'appSheet',freshApp:true,fullPage:true,minControls:1,

@@ -93,6 +93,316 @@ function surgeSourceRoot(app, expand = true) {
   return root;
 }
 
+test('F1462 actual Bird Gen rebuilds mixed-county groups from bounded raw evidence without changing the source', async () => {
+  const app = await boot();
+  const A=app.window.__app, now=Date.now();
+  try {
+    A.setCountyView('US-WA-033');
+    const inside=Array.from({length:4},(_,i)=>({
+      speciesCode:'trokin',comName:'Tropical Kingbird',locId:'LF1462',locName:'Public shore',
+      lat:47.61,lng:-122.33,locationPrivate:false,subId:'SIN1462'+i,userDisplayName:'Inside party '+i,
+      countryCode:'US',subnational1Code:'US-WA',subnational2Code:'US-WA-033',
+      obsDt:formatObsStamp(new Date(now-(i+1)*3600000)),howMany:1
+    }));
+    const outside=inside.map((row,i)=>({...row,subId:'SOUT1462'+i,userDisplayName:'Outside party '+i,
+      subnational2Code:'US-WA-061',obsDt:formatObsStamp(new Date(now-60000))}));
+    const file=app.window.BirdLogic.planFeeds(A.chaseProfile()).find(feed=>feed.kind==='notable').file;
+    const source=rows=>{
+      const byFile={[file]:rows};
+      return {rows:byFile,cv:A.computeChaseRows(A.chaseProfile(),A.getReportSlug(),byFile),
+        feedComplete:true,partial:false};
+    };
+    const control=A.surgeObservedResult(source(inside),now);
+    const mixed=source(inside.concat(outside,inside));
+    const before=JSON.stringify(mixed), result=A.surgeObservedResult(mixed,now);
+    assert.equal(JSON.stringify(mixed),before,'consumer projection must not rewrite retained source evidence');
+    assert.deepEqual(JSON.parse(JSON.stringify(result.needs)),JSON.parse(JSON.stringify(control.needs)),
+      'outside county parties, timestamps and duplicate feeds cannot change a qualifying local group');
+    assert.equal(result.merged.length,4);
+    assert.equal(result.needs.length,1,'unchanged inside-only control must genuinely qualify');
+    assert.equal(result.needs[0].knownParties,4);
+    await A.saveSurgeRetainedPart('observed',result);
+    const retained=A.loadSurgeRetained().observed;
+    assert.equal(retained.merged.length,4,'actual retained reconstruction must repeat the early projection');
+    assert.equal(retained.evidenceRows[file].length,12,'retain the original acquired source');
+    const unknown={...inside[0],subId:'SUNKNOWN1462',subnational2Code:undefined,lat:undefined,lng:undefined};
+    const uncertain=A.surgeObservedResult(source(inside.concat(unknown)),now);
+    assert.equal(uncertain.state,'partial','unknown membership cannot produce a complete receipt');
+    assert.equal(uncertain.scopeWithheld,1);
+    assert.equal(uncertain.merged.length,4);
+    const failed=A.surgeObservedResult({...mixed,feedFailed:true},now);
+    assert.equal(failed.state,'failed','positive scoped evidence cannot heal a failed dependency');
+    const key=A.twitchJournalKey();
+    A.setCountyView('US-WA-061');
+    assert.notEqual(A.twitchJournalKey(),key,'a different exact scope starts a quiet independent new-since baseline');
+    assert.equal(A.loadSurgeRetained(),null,'a different county cannot inherit the old retained ownership');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1462 retained regional context cannot certify unbounded local source parts', async () => {
+  const app=await boot(), A=app.window.__app;
+  try {
+    A.setCountyView('US-WA-033');
+    const inside={locId:'LIN1462',subnational2Code:'US-WA-033'};
+    const outside={locId:'LOUT1462',subnational2Code:'US-WA-061'};
+    const unknown={locId:'LUNKNOWN1462'};
+    const source={state:'ok',rows:[{species:'Tropical Kingbird',recent:[inside,outside,unknown],
+      publicHotspots:[inside,outside],birders:[{name:'Regional context'}]}]};
+    const before=JSON.stringify(source), projected=A.projectBirdGenPart('cascades',source);
+    assert.equal(projected.rows[0].recent.length,1);
+    assert.equal(projected.rows[0].publicHotspots.length,1);
+    assert.equal(projected.rows[0].birders.length,1,'regional leaderboard context is preserved separately');
+    assert.match(projected.rows[0].scopeContext,/Regional leaderboard context/);
+    assert.equal(projected.state,'partial');
+    assert.equal(JSON.stringify(source),before);
+    assert.equal(A.projectBirdGenPart('convergence',{state:'ok',rows:[inside,outside]}).rows.length,0,
+      'a selected label cannot stamp a legacy unbounded Busy result as locally qualified');
+    assert.equal(A.projectBirdGenPart('favorite',{state:'ok',rows:[inside,outside,unknown]}).rows.length,1);
+    assert.equal(A.projectBirdGenPart('favorite',{state:'ok',rows:[
+      {...inside,countyCode:'US-WA-061'}]}).rows.length,0,'a new county alias must not overwrite contradictory evidence');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1462 Favorite source bounds evidence before latest-pair grouping and retained reconstruction', async () => {
+  const app=await boot(), A=app.window.__app, now=Date.now();
+  try {
+    await seedSeen(app,[]);
+    const favorites=[{locId:'LF1462PAIR',locName:'Public shore',region:'US-WA',lat:47.61,lng:-122.33}];
+    const inside={speciesCode:'trokin',comName:'Tropical Kingbird',locId:'LF1462PAIR',
+      subId:'SIN1462PAIR',obsDt:formatObsStamp(new Date(now-3600000)),lat:47.61,lng:-122.33,
+      subnational1Code:'US-WA',howMany:1};
+    const foreign={...inside,subId:'SOUT1462PAIR',obsDt:formatObsStamp(new Date(now-60000)),
+      subnational1Code:'US-OR',lat:45.5,lng:-122.6};
+    const feeds={LF1462PAIR:{state:'ok',rows:[inside,foreign]}}, before=JSON.stringify(feeds);
+    const result=A.favoritePatchAlerts(favorites,feeds,{scope:A.activeScope(),region:'US-WA',now,seen:()=>false});
+    assert.equal(result.rows.length,1);
+    assert.equal(result.rows[0].checklistId,'SIN1462PAIR','outside latest row cannot hide the valid inside report');
+    assert.equal(JSON.stringify(feeds),before);
+    await A.saveSurgeRetainedPart('favorite',{...result,evidenceFeeds:feeds,favoriteSources:favorites});
+    const retained=A.loadSurgeRetained().favorite;
+    assert.equal(retained.rows[0].checklistId,'SIN1462PAIR');
+    assert.equal(retained.evidenceFeeds.LF1462PAIR.rows.length,2,'retain both acquired records without modifying source evidence');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1462 actual partial Favorite publication retains failed raw evidence but clears a successful empty patch', async () => {
+  const ids=['LF1462GOOD','LF1462FAILED'];
+  const app=await boot({storage:{ebird_favs:JSON.stringify(ids.map(locId=>({
+    id:locId,locId,locName:locId,region:'US-WA'
+  })))},fetch:url=>url.includes('data/obs/'+ids[1]+'/')?{unreadable:true}:[]});
+  const A=app.window.__app;
+  try {
+    await seedSeen(app,[]);
+    const favorites=ids.map(locId=>({locId,locName:locId,region:'US-WA'}));
+    const feeds=Object.fromEntries(ids.map((locId,i)=>[locId,{state:'ok',rows:[{
+      speciesCode:i?'margod':'trokin',comName:i?'Marbled Godwit':'Tropical Kingbird',
+      locId,subId:'S'+locId,obsDt:formatObsStamp(new Date()),lat:47.61,lng:-122.33,
+      subnational1Code:'US-WA',howMany:1
+    }]}]));
+    const initial=A.favoritePatchAlerts(favorites,feeds,{scope:A.activeScope(),region:'US-WA',seen:()=>false});
+    await A.saveSurgeRetainedPart('favorite',{...initial,evidenceFeeds:feeds,favoriteSources:favorites});
+    await A.loadSurge();
+    const retained=A.loadSurgeRetained().favorite;
+    assert.equal(retained.state,'stale','a readback is dated retained evidence, not a fresh source receipt');
+    assert.deepEqual(Array.from(retained.rows,row=>row.locId),[ids[1]],
+      'failed source keeps the real earlier event; successful empty source retires its event');
+    assert.equal(retained.evidenceFeeds[ids[1]].rows.length,1,'failed refresh preserves the acquired raw record');
+    assert.equal(retained.evidenceFeeds[ids[1]].rows[0].subId,'S'+ids[1]);
+    assert.equal(retained.evidenceFeeds[ids[0]].rows.length,0);
+    assert.equal(app.$('surgeResults').dataset.sourceFavorites,'partial');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1462 actual Recent refresh preserves non-refreshed raw evidence and scoped quiet new-since ownership', async () => {
+  const inside={speciesCode:'verfly',comName:'Vermilion Flycatcher',locId:'LF1462RECENT',
+    subId:'SF1462RECENT',obsDt:formatObsStamp(new Date()),lat:47.75,lng:-122.16,
+    subnational1Code:'US-WA',obsValid:true,obsReviewed:false,howMany:1};
+  const app=await boot({sample:false,fetch:url=>/data\/obs\/.*\/recent\/notable/.test(url)?[inside]:[]});
+  const A=app.window.__app;
+  try {
+    await seedSeen(app,[],null,[{code:'verfly',name:inside.comName}]);
+    const profile=A.chaseProfile(), feeds=app.window.BirdLogic.planFeeds(profile);
+    const untouched=feeds.find(feed=>feed.kind!=='notable').file;
+    const raw={[untouched]:[{...inside,speciesCode:'mallar3',comName:'Mallard',subId:'SF1462UNCHANGED'}]};
+    const previous=A.surgeObservedResult({profile,rows:raw,
+      cv:A.computeChaseRows(profile,A.getReportSlug(),raw),partial:true},Date.now());
+    await A.saveSurgeRetainedPart('observed',previous);
+    await A.refreshRecentBirdGen(false);
+    const retained=A.loadSurgeRetained().observed;
+    assert.ok(Array.isArray(retained.evidenceRows[untouched]),
+      'notable-only acquisition retains the non-refreshed raw feed');
+    assert.equal(retained.evidenceRows[untouched][0].subId,'SF1462UNCHANGED',
+      'notable-only acquisition must not overwrite unrelated last-good raw evidence');
+    assert.ok(Object.values(retained.evidenceRows).flat().some(row=>row.subId===inside.subId));
+    assert.equal(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'),null,
+      'first scoped coverage establishes a quiet baseline, never a new arrival');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1533 one active card exposes ordered Maps links and protects default Home until explicit restoration', async () => {
+  const app = await boot({storage:{ebird_temp_home_v1:JSON.stringify({
+    lat:19.7,lng:-155.1,label:'Island trip'
+  })}});
+  const A = app.window.__app;
+  try {
+    A.openSavedLocationEditor('temp');
+    app.$('tempHomeFindCancel').click();
+    assert.match(app.$('homeSettingsTitle').textContent,/Temp Home \(Active\)/);
+    const links = [...app.$('homeSettingsBubble').querySelectorAll('.saved-location-value a')];
+    assert.equal(links.length,2);
+    assert.match(links[0].textContent,/Island trip/);
+    assert.match(links[0].href,/19\.7/);
+    assert.equal(app.$('tempHomeSavedSummary').querySelector('[role="img"]').textContent,'☑');
+    assert.equal(app.$('homeSavedSummary').querySelector('[role="img"]').textContent,'☒');
+    assert.match(app.$('homeSavedSummary').querySelector('[role="img"]').getAttribute('aria-label'),/not active/);
+    const original = JSON.stringify([A.getHome(),A.tempHome()]);
+    A.openSavedLocationEditor('home');
+    assert.equal(app.$('settingsHomeEditor').hidden,true);
+    assert.equal(app.$('settingsTempHomeEditor').open,true,'default edit action must reach the active override editor');
+    app.$('tempClearHomeBtn').click();
+    assert.equal(app.$('tempHomePlace').value,'');
+    assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),original,'Clear is draft-only');
+    app.$('tempHomeFindCancel').click();
+    assert.equal(app.$('tempHomePlace').value,'Island trip');
+    await waitFor(()=>/Temp Home:.*beyond/.test(app.$('savedLocationWarnings').textContent),'saved Temp warning');
+    assert.match(app.$('savedLocationWarnings').textContent,/Region stays unchanged/);
+    app.$('tempHomeRestore').click();
+    assert.equal(A.tempHome(),null);
+    assert.match(app.$('homeSettingsTitle').textContent,/🏠 Home \(Active\)/);
+    assert.equal(app.$('homeSavedSummary').querySelector('a').href,links[1].href);
+    A.openSavedLocationEditor('home');
+    assert.equal(app.$('homeSavedSummary').hidden,true,'editing hides duplicate read-only Home');
+    app.$('clearHomeBtn').click();
+    assert.ok(A.getHome(),'clearing Home draft must not erase saved Home');
+    app.$('homeFindCancel').click();
+    assert.ok(A.getHome());
+    assert.equal(app.$('homePlace').value,app.window.localStorage.getItem(A.homeKey('place'))
+      || A.getHome().lat+', '+A.getHome().lng,'Cancel restores the saved address even for an unlabeled coordinate Home');
+  } finally {app.window.close();}
+});
+
+test('F1462 actual native configuration preserves unbounded custom-region qualification', async () => {
+  const region={slug:'u-native-country',label:'Country control',stateCode:'US',lat:47.75,lng:-122.16};
+  const app=await boot({report:region.slug,sample:false,
+    storage:{ebird_custom_regions:JSON.stringify([region])}});
+  try {
+    const A=app.window.__app, N=app.window.BirdGenNotifications, now=Date.now();
+    assert.equal(A.activeScope().effectiveRegion,'US');
+    const profile=JSON.parse(A.birdGenNotificationConfiguration().profileJSON);
+    const observations=Array.from({length:6},(_,i)=>({
+      speciesCode:'chclon',comName:'Chestnut-collared Longspur',locId:'LF1462NATIVE',
+      locName:'Public shore',lat:47.75,lng:-122.16,locationPrivate:false,
+      subId:'SF1462NATIVE'+i,userDisplayName:'Independent '+i,howMany:1,
+      obsDt:formatObsStamp(new Date(now-(i+1)*3600000))
+    }));
+    function acquired(job) {
+      return {...job,at:now,failed:false,capped:false,rows:observations};
+    }
+    const base=N.plan(profile,[]).jobs.map(acquired);
+    const feeds=N.plan(profile,base).jobs.map(acquired);
+    const control=N.evaluate({...profile,evidenceRegion:''},feeds,now);
+    assert.ok(control.events.length,'the unchanged nearby native qualification has a positive control');
+    assert.deepEqual(N.evaluate(profile,feeds,now).events,control.events,
+      'bounded rollout must not turn a country/custom scope into unsupported administrative membership');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1533 live geocoder candidates deduplicate, disambiguate and retire stale choices without saving', async () => {
+  let phase='many', release;
+  const feature=(lat,name)=>({properties:{name,state:'Washington',country:'United States'},
+    geometry:{type:'Point',coordinates:[-122.2,lat]}});
+  const app=await boot({fetch:url=>{
+    if (!/photon.*api/.test(url)) return null;
+    if (phase==='held') return new Promise(resolve=>{release=resolve;});
+    const one=feature(47.7,'First town');
+    return {features:phase==='single'?[one,one]:phase==='empty'?[]:[one,feature(47.9,'Other town')]};
+  }});
+  const A=app.window.__app;
+  try {
+    A.openSavedLocationEditor('home');
+    const original=JSON.stringify(A.getHome());
+    app.$('homePlace').value='town'; app.$('geocodeBtn').click();
+    await waitFor(()=>app.$('homeChoices').querySelectorAll('button').length===2,'two distinct live choices');
+    const stale=app.$('homeChoices').querySelector('button');
+    app.$('homePlace').dispatchEvent(new app.window.Event('input'));
+    stale.click();
+    assert.equal(app.$('homeCandidateReview').hidden,true);
+    phase='single'; app.$('geocodeBtn').click();
+    await waitFor(()=>!app.$('homeCandidateReview').hidden,'one distinct result selected automatically');
+    assert.equal(app.$('homeChoices').childElementCount,0);
+    assert.equal(JSON.stringify(A.getHome()),original,'Go never saves');
+    app.$('homePlace').dispatchEvent(new app.window.Event('input'));
+    assert.equal(app.$('homeDeviceSave').hidden,true);
+    phase='empty'; app.$('geocodeBtn').click();
+    await waitFor(()=>/No match/.test(app.$('geocodeStatus').textContent),'no-results feedback');
+    assert.equal(app.$('homeCandidateReview').hidden,true);
+    phase='held'; app.$('geocodeBtn').click();
+    await waitFor(()=>release,'held search');
+    app.$('homeFindCancel').click();
+    release({features:[feature(47.8,'Late town')]});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(app.$('homeCandidateReview').hidden,true);
+    assert.equal(JSON.stringify(A.getHome()),original);
+  } finally {app.window.close();}
+});
+
+test('F1533 candidate distance uses exact selected boundary and Save rejects changed radius or scope', async () => {
+  const app=await boot();
+  const A=app.window.__app, W=app.window;
+  async function lookup(point) {
+    A.openSavedLocationEditor('home');
+    app.$('homePlace').value=point; app.$('geocodeBtn').click();
+    await waitFor(()=>!app.$('homeCandidateReview').hidden,'exact-boundary candidate');
+  }
+  try {
+    W.localStorage.setItem(A.chaseMiKey(),'40');
+    A.setCountyView('US-WA-061');
+    await lookup('47.61, -122.33');
+    assert.equal(app.$('homeDeviceSave').hidden,false,'nearby King origin can serve Snohomish');
+    assert.match(app.$('homeCandidateConsent').textContent,/Outside.*within 40 mi/);
+    const original=JSON.stringify(A.getHome());
+    W.localStorage.setItem(A.chaseMiKey(),'5');
+    app.$('homeDeviceSave').click();
+    assert.equal(JSON.stringify(A.getHome()),original,'old-radius Save cannot be accepted');
+    await lookup('47.61, -122.33');
+    assert.equal(app.$('homeOutsideSave').hidden,false);
+    assert.match(app.$('homeCandidateConsent').textContent,/beyond 5 mi/);
+    A.setCountyView('US-WA-033');
+    app.$('homeOutsideSave').click();
+    assert.equal(JSON.stringify(A.getHome()),original);
+    await lookup('19.7, -155.1');
+    app.$('homeOutsideSave').click();
+    assert.equal(A.getHome().lat,19.7);
+    assert.equal(A.activeScope().effectiveRegion,'US-WA-033','Save cannot change selected region');
+    await waitFor(()=>/Default Home:.*beyond/.test(app.$('savedLocationWarnings').textContent),'persistent default warning');
+  } finally {W.close();}
+});
+
+test('F1533 unset Home is not active and unknown boundary requires explicit save anyway', async () => {
+  const app=await boot({home:false,report:'lower48'});
+  const A=app.window.__app;
+  try {
+    A.openSavedLocationEditor('home');
+    assert.equal(app.$('homeSettingsTitle').textContent,'🏠 Home');
+    assert.equal(app.$('savedHomeRequired').hidden,false);
+    assert.equal(app.$('homeSavedSummary').hidden,true);
+    app.$('homePlace').value='47.75, -122.16'; app.$('geocodeBtn').click();
+    await waitFor(()=>!app.$('homeCandidateReview').hidden,'unknown boundary review');
+    assert.equal(app.$('homeOutsideSave').hidden,false);
+    assert.match(app.$('homeCandidateConsent').textContent,/could not be verified/);
+    assert.equal(A.getHome(),null);
+    app.$('homeOutsideSave').click();
+    assert.equal(A.getHome().lat,47.75);
+    assert.equal(A.activeScope().effectiveRegion,'lower48');
+  } finally {app.window.close();}
+});
+
 test('F1518 saving a Washington Home retires a missing-Home region warning without another region switch', async () => {
   const app = await boot({home:false});
   const A = app.window.__app, notice = app.$('savedBaseRegionNotice');
@@ -105,7 +415,7 @@ test('F1518 saving a Washington Home retires a missing-Home region warning witho
     await waitFor(()=>!app.$('homeCandidateReview').hidden,'public city-centre Home review');
     app.$('homeDeviceSave').click();
     assert.equal(A.getHome().lat,47.76);
-    assert.match(app.$('homeSavedSummary').textContent,/Active saved base/);
+    assert.match(app.$('homeSettingsTitle').textContent,/Home \(Active\)/);
     await new Promise(resolve=>setTimeout(resolve,40));
     assert.equal(notice.hidden,true,'the old missing-Home warning must not survive an approved reachable Home');
   } finally {app.window.close();}
@@ -154,7 +464,7 @@ test('F1518 explicit Temp saves preserve consent but refresh actual reachability
     assert.equal(notice.hidden,false,'saving an unreachable Temp cannot silently dismiss the distance warning');
     await saveTemp('47.61, -122.33');
     assert.equal(notice.hidden,true,'a reachable Temp clears the obsolete warning');
-    app.$('tempClearHomeBtn').click();
+    app.$('tempHomeRestore').click();
     await new Promise(resolve=>setTimeout(resolve,40));
     assert.equal(notice.hidden,false,'Use Home must recheck the still-distant permanent Home');
     A.setActiveReport('hi');
@@ -199,7 +509,7 @@ test('F1519 deferred editor navigation belongs to the latest visible Settings re
   try {
     W.requestAnimationFrame = callback => frames.push(callback);
     for (const kind of ['Home','TempHome']) {
-      app.$('settings'+kind+'Editor').querySelector('summary').focus = () => focused.push(kind);
+      app.$('settings'+kind+'Editor').querySelector('input').focus = () => focused.push(kind);
     }
     A.openSavedLocationEditor('home');
     A.openSavedLocationEditor('temp');
@@ -226,14 +536,14 @@ test('F1519 deferred editor navigation belongs to the latest visible Settings re
   } finally {W.requestAnimationFrame=raf;W.close();}
 });
 
-test('F1520 Settings leads with distinct Home and Temp bubbles and visible values before account actions', async () => {
+test('F1520 F1533 Settings leads with one active Home card before account actions', async () => {
   const app = await boot();
   const A = app.window.__app, W = app.window, D = app.document;
   try {
     app.click(app.$('brandSettings'));
-    const home = app.$('homeSettingsBubble'), temp = app.$('tempHomeSettingsBubble');
-    assert.ok(home && temp,'both saved locations need their own visible Settings bubble');
-    assert.ok(home.compareDocumentPosition(temp) & W.Node.DOCUMENT_POSITION_FOLLOWING);
+    const home = app.$('homeSettingsBubble'), temp = home;
+    assert.ok(home,'saved locations share one visible Settings card');
+    assert.equal(app.$('tempHomeSettingsBubble'),null);
     for (const [prefix,bubble] of [['home',home],['tempHome',temp]]) {
       const editor = app.$(prefix === 'home' ? 'settingsHomeEditor' : 'settingsTempHomeEditor');
       editor.open = false;
@@ -243,10 +553,10 @@ test('F1520 Settings leads with distinct Home and Temp bubbles and visible value
         'current saved values must remain visible with the editor closed');
       assert.ok(bubble.compareDocumentPosition(app.$('settingsCategories')) & W.Node.DOCUMENT_POSITION_FOLLOWING,
         'saved locations must precede all other Settings options');
-      assert.match(editor.querySelector('summary').textContent,prefix==='home'?/Change Home/:/Set Temp Home/);
+      assert.match(editor.querySelector('summary').textContent,prefix==='home'?/Change Home/:/Override with temporary home/);
     }
-    assert.match(app.$('homeSavedSummary').textContent,/Active saved base/);
-    assert.match(app.$('tempHomeSavedSummary').textContent,/not set/i);
+    assert.match(app.$('homeSettingsTitle').textContent,/Home \(Active\)/);
+    assert.equal(app.$('tempHomeSavedSummary').hidden,true);
     for (const id of ['ebirdSignOut','setupOpenBtn']) {
       assert.ok(temp.compareDocumentPosition(app.$(id)) & W.Node.DOCUMENT_POSITION_FOLLOWING,
         'setup and Logout belong below saved locations');
@@ -300,7 +610,7 @@ test('F1515 conflicting legacy Homes require explicit migration and preserve ori
     assert.equal(store.getItem('ebird_home_lat:wa'),'47.6');
     A.openSavedLocationEditor('home');
     app.$('clearHomeBtn').click();
-    assert.equal(A.getHome(),null,'clear must not resurrect archived regional values');
+    assert.equal(A.getHome().lat,47.6,'draft Clear preserves the approved shared Home and its archives');
   } finally {app.window.close();}
 });
 
@@ -336,7 +646,7 @@ test('F1515 legacy migration is linear once and read-safe under storage pressure
     assert.equal(A.getHome().lat,47.6);
     A.openSavedLocationEditor('home');
     app.$('clearHomeBtn').click();
-    assert.equal(A.getHome(),null,'Clear must win over the migration memo and preserved archive');
+    assert.equal(A.getHome().lat,47.6,'draft Clear preserves the migrated saved Home');
     assert.equal(store.getItem('ebird_home_lat'),'47.6');
   } finally {proto.key=key;proto.setItem=set;W.close();}
 });
@@ -355,13 +665,14 @@ test('F1515 actual Temp editor requires explicit save, survives restart, and nev
     assert.match(app.$('tempHomeCandidateSummary').textContent,/Not saved/);
     app.$('tempHomeCandidateCancel').click();
     assert.equal(A.tempHome(),null);
+    A.openSavedLocationEditor('temp');
     app.$('tempHomePlace').value = '19.7, -155.1';
     app.$('tempGeocodeBtn').click();
     await new Promise(r=>setTimeout(r,30));
     app.$('tempHomeDeviceSave').click();
     assert.equal(A.tempHome().lat,19.7);
     assert.equal(JSON.stringify(A.getHome()),original);
-    assert.match(app.$('tempHomeSavedSummary').textContent,/Active saved base/);
+    assert.match(app.$('homeSettingsTitle').textContent,/Temp Home \(Active\)/);
     const context = A.surgeRetainedContext(), config = JSON.stringify(A.birdGenNotificationConfiguration());
     A.useFoundAnchor({lat:44,lng:-100},'One-off planner');
     assert.equal(A.anchorPoint().lat,44);
@@ -378,7 +689,7 @@ test('F1515 actual Temp editor requires explicit save, survives restart, and nev
     const restarted = await boot({home:false,storage:stored});
     try {assert.equal(restarted.window.__app.activeSavedBase().lat,19.7);}
     finally {restarted.window.close();}
-    app.$('tempClearHomeBtn').click();
+    app.$('tempHomeRestore').click();
     assert.equal(A.tempHome(),null);
     assert.equal(JSON.stringify(A.getHome()),original);
   } finally {app.window.close();}
@@ -498,7 +809,10 @@ test('F1515 failed and ambiguous Temp lookups preserve saved points and reject l
     phase='ambiguous';
     app.$('tempHomePlace').value='Ambiguous town';
     app.$('tempGeocodeBtn').click();
-    await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'ambiguous unsaved review');
+    await waitFor(()=>app.$('tempHomeChoices').querySelectorAll('button').length===2,'ambiguous choices');
+    assert.equal(app.$('tempHomeCandidateReview').hidden,true,'multiple distinct hits require an explicit choice');
+    app.$('tempHomeChoices').querySelector('button').click();
+    await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'chosen unsaved review');
     assert.match(app.$('tempHomeCandidateSummary').textContent,/Ambiguous town.*47\.70000.*Not saved/);
     assert.equal(JSON.stringify(A.activeSavedBase()),saved,'a preferred search hit is still only a candidate');
     app.$('tempHomeCandidateCancel').click();
@@ -552,7 +866,7 @@ test('F1515 actual Bird Gen scoring, Recent and native configuration use saved T
   try {
     const rows=[{locId:'LNEAR1515',loc:'Sample public shore',lat:47.62,lon:-122.33},
       {locId:'LFAR1515',loc:'Sample distant shore',lat:45,lon:-120}].flatMap((point,site)=>
-      Array.from({length:4},(_,i)=>({...point,code:'trokin',name:'Tropical Kingbird',kind:'Rarity',
+      Array.from({length:4},(_,i)=>({...point,state:'US-WA',code:'trokin',name:'Tropical Kingbird',kind:'Rarity',
         valid:true,dateStr:formatObsStamp(new Date(now-(120-i*15)*60000)),location_private:false,
         observer:'Sample party '+site+'-'+i,subId:'S1515'+site+i,count:1})));
     const before=JSON.stringify(rows);
@@ -568,7 +882,9 @@ test('F1515 actual Bird Gen scoring, Recent and native configuration use saved T
     assert.doesNotMatch(app.$('surgeResults').textContent,/Sample distant shore/);
     assert.equal(app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="need"]').length,1,
       'Recent derives the one qualifying saved-base alert; its compact headline omits the place');
-    assert.equal(JSON.parse(A.birdGenNotificationConfiguration().profileJSON).home.lat,47.61);
+    const nativeProfile=JSON.parse(A.birdGenNotificationConfiguration().profileJSON);
+    assert.equal(nativeProfile.home.lat,47.61);
+    assert.equal(nativeProfile.evidenceRegion,'US-WA','bounded native qualification receives the actual scope');
     assert.equal(A.surgeRetainedContext(),savedContext);
     assert.equal(A.twitchJournalKey(),journal);
     A.showSection('sec-destBtn',{load:false});
@@ -646,7 +962,7 @@ test('F1515 Full convergence acquisition and its retained patch context ignore o
     A.useFoundAnchor({lat:45,lng:-120},'One-off planner');
     assert.equal(A.hotspotContextKey(),context,'retained Busy context belongs to the saved base');
     await A.loadSurge(false);
-    const result=A.currentBusySnapshot(true);
+    const result=A.currentBusySnapshot(true,{...A.activeScope(),publicEvidence:true});
     assert.ok(result,'Full must complete real Busy acquisition');
     assert.deepEqual(Array.from(result.busy,row=>row.locId),['L131001']);
     assert.ok(result.busy[0].dist<5,'Busy distance is measured from Temp, not permanent Home or Find');
@@ -719,7 +1035,7 @@ test('F1515 late Full acquisition cannot publish after its saved-base owner chan
     }
     const rows=Array.from({length:4},(_,i)=>({speciesCode:'trokin',comName:'Tropical Kingbird',
       locId:'L151599',locName:'Old synthetic public patch',lat:47.61,lng:-122.33,
-      locationPrivate:false,subnational1Code:'US-WA',subnational2Code:'US-WA-033',
+      locationPrivate:false,countryCode:'US',subnational1Code:'US-WA',subnational2Code:'US-WA-033',
       obsDt:formatObsStamp(new Date(Date.now()-(i+1)*3600000)),
       subId:'S151599'+i,userDisplayName:'Synthetic observer '+i}));
     response=rows;holding=false;
@@ -740,7 +1056,7 @@ test('F1515 changed saved base creates quiet TWITCH and target baselines without
   try {
     await seedSeen(app,[],null,[{code:'verfly',name:'Vermilion Flycatcher'}]);
     const raw={speciesCode:'verfly',comName:'Vermilion Flycatcher',locId:'LF1515BASE',
-      locName:'Synthetic public marsh',subId:'SF1515BASE',lat:47.75,lng:-122.16,
+      locName:'Synthetic public marsh',subId:'SF1515BASE',lat:47.75,lng:-122.16,subnational1Code:'US-WA',
       obsDt:formatObsStamp(new Date(now-3600000)),howMany:1,obsReviewed:false};
     function source() {
       const profile=A.birdGenObservationProfile(), rows={},feedStates={};
@@ -6645,14 +6961,16 @@ test('F1262 both Stakeout views resolve PLVI from checked taxonomy when the regi
   } finally { app.window.close(); }
 });
 
-test('F1217 offline Bird Gen restores canonical broad Busy without painting a bounded patch menu', async () => {
+test('F1217 F1462 offline Bird Gen restores its canonical scoped Busy without painting another patch view', async () => {
   const first = await boot({ sample: false });
   const A1 = first.window.__app, at = Date.now() - 60000;
   const row = { locId: 'L-CANONICAL', name: 'Canonical cached patch',
     observers: 7, baseline: 1, ratio: 7,
     latest: formatObsStamp(new Date(at)), lat: 47.7, lng: -122.2, dist: 5 };
   const below = { ...row, locId: 'L-MENU-ONLY', name: 'Below alert threshold', baseline: 3, ratio: 7 / 3 };
-  await A1.zcPut(A1.hotCacheKey(), { t: at, hot: [], cold: [], busy: [row, below],
+  const firstScope={...A1.activeScope(),publicEvidence:true};
+  await A1.zcPut(A1.hotCacheKey(firstScope), { t: at, patchScope:firstScope.cacheIdentity,
+    hot: [], cold: [], busy: [row, below],
     busyState: { at, pending: false, partial: false } });
   await A1.saveSurgeRetainedPart('convergence', {
     state: 'ok', policy: 'matched-groups-5-plus-2-v1', rows: [{
@@ -6668,19 +6986,20 @@ test('F1217 offline Bird Gen restores canonical broad Busy without painting a bo
   const app = await boot({ sample: false, storage, fetch: () => [] });
   try {
     const A = app.window.__app;
+    const scope={...A.activeScope(),publicEvidence:true};
     await A.loadSurge();
     const assertSame = () => {
       const menu = app.$('hotResults'), alert = app.$('surgeResults')
         .querySelector('[data-hsloc="L-CANONICAL"]');
-      assert.equal(menu.querySelector('.busypatch'), null,
-        'a broad aggregate cannot prove the evidence membership required by the patch menu');
-      assert.deepEqual(Array.from(A.currentBusySnapshot(true).busy, row => row.locId),
+      assert.ok(menu.querySelector('.busypatch'),
+        'the matching scoped snapshot remains the canonical source for both patch consumers');
+      assert.deepEqual(Array.from(A.currentBusySnapshot(true,scope).busy, row => row.locId),
         ['L-CANONICAL', 'L-MENU-ONLY'], 'source-only restoration must retain the below-alert source row');
       assert.ok(alert, 'the persisted common snapshot must restore on Bird Gen first-open');
       assert.match(alert.textContent, /7 estimated parties · \+6 above usual 1/);
       assert.equal(app.$('surgeResults').querySelector('[data-hsloc="L-MENU-ONLY"]'), null,
         'restoration must apply the alert-only threshold without dropping the menu entry');
-      assert.equal(+alert.dataset.busysnapshot, A.currentBusySnapshot(true).busyState.at);
+      assert.equal(+alert.dataset.busysnapshot, A.currentBusySnapshot(true,scope).busyState.at);
       assert.doesNotMatch(app.$('surgeResults').textContent, /Contradictory independent alert/);
     };
     assertSame();
@@ -6692,11 +7011,11 @@ test('F1217 offline Bird Gen restores canonical broad Busy without painting a bo
     assertSame();
     assert.equal(app.$('surgeResults').dataset.sourceHotspots, 'failed',
       'the failed forced refresh must stay visible while the common last-good rows remain readable');
-    assert.equal(A.currentBusySnapshot(true).busyState.cached, true);
+    assert.equal(A.currentBusySnapshot(true,scope).busyState.cached, true);
   } finally { app.window.close(); }
 });
 
-test('F1233 F1255 broad provisional Busy revisions converge with Bird Gen without leaking into bounded menus', async () => {
+test('F1233 F1255 F1462 scoped provisional Busy revisions converge with Bird Gen and the matching patch view', async () => {
   const now = new Date();
   now.setHours(0, 10, 0, 0);
   const at = (days, minute) => {
@@ -6750,6 +7069,7 @@ test('F1233 F1255 broad provisional Busy revisions converge with Bird Gen withou
   } });
   try {
     const A = app.window.__app;
+    const patchScope={...A.activeScope(),publicEvidence:true};
     function seedEvidence() {
       [...current, ...history('POSITIVE'), ...history('NOISE')].forEach(r => {
         if (!/^POSITIVE-0-[01]$/.test(r.subId)) A.seedChecklistView(r.subId, detail(r));
@@ -6758,25 +7078,26 @@ test('F1233 F1255 broad provisional Busy revisions converge with Bird Gen withou
     seedEvidence();
     const load = A.loadSurge();
     await waitFor(() => releaseDetail, 'the bounded group-detail completion pass');
-    assert.equal(A.currentBusySnapshot().busy[0].observers, 7,
+    assert.equal(A.currentBusySnapshot(false,patchScope).busy[0].observers, 7,
       'usable history-complete source values must publish before held group-detail completion');
-    assert.equal(A.currentBusySnapshot().busyState.provisional, true);
-    assert.equal(A.currentBusySnapshot().busyState.phase, 'parties');
-    assert.equal(app.$('hotResults').querySelector('.busypatch'), null,
-      'a broad provisional source cannot prove bounded evidence membership');
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.provisional, true);
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.phase, 'parties');
+    assert.ok(app.$('hotResults').querySelector('.busypatch'),
+      'positively scoped provisional evidence can serve the matching bounded patch view');
+    assert.equal(A.currentBusySnapshot(),null,'a scoped source cannot replace the independent broad store');
     A.fgProgressSync();
     assert.equal(app.$('loadBar').hidden, false, 'owned Busy completion stays visibly in progress through group enrichment');
     assert.ok(['indeterminate', 'determinate'].includes(app.$('loadBar').dataset.progressMode));
     assert.notEqual(app.$('loadBarFill').style.width, '100%');
     assert.match(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]').textContent,
       /7 estimated parties · \+6 above usual 1/);
-    const pendingCache = await A.zcGet(A.hotCacheKey());
+    const pendingCache = await A.zcGet(A.hotCacheKey(patchScope));
     assert.ok(!pendingCache || !(pendingCache.busy || []).some(row => row.locId === 'L-SHARED-POSITIVE'),
       'provisional activity must not become the durable completed snapshot');
     holdDetails = false; releaseDetail();
     await load;
     function assertShared(count, baseline) {
-      const source = A.currentBusySnapshot(true), alert = app.$('surgeResults')
+      const source = A.currentBusySnapshot(true,patchScope), alert = app.$('surgeResults')
         .querySelector('[data-hsloc="L-SHARED-POSITIVE"]');
       const row = source.busy.find(row => row.locId === 'L-SHARED-POSITIVE');
       const expected = `${count} estimated parties · +${count - baseline} above usual ${baseline}`;
@@ -6794,12 +7115,12 @@ test('F1233 F1255 broad provisional Busy revisions converge with Bird Gen withou
         assert.ok(!source.busy.some(row => row.locId === 'L-SHARED-' + label));
         assert.equal(app.$('surgeResults').querySelector(`[data-hsloc="L-SHARED-${label}"]`), null);
       }
-      assert.equal(app.$('hotResults').querySelector('.busypatch'), null);
+      assert.equal(A.currentBusySnapshot(true),null,'scoped revisions do not overwrite the broad snapshot');
     }
     assertShared(6, 1);
     const input = {
-      codes: ['US-WA-033'], context: A.hotspotContextKey(), home: A.getHome(),
-      reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(), meta, force: true
+      codes: ['US-WA-033'], context: A.hotspotContextKey(null,null,null,patchScope), home: A.getHome(),
+      reportSlug: A.getReportSlug(), cacheKey: A.hotCacheKey(patchScope), meta, force: true, patchScope
     };
     usual = 1; holdHistory = true;
     const obsolete = A.startBusyPatches(input);
@@ -6810,11 +7131,11 @@ test('F1233 F1255 broad provisional Busy revisions converge with Bird Gen withou
     assert.equal(await obsolete, null);
     await replacement;
     assertShared(6, 4);
-    assert.equal(A.currentBusySnapshot(true).busy[0].ratio, 1.5,
+    assert.equal(A.currentBusySnapshot(true,patchScope).busy[0].ratio, 1.5,
       'the shared source must still retain an exact two-party excess below the alert minimum');
     usual = 5; seedEvidence();
     await A.startBusyPatches(input);
-    assert.ok(!A.currentBusySnapshot(true).busy.some(row => row.locId === 'L-SHARED-POSITIVE'));
+    assert.ok(!A.currentBusySnapshot(true,patchScope).busy.some(row => row.locId === 'L-SHARED-POSITIVE'));
     assert.equal(app.$('surgeResults').querySelector('[data-hsloc="L-SHARED-POSITIVE"]'), null,
       'a later completed nonqualifying snapshot must remove the old alert');
   } finally {
@@ -7671,6 +7992,7 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
   const app = await boot({ sample: false });
   try {
     const A = app.window.__app, store = app.window.localStorage;
+    await A.ensurePatchScope(A.activeScope());
     await seedSeen(app, [], null, [
       { code: 'verfly', name: 'Vermilion Flycatcher' },
       { code: 'shtsan', name: 'Sharp-tailed Sandpiper' },
@@ -7764,6 +8086,7 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
   try {
     const A = app.window.__app, W = app.window, store = W.localStorage;
     await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    await A.ensurePatchScope(A.activeScope());
     const now = new W.Date();
     const first = await A.getChaseRarity(true);
     assert.equal(first.feedComplete, true);
@@ -7889,6 +8212,7 @@ for (const previouslyKnown of [false, true]) {
       const A = app.window.__app, store = app.window.localStorage;
       const now = Date.now();
       assert.equal(await A.checkTaxonomyEdition(true), true);
+      await A.ensurePatchScope(A.activeScope());
       A.setWatchlist([]);
       await A.ensurePersonalList(A.activeScope(), true);
       const owner = A.personalListOwner(), listKey = A.personalListKey(owner);
@@ -8578,6 +8902,7 @@ test('F1046 favorite failed-location retry reuses successful evidence and keeps 
     if (/data\/obs\/LF1046RETRY\//.test(url)) return failed ? {__status:400} : [];
     if (/data\/obs\/LF1046GOOD\//.test(url)) return [{
       speciesCode:'margod',comName:'Marbled Godwit',locId:'LF1046GOOD',
+      lat:47.75,lng:-122.16,subnational1Code:'US-WA',
       howMany:1,obsDt:recentObsStamp(0),subId:'SF1046GOOD'
     }];
     return [];
@@ -9961,6 +10286,7 @@ test('F1025 actual Favorite Patch detail and Bird Gen acquisition retain provisi
     { speciesCode: 'lcspet', comName: "Leach's Storm-Petrel", obsValid: false, obsReviewed: false },
     { speciesCode: 'norwat', comName: 'Northern Waterthrush' },
   ].map((row, i) => ({ ...row, locId: favorite.locId, locName: favorite.locName,
+    lat:47.75,lng:-122.16,subnational1Code:'US-WA',
     obsDt: formatObsStamp(new Date(Date.now() - 60000)), subId: 'SF1025' + i, howMany: 1 }));
   const app = await boot({ sample: false, storage: { ebird_favs: JSON.stringify([favorite]) },
     fetch: url => /data\/obs\/LF1025\/recent/.test(url)
@@ -33828,7 +34154,7 @@ test('F781 deprecated custom-region Settings controls are absent without deletin
   assert.equal(app.$('homePlace').value, 'Saved Home');
   app.click(app.$('clearHomeBtn'));
   assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan-test'), '42.31');
-  assert.equal(app.window.__app.getHome(),null,'Clear cannot reactivate the preserved legacy archive');
+  assert.equal(app.window.__app.getHome().lat,42.31,'Clear only changes the draft, not the migrated saved Home');
   assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
   const help = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs.settingsPanel;
   assert.match(help.how.join(' '), /deprecated.*preserved/);
@@ -33836,7 +34162,7 @@ test('F781 deprecated custom-region Settings controls are absent without deletin
   app.window.close();
 });
 
-test('F780 F1515 Clear shared Home preserves archived values and permits an explicit coordinate reset', async () => {
+test('F780 F1515 F1533 Clear draft preserves shared and archived Home and permits explicit replacement', async () => {
   const app = await boot({ storage: {
     'ebird_home_lat:wa': '51.49', 'ebird_home_lng:wa': '-0.12',
     'ebird_home_place:wa': 'Wrong namesake',
@@ -33853,12 +34179,12 @@ test('F780 F1515 Clear shared Home preserves archived values and permits an expl
   }
   assert.equal(app.window.localStorage.getItem('ebird_home_place:hi'), 'Other Home');
   for (const field of ['homePlace', 'homeLat', 'homeLng']) assert.equal(app.$(field).value, '');
-  assert.match(app.$('geocodeStatus').textContent, /Home cleared.*Archived legacy locations are unchanged/);
+  assert.match(app.$('geocodeStatus').textContent, /Unsaved address cleared.*Saved Home is unchanged/);
   assert.equal(app.document.activeElement, app.$('homePlace'));
   app.$('homePlace').value = '42.31, -84.02';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => !app.$('homeDeviceSave').hidden, 'new coordinate review');
-  app.click(app.$('homeDeviceSave'));
+  await waitFor(() => !app.$('homeOutsideSave').hidden, 'distant coordinate review');
+  app.click(app.$('homeOutsideSave'));
   await waitFor(() => app.window.__app.getHome().lat === 42.31,
     'new coordinate Home');
   assert.equal(app.window.__app.getHome().lng, -84.02);
@@ -33896,8 +34222,8 @@ test('F782 Twitches refetches Michigan rarities when Home changes during an olde
   app.click(app.$('clearHomeBtn'));
   app.$('homePlace').value = '43, -84';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => !app.$('homeDeviceSave').hidden, 'corrected coordinate review');
-  app.click(app.$('homeDeviceSave'));
+  await waitFor(() => !app.$('homeOutsideSave').hidden, 'unverified custom-region coordinate review');
+  app.click(app.$('homeOutsideSave'));
   await waitFor(() => app.window.localStorage.getItem(A.homeKey('lat')) === '43',
     'corrected fixture Home');
   A.refresh();
@@ -33937,7 +34263,7 @@ test('F780 Clear Home rejects late explicit and automatic geocoder responses', a
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(app.window.localStorage.getItem('ebird_home_lat:wa'), null);
     assert.equal(app.$('homePlace').value, '');
-    assert.match(app.$('geocodeStatus').textContent, /Home cleared/);
+    assert.match(app.$('geocodeStatus').textContent, /Unsaved address cleared/);
     assert.equal(app.$('geocodeBtn').disabled, false);
     app.window.close();
   }
@@ -35379,6 +35705,7 @@ test('F801 favorites publish each patch while later patches remain pending', asy
     if (/data\/obs\/LF801B/.test(url)) return new Promise((resolve) => { release = resolve; });
     if (/data\/obs\/LF801A/.test(url)) return [{
       speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801A',
+      lat:47.75,lng:-122.16,subnational1Code:'US-WA',
       obsDt: f801Day() + ' 00:01', subId: 'SF801', howMany: 2,
     }];
     return [];
@@ -35504,7 +35831,8 @@ test('F801 stale retained alerts paint immediately and reapply observation age, 
   const stamp = Date.now();
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', retainedAt: stamp - 2 * 3600000, rows: [
     { code: 'margod', name: 'Marbled Godwit', time: stamp, when: f801Day() + ' 00:01',
-      locId: 'LF801', locName: 'Public marsh', checklistId: 'SF801' },
+      locId: 'LF801', locName: 'Public marsh', checklistId: 'SF801',
+      lat:47.75,lng:-122.16,state:'US-WA' },
     { code: 'old', name: 'Expired control', time: stamp - 10 * 86400000 },
   ] });
   A.loadSurge();
@@ -35532,7 +35860,8 @@ test('F801 completed sources publish around held Favorites and telemetry owns th
     return [];
   } });
   const A = app.window.__app;
-  await A.zcPut(A.hotCacheKey(), { t: Date.now(), hot: [], cold: [], busy: [],
+  const patchScope={...A.activeScope(),publicEvidence:true};
+  await A.zcPut(A.hotCacheKey(patchScope), { t: Date.now(),patchScope:patchScope.cacheIdentity, hot: [], cold: [], busy: [],
     busyState: { at: Date.now(), pending: false, partial: false } });
   A.LOADERS.surgeBtn.reachability = false;
   app.open(/Bird Gen/);
@@ -35637,7 +35966,8 @@ test('F801 a failed source keeps retained cards and a successful empty Retry rem
   await seedSeen(app, []);
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
-      locId: 'LF801KEEP', locName: 'Retained marsh', checklistId: 'SF801KEEP' },
+      locId: 'LF801KEEP', locName: 'Retained marsh', checklistId: 'SF801KEEP',
+      lat:47.75,lng:-122.16,state:'US-WA' },
   ] });
   await A.loadSurge();
   assert.equal(app.$('surgeResults').dataset.sourceFavorites, 'failed');
@@ -35659,7 +35989,8 @@ test('F801 durable retained results survive reopen without an API response', asy
   await seedSeen(first, []);
   await first.window.__app.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
-      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
+      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801',
+      lat:47.75,lng:-122.16,state:'US-WA' },
   ] });
   const storage = Object.fromEntries(Object.keys(first.window.localStorage)
     .filter((key) => key.startsWith('ebird_surge_retained_v1:'))
@@ -35689,7 +36020,8 @@ test('F801 a changed Home supersedes active work and retained cards reapply seen
   app.window.requestAnimationFrame = () => 1;
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'margod', name: 'Marbled Godwit', time: Date.now(), when: f801Day() + ' 00:01',
-      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801' },
+      locId: 'LF801', locName: 'Retained marsh', checklistId: 'SF801',
+      lat:47.75,lng:-122.16,state:'US-WA' },
   ] });
   const first = A.loadSurge();
   assert.match(app.$('surgeResults').textContent, /Marbled Godwit/);
@@ -35899,6 +36231,7 @@ test('F801 reopening reapplies eligibility without repeating fresh HTTP requests
     }]);
     return /data\/obs\/LF801REOPEN/.test(url) ? [{
       speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LF801REOPEN',
+      lat:47.75,lng:-122.16,subnational1Code:'US-WA',
       obsDt: f801Day() + ' 00:01', subId: 'SF801REOPEN', howMany: 2,
     }] : [];
   } });
@@ -40362,7 +40695,7 @@ test('F1217 Bird Gen reuses its successful cascade but rejects the independent l
         birders: [{ name: 'Birder One', rank: 1, date: todayFixtureDate() },
                   { name: 'Birder Two', rank: 2, date: todayFixtureDate() }],
         latest: todayFixtureDate(), locationState: 'ok',
-        publicHotspots: [{ locId: 'F379-C', locName: 'Cached Cascade Marsh' }],
+        publicHotspots: [{ locId: 'F379-C', locName: 'Cached Cascade Marsh',lat:47.75,lng:-122.16 }],
         recent: [{
           obsDt: todayFixtureDate() + ' 09:00', locName: 'Cached Cascade Marsh',
           locId: 'F379-C', subId: 'F379-CS', lat: 47.75, lng: -122.16,
@@ -40974,6 +41307,7 @@ test('F309 refreshing Bird Gen preserves current cards while feeds update', asyn
     if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
     return /data\/obs\/LF309/.test(url) ? [{
       speciesCode: 'vesspa', comName: 'Vesper Sparrow', locId: 'LF309',
+      lat:47.75,lng:-122.16,subnational1Code:'US-WA',
       obsDt: f801Day() + ' 00:01', subId: 'SF309', howMany: 2,
     }] : [];
   } });
@@ -41032,7 +41366,7 @@ test('F350/F423 Bird Gen starts one Mega refresh and shows its source progress',
   assert.ok(megaIndex >= 0, 'Bird Gen never started its one Mega summary request');
   assert.ok(optionalIndex < 0 || megaIndex < optionalIndex,
     'the Mega refresh waited behind optional leaderboard/hotspot work: '
-      + calls.map((url) => new URL(url).pathname).join(', '));
+     + calls.map((url) => new URL(url, app.window.location.href).pathname).join(', '));
   assert.equal(calls.filter((url) => /alert\/summary/.test(url)).length, 1,
     'one Bird Gen load started duplicate Mega requests');
 
@@ -47786,7 +48120,7 @@ test('F789 unavailable custom county acquisition is failed, not not-applicable o
   app.window.close();
 });
 
-test('F780 Home ranks Michigan independently of invalid Home and warns before saving outside or unknown regions', async () => {
+test('F780 F1533 Home disambiguates Michigan independently of saved Home and warns for missing boundary evidence', async () => {
   const region = michiganRuntimeRegion();
   let outside = false;
   const queries = [];
@@ -47810,13 +48144,16 @@ test('F780 Home ranks Michigan independently of invalid Home and warns before sa
   app.open(/Settings/);
   app.$('homePlace').value = 'Chelsea';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => !app.$('homeDeviceSave').hidden, 'Michigan Home review');
+  await waitFor(() => app.$('homeChoices').querySelectorAll('button').length===2, 'distinct namesake choices');
+  app.click([...app.$('homeChoices').querySelectorAll('button')].find(button=>/Michigan/.test(button.textContent)));
+  await waitFor(() => !app.$('homeOutsideSave').hidden, 'unverified custom-region Home review');
   assert.equal(app.window.__app.getHome().lat, 51.49, 'lookup saved before approval');
-  app.click(app.$('homeDeviceSave'));
+  app.click(app.$('homeOutsideSave'));
   assert.equal(app.window.__app.getHome().lat, 42.32);
-  assert.match(queries[0].searchParams.get('q'), /Michigan/);
+  assert.equal(queries[0].searchParams.get('q'), 'Chelsea','do not silently qualify a saved-address search with the selected state');
   assert.notEqual(queries[0].searchParams.get('lat'), '51.4900');
   outside = true;
+  app.window.__app.openSavedLocationEditor('home');
   app.$('homePlace').value = 'Chelsea';
   app.click(app.$('geocodeBtn'));
   await waitFor(() => /Warning:/.test(app.$('geocodeStatus').textContent), 'outside warning');
@@ -47829,14 +48166,15 @@ test('F780 Home ranks Michigan independently of invalid Home and warns before sa
   app.click(app.$('homeOutsideSave'));
   assert.equal(app.window.__app.getHome().lat, 51.49, 'explicit save outside did not save named candidate');
   outside = 'unknown';
+  app.window.__app.openSavedLocationEditor('home');
   app.$('homePlace').value = 'Unknown region';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => /region could not be verified/.test(app.$('geocodeStatus').textContent), 'missing region metadata');
+  await waitFor(() => /could not be verified/.test(app.$('geocodeStatus').textContent), 'missing region boundary');
   assert.equal(app.window.__app.getHome().lat, 51.49);
   app.$('homePlace').value = '45, -85';
   app.click(app.$('geocodeBtn'));
-  await waitFor(() => !app.$('homeDeviceSave').hidden, 'coordinate review');
-  app.click(app.$('homeDeviceSave'));
+  await waitFor(() => !app.$('homeOutsideSave').hidden, 'unverified coordinate review');
+  app.click(app.$('homeOutsideSave'));
   await waitFor(() => app.window.__app.getHome().lat === 45, 'pasted coordinates');
   assert.equal(queries.length, 4, 'coordinate entry contacted geocoder');
   app.window.close();
@@ -60221,7 +60559,7 @@ test('F1010 actual diagnostic ZIP exports redacted correlated native stages', as
   } finally { app.window.close(); }
 });
 
-test('F979 notifications are opt-in, wired to admitted Bird Gen cards, and stop after opt-out', async () => {
+test('F979 F1462 notifications require complete source intake, remain private and stop after opt-out', async () => {
   const app = await boot(), A = app.window.__app;
   const bridge = notificationBridge(app);
   await A.initBirdGenNotifications();
@@ -60240,11 +60578,16 @@ test('F979 notifications are opt-in, wired to admitted Bird Gen cards, and stop 
     {kind:'migration',notificationKey:'migration-forecast:2030-06-10',name:'High migration tonight',time:Date.now()}
   ]);
   assert.equal(migration[0].id,migration[1].id,'forecast enrichment created a second notification episode');
-  A.renderSurge([], [], [], [{
+  const needs=[{
     code: 'chclon', name: 'Chestnut-collared Longspur', sightings: 4,
     reports: 4, nPlaces: 1, latest: Date.now(), latestStr: recentObsStamp(0, 10),
     locId: 'L123', locName: 'Marymoor Park', distMi: 5
-  }], [], { observations: 'ok' });
+  }];
+  const beforePartial=bridge.syncs.length;
+  A.renderSurge([],[],[],needs,[],{observations:'partial',mega:'notApplicable'});
+  await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(bridge.syncs.length,beforePartial,'incomplete sources cannot initialize or advance the native alert ledger');
+  A.renderSurge([], [], [], needs, [], { observations: 'ok',mega:'notApplicable' });
   await waitFor(() => bridge.syncs.some((o) => o.events.some((e) => /Celebrity/i.test(e.title))),
     'actual Bird Gen renderer to publish notification candidates');
   const event = bridge.syncs.at(-1).events.find((e) => /Celebrity/i.test(e.title));
@@ -71008,22 +71351,23 @@ test('F1507 Home lookup reviews a map and cannot save through generic Settings, 
     assert.equal(app.$('settingsSavedLocations').hidden,false);
     assert.equal(app.$('settingsHomeEditor').open,true);
     async function find(query) {
+      A.openSavedLocationEditor('home');
       app.$('homePlace').value=query;app.click(app.$('geocodeBtn'));
       await waitFor(()=>!app.$('homeCandidateReview').hidden,'Home map review');
     }
     await find('47.6, -122.3');
     assert.equal(A.getHome(),null);
     assert.ok(app.$('homeCandidateMap').querySelector('svg,.mapcanvas'),'candidate has no map or offline fallback');
-    assert.match(app.$('geocodeStatus').textContent,/Not saved yet/);
+    assert.match(app.$('geocodeStatus').textContent,/could not be verified/);
     A.persistSettings();
     assert.equal(A.getHome(),null,'unrelated settings saved the unapproved Home');
     app.click(app.$('homeCandidateCancel'));
     assert.equal(A.getHome(),null);
     assert.equal(app.$('homeCandidateReview').hidden,true);
     await find('47.6, -122.3');
-    app.click(app.$('homeDeviceSave'));
+    app.click(app.$('homeOutsideSave'));
     assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())),{lat:47.6,lng:-122.3});
-    assert.match(app.$('geocodeStatus').textContent, /Saved\..*shared Home for this profile/);
+    assert.match(app.$('geocodeStatus').textContent, /saved.*Home/i);
     await find('47.7, -122.2');
     const saved=JSON.stringify(A.getHome());
     app.$('homeLat').value='48';
@@ -71443,7 +71787,7 @@ test('F1386 F1517 broader choices share page scrolling, code search and reopen r
   } finally {app.window.close();}
 });
 
-test('F1385 approved aggregate Home candidates use verified jurisdictions and preserve shared Home', async()=>{
+test('F1385 F1533 aggregate helper jurisdictions remain distinct from unverified Home boundary review', async()=>{
   const cases=[['Washington','US',true,true],['Alaska','US',true,false],['Hawaii','US',true,false],
     ['British Columbia','CA',true,false],['Saint Pierre and Miquelon','PM',true,false],
     ['England','GB',false,false],['Unknown state','US',false,false]];
@@ -71458,10 +71802,11 @@ test('F1385 approved aggregate Home candidates use verified jurisdictions and pr
       app.open(/Settings/);app.click(app.$('homeCurrentLocation'));
       await waitFor(()=>!app.$('homeCurrentLocation').disabled,slug+' reverse lookup');
       assert.equal(A.getHome(),null,'a device candidate must not save without approval');
-      assert.equal(app.$('homeDeviceSave').hidden,!allowed,slug+' device '+state);
-      assert.equal(app.$('homeOutsideSave').hidden,allowed);
-      if(allowed){
-        app.click(app.$('homeDeviceSave'));
+      assert.equal(app.$('homeDeviceSave').hidden,true,slug+' device '+state+' has no exact aggregate boundary');
+      assert.equal(app.$('homeOutsideSave').hidden,false);
+      assert.match(app.$('geocodeStatus').textContent,/could not be verified/);
+      {
+        app.click(app.$('homeOutsideSave'));
         assert.deepEqual(JSON.parse(JSON.stringify(A.getHome())),{lat:40,lng:-100});
         A.setActiveReport(slug==='aba'?'lower48':'aba');
         assert.equal(A.getHome().lat,40,'the other aggregate evidence area preserves shared Home');
@@ -76078,9 +76423,9 @@ test('F674/F1125 automatic Bird Gen recovery retries only its failed hotspot sou
   const converge = HTML.slice(HTML.indexOf('var pConverge ='),
     HTML.indexOf('return Promise.all([pObserved', HTML.indexOf('var pConverge =')));
   assert.match(HTML, /var refreshSources = fullRefresh && options\.reuseFresh !== true/);
-  assert.match(converge, /acquireBusyPatches\(refreshSources && !retry, retry\)/,
+  assert.match(converge, /acquireBusyPatches\(refreshSources && !retry, retry,\s*null,\s*null,\s*null,\s*patchScope\)/,
     'the failed-only retry must join the common provider without forcing healthy HTTP endpoints');
-  assert.match(converge, /busySnapshotSource\(currentBusySnapshot\(\) \|\| result\)/,
+  assert.match(converge, /busySnapshotSource\(currentBusySnapshot\(false,\s*patchScope\) \|\| result\)/,
     'the source-local retry must publish the same completed Busy snapshot');
   app.window.close();
 });

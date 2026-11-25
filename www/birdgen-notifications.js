@@ -91,6 +91,30 @@
         return f.file === j.file && !f.failed && !f.capped;
       });
     });
+    if (profile.evidenceRegion) {
+      var sourceRegions = {};
+      wanted.jobs.forEach(function (job) {
+        var match = /^data\/obs\/([A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?)\//.exec(job.path);
+        if (match) sourceRegions[job.file] = match[1];
+      });
+      fresh = fresh.map(function (feed) {
+        return Object.assign({}, feed, { rows: feed.rows.filter(function (row) {
+          var candidate = row, origin = sourceRegions[feed.file];
+          if (origin) {
+            var membership = logic.administrativeMembership(row, origin);
+            if (membership.state === 'unknown' && membership.basis === 'insufficient-administration') {
+              candidate = Object.assign({}, row, origin.split('-').length === 3
+                ? {subnational2Code:origin} : {subnational1Code:origin});
+            }
+          }
+          var result = /^(aba|lower48)$/.test(profile.evidenceRegion)
+            ? logic.regionMembership(candidate, profile.evidenceRegion)
+            : logic.administrativeMembership(candidate, profile.evidenceRegion, profile.evidenceBoundary);
+          if (result.state === 'unknown') complete = false;
+          return result.state === 'inside';
+        }) });
+      });
+    }
     var allRecords = logic.annotateDistance(logic.applyExclusions(logic.mergeSnapshot(fresh), profile), profile.home);
     var records = allRecords.filter(function (r) {
         return r.location_private === false && r.locId && !r.coordinatesMissing &&

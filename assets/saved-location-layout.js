@@ -27,17 +27,24 @@ async function savedLocationLayout(scan, mutation) {
         $(kind === 'temp' ? 'tempGeocodeBtn' : 'geocodeBtn').click();
         await paint();
         const review = $(prefix + 'CandidateReview'), candidate = $(prefix + 'CandidateMap');
+        const deadline = Date.now() + 5000;
+        while (review.hidden && Date.now() < deadline) await paint();
         check(!review.hidden && candidate.childElementCount > 0, 'Candidate needs a labelled map or offline fallback');
         check(review.textContent.includes('Cancel') && /Save/.test(review.textContent),
           'Candidate must offer explicit Save and Cancel');
         const rect = review.getBoundingClientRect();
+        const input = $(prefix + 'Place').getBoundingClientRect();
+        const search = $(prefix + 'Place').closest('.saved-location-search').getBoundingClientRect();
+        const scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
+        check(input.width >= Math.min(search.width, 120 * scale) - 1,
+          'Scaled text must not squeeze the address input behind Go/Here/Clear');
         check(rect.width > 0 && rect.left >= -.5 && rect.right <= innerWidth+.5,
           'Saved-location candidate must fit the viewport');
         const summary = $(prefix + 'CandidateSummary').textContent;
         if (kind === 'temp') {
           $('tempHomeDeviceSave').click();
           await paint();
-          check(/Active saved base/.test($('tempHomeSavedSummary').textContent),
+          check(/Temp Home \(Active\)/.test($('homeSettingsTitle').textContent),
             'Saved Temp must be visibly distinguished from its unsaved candidate');
           check($('tempHomeSavedMap').childElementCount > 0, 'Saved Temp needs its own map/fallback');
         } else {
@@ -45,13 +52,13 @@ async function savedLocationLayout(scan, mutation) {
           await paint();
           check($('homeSavedMap').childElementCount > 0, 'Saved Home needs its own map/fallback');
         }
-        return {kind, candidate:summary, width:rect.width};
+        return {kind, candidate:summary, width:rect.width,inputWidth:input.width};
       });
     }
     await record('F1518 saved Home retires the obsolete region warning', async () => {
+      $('tempHomeRestore').click();
+      for (const field of ['lat','lng','place']) localStorage.removeItem(A.homeKey(field));
       A.openSavedLocationEditor('home');
-      $('clearHomeBtn').click();
-      $('tempClearHomeBtn').click();
       await A.reconcileSavedBase(false);
       const notice = $('savedBaseRegionNotice'), review = notice.querySelector('button');
       check(!notice.hidden && /Home is not set/.test(notice.textContent),
@@ -68,18 +75,18 @@ async function savedLocationLayout(scan, mutation) {
       $('homeDeviceSave').click();
       await paint();
       check(notice.hidden, 'Approved reachable Home must retire the stale warning without a region switch');
-      check(/Active saved base/.test($('homeSavedSummary').textContent),
+      check(/Home \(Active\)/.test($('homeSettingsTitle').textContent),
         'Saved Home remains the active base');
       return {missingNoticeWidth:rect.width, warningRetired:true};
     });
-    await record('F1520 saved-location bubbles lead Settings with visible current values', async () => {
+    await record('F1533 one Home card leads Settings with a linked current value', async () => {
       A.openSavedLocationEditor('home');
       $('settingsHomeEditor').open = false;
       $('settingsTempHomeEditor').open = false;
       window.scrollTo(0,0);
       await paint();
       const positions = [];
-      for (const prefix of ['home','tempHome']) {
+      for (const prefix of ['home']) {
         const bubble = $(prefix+'SettingsBubble'), summary = $(prefix+'SavedSummary');
         check(bubble && !bubble.closest('[hidden]') && !summary.closest('details'),
           'Current saved values must remain visible outside the closed editor');
@@ -92,9 +99,10 @@ async function savedLocationLayout(scan, mutation) {
         'Each saved-location bubble and current value must fit the page width');
         positions.push({top:rect.top,bottom:rect.bottom,width:rect.width});
       }
-      check(positions[0].bottom<=positions[1].top+.5
-        && positions[1].bottom<=$('settingsCategories').getBoundingClientRect().top+.5,
-      'Home then Temp Home must lead Settings before every other category');
+      check(!$('tempHomeSettingsBubble')
+        && positions[0].bottom<=$('settingsCategories').getBoundingClientRect().top+.5,
+      'One Home card must lead Settings before every other category');
+      check($('homeSavedSummary').querySelector('a[href]'), 'Saved address needs its Maps handoff');
       return {positions,closedEditorValuesVisible:true};
     });
     await record('F1519 review links visibly reach the requested saved editor', async () => {
@@ -121,11 +129,11 @@ async function savedLocationLayout(scan, mutation) {
           button.click();
           await paint();
           const editor = $(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
-          const title = editor.querySelector('summary').getBoundingClientRect();
+          const title = $(kind === 'temp' ? 'tempHomePlace' : 'homePlace').getBoundingClientRect();
           const header = $('navbar').getBoundingClientRect();
           check(editor.open && !$('settingsPanel').hidden
             && title.top >= header.bottom-.5 && title.bottom <= innerHeight+.5,
-          'Review '+kind+' from '+from+' must bring its editor title below the sticky header and into view');
+          'Review '+kind+' from '+from+' must bring its input below the sticky header and into view');
           positions.push({kind,from,top:title.top,bottom:title.bottom,headerBottom:header.bottom});
         }
       }

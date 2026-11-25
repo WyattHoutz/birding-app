@@ -1274,7 +1274,24 @@
       background: #487c64; border: 2px solid #a1bfb3; border-radius: 999px;
       font-size: inherit; white-space: normal; overflow-wrap: anywhere; }
     .home-save-status { border: 2px solid var(--muted); border-radius: 8px; padding: 10px; }
-    .home-review { border: 2px solid var(--muted); border-radius: 12px; padding: 12px; margin: 12px 0; }
+    .home-save-status:empty { display: none; }
+    .saved-location-value { overflow-wrap: anywhere; }
+    .saved-location-value .maplink { display: inline; margin: 0; font: inherit; text-decoration: underline; }
+    .saved-location-state { display: inline-block; margin-right: .4em; font-size: 1.2em; }
+    .row.saved-location-search { flex-wrap: wrap; gap: 6px; }
+    .saved-location-search > div { flex: 1 1 calc(120px * var(--s)); min-width: 0; }
+    .saved-location-search input { width: 100%; min-width: 0; }
+    .row.saved-location-search > button { flex: 0 0 auto; min-width: 44px; min-height: 44px; padding: 8px 6px; }
+    .saved-location-choices { display: grid; gap: 8px; }
+    .saved-location-choices button { white-space: normal; text-align: left; }
+    #settingsHomeEditor[open] > summary, #settingsHomeEditor[open] > label,
+    #settingsTempHomeEditor[open] > summary { display: none; }
+    .saved-location-warning { border-left: 6px solid #0072b2; padding: 8px 12px; overflow-wrap: anywhere; }
+    #savedHomeRequired { font-size: calc(14px * var(--s)); }
+    .home-review { border: 2px solid var(--muted); border-radius: 12px; padding: 12px; margin: 12px 0; font-size: calc(14px * var(--s)); }
+    #homeSettingsBubble > details > summary { min-height: 44px; padding: 6px 0; }
+    #settingsHomeEditor:has(.home-review:not([hidden])) > #homeFindCancel,
+    #settingsTempHomeEditor:has(.home-review:not([hidden])) > #tempHomeFindCancel { display: none; }
     .home-review button { min-height: 44px; min-width: 44px; }
     #homeCandidateMap .mapcanvas, .saved-location-map .mapcanvas,
     #tempHomeCandidateMap .mapcanvas { height: 200px; }
@@ -5025,14 +5042,15 @@
         <button id="ebirdSignOut" class="secondary" type="button">Sign out of eBird</button>
       </div>
       <label for="homePlace">Home location <span id="homeRegionLabel"></span></label>
-      <div class="row">
-        <div style="flex:1 1 auto"><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
-        <button id="geocodeBtn" class="secondary" type="button">Find</button>
-        <button id="homeCurrentLocation" class="secondary" type="button">Use my current location</button>
-        <button id="homeFindCancel" class="secondary" type="button">Cancel lookup</button>
-        <button id="clearHomeBtn" class="secondary" type="button">Clear Home</button>
+      <div class="row saved-location-search">
+        <div><input id="homePlace" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="city, address, or 47.75, -122.16" /></div>
+        <button id="geocodeBtn" class="secondary" type="button">Go</button>
+        <button id="homeCurrentLocation" class="secondary" type="button">Here</button>
+        <button id="clearHomeBtn" class="secondary" type="button" aria-label="Clear unsaved address">Clear</button>
       </div>
-      <p class="home-save-status" id="geocodeStatus" role="status" aria-live="polite">Enter a place or waypoint, then tap Find to review it before saving.</p>
+      <div id="homeChoices" class="saved-location-choices" role="group" aria-label="Matching locations"></div>
+      <p class="home-save-status" id="geocodeStatus" role="status" aria-live="polite"></p>
+      <button id="homeFindCancel" class="secondary" type="button">Cancel</button>
       <div id="homeCandidateReview" class="home-review" hidden>
         <h3>Location found - review before saving</h3>
         <p id="homeCandidateSummary"></p>
@@ -5810,7 +5828,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.14.1';
+      var APP_VERSION = '2.15.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var RETIRED_REPORT_REDIRECTS = { 'fort-casey': 'wa', waikoloa: 'hi' };
       var $ = function (id) { return document.getElementById(id); };
@@ -6483,6 +6501,8 @@
       }
       function refreshChaseMi() {
         syncChaseMi();
+        cancelHomeLookup();
+        renderSavedLocations();
         reconcileSavedBase(false);
         _autoLoaded = {};
         RESET_ON_REPORT_CHANGE.forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
@@ -11973,14 +11993,15 @@
       // Newest report per species, because the lane wants ONE line per bird.
       // Full rarity evidence belongs to the exact-code Stakeout route, so this
       // lane does not reproduce it.
-      function megaLane(anchors) {
+      function megaLane(anchors, evidenceScope) {
         var s;
         try { s = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null'); }
         catch (e) { s = null; }
         if (!megaSnapshotVerified(s) || !Array.isArray(s.rows) || s.region !== getRegion()
             || s.sid !== getAbaSid()) return null;
+        var sourceRows = evidenceScope ? publicEvidenceFromSource(s.rows, evidenceScope, s.region) : s.rows;
         var by = {};
-        s.rows.forEach(function (r) {
+        sourceRows.forEach(function (r) {
           if (!r.speciesCode) return;
           if (!r.locId) r.locId = megaCachedHotspotId(r, s.region);
           (by[r.speciesCode] || (by[r.speciesCode] = [])).push(r);
@@ -12095,7 +12116,11 @@
           sourceCount: s.sourceCount,
           region: s.region,
           sid: s.sid,
-          sourceRows: s.rows,
+          sourceRows: sourceRows,
+          membershipIncomplete: !!evidenceScope && s.rows.some(function (row) {
+            return publicEvidenceMembership(row, evidenceScope).state === 'unknown'
+              && !publicEvidenceFromSource([row], evidenceScope, s.region).length;
+          }),
           membershipVersion: s.membershipVersion,
           rows: news,
           all: out,
@@ -20147,7 +20172,7 @@
       function publicEvidenceMembership(row, scope) {
         var code = (scope || activeScope()).effectiveRegion || '';
         row = publicEvidenceRecord(row) || {};
-        var counties = ['co', 'sub2', 'county', 'subnational2', 'subnational2Code']
+        var counties = ['co', 'sub2', 'county', 'countyCode', 'subnational2', 'subnational2Code']
           .map(function (key) { return String(row[key] || '').trim().toUpperCase(); })
           .filter(function (value, index, values) { return value && values.indexOf(value) === index; });
         if (counties.length > 1) return {state:'unknown',basis:'conflicting-administration'};
@@ -22072,7 +22097,7 @@
         var countryName = { us: 'United States', ca: 'Canada', pm: 'Saint Pierre and Miquelon' }[countryCode] || '';
         var near = options.unscoped ? null
           : options.home ? regionWaypoint() : (quickAnchor(quickOrigin) || activeSavedBase());
-        var query = options.home && wantState
+        var query = options.home && wantState && !options.unqualified
           ? [q, wantState, countryName].filter(Boolean).join(', ') : q;
         var url = 'https://' + GEOCODER_HOST + '/api/?limit=' + GEOCODER_LIMIT
           + '&q=' + encodeURIComponent(query)
@@ -42581,6 +42606,12 @@
           if (partyEvidence) ['obsId', 'userDisplayName', 'groupId', 'numObservers'].forEach(function (key) {
             if (Object.prototype.hasOwnProperty.call(o, key)) clean[key] = o[key];
           });
+          if (partyEvidence) {
+            var verified = patchEvidenceAtPlaces([o], [place], scope, publicEvidenceRows)[0] || o;
+            clean.subnational2Code = verified.subnational2Code || verified.county || verified.co || '';
+            clean.subnational1Code = verified.subnational1Code || verified.state || '';
+            clean.countryCode = verified.countryCode || verified.country || '';
+          }
           return clean;
         });
       }
@@ -43360,7 +43391,7 @@
           busyState: Object.assign({}, result.busyState)
         } };
         if (!result.busyState.pending) store.completed = store.shared;
-        if (!patchScope && _surgeBusySnapshot) _surgeBusySnapshot(store.shared);
+        if (_surgeBusySnapshot) _surgeBusySnapshot(store.shared);
       }
       function currentBusySnapshot(completedOnly, patchScope) {
         if (patchScope && !scopeCurrent(patchScope)) return null;
@@ -43370,25 +43401,29 @@
         return snapshot && snapshot.context === hotspotContextKey(null, null, null, patchScope)
           && snapshot.apiKey === getKey() ? snapshot.result : null;
       }
-      function acquireBusyPatches(force, retry, ownerWork, countyScope, resourceAccess) {
-        var context = hotspotContextKey(), apiKey = getKey();
-        if (_busyBroad.promise && _busyBroad.context === context && workCurrent(_busyBroad.work) && !force) return _busyBroad.promise;
-        var complete = currentBusySnapshot(true);
+      function acquireBusyPatches(force, retry, ownerWork, countyScope, resourceAccess, patchScope) {
+        var context = hotspotContextKey(null, null, null, patchScope), apiKey = getKey();
+        var store = busyStore(patchScope);
+        if (store.promise && store.context === context && workCurrent(store.work) && !force) return store.promise;
+        var complete = currentBusySnapshot(true, patchScope);
         if (!force && !retry && complete && !complete.busyState.partial
             && Date.now() - complete.busyState.at < CHASE_TTL_MS) return Promise.resolve(complete);
         var codes = countyCodes(), home = activeSavedBase(), anchors = savedBaseAnchors();
-        var reportSlug = getReportSlug(), cacheKey = hotCacheKey();
+        var reportSlug = getReportSlug(), cacheKey = hotCacheKey(patchScope);
         var work = navWork('Busy Patch public registry', 'surgeBtn');
         work.initialDataset = ownerWork && ownerWork.initialDataset;
         var navigation = work.navGeneration, cancellation = work.cancelGeneration;
         work.current = function () {
           return (ownerWork ? workCurrent(ownerWork)
             : navigation === _navGeneration && cancellation === _workCancelGeneration)
-            && context === hotspotContextKey() && apiKey === getKey();
+            && (!patchScope || scopeCurrent(patchScope))
+            && context === hotspotContextKey(null, null, null, patchScope) && apiKey === getKey();
         };
-        return hotCacheWarm().then(function (cached) {
+        return Promise.resolve(patchScope && ensurePatchScope(patchScope)).then(function () {
+          return hotCacheWarm(patchScope);
+        }).then(function (cached) {
           if (!workCurrent(work)) throw queueCancelledError(work);
-          if (!currentBusySnapshot(true) && cached && Array.isArray(cached.busy)
+          if (!currentBusySnapshot(true, patchScope) && cached && Array.isArray(cached.busy)
               && cached.busyState && !cached.busyState.pending && !cached.busyState.partial
               && cached.busyState.at > 0 && cached.busyState.at <= Date.now()) {
             var now = Date.now();
@@ -43402,12 +43437,13 @@
                 cached: true, cachedAt: cached.busyState.at
               })
             });
-            _hotspotCache = ownedHotspotResult(restored); _hotspotCacheContext = context;
-            publishBusySnapshot(restored, context);
+            if (patchScope) patchHotspotStore(patchScope).cache = ownedHotspotResult(restored, patchScope, context);
+            else { _hotspotCache = ownedHotspotResult(restored); _hotspotCacheContext = context; }
+            publishBusySnapshot(restored, context, null, patchScope);
             renderHot(restored);
             if (hotspotResultCurrent(restored)) $('hotStatus').textContent = busyPatchStatus(restored);
           }
-          var complete = currentBusySnapshot(true);
+          var complete = currentBusySnapshot(true, patchScope);
           if (!force && !retry && complete && !complete.busyState.partial
               && Date.now() - complete.busyState.at < CHASE_TTL_MS) return complete;
           return (countyScope ? countyScope() : Promise.resolve()).then(function () {
@@ -43426,7 +43462,8 @@
             return startBusyPatches({
               codes: codes, home: home, anchors: anchors, context: context,
               reportSlug: reportSlug, cacheKey: cacheKey, force: !!force, retry: !!retry,
-              meta: [].concat.apply([], registries), ownerWork: ownerWork, resourceAccess: resourceAccess
+              meta: [].concat.apply([], registries), ownerWork: ownerWork, resourceAccess: resourceAccess,
+              patchScope: patchScope
             });
           });
         });
@@ -47232,7 +47269,8 @@
       var SURGE_KINDS = window.BirdInfoDialogs.alertKinds;
       var _twitchTracking = { key: '', status: '' };
       function twitchJournalKey() {
-        return 'bc_twitch_v1:' + JSON.stringify([personalListOwner(), personalBoardPeriod(), savedBaseIdentity()]);
+        return 'bc_twitch_v1:' + JSON.stringify([personalListOwner(), personalBoardPeriod(), savedBaseIdentity(),
+          'bounded-evidence-v1', activeScope().effectiveRegion, chaseMaxMi()]);
       }
       function twitchAcquisitionComplete(res) {
         if (chaseAlertSourceState(res) !== 'ok' || res.feedComplete !== true
@@ -47383,6 +47421,7 @@
             next = Object.assign(surgeObservedResult({
               stale: true,
               partial: value.state !== 'ok',
+              profile: value.sourceProfile,
               rows: value.evidenceRows,
               cv: value.evidenceRows
                 ? computeChaseRows(birdGenObservationProfile(), getReportSlug(), value.evidenceRows, null)
@@ -47421,7 +47460,7 @@
           } else if (key === 'convergence') {
             return;
           } else return;
-          model[key] = next;
+          model[key] = projectBirdGenPart(key, next, scope);
         });
         return model;
       }
@@ -47605,6 +47644,7 @@
         if (entry && entry.promise) return mega ? 'stale' : 'partial';
         if (!mega && entry && entry.outcome === 'notApplicable') return 'notApplicable';
         if (!mega) return 'notLoaded';
+        if (mega.membershipIncomplete) return 'partial';
         var age = (Date.now() - Number(mega.at || 0)) / 3600000;
         return isFinite(age) && age >= 0 && age < MEGA_LAZY_MAX_H ? 'ok' : 'stale';
       }
@@ -48696,7 +48736,7 @@
           return favoriteCounty === county;
         });
         if (!relevant.length) return { state: 'notApplicable', rows: [] };
-        var failed = 0, loaded = 0, byPair = {};
+        var failed = 0, loaded = 0, byPair = {}, withheld = 0;
         relevant.forEach(function (favorite) {
           var source = feeds[favorite.locId];
           if (!source || source.state === 'failed') {
@@ -48708,7 +48748,14 @@
             return;
           }
           loaded++;
-          (source.rows || []).forEach(function (observation) {
+          var observations = source.rows || [];
+          if (options.scope) {
+            withheld += observations.filter(function (row) {
+              return publicEvidenceMembership(row, options.scope).state === 'unknown';
+            }).length;
+            observations = publicEvidenceRows(observations, options.scope);
+          }
+          observations.forEach(function (observation) {
             var code = String(observation.speciesCode || observation.code || '').trim();
             var name = String(observation.comName || observation.name || code).trim();
             var when = observation.obsDt || observation.dateStr || '';
@@ -48723,7 +48770,7 @@
             var key = favorite.locId + '|' + code.toLowerCase();
             var old = byPair[key];
             if (old && old.time >= time) return;
-            byPair[key] = {
+            byPair[key] = Object.assign(publicEvidenceAdministration(observation), {
               code: code,
               name: name,
               count: Number(observation.howMany || observation.count || 0),
@@ -48734,16 +48781,17 @@
               checklistId: observation.subId || observation.subID || '',
               locId: favorite.locId,
               locName: favorite.locName || observation.locName || favorite.locId,
-              lat: favorite.lat,
-              lng: favorite.lng,
+              lat: observation.lat != null ? observation.lat : favorite.lat,
+              lng: observation.lng != null ? observation.lng : favorite.lng,
               countyCode: county || favorite.countyCode
                 || observation.subnational2Code || ''
-            };
+            });
           });
         });
-        var state = failed ? (loaded ? 'partial' : 'failed') : 'ok';
+        var state = failed ? (loaded ? 'partial' : 'failed') : withheld ? 'partial' : 'ok';
         return {
           state: state,
+          scopeWithheld: withheld,
           rows: Object.keys(byPair).map(function (key) { return byPair[key]; })
             .sort(function (a, b) { return b.time - a.time; })
         };
@@ -50249,6 +50297,7 @@
           function result(pending) {
             var value = favoritePatchAlerts(favorites, feeds, {
               region: scope.parentRegion,
+              scope: scope,
               countyCode: scope.level === 'subregion' ? scope.effectiveRegion : '',
               now: Date.now(), seen: isSpeciesSeen
             });
@@ -50257,6 +50306,11 @@
             });
             value.failedLocIds = Object.keys(feeds).filter(function (key) {
               return feeds[key].state === 'failed';
+            });
+            value.favoriteSources = favorites.map(function (favorite) { return Object.assign({}, favorite); });
+            value.evidenceFeeds = {};
+            Object.keys(feeds).forEach(function (key) {
+              value.evidenceFeeds[key] = Object.assign({}, feeds[key], {rows:(feeds[key].rows || []).slice()});
             });
             if (pending) value.state = 'loading';
             return value;
@@ -50528,7 +50582,7 @@
           return !!(rareCodes[String(code || '').trim().toLowerCase()]
             || rareNames[String(name || '').trim().toLowerCase()]);
         }
-        var mega = getReport().isRarityTracker ? null : megaLane(savedBaseAnchors());
+        var mega = getReport().isRarityTracker ? null : megaLane(savedBaseAnchors(), activeScope());
         var megaRows = (mega && mega.rows) || [];
         var megaCodes = {}, megaNames = {};
         ((mega && mega.all) || []).forEach(function (m) {
@@ -50542,11 +50596,6 @@
             || megaNames[String(name || '').trim().toLowerCase()]);
         }
         var megaMembershipRows = mega && mega.sourceRows;
-        var selectedMegaView = _megaViews[_megaViewKey];
-        if (mega && megaViewCurrent(selectedMegaView) && selectedMegaView.membershipVerified
-            && megaSnapshotVerified(mega) && selectedMegaView.membershipAt === mega.at) {
-          megaMembershipRows = selectedMegaView.rawRows;
-        }
         var megaView = megaRows.length ? installMegaView(
           megaMembershipRows, true, false, '', {
             region: mega.region,
@@ -50635,7 +50684,10 @@
               + '+ independent observers on a bird with no recent reports.</div>'
             : '<div class="status">No alerts are available from the sources that loaded.</div>');
           wireSurgeControls();
-          if (!(sourceState && sourceState.suppressNotifications)) syncBirdGenNotificationRows([]);
+          if (!(sourceState && sourceState.suppressNotifications)
+              && Object.keys(sourceStates).every(function (key) {
+                return /^(ok|notApplicable|unavailable)$/.test(sourceStates[key]);
+              })) syncBirdGenNotificationRows([]);
           updateRecentBirdGen();
           return 0;
         }
@@ -50860,7 +50912,7 @@
             time: surgeTimeValue(newestWhen),
             ageTime: surgePreciseTimeValue(newestWhen),
             checklistId: (newest && newest.subId) || '',
-            extra: (outside ? '<b>Outside your chase area · '
+            extra: (c.scopeContext ? esc(c.scopeContext) + '. ' : '') + (outside ? '<b>Outside your chase area · '
                 + esc(surgeDistanceText(near)) + ' away</b>. ' : '')
               + 'Leaderboard additions: ' + esc(fmtDate(c.earliest || c.latest))
               + (c.earliest && c.earliest !== c.latest ? ' – ' + esc(fmtDate(c.latest)) : '')
@@ -51116,22 +51168,133 @@
           ;
         box.innerHTML = html;
         wireSurgeControls();
-        if (!(sourceState && sourceState.suppressNotifications)) syncBirdGenNotificationRows(rows);
+        if (!(sourceState && sourceState.suppressNotifications)
+            && Object.keys(sourceStates).every(function (key) {
+              return /^(ok|notApplicable|unavailable)$/.test(sourceStates[key]);
+            })) syncBirdGenNotificationRows(rows);
         updateRecentBirdGen();
         if (!(sourceState && sourceState.deferPhotos)) hydratePhotos(box);
         return rows.length;
       }
 
+      function projectBirdGenObservations(res, scope) {
+        scope = scope || activeScope();
+        if (!res || !res.cv) return res;
+        var out = Object.assign({}, res), unknown = 0, bounded = boundedPublicRegion(scope.effectiveRegion);
+        function project(rows, region) {
+          if (!bounded) return (rows || []).slice();
+          var admitted = publicEvidenceFromSource(rows, scope, region);
+          (rows || []).forEach(function (row) {
+            if (publicEvidenceMembership(row, scope).state === 'unknown'
+                && !publicEvidenceFromSource([row], scope, region).length) unknown++;
+          });
+          return admitted;
+        }
+        var raw = res.rows && Object.keys(res.rows).some(function (key) { return Array.isArray(res.rows[key]); });
+        if (raw) {
+          var origins = {};
+          if (res.profile) BL.planFeeds(res.profile).forEach(function (feed) {
+            var match = /^data\/obs\/([A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?)\//.exec(feed.path);
+            if (match) origins[feed.file] = match[1];
+          });
+          var rows = {};
+          Object.keys(res.rows).forEach(function (key) {
+            if (Array.isArray(res.rows[key])) rows[key] = project(res.rows[key], origins[key]);
+          });
+          out.rows = rows;
+          out.cv = computeChaseRows(birdGenObservationProfile(), getReportSlug(), rows, null, null,
+            Object.assign({}, scope, { publicEvidence: true }));
+        } else if (bounded) {
+          out.cv = Object.assign({}, res.cv, {
+            merged: project(res.cv.merged || []), destinations: []
+          });
+        }
+        out.scopeWithheld = unknown;
+        if (unknown) { out.partial = true; out.feedComplete = false; }
+        return out;
+      }
+      function projectBirdGenPart(key, value, scope) {
+        scope = scope || activeScope();
+        if (!value || key === 'observed' || !boundedPublicRegion(scope.effectiveRegion)) return value;
+        var next = Object.assign({}, value), unknown = 0;
+        function project(rows, region) {
+          rows = rows || [];
+          var admitted = publicEvidenceFromSource(rows, scope, region);
+          unknown += rows.filter(function (row) {
+            return publicEvidenceMembership(row, scope).state === 'unknown'
+              && !publicEvidenceFromSource([row], scope, region).length;
+          }).length;
+          return admitted;
+        }
+        if (key === 'cascades') {
+          next.evidenceRows = value.evidenceRows || value.rows;
+          next.rows = (value.rows || []).map(function (row) {
+            return Object.assign({}, row, {
+              recent: project(row.recent), publicHotspots: project(row.publicHotspots),
+              scopeContext: 'Regional leaderboard context; sightings restricted to ' + scope.label
+            });
+          });
+        } else if (key === 'ppte') {
+          next.rows = ppteEvents(project(value.evidenceRows), {hotspots:project(value.hotspots)});
+        } else if (key === 'mass') {
+          next.rows = massFlockAlerts(project(value.evidenceRows, value.sourceRegion), {
+            now:Date.now(), region:scope.parentRegion,
+            countyCode:scope.level === 'subregion' ? scope.effectiveRegion : '',
+            home:activeSavedBase(), maxMi:chaseMaxMi(),
+            allowedPrivateLocIds:value.allowedPrivateLocIds || {},
+            singleObservation:value.source === 'highCountPage'
+          });
+          next.rows.forEach(function (flock) {
+            flock.found = value.includeProvisional === true
+              ? massArrivalEvidence(flock, (value.arrivalDays || {})[flock.locId], Date.now()).found : null;
+          });
+        } else if (key === 'favorite' && value.evidenceFeeds && value.favoriteSources) {
+          var favorites = favoritePatchAlerts(value.favoriteSources, value.evidenceFeeds, {
+            region:scope.parentRegion, scope:scope,
+            countyCode:scope.level === 'subregion' ? scope.effectiveRegion : '',
+            now:Date.now(), seen:isSpeciesSeen
+          });
+          next.rows = favorites.rows;
+          var pairs = {};
+          next.rows.forEach(function (row) { pairs[row.locId + '|' + row.code] = true; });
+          next.rows = next.rows.concat(project(value.rows).filter(function (row) {
+            return !pairs[row.locId + '|' + row.code]
+              && (value.refreshedLocIds || []).indexOf(row.locId) < 0;
+          }));
+          unknown += favorites.scopeWithheld || 0;
+        } else if (key === 'convergence') {
+          next.rows = value.boundedScope === scope.cacheIdentity ? value.rows : [];
+          if (!value.boundedScope && (value.rows || []).length) unknown++;
+        } else {
+          next.evidenceRows = value.evidenceRows || value.rows;
+          next.rows = project(value.rows);
+        }
+        next.scopeWithheld = unknown;
+        if (unknown && next.state === 'ok') next.state = 'partial';
+        return next;
+      }
+      function mergeBirdGenEvidence(previous, fresh, states) {
+        var merged = Object.assign({}, previous || {});
+        Object.keys(fresh || {}).forEach(function (key) {
+          if (!Array.isArray(fresh[key])) return;
+          var seen = {};
+          merged[key] = fresh[key].concat(states && states[key] === 'ok' ? []
+            : Array.isArray(merged[key]) ? merged[key] : [])
+            .filter(function (row) {
+              var identity = JSON.stringify(row);
+              if (seen[identity]) return false;
+              seen[identity] = true; return true;
+            });
+        });
+        return merged;
+      }
       function surgeObservedResult(res, now, recoverNeverAlerted) {
         if (res && res.capabilityUnavailable === true && !res.cv) return {
           state: 'unavailable', merged: [], events: [], needs: [], patches: [], twitchRows: []
         };
         if (!res || !res.cv) throw new Error('recent/notable feeds returned no chase view');
-        if (res.rows && Object.keys(res.rows).some(function (key) { return Array.isArray(res.rows[key]); })) {
-          var savedView = computeChaseRows(birdGenObservationProfile(), getReportSlug(), res.rows, null);
-          if (getCountyView()) savedView = filterCvByCounty(savedView, getCountyView());
-          res = Object.assign({}, res, { cv: savedView });
-        }
+        var rawEvidence = res.rows || null, sourceProfile = res.profile || null;
+        res = projectBirdGenObservations(res);
         var merged = checklistPartyRows(res.cv.merged || []).map(function (row) {
           return Object.assign({}, row);
         });
@@ -51141,7 +51304,9 @@
         }).map(function (r) { return r.code; });
         return {
           state: chaseAlertSourceState(res),
-          evidenceRows: res.rows || null,
+          evidenceRows: rawEvidence,
+          evidenceStates: res.feedStates || {},
+          sourceProfile: sourceProfile, scopeWithheld: res.scopeWithheld || 0,
           merged: merged,
           twitchRows: twitchObservedAlerts(res, merged, now, recoverNeverAlerted),
           events: BL.surgeEvents(merged, {
@@ -51385,7 +51550,7 @@
         var context = surgeRetainedContext(), times = {}, now = Date.now();
         try {
           var saved = JSON.parse(localStorage.getItem(key) || 'null');
-          if (saved && saved.context === context) Object.keys(SURGE_SOURCE_LABELS).forEach(function (name) {
+          if (saved && saved.context === context && saved.evidencePolicy === 'bounded-v1') Object.keys(SURGE_SOURCE_LABELS).forEach(function (name) {
             var at = saved.times && saved.times[name];
             if (Number.isSafeInteger(at) && at > 0 && at <= now) times[name] = at;
           });
@@ -51497,6 +51662,7 @@
         _surgeDecisionTrace = {};
         beginCcLoTraceCapture(generation);
         var loadRetainedContext = surgeRetainedContext();
+        var patchScope = Object.assign({}, loadScope, {publicEvidence:true});
         var loadNavigation = _navGeneration, loadCancellation = _workCancelGeneration;
         var stopped = false, terminalOutcome = '', autoload = typeof performanceLoadId === 'string';
         var section = $('sec-surgeBtn');
@@ -51595,7 +51761,7 @@
                 if (!current()) return { state: 'cancelled' };
                 pendingSources[key] = false;
                 if (key === 'mega') attemptStates[key] = aggregate ? 'unavailable' : result && result.state === 'failed'
-                  ? 'failed' : megaAlertSourceState(megaLane(savedBaseAnchors()));
+                  ? 'failed' : megaAlertSourceState(megaLane(savedBaseAnchors(), loadScope));
                 else if (key === 'birdcast') {
                   if (result && result.state === 'failed') birdcastState = 'failed';
                   attemptStates[key] = birdcastState;
@@ -51606,8 +51772,8 @@
                   var modelKey = sourceModelKeys[key];
                   var finalResult = key === 'leaderboard'
                     ? surgeSourceFallback(result, cachedCascades) : result;
-                  publishSource(modelKey, finalResult);
-                  attemptStates[key] = finalResult.state;
+                  result = publishSource(modelKey, finalResult);
+                  attemptStates[key] = result.state;
                 } else attemptStates[key] = result.state;
                 if (retry && (key === 'leaderboard' || key === 'hotspots')) {
                   var recovered = {};
@@ -51666,7 +51832,7 @@
           if (!current()) throw queueCancelledError({ label: 'Bird Gen render' });
           renderReady = true;
           hydratePhotos(resultsBox);
-          return loadSurgeRetainedAsync().then(function (persisted) {
+          return ensurePatchScope(loadScope).then(loadSurgeRetainedAsync).then(function (persisted) {
             if (!current()) throw queueCancelledError({ label: 'Bird Gen retained restore' });
             if (persisted && surgeModel) {
               Object.keys(persisted).forEach(function (key) {
@@ -51732,9 +51898,16 @@
         var retained = loadSurgeRetained() || {};
         function publishSource(key, result) {
           if (!(key === 'convergence' ? ownsView() : current()) || !surgeModel) return result;
+          result = projectBirdGenPart(key, result, loadScope);
           var previous = surgeModel[key];
           if (key === 'mass' || key === 'ppte') {
             result = mergeEventFeedResult(key, previous, result);
+            if (key === 'mass' && previous && /^(partial|loading)$/.test(result.state)) {
+              result = Object.assign({}, result, {
+                evidenceRows:mergeRarityRecords(result.evidenceRows || [], previous.evidenceRows || []),
+                arrivalDays:Object.assign({}, previous.arrivalDays || {}, result.arrivalDays || {})
+              });
+            }
           } else if (result.state === 'failed' && previous && key !== 'convergence') {
             result = Object.assign({}, previous, { state: 'failed',
               failedLocIds: result.failedLocIds });
@@ -51752,7 +51925,17 @@
             result = Object.assign({}, result, {
               rows: fresh.concat(keep), retainedAt: keep.length ? previous.retainedAt : null
             });
+            if (key === 'favorite' && previous.evidenceFeeds) {
+              var feeds = Object.assign({}, previous.evidenceFeeds);
+              Object.keys(result.evidenceFeeds || {}).forEach(function (locId) {
+                if (result.evidenceFeeds[locId].state === 'ok' || !feeds[locId]) {
+                  feeds[locId] = result.evidenceFeeds[locId];
+                }
+              });
+              result.evidenceFeeds = feeds;
+            }
           }
+          result = projectBirdGenPart(key, result, loadScope);
           surgeModel[key] = result;
           var sourceKey = { observed: 'observations', cascades: 'leaderboard',
             convergence: 'hotspots', favorite: 'favorites', mass: 'mass', ppte: 'ppte' }[key];
@@ -51767,7 +51950,7 @@
           if (!ownsView(ending)
               || loadContext !== surgeSourceContext() || !surgeModel) return 0;
           var states = Object.assign({
-            mega: megaAlertSourceState(megaLane(savedBaseAnchors())),
+            mega: megaAlertSourceState(megaLane(savedBaseAnchors(), loadScope)),
             birdcast: birdcastState,
             observations: surgeModel.observed.state,
             leaderboard: surgeModel.cascades.state,
@@ -51795,6 +51978,7 @@
             _merged,
             Object.assign({}, states, {
               massCoverage: surgeModel.mass.coverage, massSource: surgeModel.mass,
+              boundedScope: surgeModel.convergence.boundedScope,
               deferPhotos: !renderReady,
               pendingSources: Object.assign({}, pendingSources),
               outcome: terminalOutcome,
@@ -51828,6 +52012,10 @@
           if ((observed.state === 'failed' || observed.state === 'unavailable') && surgeModel && surgeModel.observed) {
             observed = Object.assign({}, surgeModel.observed, { state: observed.state });
           } else if (observed.state === 'partial' && surgeModel && surgeModel.observed) {
+            var rawEvidence = mergeBirdGenEvidence(surgeModel.observed.evidenceRows,
+              observed.evidenceRows, observed.evidenceStates);
+            var evidenceStates = observed.evidenceStates;
+            var sourceProfile = observed.sourceProfile || surgeModel.observed.sourceProfile;
             var freshKeys = {};
             observed.merged.forEach(function (row) { freshKeys[BL.obsDedupKey(row)] = true; });
             var earlier = surgeModel.observed.merged.filter(function (row) {
@@ -51837,6 +52025,8 @@
             if (earlier.length) observed = Object.assign(surgeObservedResult({
               partial: true, cv: { merged: observed.merged.concat(earlier) }
             }, now), { retainedAt: surgeModel.observed.retainedAt });
+            observed = Object.assign({}, observed, {evidenceRows:rawEvidence,
+              evidenceStates:evidenceStates, sourceProfile:sourceProfile});
           }
           _merged = observed.merged || [];
           attemptStates.observations = observed.state;
@@ -51902,7 +52092,7 @@
         massSource = surgeModel.mass;
         _merged = surgeModel.observed.merged || [];
         _surgeBusySnapshot = function (snapshot) {
-          if (!ownsView() || snapshot.context !== hotspotContextKey()) return;
+          if (!ownsView() || snapshot.context !== hotspotContextKey(null, null, null, patchScope)) return;
           if (surgeModel && surgeModel.observed) {
             _merged = checklistPartyRows(surgeModel.observed.merged || []);
             surgeModel.observed = Object.assign({}, surgeModel.observed, {
@@ -51912,12 +52102,12 @@
             });
             saveSurgeRetainedPart('observed', surgeModel.observed);
           }
-          cachedConvergence = busySnapshotSource(snapshot.result);
+          cachedConvergence = Object.assign(busySnapshotSource(snapshot.result), {boundedScope:loadScope.cacheIdentity});
           pendingSources.hotspots = !!snapshot.result.busyState.pending;
           publishSource('convergence', cachedConvergence);
         };
-        if (!aggregate && currentBusySnapshot()) _surgeBusySnapshot({
-          context: hotspotContextKey(), result: currentBusySnapshot()
+        if (!aggregate && currentBusySnapshot(false, patchScope)) _surgeBusySnapshot({
+          context: hotspotContextKey(null, null, null, patchScope), result: currentBusySnapshot(false, patchScope)
         });
         paintSurgeModel();
         _surgeEarlyPaint = function (res) {
@@ -51933,9 +52123,10 @@
             ? null : loadSurgeSourceCache();
         }).then(function (cache) {
               if (!current() || !cache) return cache;
-              cachedCascades = surgeCachedSource(cache, 'cascades');
-              cachedConvergence = currentBusySnapshot()
-                ? busySnapshotSource(currentBusySnapshot()) : null;
+              cachedCascades = projectBirdGenPart('cascades', surgeCachedSource(cache, 'cascades'), loadScope);
+              cachedConvergence = currentBusySnapshot(false, patchScope)
+                ? Object.assign(busySnapshotSource(currentBusySnapshot(false, patchScope)),
+                  {boundedScope:loadScope.cacheIdentity}) : null;
               if (!cachedCascades && !cachedConvergence) return cache;
               var observed = surgeModel && surgeModel.observed || {
                 state: 'loading', merged: [], events: [], needs: [], patches: []
@@ -52116,17 +52307,18 @@
           if (countyState !== 'ok') return { state: countyState, rows: [] };
           _surgeHotspotRetry = function (path) {
             if (!current()) return null;
-            if (_busyRequests.context !== hotspotContextKey() || !_busyRequests.paths[path]) return null;
+            if (_busyRequests.context !== hotspotContextKey(null, null, null, patchScope) || !_busyRequests.paths[path]) return null;
             return sourceTasks.hotspots(true).then(function (result) { return result.state === 'ok'; });
           };
-          return acquireBusyPatches(refreshSources && !retry, retry).then(function (result) {
+          return acquireBusyPatches(refreshSources && !retry, retry, null, null, null, patchScope).then(function (result) {
             if (!current()) return { state: 'cancelled', rows: [] };
-            return result ? busySnapshotSource(currentBusySnapshot() || result)
+            return result ? Object.assign(busySnapshotSource(currentBusySnapshot(false, patchScope) || result),
+              {boundedScope:loadScope.cacheIdentity})
               : { state: 'failed', rows: [] };
           }).catch(function (error) {
-            var previous = currentBusySnapshot();
+            var previous = currentBusySnapshot(false, patchScope);
             if (!previous) throw error;
-            return Object.assign(busySnapshotSource(previous), { state: 'failed' });
+            return Object.assign(busySnapshotSource(previous), { state: 'failed', boundedScope:loadScope.cacheIdentity });
           });
         });
         activeLoad.settled = Promise.allSettled([
@@ -52136,7 +52328,7 @@
         ].map(function (source) {
           return source[1].then(function (result) {
             var state = result && result.state || 'settled';
-            if (source[0] === 'mega') state = megaAlertSourceState(megaLane(savedBaseAnchors()));
+            if (source[0] === 'mega') state = megaAlertSourceState(megaLane(savedBaseAnchors(), loadScope));
             if (source[0] === 'birdcast') state = birdcastState;
             if (refreshSources && current() && state === 'ok') acquired.times[source[0]] = Date.now();
             if (_performance && current()) {
@@ -52166,7 +52358,7 @@
             if (_performance && !performanceHasContent(section)) {
               _performance.mark(performanceLoadId, 'report_first_content', {
                 completeness: surgeSourcesComplete(surgeSourceStates(
-                  megaLane(savedBaseAnchors()), {
+                  megaLane(savedBaseAnchors(), loadScope), {
                     birdcast: birdcastState,
                     observations: surgeModel.observed.state,
                     leaderboard: surgeModel.cascades.state,
@@ -52182,13 +52374,13 @@
           if (_surgeActiveLoad === activeLoad) _surgeActiveLoad = null;
           if (!current()) return { state: 'cancelled' };
           if (fullRefresh) {
-            var serialized = JSON.stringify({ context: acquired.context, times: acquired.times });
+            var serialized = JSON.stringify({ context: acquired.context, times: acquired.times, evidencePolicy:'bounded-v1' });
             if (!storeWithReclaim(acquired.key, serialized)) {
               dbg('warn', 'Bird Gen acquisition order could not be saved; unknown sources remain oldest.');
             }
           }
-          var states = surgeSourceStates(megaLane(savedBaseAnchors()), {
-            mega: aggregate ? 'unavailable' : megaAlertSourceState(megaLane(savedBaseAnchors())),
+          var states = surgeSourceStates(megaLane(savedBaseAnchors(), loadScope), {
+            mega: aggregate ? 'unavailable' : megaAlertSourceState(megaLane(savedBaseAnchors(), loadScope)),
             birdcast: birdcastState, observations: surgeModel.observed.state,
             leaderboard: surgeModel.cascades.state, hotspots: surgeModel.convergence.state,
             favorites: surgeModel.favorite.state, mass: surgeModel.mass.state,
@@ -56220,6 +56412,8 @@
         if (_recentBirdGenWarmContext === context && _recentBirdGenWarm) return _recentBirdGenWarm;
         _recentBirdGenWarmContext = context;
         _recentBirdGenWarm = loadSurgeRetainedAsync().then(function (model) {
+          return model ? ensurePatchScope(activeScope()).then(loadSurgeRetainedAsync) : null;
+        }).then(function (model) {
           if (_appUnloading || !window.document) return;
           if (context !== recentBirdGenKey() || _recentBirdGenContext === context || !model) return;
           var observed = model.observed || { events: [], needs: [], merged: [], patches: [], twitchRows: [] };
@@ -56231,6 +56425,7 @@
               favorites: model.favorite ? 'stale' : 'notLoaded',
               mass: model.mass ? 'stale' : 'notLoaded',
               massSource: model.mass, massCoverage: model.mass && model.mass.coverage,
+              boundedScope: model.convergence && model.convergence.boundedScope,
               ppteSource: model.ppte,
               ppte: model.ppte ? 'stale' : 'notLoaded',
               foy: model.foy ? 'stale' : 'notLoaded',
@@ -56392,7 +56587,7 @@
             ? _recentBirdGenModel.args : [];
           var freshKeys = {};
           fresh.merged.forEach(function (row) { freshKeys[BL.obsDedupKey(row)] = true; });
-          var merged = fresh.merged.concat((prior[4] || []).filter(function (row) {
+          var merged = fresh.merged.concat(publicEvidenceRows(prior[4] || [], scope).filter(function (row) {
             return row.kind !== 'Rarity' && !freshKeys[BL.obsDedupKey(row)];
           }));
           var observed = surgeObservedResult({ partial: true, cv: { merged: merged } }, Date.now());
@@ -56403,20 +56598,34 @@
             observations: 'notableOnly', twitchRows: fresh.twitchRows,
             deferPhotos: true, suppressNotifications: true
           });
+          var mass = projectBirdGenPart('mass', states.massSource || {rows:[]}, scope);
+          var ppte = projectBirdGenPart('ppte', states.ppteSource || {rows:[]}, scope);
+          states.massSource = mass;
+          states.ppteSource = ppte;
+          states.ppteRows = ppte.rows;
+          var patches = states.boundedScope === scope.cacheIdentity ? prior[6] || [] : [];
           ['leaderboard', 'hotspots', 'favorites', 'mass', 'ppte', 'foy'].forEach(function (key) {
             states[key] = states[key] === 'notApplicable' ? 'notApplicable'
               : states[key] === 'notLoaded' || !states[key] ? 'notLoaded' : 'retained';
           });
-          renderSurge(observed.events, prior[1], prior[2], observed.needs, merged,
-            states, prior[6], prior[7], prior[8]);
+          renderSurge(observed.events,
+            projectBirdGenPart('cascades', {rows:prior[1] || []}, scope).rows,
+            projectBirdGenPart('convergence', {rows:prior[2] || [], boundedScope:states.boundedScope}, scope).rows,
+            observed.needs, merged, states, patches,
+            projectBirdGenPart('favorite', {rows:prior[7] || []}, scope).rows,
+            mass.rows);
           setRecentBirdGenStatus('Notable sightings checked '
             + new Date(res.t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
             + (res.partial ? ' · partial nearby coverage; source distance is capped at '
               + res.coverageKm + ' km' : '')
             + ' · other sources retained, not refreshed'
             + (freshTracking.status ? ' · ' + freshTracking.status : ''));
+          var priorObserved = (loadSurgeRetained() || {}).observed;
           return saveSurgeRetainedPart('observed', Object.assign({}, observed, {
-            evidenceRows: null, patches: prior[6] || []
+            evidenceRows: mergeBirdGenEvidence(priorObserved && priorObserved.evidenceRows, res.rows, res.feedStates),
+            evidenceStates:res.feedStates || {},
+            sourceProfile:res.profile || priorObserved && priorObserved.sourceProfile || null,
+            patches: patches
           })).then(function (stored) {
             if (current() && !stored) setRecentBirdGenStatus(status.textContent + ' · latest results could not be saved');
           });
@@ -56950,6 +57159,9 @@
             return { code: c.code, label: c.label, slug: c.slug };
           }).sort(function (a, b) { return String(a.code).localeCompare(String(b.code)); }),
           stateCode: profile.stateCode,
+          evidenceRegion: boundedPublicRegion(activeScope().effectiveRegion) ? activeScope().effectiveRegion : '',
+          evidencePolicy: 'bounded-v1',
+          evidenceBoundary: _patchBoundaries[activeScope().effectiveRegion] || null,
           geoFeed: profile.geoFeed,
           geoDistKm: profile.geoDistKm,
           chaseMaxMi: chaseMaxMi(),
@@ -57276,7 +57488,7 @@
           element.setAttribute('aria-label', element.getAttribute('aria-label').replace(/Home/g, 'Temp Home'));
         });
         temp.querySelector('summary').textContent = 'Edit Temp Home location';
-        temp.querySelector('#tempClearHomeBtn').textContent = 'Clear / Use Home';
+        temp.querySelector('#tempClearHomeBtn').textContent = 'Clear';
         temp.querySelector('#tempHomeRegionLabel').textContent = '';
         groups.account.appendChild(temp);
         var migration = document.createElement('div');
@@ -57302,18 +57514,43 @@
         var locations = document.createElement('section');
         locations.id = 'settingsSavedLocations';
         locations.setAttribute('aria-label', 'Home and Temp Home');
-        [[home, 'home', 'Home', 'Your permanent base for this profile.'],
-          [temp, 'tempHome', 'Temp Home', 'Optional override. Clear / Use Home returns to Home.']]
-          .forEach(function (item) {
-            var bubble = document.createElement('section');
-            bubble.id = item[1] + 'SettingsBubble'; bubble.className = 'home-review';
-            var heading = document.createElement('h3');
-            heading.id = item[1] + 'SettingsTitle'; heading.textContent = item[2];
-            bubble.setAttribute('aria-labelledby', heading.id);
-            var hint = document.createElement('p'); hint.textContent = item[3];
-            bubble.append(heading, hint, $(item[1] + 'SavedSummary'), item[0]);
-            locations.appendChild(bubble);
+        var required = document.createElement('p');
+        required.id = 'savedHomeRequired'; required.className = 'saved-location-warning';
+        required.setAttribute('role', 'alert'); required.textContent = '\u26a0 Home location required';
+        var bubble = document.createElement('section');
+        bubble.id = 'homeSettingsBubble'; bubble.className = 'home-review';
+        bubble.setAttribute('aria-labelledby', 'homeSettingsTitle');
+        bubble.innerHTML = '<h3 id="homeSettingsTitle"></h3><div id="savedLocationWarnings"></div>'
+          + '<button id="tempHomeRestore" type="button" class="secondary">Restore default home</button>';
+        var homeMap = $('homeSavedMap'), tempMap = $('tempHomeSavedMap');
+        homeMap.remove(); tempMap.remove();
+        bubble.querySelector('h3').after($('tempHomeSavedSummary'), $('homeSavedSummary'));
+        bubble.append(home, temp, homeMap, tempMap);
+        locations.append(required, bubble);
+        [home, temp].forEach(function (editor) {
+          editor.addEventListener('toggle', function () {
+            if (editor.open && editor === home && tempHome()) {
+              editor.open = false;
+              return;
+            }
+            if (editor.open) {
+              var point = editor === home ? getHome() : tempHome();
+              var field = editor.querySelector('input');
+              if (!editor._editing) field.value = point && point.label
+                || (editor === home ? localStorage.getItem(homeKey('place')) : '')
+                || (point ? point.lat + ', ' + point.lng : '');
+              if (!editor._editing) $(editor === home ? 'geocodeStatus' : 'tempGeocodeStatus').textContent = '';
+              editor._editing = true;
+            } else {
+              if (editor._editing) {
+                if (editor === home) cancelHomeLookup();
+                else cancelTempHomeLookup();
+              }
+              editor._editing = false;
+            }
+            renderSavedLocations();
           });
+        });
         categories.before(locations);
         $('ebirdSignOut').textContent = 'Logout';
         var status = document.createElement('p');
@@ -60971,6 +61208,7 @@
         $('homeDeviceSave').hidden = true;
         $('geocodeBtn').disabled = false;
         $('homeCurrentLocation').disabled = false;
+        if ($('homeChoices')) $('homeChoices').replaceChildren();
       }
       var _homeOutsideCandidate = null;
       var _homeDeviceCandidate = null;
@@ -60979,14 +61217,17 @@
         var saved = getHome();
         $('homeLat').value = saved ? saved.lat : '';
         $('homeLng').value = saved ? saved.lng : '';
-        $('homePlace').value = localStorage.getItem(homeKey('place')) || '';
+        $('homePlace').value = localStorage.getItem(homeKey('place'))
+          || (saved ? saved.lat + ', ' + saved.lng : '');
         $('geocodeStatus').textContent = 'Lookup cancelled. Saved Home is unchanged.';
+        $('settingsHomeEditor').open = false;
+        renderSavedLocations();
       });
       $('homeCandidateCancel').addEventListener('click', function () { $('homeFindCancel').click(); });
       ['homePlace', 'homeLat', 'homeLng'].forEach(function (id) {
         $(id).addEventListener('input', function () {
           cancelHomeLookup();
-          $('geocodeStatus').textContent = 'Not saved yet. Tap Find to review the candidate. Saved Home is unchanged.';
+          $('geocodeStatus').textContent = 'Not saved yet. Tap Go to review the candidate. Saved Home is unchanged.';
         });
       });
       function reviewSettingsHomeCandidate(candidate, outside, source) {
@@ -60998,15 +61239,70 @@
         $('homeCandidateReview').hidden = false;
         $('homeCandidateSummary').textContent = source + ': ' + res.label + ' ('
           + res.lat.toFixed(5) + ', ' + res.lng.toFixed(5) + ').';
+        savedLocationMapHandoff($('homeCandidateSummary'), res);
         $('homeCandidateConsent').textContent = 'Check the pin. Save Home will '
           + (getHome() ? 'replace your saved Home' : 'set Home') + ' across regions in this profile.'
           + ' Cancel lookup leaves saved Home unchanged.'
-          + (outside ? ' Warning: this is outside the selected region or its region could not be verified.'
-            : res.manualCoordinates ? ' Coordinates supplied; region membership is not verified.' : '');
+          + ' ' + candidate.assessment.text;
+        $('homeOutsideSave').textContent = 'Save Home anyway';
         renderMap($('homeCandidateMap'), [{ lat: res.lat, lng: res.lng,
           num: 'C', locName: 'Candidate Home - not saved' }], null, false, '#0072b2');
       }
+      function savedLocationMapHandoff(host, point) {
+        var link = document.createElement('a');
+        link.className = 'maplink'; link.dataset.q = point.lat + ',' + point.lng;
+        link.href = mapPointUrl(link.dataset.q); link.textContent = 'Open in Maps';
+        host.append(document.createTextNode(' '), link);
+      }
+      function savedLocationAssessment(point, scope, radius) {
+        return loadRegionBoundary(scope.parentRegion, scope.effectiveRegion).then(function (boundary) {
+          var reach = BL.regionReachability(point, boundary, radius);
+          var inside = BL.regionReachability(point, boundary, 0);
+          return {
+            warning: reach.state !== 'reachable',
+            text: reach.state === 'unreachable'
+              ? 'Warning: beyond ' + radius + ' mi of ' + scope.label + '. Region stays unchanged.'
+              : reach.state === 'unknown'
+                ? 'Warning: distance to ' + scope.label + ' could not be verified. Region stays unchanged.'
+                : inside.state === 'unreachable'
+                  ? 'Outside ' + scope.label + ', but within ' + radius + ' mi of its boundary. Region stays unchanged.' : ''
+          };
+        });
+      }
+      function chooseSavedLocation(query, device, choices, current, select) {
+        choices.replaceChildren();
+        return (device ? getDeviceLocation().then(function (point) {
+          return [homeLocationCandidate(point, 'Current location')];
+        }) : geocodePlace(query, { home: true, candidates: true, unqualified: true })).then(function (rows) {
+          if (!current()) return false;
+          var seen = {};
+          rows = rows.filter(function (row) {
+            var key = row.lat.toFixed(5) + ',' + row.lng.toFixed(5);
+            if (seen[key]) return false;
+            seen[key] = true; return true;
+          });
+          if (!rows.length) throw new Error('No matching locations. Try a more specific address.');
+          if (rows.length === 1) return select(rows[0]);
+          var prompt = document.createElement('p');
+          prompt.textContent = 'Choose a location'; prompt.setAttribute('role', 'status');
+          choices.appendChild(prompt);
+          rows.forEach(function (point) {
+            var button = document.createElement('button');
+            button.type = 'button'; button.className = 'secondary'; button.textContent = point.label;
+            button.addEventListener('click', function () {
+              if (!current() || !button.isConnected) return;
+              choices.replaceChildren();
+              Promise.resolve(select(point)).catch(function (error) {
+                if (current()) dbg('warn', 'Location review: ' + netErr(error));
+              });
+            });
+            choices.appendChild(button);
+          });
+          return false;
+        });
+      }
       function lookupSettingsHome(q) {
+        if (tempHome()) return Promise.resolve(false);
         var typed = ($('apiKey').value || '').trim(), wrong = typed ? keyLooksWrong(typed) : '';
         if (wrong) {
           setKeyStatus('Not saved: that key ' + wrong + '. Fix it, or tap Get a key.', 'bad');
@@ -61014,10 +61310,12 @@
         }
         var generation = ++_homeLookupGeneration, report = getReportSlug();
         var profile = bcProfile(), scope = activeScope(), identity = _identityGeneration;
+        var radius = chaseMaxMi(), base = savedBaseIdentity();
         var st = $('geocodeStatus'), btn = $('geocodeBtn');
         function current() {
           return generation === _homeLookupGeneration && report === getReportSlug()
-            && profile === bcProfile() && scopeCurrent(scope) && identity === _identityGeneration;
+            && profile === bcProfile() && scopeCurrent(scope) && identity === _identityGeneration
+            && radius === chaseMaxMi() && base === savedBaseIdentity() && !$('settingsPanel').hidden;
         }
         btn.disabled = true; st.textContent = 'Looking up \u201c' + q + '\u201d\u2026';
         _homeOutsideCandidate = null;
@@ -61026,24 +61324,19 @@
         clearMap($('homeCandidateMap'));
         $('homeOutsideSave').hidden = true;
         $('homeDeviceSave').hidden = true;
-        return geocodePlace(q, { home: true }).then(function (res) {
-          if (!current()) return false;
-          var owned = { result: res, generation: generation, report: report,
-            profile: profile, scope: scope, identity: identity };
-          var outside = res.regionMatch !== true && !res.manualCoordinates;
-          reviewSettingsHomeCandidate(owned, outside, 'Search result');
-          if (outside) {
-            st.textContent = 'Warning: ' + res.label + ' (' + res.lat.toFixed(4)
-              + ', ' + res.lng.toFixed(4) + ') is outside ' + getReport().label
-              + ' or its region could not be verified. Home was not saved. '
-              + 'Qualify the search, enter coordinates, or explicitly save this out-of-region Home.';
-            return false;
-          }
-          st.textContent = 'Not saved yet. Review the map and choose Save Home. Saved Home is unchanged.';
-          return true;
+        return chooseSavedLocation(q, false, $('homeChoices'), current, function (res) {
+          return savedLocationAssessment(res, scope, radius).then(function (assessment) {
+            if (!current()) return false;
+            var owned = { result: res, generation: generation, report: report,
+              profile: profile, scope: scope, identity: identity, radius: radius, base: base,
+              assessment: assessment };
+            reviewSettingsHomeCandidate(owned, assessment.warning, 'Search result');
+            st.textContent = assessment.text || 'Not saved yet. Review the map and choose Save Home.';
+            return true;
+          });
         }).catch(function (e) {
           if (!current()) return false;
-          st.textContent = ((e && e.message) ? e.message : 'Lookup failed.') + ' Fix it or clear Home, then try again.';
+          st.textContent = ((e && e.message) ? e.message : 'Lookup failed.') + ' Edit or clear the address, then try again.';
           dbg('warn', 'Home lookup failed: ' + netErr(e));
           return false;
         }).finally(function () { if (current()) btn.disabled = false; });
@@ -61052,16 +61345,19 @@
         if (!candidate || candidate.generation !== _homeLookupGeneration
             || candidate.report !== getReportSlug() || candidate.profile !== bcProfile()
             || !scopeCurrent(candidate.scope) || candidate.identity !== _identityGeneration
-            || $('settingsPanel').hidden) return;
+            || candidate.radius !== chaseMaxMi() || candidate.base !== savedBaseIdentity()
+            || tempHome() || $('settingsPanel').hidden) return;
         var res = candidate.result;
         $('homeLat').value = res.lat.toFixed(5);
         $('homeLng').value = res.lng.toFixed(5);
         $('homePlace').value = res.label;
         cancelHomeLookup();
         saveOwnedHome(res, res.label);
+        $('settingsHomeEditor').open = false;
+        renderSavedLocations();
         invalidateSettingsEvidence('home-save');
         $('geocodeStatus').textContent = outside
-          ? 'Explicitly saved out-of-region Home: ' + res.label + '.'
+          ? 'Saved Home with the reviewed warning: ' + res.label + '.'
           : 'Saved. Approved shared Home for this profile: ' + res.label + '.';
       }
       $('homeOutsideSave').addEventListener('click', function () {
@@ -61071,14 +61367,16 @@
         confirmSettingsHomeCandidate(_homeDeviceCandidate, false);
       });
       $('homeCurrentLocation').addEventListener('click', function () {
+        if (tempHome()) return;
         cancelHomeLookup();
         var generation = _homeLookupGeneration, profile = bcProfile();
         var scope = activeScope(), identity = _identityGeneration;
+        var radius = chaseMaxMi(), base = savedBaseIdentity();
         var button = this, status = $('geocodeStatus');
         function current() {
           return generation === _homeLookupGeneration && profile === bcProfile()
             && scopeCurrent(scope) && identity === _identityGeneration
-            && !$('settingsPanel').hidden;
+            && radius === chaseMaxMi() && base === savedBaseIdentity() && !$('settingsPanel').hidden;
         }
         if (!getReportSlug()) {
           status.textContent = 'Choose a report region before saving Home, or use Home-first setup.';
@@ -61089,24 +61387,17 @@
         getDeviceLocation().then(function (point) {
           if (!current()) return;
           var candidate = homeLocationCandidate(point, 'Current location');
-          return deriveRegionCode(candidate.lat, candidate.lng).then(function (region) {
-            candidate.regionMatch = homeRegionContains(region.code);
-            candidate.label += ' - ' + region.label;
-          }).catch(function (error) {
-            candidate.regionWarning = error.message
-              + ' The location needs explicit out-of-region/unverified confirmation.';
-          }).then(function () {
+          return savedLocationAssessment(candidate, scope, radius).then(function (assessment) {
             if (!current()) return;
             var owned = { result: candidate, generation: generation, report: getReportSlug(),
-              profile: profile, scope: scope, identity: identity, device: true };
+              profile: profile, scope: scope, identity: identity, device: true,
+              radius: radius, base: base, assessment: assessment };
             $('homePlace').value = candidate.lat.toFixed(5) + ', ' + candidate.lng.toFixed(5);
             status.textContent = (candidate.regionWarning ? candidate.regionWarning + ' ' : '') + 'Candidate: ' + candidate.label + ' ('
               + candidate.lat.toFixed(5) + ', ' + candidate.lng.toFixed(5)
-              + '). Approve it or correct the place and tap Find. Saved Home is unchanged.';
-            reviewSettingsHomeCandidate(owned, candidate.regionMatch !== true, 'Current location');
-            if (candidate.regionMatch !== true) {
-              status.textContent += ' Warning: this is outside the selected region or its region is unverified.';
-            }
+              + '). Approve it or correct the place and tap Go. Saved Home is unchanged.';
+            reviewSettingsHomeCandidate(owned, assessment.warning, 'Current location');
+            status.textContent += ' ' + assessment.text;
           });
         }).catch(function (error) {
           if (current()) status.textContent = error.message + ' Enter Home manually or retry. Saved Home is unchanged.';
@@ -61117,12 +61408,7 @@
       $('clearHomeBtn').addEventListener('click', function () {
         cancelHomeLookup();
         $('homePlace').value = ''; $('homeLat').value = ''; $('homeLng').value = '';
-        ['lat', 'lng', 'place'].forEach(function (field) { localStorage.removeItem(homeKey(field)); });
-        localStorage.setItem('ebird_home_migrated_v1', '1');
-        savedBaseChanged();
-        renderSavedLocations();
-        invalidateSettingsEvidence('home-clear');
-        $('geocodeStatus').textContent = 'Shared Home cleared for this profile. Archived legacy locations are unchanged.';
+        $('geocodeStatus').textContent = 'Unsaved address cleared. Saved Home is unchanged.';
         $('homePlace').focus();
       });
       $('geocodeBtn').addEventListener('click', function () {
@@ -61136,9 +61422,20 @@
 
       var _savedLocationEditorGeneration = 0;
       function openSavedLocationEditor(kind) {
+        if (kind !== 'temp' && tempHome()) kind = 'temp';
         var generation = ++_savedLocationEditorGeneration;
+        cancelHomeLookup();
+        cancelTempHomeLookup();
         showSettings(true);
         var editor = $(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
+        var other = $(kind === 'temp' ? 'settingsHomeEditor' : 'settingsTempHomeEditor');
+        other.open = false;
+        var point = kind === 'temp' ? tempHome() : getHome();
+        editor.querySelector('input').value = point && point.label
+          || (kind === 'temp' ? '' : localStorage.getItem(homeKey('place')))
+          || (point ? point.lat + ', ' + point.lng : '');
+        $(kind === 'temp' ? 'tempGeocodeStatus' : 'geocodeStatus').textContent = '';
+        editor._editing = true;
         editor.open = true;
         renderSavedLocations();
         var navigation = _navGeneration, profile = bcProfile(), scope = activeScope();
@@ -61146,7 +61443,7 @@
           if (generation !== _savedLocationEditorGeneration || navigation !== _navGeneration
               || profile !== bcProfile() || !scopeCurrent(scope)
               || $('settingsPanel').hidden || $('settingsSavedLocations').hidden || !editor.open) return;
-          var title = editor.querySelector('summary'), nav = $('navbar').getBoundingClientRect();
+          var title = editor.querySelector('input'), nav = $('navbar').getBoundingClientRect();
           title.focus({ preventScroll: true });
           try { window.scrollTo(0, Math.max(0, window.scrollY
             + title.getBoundingClientRect().top - nav.bottom - 12)); } catch (e) {}
@@ -61163,23 +61460,64 @@
         openSavedLocationEditor(link.dataset.savedBaseEditor);
       });
       function renderSavedLocations() {
+        var temporary = tempHome(), permanent = getHome();
+        var homeEditor = $('settingsHomeEditor'), tempHomeEditor = $('settingsTempHomeEditor');
+        if (!homeEditor || !$('homeSettingsTitle')) return;
+        if (!permanent && !temporary) homeEditor.open = true;
+        homeEditor.hidden = !!temporary;
+        $('homeSettingsTitle').textContent = temporary ? '\ud83e\uddf3 Temp Home (Active)'
+          : permanent ? '\ud83c\udfe0 Home (Active)' : '\ud83c\udfe0 Home';
+        $('savedHomeRequired').hidden = !!permanent;
+        $('tempHomeRestore').hidden = !temporary;
         [['home', getHome()], ['tempHome', tempHome()]].forEach(function (pair) {
           var prefix = pair[0], point = pair[1], summary = $(prefix + 'SavedSummary');
           if (!summary) return;
           var label = prefix === 'home' ? 'Home' : 'Temp home';
           var place = prefix === 'home' ? localStorage.getItem(homeKey('place')) : point && point.label;
-          summary.textContent = point ? 'Saved ' + label + ': ' + (place || 'Coordinates') + ' ('
-            + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5) + '). '
-            + ((prefix === 'home') === !tempHome() ? 'Active saved base.' : 'Not the active saved base.')
-            : label + ' is not set.';
+          summary.className = 'saved-location-value';
+          summary.replaceChildren();
+          summary.hidden = !point || prefix === 'home' && homeEditor.open && !temporary;
+          if (point) {
+            if (temporary) {
+              var mark = document.createElement('span');
+              mark.className = 'saved-location-state'; mark.setAttribute('role', 'img');
+              mark.setAttribute('aria-label', prefix === 'tempHome' ? 'Active temporary home' : 'Default home, not active');
+              mark.textContent = prefix === 'tempHome' ? '\u2611' : '\u2612'; summary.appendChild(mark);
+            }
+            var link = document.createElement('a');
+            link.className = 'maplink'; link.dataset.q = point.lat + ',' + point.lng;
+            link.href = mapPointUrl(link.dataset.q); link.textContent = (place || 'Coordinates') + ' \u2197';
+            link.setAttribute('aria-label', (place || 'Coordinates') + ' - open in Maps');
+            summary.appendChild(link);
+          }
           var editor = $(prefix === 'home' ? 'settingsHomeEditor' : 'settingsTempHomeEditor');
-          editor.querySelector('summary').textContent = (point ? 'Change ' : 'Set ')
-            + (prefix === 'home' ? 'Home' : 'Temp Home');
+          editor.querySelector('summary').textContent = prefix === 'home' ? 'Change Home'
+            : temporary ? 'Update temp home' : 'Override with temporary home';
           var map = $(prefix + 'SavedMap');
           clearMap(map);
+          map.hidden = prefix === 'home' ? !!temporary || homeEditor.open : !temporary || tempHomeEditor.open;
           if (point) renderMap(map, [{ lat: point.lat, lng: point.lng, num: 'S',
             locName: 'Saved ' + label }], null, false, '#0072b2');
         });
+        var generation = ++_savedLocationWarningGeneration, scope = activeScope(), radius = chaseMaxMi();
+        var base = savedBaseIdentity(), profile = bcProfile(), warnings = $('savedLocationWarnings');
+        warnings.replaceChildren();
+        if (!$('settingsPanel').hidden) Promise.all([temporary, permanent].map(function (point) {
+          return point ? savedLocationAssessment(point, scope, radius) : null;
+        })).then(function (results) {
+          if (!window.document || generation !== _savedLocationWarningGeneration || !scopeCurrent(scope)
+              || radius !== chaseMaxMi() || base !== savedBaseIdentity() || profile !== bcProfile()) return;
+          results.forEach(function (result, index) {
+            if (!result || !result.text) return;
+            var notice = document.createElement('p');
+            notice.className = result.warning ? 'saved-location-warning' : 'hint';
+            notice.setAttribute('role', result.warning ? 'alert' : 'status');
+            notice.textContent = (index === 0 ? 'Temp Home: ' : 'Default Home: ') + result.text;
+            warnings.appendChild(notice);
+          });
+          $('tempHomeRestore').textContent = results[1] && results[1].warning
+            ? 'Restore default home (check region)' : 'Restore default home';
+        }).catch(function (error) { dbg('warn', 'Saved location review: ' + netErr(error)); });
         var migration = $('savedHomeMigration');
         if (!migration) return;
         migration.innerHTML = '';
@@ -61203,6 +61541,7 @@
           migration.appendChild(button);
         });
       }
+      var _savedLocationWarningGeneration = 0;
       var _tempHomeLookupGeneration = 0, _tempHomeCandidate = null;
       function tempEditor(id) { return $('temp' + id.charAt(0).toUpperCase() + id.slice(1)); }
       function cancelTempHomeLookup() {
@@ -61211,17 +61550,20 @@
         if (!tempEditor('homeCandidateReview')) return;
         tempEditor('homeCandidateReview').hidden = true;
         clearMap(tempEditor('homeCandidateMap'));
+        if (tempEditor('homeChoices')) tempEditor('homeChoices').replaceChildren();
+        tempEditor('homeDeviceSave').hidden = true;
+        tempEditor('homeOutsideSave').hidden = true;
         tempEditor('geocodeBtn').disabled = false;
         tempEditor('homeCurrentLocation').disabled = false;
       }
       function lookupTempHome(device) {
         cancelTempHomeLookup();
         var generation = _tempHomeLookupGeneration, profile = bcProfile(), scope = activeScope();
-        var identity = _identityGeneration, base = savedBaseIdentity();
+        var identity = _identityGeneration, base = savedBaseIdentity(), radius = chaseMaxMi();
         function current() {
           return !!window.document && generation === _tempHomeLookupGeneration && profile === bcProfile()
             && scopeCurrent(scope) && identity === _identityGeneration
-            && base === savedBaseIdentity() && !$('settingsPanel').hidden;
+            && base === savedBaseIdentity() && radius === chaseMaxMi() && !$('settingsPanel').hidden;
         }
         var status = tempEditor('geocodeStatus');
         var query = tempEditor('homePlace').value.trim();
@@ -61229,21 +61571,24 @@
         var button = tempEditor(device ? 'homeCurrentLocation' : 'geocodeBtn');
         button.disabled = true;
         status.textContent = device ? 'Asking for your location. Temp Home is unchanged.' : 'Finding candidate. Temp Home is unchanged.';
-        return (device ? getDeviceLocation() : geocodePlace(query, { home: true })).then(function (point) {
+        return chooseSavedLocation(query, device, tempEditor('homeChoices'), current, function (point) {
+          return savedLocationAssessment(point, scope, radius).then(function (assessment) {
           if (!current()) return false;
           point = homeLocationCandidate(point, device ? 'Current location' : point.label);
           _tempHomeCandidate = { point: point, current: current };
           tempEditor('homeCandidateReview').hidden = false;
           tempEditor('homeDeviceSave').hidden = false;
-          tempEditor('homeDeviceSave').textContent = 'Save Temp Home';
+          tempEditor('homeDeviceSave').textContent = assessment.warning ? 'Save temporary location anyway' : 'Save temporary location';
           tempEditor('homeOutsideSave').hidden = true;
           tempEditor('homeCandidateSummary').textContent = (device ? 'Current location' : 'Search result')
             + ': ' + point.label + ' (' + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5) + '). Not saved.';
-          tempEditor('homeCandidateConsent').textContent = 'Check the candidate pin. Save Temp Home explicitly replaces the previous Temp Home across regions in this profile, never Home. Cancel leaves both saved locations unchanged. Region reachability is checked separately.';
+          savedLocationMapHandoff(tempEditor('homeCandidateSummary'), point);
+          tempEditor('homeCandidateConsent').textContent = 'Check the candidate pin. Saving replaces only Temp Home, never default Home. Cancel leaves both unchanged. ' + assessment.text;
           renderMap(tempEditor('homeCandidateMap'), [{ lat: point.lat, lng: point.lng,
             num: 'C', locName: 'Candidate Temp Home - not saved' }], null, false, '#0072b2');
-          status.textContent = 'Not saved yet. Review the map and choose Save Temp Home or Cancel.';
+          status.textContent = 'Not saved yet. Review the map and choose Save or Cancel. ' + assessment.text;
           return true;
+          });
         }).catch(function (error) {
           if (current()) status.textContent = error.message + ' Saved locations are unchanged.';
           return false;
@@ -61255,8 +61600,10 @@
       function cancelTempEditor() {
         cancelTempHomeLookup();
         var point = tempHome();
-        tempEditor('homePlace').value = point ? point.label : '';
+        tempEditor('homePlace').value = point ? point.label || point.lat + ', ' + point.lng : '';
         tempEditor('geocodeStatus').textContent = 'Cancelled. Saved locations are unchanged.';
+        $('settingsTempHomeEditor').open = false;
+        renderSavedLocations();
       }
       tempEditor('homeFindCancel').addEventListener('click', cancelTempEditor);
       tempEditor('homeCandidateCancel').addEventListener('click', cancelTempEditor);
@@ -61265,15 +61612,27 @@
         if (!candidate || !candidate.current()) return;
         saveTempHome(candidate.point);
         cancelTempHomeLookup();
+        $('settingsTempHomeEditor').open = false;
         renderSavedLocations();
         tempEditor('geocodeStatus').textContent = 'Saved Temp Home. Permanent Home is unchanged.';
       });
       tempEditor('clearHomeBtn').addEventListener('click', function () {
         cancelTempHomeLookup();
-        clearTempHome();
-        renderSavedLocations();
         tempEditor('homePlace').value = '';
-        tempEditor('geocodeStatus').textContent = 'Temp Home cleared. Using Home.';
+        tempEditor('geocodeStatus').textContent = 'Unsaved address cleared. Saved locations are unchanged.';
+      });
+      $('tempHomeRestore').addEventListener('click', function () {
+        cancelHomeLookup();
+        clearTempHome();
+        $('settingsTempHomeEditor').open = false;
+        renderSavedLocations();
+      });
+      ['homePlace', 'tempHomePlace'].forEach(function (id) {
+        $(id).addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' && !event.isComposing) {
+            event.preventDefault(); $(id === 'homePlace' ? 'geocodeBtn' : 'tempGeocodeBtn').click();
+          }
+        });
       });
 
       function persistSettings() {
@@ -61656,6 +62015,8 @@
         activeSavedBase: activeSavedBase, tempHome: tempHome,
         savedBaseIdentity: savedBaseIdentity, reconcileSavedBase: reconcileSavedBase,
         openSavedLocationEditor: openSavedLocationEditor,
+        projectBirdGenObservations: projectBirdGenObservations,
+        projectBirdGenPart: projectBirdGenPart,
         birdGenObservationProfile: birdGenObservationProfile,
         getDisplayProfile: getDisplayProfile, setDisplayProfile: setDisplayProfile,
         DISPLAY_KEY: DISPLAY_KEY, DISPLAY_PROFILES: DISPLAY_PROFILES,

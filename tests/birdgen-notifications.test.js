@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const notifications = require('../www/birdgen-notifications.js');
+const notifications = require(path.join(process.env.BIRDCHASER_WWW || path.join(__dirname,'..','www'),
+  'birdgen-notifications.js'));
 const logic = require('../www/logic.js');
 const { install } = require('../native/ios/install-full-report-bridge.js');
 
@@ -68,6 +69,36 @@ test('F979 native plan reuses baseline and enrichment rules without a proxy', ()
     assert.doesNotMatch(job.path, /github|token|https:/);
   }
   assert.throws(() => notifications.plan({ counties: [] }, []), /saved home/);
+});
+
+test('F1462 native qualification bounds county evidence before grouping and keeps acquisition unchanged', () => {
+  const scoped={...profile,evidenceRegion:'US-WA-033',evidencePolicy:'bounded-v1'};
+  const inside=rows().map(row=>({...row,subnational2Code:'US-WA-033'}));
+  const outside=inside.map((row,i)=>({...row,subId:'SOUT'+i,userDisplayName:'Outside '+i,
+    subnational2Code:'US-WA-061'}));
+  const control=notifications.evaluate(scoped,feeds(inside),now);
+  const mixed=feeds(inside.concat(outside));
+  const before=JSON.stringify(mixed), actual=notifications.evaluate(scoped,mixed,now);
+  assert.equal(actual.events.length,1);
+  assert.deepEqual(actual.events,control.events,'outside parties cannot boost or retime a county notification');
+  assert.equal(JSON.stringify(mixed),before);
+  assert.deepEqual(notifications.plan(scoped,mixed),notifications.plan(profile,mixed),
+    'F1462 qualification must not implement the excluded acquisition optimization');
+  assert.equal(notifications.evaluate(scoped,feeds(outside),now).events.length,0);
+  const privateRows=inside.map(row=>({...row,locationPrivate:true}));
+  assert.equal(notifications.evaluate(scoped,feeds(privateRows),now).events.length,0);
+});
+
+test('F1462 unknown native enrichment membership withholds complete Crowd qualification', () => {
+  const scoped={...profile,evidenceRegion:'US-WA-033'};
+  const inside=rows('amecro','American Crow',6).map(row=>({...row,subnational2Code:'US-WA-033'}));
+  const source=feeds(inside,false);
+  assert.ok(notifications.evaluate(scoped,source,now).events.some(row=>/Crowd/.test(row.title)));
+  const uncertain=source.map(feed=>feed.kind==='species'
+    ? {...feed,rows:feed.rows.map(row=>({...row,subnational2Code:undefined,lat:undefined,lng:undefined}))} : feed);
+  const partial=notifications.evaluate(scoped,uncertain,now);
+  assert.equal(partial.complete,false);
+  assert.ok(!partial.events.some(row=>/Crowd/.test(row.title)));
 });
 
 test('F979 Celebrity needs actual independent public evidence even under partial coverage', () => {
