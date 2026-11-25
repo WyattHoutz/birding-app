@@ -11808,14 +11808,14 @@
             sourceCount: sourceCount == null ? null : sourceCount,
             capped: sourceCount >= ABA_ALERT_MAX_ROWS || (rows || []).length > 200,
             rows: (rows || []).slice(0, 200).map(function (r) {
-              return {
+              return Object.assign(publicEvidenceAdministration(r), {
                 speciesCode: r.speciesCode || '', comName: r.comName || '',
                 obsDt: r.obsDt || '', locName: r.locName || '',
                 locId: megaCachedHotspotId(r, region),
                 subId: r.subId || '', lat: r.lat, lng: r.lng,
                 userDisplayName: r.userDisplayName || '',
                 locationPrivate: r.locationPrivate,
-              };
+              });
             }),
           });
           localStorage.setItem(MEGA_SNAP_KEY, serialized);
@@ -12413,7 +12413,7 @@
         return order.map(function (k) { return byKey[k]; });
       }
       function megaArchiveRecord(r) {
-        var out = {};
+        var out = publicEvidenceAdministration(r);
         [
           'speciesCode', 'comName', 'sciName', 'obsDt', 'locName', 'locId',
           'subId', 'userDisplayName', 'howMany', 'lat', 'lng', 'evidence',
@@ -12916,6 +12916,14 @@
         };
         row.distMi = rarityRecordDistance(row, home);
         return row;
+      }
+      function publicEvidenceAdministration(row) {
+        var out = {};
+        ['co', 'sub2', 'county', 'subnational2', 'subnational2Code',
+          'state', 'subnational1', 'subnational1Code', 'country', 'countryCode'].forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(row || {}, key)) out[key] = row[key];
+        });
+        return out;
       }
       function mergeRarityRecords(chaseRows, alertRows) {
         var seen = {}, out = [];
@@ -22211,6 +22219,7 @@
         var parentOf = seed.reportAsParents || seed.domesticParents || {};
         var normalCode = String(code || '').toLowerCase();
         var current = !_taxonomyModel && _spuhModel
+          && typeof _spuhModel.node === 'function' && typeof _spuhModel.speciesRow === 'function'
           && (_spuhModel.node(normalCode) || _spuhModel.speciesRow(normalCode));
         var parent = current ? current.code : resolveSpecies(normalCode, parentOf);
         return {
@@ -31397,6 +31406,8 @@
           return null;
         }
         if (evidence.needsProof[code]) return false;
+        if (!_taxonomyModel && _taxonomyMeta && _taxonomyMeta.contentPreviousKey
+            && Date.parse(evidence.savedAt) <= _taxonomyMeta.contentAt) return null;
         if (_taxonomyModel && Date.parse(evidence.savedAt) < (_taxonomyMeta.contentAt || 0)) {
           if (taxonomyIdentityChanged(code)) return null;
         }
@@ -39263,9 +39274,9 @@
         try {
           var snap = JSON.parse(localStorage.getItem(MEGA_SNAP_KEY) || 'null');
           if (snap && snap.region === getRegion() && snap.sid === getAbaSid()) {
-            rows = rows.concat((snap.rows || []).filter(function (r) {
+            rows = rows.concat(publicEvidenceFromSource((snap.rows || []).filter(function (r) {
               return r && r.speciesCode === code;
-            }));
+            }), activeScope(), megaSnapshotVerified(snap) ? snap.region : ''));
           }
         } catch (e) {}
         return megaMergeRows(rows);

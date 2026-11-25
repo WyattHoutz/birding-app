@@ -1530,7 +1530,7 @@ test('F868 and F870 gallery fixtures use production Ticks, F976 screenshot birds
   assert.match(foy, /await fillFixturePhotos\(host, document\)/);
 });
 
-test('F856 gallery guards require visible checklist evidence and scaled 56px bird icons', () => {
+test('F856 gallery guards require visible checklist evidence and shared compact bird icons', () => {
   assert.match(source, /renderScale = Number\(document\.defaultView\.getComputedStyle\([\s\S]*?getPropertyValue\('--s'\)\)/,
     'geometry must use the selected app profile, not the legacy renderer argument');
   const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
@@ -1542,17 +1542,17 @@ test('F856 gallery guards require visible checklist evidence and scaled 56px bir
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
   for (const dimension of ['width', 'height']) {
-    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - 56 * renderScale) > 1`),
-      `gallery does not measure ${dimension} against the scaled F851 icon size`);
+    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - compactIconSize) > 1`),
+      `gallery does not measure ${dimension} against the shared compact icon size`);
   }
-  assert.match(rank, /compactRowLimit = 86 \+ recentThumbBox\.height - 18 \* renderScale/);
+  assert.match(rank, /compactReference\.className = 'convoysppl'/);
 });
 
 test('F628 Top 100 compact-height guard allows deliberate Huge-text reflow', () => {
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
-  assert.match(rank, /if \(renderScale <= 1 && firstRowRect\.height > compactRowLimit\)/,
-    'the normal-size compact-row ceiling still rejects intentional Huge-text wrapping');
+  assert.match(rank, /if \(renderScale <= 1 && rowBottomSpace > rowTopSpace \+ 1\)/,
+    'the compact-row guard must measure blank space, not reject intentional text wrapping');
   assert.match(source,
     /async function fixturePrepare\(at, spec, A, document, sec, renderScale\)/,
     'the fixture preparation seam does not accept the gallery text scale');

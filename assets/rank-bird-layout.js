@@ -77,10 +77,20 @@ module.exports = async function rankBirdLayout(scan, prepare, mutation, progress
   require(link.tagName === 'A' && getComputedStyle(link).borderTopStyle === 'none'
     && getComputedStyle(link).backgroundColor === 'rgba(0, 0, 0, 0)',
     'Show more must be an unboxed text link');
-  var linkStyle = getComputedStyle(link), standardLinkStyle = getComputedStyle(document.getElementById('easyCommonMore'));
+  var standardLink = document.getElementById('easyCommonMore'), temporaryReference = !standardLink;
+  if (temporaryReference) {
+    standardLink = document.createElement('button');
+    standardLink.id = 'easyCommonMore';
+    standardLink.type = 'button';
+    standardLink.textContent = 'Show more.';
+    standardLink.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden';
+    document.body.append(standardLink);
+  }
+  var linkStyle = getComputedStyle(link), standardLinkStyle = getComputedStyle(standardLink);
   require(['fontSize', 'fontWeight', 'lineHeight', 'color', 'textDecorationLine'].every(function (key) {
     return linkStyle[key] === standardLinkStyle[key];
   }), 'Show more must match the app text-link formatting');
+  if (temporaryReference) standardLink.remove();
   var target = link.getBoundingClientRect();
   require(target.width >= 44 && target.height >= 44,
     'Show more needs a touch target: ' + target.width + ' x ' + target.height);

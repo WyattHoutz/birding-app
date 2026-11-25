@@ -7094,13 +7094,13 @@ test('F1315 cold selected-bird sightings cannot queue behind unanswered supporti
       'first selected-bird or supporting acquisition');
     assert.match(app.state.fetches.slice(firstRequest).find(relevant), /\/recent\/zzzrare(?:\?|$)/,
       'primary sightings must enter the foreground governor before independent supporting evidence');
-    await waitFor(() => /No reports of Synthetic Absent Grebe/.test(
+    await waitFor(() => /No verified in-region reports of Synthetic Absent Grebe/.test(
       app.$('spLookupStatus').textContent), 'primary sightings despite unanswered supporting feeds');
     await pending;
     assert.ok(app.state.fetches.some(url => /\/recent\/zzzrare(?:\?|$)/.test(url)));
     await waitFor(() => app.state.fetches.some(url => /ref\/taxonomy|\/recent\/notable(?:\?|$)/.test(url)),
       'actual unanswered supporting acquisition');
-    assert.match(app.$('spLookupStatus').textContent, /No reports of Synthetic Absent Grebe/);
+    assert.match(app.$('spLookupStatus').textContent, /No verified in-region reports of Synthetic Absent Grebe/);
     assert.equal(app.$('spLookupStatus').querySelector('progress'), null);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -7233,7 +7233,7 @@ test('F1315/F1422/F1423/F1474/F1476 actual Stakeout restores saved reports and k
     mode = 'empty';
     app.click(refreshButton);
     await waitFor(() => !refreshButton.disabled, 'successful-empty request completion');
-    assert.match(status.textContent, /No reports of Vermilion Flycatcher/);
+    assert.match(status.textContent, /No verified in-region reports of Vermilion Flycatcher/);
     assert.doesNotMatch(app.$('spLookupRecent').textContent, /Saved synthetic patch/);
     A.clearSpeciesLookup();
     assert.equal(infoBody.getAttribute('data-note'), null, 'Clear removes any previous saved note');
@@ -7418,7 +7418,7 @@ test('F1057 Stakeout Refresh bypasses only selected sightings and retains eviden
     fail = false; empty = true;
     app.click(refresh);
     await waitFor(() => !refresh.disabled, 'successful empty refresh');
-    assert.match(app.$('spLookupStatus').textContent, /No reports of Vermilion Flycatcher/);
+    assert.match(app.$('spLookupStatus').textContent, /No verified in-region reports of Vermilion Flycatcher/);
     assert.doesNotMatch(app.$('spLookupRecent').textContent, /Refresh place 2/);
     app.click(app.$('spLookupClear'));
     assert.equal(refresh.disabled, true);
@@ -9460,7 +9460,17 @@ const FAVORITE_SEEN = JSON.parse(fs.readFileSync(
   path.join(__dirname, 'fixtures', 'favorite-seen.json'), 'utf8'));
 const MEGA_STAKEOUT = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'mega-stakeout.json'), 'utf8'));
+MEGA_STAKEOUT.stateRows = stateMegaFixture(MEGA_STAKEOUT.stateRows);
+MEGA_STAKEOUT.earliestHeld.rows = stateMegaFixture(MEGA_STAKEOUT.earliestHeld.rows);
 const SEED = JSON.parse(fs.readFileSync(wwwFixture('seed-birdlist.json'), 'utf8'));
+
+function stateMegaFixture(rows, region = 'US-WA') {
+  return rows.map(row => ({ subnational1Code: region, ...row }));
+}
+
+function renderWashingtonMegaFixture(app, rows, ...args) {
+  return app.window.__app.renderAbaAlert(stateMegaFixture(rows), ...args);
+}
 
 function megaAlertHtml(rows, sid = 'SN10489') {
   return `<link rel="canonical" href="https://ebird.org/alert/summary?sid=${sid}">`
@@ -10279,6 +10289,8 @@ test('F1023 actual summary acquisition retains observer attribution in the indep
     snapshot = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
     assert.equal(JSON.parse(snapshot).rows[0].userDisplayName, row.observer,
       'the durable projection must not discard an already-authorized summary observer');
+    assert.equal(JSON.parse(snapshot).rows[0].subnational1Code, 'US-WA',
+      'retained summaries must preserve the administration their local consumers require');
   } finally { app.window.close(); }
   const retained = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: snapshot },
     fetch: url => /data\/obs\/.*\/recent\/litsti/.test(url) ? [{
@@ -11515,9 +11527,13 @@ async function seedSeen(app, codes, names, taxa = []) {
   app.window.indexedDB ||= new IDBFactory();
   const edition = '2026.0';
   const model = app.window.BirdTaxonomy.create([...rows.values()],edition);
+  model.referenceDigest = crypto.createHash('sha256')
+    .update(JSON.stringify([...rows.values()])).digest('hex');
   await A.taxonomyStore('put','identity:' + edition,model);
   app.window.localStorage.setItem('bc_taxonomy_v1',JSON.stringify({
     edition,checkedAt:app.window.Date.now(),previousEdition:'',
+    referenceAt:app.window.Date.now(),referenceDigest:model.referenceDigest,
+    referenceSchema:'identity-1/spuh-' + app.window.Spuh.SCHEMA,
   }));
   assert.equal(await A.restoreTaxonomyNames(),true,'owned fixture taxonomy must restore');
   catalogs.forEach(catalog => {
@@ -11566,6 +11582,9 @@ function seedCompleteNotableChase(app, rowsByFile, at = Date.now()) {
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
     speciesCodes: [...new Set(Object.values(rows).flat().map(row => row.speciesCode))],
   });
+  A.seedEbirdCache('data/obs/' + A.activeScope().effectiveRegion
+    + '/recent/notable?back=' + app.window.BirdLogic.CONST.FETCH_BACK
+    + '&detail=full&maxResults=10000', Object.values(rows).flat());
 }
 
 async function seedRarityChase(app, rows, at = Date.now()) {
@@ -11610,6 +11629,9 @@ async function seedRarityChase(app, rows, at = Date.now()) {
     fetchBaseKey: A.chaseFetchBaseKey(profile),
     geoNotableKm: app.window.BirdLogic.geoNotableDistKm(profile),
   });
+  A.seedEbirdCache('data/obs/' + A.activeScope().effectiveRegion
+    + '/recent/notable?back=' + app.window.BirdLogic.CONST.FETCH_BACK
+    + '&detail=full&maxResults=10000', raw);
 }
 
 // Every jsdom window this file opens, so none is left holding a live timer.
@@ -15490,6 +15512,42 @@ for (const scope of ['current', 'different account', 'different region']) {
   });
 }
 
+test('F1461 verified legacy state snapshots recover their original state but never a selected county', async () => {
+  const row = f1012StakeoutRow(true);
+  const app = await boot({ sample: false, storage: {
+    ebird_report: 'wa', ebird_aba_sid: 'SN1012',
+  }, fetch: f1012StakeoutFetch(row, megaAlertHtml([row], 'SN1012')) });
+  let saved;
+  try {
+    assert.equal(await app.window.__app.lazyRefreshMegaSnapshot(), true);
+    saved = JSON.parse(app.window.localStorage.getItem('ebird_mega_snapshot_v1'));
+    for (const report of saved.rows) {
+      for (const key of ['co', 'sub2', 'county', 'subnational2', 'subnational2Code',
+        'state', 'subnational1', 'subnational1Code', 'country', 'countryCode']) delete report[key];
+    }
+  } finally { app.window.close(); }
+  for (const county of ['', 'US-WA-061']) {
+    const cold = await boot({ sample: false, storage: {
+      ebird_report: 'wa', ebird_aba_sid: 'SN1012',
+      ebird_mega_snapshot_v1: JSON.stringify(saved),
+    }, fetch: () => [] });
+    try {
+      const A = cold.window.__app;
+      A.setCountyView(county);
+      await A.lookupSpecies(row.speciesCode, row.comName);
+      await settleMegaEntry(cold, row.speciesCode);
+      assert.equal(!!cold.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'),
+        !county, 'verified original state provenance cannot become county membership');
+      assert.equal(!!cold.document.querySelector(
+        `#spLookupRecent [data-ev-sub="${row.subId}"], #spLookupEvidenceDetails [data-ev-sub="${row.subId}"]`),
+      !county, 'the retained report itself follows its original state, independent of fresh feeds');
+      assert.equal(cold.window.localStorage.getItem(A.MEGA_SNAP_KEY), JSON.stringify(saved),
+        'local projection must not rewrite the shared legacy snapshot');
+      assert.deepEqual(cold.state.errors, []);
+    } finally { cold.window.close(); }
+  }
+});
+
 test('F1012 Stakeout failed legacy-cache acquisition retains reports without inventing provenance', async () => {
   const row = f1012StakeoutRow();
   const saved = JSON.stringify({
@@ -15725,7 +15783,7 @@ for (const distance of ['near', 'region']) {
         assert.match(app.$('status').textContent, /No rarity reports are currently available/,
           'a complete empty Twitches source must not borrow Mega reports');
         assert.doesNotMatch(app.$('results').textContent, /Little Stint/);
-        assert.equal(app.$('results').querySelectorAll('li').length, 0);
+        assert.equal(app.$('results').querySelectorAll('li .thumb').length, 0);
         const rarity = await A.getChaseRarity();
         assert.equal(rarity.feedComplete, true, 'failure is not proof of an empty feed');
         assert.equal(rarity.cv.merged.length, 0);
@@ -18596,7 +18654,7 @@ test('F1126 cap provenance is measured before the state filter', () => {
   const iScope = load.indexOf('var stateRows = scoped');
   assert.ok(iFlag > -1, 'the app must detect truncation at all');
   assert.ok(iScope > -1, 'the state filter must still exist');
-  assert.match(load, /var rows = stateRows/,
+  assert.match(load, /var rows = publicEvidenceRows\(stateRows, startScope\)/,
     'regional Mega views use the existing projection, without another fetch');
   assert.ok(iFlag < iScope,
     'truncation is measured on the raw feed — filtering first is exactly what hid it');
@@ -19969,6 +20027,12 @@ async function setupOwnedSeenApp(codes = [], options = {}) {
   ]);
   // Replace the bootstrap acknowledgement with the installed fixture's exact owner.
   const A = app.window.__app;
+  for (const metric of ['spp', 'cl']) {
+    const owner = A.rankingHistoryOwner(A.activeScope().effectiveRegion,
+      A.personalBoardPeriod(), metric, A.getDisplayName());
+    app.window.localStorage.setItem('bc_rankbirds_v1:' + owner,
+      JSON.stringify({ schema: 1, lastReadAt: new app.window.Date().toISOString(), people: {} }));
+  }
   app.window.localStorage.setItem('ebird_seen_setup_skipped', A.personalListKey(A.personalListOwner()));
   app.window.localStorage.removeItem('ebird_seen_meta');
   return app;
@@ -27070,6 +27134,7 @@ function f890EvidenceFixture() {
     loc: r.locName, locId: r.locId, lat: r.lat, lon: r.lng,
     dateStr: r.obsDt, count: r.howMany, observer: r.userDisplayName,
     location_private: r.locationPrivate,
+    subnational2Code: r.subnational2Code,
   });
   return { row, notable, cached, late, older, ordinary, other, species, normalized };
 }
@@ -33689,7 +33754,7 @@ test('F780 F1515 Clear shared Home preserves archived values and permits an expl
 });
 
 test('F782 Twitches refetches Michigan rarities when Home changes during an older lookup', async () => {
-  let resolveOld;
+  let resolveOld, notableReads = 0;
   const regions = JSON.stringify([{
     slug: 'u-michigan', label: 'Michigan', lat: 43, lng: -84, stateCode: 'US-MI',
     tzStdOffset: -5, tzObservesDst: true,
@@ -33704,8 +33769,8 @@ test('F782 Twitches refetches Michigan rarities when Home changes during an olde
     'ebird_home_lat:u-michigan': '51.5', 'ebird_home_lng:u-michigan': '-0.1',
     ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'near' }),
   }, fetch(url) {
-    if (/geo\/recent\/notable/.test(url)) {
-      if (/lat=51\.5/.test(url)) return new Promise((resolve) => { resolveOld = resolve; });
+    if (/data\/obs\/US-MI\/recent\/notable/.test(url)) {
+      if (++notableReads === 1) return new Promise((resolve) => { resolveOld = resolve; });
       return [nearby];
     }
     return null;
@@ -33723,8 +33788,7 @@ test('F782 Twitches refetches Michigan rarities when Home changes during an olde
     'corrected fixture Home');
   A.refresh();
   resolveOld([]);
-  await waitFor(() => app.state.fetches.some((url) =>
-    /geo\/recent\/notable/.test(url) && /lat=43(?:&|\.)/.test(url)), 'new Home rarity request');
+  await waitFor(() => notableReads > 1, 'new Home owned selected-region rarity request');
   await waitFor(() => /Michigan fixture/.test(app.$('results').textContent), 'Michigan nearby result');
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.match(app.$('results').textContent, /Michigan fixture/);
@@ -39345,7 +39409,7 @@ test('F1430 cold retained Home ' + (obsolete ? 'rejects obsolete scope on taxono
       .map(key => [key,app.window.localStorage.getItem(key)]));
     blocked = false;
     held.splice(0).forEach(release => release());
-    await waitFor(() => /Official edition 2026.0/.test(app.$('taxonomyStatus').textContent),
+    await waitFor(() => A.canonicalParents({}).gnateastern === 'gnatparent',
       'checked canonical taxonomy restores');
     if (obsolete) {
       assert.equal(app.$('surgeResults').innerHTML,obsoleteFull,
@@ -44389,7 +44453,7 @@ test('Unified Twitches keeps nearby results and names an unavailable statewide R
   await waitFor(() => /Near Rarity/.test(doc.getElementById('results').textContent),
     'nearby fallback rarity');
   assert.match(doc.getElementById('status').textContent,
-    /Statewide RBA check incomplete; showing available geographic and retained evidence/,
+    /Selected-region RBA check incomplete; showing verified local evidence/,
     'a failed state alert is disclosed instead of looking like a complete statewide result');
   app.window.close();
 });
@@ -45999,7 +46063,7 @@ test('F352/F1468/F1471/F1482/F1488/F1489/F1490/F1504 Stakeout has a selected-fir
   assert.ok(loading, 'the compact hierarchy paints a loading state before sightings settle');
   assert.match(loading.textContent, /Loading the eBird taxonomy/);
   await lookup;
-  assert.match(app.$('spLookupStatus').textContent, /No reports|not being seen right now/,
+  assert.match(app.$('spLookupStatus').textContent, /No verified in-region reports/,
     'the recent feed still reports the real empty answer');
 
   await waitFor(() => app.document.querySelector(
@@ -46283,7 +46347,8 @@ test('Stakeout sightings survive taxonomy failure and a new lookup retries it', 
   const good = installSpuhFixture(app);
   const A = app.window.__app;
   A.setSpuhModel({});
-  await A.lookupSpecies('sem', 'Semipalmated Sandpiper');
+  await assert.doesNotReject(async () => A.lookupSpecies('sem', 'Semipalmated Sandpiper'),
+    'an unavailable hierarchy cannot prevent the independent sightings lookup');
   assert.equal(app.document.querySelectorAll('#spLookupResults > li').length, 1,
     'sightings still render as exactly one medium species card');
   assert.match(app.$('spLookupRecent').textContent, /Marymoor Park/,
@@ -48715,7 +48780,8 @@ test('F434 likely finders rank overlapping checklists by earliest end time', asy
     app.window.Date.now = () => historical + Date.now() - started;
     const A = app.window.__app;
     A.fgWindowReset(); A.fgSchedReset(historical);
-    A.abaArchiveAdd('US-WA', reports);
+    A.abaArchiveAdd('US-WA', stateMegaFixture(reports));
+    renderWashingtonMegaFixture(app, reports, 'https://ebird.org/alert/summary?sid=SN10489', true, false);
     await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
     await waitFor(() => {
       const rows = app.document.querySelectorAll('.megafinders li');
@@ -48789,7 +48855,9 @@ test('F434 a dawn seawatch with no defensible top three reports finder unknown',
   const started = Date.now(), historical = Date.parse('2026-09-21T12:00:00Z');
   app.window.Date.now = () => historical + Date.now() - started;
   A.fgWindowReset(); A.fgSchedReset(historical);
-  A.abaArchiveAdd('US-WA', initial.concat([latest]));
+  A.abaArchiveAdd('US-WA', stateMegaFixture(initial.concat([latest])));
+  renderWashingtonMegaFixture(app, initial.concat([latest]),
+    'https://ebird.org/alert/summary?sid=SN10489', true, false);
   await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
   await waitFor(() => /Finder unknown/.test(
     app.document.querySelector('.megafinder').textContent),
@@ -50618,7 +50686,7 @@ test('a "not being seen" lookup clears the map (F255)', async () => {
 
   await A.lookupSpecies('coshum', "Costa's Hummingbird");
   await new Promise((r) => setTimeout(r, 400));
-  assert.match(doc.getElementById('spLookupStatus').textContent, /No reports/,
+  assert.match(doc.getElementById('spLookupStatus').textContent, /No verified in-region reports/,
     'the second lookup reports nothing found');
   assert.equal(map.innerHTML, '',
     'and the map is EMPTY — no pins survive from the previous species');
@@ -54041,7 +54109,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   assert.ok(D.querySelector('#spLookupEvidenceDetails .megaevidence'),
     'Mega evidence remains visible while the sightings promise is unresolved');
   settleSightings();
-  await waitFor(() => /No reports.*not being seen right now/i.test(
+  await waitFor(() => /No verified in-region reports/i.test(
     D.getElementById('spLookupStatus').textContent), 'active-region empty result');
   await waitFor(() => /white wagtail is a small passerine/i.test(
     stakeoutSurfaceText(app)), 'lazy Wikipedia hydration');
@@ -54049,7 +54117,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   const settledText = stakeoutSurfaceText(app);
   assert.equal(D.querySelectorAll('#spLookupResults > li').length, 1,
     'an honestly empty active-region result retains the one Mega Stakeout card');
-  assert.match(D.getElementById('spLookupStatus').textContent, /No reports.*not being seen right now/i,
+  assert.match(D.getElementById('spLookupStatus').textContent, /No verified in-region reports/i,
     'the retained evidence does not turn an honestly empty current feed into a positive claim');
   assert.match(settledText, /Likely finders.*Birder Two/s,
     'the first report at the latest locality remains eligible as a likely finder');
@@ -54170,11 +54238,11 @@ test('F429 Mega finder evidence is local to the latest report', async () => {
     locId: 'L-WALLA', subId: 'S-WALLA',
     lat: 46.065, lng: -118.34,
   };
-  A.abaArchiveAdd('US-WA', [
+  A.abaArchiveAdd('US-WA', stateMegaFixture([
     { speciesCode: 'tersan', obsDt: '2026-07-01 05:00', locName: 'sentinel' },
     localFinder, distantFinder, outsideChaseWallaWalla,
-  ]);
-  A.renderAbaAlert([latest], 'https://ebird.org/alert/summary?sid=SN10489',
+  ]));
+  renderWashingtonMegaFixture(app, [latest], 'https://ebird.org/alert/summary?sid=SN10489',
     true, false, {
       reportSlug: 'wa', region: 'US-WA', sid: 'SN10489', scope: 'state',
       wideRowsByCode: { whiwag: [] },
@@ -54276,7 +54344,7 @@ test('F304 chooses the newest report independently of feed order', async () => {
   });
   installSpuhFixture(app);
   const A = app.window.__app;
-  A.renderAbaAlert([
+  renderWashingtonMegaFixture(app, [
     {
       speciesCode: 'whiwag', comName: 'White Wagtail',
       obsDt: '2026-08-20 06:15', locName: 'Older place',
@@ -54317,7 +54385,7 @@ test('F304 scientific-name display does not gate internal GBIF matching', async 
   });
   installSpuhFixture(app);
   const A = app.window.__app;
-  A.renderAbaAlert([{
+  renderWashingtonMegaFixture(app, [{
     speciesCode: 'whiwag', comName: 'White Wagtail',
     sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
     locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S-SCI-OFF',
@@ -54399,7 +54467,7 @@ test('F304 a failed selected-state read is an error, not a false empty answer', 
   });
   installSpuhFixture(app);
   const A = app.window.__app;
-  A.renderAbaAlert([{
+  renderWashingtonMegaFixture(app, [{
     speciesCode: 'whiwag', comName: 'White Wagtail',
     sciName: 'Motacilla alba', obsDt: '2026-09-04 08:00',
     locName: 'Cape Flattery', locId: 'L-CAPE', subId: 'S30403',
@@ -54490,7 +54558,7 @@ test('F304 hydrates a finder first discovered by the lazy state feed', async () 
     if (/wikipedia\.org|api\.gbif\.org/.test(u)) return response({});
     return response([]);
   };
-  A.renderAbaAlert([{
+  renderWashingtonMegaFixture(app, [{
     speciesCode: 'whiwag', comName: 'White Wagtail',
     obsDt: '2026-09-04 08:00', locName: 'Cape Flattery',
     subId: 'S-LATEST', lat: 48.3861, lng: -124.7142,
@@ -54588,7 +54656,7 @@ test('F304 retries lazy GBIF history when detail=full supplies the scientific na
     if (/data\/obs\/(US|CA)\/recent\/f304bird/.test(u)) return response([]);
     return response([]);
   };
-  A.renderAbaAlert([{
+  renderWashingtonMegaFixture(app, [{
     speciesCode: 'f304bird', comName: 'F304 Test Bird',
     obsDt: '2026-09-04 07:00', locName: 'Alert-only marsh',
     subId: 'S-SCI', lat: 47.7, lng: -122.2,
@@ -54678,7 +54746,7 @@ test('F304 stale Mega state and ABA-wide callbacks cannot repaint a newer view',
     locName: 'Old view place', locId: 'L-OLD', subId: 'S-OLD',
     lat: 47.1, lng: -122.1,
   }];
-  A.renderAbaAlert(oldRows, 'https://ebird.org/alert/summary?sid=SNOLD',
+  renderWashingtonMegaFixture(app, oldRows, 'https://ebird.org/alert/summary?sid=SNOLD',
     true, false, { reportSlug: 'wa', region: 'US-WA', sid: 'SNOLD', scope: 'state' });
   app.click(app.document.querySelector('#abaResults .megajump'));
   await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -54692,7 +54760,7 @@ test('F304 stale Mega state and ABA-wide callbacks cannot repaint a newer view',
     locName: 'CURRENT VIEW PLACE', locId: 'L-CURRENT', subId: 'S-CURRENT',
     lat: 48.1, lng: -124.1,
   }];
-  A.renderAbaAlert(freshRows, 'https://ebird.org/alert/summary?sid=SNNEW',
+  renderWashingtonMegaFixture(app, freshRows, 'https://ebird.org/alert/summary?sid=SNNEW',
     true, false, {
       reportSlug: 'wa', region: 'US-WA', sid: 'SNNEW', scope: 'state',
       wideRowsByCode: {
@@ -54778,7 +54846,7 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
     lat: 47.7, lng: -122.2,
   }];
   function openMega() {
-    A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=SN10489',
+    renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=SN10489',
       true, false, { reportSlug: 'wa', region: 'US-WA', sid: 'SN10489', scope: 'state' });
     app.click(app.document.querySelector('#abaResults .megajump'));
     assert.ok(A.megaViewState().origin, 'fixture opened from Mega');
@@ -54833,7 +54901,7 @@ test('the Mega index routes every row and species name to exact-code Stakeout an
       locName: 'Ocean Shores', lat: 46.9, lng: -124.1, subId: 'S3', howMany: 2 },
   ];
   A.showSection('sec-abaBtn');
-  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true);
+  renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=X', true);
 
   const list = doc.getElementById('abaResults');
   assert.equal(list.hidden, false, 'the species list is what the section shows');
@@ -54887,7 +54955,7 @@ test('the Mega index routes every row and species name to exact-code Stakeout an
   assert.equal(A.megaViewState().active.code, 'whiwag', 'unclaimed row space routes too');
   await settleMegaEntry(app, 'whiwag');
   const oldOrigin = A.megaViewState().origin.viewKey;
-  A.renderAbaAlert([rows[0]], 'https://ebird.org/alert/summary?sid=X', true);
+  renderWashingtonMegaFixture(app, [rows[0]], 'https://ebird.org/alert/summary?sid=X', true);
   assert.notEqual(A.megaViewState().key, oldOrigin, 'a newer list invalidates the origin key');
   A.navBack();
   assert.equal(doc.getElementById('menuPanel').hidden, false,
@@ -54936,7 +55004,7 @@ test('F935 late Mega repaints ignore legacy ABA scope and retain F304 routing', 
 
   const load = HTML.slice(HTML.indexOf('function loadAbaAlert('),
     HTML.indexOf('function renderAbaAlert('));
-  assert.match(load, /function paint\(\)[\s\S]*var rows = stateRows/,
+  assert.match(load, /function paint\(\)[\s\S]*var rows = publicEvidenceRows\(stateRows, startScope\)/,
     'every async repaint uses the regional evidence');
   assert.match(load, /scope: abaScope\(\)/,
     'each F304 view key records the permanent regional scope');
@@ -54996,7 +55064,7 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   ];
   let repaints = 0;
   A.setAbaSort('date');
-  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+  renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=X', true, false,
     () => { repaints++; });
   const labels = [...doc.querySelectorAll('#abaSortPick button')].map((b) => b.textContent);
   assert.deepEqual(labels, ['Newest', 'Nearest'], 'the sort choices are written out');
@@ -55005,7 +55073,7 @@ test('F327 Mega rarities sort by newest or nearest without another fetch', async
   assert.equal(A.abaSort(), 'distance', 'the selected order is stored');
   assert.equal(repaints, 1, 'sorting repaints rows in hand instead of fetching the alert');
 
-  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', true, false,
+  renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=X', true, false,
     () => {});
   assert.deepEqual(
     [...doc.querySelectorAll('#abaResults .ntext a.megajump')].map((a) => a.textContent),
@@ -55033,7 +55101,7 @@ test('F791/F794 Mega keeps persistent controls and shared cards across Huge disp
   let paints = 0;
   function paint() {
     paints++;
-    A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X',
+    renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=X',
       true, false, paint);
   }
 
@@ -55130,7 +55198,7 @@ test('F791/F794 Mega keeps persistent controls and shared cards across Huge disp
     assert.ok(megaList.querySelector(selector), 'Mega lacks shared List contract ' + selector);
     assert.ok(twig.firstElementChild.querySelector(selector), 'Twitches lacks ' + selector);
   }
-  A.renderAbaAlert(rows, 'https://ebird.org/alert/summary?sid=X', false, false);
+  renderWashingtonMegaFixture(app, rows, 'https://ebird.org/alert/summary?sid=X', false, false);
   assert.equal(app.$('abaViewPick'), null, 'flat rarity trackers do not retain Mega controls');
   assert.equal(app.$('abaScopePick'), null, 'flat rarity trackers do not retain scoped filters');
   const flatRows = app.$('abaResults').querySelectorAll(':scope > li');
@@ -56479,9 +56547,26 @@ test('F1525 same-edition role corrections preserve old split evidence without aw
     const saved = Object.fromEntries(Array.from({ length: store.length }, (_, i) => {
       const key = store.key(i); return [key, store.getItem(key)];
     }));
-    cold = await boot({ sample: false, indexedDB, fetch, storage: saved });
+    const heldRestores = [];
+    let holdRestore = true;
+    const delayedDatabase = { open(...args) {
+      if (!holdRestore) return indexedDB.open(...args);
+      const pending = {};
+      heldRestores.push(() => {
+        const request = indexedDB.open(...args);
+        request.onsuccess = () => { pending.result = request.result; pending.onsuccess(); };
+        request.onerror = () => { pending.error = request.error; pending.onerror(); };
+      });
+      return pending;
+    } };
+    cold = await boot({ sample: false, indexedDB: delayedDatabase, fetch, storage: saved });
+    assert.ok(heldRestores.length, 'the corrected canonical model is deliberately still restoring');
     assert.equal(cold.window.__app.isSpeciesSeen('marwre1'), null);
     assert.equal(cold.window.__app.isSpeciesSeen('eamwre1'), null);
+    holdRestore = false;
+    heldRestores.splice(0).forEach(release => release());
+    await waitFor(() => /Official edition/.test(cold.$('taxonomyStatus').textContent),
+      'corrected canonical reference restores before checking unchanged positives');
     assert.equal(cold.window.__app.isSpeciesSeen('stable'), true);
     assert.equal(cold.window.localStorage.getItem('ebird_seen'), raw);
     cold.window.__app.setActiveReport('az');
@@ -63905,7 +63990,7 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
   // elsewhere in the file, so deleting either CALL still left the name
   // present and both mutations passed. A guard bounded by a brace it cannot
   // match is a guard bounded by nothing.
-  const emptyAt = HTML.indexOf('it is not being seen right now');
+  const emptyAt = HTML.indexOf("var emptyMessage = 'No verified in-region reports of ");
   assert.ok(emptyAt > 0, 'the empty-feed message is still there to anchor on');
   const endAt = HTML.indexOf('var g = buildStakeoutGroup', emptyAt);
   assert.ok(endAt > emptyAt, 'the non-empty path still follows, to bound the branch');
@@ -65989,6 +66074,31 @@ test('mega snapshots enrich official hotspot ids from the cached directory', asy
   assert.equal(saved.rows[0].locId, 'L7706326',
     'the public hotspot identity available in cache was discarded from the snapshot');
   app.window.close();
+});
+
+test('F1461 shared Mega snapshot and archive retain conflicting administrative aliases without filtering', async () => {
+  const app = await boot({ sample: false, storage: { ebird_report: 'wa' } });
+  try {
+    const A = app.window.__app;
+    const rows = [
+      { ...f1012StakeoutRow(true), subnational2Code: 'US-WA-061', countryCode: 'US' },
+      { ...f1012StakeoutRow(), subnational2Code: 'US-WA-033', county: 'US-WA-061',
+        subnational1: 'US-OR', country: 'CA' },
+    ];
+    assert.equal(A.saveMegaSnapshot(rows, true, 'US-WA', 'SN10489'), true);
+    assert.equal(A.abaArchiveAdd('US-WA', rows), true);
+    const snapshot = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    assert.equal(snapshot.rows.length, rows.length, 'shared raw evidence is not locally filtered');
+    for (const row of rows) {
+      const saved = snapshot.rows.find(report => report.speciesCode === row.speciesCode);
+      const archived = A.abaArchiveFor('US-WA', row.speciesCode)[0];
+      for (const key of ['subnational2Code', 'county', 'subnational1Code',
+        'subnational1', 'countryCode', 'country'].filter(key => key in row)) {
+        assert.equal(saved[key], row[key], 'snapshot preserves ' + key + ' for later membership decisions');
+        assert.equal(archived[key], row[key], 'archive preserves ' + key + ' including contradictory aliases');
+      }
+    }
+  } finally { app.window.close(); }
 });
 
 test('F720 publishing Mega evidence repaints an already-loaded Bird Gen model', () => {

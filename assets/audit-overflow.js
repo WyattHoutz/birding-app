@@ -263,11 +263,18 @@ const AUDIT = `<script>
         };
       });
       var icons = [].slice.call(panel.querySelectorAll('.rankbirdicon .thumb'));
-      var font = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s')) || 1;
-      result.latestBirdIcons = icons.length === 2 && icons.every(function (icon) {
+      var reference = document.createElement('ul');
+      reference.className = 'convoysppl';
+      reference.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden';
+      reference.innerHTML = '<li><span class="thumb"></span></li>';
+      document.body.appendChild(reference);
+      var compactSize = reference.querySelector('.thumb').getBoundingClientRect().width;
+      reference.remove();
+      result.latestBirdIcons = compactSize > 0 && icons.length > 0
+        && icons.length === panel.querySelectorAll('.rankbirdline').length && icons.every(function (icon) {
         var box = icon.getBoundingClientRect();
-        return Math.abs(box.width - 56 * font) < 0.5
-          && Math.abs(box.height - 56 * font) < 0.5;
+        return Math.abs(box.width - compactSize) < 0.5
+          && Math.abs(box.height - compactSize) < 0.5;
       });
     }
     return result;
@@ -1346,7 +1353,7 @@ const AUDIT = `<script>
     if (${process.env.AUDIT_FOCUS === 'rank-birds'}) {
       try { out.push(...await rankBirdLayout(scan, prepareRankBirdReview,
         ${JSON.stringify(process.env.AUDIT_RANK_BIRDS_MUTATION || '')}, auditStage)); }
-      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error)}); }
+      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error.stack || error)}); }
       finish(out);
       return;
     }
@@ -2918,7 +2925,9 @@ const AUDIT = `<script>
             var twitch = scan('(F785 F786 production grouped Twitches)');
             var controls = document.getElementById('todayControls');
             var bar = document.getElementById('todayView');
-            var cards = [].slice.call(document.querySelectorAll('#results > li'));
+            var cards = [].slice.call(document.querySelectorAll('#results > li')).filter(function (row) {
+              return !!row.querySelector('.thumb');
+            });
             twitch.twitchGeometry = {
               large: document.getElementById('results').classList.contains('card-lg'),
               fullWidth: bar && Math.abs(bar.getBoundingClientRect().width
@@ -2965,9 +2974,11 @@ const AUDIT = `<script>
             return new Promise(function (resolve) { setTimeout(resolve, 1000); }).then(function () {
             var megaRows = [
               { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
+                subnational1Code: 'US-WA',
                 obsDt: '2026-09-24 10:00', locName: 'Long numbered hotspot name',
                 locId: 'L-MEGA', lat: 47.7, lng: -122.2, subId: 'S-MEGA', howMany: 2 },
               { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
+                subnational1Code: 'US-WA',
                 obsDt: '2026-09-23 09:00', locName: 'Second hotspot',
                 locId: 'L-MEGA2', lat: 47.6, lng: -122.3, subId: 'S-MEGA2', howMany: 1 }
             ];
@@ -3612,6 +3623,9 @@ const AUDIT = `<script>
       result.feedStates[feed.file] = 'ok';
       result.feedTimes[feed.file] = result.t;
     });
+    window.__app.seedEbirdCache('data/obs/' + window.__app.activeScope().effectiveRegion
+      + '/recent/notable?back=' + window.BirdLogic.CONST.FETCH_BACK
+      + '&detail=full&maxResults=10000', Object.values(result.rows).flat());
     return result;
   }
   async function twitchRegression(out) {
@@ -3741,7 +3755,11 @@ const AUDIT = `<script>
 
       // Hold the actual shared source promise across frames, not a synthetic DOM replacement.
       var release;
-      A.setRarityInflight(new Promise(function (resolve) { release = resolve; }));
+      var sourcePending = new Promise(function (resolve) { release = resolve; });
+      A.setRarityInflight(sourcePending);
+      A.seedEbirdCache('data/obs/' + A.activeScope().effectiveRegion
+        + '/recent/notable?back=' + logic.CONST.FETCH_BACK + '&detail=full&maxResults=10000',
+        sourcePending.then(function (value) { return Object.values(value.rows).flat(); }));
       saved = anchor(cards(host)[Math.min(6,cards(host).length - 1)]);
       A.onRarityEarly('wa');
       await pause(100);
@@ -5450,7 +5468,7 @@ const AUDIT = `<script>
       out.push.apply(out, await patchBoundaryLayout(scan, ''));
       out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
       try { out.push.apply(out, await rankBirdLayout(scan, prepareRankBirdReview, '', auditStage)); }
-      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error)}); }
+      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error.stack || error)}); }
       try {
         var aggregateApp = window.__app;
         aggregateApp.setActiveReport('lower48');
@@ -6519,7 +6537,7 @@ server.listen(0, '127.0.0.1', () => {
           layoutProblems.push('F857 compact neighborhood lost its eleven source rows');
         }
         if (layout.latestBirdIcons === false) {
-          layoutProblems.push('Top 100 latest-bird icons must match the readable 56px scaled size');
+          layoutProblems.push('Top 100 latest-bird icons must match the shared compact-list size');
         }
         if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
         if (layout.emptyMinHeight > 0.5) {
