@@ -25949,7 +25949,7 @@
             }
             var out = eligible.map(normalize).filter(function (o) { return o.code; });
             if (patchScope) out._patchWithheld = rows.length - eligible.length;
-            try {
+            if (!patchScope || !hit || hit.d !== today || !Array.isArray(hit.v)) try {
               localStorage.setItem(key, JSON.stringify({
                 d: today, v: rows.map(normalize).filter(function (o) { return o.code; })
               }));

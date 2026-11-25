@@ -58597,8 +58597,6 @@ test('the 24-hour badge reaches the shared species row, not just the rarity list
 // ref/hotspot/{county}, which is a list of PARKS — and parks do not appear
 // between two taps of a button.
 test('the Go birding sections refresh observations, not the world', async () => {
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-
   // The three modes are distinct on purpose; a single boolean force would make
   // every refresh the ~47-call one.
   assert.match(HTML, /if \(force === 'notable'\) ebClearMatching\(FORCE_NOTABLE_RE\)/,
@@ -58619,11 +58617,12 @@ test('the Go birding sections refresh observations, not the world', async () => 
   assert.ok(!re.test('ref/hotspot/US-WA-033'),
     'and NOT the hotspot directory, which is a list of parks');
 
-  // All six section loaders wired: Today and Closest through getChase, both
+  // All six section loaders wired: Today and Closest through shared chase, both
   // day tiers through getTierChase, and hot/cold through their own scan.
   const app = await boot();
   const dest = String(app.window.__app.loadDestinations);
-  assert.match(dest, /getChase\(takeForce\(\) \? 'obs' : false\)/, 'Top patches');
+  assert.match(dest, /getChase(?:All)?\(takeForce\(\) \? 'obs' : false(?:,|\))/,
+    'Top patches consumes only its observation refresh');
   const closest = HTML.slice(HTML.indexOf('function loadTargets'),
     HTML.indexOf('function loadTargets') + 2200);
   assert.match(closest, /getChase\(takeForce\(\) \? 'obs' : false\)/,
