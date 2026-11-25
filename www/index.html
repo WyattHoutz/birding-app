@@ -1286,7 +1286,7 @@
     .saved-location-choices button { white-space: normal; text-align: left; }
     #settingsHomeEditor[open] > summary, #settingsHomeEditor[open] > label,
     #settingsTempHomeEditor[open] > summary { display: none; }
-    .saved-location-warning { border-left: 6px solid #0072b2; padding: 8px 12px; overflow-wrap: anywhere; }
+    .saved-location-warning { border-left: 6px solid var(--safe-blue); padding: 8px 12px; overflow-wrap: anywhere; }
     #savedHomeRequired { font-size: calc(14px * var(--s)); }
     .home-review { border: 2px solid var(--muted); border-radius: 12px; padding: 12px; margin: 12px 0; font-size: calc(14px * var(--s)); }
     #homeSettingsBubble > details > summary { min-height: 44px; padding: 6px 0; }
@@ -33150,6 +33150,7 @@
         return prepared;
       }
       function acquireInitialDatasetTasks(scope, work, baseline) {
+        var patchScope = Object.assign({}, scope, {publicEvidence:true});
         var sourceWorks = {};
         function sourceWork(key) {
           if (!sourceWorks[key]) sourceWorks[key] = Object.assign({}, work, {
@@ -33244,19 +33245,19 @@
               .then(function (result) { return retained('ppte', result); });
           } },
           busy: { acquire: function (retry, values, resourceWork, countyScope, resourceAccess) {
-            return acquireBusyPatches(false, retry, resourceWork || sourceWork('busy'), countyScope, resourceAccess).then(function (result) {
+            return acquireBusyPatches(false, retry, resourceWork || sourceWork('busy'), countyScope, resourceAccess, patchScope).then(function (result) {
               if (!result || !result.busyState || result.busyState.pending
                   || result.busyState.partial || result.busyState.failed) {
                 throw new Error('Busy Patch reference coverage is incomplete.');
               }
-              var key = hotCacheKey(), raw = null;
+              var key = hotCacheKey(patchScope), raw = null;
               try { raw = localStorage.getItem(key); } catch (error) {}
               return (raw ? unpackJson(raw) : Promise.resolve(null)).then(function (saved) {
                 if (saved && saved.busyState && !saved.busyState.partial
                     && saved.busyState.at === result.busyState.at && Array.isArray(saved.busy)) {
                   return verified(result, true, '');
                 }
-                return hotCacheSave(result, key).then(function (stored) {
+                return hotCacheSave(result, key, patchScope).then(function (stored) {
                   return verified(result, stored, 'The Busy Patch snapshot could not be saved.');
                 });
               });
@@ -33448,7 +33449,7 @@
           }),
           initialProvider('busy-registry', {}, function (inputs, context, params) {
             var path = busyRequestPath('ref/hotspot/' + encodeURIComponent(params.code) + '?fmt=json',
-              hotspotContextKey());
+              hotspotContextKey(null, null, null, patchScope));
             return ebird(path, false, false, false, context.work).then(function (rows) {
               if (!Array.isArray(rows) || !rows.length) throw new Error('Public hotspot registry unavailable.');
               return busySourceEvidence('busy-registry', path, rows);
@@ -33456,7 +33457,7 @@
           }, function (params) { return busyCode(params, 1); }),
           initialProvider('busy-checklist-list', {}, function (inputs, context, params) {
             var path = busyRequestPath('product/lists/' + encodeURIComponent(params.code) + '?maxResults=1200',
-              hotspotContextKey());
+              hotspotContextKey(null, null, null, patchScope));
             return ebird(path, params.coverage === 'reference', params.force, params.force || context.mode === 'retryMissing',
               context.work).then(function (rows) {
               if (!Array.isArray(rows)) throw new Error('Checklist coverage is unavailable.');
@@ -50445,7 +50446,9 @@
               var hotspot = byId[row.locId];
               if (!hotspot || seen[row.locId]) return null;
               seen[row.locId] = true;
-              return { locId: hotspot.locId, locName: hotspot.locName };
+              return Object.assign(publicEvidenceAdministration(hotspot), {
+                locId: hotspot.locId, locName: hotspot.locName, lat: hotspot.lat, lng: hotspot.lng
+              });
             }).filter(Boolean);
           });
           return cascades;
@@ -50596,6 +50599,11 @@
             || megaNames[String(name || '').trim().toLowerCase()]);
         }
         var megaMembershipRows = mega && mega.sourceRows;
+        var selectedMegaView = _megaViews[_megaViewKey];
+        if (mega && megaViewCurrent(selectedMegaView) && selectedMegaView.membershipVerified
+            && megaSnapshotVerified(mega) && selectedMegaView.membershipAt === mega.at) {
+          megaMembershipRows = publicEvidenceFromSource(selectedMegaView.rawRows, activeScope(), mega.region);
+        }
         var megaView = megaRows.length ? installMegaView(
           megaMembershipRows, true, false, '', {
             region: mega.region,
@@ -51904,7 +51912,8 @@
             result = mergeEventFeedResult(key, previous, result);
             if (key === 'mass' && previous && /^(partial|loading)$/.test(result.state)) {
               result = Object.assign({}, result, {
-                evidenceRows:mergeRarityRecords(result.evidenceRows || [], previous.evidenceRows || []),
+                evidenceRows:mergeBirdGenEvidence({mass:previous.evidenceRows || []},
+                  {mass:result.evidenceRows || []}, {mass:'partial'}).mass,
                 arrivalDays:Object.assign({}, previous.arrivalDays || {}, result.arrivalDays || {})
               });
             }
@@ -56567,6 +56576,9 @@
         var frame = window.requestAnimationFrame || function (fn) { setTimeout(fn, 0); };
         job.promise = retained.then(function () {
           return new Promise(function (resolve) { frame(function () { frame(resolve); }); });
+        }).then(function () {
+          if (!current()) throw queueCancelledError(null, 'Recent Bird Gen context changed');
+          return ensurePatchScope(scope);
         }).then(function () {
           if (!current()) throw queueCancelledError(null, 'Recent Bird Gen context changed');
           var work = navWork('Recent Bird Gen');

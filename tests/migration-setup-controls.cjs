@@ -1659,7 +1659,7 @@ module.exports = function registerMigrationSetupControls({
     try {
       const A = app.window.__app;
       app.open(/Settings/);
-      assert.match(app.$('homeCurrentLocation').textContent, /Use my current location/);
+      assert.equal(app.$('homeCurrentLocation').textContent, 'Here');
       assert.equal(app.state.locations.length, 0);
       const initial = JSON.stringify(A.getHome());
       app.click(app.$('homeCurrentLocation'));

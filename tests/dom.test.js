@@ -3943,10 +3943,11 @@ test('F1310 actual Busy completes while Recent enrichment is held, without reacq
     assert.equal(A.setupPrefetchEngine().complete(), true);
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
     const coldFetches = app.state.fetches.length, warmStarted = performance.now();
-    const busyAt = (await A.zcGet(A.hotCacheKey())).busyState.at;
+    const patchScope = {...A.activeScope(),publicEvidence:true};
+    const busyAt = (await A.zcGet(A.hotCacheKey(patchScope))).busyState.at;
     await Promise.all([tasks.sightings.acquire(false), tasks.busy.acquire(false)]);
     assert.equal(app.state.fetches.length, coldFetches, 'healthy normal readers must not reacquire providers');
-    assert.equal((await A.zcGet(A.hotCacheKey())).busyState.at, busyAt,
+    assert.equal((await A.zcGet(A.hotCacheKey(patchScope))).busyState.at, busyAt,
       'normal reuse cannot renew the source acquisition time');
     t.diagnostic(JSON.stringify({ fixture: 'synthetic warm Recent, cold Busy, held enrichment',
       busyReadyMs: Math.round(busyReadyMs), warmReuseMs: Math.round(performance.now() - warmStarted),
@@ -4001,6 +4002,7 @@ test('F1310 actual discovered Busy history and party resources share independent
     return [];
   } });
   const { app, A, base, release } = fixture;
+  const patchScope = {...A.activeScope(),publicEvidence:true};
   let pending, recent, shared;
   try {
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
@@ -4009,16 +4011,16 @@ test('F1310 actual discovered Busy history and party resources share independent
     pending = tasks.busy.acquire(false);
     await waitFor(() => releaseHistory, 'discovered public reference resource');
     const currentMs = performance.now() - started;
-    assert.equal(A.currentBusySnapshot().busyState.current[0].observers, 6);
-    assert.equal(A.currentBusySnapshot().busyState.pending, true);
-    assert.equal(A.currentBusySnapshot().busyState.phase, 'references');
-    assert.equal(A.currentBusySnapshot().busyState.checked, 0);
-    assert.equal(A.currentBusySnapshot().busyState.candidates, 1);
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.current[0].observers, 6);
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.pending, true);
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.phase, 'references');
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.checked, 0);
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.candidates, 1);
     assert.match(app.$('loadBarText').textContent, /Busy Patches: checking matched references 0\/1/);
-    assert.equal(A.currentBusySnapshot(true), null, 'current estimates are not completed reference evidence');
+    assert.equal(A.currentBusySnapshot(true,patchScope), null, 'current estimates are not completed reference evidence');
     releaseHistory();
     await waitFor(() => releaseDetail, 'discovered party detail resource');
-    assert.equal(A.currentBusySnapshot().busyState.phase, 'parties');
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.phase, 'parties');
     assert.match(app.$('loadBarText').textContent, /Busy Patches: checking shared-party evidence/);
     const graphAcquisitions = () => A.auditLog().events().filter(row =>
       row.event === 'setup.resource' && row.attrs.event === 'acquire').length;
@@ -4044,7 +4046,7 @@ test('F1310 actual discovered Busy history and party resources share independent
     release(base);
     assert.equal(app.state.fetches.filter(url => /product\/checklist\/view\/S1310000/.test(url)).length, 1,
       'Busy and another manifest must share one physical party-detail acquisition');
-    assert.equal(A.currentBusySnapshot().busyState.pending, true,
+    assert.equal(A.currentBusySnapshot(false,patchScope).busyState.pending, true,
       'party verification remains required while another consumer waits');
     releaseDetail();
     const [result, detailResult] = await Promise.all([pending, shared]);
@@ -4059,7 +4061,7 @@ test('F1310 actual discovered Busy history and party resources share independent
     await tasks.busy.acquire(false);
     await detail.start();
     assert.equal(app.state.fetches.length, requests, 'verified warm reference/detail demand cannot reacquire');
-    assert.equal(A.currentBusySnapshot(true).busyState.at, at);
+    assert.equal(A.currentBusySnapshot(true,patchScope).busyState.at, at);
     t.diagnostic(JSON.stringify({ fixture: 'synthetic cold Busy, held history/detail, held Recent enrichment',
       currentMs: Math.round(currentMs), completeMs: Math.round(performance.now() - started),
       registry: app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url)).length,
@@ -4094,7 +4096,7 @@ test('F1310 actual incomplete Busy reference recovery retains healthy registry c
   try {
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
     await assert.rejects(tasks.busy.acquire(false), /incomplete|unavailable/);
-    assert.equal(A.currentBusySnapshot(true).busyState.partial, true);
+    assert.equal(A.currentBusySnapshot(true,A.activeScope()).busyState.partial, true);
     const count = pattern => app.state.fetches.filter(url => pattern.test(url)).length;
     const healthy = [count(/ref\/hotspot\/US-WA-033/), count(/product\/lists\/US-WA-033/),
       count(/product\/checklist\/view\//)];
@@ -4157,7 +4159,7 @@ test('F1310 actual failed required party detail cannot certify Busy readiness an
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
     const failed = await tasks.busy.acquire(false).catch(() => null);
     assert.equal(failed, null, 'failed required party evidence cannot produce Ready');
-    assert.equal(A.currentBusySnapshot(true).busyState.partial, true);
+    assert.equal(A.currentBusySnapshot(true,A.activeScope()).busyState.partial, true);
     const healthy = app.state.fetches.filter(url => !/product\/checklist\/view\/S1310000/.test(url)).length;
     recover = true;
     const result = await tasks.busy.acquire(true).catch(() => null);
@@ -4352,7 +4354,8 @@ test('F1310 matched fully cold Recent and Busy schedules retain physical demand 
       else { await A.getChaseAll(); await A.startBusyPatches(busyInput); }
       assert.equal(network.length, warmBefore, 'healthy normal reuse cannot acquire more sources');
       assert.equal(JSON.stringify((await A.loadChaseSnapshot(A.getReportSlug())).feedTimes), ages);
-      assert.equal((await A.zcGet(A.hotCacheKey())).busyState.at, busyAt);
+      assert.equal((await A.zcGet(A.hotCacheKey(tasks
+        ? {...A.activeScope(),publicEvidence:true} : undefined))).busyState.at, busyAt);
       measured.push({
         requests: requests.map(row => row.url).sort(),
         feedStates: JSON.parse(JSON.stringify(snapshot.feedStates)),
@@ -4766,8 +4769,10 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi());
       assert.ok(A.getCounties().length, 'positive county scope must make Busy acquisition eligible');
       const at = Date.now();
-      assert.equal(await A.zcPut(A.hotCacheKey(), {
+      const patchScope = {...A.activeScope(),publicEvidence:true};
+      assert.equal(await A.zcPut(A.hotCacheKey(patchScope), {
         t: at, hot: [], cold: [], busy: [],
+        patchScope:patchScope.cacheIdentity,
         busyState: { at, pending: false, partial: false }
       }), true);
       store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
@@ -4777,6 +4782,9 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       Object.keys(tasks).filter(key => key !== 'busy').forEach(key => {
         tasks[key].acquire = () => ({ state: 'ready', value: {} });
       });
+      const setupBusy = await tasks.busy.acquire(false).catch(() => null);
+      assert.ok(setupBusy, 'setup must verify the bounded Busy source before its Menu handoff');
+      assert.equal(setupBusy.state,'ready');
       await A.startSetupPrefetch(tasks);
       const registryReads = () => app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033\?/.test(url)).length;
       const before = registryReads();
@@ -4896,7 +4904,7 @@ test('F1292 a complete actual prefetch makes zero provider requests through Cont
       const cascades = await A.loadSurgeSourceCache();
       return {
         observations: (await A.loadChaseSnapshot(A.getReportSlug())).feedTimes,
-        busy: (await A.zcGet(A.hotCacheKey())).busyState.at,
+        busy: (await A.zcGet(A.hotCacheKey({...A.activeScope(),publicEvidence:true}))).busyState.at,
         cascades: cascades && cascades.cascades ? cascades.cascades.t : null,
         birdcast: (await A.loadBirdcastSnapshot()).fetchedAt,
         foy: A.foyHistoryRead(A.foyContext()).readAt,
@@ -6519,7 +6527,7 @@ test('F1249 memory-only Busy and ranking snapshots cannot certify initial readin
   const A = app.window.__app, storagePrototype = app.window.Storage.prototype;
   const originalSet = storagePrototype.setItem;
   let blocked = true;
-  const hotKey = A.hotCacheKey();
+  const patchScope = {...A.activeScope(),publicEvidence:true}, hotKey = A.hotCacheKey(patchScope);
   storagePrototype.setItem = function (key, value) {
     if (blocked && (String(key).includes(hotKey) || String(key).includes(A.RANK_CACHE_KEY))) {
       throw new app.window.DOMException('Controlled cache failure', 'QuotaExceededError');
@@ -6528,7 +6536,7 @@ test('F1249 memory-only Busy and ranking snapshots cannot certify initial readin
   };
   try {
     const at = Date.now() - 60000;
-    assert.equal(await A.zcPut(hotKey, { t: at, hot: [], cold: [], busy: [],
+    assert.equal(await A.zcPut(hotKey, { t: at, hot: [], cold: [], busy: [],patchScope:patchScope.cacheIdentity,
       busyState: { at, pending: false, partial: false } }), false);
     const period = A.personalBoardPeriod(), name = A.getDisplayName();
     for (const metric of ['spp', 'cl']) {
@@ -9332,6 +9340,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
     await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [{
       code: 'margod', name: 'Marbled Godwit', time: Date.now(),
       when: formatObsStamp(new Date(Date.now() - 1200000)), locId: 'LF1011KEEP',
+      subnational1Code:'US-WA',lat:47.75,lng:-122.16,
       locName: 'Retained public marsh', checklistId: 'SF1011KEEP',
     }] });
     A.saveMegaSnapshot([], true);
@@ -9418,9 +9427,8 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
     ordered.forEach((source, i) => { acquisition.times[source] = Date.now() - (5 - i) * 60000; });
     app.window.localStorage.setItem(acquisitionKey, JSON.stringify(acquisition));
     const logStart = app.window.__dbg.buf.length;
-    await waitFor(() => published.some(event => /TWITCH/i.test(event.title)),
-      'new real acquisition reaches the shared production notification ledger')
-      .catch(error => assert.fail(error.message));
+    assert.equal(published.length,0,
+      'F1462 incomplete sources cannot publish or initialize native notification history');
     const scheduled = published.length;
     failingFavorite = false;
     heldMass = f821Page([]);
@@ -19889,7 +19897,7 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
 
   const converge = between('function acquireBusyPatches(', 'function busyPatchReason(');
   assert.match(converge,
-    /_busyBroad\.promise && _busyBroad\.context === context && workCurrent\(_busyBroad\.work\) && !force\) return _busyBroad\.promise/,
+    /store\.promise && store\.context === context && workCurrent\(store\.work\) && !force\) return store\.promise/,
     'F695 duplicate Bird Gen callers no longer join the active source promise');
   const tasks = between('function sourceTask(', '_surgeRetrySources = function');
   assert.match(tasks,
@@ -24849,7 +24857,8 @@ test('F916 cached CCLO traces name the reused enrichment without inventing a fre
       cascades:{state:'ok',rows:[{
         code:'chclon',species:'Chestnut-collared Longspur',latest:stamp,
         birders:[{name:'PRIVATE',rank:1}],locationState:'ok',
-        recent:[{lat:0,lng:0,locName:'Synthetic marsh',obsDt:'2020-01-01 09:00'}]
+        recent:[{lat:48.65,lng:-117.5,subnational1Code:'US-WA',
+          locName:'Synthetic marsh',obsDt:'2020-01-01 09:00'}]
       }]}
     });
     app.$('ccloTraceArm').click();
@@ -28784,7 +28793,7 @@ function ppteFixture(day = recentObsStamp(2).slice(0, 10), acquiredAt = Date.now
     observer: `Test reporter ${person + 1}`, dateStr: `${day} ${String(9 + person).padStart(2, '0')}:00`,
     loc: person ? '123 Sample St SE, Test County' : 'Sample Street SE, Test County',
     lat: 47 + person * 0.00018, lon: -122, count: 99, __stateRba: true,
-    ppteSourceRegion:'US-WA',
+    ppteSourceRegion:'US-WA',subnational1Code:'US-WA',
     ppteRarity:{code,region:'US-WA',at:acquiredAt,observedAt:day},
   })));
   const before = new Date(day + 'T12:00:00Z');
@@ -36097,6 +36106,7 @@ test('F807 quota failure keeps the durable snapshot, serves memory, and recovers
   await A.saveSurgeRetainedPart('favorite', {
     state: 'ok', rows: [{
       code: 'oldbird', name: 'Last good bird', time: Date.now(),
+      subnational1Code:'US-WA',lat:47.75,lng:-122.16,
       when: f801Day() + ' 00:01', locId: 'LF807', checklistId: 'SF807OLD',
     }],
   });
@@ -36120,6 +36130,7 @@ test('F807 quota failure keeps the durable snapshot, serves memory, and recovers
   assert.ok(W.localStorage.getItem('bc_surge_sources_v1:f807-small'));
   const replacement = Array.from({ length: 50 }, (_, i) => ({
     code: 'newbird' + i, name: 'Replacement bird ' + i, time: Date.now(),
+    subnational1Code:'US-WA',lat:47.75,lng:-122.16,
     when: f801Day() + ' 00:01', locId: 'LF807', checklistId: 'SF807NEW',
     evidence: 'quota fixture '.repeat(16),
   }));
@@ -36184,6 +36195,7 @@ test('F807 retained snapshots remain readable from legacy plain JSON', async () 
   first.window.Response = Response;
   await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [
     { code: 'legacybird', name: 'Legacy bird', time: Date.now(),
+      subnational1Code:'US-WA',lat:47.75,lng:-122.16,
       when: f801Day() + ' 00:01', locId: 'LF807LEGACY' },
   ] });
   const key = Object.keys(first.window.localStorage)
@@ -37459,8 +37471,10 @@ test('F729 live favorites preserve successful feeds, reuse cache and force retry
       if (/data\/obs\/LFRETRY\/recent/.test(url)) return failed ? { unreadable: true } : [];
       if (/data\/obs\/LFGOOD\/recent/.test(url)) return [
         { speciesCode: 'margod', comName: 'Marbled Godwit', locId: 'LFGOOD',
+          subnational1Code:'US-WA',lat:47.75,lng:-122.16,
           howMany: 1, obsDt: stamp, subId: 'SFG' },
         { speciesCode: 'wrong', comName: 'Wrong patch bird', locId: 'LFOTHER',
+          subnational1Code:'US-OR',lat:45.5,lng:-122.6,
           howMany: 1, obsDt: stamp, subId: 'SFW' },
       ];
       return [];
@@ -37934,6 +37948,10 @@ test('F906 completed partial Mass acquisition stays warm when production publica
     await waitFor(() => A.loadSurgeRetained()?.mass?.acquiredAt > oldAt,
       'completed acquisition timestamp persisted');
     const retained = A.loadSurgeRetained().mass;
+    assert.ok(retained.evidenceRows.some(row => row.speciesCode === 'snogoo'
+      && row.locId === 'L821'), 'partial raw union must retain the earlier resolved flock');
+    assert.ok(retained.evidenceRows.some(row => row.speciesCode === 'margod'),
+      'partial raw union must retain the fresh flock too');
     assert.equal(retained.retainedAt, oldAt, 'old-row provenance must remain honest');
     assert.notEqual(retained.arrivalPending, true);
     assert.ok(app.document.querySelector('#surgeFeed [data-species-code="snogoo"]'),
@@ -38979,7 +38997,7 @@ test('F967 migration headlines emphasize only named birds and preserve the obser
 test('F968 production Cascades resolve exact public IDs, override misleading names and keep the selected tuple', async () => {
   const name='Vermilion Flycatcher',stamp=recentObsStamp(1),day=stamp.slice(0,10);
   const publicRow={speciesCode:'verfly',comName:name,locId:'LPUBLIC968',
-    locName:'Home Acres Rd, Everett',lat:45.1,lng:0,obsDt:stamp,subId:'SPUBLIC968',
+    locName:'Home Acres Rd, Everett',lat:47.99,lng:-122.21,obsDt:stamp,subId:'SPUBLIC968',
     howMany:1,locationPrivate:false};
   const recent=[
     {...publicRow,locId:'LPRIVATE968',locName:'4300\u20134628 Example Rd',
@@ -38998,16 +39016,16 @@ test('F968 production Cascades resolve exact public IDs, override misleading nam
     if (/top100/.test(url)) return dualRankFixture('spp',board,'US-WA',String(new Date().getFullYear()));
     if (/recent\/verfly/.test(url)) return recent;
     if (/ref\/hotspot\/US-WA\?/.test(url)) return [
-      {locId:'LPUBLIC968',locName:'Home Acres Rd, Everett',lat:45.1,lng:0},
-      {locId:'LOTHER968',locName:'Older public marsh',lat:45.1,lng:0}
+      {locId:'LPUBLIC968',locName:'Home Acres Rd, Everett',lat:47.99,lng:-122.21,subnational1Code:'US-WA'},
+      {locId:'LOTHER968',locName:'Older public marsh',lat:47.99,lng:-122.21,subnational1Code:'US-WA'}
     ];
     if (/bird-list/.test(url)) return f821Page();
     return [];
   }});
   try {
     const A=app.window.__app;
-    app.window.localStorage.setItem(A.homeKey('lat'),'45');
-    app.window.localStorage.setItem(A.homeKey('lng'),'0');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47.96');
+    app.window.localStorage.setItem(A.homeKey('lng'),'-122.2');
     app.window.localStorage.setItem(A.chaseMiKey(),'35');
     await seedSeen(app,[],[],[{code:'verfly',name}]);
     await A.loadSurge();
@@ -76244,9 +76262,9 @@ test('F1123 the real hotspot dispatcher distinguishes unhandled work from a hand
     calls++;
     return Promise.resolve({state:'ok'});
   }};
-  const retry = new Function('current', '_busyRequests', 'hotspotContextKey', 'sourceTasks',
+  const retry = new Function('current', '_busyRequests', 'hotspotContextKey', 'sourceTasks', 'patchScope',
     'var _surgeHotspotRetry;\n' + HTML.slice(start, end) + '\nreturn _surgeHotspotRetry;')(
-    () => current, requests, () => 'owned', tasks);
+    () => current, requests, () => 'owned', tasks, {cacheIdentity:'selected'});
   assert.equal(await retry(known), true, 'the known active source must still be joined');
   assert.equal(retry('birdcast/forecast'), null, 'unknown work must reach the full-feed fallback');
   assert.equal(retry('product/lists/US-ME-001?maxResults=1200'),null,
