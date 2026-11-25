@@ -4318,7 +4318,7 @@ test('F1288 only verified prior data is omitted, and stale data is revealed befo
 test('F1288 actual Taxonomy proof is revalidated before work and stale metadata reveals a real version check', async () => {
   for (const stale of [false, true]) {
     const app = await setupOwnedSeenApp(['stable']);
-    let releaseBusy;
+    let releaseBusy, releaseTaxonomy, pending;
     try {
       const A = app.window.__app, store = app.window.localStorage;
       store.setItem('bc_api_verified_v1:' + A.bcProfile(), store.getItem('ebird_api_key'));
@@ -4331,6 +4331,14 @@ test('F1288 actual Taxonomy proof is revalidated before work and stale metadata 
       };
       const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
       assert.equal(tasks.taxonomy.prepared, true);
+      const actualTaxonomy = tasks.taxonomy.acquire;
+      tasks.taxonomy.acquire = tasks.taxonomy.preparedAcquire = (...args) =>
+        new Promise(resolve => {
+          releaseTaxonomy = () => {
+            releaseTaxonomy = null;
+            resolve(Promise.resolve().then(() => actualTaxonomy(...args)));
+          };
+        });
       Object.keys(tasks).filter(key => key !== 'taxonomy').forEach(key => {
         tasks[key].acquire = () => key === 'busy'
           ? new Promise(resolve => { releaseBusy = resolve; }) : { state: 'ready', value: {} };
@@ -4341,9 +4349,15 @@ test('F1288 actual Taxonomy proof is revalidated before work and stale metadata 
         store.setItem('bc_taxonomy_v1', JSON.stringify(meta));
         assert.equal(await A.restoreTaxonomyNames(), true);
       }
-      const pending = A.startSetupPrefetch(tasks);
+      pending = A.startSetupPrefetch(tasks);
       A.openSetupSheet();
-      await waitFor(() => releaseBusy, 'actual Taxonomy verification settled');
+      await waitFor(() => releaseBusy && releaseTaxonomy,
+        'independent Busy source starts while Taxonomy is held');
+      assert.equal(reads, 0, 'Busy starting does not certify a Taxonomy version check');
+      releaseTaxonomy();
+      await waitFor(() => A.setupPrefetchEngine().timings()
+        .some(item => item.type === 'task' && item.source === 'taxonomy'),
+      'actual Taxonomy verification settles before checking its proof');
       assert.equal(reads, stale ? 1 : 0, 'stale metadata performs one shared version check; fresh data performs none');
       const row = app.$('setupPrefetchRows').querySelector('[data-source="taxonomy"]');
       assert.equal(!!row, stale, 'Taxonomy visibility follows revalidated prior proof');
@@ -4353,7 +4367,9 @@ test('F1288 actual Taxonomy proof is revalidated before work and stale metadata 
       await pending;
       assert.deepEqual(app.state.errors, []);
     } finally {
+      if (releaseTaxonomy) releaseTaxonomy();
       if (releaseBusy) releaseBusy({ state: 'ready', value: {} });
+      if (pending) await pending;
       app.window.close();
     }
   }
