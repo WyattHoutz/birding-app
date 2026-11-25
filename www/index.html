@@ -20356,14 +20356,17 @@
             if (!codeSet[code]) { codeSet[code] = 1; codes.push(code); }
             var file = 'sp-' + code + '.json';
             if (!rows[file]) rows[file] = [];
-            rows[file].push({
+            rows[file].push(Object.assign(publicEvidenceAdministration(s), {
               speciesCode: code, comName: s.name || code,
               locId: h.locId, locName: h.locName,
+              locationPrivate: false,
               lat: h.lat, lng: h.lng, obsDt: s.dateStr || '',
               subId: s.subId || '', howMany: s.count,
-              subnational2Code: h.co || '',
+              subnational2Code: s.subnational2Code || s.co || s.county || s.subnational2 || '',
+              subnational1Code: s.subnational1Code || s.state || s.subnational1 || '',
+              countryCode: s.countryCode || s.country || '',
               __notable: !!(rareCodes && rareCodes[code])
-            });
+            }));
           });
         });
         return { rows: rows, codes: codes };
@@ -25927,22 +25930,30 @@
             rows = Array.isArray(rows) ? rows : [];
             var eligible = patchScope ? patchEvidenceAtPlaces(rows.filter(function (row) {
               return !(row.locId || row.locID) || (row.locId || row.locID) === locId;
+            }).map(function (row) {
+              return row.locId || row.locID ? row : Object.assign({}, row, { locId: locId });
             }), [place], patchScope) : rows;
-            var out = eligible.map(function (o) {
+            function normalize(o) {
               // subId travels with the row now: the feed already carries it,
               // and without it the nested species list cannot link to the
               // checklist that actually holds the bird.
               // howMany travels too. It is the other half of what the row says
               // — "Anna's Hummingbird ×3, 8/25 7:15A" — and dropping it here
               // is why the corrected rows showed a bare name.
-              return { code: o.speciesCode, name: o.comName || o.speciesCode,
+              return Object.assign(publicEvidenceAdministration(o), {
+                       code: o.speciesCode, name: o.comName || o.speciesCode,
                        dateStr: o.obsDt || '', subId: o.subId || '',
                        obsValid: o.obsValid, obsReviewed: o.obsReviewed,
                        reviewState: BL.reviewState(o),
-                       count: (o.howMany == null ? null : o.howMany) };
-            }).filter(function (o) { return o.code; });
+                       count: (o.howMany == null ? null : o.howMany) });
+            }
+            var out = eligible.map(normalize).filter(function (o) { return o.code; });
             if (patchScope) out._patchWithheld = rows.length - eligible.length;
-            else try { localStorage.setItem(key, JSON.stringify({ d: today, v: out })); } catch (e) {}
+            try {
+              localStorage.setItem(key, JSON.stringify({
+                d: today, v: rows.map(normalize).filter(function (o) { return o.code; })
+              }));
+            } catch (e) {}
             return out;
           });
       }
@@ -26269,6 +26280,16 @@
           .filter(function (el) { return el.getAttribute('data-hsloc'); });
         if (!cards.length) return Promise.resolve();
         var isSeen = seenResolver();
+        var directoryPlaces = {};
+        if (patchScope) try {
+          var directory = JSON.parse(localStorage.getItem(hotspotCacheKey(getRegion())) || 'null');
+          if (directory && directory.at <= Date.now()
+              && Date.now() - directory.at < HOTSPOT_TTL_MS && Array.isArray(directory.rows)) {
+            patchEvidenceRows(directory.rows, patchScope).forEach(function (place) {
+              directoryPlaces[place.locId] = place;
+            });
+          }
+        } catch (e) {}
         return pool(cards, LOC_SPECIES_CONC, function (el) {
           if (!workCurrent(work)) return;
           var lid = el.getAttribute('data-hsloc');
@@ -26295,10 +26316,16 @@
             markNoRecent(el, days);
             return Promise.resolve();
           }
-          var place = { locId: lid, lat: el.getAttribute('data-lat'), lng: el.getAttribute('data-lng') };
+          var place = directoryPlaces[lid]
+            || { locId: lid, lat: el.getAttribute('data-lat'), lng: el.getAttribute('data-lng') };
           return locRecentSpecies(lid, days, work, patchScope, place).then(function (rows) {
             if (!scopeCurrent(scope) || !workCurrent(work)) return;
-            if (!rows.length) {
+            var scoredRows = [];
+            try {
+              var scored = JSON.parse(el.getAttribute('data-scored') || '[]');
+              if (Array.isArray(scored)) scoredRows = scored;
+            } catch (e) {}
+            if (!rows.length && !scoredRows.length) {
               if (rows._patchWithheld) {
                 var withheldSlot = el.querySelector('.hslists');
                 if (withheldSlot) withheldSlot.innerHTML = '<div class="meta dim">'
@@ -26360,7 +26387,7 @@
             // the same resolver, so this cannot resurrect a bird you have
             // ticked; it only stops a narrower window from deleting one.
             try {
-              JSON.parse(el.getAttribute('data-scored') || '[]').forEach(function (u) {
+              scoredRows.forEach(function (u) {
                 if (!u) return;
                 if (!BL.countableTaxon(u.name)) return;
                 var speciesKey = resolveSpecies(u.code, parentOf);
@@ -26546,6 +26573,7 @@
               targets: d.species.length
             },
             species: d.species,
+            speciesDays: d.speciesDays,
             seenSpecies: includeSeen ? (d.seenSpecies || []) : null
           }));
         });
@@ -26753,7 +26781,8 @@
           }
           if (needsCountyYear) rankStatus();
           return ensurePatchScope(scope).then(loadTravelZones).then(function (cfg) {
-            return getChase(takeForce() ? 'obs' : false).then(function (c) {
+            return getChaseAll(takeForce() ? 'obs' : false, null,
+              Object.assign({}, work, { deferEnrichment: true })).then(countyView).then(function (c) {
               return projectChaseResult(c,
                 Object.assign({}, c.profile || chaseProfile(), { travelCfg: cfg }), getReport().slug, scope);
             });
@@ -26798,6 +26827,27 @@
             loadHotspotIndex(p.stateCode, work).then(function (hotspots) {
               var candidates = destinationDirectCandidates(hotspots, home, radius, 20, p.travelCfg, scope);
               var rounds = destinationDirectCheckpoints(radius);
+              function paintDirect(deferHydration) {
+                var merged = mergeDirectDestinationRows(
+                  c.rows || {}, c.speciesCodes || [], candidates, directRows, rareCodes);
+                var countySet = {}, directCounties = (p.counties || []).slice();
+                directCounties.forEach(function (county) {
+                  if (county && county.code) countySet[county.code] = 1;
+                });
+                candidates.forEach(function (h) {
+                  if (h.co && !countySet[h.co]) {
+                    countySet[h.co] = 1;
+                    directCounties.push({ code: h.co, label: h.co, slug: h.co });
+                  }
+                });
+                var directProfile = Object.assign({}, p, { counties: directCounties });
+                var cv = computeChaseRows(
+                  directProfile, p.slug, merged.rows, merged.codes, [], scope);
+                paint(rerankFromAnchor(cv.destinations.map(function (cluster) {
+                  return Object.assign(toDest(cluster), { speciesDays: 7 });
+                })), deferHydration);
+                return cv;
+              }
               return rounds.reduce(function (chain, round) {
                 return chain.then(function () {
                   if (!scopeCurrent(scope) || !workCurrent(work)
@@ -26806,29 +26856,21 @@
                     return h.distMi <= round && completed.indexOf(h.locId) < 0;
                   });
                   return Promise.all(batch.map(function (h) {
-                    return locRecentSpecies(h.locId, 7, work).then(function (rows) {
+                    return locRecentSpecies(h.locId, 7, work, scope, h).then(function (rows) {
+                      if (!scopeCurrent(scope) || !workCurrent(work)
+                          || contextKey !== patchContextKey('today')) return;
                       directRows[h.locId] = rows;
                       completed.push(h.locId);
+                      if (!results.querySelector('.hscard')) {
+                        paintDirect(true);
+                        st.textContent = 'Partial — ' + completed.length + ' of '
+                          + candidates.length + ' hotspots checked · best first, not nearest';
+                      }
                     });
                   })).then(function () {
                     if (!scopeCurrent(scope) || !workCurrent(work)
                         || contextKey !== patchContextKey('today')) return false;
-                    var merged = mergeDirectDestinationRows(
-                      c.rows || {}, c.speciesCodes || [], candidates, directRows, rareCodes);
-                    var countySet = {}, directCounties = (p.counties || []).slice();
-                    directCounties.forEach(function (county) {
-                      if (county && county.code) countySet[county.code] = 1;
-                    });
-                    candidates.forEach(function (h) {
-                      if (h.co && !countySet[h.co]) {
-                        countySet[h.co] = 1;
-                        directCounties.push({ code: h.co, label: h.co, slug: h.co });
-                      }
-                    });
-                    var directProfile = Object.assign({}, p, { counties: directCounties });
-                    var cv = computeChaseRows(
-                      directProfile, p.slug, merged.rows, merged.codes, [], scope);
-                    paint(rerankFromAnchor(cv.destinations.map(toDest)), false);
+                    var cv = paintDirect(false);
                     st.textContent = round < radius
                       ? 'Partial — checked direct hotspot evidence through '
                         + round + ' of ' + radius + ' miles · best first, not nearest'

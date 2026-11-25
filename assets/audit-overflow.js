@@ -1350,6 +1350,12 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'cold-patches'}) {
+      try { out.push(...await coldPatchLayout(scan,preparePersonalFixture,auditStage)); }
+      catch(error) { out.push({label:'F1532 cold patches',fixtureError:String(error.stack || error)}); }
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'rank-birds'}) {
       try { out.push(...await rankBirdLayout(scan, prepareRankBirdReview,
         ${JSON.stringify(process.env.AUDIT_RANK_BIRDS_MUTATION || '')}, auditStage)); }
@@ -5383,6 +5389,7 @@ const AUDIT = `<script>
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
   const alertLocationLayout = ${require('./alert-location-layout').toString()};
   const patchBoundaryLayout = ${require('./patch-boundary-layout').toString()};
+  const coldPatchLayout = ${require('./cold-patch-layout').toString()};
   const savedLocationLayout = ${require('./saved-location-layout').toString()};
   const releaseReviewLayout = ${require('./release-review-layout').toString()};
   const birdReportLayout = ${require('./bird-report-layout').toString()};
@@ -5391,7 +5398,11 @@ const AUDIT = `<script>
   const prepareRankBirdReview = ${require('./rank-bird-review').toString()};
   const rankBirdLayout = ${require('./rank-bird-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','cold-patches','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!out.some(function (result) { return result.fixtureError; })) {
+      try { out.push(...await coldPatchLayout(scan,preparePersonalFixture,auditStage)); }
+      catch(error) { out.push({label:'F1532 cold patches',fixtureError:String(error.stack || error)}); }
+    }
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await savedLocationLayout(scan)); }
       catch(error) { out.push({label:'F1515 F1517 saved locations and region scroll',fixtureError:String(error)}); }
@@ -5820,6 +5831,12 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'cold-patches') {
+      console.log(JSON.stringify(report,null,2));
+      process.exit(report.length===1 && report.every(r=>r.coldPatchGeometry
+        && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+        && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'rank-birds') {
       console.log(JSON.stringify(report, null, 2));
       process.exit(report.length === 2 && report.every(r => r.rankBirdHistory

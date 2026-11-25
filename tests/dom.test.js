@@ -785,6 +785,98 @@ test('F1515 changed saved base creates quiet TWITCH and target baselines without
   } finally {app.window.close();}
 });
 
+test('F1532 hotspot hydration retains verified directory provenance without admitting foreign reports', async () => {
+  for (const variant of ['missing administration', 'route-owned ID', 'empty', 'foreign', 'conflicting', 'wrong location', 'unknown directory']) {
+    const place = {locId:'L153201',locName:'Synthetic provincial marsh',
+      lat:48.45,lng:-123.4,co:'CA-BC-CP',state:'CA-BC',country:'CA',n:100};
+    const row = {speciesCode:'mallar3',comName:'Mallard',locId:place.locId,
+      lat:place.lat,lng:place.lng,obsDt:recentObsStamp(),subId:'S153201',howMany:2};
+    if (variant === 'route-owned ID') delete row.locId;
+    if (variant === 'foreign') row.subnational1Code = 'US-WA';
+    if (variant === 'conflicting') Object.assign(row,{state:'CA-BC',subnational1Code:'US-WA'});
+    if (variant === 'wrong location') row.locId = 'L1532OTHER';
+    const app = await boot({sample:false,storage:{
+      ebird_custom_regions:JSON.stringify([{slug:'u-bc',label:'British Columbia',
+        lat:48.45,lng:-123.4,stateCode:'CA-BC',tzStdOffset:-8,tzObservesDst:true}]),
+      ebird_report:'u-bc','ebird_home_lat:u-bc':'48.45','ebird_home_lng:u-bc':'-123.4',
+      'ebird_hotspots_v2:CA-BC':JSON.stringify({at:Date.now(),
+        rows:variant === 'unknown directory' ? [] : [place]}),
+    },fetch:url=>/data\/obs\/L153201\/recent/.test(url) && variant !== 'empty'?[row]:[]});
+    try {
+      const A = app.window.__app;
+      await seedSeen(app,[],null,[{code:'amerob',name:'American Robin'},{code:'mallar3',name:'Mallard'}]);
+      A.showSection('sec-destBtn',{load:false});
+      const paint = () => A.renderDestinations([{...place,dist:1,score:1,rare:0,
+        species:[{code:'amerob',comName:'American Robin',subId:'S1532SCORED',dateStr:recentObsStamp()}]}],
+      app.$('destMap'),app.$('destResults'),true,false,A.activeScope());
+      const positive = ['missing administration','route-owned ID'].includes(variant);
+      for (let reload=0;reload<2;reload++) {
+        paint();
+        await A.hydrateLocSpecies(app.$('destResults'),null,A.activeScope());
+        const card = app.$('destResults').querySelector('[data-hsloc]');
+        assert.match(card.querySelector('.hslists').textContent,/American Robin/,
+          variant+' must retain independent positively scored evidence');
+        assert.equal(/Mallard/.test(card.querySelector('.hslists').textContent),positive,variant);
+        assert.equal(card.getAttribute('data-unseen-n'),positive?'2':'1',variant);
+        assert.match(card.textContent,positive?/2 targets/:/1 target/,variant);
+      }
+      assert.equal(app.state.fetches.filter(url=>/data\/obs\/L153201\/recent/.test(url)).length,1,
+        variant+' warm projection must reuse the raw location response');
+      const broad = JSON.parse(app.window.localStorage.getItem('ebird_locsp_v2:'+place.locId+':3')).v;
+      assert.equal(broad.length,variant === 'empty'?0:1,
+        variant+' scoped hydration must not narrow the shared normalized cache');
+      if (variant === 'conflicting') {
+        assert.equal(broad[0].state,'CA-BC');
+        assert.equal(broad[0].subnational1Code,'US-WA');
+      }
+      assert.deepEqual(app.state.errors,[]);
+    } finally {app.window.close();}
+  }
+});
+
+test('F1532 cold provincial patches paint before a held direct scan without launching species enrichment', async () => {
+  let release;
+  const places = [1,2].map(n=>({locId:'L1532COLD'+n,locName:'Synthetic cold marsh '+n,
+    lat:48.45,lng:-123.4,subnational2Code:'CA-BC-CP',subnational1Code:'CA-BC',
+    countryCode:'CA',numSpeciesAllTime:200-n}));
+  const bird = {speciesCode:'amerob',comName:'American Robin',locId:places[0].locId,
+    lat:48.45,lng:-123.4,obsDt:recentObsStamp(),subId:'S1532COLD',howMany:1,
+    locationPrivate:false};
+  const app = await boot({sample:false,storage:{
+    ebird_custom_regions:JSON.stringify([{slug:'u-bc',label:'British Columbia',
+      lat:48.45,lng:-123.4,stateCode:'CA-BC',tzStdOffset:-8,tzObservesDst:true}]),
+    ebird_report:'u-bc','ebird_home_lat:u-bc':'48.45','ebird_home_lng:u-bc':'-123.4',
+  },fetch:url=>{
+    if (/ref\/hotspot\/CA-BC/.test(url)) return places;
+    if (/data\/obs\/L1532COLD2\/recent/.test(url)) return new Promise(resolve=>{release=()=>resolve([]);});
+    if (/data\/obs\/L1532COLD1\/recent/.test(url)) return [bird];
+    if (/data\/obs\//.test(url)) return [{...bird,...places[0],
+      locId:'L1532PRIVATE',subId:'S1532PRIVATE',locationPrivate:true}];
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app,[],null,[bird]);
+    A.showSection('sec-destBtn',{load:false});
+    A.fgSchedReset(Date.now());
+    await A.loadDestinations();
+    await assert.doesNotReject(waitFor(()=>release && /American Robin/.test(app.$('destResults').textContent),
+      'useful provincial bird card before the second hotspot finishes'));
+    assert.match(app.$('destStatus').textContent,/Partial/);
+    release();release=null;
+    await waitFor(()=>/hotspots from direct evidence/.test(app.$('destStatus').textContent),
+      'bounded direct scan completion');
+    await waitFor(()=>app.$('destResults').querySelector('[data-unseen-n]'),'completed evidence hydration');
+    assert.match(app.$('destResults').textContent,/American Robin/);
+    assert.equal(app.state.fetches.filter(url=>/\/recent\/amerob(?:\?|$)/.test(url)).length,0,
+      'Today patches must not start unrelated per-species enrichment');
+    assert.equal(app.state.fetches.filter(url=>/data\/obs\/L1532COLD1\/recent/.test(url)).length,1,
+      'direct cards reuse their seven-day source rather than buying a three-day read');
+    assert.equal(app.$('destResults').querySelector('[data-hsdays]').getAttribute('data-hsdays'),'7');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.__app.cancelStalledWork();if(release)release();app.window.close();}
+});
+
 test('F1460 actual Today and Nearby patches bound evidence without moving an outside-county Home', async () => {
   const now = formatObsStamp(new Date(Date.now()-3600000));
   const inside = {locId:'L1460IN',locName:'Inside County Marsh',lat:47.2529,lng:-122.4443,
@@ -72651,7 +72743,11 @@ test('F152: every section a county view narrows says that it is narrowed', async
     if (at < 0) return;                       // inline/anonymous — nothing to read
     const end = HTML.indexOf('\n      function ', at + 10);
     const body = HTML.slice(at, end < 0 ? HTML.length : end);
-    const reads = /getChase\(|getChaseRarity\(|getTwitchRarity\(/.test(body);
+    // Watch choices stay global; only their subordinate sightings are scoped.
+    const globalChoices = fn === 'loadWatchlist';
+    if (globalChoices) assert.match(body,/publicEvidenceRows\(c\.cv\.merged, scope\)/);
+    const reads = !globalChoices && (/getChase\(|getChaseRarity\(|getTwitchRarity\(/.test(body)
+      || /getChaseAll\(/.test(body) && /\.then\(countyView\)/.test(body));
     checked++;
     assert.equal(!!L[k].countyView, reads,
       `${k} (${fn}) ${reads ? 'reads' : 'does not read'} county-owned evidence, so `
