@@ -34,6 +34,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
+const prepareRankBirdReview = require('./rank-bird-review');
 
 const ROOT = path.join(__dirname, '..');
 const WWW = path.join(ROOT, 'www');
@@ -1745,7 +1746,7 @@ const REVIEW_SHOTS = [
                throw new Error('F954 '+entry[0]+' headline lost its requested wording');
              }
            });
-           if (host.querySelector('[data-alert-kind="cascade"] .surgetickcount').textContent !== '12')
+           if (host.querySelector('[data-alert-kind="cascade"] .surgetickcount').textContent !== '12\\u2714')
              throw new Error('F1442 Cascade mockup must show twelve ticks over the bird icon');
            if (host.querySelector('[data-alert-kind="favorite"] .surgealerttitle').textContent
                !== 'Northern Waterthrush at favorite patch Example saved public patch') {
@@ -2050,7 +2051,7 @@ REVIEW_SHOTS.push({
     Array.from(cards).forEach(function(card){
       var badge=card.querySelector(':scope > .name > .thumb .surgetickcount');
       var expected=card.dataset.speciesCode==='comter'?'5':'125';
-      if(!badge || badge.textContent!==expected || /lit up|top 100/i.test(card.querySelector('.surgealerttitle').textContent)
+      if(!badge || badge.textContent!==expected+'\\u2714' || /lit up|top 100/i.test(card.querySelector('.surgealerttitle').textContent)
           || card.querySelector('.surgekindtile').textContent!=='🏆')
         throw new Error('F1442 preview needs the tick count on the bird, not the trophy or headline');
     });
@@ -2084,7 +2085,7 @@ REVIEW_SHOTS.push({
     await FIX.fillFixturePhotos(host,document);
     var row=host.querySelector('[data-recent-kind="cascade"]');
     if(!row || row.querySelector('.surgealerttitle').textContent!=='Leaderboard has 12 ticks for Blue-gray Gnatcatcher'
-        || row.querySelector('.thumb .surgetickcount')?.textContent!=='12'
+        || row.querySelector('.thumb .surgetickcount')?.textContent!=='12\\u2714'
         || row.querySelector('.hslink,.surgekindtile'))
       throw new Error('F1442 Recent preview must retain the bird-image tick count without a location or trophy');
     return true;`
@@ -2509,6 +2510,99 @@ REVIEW_SHOTS.push({
   expects:['#rankCountWarning[role="status"]','.ranknearby [aria-current]'],
   prep:`await FIX.prepareTop100Sync(); return true;`
 });
+
+for (const expanded of [false, true]) REVIEW_SHOTS.push({
+  id: 'f1528-top100-' + (expanded ? 'eight' : 'five'), at: 'rankBtn', freshApp: true,
+  title: 'Top 100 - captured last-added birds, ' + (expanded ? 'Show more expanded' : 'five inline'),
+  host: 'rankResults', fullPage: true, scrollTo: '#rankResults',
+  expects: ['#rankResults .rankbirdhistory', '#rankResults .rankplainname'],
+  prep: `A.cancelStalledWork(); A.setActiveReport('wa'); A.setCountyView('');
+    await (${prepareRankBirdReview.toString()})(A, document, ${expanded});
+    var cards = document.querySelectorAll('#rankResults .rankrow:not(.rankhdr)');
+    if (cards.length !== 3 || cards[0].querySelectorAll('.rankbirdline').length !== ${expanded ? 8 : 5})
+      throw new Error('F1528 representative captured birds must be populated before capture');
+    document.getElementById('rankResults').dataset.mockData='true';
+    return true;`
+});
+
+for (const theme of ['light', 'dark']) {
+  const original = REVIEW_SHOTS.find(shot => shot.id === 'f1442-leaderboard-ticks');
+  REVIEW_SHOTS.push({
+    ...original, id: 'f1526-count-backgrounds-' + theme, fullPage: true,
+    title: 'Cascade outlined counts - representative photographs, ' + theme + ' theme',
+    prep: original.prep
+      .replace("var window=document.defaultView;", "var window=document.defaultView; A.setTheme('" + theme + "');")
+      .replace("['pacloo','Pacific Loon',125]", "['pacloo','Pacific Loon',125],['shtsan','Sharp-tailed Sandpiper',12]")
+      .replace('cards.length!==2', 'cards.length!==3')
+      .replace("?'5':'125'", "?'5':card.dataset.speciesCode==='pacloo'?'125':'12'")
+      .replace('    return true;', `    var badges=Array.from(cards).map(function(card){
+        return card.querySelector('.surgetickcount');
+      });
+      await FIX.fillFixturePhotos(host,document);
+      Array.from(cards).forEach(function(card,i){
+        var photo=card.querySelector(':scope > .name > .thumb');
+        if(!photo.querySelector('.surgetickcount'))photo.append(badges[i]);
+        var image=photo.querySelector('img');
+        if(!image || !image.complete || !image.naturalWidth)
+          throw new Error('F1526 background review requires decoded photographs');
+      });
+      return true;`)
+  });
+}
+for (const expanded of [false, true]) REVIEW_SHOTS.push({
+  id: 'f1527-hierarchy-' + (expanded ? 'open' : 'closed'), at: 'spLookupBtn', freshApp: true,
+  title: 'Stakeout hierarchy - truthful ' + (expanded ? 'Hide' : 'Show') + ' action',
+  host: 'spLookupIdHelp', fullPage: true, scrollTo: '#spLookupIdHelp',
+  prep: `FIX.before('spLookupBtn', A, document);
+    A.setTheme('light');
+    var sec = document.getElementById('sec-spLookupBtn');
+    A.showSection(sec.id);
+    await FIX.prepareCompare(A, document, sec);
+    var details = document.querySelector('#spLookupIdHelp details.spuhtaxdetails');
+    details.querySelector('summary').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (${expanded}) {
+      details.querySelector('summary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    if (details.open !== ${expanded} || details.querySelector('summary').textContent.trim()
+        !== '${expanded ? 'Hide' : 'Show'} Hierarchy Details')
+      throw new Error('F1527 native action name must match the actual open state');
+    return true;`
+});
+{
+  const taxonomy = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'taxonomy-2026.json'), 'utf8'));
+  const rows = taxonomy.current.filter(row => ['marwre1','eamwre1','marwre'].includes(row.speciesCode))
+    .map((row, i) => ({...row, taxonOrder:i+1, order:'Passeriformes',
+      familySciName:'Troglodytidae',familyComName:'Wrens'}));
+  REVIEW_SHOTS.push({
+    id: 'f1525-marsh-search', at: 'spLookupBtn', freshApp: true,
+    title: 'Marsh Wren search - local daughter, labelled nonregional daughter and published slash',
+    host: 'spLookupFound', fullPage: true, scrollTo: '#spLookupFound',
+    allowDisabled: ['#spLookupRefresh'],
+    prep: `FIX.before('spLookupBtn', A, document);
+      A.setTheme('light'); A.setActiveReport('wa'); A.setCountyView('');
+      A.showSection('sec-spLookupBtn', {load:false});
+      var rows = ${JSON.stringify(rows)}, W = document.defaultView;
+      A.setSpuhModel(W.Spuh.createFromTaxonomy(rows));
+      var local = rows.find(row => row.speciesCode === 'marwre1');
+      W.localStorage.setItem(A.speciesCacheKey('US-WA'), JSON.stringify({at:W.Date.now(),expected:1,
+        rows:[{code:local.speciesCode,name:local.comName,sci:local.sciName,
+          alpha:[...local.bandingCodes,...local.comNameCodes].join(' ').toLowerCase()}]}));
+      document.getElementById('spLookup').value='Marsh Wren';
+      await A.runSpeciesLookup();
+      var host=document.getElementById('spLookupFound');
+      if (!host.querySelector('[data-code="marwre1"]') || !host.querySelector('[data-code="eamwre1"]')
+          || !host.querySelector('[data-spuh="marwre"]'))
+        throw new Error('F1525 all exact published choices must be visible');
+      if (!document.getElementById('spLookupRefresh').disabled)
+        throw new Error('F1525 search choices have no selected bird to refresh');
+      host.dataset.mockData='true';
+      var sec=document.getElementById('sec-spLookupBtn');
+      sec.dataset.mockAt='spLookupBtn';sec.dataset.mockReady='true';
+      return true;`
+  });
+}
 
 const SHOTS = [
   { id: 'menu', title: 'Contents menu', freshApp: true,
@@ -4104,6 +4198,8 @@ const BOOTSTRAP = `
       speciesCodes: ['shtsan', 'solsan'],
       rows: feedRows, feedStates: feedStates, feedTimes: feedTimes
     });
+    A.seedEbirdCache('data/obs/US-WA/recent/notable?back='
+      + document.defaultView.BirdLogic.CONST.FETCH_BACK + '&detail=full&maxResults=10000', twitchRows);
     twitchRows.forEach(function (row) {
       A.seedEbirdCache('product/checklist/view/' + row.subId, Object.assign({}, row, {
         comments: 'Representative checklist evidence.', obs: [row]
@@ -4531,7 +4627,8 @@ const BOOTSTRAP = `
       var secondaryMetric = primaryMetric && primaryMetric.nextElementSibling;
       var speciesRect = textRect(primaryMetric || rankSpecies);
       var speciesBox = rankSpecies.getBoundingClientRect();
-      if (markerRect.right >= nameRect.left) {
+      var fullWidthBirds = document.documentElement.dataset.display === 'high-visibility';
+      if (!fullWidthBirds && markerRect.right >= nameRect.left) {
         throw new Error('Top 100 rank is not in its own left column');
       }
       var rankStack = rankMarker.closest('.rankstack');
@@ -4545,17 +4642,33 @@ const BOOTSTRAP = `
       var recentThumb = firstRankRow.querySelector('.rankbirdicon .thumb');
       var recentThumbBox = recentThumb && recentThumb.getBoundingClientRect();
       var firstRowRect = firstRankRow.getBoundingClientRect();
-      if (!recentThumbBox || Math.abs(recentThumbBox.width - 56 * renderScale) > 1
-          || Math.abs(recentThumbBox.height - 56 * renderScale) > 1) {
-        throw new Error('Top 100 latest-bird icon is missing or not 56 scaled pixels');
+      var compactReference = document.createElement('ul');
+      compactReference.className = 'convoysppl';
+      compactReference.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden';
+      compactReference.innerHTML = '<li><span class="thumb"></span></li>';
+      document.body.append(compactReference);
+      var compactIconSize = compactReference.querySelector('.thumb').getBoundingClientRect().width;
+      compactReference.remove();
+      if (!recentThumbBox || compactIconSize <= 0
+          || Math.abs(recentThumbBox.width - compactIconSize) > 1
+          || Math.abs(recentThumbBox.height - compactIconSize) > 1) {
+        throw new Error('Top 100 latest-bird icon must match the existing compact list icon size');
       }
-      var compactRowLimit = 86 + recentThumbBox.height - 18 * renderScale;
-      if (renderScale <= 1 && firstRowRect.height > compactRowLimit) {
-        throw new Error('Top 100 sentence row is too tall: '
-          + firstRowRect.height + 'px (limit ' + compactRowLimit + 'px)');
+      var contentBottom = Math.max(nameBox.bottom, rankStackRect.bottom, speciesBox.bottom);
+      var contentTop = Math.min(nameBox.top, rankStackRect.top, speciesBox.top);
+      var rowTopSpace = contentTop - firstRowRect.top;
+      var rowBottomSpace = firstRowRect.bottom - contentBottom;
+      if (renderScale <= 1 && rowBottomSpace > rowTopSpace + 1) {
+        throw new Error('Top 100 sentence row has excess space below its wrapped content: '
+          + JSON.stringify({ top: rowTopSpace, bottom: rowBottomSpace }));
       }
-      var topSpread = Math.max(markerRect.top, nameBox.top, speciesBox.top)
-        - Math.min(markerRect.top, nameBox.top, speciesBox.top);
+      if (fullWidthBirds && (nameBox.top < Math.max(rankStackRect.bottom, speciesBox.bottom) + 1
+          || nameBox.left > rankStackRect.left + .5 || nameBox.right < speciesBox.right - .5)) {
+        throw new Error('Top 100 High visibility birds must span a separate full-width row');
+      }
+      var columnTops = fullWidthBirds ? [markerRect.top, speciesBox.top]
+        : [markerRect.top, nameBox.top, speciesBox.top];
+      var topSpread = Math.max.apply(null, columnTops) - Math.min.apply(null, columnTops);
       if (topSpread > 2) {
         throw new Error('Top 100 columns are not top-aligned: spread='
           + topSpread + 'px');
@@ -4576,7 +4689,7 @@ const BOOTSTRAP = `
           + ' display=' + (speciesUnit ? getComputedStyle(speciesUnit).display : 'missing'));
       }
       var rankColumnGap = nameBox.left - rankStackRect.right;
-      if (rankColumnGap < 8 || rankColumnGap > 12) {
+      if (!fullWidthBirds && (rankColumnGap < 8 || rankColumnGap > 12)) {
         throw new Error('Top 100 compact column gutter is not 10px: '
           + rankColumnGap + 'px');
       }
@@ -4591,7 +4704,8 @@ const BOOTSTRAP = `
       var firstMovement = firstRankRow.querySelector(
         ':scope > .name > .rankstack > .mv');
       var movementRect = firstMovement && firstMovement.getBoundingClientRect();
-      if (!movementRect || movementRect.left >= nameRect.left
+      if (!movementRect || (!fullWidthBirds && movementRect.left >= nameRect.left)
+          || movementRect.left < rankStackRect.left - .5 || movementRect.right > rankStackRect.right + .5
           || movementRect.top < markerRect.bottom - 3
           || movementRect.top - markerRect.bottom > 4) {
         throw new Error('Top 100 movement is not tightly below the rank in column 1: rank='

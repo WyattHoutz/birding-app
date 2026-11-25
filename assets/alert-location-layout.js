@@ -75,7 +75,7 @@ async function alertLocationLayout(scan, mutation, view) {
     return { locations, cards:cards.length };
   });
   if (view === 'celebrity') return results;
-  await record('F1514 compact Cascade image count badge', async () => {
+  await record('F1514 F1526 outlined Cascade count and checkmark on the image', async () => {
     const measurements = [], definition = A.recentBirdGenViews.cascade;
     function measure(card, count, view) {
       if (mutation === 'cascade-recent-crushed' && view === 'recent') {
@@ -90,13 +90,27 @@ async function alertLocationLayout(scan, mutation, view) {
       wordsFit(card,'F1514 actual '+view);
       const thumb = card.querySelector('.surgetickthumb');
       const badge = thumb && thumb.querySelector('.surgetickcount');
-      check(badge && badge.textContent === String(count), 'F1514 actual count must remain on the image');
+      check(badge && badge.textContent === String(count)+'\u2714',
+        'F1526 unchanged count must precede its checkmark on the image');
+      if (mutation === 'cascade-box') Object.assign(badge.style,{
+        background:'#003B5C',border:'1px solid white',borderRadius:'99px'
+      });
+      if (mutation === 'cascade-outline') Object.assign(badge.style,{
+        webkitTextStrokeWidth:'0px',textShadow:'none'
+      });
+      const style = getComputedStyle(badge);
+      check(style.backgroundColor === 'rgba(0, 0, 0, 0)'
+        && parseFloat(style.borderTopWidth) === 0 && parseFloat(style.borderRadius) === 0
+        && style.boxShadow === 'none', 'F1526 count glyphs must have no bubble, fill, border or box');
+      check(style.color === 'rgb(255, 255, 255)' && parseFloat(style.webkitTextStrokeWidth) > 0
+        && style.webkitTextStrokeColor === 'rgb(0, 0, 0)' && style.textShadow !== 'none',
+      'F1526 white count and checkmark need black glyph outlines, not a container');
       if (mutation === 'cascade-strip') {
         Object.assign(badge.style, {left:'0',right:'0',bottom:'0',borderRadius:'0'});
       }
       const frame = thumb.getBoundingClientRect(), box = badge.getBoundingClientRect();
       check(box.width > 0 && box.height > 0 && box.width < frame.width*.85,
-        'F1514 count must be a compact badge, not a full-width strip: '
+        'F1514 count must remain compact, not a full-width strip: '
           + JSON.stringify({count,view,frame:frame.toJSON(),badge:box.toJSON()}));
       check(box.left >= frame.left-.5 && box.right <= frame.right+.5
         && box.top >= frame.top-.5 && box.bottom <= frame.bottom+.5,
@@ -107,7 +121,7 @@ async function alertLocationLayout(scan, mutation, view) {
       range.selectNodeContents(badge);
       check([...range.getClientRects()].length === 1,
         'F1514 a badge count must not wrap');
-      check(badge.getAttribute('aria-label') === count+' leaderboard ticks',
+      check(badge.getAttribute('aria-label') === count+' leaderboard tick'+(count===1?'':'s'),
         'F1514 accessible count meaning must remain intact');
       const photo = thumb.querySelector('.thumb[data-bird]').getBoundingClientRect();
       check(Math.abs(photo.width-frame.width)<1 && Math.abs(photo.height-frame.height)<1,
@@ -119,7 +133,7 @@ async function alertLocationLayout(scan, mutation, view) {
       measurements.push({count,view,frame:frame.width,badge:box.width,height:box.height});
     }
     try {
-      for (const count of [5,16,125]) {
+      for (const count of [1,16,125]) {
         A.showSection('sec-surgeBtn',{load:false});
         A.renderSurge([],[{code:'amepip',species:'American Pipit',
           latest:stamp(Date.now()-3600000),earliest:stamp(Date.now()-3600000),

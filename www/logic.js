@@ -666,7 +666,48 @@
     return out;
   }
 
+  var COMPOSITE_US_STATES = ('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT '
+    + 'NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY').split(' ');
+  var COMPOSITE_CA_PROVINCES = 'AB BC MB NB NL NT NS NU ON PE QC SK YT'.split(' ');
+  var COMPOSITE_US_TERRITORIES = 'AS GU MP PR UM VI'.split(' ');
+
+  function compositeMembership(record, region, boundary) {
+    record = record || {};
+    var validation = administrativeMembership(record, 'US-WA');
+    if (validation.basis === 'conflicting-administration') return validation;
+    if (boundary != null) return { state: 'unknown', basis: 'unverified-boundary' };
+    if (record.marine === true || record.offshore === true
+        || /^(marine|ocean|offshore)$/i.test(record.locationType || '')
+        || isSpecialTrip({ loc: record.loc || record.locName || record.place || '' })) {
+      return { state: 'unknown', basis: 'unverified-marine' };
+    }
+    function firstCode(keys) {
+      return keys.map(function (key) { return String(record[key] || '').trim().toUpperCase(); })
+        .filter(Boolean)[0] || '';
+    }
+    var county = firstCode(['subnational2Code', 'county', 'subnational2']);
+    var state = firstCode(['subnational1Code', 'state', 'subnational1'])
+      || (county ? county.split('-').slice(0, 2).join('-') : '');
+    var country = firstCode(['countryCode', 'country']) || (state ? state.split('-')[0] : '');
+    var result = 'unknown', basis = 'insufficient-administration';
+    if (country === 'US') {
+      var us = state.slice(3);
+      if (COMPOSITE_US_STATES.indexOf(us) >= 0) {
+        result = region === 'aba' || ['AK', 'HI'].indexOf(us) < 0 ? 'inside' : 'outside';
+      } else if (COMPOSITE_US_TERRITORIES.indexOf(us) >= 0) result = 'outside';
+      else if (state) basis = 'unregistered-administration';
+    } else if (country === 'CA') {
+      if (state && COMPOSITE_CA_PROVINCES.indexOf(state.slice(3)) < 0) basis = 'unregistered-administration';
+      else result = region === 'lower48' ? 'outside' : state ? 'inside' : 'unknown';
+    } else if (country === 'PM') {
+      if (state) basis = 'unregistered-administration';
+      else result = region === 'aba' ? 'inside' : 'outside';
+    } else if (country) result = 'outside';
+    return { state: result, basis: result === 'unknown' ? basis : 'administrative' };
+  }
+
   function regionMembership(record, region, boundary) {
+    if (region === 'lower48' || region === 'aba') return compositeMembership(record, region, boundary);
     if (['US-WA', 'US-WA-061', 'US-WA-033'].indexOf(region) < 0) {
       return { state: 'unknown', basis: 'unsupported-scope' };
     }
@@ -5344,6 +5385,7 @@
     deriveCountyScope: deriveCountyScope, regionReachability: regionReachability,
     savedBaseDecision: savedBaseDecision,
     regionMembership: regionMembership,
+    administrativeMembership: administrativeMembership,
     patchEvidence: patchEvidence,
     annotateDistance: annotateDistance,
     parseObsDt: parseObsDt,

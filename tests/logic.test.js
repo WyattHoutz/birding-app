@@ -55,13 +55,36 @@ test('F1457 Washington and pilot counties require positive immutable administrat
   assert.equal(BL.regionMembership({lat:47.5,lng:-122.5},'US-WA-061',
     {code:'US-WA-061',bounds:{minX:-123,maxX:-122,minY:47,maxY:48}}).state,'unknown',
     'overlapping bounding rectangles are not positive membership evidence');
-  assert.equal(BL.regionMembership({county:'US-WA-033'},'lower48').state,'unknown');
+  assert.equal(BL.regionMembership({county:'US-WA-033'},'lower48').state,'inside',
+    'F1466 positively promotes existing Washington administration');
   const raw={speciesCode:'amerob',comName:'American Robin',subId:'S1457',
     subnational2Code:'US-WA-061',subnational1Code:'US-WA',countryCode:'US'};
   const merged=BL.mergeSnapshot([{kind:'recent',src:'Exact source',rows:[raw]}])[0];
   assert.deepEqual([merged.county,merged.state,merged.country,merged.sources],
     ['US-WA-061','US-WA','US',['Exact source']]);
   assert.equal(BL.regionMembership(merged,'US-WA-061').state,'inside');
+});
+test('F1466 composite membership uses positive registered jurisdictions and never invents marine geometry',()=>{
+  const fixture = require('./fixtures/composite-membership.json');
+  for (const row of fixture.cases) {
+    const before = JSON.stringify(row.record);
+    assert.deepEqual(fixture.scopes.map(scope=>BL.regionMembership(row.record,scope).state),
+      row.states,row.name);
+    assert.equal(JSON.stringify(row.record),before,'classification is nondestructive');
+  }
+  const registry = require('../www/aba-regions.js').regions;
+  for (const region of registry) {
+    const record = region.code==='PM'?{country:'PM'}:{state:region.code};
+    assert.equal(BL.regionMembership(record,'aba').state,'inside',region.code);
+    const contiguous = region.code.startsWith('US-') && !['US-AK','US-HI'].includes(region.code);
+    assert.equal(BL.regionMembership(record,'lower48').state,contiguous?'inside':'outside',region.code);
+  }
+  const landUnion = {code:'aba',geometry:{type:'Polygon',
+    coordinates:[[[-180,-80],[180,-80],[180,80],[-180,80],[-180,-80]]]}};
+  assert.deepEqual(BL.regionMembership({state:'US-WA',lat:47,lng:-122},'aba',landUnion),
+    {state:'unknown',basis:'unverified-boundary'},'a land/country union cannot establish formal marine coverage');
+  assert.equal(BL.regionMembership({state:'US-WA'},'world').basis,'unsupported-scope');
+  assert.equal(BL.regionMembership({state:'US-WA'},'US').basis,'unsupported-scope');
 });
 test('F1460 patch evidence requires positive county/state membership without altering raw caches or pilot scope',()=>{
   const fixture = require('./fixtures/patch-membership.json');

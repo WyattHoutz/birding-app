@@ -1343,6 +1343,13 @@ const AUDIT = `<script>
     }
     auditStage('run started');
     var A = window.__app, out = [];
+    if (${process.env.AUDIT_FOCUS === 'rank-birds'}) {
+      try { out.push(...await rankBirdLayout(scan, prepareRankBirdReview,
+        ${JSON.stringify(process.env.AUDIT_RANK_BIRDS_MUTATION || '')}, auditStage)); }
+      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error)}); }
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'top100-sync'}) {
       try { out.push(...await top100SyncLayout(scan)); }
       catch(error) { out.push({label:'F1493 Top 100 sync',fixtureError:String(error)}); }
@@ -2610,7 +2617,7 @@ const AUDIT = `<script>
       out.push(scan('(F1401 production qualified local alert)'));
       var tickThumb = localAlert.querySelector(':scope > .name > .surgetickthumb');
       var tickBadge = tickThumb && tickThumb.querySelector('.surgetickcount');
-      if (!tickBadge || tickBadge.textContent !== '5'
+      if (!tickBadge || tickBadge.textContent !== '5\u2714'
           || localAlert.querySelector('.surgekindtile').textContent !== '🏆'
           || localAlert.querySelector('.surgealerttitle').textContent !== 'Leaderboard has 5 ticks for Pacific Loon recently seen at Ocean Ave (Water St), Edmonds') {
         throw new Error('F1442 count must overlay the bird icon and leave the trophy and plain headline intact');
@@ -5363,8 +5370,10 @@ const AUDIT = `<script>
   const birdReportLayout = ${require('./bird-report-layout').toString()};
   const preparePersonalFixture = ${require('./mockups').preparePersonalFixture.toString()};
   const top100SyncLayout = ${require('./top100-sync-layout').toString()};
+  const prepareRankBirdReview = ${require('./rank-bird-review').toString()};
+  const rankBirdLayout = ${require('./rank-bird-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','alert-locations','patch-boundaries','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await savedLocationLayout(scan)); }
       catch(error) { out.push({label:'F1515 F1517 saved locations and region scroll',fixtureError:String(error)}); }
@@ -5440,6 +5449,8 @@ const AUDIT = `<script>
       out.push.apply(out, await alertLocationLayout(scan, ''));
       out.push.apply(out, await patchBoundaryLayout(scan, ''));
       out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
+      try { out.push.apply(out, await rankBirdLayout(scan, prepareRankBirdReview, '', auditStage)); }
+      catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error)}); }
       try {
         var aggregateApp = window.__app;
         aggregateApp.setActiveReport('lower48');
@@ -5791,6 +5802,12 @@ server.listen(0, '127.0.0.1', () => {
     server.close();
     if (!report) { console.error('audit never reported (page did not run)'); process.exit(3); }
     let bad = 0;
+    if (process.env.AUDIT_FOCUS === 'rank-birds') {
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.length === 2 && report.every(r => r.rankBirdHistory
+        && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5
+        && !['clipped','midword','small','crushed'].some(k => (r[k] || []).length)) ? 0 : 1);
+    }
     if (process.env.AUDIT_FOCUS === 'top100-sync') {
       console.log('F1493_REQUIRED_FIXTURES=' + report.filter(r=>r.rankCountSync).length + '/4');
       console.log(JSON.stringify(report,null,2));

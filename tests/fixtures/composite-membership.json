@@ -1,0 +1,31 @@
+{
+  "scopes": ["lower48", "aba"],
+  "cases": [
+    {"name":"Washington county promoted","record":{"county":"US-WA-033"},"states":["inside","inside"]},
+    {"name":"Oregon land jurisdiction","record":{"state":"US-OR","country":"US"},"states":["inside","inside"]},
+    {"name":"DC","record":{"state":"US-DC"},"states":["inside","inside"]},
+    {"name":"Alaska","record":{"state":"US-AK"},"states":["outside","inside"]},
+    {"name":"Hawaii","record":{"state":"US-HI"},"states":["outside","inside"]},
+    {"name":"Canada provincial evidence","record":{"state":"CA-BC","country":"CA"},"states":["outside","inside"]},
+    {"name":"PM land jurisdiction","record":{"country":"PM"},"states":["outside","inside"]},
+    {"name":"Puerto Rico","record":{"state":"US-PR","country":"US"},"states":["outside","outside"]},
+    {"name":"Guam","record":{"state":"US-GU"},"states":["outside","outside"]},
+    {"name":"Mexico land","record":{"country":"MX"},"states":["outside","outside"]},
+    {"name":"Bermuda land","record":{"country":"BM"},"states":["outside","outside"]},
+    {"name":"Greenland land","record":{"country":"GL"},"states":["outside","outside"]},
+    {"name":"US alone insufficient","record":{"country":"US"},"states":["unknown","unknown"]},
+    {"name":"Canada alone insufficient","record":{"country":"CA"},"states":["outside","unknown"]},
+    {"name":"unregistered US state","record":{"state":"US-ZZ"},"states":["unknown","unknown"]},
+    {"name":"unregistered Canadian state","record":{"state":"CA-ZZ"},"states":["unknown","unknown"]},
+    {"name":"missing administration","record":{},"states":["unknown","unknown"]},
+    {"name":"reference point is not geometry","record":{"lat":47.04,"lng":-122.90},"states":["unknown","unknown"]},
+    {"name":"conflicting country","record":{"state":"US-WA","country":"CA"},"states":["unknown","unknown"]},
+    {"name":"conflicting aliases","record":{"county":"US-WA-033","subnational2Code":"US-WA-061"},"states":["unknown","unknown"]},
+    {"name":"normalized hierarchy","record":{"state":" us-wa ","subnational1Code":" ","country":"us"},"states":["inside","inside"]},
+    {"name":"known offshore source","record":{"state":"US-WA","locName":"Synthetic offshore transect"},"states":["unknown","unknown"]},
+    {"name":"marine provider region is not the ABA limit","record":{"state":"US-AK","marine":true},"states":["unknown","unknown"]},
+    {"name":"PM offshore is not halfway proof","record":{"country":"PM","locationType":"marine"},"states":["unknown","unknown"]},
+    {"name":"open ocean with country label","record":{"country":"US","loc":"North Pacific Ocean"},"states":["unknown","unknown"]},
+    {"name":"land ferry terminal is not inferred offshore","record":{"state":"US-WA","loc":"Synthetic ferry terminal"},"states":["inside","inside"]}
+  ]
+}

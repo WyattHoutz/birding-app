@@ -23,7 +23,7 @@
 (function (global) {
   'use strict';
 
-  var SCHEMA = 4;
+  var SCHEMA = 5;
   var GLOSS = /\s*\([^()]*\)\s*$/;
   var SPECIES_LIST = /^([A-Z][A-Za-z-]+)\s+([a-z][A-Za-z-]*(?:\/[A-Z][A-Za-z-]+\s+[a-z][A-Za-z-]*|\/[a-z][A-Za-z-]*)+)$/;
 
@@ -91,7 +91,8 @@
         String(row.familySciName || ''),
         String(row.familyComName || ''),
         Number(row.taxonOrder || 0),
-        String(row.category || '')
+        String(row.category || ''),
+        [].concat(row.bandingCodes || [], row.comNameCodes || []).join(' ').toLowerCase()
       ];
       if (row.category === 'species') species.push(tuple);
       else if (row.category === 'spuh' || row.category === 'slash') spuhs.push(tuple);
@@ -113,7 +114,7 @@
     return {
       code: t[0], name: t[1], sci: t[2], order: t[3],
       familySci: t[4], familyCom: t[5], taxonOrder: Number(t[6] || 0),
-      category: t[7] || ''
+      category: t[7] || '', alpha: t[8] || ''
     };
   }
 
@@ -319,6 +320,7 @@
         name: row.name,
         sci: row.sci,
         category: row.category,
+        alpha: row.alpha,
         taxonOrder: row.taxonOrder,
         coverageId: coverageClass.id,
         rank: coverage.rank,
@@ -479,7 +481,7 @@
       if (!q) return [];
       var words = q.split(' ');
       return list.map(function (row) {
-        var hay = norm(row.name + ' ' + row.sci + ' ' + row.code);
+        var hay = norm(row.name + ' ' + row.sci + ' ' + row.code + ' ' + row.alpha);
         var exact = norm(row.name) === q || norm(row.code) === q ? 0 : 1;
         var prefix = norm(row.name).indexOf(q) === 0 ? 0 : 1;
         var match = words.every(function (word) {
