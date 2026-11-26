@@ -4432,7 +4432,12 @@ const AUDIT = `<script>
       };
       openSeen();
       request = A.ensurePersonalList(scope,true);
-      require(!!release,'the exact-list read did not start');
+      var requestFailure;
+      request.catch(function (error) { requestFailure = error; });
+      for (var turn=0;turn<120&&!release&&!requestFailure;turn++)
+        await new Promise(requestAnimationFrame);
+      require(!!release,'the exact-list read did not start'
+        + (requestFailure ? ': ' + requestFailure.message : ''));
       localStorage.removeItem('ebird_seen_setup_skipped');
       record('setup','pending',false);
       main();

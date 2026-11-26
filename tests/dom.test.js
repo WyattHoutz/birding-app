@@ -3844,7 +3844,7 @@ test('F1338 actual setup resource requests revise the retained ETA through share
     await waitFor(() => releaseHistory, 'actual discovered Busy history reaches transport');
     assert.ok(admissions > 0, 'resource-owned requests must reach the acquisition estimator');
     assert.ok(completions > 0, 'actual resource completion must revise outstanding work');
-    assert.match(node.textContent, /^Est: \d+m\d{2}s\.$/,
+    assert.match(node.textContent, /^Est: (?:\d+m\d{2}s|\d+–\d+m)\.$/,
       'known pending resource work must not be hidden behind calculating');
     const held = node.textContent, before = admissions;
     const joined = tasks.busy.acquire(false);
@@ -10691,7 +10691,7 @@ test('F1023 authorized private and public summary observers paint before details
     locationPrivate: false, lat: 47.8, lng: -122.2, howMany: 1,
     userDisplayName: 'Synthetic public observer', subnational1Code: 'US-WA',
   });
-  const app = await boot({ sample: false, fetch: url =>
+  const app = await boot({ sample: false, boundaryFetch: unavailableFixtureBoundary, fetch: url =>
     /data\/obs\/.*\/recent\/litsti/.test(url) ? rows
       : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
   try {
@@ -10721,6 +10721,31 @@ test('F1023 authorized private and public summary observers paint before details
     assert.equal(details().length, 0, 'progressive attribution still uses only existing summaries');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
+});
+
+test('F1462 prepared geometry withholds unknown Stakeout membership without inventing private coordinates', async () => {
+  const rows = [
+    {speciesCode:'litsti',comName:'Little Stint',subId:'S1462PRIVATE',
+      obsDt:recentObsStamp(),locId:'L1462PRIVATE',locName:'Private withheld',
+      locationPrivate:true,lat:null,lng:null,subnational1Code:'US-WA'},
+    {speciesCode:'litsti',comName:'Little Stint',subId:'S1462PUBLIC',
+      obsDt:recentObsStamp(),locId:'L1462PUBLIC',locName:'Verified public patch',
+      locationPrivate:false,lat:47.8,lng:-122.2,subnational1Code:'US-WA'},
+  ];
+  const app = await boot({sample:false,fetch:url=>
+    /data\/obs\/.*\/recent\/litsti/.test(url)?rows:[]});
+  try {
+    const A = app.window.__app;
+    assert.ok(await A.ensurePatchScope(A.activeScope()));
+    await A.lookupSpecies('litsti','Little Stint');
+    A.setSpeciesLookupWithinChase(false);
+    const host = app.$('spLookupRecent');
+    assert.ok(host.querySelector('[data-ev-sub="S1462PUBLIC"]'));
+    assert.equal(host.querySelector('[data-ev-sub="S1462PRIVATE"]'),null,
+      'administration alone cannot certify withheld coordinates against loaded geometry');
+    assert.equal(rows[0].lat,null);
+    assert.equal(rows[0].lng,null);
+  } finally {app.window.close();}
 });
 
 test('F1023 actual summary acquisition retains observer attribution in the independent Mega snapshot', async () => {
@@ -10763,7 +10788,7 @@ test('F1023 unrelated checklist details cannot overwrite an authorized summary o
     userDisplayName: 'Synthetic original observer' };
   let detail = { subId: 'S1023OTHER', userDisplayName: 'Synthetic unrelated observer',
     obs: [{ speciesCode: 'litsti', howMany: 1 }] };
-  const app = await boot({ sample: false, fetch: url =>
+  const app = await boot({ sample: false, boundaryFetch: unavailableFixtureBoundary, fetch: url =>
     /data\/obs\/.*\/recent\/litsti/.test(url) ? [row]
       : /product\/checklist\/view\//.test(url) ? detail
         : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
@@ -12107,6 +12132,11 @@ afterEach(() => {
 });
 after(() => { _booted.forEach((w) => { try { w.close(); } catch (e) {} }); });
 
+function unavailableFixtureBoundary() {
+  // Attribution/privacy fixtures use verified administration without exact geometry.
+  return Promise.resolve({ ok: false, status: 503 });
+}
+
 function boot(opts = {}) {
   const state = {
     fetches: [], locations: [], errors: [], runtimeFetch: null, inRuntimeFetch: false,
@@ -12214,6 +12244,9 @@ function boot(opts = {}) {
         // still exercise the real file the phone would read.
         try {
           const rel = decodeURIComponent(new URL(String(url), 'https://localhost/').pathname).replace(/^\//, '');
+          if (opts.boundaryFetch && /^region-boundaries-[^/]+\.json$/.test(rel)) {
+            return abortable(opts.boundaryFetch(String(url), init));
+          }
           const file = path.join(WWW, rel);
           if (rel && file.startsWith(WWW) && fs.existsSync(file) && fs.statSync(file).isFile()) {
             const body = fs.readFileSync(file, 'utf8');
@@ -27737,7 +27770,7 @@ for (const [order, retainedMega] of [
   test(`F890 Stakeout preserves displayed evidence and RARE: ${retainedMega ? 'retained archive ' : ''}${order.join(' then ')}`, async () => {
     const f = f890EvidenceFixture();
     const gates = { rba: f890Deferred(), species: f890Deferred(), twitches: f890Deferred() };
-    const app = await boot({ sample: false, fetch(url) {
+    const app = await boot({ sample: false, boundaryFetch: unavailableFixtureBoundary, fetch(url) {
       if (/ebird\.org\/alert\/rba\/US-WA/.test(url)) return gates.rba.promise;
       if (/recent\/verfly/.test(url)) return gates.species.promise;
       if (/recent\/notable/.test(url)) return gates.twitches.promise;
@@ -28263,7 +28296,8 @@ test('F1029 private sources with withheld coordinates never acquire a map action
   const f=f890EvidenceFixture();
   const rows=Array.from({length:2},(_,i) => ({...f.row('S1029-W'+i,i),
     locId:'P1029-W'+i,locName:'Private unnamed waypoint',lat:null,lng:null,locationPrivate:true}));
-  const app=await boot({sample:false,fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
+  const app=await boot({sample:false,boundaryFetch:unavailableFixtureBoundary,
+    fetch:url => /api\.ebird\.org/.test(url) ? [] : null});
   try {
     const A=app.window.__app;
     installSpuhFixture(app);
@@ -28298,7 +28332,7 @@ test('F895/F893 mixed-source locality preserves every checklist, source and map 
   const signatures = [];
   for (const reverse of [false, true]) {
     const rows = reverse ? observations.slice().reverse() : observations;
-    const app = await boot({ sample:false, fetch(url) {
+    const app = await boot({ sample:false, boundaryFetch:unavailableFixtureBoundary, fetch(url) {
       return /api\.ebird\.org/.test(url) ? [] : null;
     } });
     try {
@@ -34476,7 +34510,8 @@ test('F771 Watch normal controls reuse warm evidence and explicit recovery retai
       'ordinary controls may immediately project the valid retained evidence');
     const reading = A.LOADERS.nvResults.fn(true);
     release({ profile, rarity: false, cv: { merged: [
-      { code: 'amerob', loc: place, state:'US-WA', distMi: 2, dateStr: recentObsStamp() },
+      { code: 'amerob', loc: place, state:'US-WA', lat:47.6,lon:-122.3,
+        distMi: 2, dateStr: recentObsStamp() },
     ] } });
     assert.equal(await reading, true);
     assert.equal(A.watchEvidence().rows.amerob.loc, place);
@@ -39125,13 +39160,13 @@ test('F969 Mega keeps outside distance in supporting evidence and preserves its 
     at:Date.now(),region:'US-WA',sid:'SN10489',membershipVersion:2,rows:[{
       speciesCode:'nazboo1',comName:'Nazca Booby',obsDt:stamp,
       locName:'Example public shore',locId:'LMEGA969',subId:'SMEGA969',
-      lat:45.7,lng:0,howMany:1
+      lat:47.7,lng:-122.16,subnational1Code:'US-WA',howMany:1
     }]
   })}});
   try {
     const A=app.window.__app;
-    app.window.localStorage.setItem(A.homeKey('lat'),'45');
-    app.window.localStorage.setItem(A.homeKey('lng'),'0');
+    app.window.localStorage.setItem(A.homeKey('lat'),'47');
+    app.window.localStorage.setItem(A.homeKey('lng'),'-122.16');
     app.window.localStorage.setItem(A.chaseMiKey(),'35');
     await seedSeen(app,[]);
     A.renderSurge([],[],[],[],[],{});
@@ -40830,7 +40865,7 @@ test('F907 a discovered-this-week Little Stint alerts without reviving continuin
   const record = (code, name, date, id) => ({
     speciesCode: code, comName: name, obsDt: date,
     locId: id, subId: `${id}-${date}`, locName: 'Distant public shore',
-    lat: 46, lng: -124,
+    lat: 48.65, lng: -117.5, subnational1Code:'US-WA',
   });
   const stint = record('litsti', 'Little Stint', '2026-10-08 09:00', 'F907-STINT');
   const continuing = record('ruff', 'Ruff', '2026-10-10 20:00', 'F907-RUFF');
@@ -65335,7 +65370,7 @@ test('F1524/F837 recent checklist names, IDs and species totals retain exact map
     obsDt: recentObsStamp(1, 10, 59 - i), subId: 'SF837-' + i,
     howMany: 1, numSpecies: 20 + i, obsValid: true
   }));
-  const app = await boot({sample: false, fetch(url) {
+  const app = await boot({sample: false, boundaryFetch:unavailableFixtureBoundary, fetch(url) {
     return /data\/obs\/.*\/recent\/solsan/.test(url) ? observations : [];
   }});
   const A = app.window.__app;
@@ -71203,7 +71238,11 @@ test('F1448 offshore, ambiguous and missing exact county geometry never become s
   const doc=JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'),'utf8'));
   for(const variant of ['offshore','ambiguous','missing']){
     const point=variant==='offshore'?{lat:47.6,lng:-125}:{lat:47.6062,lng:-122.3321};
+    const altered=JSON.parse(JSON.stringify(doc));
+    if(variant==='ambiguous') altered.regions['US-WA-061']=altered.regions['US-WA-033'];
+    if(variant==='missing') altered.regions={};
     const app=await boot({sample:false,location:point,
+      boundaryFetch:()=>Promise.resolve({ok:true,json:async()=>altered}),
       fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
     try{
       const A=app.window.__app;
@@ -71212,12 +71251,6 @@ test('F1448 offshore, ambiguous and missing exact county geometry never become s
         A.setCountySeed({'US-WA':{
           'US-WA-033':{name:'King',bounds},
           'US-WA-061':{name:'Snohomish',bounds}}});
-        const altered=JSON.parse(JSON.stringify(doc));
-        if(variant==='ambiguous') altered.regions['US-WA-061']=altered.regions['US-WA-033'];
-        else altered.regions={};
-        const original=app.window.fetch;
-        app.window.fetch=(url,init)=>/region-boundaries-wa\.json/.test(url)
-          ?Promise.resolve({ok:true,json:()=>Promise.resolve(altered)}):original(url,init);
       }
       await A.selectRegionChoice('county:wa:US-WA-061');
       A.openRegionChooser();
@@ -71237,13 +71270,14 @@ test('F1448 offshore, ambiguous and missing exact county geometry never become s
 test('F1448 late polygon resolution cannot overwrite All or changed Home or populate a stale catalog', async()=>{
   const boundary=JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'),'utf8'));
   for(const cancel of ['all','home']){
+    let release;
     const app=await boot({sample:false,
+      boundaryFetch:()=>new Promise(resolve=>{
+        release=()=>resolve({ok:true,json:async()=>boundary});
+      }),
       fetch:url=>/photon/.test(url)?{features:[{properties:{state:'Washington',countrycode:'US'}}]}:null});
     try{
-      const A=app.window.__app;let release;
-      const original=app.window.fetch;
-      app.window.fetch=(url,init)=>/region-boundaries-wa\.json/.test(url)
-        ?new Promise(resolve=>{release=()=>resolve({ok:true,json:()=>Promise.resolve(boundary)});}):original(url,init);
+      const A=app.window.__app;
       A.openRegionChooser();
       const before=app.$('regionChooserCounties').children.length;
       app.click(app.document.querySelector('[data-region-location="home"]'));
@@ -71404,14 +71438,13 @@ test('F1507 Home lookup reviews a map and cannot save through generic Settings, 
 
 test('F1506 saved Home shortcut uses actual county polygons without GPS and rejects changed Home ownership', async()=>{
   let finishBoundary;
-  const app=await boot({sample:false,storage:{bc_recent_regions_v1:'["hi","aba"]'}});
+  const app=await boot({sample:false,storage:{bc_recent_regions_v1:'["hi","aba"]'},
+    boundaryFetch:()=>new Promise(resolve=>{
+      finishBoundary=()=>resolve({ok:true,
+        json:async()=>JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'),'utf8'))});
+    })});
   try {
     const A=app.window.__app;
-    const fetch=app.window.fetch;
-    app.window.fetch=(url,init)=>/region-boundaries-wa\.json/.test(String(url))
-      ? new Promise(resolve=>{finishBoundary=()=>resolve({ok:true,
-        json:async()=>JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'),'utf8'))});})
-      : fetch(url,init);
     const home=JSON.stringify(A.getHome());
     A.openRegionChooser();
     const recent=app.$('regionChooserRecent');

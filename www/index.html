@@ -16735,8 +16735,8 @@
           updateStakeoutEvidence(_spLookupEvidence, currentRows);
           hydrateStakeoutEvidence(_spLookupEvidence, generation);
           var liveRecs = speciesLookupRecords(currentRows, anchors);
-          var sightingsVerified = !mega && currentRows.length < 10000
-            && currentRows.every(function (row) {
+          var sightingsVerified = !mega && rows.length < 10000
+            && rows.every(function (row) {
               return row && row.speciesCode === code
                 && typeof row.lat === 'number' && Number.isFinite(row.lat) && Math.abs(row.lat) <= 90
                 && typeof row.lng === 'number' && Number.isFinite(row.lng) && Math.abs(row.lng) <= 180;
