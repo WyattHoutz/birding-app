@@ -196,6 +196,35 @@ function runNative(text, directory, name) {
   return spawnSync('swift', [file], { encoding: 'utf8', timeout: 120000 });
 }
 
+const nativeMutations = [
+  ['compression', 'return gzipTag + compressed', 'return jsonTag + json'],
+  ['tiny', 'json.count >= 256', 'json.count >= 0'],
+  ['legacy-defaults',
+    'if !isTagged(data) {\n            do { try writeDefaults(value, to: defaults, key: key) }\n            catch { onMigrationFailure?() }\n        }', ''],
+  ['legacy-files',
+    'if !isTagged(data) {\n            do { try writeFile(value, to: url) }\n            catch { onMigrationFailure?() }\n        }', ''],
+  ['migration-status',
+    'do { try writeDefaults(value, to: defaults, key: key) }\n            catch { onMigrationFailure?() }',
+    'do { try writeDefaults(value, to: defaults, key: key) }\n            catch {}'],
+  ['defaults-receipt', 'guard defaults.data(forKey: key) == data', 'guard true'],
+  ['file-codec',
+    'static func writeFile<T: Encodable>(_ value: T, to url: URL) throws {\n        let data = try pack(value)',
+    'static func writeFile<T: Encodable>(_ value: T, to url: URL) throws {\n        let data = try JSONEncoder().encode(value)'],
+  ['trace-write', 'try BirdNotificationPersistence.writeDefaults(entries, to: defaults, key: key)', ''],
+  ['trace-read', 'entries = Array(stored.suffix(64))', '_ = stored'],
+  ['trace-status', '} catch {\n            storageFailed = true\n        }',
+    '} catch {\n            storageFailed = false\n        }']
+];
+
+test('F247 native runtime mutations select unique current production guards on every platform', () => {
+  const production = adapter + '\n' + recorder;
+  for (const [name, before] of nativeMutations) {
+    const at = production.indexOf(before);
+    assert.ok(at >= 0, name + ': mutation must apply');
+    assert.equal(production.indexOf(before, at + before.length), -1, name + ': mutation must be unique');
+  }
+});
+
 test('F247 production Swift codec, physical backends and trace receipts interoperate with independent gzip',
   { skip: process.platform !== 'darwin' }, () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'birdgen-persistence-'));
@@ -206,26 +235,7 @@ test('F247 production Swift codec, physical backends and trace receipts interope
       const data = Buffer.from(/^PACKED:(.+)$/m.exec(result.stdout)[1], 'base64');
       assert.equal(data.subarray(0, 6).toString(), 'BCP1z:');
       assert.deepEqual(JSON.parse(gunzipSync(data.subarray(6))), fixture);
-      for (const [name, before, after] of [
-        ['compression', 'return gzipTag + compressed', 'return jsonTag + json'],
-        ['tiny', 'json.count >= 256', 'json.count >= 0'],
-        ['legacy-defaults',
-          'if !isTagged(data) {\n            do { try writeDefaults(value, to: defaults, key: key) }\n            catch { onMigrationFailure?() }\n        }', ''],
-        ['legacy-files',
-          'if !isTagged(data) {\n            do { try writeFile(value, to: url) }\n            catch { onMigrationFailure?() }\n        }', ''],
-        ['migration-status',
-          'do { try writeDefaults(value, to: defaults, key: key) }\n            catch { onMigrationFailure?() }',
-          'do { try writeDefaults(value, to: defaults, key: key) }\n            catch {}'],
-        ['defaults-receipt', 'guard defaults.data(forKey: key) == data', 'guard true'],
-        ['file-codec',
-          'static func writeFile<T: Encodable>(_ value: T, to url: URL) throws {\n        let data = try pack(value)',
-          'static func writeFile<T: Encodable>(_ value: T, to url: URL) throws {\n        let data = try JSONEncoder().encode(value)'],
-        ['trace-write', 'try BirdNotificationPersistence.writeDefaults(entries, to: defaults, key: key)', ''],
-        ['trace-read', 'entries = Array(stored.suffix(64))', '_ = stored'],
-        ['trace-status',
-          '} catch {\n            storageFailed = true\n        }\n        if (storageFailed)',
-          '} catch {\n            storageFailed = false\n        }\n        if (storageFailed)']
-      ]) {
+      for (const [name, before, after] of nativeMutations) {
         const production = adapter + '\n' + recorder;
         assert.ok(production.includes(before), name + ': mutation must apply');
         const mutated = runNative(production.replace(before, after), directory, name);
